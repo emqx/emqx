@@ -18,10 +18,13 @@ jobs:
         runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
+        env:
+          PROFILE: emqx
         outputs:
           fast_ct_apps: ${{ steps.find_ct_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.find_ct_apps.outputs.docker_ct_apps }}
         steps:
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/checkout@v3
           with:
             path: source
@@ -33,46 +36,41 @@ jobs:
             docker_ct_apps="$(./scripts/find-apps.sh --ci docker)"
             echo "fast: $fast_ct_apps"
             echo "docker: $docker_ct_apps"
-            echo "::set-output name=fast_ct_apps::$fast_ct_apps"
-            echo "::set-output name=docker_ct_apps::$docker_ct_apps"
-        - name: get_all_deps
+            echo "fast_ct_apps=${fast_ct_apps}" >> $GITHUB_OUTPUT
+            echo "docker_ct_apps=${docker_ct_apps}" >> $GITHUB_OUTPUT
+        - name: Get deps and compile
           working-directory: source
           env:
             PROFILE: emqx
-              #DIAGNOSTIC: 1
           run: |
-            make ensure-rebar3
-            # this will fetch all deps and compile
-            ./rebar3 as test compile
+            make
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
           with:
-            name: source-emqx
+            name: source-${{ env.PROFILE }}
             path: source.zip
 
     prepare_ee:
         runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
+        env:
+          PROFILE: emqx-enterprise
         steps:
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/checkout@v3
           with:
             path: source
-        - name: get_all_deps
+        - name: Get deps and compile
           working-directory: source
-          env:
-            PROFILE: emqx-enterprise
-              #DIAGNOSTIC: 1
           run: |
-            make ensure-rebar3
-            # this will fetch all deps and compile
-            ./rebar3 as test compile
+            make
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
           with:
-            name: source-emqx-enterprise
+            name: source-${{ env.PROFILE }}
             path: source.zip
 
     eunit_and_proper:
@@ -92,7 +90,7 @@ jobs:
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.profile }}
@@ -128,8 +126,6 @@ jobs:
           fail-fast: false
           matrix:
             app: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
-            otp_release:
-              - "erlang24"
 
         runs-on: aws-amd64
         defaults:
@@ -137,7 +133,9 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
+          with:
+            cleanup_docker: true
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.app[1] }}
@@ -156,16 +154,22 @@ jobs:
             PROFILE: ${{ matrix.app[1] }}
           run: |
             echo $PROFILE
-            rm _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt
             ./scripts/ct/run.sh --app $WHICH_APP
         - uses: actions/upload-artifact@v3
+          if: success()
           with:
             name: coverdata
             path: source/_build/test/cover
+        - id: logs_artifact_name
+          if: failure()
+          run: |
+            PRE_NAME="logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}"
+            ARTIFACT_NAME=$(echo "$PRE_NAME" | sed 's/\//-/g')
+            echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: ${{ steps.logs_artifact_name.outputs.artifact_name }}
             path: source/_build/test/logs
 
     ct:
@@ -183,7 +187,7 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.app[1] }}
@@ -200,14 +204,21 @@ jobs:
           run: |
             make "${WHICH_APP}-ct"
         - uses: actions/upload-artifact@v3
+          if: success()
           with:
             name: coverdata
             path: source/_build/test/cover
             if-no-files-found: warn # do not fail if no coverdata found
+        - id: logs_artifact_name
+          if: failure()
+          run: |
+            PRE_NAME="logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}"
+            ARTIFACT_NAME=$(echo "$PRE_NAME" | sed 's/\//-/g')
+            echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: ${{ steps.logs_artifact_name.outputs.artifact_name }}
             path: source/_build/test/logs
 
     make_cover:
@@ -218,7 +229,7 @@ jobs:
       runs-on: ubuntu-20.04
       container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
       steps:
-      - uses: AutoModality/action-clean@v1
+      - uses: AutoModality/action-clean@v1.1.0
       - uses: actions/download-artifact@v3
         with:
           name: source-emqx-enterprise

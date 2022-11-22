@@ -8,7 +8,7 @@ cd -P -- "$(dirname -- "$0")/.."
 help() {
     echo
     echo "-h|--help:        To display this usage info"
-    echo "--ci fast|docker: Print apps in json format for github ci mtrix"
+    echo "--ci fast|docker: Print apps in json format for github ci matrix"
 }
 
 CI='novalue'

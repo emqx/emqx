@@ -10,7 +10,9 @@ services:
     networks:
       emqx_bridge:
   ssl_cert_gen:
-    image: fredrikhgrelland/alpine-jdk11-openssl
+    build:
+      context: ./kafka
+      dockerfile: ssl_cert_gen.Dockerfile
     container_name: ssl_cert_gen
     volumes:
       - emqx-shared-secret:/var/lib/secret
@@ -39,9 +41,12 @@ services:
     container_name: kafka-1.emqx.net
     hostname: kafka-1.emqx.net
     depends_on:
-      - "kdc"
-      - "zookeeper"
-      - "ssl_cert_gen"
+      kdc:
+        condition: service_started
+      zookeeper:
+        condition: service_started
+      ssl_cert_gen:
+        condition: service_started
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
