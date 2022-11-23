@@ -121,13 +121,21 @@ fields(sampler_current) ->
 
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
-    Node = binary_to_atom(maps:get(node, Bindings, <<"all">>)),
-    case emqx_dashboard_monitor:samplers(Node, Latest) of
-        {badrpc, {Node, Reason}} ->
-            Message = list_to_binary(io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])),
-            {400, 'BAD_RPC', Message};
-        Samplers ->
-            {200, Samplers}
+    RawNode = maps:get(node, Bindings, all),
+    case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
+        {ok, Node} ->
+            case emqx_dashboard_monitor:samplers(Node, Latest) of
+                {badrpc, {Node, Reason}} ->
+                    Message = list_to_binary(
+                        io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
+                    ),
+                    {400, 'BAD_RPC', Message};
+                Samplers ->
+                    {200, Samplers}
+            end;
+        _ ->
+            Message = list_to_binary(io_lib:format("Bad node ~p", [RawNode])),
+            {400, 'BAD_RPC', Message}
     end.
 
 monitor_current(get, #{bindings := Bindings}) ->

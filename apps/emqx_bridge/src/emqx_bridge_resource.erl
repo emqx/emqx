@@ -62,8 +62,15 @@ bridge_id(BridgeType, BridgeName) ->
 -spec parse_bridge_id(list() | binary() | atom()) -> {atom(), binary()}.
 parse_bridge_id(BridgeId) ->
     case string:split(bin(BridgeId), ":", all) of
-        [Type, Name] -> {binary_to_atom(Type, utf8), Name};
-        _ -> error({invalid_bridge_id, BridgeId})
+        [Type, Name] ->
+            case emqx_misc:safe_to_existing_atom(Type, utf8) of
+                {ok, Type1} ->
+                    {Type1, Name};
+                _ ->
+                    error({invalid_bridge_id, BridgeId})
+            end;
+        _ ->
+            error({invalid_bridge_id, BridgeId})
     end.
 
 reset_metrics(ResourceId) ->
