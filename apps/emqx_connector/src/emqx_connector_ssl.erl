@@ -16,9 +16,12 @@
 
 -module(emqx_connector_ssl).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
     convert_certs/2,
-    clear_certs/2
+    clear_certs/2,
+    try_clear_certs/3
 ]).
 
 %% TODO: rm `connector` case after `dev/ee5.0` merged into `master`.
@@ -43,21 +46,37 @@ convert_certs(RltvDir, #{ssl := SSL} = Config) ->
 convert_certs(_RltvDir, Config) ->
     {ok, Config}.
 
-clear_certs(RltvDir, #{<<"connector">> := Connector} = _Config) when
+clear_certs(RltvDir, Config) ->
+    clear_certs2(RltvDir, normalize_key_to_bin(Config)).
+
+clear_certs2(RltvDir, #{<<"connector">> := Connector} = _Config) when
     is_map(Connector)
 ->
     OldSSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
-clear_certs(RltvDir, #{connector := Connector} = _Config) when
-    is_map(Connector)
+clear_certs2(RltvDir, #{<<"ssl">> := OldSSL} = _Config) ->
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
+clear_certs2(_RltvDir, _) ->
+    ok.
+
+try_clear_certs(RltvDir, NewConf, OldConf) ->
+    try_clear_certs2(
+        RltvDir,
+        normalize_key_to_bin(NewConf),
+        normalize_key_to_bin(OldConf)
+    ).
+
+try_clear_certs2(RltvDir, #{<<"connector">> := NewConnector}, #{<<"connector">> := OldConnector}) when
+    is_map(NewConnector),
+    is_map(OldConnector)
 ->
-    OldSSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
-clear_certs(RltvDir, #{<<"ssl">> := OldSSL} = _Config) ->
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
-clear_certs(RltvDir, #{ssl := OldSSL} = _Config) ->
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
-clear_certs(_RltvDir, _) ->
+    NewSSL = map_get_oneof([<<"ssl">>, ssl], NewConnector, undefined),
+    OldSSL = map_get_oneof([<<"ssl">>, ssl], OldConnector, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL);
+try_clear_certs2(RltvDir, #{<<"ssl">> := NewSSL}, #{<<"ssl">> := OldSSL}) ->
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL);
+try_clear_certs2(RltvDir, NewConf, OldConf) ->
+    ?SLOG(debug, #{msg => "unexpected_conf", path => RltvDir, new => NewConf, OldConf => OldConf}),
     ok.
 
 new_ssl_config(RltvDir, Config, SSL) ->
@@ -88,3 +107,18 @@ map_get_oneof([Key | Keys], Map, Default) ->
         {ok, Value} ->
             Value
     end.
+
+normalize_key_to_bin(Map) when is_map(Map) ->
+    maps:fold(
+        fun
+            (K, V, Acc) when is_atom(K) ->
+                Bin = erlang:atom_to_binary(K, utf8),
+                Acc#{Bin => V};
+            (K, V, Acc) ->
+                Acc#{K => V}
+        end,
+        #{},
+        Map
+    );
+normalize_key_to_bin(Any) ->
+    Any.
