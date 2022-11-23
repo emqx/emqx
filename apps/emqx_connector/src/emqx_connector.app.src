@@ -16,6 +16,7 @@
         mysql,
         mongodb,
         ehttpc,
+        jose,
         emqx,
         emqtt
     ]},

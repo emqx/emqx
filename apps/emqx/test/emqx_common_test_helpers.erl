@@ -66,6 +66,10 @@
 
 -export([clear_screen/0]).
 -export([with_mock/4]).
+-export([
+    on_exit/1,
+    run_on_exit_callbacks/0
+]).
 
 %% Toxiproxy API
 -export([
@@ -930,3 +934,24 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
         [],
         [{body_format, binary}]
     ).
+
+%%-------------------------------------------------------------------------------
+%% Testcase teardown utilities
+%%-------------------------------------------------------------------------------
+
+get_on_exit_callbacks() ->
+    persistent_term:get({?MODULE, on_exit}, []).
+
+put_on_exit_callbacks(Funs) ->
+    persistent_term:put({?MODULE, on_exit}, Funs).
+
+on_exit(Fun) ->
+    Callbacks = get_on_exit_callbacks(),
+    put_on_exit_callbacks([Fun | Callbacks]).
+
+%% should be called at `end_per_testcase'.
+%% TODO: scope per group and suite as well?
+run_on_exit_callbacks() ->
+    Callbacks = get_on_exit_callbacks(),
+    put_on_exit_callbacks([]),
+    lists:foreach(fun(Fun) -> Fun() end, Callbacks).

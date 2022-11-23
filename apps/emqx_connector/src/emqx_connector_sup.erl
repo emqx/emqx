@@ -33,7 +33,8 @@ init([]) ->
         period => 20
     },
     ChildSpecs = [
-        child_spec(emqx_connector_mqtt)
+        child_spec(emqx_connector_mqtt),
+        child_spec(emqx_connector_jwt_sup)
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
@@ -46,5 +47,3 @@ child_spec(Mod) ->
         type => supervisor,
         modules => [Mod]
     }.
-
-%% internal functions

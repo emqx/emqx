@@ -76,6 +76,8 @@
 -type query_result() ::
     ok
     | {ok, term()}
+    | {ok, term(), term()}
+    | {ok, term(), term(), term()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 
