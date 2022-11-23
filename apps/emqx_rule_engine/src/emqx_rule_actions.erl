@@ -37,6 +37,8 @@
 
 -callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
 
+-define(ORIGINAL_USER_PROPERTIES, original).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -57,7 +59,8 @@ pre_process_action_args(
         topic := Topic,
         qos := QoS,
         retain := Retain,
-        payload := Payload
+        payload := Payload,
+        user_properties := UserProperties
     } = Args
 ) ->
     Args#{
@@ -65,7 +68,8 @@ pre_process_action_args(
             topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
             qos => preproc_vars(QoS),
             retain => preproc_vars(Retain),
-            payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
+            payload => emqx_plugin_libs_rule:preproc_tmpl(Payload),
+            user_properties => preproc_user_properties(UserProperties)
         }
     };
 pre_process_action_args(_, Args) ->
@@ -93,16 +97,16 @@ republish(
     _Args
 ) ->
     ?SLOG(error, #{msg => "recursive_republish_detected", topic => Topic});
-%% republish a PUBLISH message
 republish(
     Selected,
-    #{flags := Flags, metadata := #{rule_id := RuleId}},
+    #{metadata := #{rule_id := RuleId}} = Env,
     #{
         preprocessed_tmpl := #{
             qos := QoSTks,
             retain := RetainTks,
             topic := TopicTks,
-            payload := PayloadTks
+            payload := PayloadTks,
+            user_properties := UserPropertiesTks
         }
     }
 ) ->
@@ -110,27 +114,22 @@ republish(
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
-    ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
-%% in case this is a "$events/" event
-republish(
-    Selected,
-    #{metadata := #{rule_id := RuleId}},
-    #{
-        preprocessed_tmpl := #{
-            qos := QoSTks,
-            retain := RetainTks,
-            topic := TopicTks,
-            payload := PayloadTks
+    %% 'flags' is set for message re-publishes or message related
+    %% events such as message.acked and message.dropped
+    Flags0 = maps:get(flags, Env, #{}),
+    Flags = Flags0#{retain => Retain},
+    PubProps = format_pub_props(UserPropertiesTks, Selected, Env),
+    ?TRACE(
+        "RULE",
+        "republish_message",
+        #{
+            flags => Flags,
+            topic => Topic,
+            payload => Payload,
+            pub_props => PubProps
         }
-    }
-) ->
-    Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
-    Payload = format_msg(PayloadTks, Selected),
-    QoS = replace_simple_var(QoSTks, Selected, 0),
-    Retain = replace_simple_var(RetainTks, Selected, false),
-    ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
+    ),
+    safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps).
 
 %%--------------------------------------------------------------------
 %% internal functions
@@ -168,13 +167,16 @@ pre_process_args(Mod, Func, Args) ->
         false -> Args
     end.
 
-safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
+safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     Msg = #message{
         id = emqx_guid:gen(),
         qos = QoS,
         from = RuleId,
         flags = Flags,
-        headers = #{republish_by => RuleId},
+        headers = #{
+            republish_by => RuleId,
+            properties => emqx_misc:pub_props_to_packet(PubProps)
+        },
         topic = Topic,
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
@@ -186,6 +188,19 @@ preproc_vars(Data) when is_binary(Data) ->
     emqx_plugin_libs_rule:preproc_tmpl(Data);
 preproc_vars(Data) ->
     Data.
+
+preproc_user_properties(<<"${pub_props.'User-Property'}">>) ->
+    %% keep the original
+    %% avoid processing this special variable because
+    %% we do not want to force users to select the value
+    %% the value will be taken from Env.pub_props directly
+    ?ORIGINAL_USER_PROPERTIES;
+preproc_user_properties(<<"${", _/binary>> = V) ->
+    %% use a variable
+    emqx_plugin_libs_rule:preproc_tmpl(V);
+preproc_user_properties(_) ->
+    %% invalid, discard
+    undefined.
 
 replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
     [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
@@ -201,3 +216,15 @@ format_msg([], Selected) ->
     emqx_json:encode(Selected);
 format_msg(Tokens, Selected) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
+
+format_pub_props(UserPropertiesTks, Selected, Env) ->
+    UserProperties =
+        case UserPropertiesTks of
+            ?ORIGINAL_USER_PROPERTIES ->
+                maps:get('User-Property', maps:get(pub_props, Env, #{}), #{});
+            undefined ->
+                #{};
+            _ ->
+                replace_simple_var(UserPropertiesTks, Selected, #{})
+        end,
+    #{'User-Property' => UserProperties}.
