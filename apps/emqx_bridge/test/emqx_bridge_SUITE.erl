@@ -156,3 +156,98 @@ setup_fake_telemetry_data() ->
     {ok, _} = snabbkaffe_collector:receive_events(Sub),
     ok = snabbkaffe:stop(),
     ok.
+
+t_update_ssl_conf(_) ->
+    Path = [bridges, <<"mqtt">>, <<"ssl_update_test">>],
+    EnableSSLConf = #{
+        <<"connector">> =>
+            #{
+                <<"bridge_mode">> => false,
+                <<"clean_start">> => true,
+                <<"keepalive">> => <<"60s">>,
+                <<"mode">> => <<"cluster_shareload">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"ssl">> =>
+                    #{
+                        <<"cacertfile">> => cert_file("cafile"),
+                        <<"certfile">> => cert_file("certfile"),
+                        <<"enable">> => true,
+                        <<"keyfile">> => cert_file("keyfile"),
+                        <<"verify">> => <<"verify_peer">>
+                    }
+            },
+        <<"direction">> => <<"ingress">>,
+        <<"local_qos">> => 1,
+        <<"payload">> => <<"${payload}">>,
+        <<"remote_qos">> => 1,
+        <<"remote_topic">> => <<"t/#">>,
+        <<"retain">> => false
+    },
+
+    emqx:update_config(Path, EnableSSLConf),
+    ?assertMatch({ok, [_, _, _]}, list_pem_dir(Path)),
+    NoSSLConf = #{
+        <<"connector">> =>
+            #{
+                <<"bridge_mode">> => false,
+                <<"clean_start">> => true,
+                <<"keepalive">> => <<"60s">>,
+                <<"max_inflight">> => 32,
+                <<"mode">> => <<"cluster_shareload">>,
+                <<"password">> => <<>>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"reconnect_interval">> => <<"15s">>,
+                <<"replayq">> =>
+                    #{<<"offload">> => false, <<"seg_bytes">> => <<"100MB">>},
+                <<"retry_interval">> => <<"15s">>,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"ssl">> =>
+                    #{
+                        <<"ciphers">> => <<>>,
+                        <<"depth">> => 10,
+                        <<"enable">> => false,
+                        <<"reuse_sessions">> => true,
+                        <<"secure_renegotiate">> => true,
+                        <<"user_lookup_fun">> => <<"emqx_tls_psk:lookup">>,
+                        <<"verify">> => <<"verify_peer">>,
+                        <<"versions">> =>
+                            [
+                                <<"tlsv1.3">>,
+                                <<"tlsv1.2">>,
+                                <<"tlsv1.1">>,
+                                <<"tlsv1">>
+                            ]
+                    },
+                <<"username">> => <<>>
+            },
+        <<"direction">> => <<"ingress">>,
+        <<"enable">> => true,
+        <<"local_qos">> => 1,
+        <<"payload">> => <<"${payload}">>,
+        <<"remote_qos">> => 1,
+        <<"remote_topic">> => <<"t/#">>,
+        <<"retain">> => false
+    },
+
+    emqx:update_config(Path, NoSSLConf),
+    ?assertMatch({error, not_dir}, list_pem_dir(Path)),
+    emqx:remove_config(Path),
+    ok.
+
+list_pem_dir(Path) ->
+    Dir = filename:join([emqx:mutable_certs_dir() | Path]),
+    case filelib:is_dir(Dir) of
+        true ->
+            file:list_dir(Dir);
+        _ ->
+            {error, not_dir}
+    end.
+
+data_file(Name) ->
+    Dir = code:lib_dir(emqx_bridge, test),
+    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Bin.
+
+cert_file(Name) ->
+    data_file(filename:join(["certs", Name])).
