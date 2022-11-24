@@ -578,13 +578,19 @@ purge(delete, _) ->
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
 
--spec query_username(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec query_username(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 query_username(_Tab, {_QString, FuzzyQString}) ->
-    {emqx_authz_mnesia:list_username_rules(), fuzzy_filter_fun(FuzzyQString)}.
+    #{
+        match_spec => emqx_authz_mnesia:list_username_rules(),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
--spec query_clientid(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec query_clientid(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 query_clientid(_Tab, {_QString, FuzzyQString}) ->
-    {emqx_authz_mnesia:list_clientid_rules(), fuzzy_filter_fun(FuzzyQString)}.
+    #{
+        match_spec => emqx_authz_mnesia:list_clientid_rules(),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 %% Fuzzy username funcs
 fuzzy_filter_fun([]) ->

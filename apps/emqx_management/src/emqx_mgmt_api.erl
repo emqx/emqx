@@ -35,6 +35,28 @@
     b2i/1
 ]).
 
+-export_type([
+    match_spec_and_filter/0
+]).
+
+-type query_params() :: list() | map().
+
+-type query_schema() :: [
+    {Key :: binary(), Type :: atom | binary | integer | timestamp | ip | ip_port}
+].
+
+-type query_to_match_spec_fun() :: fun((list(), list()) -> match_spec_and_filter()).
+
+-type match_spec_and_filter() :: #{match_spec := ets:match_spec(), fuzzy_fun := fuzzy_filter_fun()}.
+
+-type fuzzy_filter_fun() :: undefined | {fun(), list()}.
+
+-type format_result_fun() ::
+    fun((node(), term()) -> term())
+    | fun((term()) -> term()).
+
+-type query_return() :: #{meta := map(), data := [term()]}.
+
 -export([do_query/2, apply_total_query/1]).
 
 paginate(Tables, Params, {Module, FormatFun}) ->
@@ -120,24 +142,6 @@ limit(Params) ->
 %%--------------------------------------------------------------------
 %% Node Query
 %%--------------------------------------------------------------------
-
--type query_params() :: list() | map().
-
--type query_schema() :: [
-    {Key :: binary(), Type :: atom | binary | integer | timestamp | ip | ip_port}
-].
-
--type query_to_match_spec_fun() :: fun((list(), list()) -> match_spec_and_filter()).
-
--type match_spec_and_filter() :: #{match_spec := ets:match_spec(), fuzzy_fun := fuzzy_filter_fun()}.
-
--type fuzzy_filter_fun() :: undefined | {fun(), list()}.
-
--type format_result_fun() ::
-    fun((node(), term()) -> term())
-    | fun((term()) -> term()).
-
--type query_return() :: #{meta := map(), data := [term()]}.
 
 -spec node_query(
     node(),
