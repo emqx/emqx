@@ -38,11 +38,22 @@
     | {ok, map(), binary()}
     | {continue, map()}
     | {continue, binary(), map()}
-    | {error, term()}.
+    | {error, not_authorized}.
 authenticate(Credential) ->
-    case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
+    %% pre-hook quick authentication or
+    %% if auth backend returning nothing but just 'ok'
+    %% it means it's not a superuser, or there is no way to tell.
+    NotSuperUser = #{is_superuser => false},
+    case emqx_authentication:pre_hook_authenticate(Credential) of
         ok ->
-            {ok, #{is_superuser => false}};
+            {ok, NotSuperUser};
+        continue ->
+            case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
+                ok ->
+                    {ok, NotSuperUser};
+                Other ->
+                    Other
+            end;
         Other ->
             Other
     end.
