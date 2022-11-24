@@ -163,8 +163,8 @@ running(cast, {block, [?QUERY(_, _, _) | _] = Batch}, #{id := Id, queue := Q} = 
 running({call, From}, {query, Request, _Opts}, St) ->
     query_or_acc(From, Request, St);
 running(cast, {query, Request, Opts}, St) ->
-    ReplayFun = maps:get(async_reply_fun, Opts, undefined),
-    query_or_acc(ReplayFun, Request, St);
+    ReplyFun = maps:get(async_reply_fun, Opts, undefined),
+    query_or_acc(ReplyFun, Request, St);
 running(info, {flush, Ref}, St = #{tref := {_TRef, Ref}}) ->
     flush(St#{tref := undefined});
 running(info, {flush, _Ref}, _St) ->
@@ -191,11 +191,11 @@ blocked({call, From}, {query, Request, _Opts}, #{id := Id, queue := Q} = St) ->
     _ = reply_caller(Id, ?REPLY(From, Request, false, Error)),
     {keep_state, St#{queue := maybe_append_queue(Id, Q, [?Q_ITEM(?QUERY(From, Request, false))])}};
 blocked(cast, {query, Request, Opts}, #{id := Id, queue := Q} = St) ->
-    ReplayFun = maps:get(async_reply_fun, Opts, undefined),
+    ReplyFun = maps:get(async_reply_fun, Opts, undefined),
     Error = ?RESOURCE_ERROR(blocked, "resource is blocked"),
-    _ = reply_caller(Id, ?REPLY(ReplayFun, Request, false, Error)),
+    _ = reply_caller(Id, ?REPLY(ReplyFun, Request, false, Error)),
     {keep_state, St#{
-        queue := maybe_append_queue(Id, Q, [?Q_ITEM(?QUERY(ReplayFun, Request, false))])
+        queue := maybe_append_queue(Id, Q, [?Q_ITEM(?QUERY(ReplyFun, Request, false))])
     }}.
 
 terminate(_Reason, #{id := Id, index := Index}) ->
