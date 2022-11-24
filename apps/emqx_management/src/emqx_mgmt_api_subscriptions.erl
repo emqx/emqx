@@ -183,7 +183,7 @@ format({_Subscriber, Topic, Options}) ->
     ).
 
 get_topic(Topic, #{share := Group}) ->
-    filename:join([<<"$share">>, Group, Topic]);
+    emqx_topic:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _) ->
     Topic.
 
