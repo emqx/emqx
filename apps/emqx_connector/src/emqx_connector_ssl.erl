@@ -70,10 +70,10 @@ try_clear_certs(RltvDir, NewConf, OldConf) ->
     ).
 
 try_clear_certs2(RltvDir, #{<<"connector">> := NewConnector}, #{<<"connector">> := OldConnector}) ->
-    try_clear_certs2(RltvDir, NewConnector, OldConnector);
+    NewSSL = maps:get(<<"ssl">>, NewConnector, undefined),
+    OldSSL = maps:get(<<"ssl">>, OldConnector, undefined),
+    try_clear_certs2(RltvDir, NewSSL, OldSSL);
 try_clear_certs2(RltvDir, NewSSL, OldSSL) when is_map(NewSSL) andalso is_map(OldSSL) ->
-    NewSSL = maps:get(<<"ssl">>, NewSSL, undefined),
-    OldSSL = maps:get(<<"ssl">>, OldSSL, undefined),
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL);
 try_clear_certs2(RltvDir, NewConf, OldConf) ->
     ?SLOG(debug, #{msg => "unexpected_conf", path => RltvDir, new => NewConf, OldConf => OldConf}),
