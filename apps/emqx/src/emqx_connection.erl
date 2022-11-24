@@ -601,8 +601,7 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);

@@ -16,7 +16,7 @@
 
 -module(emqx_gateway_impl).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 -type state() :: map().
 -type reason() :: any().
