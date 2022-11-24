@@ -143,8 +143,12 @@ generate_topic(Params = #{topic := Topic}) ->
 generate_topic(Params) ->
     Params.
 
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {Qs, _}) ->
-    {gen_match_spec(Qs, [{{route, '_', '_'}, [], ['$_']}]), undefined}.
+    #{
+        match_spec => gen_match_spec(Qs, [{{route, '_', '_'}, [], ['$_']}]),
+        fuzzy_fun => undefined
+    }.
 
 gen_match_spec([], Res) ->
     Res;

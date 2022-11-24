@@ -190,9 +190,9 @@ get_topic(Topic, _) ->
 %% QueryString to MatchSpec
 %%--------------------------------------------------------------------
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {Qs, Fuzzy}) ->
-    {gen_match_spec(Qs), fuzzy_filter_fun(Fuzzy)}.
+    #{match_spec => gen_match_spec(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
 gen_match_spec(Qs) ->
     MtchHead = gen_match_spec(Qs, {{'_', '_'}, #{}}),

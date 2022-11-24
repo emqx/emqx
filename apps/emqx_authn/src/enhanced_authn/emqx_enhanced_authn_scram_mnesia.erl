@@ -274,9 +274,12 @@ list_users(QueryString, #{user_group := UserGroup}) ->
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {QString, Fuzzy}) ->
-    {ms_from_qstring(QString), fuzzy_filter_fun(Fuzzy)}.
+    #{
+        match_spec => ms_from_qstring(QString),
+        fuzzy_fun => fuzzy_filter_fun(Fuzzy)
+    }.
 
 %% Fuzzy username funcs
 fuzzy_filter_fun([]) ->

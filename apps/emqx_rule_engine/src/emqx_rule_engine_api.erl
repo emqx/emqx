@@ -553,12 +553,16 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {Qs, Fuzzy}) ->
     case lists:keytake(from, 1, Qs) of
         false ->
-            {generate_match_spec(Qs), fuzzy_match_fun(Fuzzy)};
+            #{match_spec => generate_match_spec(Qs), fuzzy_fun => fuzzy_match_fun(Fuzzy)};
         {value, {from, '=:=', From}, Ls} ->
-            {generate_match_spec(Ls), fuzzy_match_fun([{from, '=:=', From} | Fuzzy])}
+            #{
+                match_spec => generate_match_spec(Ls),
+                fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
+            }
     end.
 
 generate_match_spec(Qs) ->

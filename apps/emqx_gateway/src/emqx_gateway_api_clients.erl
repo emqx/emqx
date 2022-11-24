@@ -268,9 +268,9 @@ extra_sub_props(Props) ->
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {Qs, Fuzzy}) ->
-    {qs2ms(Qs), fuzzy_filter_fun(Fuzzy)}.
+    #{match_spec => qs2ms(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
 qs2ms(Qs) ->
     {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),

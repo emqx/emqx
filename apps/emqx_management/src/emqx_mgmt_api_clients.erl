@@ -786,9 +786,12 @@ do_unsubscribe(ClientID, Topic) ->
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {QString, FuzzyQString}) ->
-    {qs2ms(QString), fuzzy_filter_fun(FuzzyQString)}.
+    #{
+        match_spec => qs2ms(QString),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->

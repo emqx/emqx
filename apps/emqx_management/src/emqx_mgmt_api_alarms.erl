@@ -136,9 +136,9 @@ alarms(delete, _Params) ->
 %%%==============================================================================================
 %% internal
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {_Qs, _Fuzzy}) ->
-    {[{'$1', [], ['$1']}], undefined}.
+    #{match_spec => [{'$1', [], ['$1']}], fuzzy_fun => undefined}.
 
 format_alarm(WhichNode, Alarm) ->
     emqx_alarm:format(WhichNode, Alarm).

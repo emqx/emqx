@@ -127,8 +127,9 @@ limit(Params) ->
     {Key :: binary(), Type :: atom | binary | integer | timestamp | ip | ip_port}
 ].
 
--type query_to_match_spec_fun() ::
-    fun((list(), list()) -> {ets:match_spec(), fuzzy_filter_fun()}).
+-type query_to_match_spec_fun() :: fun((list(), list()) -> match_spec_and_filter()).
+
+-type match_spec_and_filter() :: #{match_spec := ets:match_spec(), fuzzy_fun := fuzzy_filter_fun()}.
 
 -type fuzzy_filter_fun() :: undefined | {fun(), list()}.
 
@@ -270,7 +271,7 @@ collect_total_from_tail_nodes(Nodes, QueryState, ResultAcc = #{total := TotalAcc
 %%    msfun := query_to_match_spec_fun()
 %%    }
 init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}) ->
-    {Ms, FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
+    #{match_spec := Ms, fuzzy_fun := FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
     %% assert FuzzyFun type
     _ =
         case FuzzyFun of

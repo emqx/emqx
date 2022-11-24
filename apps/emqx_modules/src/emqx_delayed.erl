@@ -178,9 +178,12 @@ cluster_list(Params) ->
         fun ?MODULE:format_delayed/2
     ).
 
--spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Table, {_Qs, _Fuzzy}) ->
-    {[{'$1', [], ['$1']}], undefined}.
+    #{
+        match_spec => [{'$1', [], ['$1']}],
+        fuzzy_fun => undefined
+    }.
 
 format_delayed(Delayed) ->
     format_delayed(node(), Delayed).
