@@ -1668,7 +1668,7 @@ base_listener(Bind) ->
             )},
         {"enable_authn",
             sc(
-                boolean(),
+                hoconsc:enum([true, false, quick_deny_anonymous]),
                 #{
                     desc => ?DESC(base_listener_enable_authn),
                     default => true

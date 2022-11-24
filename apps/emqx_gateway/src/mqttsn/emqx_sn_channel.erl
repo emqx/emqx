@@ -2319,5 +2319,4 @@ returncode_name(?SN_RC2_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(?SN_RC2_REACHED_MAX_RETRY) -> reached_max_retry_times;
 returncode_name(_) -> accepted.
 
-name_to_returncode(not_authorized) -> ?SN_RC2_NOT_AUTHORIZE;
-name_to_returncode(_) -> ?SN_RC2_NOT_AUTHORIZE.
+name_to_returncode(not_authorized) -> ?SN_RC2_NOT_AUTHORIZE.
