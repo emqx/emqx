@@ -78,17 +78,24 @@
 -type socket_info() :: #{
     is_orphan => boolean(),
     ctrl_stream_start_flags => quicer:stream_open_flags(),
-    %% quicer:new_conn_props
+    %% and quicer:new_conn_props()
     _ => _
 }.
 
--spec wait({pid(), quicer:connection_handle(), socket_info()}) ->
-    {ok, socket()} | {error, enotconn}.
+%% for accepting
+-spec wait
+    ({pid(), connection_handle(), socket_info()}) ->
+        {ok, socket()} | {error, enotconn};
+    %% For handover
+    ({pid(), connection_handle(), stream_handle(), socket_info()}) ->
+        {ok, socket()} | {error, any()}.
+
+%%% For Accepting New Remote Stream
 wait({ConnOwner, Conn, ConnInfo}) ->
     {ok, Conn} = quicer:async_accept_stream(Conn, []),
     ConnOwner ! {self(), stream_acceptor_ready},
     receive
-        %% New incoming stream, this is a *ctrl* stream
+        %% New incoming stream, this is a *control* stream
         {quic, new_stream, Stream, #{is_orphan := IsOrphan, flags := StartFlags}} ->
             SocketInfo = ConnInfo#{
                 is_orphan => IsOrphan,
@@ -101,6 +108,14 @@ wait({ConnOwner, Conn, ConnInfo}) ->
         %% Connection owner process down
         {'EXIT', ConnOwner, _Reason} ->
             {error, enotconn}
+    end;
+%% For ownership handover
+wait({PrevOwner, Conn, Stream, SocketInfo}) ->
+    case quicer:wait_for_handoff(PrevOwner, Stream) of
+        ok ->
+            {ok, socket(Conn, Stream, SocketInfo)};
+        owner_down ->
+            {error, owner_down}
     end.
 
 type(_) ->
@@ -144,9 +159,10 @@ getopts(_Socket, _Opts) ->
         {buffer, 80000}
     ]}.
 
-fast_close({quic, _Conn, Stream, _Info}) ->
-    %% Flush send buffer, gracefully shutdown
-    quicer:async_shutdown_stream(Stream),
+fast_close({quic, Conn, _Stream, _Info}) ->
+    %% Since we shutdown the control stream, we shutdown the connection as well
+    %% @TODO supply some App Error Code
+    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
@@ -187,21 +203,14 @@ peer_accepted(_Stream, undefined, S) ->
     {ok, S}.
 
 -spec peer_receive_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
-peer_receive_aborted(Stream, ErrorCode, #{is_unidir := false} = S) ->
-    %% we abort send with same reason
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
-    {ok, S};
-peer_receive_aborted(Stream, ErrorCode, #{is_unidir := true, is_local := true} = S) ->
+peer_receive_aborted(Stream, ErrorCode, S) ->
     quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
 -spec peer_send_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
-peer_send_aborted(Stream, ErrorCode, #{is_unidir := false} = S) ->
+peer_send_aborted(Stream, ErrorCode, S) ->
     %% we abort receive with same reason
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
-    {ok, S};
-peer_send_aborted(Stream, ErrorCode, #{is_unidir := true, is_local := false} = S) ->
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
+    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
 -spec peer_send_shutdown(stream_handle(), undefined, cb_data()) -> cb_ret().
