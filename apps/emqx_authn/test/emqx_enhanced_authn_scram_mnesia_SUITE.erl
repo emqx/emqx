@@ -319,7 +319,7 @@ t_list_users(_) ->
                 is_superuser := _
             }
         ],
-        meta := #{page := 1, limit := 3, count := 1}
+        meta := #{page := 1, limit := 3, count := 0}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
         #{
             <<"page">> => 1,

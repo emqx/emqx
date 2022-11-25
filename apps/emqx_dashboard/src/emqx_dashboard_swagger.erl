@@ -138,7 +138,12 @@ fields(limit) ->
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(count) ->
-    Meta = #{desc => <<"Results count.">>, required => true},
+    Desc = <<
+        "Total number of records counted.<br/>"
+        "Note: this field is <code>0</code> when the queryed table is empty, "
+        "or if the query can not be optimized and requires a full table scan."
+    >>,
+    Meta = #{desc => Desc, required => true},
     [{count, hoconsc:mk(non_neg_integer(), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count).

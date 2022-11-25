@@ -34,7 +34,7 @@
     topic/2
 ]).
 
--export([query/4]).
+-export([qs2ms/2, format/1]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
@@ -109,7 +109,12 @@ topic(get, #{bindings := Bindings}) ->
 do_list(Params) ->
     case
         emqx_mgmt_api:node_query(
-            node(), Params, emqx_route, ?TOPICS_QUERY_SCHEMA, {?MODULE, query}
+            node(),
+            emqx_route,
+            Params,
+            ?TOPICS_QUERY_SCHEMA,
+            fun ?MODULE:qs2ms/2,
+            fun ?MODULE:format/1
         )
     of
         {error, page_limit_invalid} ->
@@ -138,16 +143,19 @@ generate_topic(Params = #{topic := Topic}) ->
 generate_topic(Params) ->
     Params.
 
-query(Tab, {Qs, _}, Continuation, Limit) ->
-    Ms = qs2ms(Qs, [{{route, '_', '_'}, [], ['$_']}]),
-    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit, fun format/1).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, _}) ->
+    #{
+        match_spec => gen_match_spec(Qs, [{{route, '_', '_'}, [], ['$_']}]),
+        fuzzy_fun => undefined
+    }.
 
-qs2ms([], Res) ->
+gen_match_spec([], Res) ->
     Res;
-qs2ms([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
-    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]);
-qs2ms([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
-    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]).
+gen_match_spec([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
+    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]);
+gen_match_spec([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
+    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]).
 
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};

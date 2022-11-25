@@ -34,7 +34,7 @@
 -export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
 
 %% query callback
--export([query/4]).
+-export([qs2ms/2, run_fuzzy_match/2, format_rule_resp/1]).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON), begin
@@ -274,10 +274,11 @@ param_path_id() ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            QueryString,
             ?RULE_TAB,
+            QueryString,
             ?RULE_QS_SCHEMA,
-            {?MODULE, query}
+            fun ?MODULE:qs2ms/2,
+            fun ?MODULE:format_rule_resp/1
         )
     of
         {error, page_limit_invalid} ->
@@ -552,38 +553,40 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
-    Ms = qs2ms(),
-    FuzzyFun = fuzzy_match_fun(Qs, Ms, Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab, {Ms, FuzzyFun}, Start, Limit, fun format_rule_resp/1
-    ).
-
-%% rule is not a record, so everything is fuzzy filter.
-qs2ms() ->
-    [{'_', [], ['$_']}].
-
-fuzzy_match_fun(Qs, Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
-    fun(Rows) ->
-        Ls = ets:match_spec_run(Rows, MsC),
-        lists:filter(
-            fun(E) ->
-                run_qs_match(E, Qs) andalso
-                    run_fuzzy_match(E, Fuzzy)
-            end,
-            Ls
-        )
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    case lists:keytake(from, 1, Qs) of
+        false ->
+            #{match_spec => generate_match_spec(Qs), fuzzy_fun => fuzzy_match_fun(Fuzzy)};
+        {value, {from, '=:=', From}, Ls} ->
+            #{
+                match_spec => generate_match_spec(Ls),
+                fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
+            }
     end.
 
-run_qs_match(_, []) ->
-    true;
-run_qs_match(E = {_Id, #{enable := Enable}}, [{enable, '=:=', Pattern} | Qs]) ->
-    Enable =:= Pattern andalso run_qs_match(E, Qs);
-run_qs_match(E = {_Id, #{from := From}}, [{from, '=:=', Pattern} | Qs]) ->
-    lists:member(Pattern, From) andalso run_qs_match(E, Qs);
-run_qs_match(E, [_ | Qs]) ->
-    run_qs_match(E, Qs).
+generate_match_spec(Qs) ->
+    {MtchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
+    [{{'_', MtchHead}, Conds, ['$_']}].
+
+generate_match_spec([], _, {MtchHead, Conds}) ->
+    {MtchHead, lists:reverse(Conds)};
+generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
+    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
+    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NConds = put_conds(Qs, Holder, Conds),
+    generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
+
+put_conds({_, Op, V}, Holder, Conds) ->
+    [{Op, Holder, V} | Conds].
+
+ms(enable, X) ->
+    #{enable => X}.
+
+fuzzy_match_fun([]) ->
+    undefined;
+fuzzy_match_fun(Fuzzy) ->
+    {fun ?MODULE:run_fuzzy_match/2, [Fuzzy]}.
 
 run_fuzzy_match(_, []) ->
     true;
@@ -591,6 +594,8 @@ run_fuzzy_match(E = {Id, _}, [{id, like, Pattern} | Fuzzy]) ->
     binary:match(Id, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
     binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {_, #{from := Topics}}, [{from, '=:=', Pattern} | Fuzzy]) ->
+    lists:member(Pattern, Topics) /= false andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);

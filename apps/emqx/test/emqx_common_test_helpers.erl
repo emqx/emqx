@@ -519,21 +519,51 @@ ensure_quic_listener(Name, UdpPort) ->
 %% Clusterisation and multi-node testing
 %%
 
+-type cluster_spec() :: [node_spec()].
+-type node_spec() :: role() | {role(), shortname()} | {role(), shortname(), node_opts()}.
+-type role() :: core | replicant.
+-type shortname() :: atom().
+-type nodename() :: atom().
+-type node_opts() :: #{
+    %% Need to loaded apps. These apps will be loaded once the node started
+    load_apps => list(),
+    %% Need to started apps. It is the first arg passed to emqx_common_test_helpers:start_apps/2
+    apps => list(),
+    %% Extras app starting handler. It is the second arg passed to emqx_common_test_helpers:start_apps/2
+    env_handler => fun((AppName :: atom()) -> term()),
+    %% Application env preset before calling `emqx_common_test_helpers:start_apps/2`
+    env => {AppName :: atom(), Key :: atom(), Val :: term()},
+    %% Whether to execute `emqx_config:init_load(SchemaMod)`
+    %% default: true
+    load_schema => boolean(),
+    %% Eval by emqx_config:put/2
+    conf => [{KeyPath :: list(), Val :: term()}],
+    %% Fast option to config listener port
+    %% default rule:
+    %% - tcp: base_port
+    %% - ssl: base_port + 1
+    %% - ws : base_port + 3
+    %% - wss: base_port + 4
+    listener_ports => [{Type :: tcp | ssl | ws | wss, inet:port_number()}]
+}.
+
+-spec emqx_cluster(cluster_spec()) -> [{shortname(), node_opts()}].
 emqx_cluster(Specs) ->
     emqx_cluster(Specs, #{}).
 
+-spec emqx_cluster(cluster_spec(), node_opts()) -> [{shortname(), node_opts()}].
 emqx_cluster(Specs, CommonOpts) when is_list(CommonOpts) ->
     emqx_cluster(Specs, maps:from_list(CommonOpts));
 emqx_cluster(Specs0, CommonOpts) ->
     Specs1 = lists:zip(Specs0, lists:seq(1, length(Specs0))),
     Specs = expand_node_specs(Specs1, CommonOpts),
-    CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
-    %% Assign grpc ports:
+    %% Assign grpc ports
     GenRpcPorts = maps:from_list([
         {node_name(Name), {tcp, gen_rpc_port(base_port(Num))}}
      || {{_, Name, _}, Num} <- Specs
     ]),
     %% Set the default node of the cluster:
+    CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
     JoinTo =
         case CoreNodes of
             [First | _] -> First;
@@ -554,6 +584,8 @@ emqx_cluster(Specs0, CommonOpts) ->
     ].
 
 %% Lower level starting API
+
+-spec start_slave(shortname(), node_opts()) -> nodename().
 start_slave(Name, Opts) ->
     {ok, Node} = ct_slave:start(
         list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
@@ -590,6 +622,7 @@ epmd_path() ->
 
 %% Node initialization
 
+-spec setup_node(nodename(), node_opts()) -> ok.
 setup_node(Node, Opts) when is_list(Opts) ->
     setup_node(Node, maps:from_list(Opts));
 setup_node(Node, Opts) when is_map(Opts) ->
