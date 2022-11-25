@@ -182,4 +182,3 @@ connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 %% TODO: ???
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
-
