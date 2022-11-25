@@ -24,6 +24,7 @@ base64 --decode > "${PKSC12_FILE}" <<<"${APPLE_DEVELOPER_ID_BUNDLE}"
 KEYCHAIN='emqx.keychain-db'
 KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
+security delete-keychain "${KEYCHAIN}" 2>/dev/null || true
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
 security set-keychain-settings -lut 21600 "${KEYCHAIN}"
 security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"

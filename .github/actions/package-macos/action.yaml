@@ -26,29 +26,39 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: prepare
+    - id: prepare
       shell: bash
       run: |
         brew update
-        brew install curl zip unzip kerl coreutils openssl@1.1
+        brew install curl zip unzip coreutils openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
+        echo "emqx_name=${emqx_name}" >> $GITHUB_OUTPUT
+        OTP_SOURCE_PATH="$HOME/src/otp-${{ inputs.otp }}"
+        OTP_INSTALL_PATH="$HOME/otp/${{ inputs.otp }}"
+        echo "OTP_SOURCE_PATH=$OTP_SOURCE_PATH" >> $GITHUB_OUTPUT
+        echo "OTP_INSTALL_PATH=$OTP_INSTALL_PATH" >> $GITHUB_OUTPUT
+        mkdir -p "$OTP_SOURCE_PATH" "$OTP_INSTALL_PATH"
     - uses: actions/cache@v3
       id: cache
       with:
-        path: ~/.kerl/${{ inputs.otp }}
+        path: ${{ steps.prepare.outputs.OTP_INSTALL_PATH }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      env:
-        KERL_BUILD_BACKEND: git
-        OTP_GITHUB_URL: https://github.com/emqx/otp
-        KERL_CONFIGURE_OPTIONS: --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit
       run: |
-        kerl update releases
-        kerl build ${{ inputs.otp }}
-        kerl install ${{ inputs.otp }} $HOME/.kerl/${{ inputs.otp }}
+        OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
+        OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
+        if [ -d "$OTP_SOURCE_PATH" ]; then
+          rm -rf "$OTP_SOURCE_PATH"
+        fi
+        git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
+        cd "$OTP_SOURCE_PATH"
+        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
+        make -j$(nproc)
+        rm -rf "$OTP_INSTALL_PATH"
+        make install
     - name: build ${{ inputs.profile }}
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
@@ -61,13 +71,16 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
       shell: bash
       run: |
-        . $HOME/.kerl/${{ inputs.otp }}/activate
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
+        mkdir -p $HOME/bin
+        cp rebar3 $HOME/bin/rebar3
+        export PATH="$HOME/bin:$PATH"
         make ${{ inputs.profile }}-tgz
     - name: test ${{ inputs.profile }}
       shell: bash
       run: |
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         pkg_name=$(find _packages/${{ inputs.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
