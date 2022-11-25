@@ -65,6 +65,7 @@ init_per_group(quic, Config) ->
     UdpPort = 1884,
     emqx_common_test_helpers:start_apps([]),
     emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
+    emqx_logger:set_log_level(debug),
     [{port, UdpPort}, {conn_fun, quic_connect} | Config];
 init_per_group(_, Config) ->
     emqx_common_test_helpers:stop_apps([]),
@@ -78,14 +79,19 @@ end_per_group(_Group, _Config) ->
 
 init_per_suite(Config) ->
     %% Start Apps
-    %% dbg:tracer(process, {fun dbg:dhandler/2,group_leader()}),
-    %% dbg:p(all,c),
-    %% dbg:tp(emqx_quic_connection,cx),
-    %% dbg:tp(emqx_quic_stream,cx),
-    %% dbg:tp(emqtt_quic,cx),
-    %% dbg:tp(emqtt,cx),
-    %% dbg:tp(emqtt_quic_stream,cx),
-    %% dbg:tp(emqtt_quic_connection,cx),
+    dbg:tracer(process, {fun dbg:dhandler/2, group_leader()}),
+    dbg:p(all, c),
+    dbg:tp(emqx_quic_connection, cx),
+    dbg:tp(quicer_connection, cx),
+    %% dbg:tp(emqx_quic_stream, cx),
+    %% dbg:tp(emqtt_quic, cx),
+    %% dbg:tp(emqtt, cx),
+    %% dbg:tp(emqtt_quic_stream, cx),
+    %% dbg:tp(emqtt_quic_connection, cx),
+    %% dbg:tp(emqx_cm, open_session, cx),
+    %% dbg:tpl(emqx_cm, lookup_channels, cx),
+    %% dbg:tpl(emqx_cm, register_channel, cx),
+    %% dbg:tpl(emqx_cm, unregister_channel, cx),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
