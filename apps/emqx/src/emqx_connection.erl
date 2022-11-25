@@ -14,7 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT/TCP|TLS Connection|QUIC Stream
+%% This module interacts with the transport layer of MQTT
+%% Transport:
+%%   - TCP connection
+%%   - TCP/TLS connection
+%%   - WebSocket
+%%   - QUIC Stream
 -module(emqx_connection).
 
 -include("emqx.hrl").
@@ -111,7 +116,13 @@
     limiter_buffer :: queue:queue(pending_req()),
 
     %% limiter timers
-    limiter_timer :: undefined | reference()
+    limiter_timer :: undefined | reference(),
+
+    %% QUIC conn pid if is a pid
+    quic_conn_pid :: maybe(pid()),
+
+    %% QUIC control stream callback state
+    quic_ctrl_state :: map()
 }).
 
 -record(retry, {
@@ -194,7 +205,7 @@
         {ok, pid()};
     (
         emqx_quic_stream,
-        {ConnOwner :: pid(), quicer:connection_handler(), quicer:new_conn_props()},
+        {ConnOwner :: pid(), quicer:connection_handle(), quicer:new_conn_props()},
         emqx_quic_connection:cb_state()
     ) ->
         {ok, pid()}.
@@ -334,6 +345,7 @@ init_state(
     },
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_opts(),
+    %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
     GcState =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of
@@ -364,7 +376,10 @@ init_state(
         zone = Zone,
         listener = Listener,
         limiter_buffer = queue:new(),
-        limiter_timer = undefined
+        limiter_timer = undefined,
+        %% for quic streams to inherit
+        quic_conn_pid = maps:get(conn_pid, Opts, undefined),
+        quic_ctrl_state = #{}
     }.
 
 run_loop(
@@ -594,9 +609,20 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 handle_msg({close, Reason}, State) ->
+    %% @FIXME here it could be close due to appl error.
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
-handle_msg({event, connected}, State = #state{channel = Channel}) ->
+handle_msg(
+    {event, connected},
+    State = #state{
+        channel = Channel,
+        serialize = Serialize,
+        parse_state = PS,
+        quic_conn_pid = QuicConnPid
+    }
+) ->
+    QuicConnPid =/= undefined andalso
+        emqx_quic_connection:activate_data_streams(QuicConnPid, {PS, Serialize, Channel}),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
@@ -865,6 +891,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
             ok;
         Error = {error, _Reason} ->
             %% Send an inet_reply to postpone handling the error
+            %% @FIXME: why not just return error?
             self() ! {inet_reply, Socket, Error},
             ok
     end.
