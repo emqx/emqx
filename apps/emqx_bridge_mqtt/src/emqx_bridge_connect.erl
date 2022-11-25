@@ -56,19 +56,7 @@ start(Module, Config) ->
         {ok, Conn} ->
             {ok, Conn};
         {error, Reason} ->
-            Config1 = obfuscate(Config),
-            ?LOG(error, "Failed to connect with module=~p\n"
-                 "config=~p\nreason:~p", [Module, Config1, Reason]),
+            ?LOG_SENSITIVE(error, "Failed to connect with module=~p\n"
+                           "config=~p\nreason:~p", [Module, Config, Reason]),
             {error, Reason}
     end.
-
-obfuscate(Map) ->
-    maps:fold(fun(K, V, Acc) ->
-                      case is_sensitive(K) of
-                          true -> [{K, '***'} | Acc];
-                          false -> [{K, V} | Acc]
-                      end
-              end, [], Map).
-
-is_sensitive(password) -> true;
-is_sensitive(_) -> false.

@@ -349,7 +349,7 @@ t_1000_msg_send(_) ->
             receive
                 {deliver, Topic, _Msg}->
                     ok
-            after 100 ->
+            after 5000 ->
                       ?assert(false, "waiting message timeout")
             end
         end,

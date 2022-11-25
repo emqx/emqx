@@ -107,13 +107,16 @@ http_handlers() ->
 %%--------------------------------------------------------------------
 
 is_authorized(Req) ->
-    is_authorized(binary_to_list(cowboy_req:path(Req)), Req).
+    is_authorized(
+      iolist_to_binary(string:uppercase(cowboy_req:method(Req))),
+      iolist_to_binary(cowboy_req:path(Req)),
+      Req).
 
-is_authorized("/api/v4/emqx_prometheus", _Req) ->
+is_authorized(<<"GET">>, <<"/api/v4/emqx_prometheus">>, _Req) ->
     true;
-is_authorized("/api/v4/auth", _Req) ->
+is_authorized(<<"POST">>, <<"/api/v4/auth">>, _Req) ->
     true;
-is_authorized(_Path, Req) ->
+is_authorized(_Method, _Path, Req) ->
     try
         {basic, Username, Password} = cowboy_req:parse_header(<<"authorization">>, Req),
         case emqx_dashboard_admin:check(iolist_to_binary(Username), iolist_to_binary(Password)) of

@@ -9,6 +9,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
 
     strategy:
+      fail-fast: false
       matrix:
         otp:
           - erl23.3.4.9-3
@@ -29,17 +30,25 @@ jobs:
     container: emqx/build-env:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
+    - uses: AutoModality/action-clean@v1
+      # keep using v1 for now as the otp-23 image has an old version git
+      # TODO: change to v3 after OTP is upgraded to 23.3.4.18-1
     - uses: actions/checkout@v1
-    - uses: ./.github/actions/detect-profiles
       with:
-        ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
+          fetch-depth: 0 # clone full git history
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
-    - uses: actions/cache@v2
+    - uses: ./.github/actions/detect-profiles
+    - name: ensure access to github
+      if: endsWith(github.repository, 'enterprise')
+      run: |
+        echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+        git config --global credential.helper store
+    - uses: actions/cache@v3
       with:
         # dialyzer PLTs
         path: ~/.cache/rebar3/
-        key: dialyer-${{ matrix.otp }}
+        key: dialyzer-${{ matrix.otp }}
     - name: make xref
       run: make xref
     - name: make dialyzer
@@ -48,7 +57,7 @@ jobs:
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
       run: make ${EMQX_NAME}-pkg
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: rebar3.crashdump
@@ -57,7 +66,7 @@ jobs:
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*.zip
@@ -71,10 +80,15 @@ jobs:
           - macos-11
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v1
-    - uses: ./.github/actions/detect-profiles
+    - uses: actions/checkout@v3
       with:
-        ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
+          fetch-depth: 0 # clone full git history
+    - name: ensure access to github
+      if: endsWith(github.repository, 'enterprise')
+      run: |
+        echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+        git config --global credential.helper store
+    - uses: ./.github/actions/detect-profiles
     - uses: ./.github/actions/package-macos
       with:
         otp: ${{ matrix.otp }}
@@ -83,12 +97,12 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: macos
         path: _packages/**/*.zip

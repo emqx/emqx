@@ -30,6 +30,13 @@
                 {rewrite, sub, <<"c/#">>,<<"^c/(.+)$">>,<<"sub/%c/$1">>}
                ]).
 
+-define(BAD_RULES_1, [{rewrite, pub, <<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/+">>}]).
+
+%% empty topic filter/name won't be ranched cased `emqx.conf` will be checked before emqx started
+%% but we need this check for emqx-ee modules api
+-define(BAD_RULES_2, [{rewrite, pub, <<"">>,<<"^x/y/(.+)$">>,<<"z/y/+">>}]).
+-define(BAD_RULES_3, [{rewrite, pub, <<"name/#">>,<<"^name/(.+)$">>,<<"">>}]).
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -82,12 +89,30 @@ t_mod_rewrite(_Config) ->
     ok = emqx_mod_rewrite:unload(?RULES).
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_mod_rewrite:compile(?RULES),
+    {PubRules, SubRules} = emqx_mod_rewrite:compile_rules(?RULES),
+    %% assert ordering
+    ?assertMatch([{rewrite, <<"x/#">>, _, <<"z/y/$1">>},
+                  {rewrite, <<"name/#">>, _, <<"pub/%u/$1">>},
+                  {rewrite, <<"c/#">>, _, <<"pub/%c/$1">>}],
+                 PubRules),
+    ?assertMatch([{rewrite, <<"y/+/z/#">>, _, <<"y/z/$2">>},
+                  {rewrite, <<"name/#">>, _, <<"sub/%u/$1">>},
+                  {rewrite, <<"c/#">>, _, <<"sub/%c/$1">>}],
+                 SubRules),
+
     ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules, [])),
     ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules, [])),
     ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules, [])),
     ?assertEqual(<<"y/def">>, emqx_mod_rewrite:match_and_rewrite(<<"y/def">>, SubRules, [])).
 
+t_rewrite_bad_rule_1(_Config) ->
+    ?assertEqual({[], []}, emqx_mod_rewrite:compile_rules(?BAD_RULES_1)).
+
+t_rewrite_bad_rule_2(_Config) ->
+    ?assertEqual({[], []}, emqx_mod_rewrite:compile_rules(?BAD_RULES_2)).
+
+t_rewrite_bad_rule_3(_Config) ->
+    ?assertEqual({[], []}, emqx_mod_rewrite:compile_rules(?BAD_RULES_3)).
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

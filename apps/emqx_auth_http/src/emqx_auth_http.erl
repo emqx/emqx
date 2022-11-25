@@ -36,6 +36,7 @@
 
 check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 super := SuperParams}) ->
+    Username = maps:get(username, ClientInfo, undefined),
     case authenticate(AuthParms, ClientInfo) of
         {ok, 200, <<"ignore">>} ->
             ok;
@@ -46,12 +47,14 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
-            ?LOG(error, "Deny connection from path: ~s, response http code: ~p",
-                 [Path, Code]),
+            ?LOG(warning, "Deny connection from path: ~s, username: ~ts, http "
+                          "response code: ~p",
+                          [Path, Username, Code]),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Request auth path: ~s, error: ~p", [Path, Error]),
+            ?LOG_SENSITIVE(warning, "Deny connection from path: ~s, username: ~ts, due to "
+                                    "request http-server failed: ~0p", [Path, Username, Error]),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
                                anonymous   => false}}
@@ -85,10 +88,13 @@ is_superuser(SuperParams =
                timeout := Timeout}, ClientInfo) ->
     Retry = maps:get(retry_times, SuperParams, ?DEFAULT_RETRY_TIMES),
     case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry) of
-        {ok, 200, _Body}   -> true;
-        {ok, _Code, _Body} -> false;
-        {error, Error}     -> ?LOG(error, "Request superuser path ~s, error: ~p", [Path, Error]),
-                              false
+        {ok, 200, _Body} ->
+            true;
+        {ok, _Code, _Body} ->
+            false;
+        {error, Error} ->
+            ?LOG_SENSITIVE(warning, "Request superuser path ~s, error: ~p", [Path, Error]),
+            false
     end.
 
 mountpoint(Body, #{mountpoint := Mountpoint}) ->

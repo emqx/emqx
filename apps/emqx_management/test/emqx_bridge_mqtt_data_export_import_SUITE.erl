@@ -28,12 +28,19 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
+    ekka_mnesia:start(),
+    ok = emqx_dashboard_admin:mnesia(boot),
     application:load(emqx_modules),
     application:load(emqx_bridge_mqtt),
+    ekka_mnesia:start(),
+    emqx_dashboard_admin:mnesia(boot),
     emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
+    application:ensure_all_started(emqx_dashboard),
+    ok = emqx_rule_engine:load_providers(),
     Cfg.
 
 end_per_suite(Cfg) ->
+    application:stop(emqx_dashboard),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine]),
     Cfg.
 

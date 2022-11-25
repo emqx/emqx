@@ -28,14 +28,18 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
+    ekka_mnesia:start(),
+    ok = emqx_dashboard_admin:mnesia(boot),
     application:load(emqx_modules),
     application:load(emqx_web_hook),
     emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
+    application:ensure_all_started(emqx_dashboard),
     ok = emqx_rule_registry:mnesia(boot),
     ok = emqx_rule_engine:load_providers(),
     Cfg.
 
 end_per_suite(Cfg) ->
+    application:stop(emqx_dashboard),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine]),
     Cfg.
 
@@ -46,8 +50,8 @@ remove_resource(Id) ->
     emqx_rule_registry:remove_resource(Id),
     emqx_rule_registry:remove_resource_params(Id).
 
-import(FilePath, Version) ->
-    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
+import_and_check(Filename, Version) ->
+    {ok, #{code := 0}} = emqx_mgmt_api_data:import(#{}, [{<<"filename">>, Filename}]),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
         case Id of
             <<"webhook">> ->
@@ -58,34 +62,51 @@ import(FilePath, Version) ->
         end
     end, emqx_rule_registry:get_resources()).
 
+upload_import_export_list_download(NameVsnTable) ->
+    lists:foreach(fun({Filename0, Vsn}) ->
+            Filename = unicode:characters_to_binary(Filename0),
+            FullPath = filename:join([get_data_path(), Filename]),
+            ct:pal("testing upload_import_export_list_download for file: ~ts, version: ~p", [FullPath, Vsn]),
+            %% upload
+            {ok, FileCnt} = file:read_file(FullPath),
+            {ok, #{code := 0}} = emqx_mgmt_api_data:upload(#{},
+                [{<<"filename">>, Filename}, {<<"file">>, FileCnt}]),
+            %% import
+            ok = import_and_check(Filename, Vsn),
+            %% export
+            {ok, #{data := #{created_at := CAt, filename := FName, size := Size}}}
+                = emqx_mgmt_api_data:export(#{}, []),
+            ?assert(true, is_binary(CAt)),
+            ?assert(true, is_binary(FName)),
+            ?assert(true, is_integer(Size)),
+            %% list exported files
+            lists:foreach(fun({Seconds, Content}) ->
+                    ?assert(true, is_integer(Seconds)),
+                    ?assert(true, is_binary(proplists:get_value(filename, Content))),
+                    ?assert(true, is_binary(proplists:get_value(created_at, Content))),
+                    ?assert(true, is_integer(proplists:get_value(size, Content)))
+                end, emqx_mgmt_api_data:get_list_exported()),
+            %% download
+            ?assertMatch({ok, #{filename := FName}},
+                emqx_mgmt_api_data:download(#{filename => FName}, []))
+        end, NameVsnTable).
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
 -ifdef(EMQX_ENTERPRISE).
 
-t_importee4010(_) ->
-    import("ee4010.json", ee4010),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_importee410(_) ->
-    import("ee410.json", ee410),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_importee411(_) ->
-    import("ee411.json", ee411),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_importee420(_) ->
-    import("ee420.json", ee420),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_importee425(_) ->
-    import("ee425.json", ee425),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_importee430(_) ->
-    import("ee430.json", ee430),
-    {ok, _} = emqx_mgmt_data_backup:export().
+t_upload_import_export_list_download(_) ->
+    NameVsnTable = [
+        {"ee4010.json", ee4010},
+        {"ee410.json", ee410},
+        {"ee411.json", ee411},
+        {"ee420.json", ee420},
+        {"ee425.json", ee425},
+        {"ee430.json", ee430},
+        {"ee430-中文.json", ee430}
+    ],
+    upload_import_export_list_download(NameVsnTable).
 
 %%--------------------------------------------------------------------
 %% handle_config
@@ -131,29 +152,17 @@ handle_config(_, _) -> ok.
 
 -ifndef(EMQX_ENTERPRISE).
 
-t_import422(_) ->
-    import("422.json", 422),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_import423(_) ->
-    import("423.json", 423),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_import425(_) ->
-    import("425.json", 425),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_import430(_) ->
-    import("430.json", 430),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_import409(_) ->
-    import("409.json", 409),
-    {ok, _} = emqx_mgmt_data_backup:export().
-
-t_import415(_) ->
-    import("415.json", 415),
-    {ok, _} = emqx_mgmt_data_backup:export().
+t_upload_import_export_list_download(_) ->
+    NameVsnTable = [
+        {"422.json", 422},
+        {"423.json", 423},
+        {"425.json", 425},
+        {"430.json", 430},
+        {"430-中文.json", 430},
+        {"409.json", 409},
+        {"415.json", 415}
+    ],
+    upload_import_export_list_download(NameVsnTable).
 
 %%--------------------------------------------------------------------
 %% handle_config

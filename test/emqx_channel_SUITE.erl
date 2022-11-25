@@ -822,15 +822,18 @@ t_enrich_connack_caps(_) ->
                           wildcard_subscription => true
                          }
                      end),
-    AckProps = emqx_channel:enrich_connack_caps(#{}, channel()),
-    ?assertMatch(#{'Retain-Available' := 1,
-                   'Maximum-Packet-Size' := 1024,
-                   'Topic-Alias-Maximum' := 10,
-                   'Wildcard-Subscription-Available' := 1,
-                   'Subscription-Identifier-Available' := 1,
-                   'Shared-Subscription-Available' := 1
-                  }, AckProps),
-    ok = meck:unload(emqx_mqtt_caps).
+    try
+        AckProps = emqx_channel:enrich_connack_caps(#{}, channel()),
+        ?assertMatch(#{'Retain-Available' := 1,
+                    'Maximum-Packet-Size' := 1024,
+                    'Topic-Alias-Maximum' := 10,
+                    'Wildcard-Subscription-Available' := 1,
+                    'Subscription-Identifier-Available' := 1,
+                    'Shared-Subscription-Available' := 1
+                    }, AckProps)
+    after
+        ok = meck:unload(emqx_mqtt_caps)
+    end.
 
 %%--------------------------------------------------------------------
 %% Test cases for terminate

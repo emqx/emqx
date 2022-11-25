@@ -54,10 +54,10 @@ connect(Options) ->
             ?LOG(error, "[MySQL] Can't connect to MySQL server: Connection refused."),
             {error, Reason};
         {error, Reason = {ErrorCode, _, Error}} ->
-            ?LOG(error, "[MySQL] Can't connect to MySQL server: ~p - ~p", [ErrorCode, Error]),
+            ?LOG_SENSITIVE(error, "[MySQL] Can't connect to MySQL server: ~p - ~p", [ErrorCode, Error]),
             {error, Reason};
         {error, Reason} ->
-            ?LOG(error, "[MySQL] Can't connect to MySQL server: ~p", [Reason]),
+            ?LOG_SENSITIVE(error, "[MySQL] Can't connect to MySQL server: ~p", [Reason]),
             {error, Reason}
     end.
 

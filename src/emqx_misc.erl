@@ -64,6 +64,8 @@
     nolink_apply/2
 ]).
 
+-export([redact/1]).
+
 -define(VALID_STR_RE, "^[A-Za-z0-9]+[A-Za-z0-9-_]*$").
 -define(DEFAULT_PMAP_TIMEOUT, 5000).
 
@@ -466,6 +468,67 @@ maybe_mute_rpc_log(Node) ->
             ok
     end.
 
+is_sensitive_key(token) -> true;
+is_sensitive_key("token") -> true;
+is_sensitive_key(<<"token">>) -> true;
+is_sensitive_key(password) -> true;
+is_sensitive_key("password") -> true;
+is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key(secret) -> true;
+is_sensitive_key("secret") -> true;
+is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(passcode) -> true;
+is_sensitive_key("passcode") -> true;
+is_sensitive_key(<<"passcode">>) -> true;
+is_sensitive_key(passphrase) -> true;
+is_sensitive_key("passphrase") -> true;
+is_sensitive_key(<<"passphrase">>) -> true;
+is_sensitive_key(key) -> true;
+is_sensitive_key("key") -> true;
+is_sensitive_key(<<"key">>) -> true;
+is_sensitive_key(aws_secret_access_key) -> true;
+is_sensitive_key("aws_secret_access_key") -> true;
+is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(secret_key) -> true;
+is_sensitive_key("secret_key") -> true;
+is_sensitive_key(<<"secret_key">>) -> true;
+is_sensitive_key(bind_password) -> true;
+is_sensitive_key("bind_password") -> true;
+is_sensitive_key(<<"bind_password">>) -> true;
+is_sensitive_key(_) -> false.
+
+redact(L) when is_list(L) ->
+    lists:map(fun redact/1, L);
+redact(M) when is_map(M) ->
+    maps:map(fun(K, V) ->
+                     redact(K, V)
+             end, M);
+redact({Key, Value}) ->
+    case is_sensitive_key(Key) of
+        true ->
+            {Key, redact_v(Value)};
+        false ->
+            {redact(Key), redact(Value)}
+    end;
+redact(T) when is_tuple(T) ->
+    Elements = erlang:tuple_to_list(T),
+    Redact = redact(Elements),
+    erlang:list_to_tuple(Redact);
+redact(Any) ->
+    Any.
+
+redact(K, V) ->
+    case is_sensitive_key(K) of
+        true ->
+            redact_v(V);
+        false ->
+            redact(V)
+    end.
+
+-define(REDACT_VAL, "******").
+redact_v(V) when is_binary(V) -> <<?REDACT_VAL>>;
+redact_v(_V) -> ?REDACT_VAL.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -497,5 +560,54 @@ is_sane_id_test() ->
     ?assertMatch({error, _}, is_sane_id(Bad)),
     ?assertMatch({error, _}, is_sane_id(list_to_binary(Bad))),
     ok.
+
+redact_test_() ->
+    Case = fun(Type, KeyT) ->
+        Key =
+            case Type of
+                atom -> KeyT;
+                string -> erlang:atom_to_list(KeyT);
+                binary -> erlang:atom_to_binary(KeyT)
+            end,
+
+        ?assert(is_sensitive_key(Key)),
+
+        %% direct
+        ?assertEqual({Key, ?REDACT_VAL}, redact({Key, foo})),
+        ?assertEqual(#{Key => ?REDACT_VAL}, redact(#{Key => foo})),
+        ?assertEqual({Key, Key, Key}, redact({Key, Key, Key})),
+        ?assertEqual({[{Key, ?REDACT_VAL}], bar}, redact({[{Key, foo}], bar})),
+
+        %% 1 level nested
+        ?assertEqual([{Key, ?REDACT_VAL}], redact([{Key, foo}])),
+        ?assertEqual([#{Key => ?REDACT_VAL}], redact([#{Key => foo}])),
+
+        %% 2 level nested
+        ?assertEqual(#{opts => [{Key, ?REDACT_VAL}]}, redact(#{opts => [{Key, foo}]})),
+        ?assertEqual(#{opts => #{Key => ?REDACT_VAL}}, redact(#{opts => #{Key => foo}})),
+        ?assertEqual({opts, [{Key, ?REDACT_VAL}]}, redact({opts, [{Key, foo}]})),
+
+        %% 3 level nested
+        ?assertEqual([#{opts => [{Key, ?REDACT_VAL}]}], redact([#{opts => [{Key, foo}]}])),
+        ?assertEqual([{opts, [{Key, ?REDACT_VAL}]}], redact([{opts, [{Key, foo}]}])),
+        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}]))
+    end,
+
+    Types = [atom, string, binary],
+    Keys = [
+        token,
+        password,
+        secret,
+        passcode,
+        passphrase,
+        key,
+        aws_secret_access_key,
+        secret_key,
+        bind_password
+    ],
+    [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
+
+case_name(Type, Key) ->
+    lists:concat([Type, "-", Key]).
 
 -endif.

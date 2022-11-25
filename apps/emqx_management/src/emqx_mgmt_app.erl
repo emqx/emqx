@@ -25,11 +25,16 @@
         ]).
 
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_mgmt_sup:start_link(),
-    _ = emqx_mgmt_auth:add_default_app(),
-    emqx_mgmt_http:start_listeners(),
-    emqx_mgmt_cli:load(),
-    {ok, Sup}.
+    case emqx_mgmt_auth:init_bootstrap_apps() of
+        ok ->
+            {ok, Sup} = emqx_mgmt_sup:start_link(),
+            _ = emqx_mgmt_auth:add_default_app(),
+            emqx_mgmt_http:start_listeners(),
+            emqx_mgmt_cli:load(),
+            {ok, Sup};
+        {error, _Reason} = Error ->
+            Error
+    end.
 
 stop(_State) ->
     emqx_mgmt_http:stop_listeners().

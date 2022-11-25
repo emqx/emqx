@@ -804,6 +804,19 @@ end}.
 %% Authentication/ACL
 %%--------------------------------------------------------------------
 
+%% @doc Define a determined authentication plugin/module check order.
+%% see detailed doc in emqx.conf
+{mapping, "auth_order", "emqx.auth_order", [
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
+  {datatype, string}
+]}.
+
+%% @doc Same as auth_order, but for ACL.
+{mapping, "acl_order", "emqx.acl_order", [
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
+  {datatype, string}
+]}.
+
 %% @doc Allow anonymous authentication.
 {mapping, "allow_anonymous", "emqx.allow_anonymous", [
   {default, false},
@@ -2190,7 +2203,16 @@ end}.
     SslOpts = fun(Prefix) ->
                   Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
                                 undefined -> undefined;
-                                L -> [list_to_atom(V) || V <- L]
+                                L ->
+                                  Versions0 = [list_to_atom(V) || V <- L],
+                                  SupportVersions = ['tlsv1', 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
+                                  case lists:all(fun(V) -> lists:member(V, SupportVersions) end, Versions0) of
+                                     false ->
+                                        cuttlefish:invalid(
+                                        lists:flatten(io_lib:format("tls_versions: only support ~p", [SupportVersions])));
+                                      true ->
+                                        Versions0
+                                  end
                             end,
                   TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
                   PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
@@ -2493,6 +2515,20 @@ end}.
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
+
+%% @doc Configuration of disconnected event reason.
+%% `discarded`: session was discarded by another client with same client ID when new connection use `clean_session = true`.
+{mapping, "broker.client_disconnect_discarded", "emqx.client_disconnect_discarded", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+%% `takeovered`: session was takeovered by another client with same client ID when new connection use `clean_session = false`.
+{mapping, "broker.client_disconnect_takeovered", "emqx.client_disconnect_takeovered", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 
 %%--------------------------------------------------------------------
 %% System Monitor

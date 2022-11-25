@@ -26,6 +26,13 @@
         , on_action_data_to_webserver/2
         ]).
 
+-ifdef(TEST).
+-export([ preproc_and_normalise_headers/1
+        , maybe_proc_headers/3
+        , maybe_remove_content_type_header/2
+        ]).
+-endif.
+
 -export_type([action_fun/0]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -263,7 +270,8 @@ on_action_data_to_webserver(Selected, _Envs =
                               metadata := Metadata}) ->
     NBody = format_msg(BodyTokens, clear_user_property_header(Selected)),
     NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
-    Req = create_req(Method, NPath, Headers, NBody),
+    Headers1 = maybe_proc_headers(Headers, Method, Selected),
+    Req = create_req(Method, NPath, Headers1, NBody),
     case ehttpc:request({Pool, ClientID}, Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             ?LOG_RULE_ACTION(debug, Metadata, "HTTP Request succeeded with path: ~p status code ~p", [NPath, StatusCode]),
@@ -307,8 +315,9 @@ create_req(_, Path, Headers, Body) ->
 parse_action_params(Params = #{<<"url">> := URL}) ->
     {ok, #{path := CommonPath}} = emqx_http_lib:uri_parse(URL),
     Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
-    Headers = headers(maps:get(<<"headers">>, Params, #{})),
-    NHeaders = ensure_content_type_header(Headers, Method),
+    Headers0 = maps:get(<<"headers">>, Params, #{}),
+    Headers1 = preproc_and_normalise_headers(Headers0),
+    NHeaders = maybe_remove_content_type_header(Headers1, Method),
     #{method => Method,
       path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
       headers => NHeaders,
@@ -316,9 +325,17 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
       request_timeout => cuttlefish_duration:parse(str(maps:get(<<"request_timeout">>, Params, <<"5s">>))),
       pool => maps:get(<<"pool">>, Params)}.
 
-ensure_content_type_header(Headers, Method) when Method =:= post orelse Method =:= put ->
+%% According to https://www.rfc-editor.org/rfc/rfc7231#section-3.1.1.5, the
+%% Content-Type HTTP header should be set only for PUT and POST requests.
+maybe_remove_content_type_header({has_tmpl_token, Headers}, Method) ->
+    {has_tmpl_token, maybe_remove_content_type_header(Headers, Method)};
+maybe_remove_content_type_header(Headers, Method) when is_map(Headers), (Method =:= post orelse Method =:= put) ->
+    maps:to_list(Headers);
+maybe_remove_content_type_header(Headers, Method) when is_list(Headers), (Method =:= post orelse Method =:= put) ->
     Headers;
-ensure_content_type_header(Headers, _Method) ->
+maybe_remove_content_type_header(Headers, _Method) when is_map(Headers) ->
+    maps:to_list(maps:remove(<<"content-type">>, Headers));
+maybe_remove_content_type_header(Headers, _Method) when is_list(Headers) ->
     lists:keydelete(<<"content-type">>, 1, Headers).
 
 merge_path(CommonPath, <<>>) ->
@@ -335,8 +352,46 @@ method(POST) when POST == <<"POST">>; POST == <<"post">> -> post;
 method(PUT) when PUT == <<"PUT">>; PUT == <<"put">> -> put;
 method(DEL) when DEL == <<"DELETE">>; DEL == <<"delete">> -> delete.
 
-headers(Headers) ->
-    emqx_http_lib:normalise_headers(maps:to_list(Headers)).
+normalize_key(K) ->
+    %% see emqx_http_lib:normalise_headers/1 for more info
+    K1 = re:replace(K, "_", "-", [{return, binary}]),
+    string:lowercase(K1).
+
+preproc_and_normalise_headers(Headers) ->
+    Preproc = fun(Str) -> {tmpl_token, emqx_rule_utils:preproc_tmpl(Str)} end,
+    Res = maps:fold(fun(K, V, {Flag, Acc}) ->
+        case {emqx_rule_utils:if_contains_placeholder(K),
+              emqx_rule_utils:if_contains_placeholder(V)} of
+            {false, false} ->
+                {Flag, Acc#{normalize_key(K) => V}};
+            {false, true} ->
+                {has_tmpl_token, Acc#{normalize_key(K) => Preproc(V)}};
+            {true, false} ->
+                {has_tmpl_token, Acc#{Preproc(K) => V}};
+            {true, true} ->
+                {has_tmpl_token, Acc#{Preproc(K) => Preproc(V)}}
+        end
+    end, {no_token, #{}}, Headers),
+    case Res of
+        {no_token, RHeaders} -> RHeaders;
+        {has_tmpl_token, _} -> Res
+    end.
+
+maybe_proc_headers({has_tmpl_token, HeadersTks}, Method, Data) ->
+    MaybeProc = fun
+        (key, {tmpl_token, Tokens}) ->
+            normalize_key(emqx_rule_utils:proc_tmpl(Tokens, Data));
+        (val, {tmpl_token, Tokens}) ->
+            emqx_rule_utils:proc_tmpl(Tokens, Data);
+        (_, Str) ->
+            Str
+    end,
+    Headers = [{MaybeProc(key, K), MaybeProc(val, V)} || {K, V} <- HeadersTks],
+    maybe_remove_content_type_header(Headers, Method);
+maybe_proc_headers(Headers, _, _) ->
+    %% For headers of old emqx versions, and normal header without placeholders,
+    %% the Headers are not pre-processed
+    Headers.
 
 str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
@@ -384,7 +439,7 @@ test_http_connect(Conf) ->
            false
     catch
         Err:Reason:ST ->
-           ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
+           ?LOG_SENSITIVE(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
            false
     end.
 l2b(L) when is_list(L) -> iolist_to_binary(L);
