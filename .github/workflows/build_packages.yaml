@@ -74,7 +74,7 @@ jobs:
               esac
               ;;
           esac
-          echo "::set-output name=BUILD_PROFILE::$PROFILE"
+          echo "BUILD_PROFILE=$PROFILE" >> $GITHUB_OUTPUT
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -143,8 +143,10 @@ jobs:
           - 24.3.4.2-1
         os:
           - macos-11
+          - macos-12-arm64
     runs-on: ${{ matrix.os }}
     steps:
+    - uses: emqx/self-hosted-cleanup-action@v1.0.3
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -152,11 +154,8 @@ jobs:
     - name: unzip source code
       run: |
         ln -s . source
-        unzip -q source.zip
+        unzip -o -q source.zip
         rm source source.zip
-    - name: prepare
-      run: |
-        git config --global credential.helper store
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
