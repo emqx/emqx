@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - erl23.3.4.9-3
+          - erl23.3.4.18-1
         os:
           - ubuntu20.04
           - centos7
@@ -31,9 +31,7 @@ jobs:
 
     steps:
     - uses: AutoModality/action-clean@v1
-      # keep using v1 for now as the otp-23 image has an old version git
-      # TODO: change to v3 after OTP is upgraded to 23.3.4.18-1
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
       with:
           fetch-depth: 0 # clone full git history
     - name: fix-git-unsafe-repository
