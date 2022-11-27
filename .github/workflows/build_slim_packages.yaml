@@ -15,7 +15,7 @@ jobs:
           - erl23.3.4.18-1
         os:
           - ubuntu20.04
-          - centos7
+          - centos8
         runs-on:
           - aws-amd64
           - ubuntu-20.04
