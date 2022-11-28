@@ -22,7 +22,6 @@
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
 -define(TCP_DEFAULT, 'tcp:default').
 
@@ -42,7 +41,7 @@ groups() ->
 init_per_testcase(t_authenticator_fail, Config) ->
     meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
     init_per_testcase(default, Config);
-init_per_testcase(_, Config) ->
+init_per_testcase(_Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [?CONF_NS_ATOM],
@@ -213,7 +212,7 @@ test_authenticators(PathPrefix) ->
         method => <<"get">>,
         headers => #{<<"content-type">> => <<"application/json">>}
     },
-    {ok, 200, _} = request(
+    {ok, 204, _} = request(
         put,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
         ValidConfig1
@@ -302,14 +301,14 @@ test_authenticator(PathPrefix) ->
         method => <<"get">>,
         headers => #{<<"content-type">> => <<"application/json">>}
     },
-    {ok, 200, _} = request(
+    {ok, 204, _} = request(
         put,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
         ValidConfig1
     ),
 
     ValidConfig2 = ValidConfig0#{pool_size => 9},
-    {ok, 200, _} = request(
+    {ok, 204, _} = request(
         put,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
         ValidConfig2

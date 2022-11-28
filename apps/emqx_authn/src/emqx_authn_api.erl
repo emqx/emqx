@@ -190,10 +190,7 @@ schema("/authentication/:id") ->
                 authenticator_examples()
             ),
             responses => #{
-                200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
-                    authenticator_examples()
-                ),
+                204 => <<"Authenticator updated">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>),
                 409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
@@ -282,10 +279,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
                 authenticator_examples()
             ),
             responses => #{
-                200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
-                    authenticator_examples()
-                ),
+                204 => <<"Authenticator updated">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>),
                 409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
@@ -1005,12 +999,8 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
             {update_authenticator, ChainName, AuthenticatorID, Config}
         )
     of
-        {ok, #{
-            post_config_update := #{emqx_authentication := #{id := ID}},
-            raw_config := AuthenticatorsConfig
-        }} ->
-            {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
+        {ok, _} ->
+            {204};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->
