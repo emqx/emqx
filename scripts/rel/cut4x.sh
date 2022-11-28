@@ -10,13 +10,13 @@ usage() {
     cat <<EOF
 $0 RELEASE_GIT_TAG [option]
 RELEASE_GIT_TAG is a 'v*' or 'e*' tag for example:
-  v4.3.21
+  v4.4.10
   e4.4.10-alpha.2
 
 options:
   -h|--help: Print this usage.
   -b|--base: Specify the current release base branch, can be one of
-             release-v43, release-v44, release-e43, or release-e44.
+             release-v44, release-e43, or release-e44.
              NOTE: this option should be used when --dryrun.
   --dryrun:  Do not actually create the git tag.
   --skip-appup: Skip checking appup
@@ -25,17 +25,20 @@ options:
 NOTE: When cutting a 'e*' tag release, both the opensource and enterprise
       repos should be found as a fetch-remote in the current git repo.
 
-NOTE: For 4.3 series the current working branch must be 'release-v43' for opensource edition
-      and 'release-e43' for enterprise edition.
-      --.--[main-v4.3]------------------.-----------.---
+NOTE: For 4.4 series the current working branch must be 'release-v44' for opensource edition
+      and 'release-e44' for enterprise edition.
+      --.--[main-v4.4]------------------.-----------.---
          \\                             /             \\
-          \`---[release-v43]----(v4.3.X)               \\
+          \`---[release-v44]----(v4.4.X)               \\
                                        \\               \\
-          .---[release-e43]-------------'--(e4.3.Y)     \\
+          .---[release-e44]-------------'--(e4.4.Y)     \\
          /                                         \\     V
-      --'------[main-v4.3-enterprise]---------------'----'---
-      The same applies to 4.4 series, however, a 4.3 branch is also the upstream branch
-      for the corresponding 4.4 branch. e.g. release-e44 has two upstreams: release-v44 and release-e43
+      --'------[main-v4.4-enterprise]---------------'----'---
+
+NOTE: For 4.3 opensource edition, it reached its 18-month EOL in November 2022.
+      only enterprise edition will be continue supported.
+      For issues affecting both 4.3 and 4.4, two separate PRs should be created
+      one for main-v4.3-enterprise and another for main-v4.4 or main-v4.4-enterprise
 EOF
 }
 
@@ -45,9 +48,6 @@ logerr() {
 logmsg() {
     echo "INFO: $1"
 }
-
-REL_BRANCH_CE="${REL_BRANCH_CE:-release-v43}"
-REL_BRANCH_EE="${REL_BRANCH_EE:-release-e43}"
 
 TAG="${1:-}"
 
@@ -115,9 +115,6 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
-        v4.3.*)
-            echo 'release-v43'
-            ;;
         e4.3.*)
             echo 'release-e43'
             ;;

@@ -19,14 +19,10 @@ options:
     It tries to merge (by default with --ff-only option)
     upstreams branches for the current working branch.
     The uppstream branch of the current branch are as below:
-    * v43: []              # no upstream for 4.3 opensource edition
-    * e43: [v43]           # 4.3 enterprise has 4.3 opensource as upstream
-    * v44: [v43]           # 4.4 opensource has 4.3 opensource as upstream
-    * e44: [e43, v44, v43] # 4.4 enterprise has all the above 3 as upstream
-    For e44:
-      v43 is an indirect upstream.
-      Ideally the merge of v43 should be done through v44 or e43,
-      but it does not hurt to apply a direct merge.
+    * v43: []    # no upstream for 4.3 opensource edition
+    * e43: [v43] # 4.3 enterprise has 4.3 opensource as upstream
+    * v44: []    # no upstream for 4.4 opensource edition (since November 2022)
+    * e44: [v44] # 4.4 enterprise has all the above 3 as upstream
 
   -b|--base:
     The base branch of current working branch if currently is not
@@ -173,25 +169,25 @@ upstream_branches() {
             remote_ref "$base"
             ;;
         release-v44)
-            remote_refs "$base" 'release-v43'
+            remote_refs "$base"
             ;;
         release-e43)
             remote_refs "$base" 'release-v43'
             ;;
         release-e44)
-            remote_refs "$base" 'release-v44' 'release-e43' 'release-v43'
+            remote_refs "$base" 'release-v44'
             ;;
         main-v4.3)
             remote_refs "$base" 'release-v43'
             ;;
         main-v4.4)
-            remote_refs "$base" 'release-v44' 'main-v4.3'
+            remote_refs "$base" 'release-v44'
             ;;
         main-v4.3-enterprise)
             remote_refs "$base" 'release-e43' 'main-v4.3'
             ;;
         main-v4.4-enterprise)
-            remote_refs "$base" 'release-e44' 'main-v4.4' 'main-v4.3-enterprise' 'main-v4.3'
+            remote_refs "$base" 'release-e44' 'main-v4.4'
             ;;
     esac
 }
