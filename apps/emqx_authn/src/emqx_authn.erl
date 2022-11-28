@@ -71,8 +71,15 @@ do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
                 Opts#{atom_key => true}
             )
     end;
-do_check_config(_Config, _Opts) ->
-    throw({invalid_config, "mechanism_field_required"}).
+do_check_config(Config, _Opts) when is_map(Config) ->
+    throw({invalid_config, "mechanism_field_required", Config});
+do_check_config(RawConf, Opts) ->
+    %% authentication conf is lazy type, when it comes from ENV, it is a string
+    %% EMQX_AUTHENTICATION__1="{mechanism=\"password_based\"...}"
+    case hocon:binary(RawConf, Opts) of
+        {ok, Conf} -> do_check_config(Conf, Opts);
+        {error, Reason} -> throw({invalid_config, Reason})
+    end.
 
 atom(Bin) ->
     try
