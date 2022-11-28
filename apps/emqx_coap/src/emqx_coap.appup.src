@@ -1,15 +1,19 @@
-%% -*-: erlang -*-
+%% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{<<"4\\.3\\.[0-1]">>,[
-    {load_module, emqx_coap_mqtt_adapter, brutal_purge, soft_purge, []},
-    {load_module, emqx_coap_pubsub_resource, brutal_purge, soft_purge, []},
-    {load_module, emqx_coap_resource, brutal_purge, soft_purge, []}
-   ]},
-   {<<".*">>, []}],
-  [{<<"4\\.3\\.[0-1]">>,[
-    {load_module, emqx_coap_mqtt_adapter, brutal_purge, soft_purge, []},
-    {load_module, emqx_coap_pubsub_resource, brutal_purge, soft_purge, []},
-    {load_module, emqx_coap_resource, brutal_purge, soft_purge, []}
-   ]},
-   {<<".*">>, []}]
-}.
+  [{"4.3.2",
+    [{load_module,emqx_coap_resource,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_mqtt_adapter,brutal_purge,soft_purge,[]}]},
+   {<<"4\\.3\\.[0-1]">>,
+    [{load_module,emqx_coap_mqtt_adapter,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_pubsub_resource,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_resource,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"4.3.2",
+    [{load_module,emqx_coap_resource,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_mqtt_adapter,brutal_purge,soft_purge,[]}]},
+   {<<"4\\.3\\.[0-1]">>,
+    [{load_module,emqx_coap_mqtt_adapter,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_pubsub_resource,brutal_purge,soft_purge,[]},
+     {load_module,emqx_coap_resource,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.
