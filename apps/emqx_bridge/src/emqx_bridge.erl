@@ -213,6 +213,7 @@ lookup(Id) ->
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
     lookup(Type, Name, RawConf).
+
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(emqx_bridge_resource:resource_id(Type, Name)) of
         {error, not_found} ->
@@ -222,9 +223,14 @@ lookup(Type, Name, RawConf) ->
                 type => Type,
                 name => Name,
                 resource_data => Data,
-                raw_config => RawConf
+                raw_config => maybe_upgrade(Type, RawConf)
             }}
     end.
+
+maybe_upgrade(mqtt, Config) ->
+    emqx_bridge_mqtt_config:maybe_upgrade(Config);
+maybe_upgrade(_Other, Config) ->
+    Config.
 
 disable_enable(Action, BridgeType, BridgeName) when
     Action =:= disable; Action =:= enable

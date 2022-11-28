@@ -109,6 +109,7 @@ fields("server_configs") ->
                 binary(),
                 #{
                     format => <<"password">>,
+                    sensitive => true,
                     desc => ?DESC("password")
                 }
             )},

@@ -101,7 +101,10 @@ fields(bridges) ->
         {mqtt,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mqtt_schema, "config")),
-                #{desc => ?DESC("bridges_mqtt")}
+                #{
+                    desc => ?DESC("bridges_mqtt"),
+                    converter => fun emqx_bridge_mqtt_config:upgrade_pre_ee/1
+                }
             )}
     ] ++ ee_fields_bridges();
 fields("metrics") ->
