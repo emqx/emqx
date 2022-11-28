@@ -67,7 +67,7 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
             case is_expired(Exp) of
                 true ->
                     ?DEBUG("acl_deny_due_to_jwt_expired", []),
-                    deny;
+                    {stop, deny};
                 false ->
                     verify_acl(ClientInfo, Acl, PubSub, Topic)
             end;

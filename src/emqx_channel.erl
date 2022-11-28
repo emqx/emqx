@@ -669,7 +669,6 @@ after_message_acked(ClientInfo, Msg, PubAckProps) ->
 %% Process Subscribe
 %%--------------------------------------------------------------------
 
--compile({inline, [process_subscribe/3]}).
 process_subscribe(TopicFilters, SubProps, Channel) ->
     process_subscribe(TopicFilters, SubProps, Channel, []).
 

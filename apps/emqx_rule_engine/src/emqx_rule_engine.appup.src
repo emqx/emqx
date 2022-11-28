@@ -1,7 +1,8 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.10",
+  [{"4.4.11",[{load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}]},
+   {"4.4.10",
     [{add_module,emqx_rule_engine_jwt},
      {add_module,emqx_rule_engine_jwt_worker},
      {add_module,emqx_rule_engine_jwt_sup},
@@ -196,7 +197,8 @@
      {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_engine_api,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.4.10",
+  [{"4.4.11",[{load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}]},
+   {"4.4.10",
     [{load_module,emqx_rule_actions,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_utils,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_monitor,brutal_purge,soft_purge,[]},

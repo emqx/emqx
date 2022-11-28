@@ -462,6 +462,16 @@ t_check_jwt_acl_expire(_Config) ->
        {ok, #{}, [?RC_NOT_AUTHORIZED]},
        emqtt:subscribe(C, <<"a/b">>, 0)),
 
+    Default = emqx_zone:get_env(external, acl_nomatch, deny),
+    emqx_zone:set_env(external, acl_nomatch, allow),
+    try
+        ?assertMatch(
+           {ok, #{}, [?RC_NOT_AUTHORIZED]},
+           emqtt:subscribe(C, <<"a/b">>, 0))
+    after
+        emqx_zone:set_env(external, acl_nomatch, Default)
+    end,
+
     ok = emqtt:disconnect(C).
 
 t_check_jwt_acl_no_exp(init, _Config) ->
