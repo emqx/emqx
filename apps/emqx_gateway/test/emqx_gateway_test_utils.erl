@@ -94,7 +94,7 @@ maybe_unconvert_listeners(Conf) when is_map(Conf) ->
 maybe_unconvert_listeners(Conf) ->
     Conf.
 
-assert_feilds_apperence(Ks, Map) ->
+assert_fields_exist(Ks, Map) ->
     lists:foreach(
         fun(K) ->
             _ = maps:get(K, Map)

@@ -41,7 +41,8 @@
     delete_all_deactivated_alarms/0,
     get_alarms/0,
     get_alarms/1,
-    format/1
+    format/1,
+    format/2
 ]).
 
 %% gen_server callbacks
@@ -169,12 +170,15 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
-format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
+format(Alarm) ->
+    format(node(), Alarm).
+
+format(Node, #activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
     Now = erlang:system_time(microsecond),
     %% mnesia db stored microsecond for high frequency alarm
     %% format for dashboard using millisecond
     #{
-        node => node(),
+        node => Node,
         name => Name,
         message => Message,
         %% to millisecond
@@ -182,7 +186,7 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         activate_at => to_rfc3339(At),
         details => Details
     };
-format(#deactivated_alarm{
+format(Node, #deactivated_alarm{
     name = Name,
     message = Message,
     activate_at = At,
@@ -190,7 +194,7 @@ format(#deactivated_alarm{
     deactivate_at = DAt
 }) ->
     #{
-        node => node(),
+        node => Node,
         name => Name,
         message => Message,
         %% to millisecond

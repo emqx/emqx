@@ -305,6 +305,50 @@ t_check_expire(_Config) ->
 
     ok = emqtt:disconnect(C).
 
+t_check_no_expire(_Config) ->
+    Payload = #{
+        <<"username">> => <<"username">>,
+        <<"acl">> => #{<<"sub">> => [<<"a/b">>]}
+    },
+
+    JWT = generate_jws(Payload),
+
+    {ok, C} = emqtt:start_link(
+        [
+            {clean_start, true},
+            {proto_ver, v5},
+            {clientid, <<"clientid">>},
+            {username, <<"username">>},
+            {password, JWT}
+        ]
+    ),
+    {ok, _} = emqtt:connect(C),
+    ?assertMatch(
+        {ok, #{}, [0]},
+        emqtt:subscribe(C, <<"a/b">>, 0)
+    ),
+
+    ?assertMatch(
+        {ok, #{}, [0]},
+        emqtt:unsubscribe(C, <<"a/b">>)
+    ),
+
+    ok = emqtt:disconnect(C).
+
+t_check_undefined_expire(_Config) ->
+    Acl = #{expire => undefined, rules => #{<<"sub">> => [<<"a/b">>]}},
+    Client = #{acl => Acl},
+
+    ?assertMatch(
+        {matched, allow},
+        emqx_authz_client_info:authorize(Client, subscribe, <<"a/b">>, undefined)
+    ),
+
+    ?assertMatch(
+        {matched, deny},
+        emqx_authz_client_info:authorize(Client, subscribe, <<"a/bar">>, undefined)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

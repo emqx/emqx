@@ -1060,7 +1060,7 @@ printable_maps(Headers) ->
             (K, V, AccIn) ->
                 AccIn#{K => V}
         end,
-        #{},
+        #{'User-Property' => #{}},
         Headers
     ).
 

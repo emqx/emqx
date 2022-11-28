@@ -49,7 +49,8 @@
 ]).
 
 -export([
-    query/4,
+    qs2ms/2,
+    run_fuzzy_filter/2,
     format_user_info/1,
     group_match_spec/1
 ]).
@@ -84,7 +85,6 @@
     {<<"user_group">>, binary},
     {<<"is_superuser">>, atom}
 ]).
--define(QUERY_FUN, {?MODULE, query}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -288,42 +288,30 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
 
 list_users(QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup},
-    emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
-
-%%--------------------------------------------------------------------
-%% Query Functions
-
-query(Tab, {QString, []}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_user_info/1
-    );
-query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_user_info/1
+    emqx_mgmt_api:node_query(
+        node(),
+        ?TAB,
+        NQueryString,
+        ?AUTHN_QSCHEMA,
+        fun ?MODULE:qs2ms/2,
+        fun ?MODULE:format_user_info/1
     ).
 
 %%--------------------------------------------------------------------
-%% Match funcs
+%% QueryString to MatchSpec
+
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {QString, FuzzyQString}) ->
+    #{
+        match_spec => ms_from_qstring(QString),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 %% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

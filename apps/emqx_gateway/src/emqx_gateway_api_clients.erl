@@ -55,8 +55,10 @@
 
 %% internal exports (for client query)
 -export([
-    query/4,
-    format_channel_info/1
+    qs2ms/2,
+    run_fuzzy_filter/2,
+    format_channel_info/1,
+    format_channel_info/2
 ]).
 
 -define(TAGS, [<<"Gateway Clients">>]).
@@ -97,8 +99,6 @@ paths() ->
     {<<"lte_lifetime">>, integer}
 ]).
 
--define(QUERY_FUN, {?MODULE, query}).
-
 clients(get, #{
     bindings := #{name := Name0},
     query_string := QString
@@ -109,10 +109,11 @@ clients(get, #{
             case maps:get(<<"node">>, QString, undefined) of
                 undefined ->
                     emqx_mgmt_api:cluster_query(
-                        QString,
                         TabName,
+                        QString,
                         ?CLIENT_QSCHEMA,
-                        ?QUERY_FUN
+                        fun ?MODULE:qs2ms/2,
+                        fun ?MODULE:format_channel_info/2
                     );
                 Node0 ->
                     case emqx_misc:safe_to_existing_atom(Node0) of
@@ -120,10 +121,11 @@ clients(get, #{
                             QStringWithoutNode = maps:without([<<"node">>], QString),
                             emqx_mgmt_api:node_query(
                                 Node1,
-                                QStringWithoutNode,
                                 TabName,
+                                QStringWithoutNode,
                                 ?CLIENT_QSCHEMA,
-                                ?QUERY_FUN
+                                fun ?MODULE:qs2ms/2,
+                                fun ?MODULE:format_channel_info/2
                             );
                         {error, _} ->
                             {error, Node0, {badrpc, <<"invalid node">>}}
@@ -264,27 +266,11 @@ extra_sub_props(Props) ->
     ).
 
 %%--------------------------------------------------------------------
-%% query funcs
+%% QueryString to MatchSpec
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_channel_info/1
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_channel_info/1
-    ).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    #{match_spec => qs2ms(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
 qs2ms(Qs) ->
     {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
@@ -339,13 +325,10 @@ ms(lifetime, X) ->
 %%--------------------------------------------------------------------
 %% Fuzzy filter funcs
 
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;
@@ -363,8 +346,11 @@ run_fuzzy_filter(
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, Infos, Stats} = R) ->
-    Node = maps:get(node, Infos, node()),
+format_channel_info(ChannInfo) ->
+    format_channel_info(node(), ChannInfo).
+
+format_channel_info(WhichNode, {_, Infos, Stats} = R) ->
+    Node = maps:get(node, Infos, WhichNode),
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo = maps:get(conninfo, Infos, #{}),
     SessInfo = maps:get(session, Infos, #{}),

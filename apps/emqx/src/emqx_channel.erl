@@ -2134,10 +2134,14 @@ will_delay_interval(WillMsg) ->
         0
     ).
 
-publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
+publish_will_msg(
+    ClientInfo = #{mountpoint := MountPoint},
+    Msg = #message{topic = Topic}
+) ->
     case emqx_access_control:authorize(ClientInfo, publish, Topic) of
         allow ->
-            _ = emqx_broker:publish(Msg),
+            NMsg = emqx_mountpoint:mount(MountPoint, Msg),
+            _ = emqx_broker:publish(NMsg),
             ok;
         deny ->
             ?tp(

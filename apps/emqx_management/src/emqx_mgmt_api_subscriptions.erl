@@ -32,8 +32,9 @@
 -export([subscriptions/2]).
 
 -export([
-    query/4,
-    format/1
+    qs2ms/2,
+    run_fuzzy_filter/2,
+    format/2
 ]).
 
 -define(SUBS_QTABLE, emqx_suboption).
@@ -46,8 +47,6 @@
     {<<"qos">>, integer},
     {<<"match_topic">>, binary}
 ]).
-
--define(QUERY_FUN, {?MODULE, query}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -139,20 +138,22 @@ subscriptions(get, #{query_string := QString}) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    QString,
                     ?SUBS_QTABLE,
+                    QString,
                     ?SUBS_QSCHEMA,
-                    ?QUERY_FUN
+                    fun ?MODULE:qs2ms/2,
+                    fun ?MODULE:format/2
                 );
             Node0 ->
                 case emqx_misc:safe_to_existing_atom(Node0) of
                     {ok, Node1} ->
                         emqx_mgmt_api:node_query(
                             Node1,
-                            QString,
                             ?SUBS_QTABLE,
+                            QString,
                             ?SUBS_QSCHEMA,
-                            ?QUERY_FUN
+                            fun ?MODULE:qs2ms/2,
+                            fun ?MODULE:format/2
                         );
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
@@ -168,16 +169,12 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(Items) when is_list(Items) ->
-    [format(Item) || Item <- Items];
-format({{Subscriber, Topic}, Options}) ->
-    format({Subscriber, Topic, Options});
-format({_Subscriber, Topic, Options}) ->
+format(WhichNode, {{_Subscriber, Topic}, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
             clientid => maps:get(subid, Options),
-            node => node()
+            node => WhichNode
         },
         maps:with([qos, nl, rap, rh], Options)
     ).
@@ -190,53 +187,21 @@ get_topic(Topic, _) ->
     Topic.
 
 %%--------------------------------------------------------------------
-%% Query Function
+%% QueryString to MatchSpec
 %%--------------------------------------------------------------------
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format/1
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format/1
-    ).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    #{match_spec => gen_match_spec(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
-fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
-
-run_fuzzy_filter(_, []) ->
-    true;
-run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
-    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
-
-%%--------------------------------------------------------------------
-%% Query String to Match Spec
-
-qs2ms(Qs) ->
-    MtchHead = qs2ms(Qs, {{'_', '_'}, #{}}),
+gen_match_spec(Qs) ->
+    MtchHead = gen_match_spec(Qs, {{'_', '_'}, #{}}),
     [{MtchHead, [], ['$_']}].
 
-qs2ms([], MtchHead) ->
+gen_match_spec([], MtchHead) ->
     MtchHead;
-qs2ms([{Key, '=:=', Value} | More], MtchHead) ->
-    qs2ms(More, update_ms(Key, Value, MtchHead)).
+gen_match_spec([{Key, '=:=', Value} | More], MtchHead) ->
+    gen_match_spec(More, update_ms(Key, Value, MtchHead)).
 
 update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{subid => X}};
@@ -246,3 +211,13 @@ update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{share => X}};
 update_ms(qos, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{qos => X}}.
+
+fuzzy_filter_fun([]) ->
+    undefined;
+fuzzy_filter_fun(Fuzzy) ->
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
+    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).

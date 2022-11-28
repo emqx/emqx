@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -180,7 +181,7 @@ create(#{
 create(Banned = #banned{who = Who}) ->
     case look_up(Who) of
         [] ->
-            mria:dirty_write(?BANNED_TAB, Banned),
+            insert_banned(Banned),
             {ok, Banned};
         [OldBanned = #banned{until = Until}] ->
             %% Don't support shorten or extend the until time by overwrite.
@@ -190,7 +191,7 @@ create(Banned = #banned{who = Who}) ->
                     {error, {already_exist, OldBanned}};
                 %% overwrite expired one is ok.
                 false ->
-                    mria:dirty_write(?BANNED_TAB, Banned),
+                    insert_banned(Banned),
                     {ok, Banned}
             end
     end.
@@ -266,3 +267,21 @@ expire_banned_items(Now) ->
         ok,
         ?BANNED_TAB
     ).
+
+insert_banned(Banned) ->
+    mria:dirty_write(?BANNED_TAB, Banned),
+    on_banned(Banned).
+
+on_banned(#banned{who = {clientid, ClientId}}) ->
+    %% kick the session if the client is banned by clientid
+    ?tp(
+        warning,
+        kick_session_due_to_banned,
+        #{
+            clientid => ClientId
+        }
+    ),
+    emqx_cm:kick_session(ClientId),
+    ok;
+on_banned(_) ->
+    ok.

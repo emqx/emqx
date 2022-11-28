@@ -365,11 +365,11 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
 acl(Claims, AclClaimName) ->
     Acl =
         case Claims of
-            #{<<"exp">> := Expire, AclClaimName := Rules} ->
+            #{AclClaimName := Rules} ->
                 #{
                     acl => #{
                         rules => Rules,
-                        expire => Expire
+                        expire => maps:get(<<"exp">>, Claims, undefined)
                     }
                 };
             _ ->

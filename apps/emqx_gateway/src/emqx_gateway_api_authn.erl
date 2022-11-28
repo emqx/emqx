@@ -30,8 +30,7 @@
     [
         return_http_error/2,
         with_gateway/2,
-        with_authn/2,
-        checks/2
+        with_authn/2
     ]
 ).
 

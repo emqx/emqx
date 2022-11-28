@@ -28,18 +28,17 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([
-    update/1,
     start/0,
     stop/0,
     restart/0,
-    %% for rpc
+    %% for rpc: remove after 5.1.x
     do_start/0,
     do_stop/0,
     do_restart/0
 ]).
 
 %% Interface
--export([start_link/1]).
+-export([start_link/0]).
 
 %% Internal Exports
 -export([
@@ -51,40 +50,15 @@
     terminate/2
 ]).
 
--record(state, {
-    timer :: reference() | undefined,
-    sample_time_interval :: pos_integer(),
-    flush_time_interval :: pos_integer(),
-    estatsd_pid :: pid()
-}).
+-define(SAMPLE_TIMEOUT, sample_timeout).
 
-update(Config) ->
-    case
-        emqx_conf:update(
-            [statsd],
-            Config,
-            #{rawconf_with_defaults => true, override_to => cluster}
-        )
-    of
-        {ok, #{raw_config := NewConfigRows}} ->
-            ok = stop(),
-            case maps:get(<<"enable">>, Config, true) of
-                true ->
-                    ok = restart();
-                false ->
-                    ok = stop()
-            end,
-            {ok, NewConfigRows};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
+%% Remove after 5.1.x
 start() -> check_multicall_result(emqx_statsd_proto_v1:start(mria_mnesia:running_nodes())).
 stop() -> check_multicall_result(emqx_statsd_proto_v1:stop(mria_mnesia:running_nodes())).
 restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria_mnesia:running_nodes())).
 
 do_start() ->
-    emqx_statsd_sup:ensure_child_started(?APP, emqx_conf:get([statsd], #{})).
+    emqx_statsd_sup:ensure_child_started(?APP).
 
 do_stop() ->
     emqx_statsd_sup:ensure_child_stopped(?APP).
@@ -94,59 +68,51 @@ do_restart() ->
     ok = do_start(),
     ok.
 
-start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-init([Opts]) ->
+init([]) ->
     process_flag(trap_exit, true),
-    Tags = tags(maps:get(tags, Opts, #{})),
-    {Host, Port} = maps:get(server, Opts, {?DEFAULT_HOST, ?DEFAULT_PORT}),
-    Opts1 = maps:without(
-        [
-            sample_time_interval,
-            flush_time_interval
-        ],
-        Opts#{
-            tags => Tags,
-            host => Host,
-            port => Port,
-            prefix => <<"emqx">>
-        }
-    ),
-    {ok, Pid} = estatsd:start_link(maps:to_list(Opts1)),
-    SampleTimeInterval = maps:get(sample_time_interval, Opts, ?DEFAULT_FLUSH_TIME_INTERVAL),
-    FlushTimeInterval = maps:get(flush_time_interval, Opts, ?DEFAULT_FLUSH_TIME_INTERVAL),
+    #{
+        tags := TagsRaw,
+        server := {Host, Port},
+        sample_time_interval := SampleTimeInterval,
+        flush_time_interval := FlushTimeInterval
+    } = emqx_conf:get([statsd]),
+    Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
+    Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
+    {ok, Pid} = estatsd:start_link(Opts),
     {ok,
-        ensure_timer(#state{
-            sample_time_interval = SampleTimeInterval,
-            flush_time_interval = FlushTimeInterval,
-            estatsd_pid = Pid
+        ensure_timer(#{
+            sample_time_interval => SampleTimeInterval,
+            flush_time_interval => FlushTimeInterval,
+            estatsd_pid => Pid
         })}.
 
 handle_call(_Req, _From, State) ->
-    {noreply, State}.
+    {reply, ignore, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(
-    {timeout, Ref, sample_timeout},
-    State = #state{
-        sample_time_interval = SampleTimeInterval,
-        flush_time_interval = FlushTimeInterval,
-        estatsd_pid = Pid,
-        timer = Ref
+    {timeout, Ref, ?SAMPLE_TIMEOUT},
+    State = #{
+        sample_time_interval := SampleTimeInterval,
+        flush_time_interval := FlushTimeInterval,
+        estatsd_pid := Pid,
+        timer := Ref
     }
 ) ->
     Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_vm_data(),
     SampleRate = SampleTimeInterval / FlushTimeInterval,
     StatsdMetrics = [
-        {gauge, trans_metrics_name(Name), Value, SampleRate, []}
+        {gauge, Name, Value, SampleRate, []}
      || {Name, Value} <- Metrics
     ],
-    estatsd:submit(Pid, StatsdMetrics),
-    {noreply, ensure_timer(State)};
-handle_info({'EXIT', Pid, Error}, State = #state{estatsd_pid = Pid}) ->
+    ok = estatsd:submit(Pid, StatsdMetrics),
+    {noreply, ensure_timer(State), hibernate};
+handle_info({'EXIT', Pid, Error}, State = #{estatsd_pid := Pid}) ->
     {stop, {shutdown, Error}, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
@@ -154,16 +120,13 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{estatsd_pid = Pid}) ->
+terminate(_Reason, #{estatsd_pid := Pid}) ->
     estatsd:stop(Pid),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Internal function
 %%------------------------------------------------------------------------------
-trans_metrics_name(Name) ->
-    Name0 = atom_to_binary(Name, utf8),
-    binary_to_atom(<<"emqx.", Name0/binary>>, utf8).
 
 emqx_vm_data() ->
     Idle =
@@ -179,12 +142,8 @@ emqx_vm_data() ->
         {cpu_use, 100 - Idle}
     ] ++ emqx_vm:mem_info().
 
-tags(Map) ->
-    Tags = maps:to_list(Map),
-    [{atom_to_binary(Key, utf8), Value} || {Key, Value} <- Tags].
-
-ensure_timer(State = #state{sample_time_interval = SampleTimeInterval}) ->
-    State#state{timer = emqx_misc:start_timer(SampleTimeInterval, sample_timeout)}.
+ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
+    State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
 
 check_multicall_result({Results, []}) ->
     case
@@ -201,3 +160,8 @@ check_multicall_result({Results, []}) ->
     end;
 check_multicall_result({_, _}) ->
     error(multicall_failed).
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(I) when is_integer(I) -> integer_to_binary(I);
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
