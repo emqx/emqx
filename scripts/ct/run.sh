@@ -113,6 +113,10 @@ for dep in ${CT_DEPS}; do
                      '.ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml' )
             ;;
+        redis_cluster)
+            FILES+=( '.ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml' )
+            ;;
         mysql)
             FILES+=( '.ci/docker-compose-file/docker-compose-mysql-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-mysql-tls.yaml' )

@@ -37,7 +37,7 @@
 
 -export([connect/1]).
 
--export([cmd/3]).
+-export([do_cmd/3]).
 
 %% redis host don't need parse
 -define(REDIS_HOST_OPTIONS, #{
@@ -63,7 +63,8 @@ fields(single) ->
     [
         {server, fun server/1},
         {redis_type, #{
-            type => hoconsc:enum([single]),
+            type => single,
+            default => single,
             required => true,
             desc => ?DESC("single")
         }}
@@ -74,18 +75,20 @@ fields(cluster) ->
     [
         {servers, fun servers/1},
         {redis_type, #{
-            type => hoconsc:enum([cluster]),
+            type => cluster,
+            default => cluster,
             required => true,
             desc => ?DESC("cluster")
         }}
     ] ++
-        redis_fields() ++
+        lists:keydelete(database, 1, redis_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
     [
         {servers, fun servers/1},
         {redis_type, #{
-            type => hoconsc:enum([sentinel]),
+            type => sentinel,
+            default => sentinel,
             required => true,
             desc => ?DESC("sentinel")
         }},
@@ -119,7 +122,6 @@ on_start(
     InstId,
     #{
         redis_type := Type,
-        database := Database,
         pool_size := PoolSize,
         auto_reconnect := AutoReconn,
         ssl := SSL
@@ -135,13 +137,17 @@ on_start(
             single -> [{servers, [maps:get(server, Config)]}];
             _ -> [{servers, maps:get(servers, Config)}]
         end,
+    Database =
+        case Type of
+            cluster -> [];
+            _ -> [{database, maps:get(database, Config)}]
+        end,
     Opts =
         [
             {pool_size, PoolSize},
-            {database, Database},
             {password, maps:get(password, Config, "")},
             {auto_reconnect, reconn_interval(AutoReconn)}
-        ] ++ Servers,
+        ] ++ Database ++ Servers,
     Options =
         case maps:get(enable, SSL) of
             true ->
@@ -157,9 +163,12 @@ on_start(
     case Type of
         cluster ->
             case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
-                {ok, _} -> {ok, State};
-                {ok, _, _} -> {ok, State};
-                {error, Reason} -> {error, Reason}
+                {ok, _} ->
+                    {ok, State};
+                {ok, _, _} ->
+                    {ok, State};
+                {error, Reason} ->
+                    {error, Reason}
             end;
         _ ->
             case
@@ -180,23 +189,28 @@ on_stop(InstId, #{poolname := PoolName, type := Type}) ->
         _ -> emqx_plugin_libs_pool:stop_pool(PoolName)
     end.
 
-on_query(InstId, {cmd, Command}, #{poolname := PoolName, type := Type} = State) ->
+on_query(InstId, {cmd, _} = Query, State) ->
+    do_query(InstId, Query, State);
+on_query(InstId, {cmds, _} = Query, State) ->
+    do_query(InstId, Query, State).
+
+do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
     ?TRACE(
         "QUERY",
         "redis_connector_received",
-        #{connector => InstId, sql => Command, state => State}
+        #{connector => InstId, query => Query, state => State}
     ),
     Result =
         case Type of
-            cluster -> eredis_cluster:q(PoolName, Command);
-            _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
+            cluster -> do_cmd(PoolName, cluster, Query);
+            _ -> ecpool:pick_and_do(PoolName, {?MODULE, do_cmd, [Type, Query]}, no_handover)
         end,
     case Result of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "redis_connector_do_cmd_query_failed",
+                msg => "redis_connector_do_query_failed",
                 connector => InstId,
-                sql => Command,
+                query => Query,
                 reason => Reason
             });
         _ ->
@@ -226,7 +240,7 @@ on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect :
             Health = eredis_cluster_workers_exist_and_are_connected(Workers),
             status_result(Health, AutoReconn);
         false ->
-            disconnect
+            disconnected
     end;
 on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn}) ->
     Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
@@ -245,10 +259,29 @@ status_result(_Status = false, _AutoReconn = false) -> disconnected.
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.
 
-cmd(Conn, cluster, Command) ->
-    eredis_cluster:q(Conn, Command);
-cmd(Conn, _Type, Command) ->
-    eredis:q(Conn, Command).
+do_cmd(PoolName, cluster, {cmd, Command}) ->
+    eredis_cluster:q(PoolName, Command);
+do_cmd(Conn, _Type, {cmd, Command}) ->
+    eredis:q(Conn, Command);
+do_cmd(PoolName, cluster, {cmds, Commands}) ->
+    wrap_qp_result(eredis_cluster:qp(PoolName, Commands));
+do_cmd(Conn, _Type, {cmds, Commands}) ->
+    wrap_qp_result(eredis:qp(Conn, Commands)).
+
+wrap_qp_result({error, _} = Error) ->
+    Error;
+wrap_qp_result(Results) when is_list(Results) ->
+    AreAllOK = lists:all(
+        fun
+            ({ok, _}) -> true;
+            ({error, _}) -> false
+        end,
+        Results
+    ),
+    case AreAllOK of
+        true -> {ok, Results};
+        false -> {error, Results}
+    end.
 
 %% ===================================================================
 connect(Opts) ->
