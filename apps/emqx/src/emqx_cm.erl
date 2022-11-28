@@ -304,6 +304,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                 ok = emqx_session:resume(ClientInfo, Session),
                 case
                     request_stepdown(
+                        ClientId,
                         {takeover, 'end'},
                         ConnMod,
                         ChanPid
@@ -404,7 +405,7 @@ takeover_session(ClientId, Pid) ->
         _:R when
             R == noproc;
             R == timeout;
-            %% request_stepdown/3
+            %% request_stepdown/4
             R == unexpected_exception
         ->
             emqx_persistent_session:lookup(ClientId);
@@ -418,7 +419,7 @@ do_takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             emqx_persistent_session:lookup(ClientId);
         ConnMod when is_atom(ConnMod) ->
-            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+            case request_stepdown(ClientId, {takeover, 'begin'}, ConnMod, ChanPid) of
                 {ok, Session} ->
                     {living, ConnMod, ChanPid, Session};
                 {error, Reason} ->
@@ -440,13 +441,13 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% If failed to kick (e.g. timeout) force a kill.
 %% Keeping the stale pid around, or returning error or raise an exception
 %% benefits nobody.
--spec request_stepdown(Action, module(), pid()) ->
+-spec request_stepdown(emqx_types:clientid(), Action, module(), pid()) ->
     ok
     | {ok, emqx_session:session() | list(emqx_type:deliver())}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
-request_stepdown(Action, ConnMod, Pid) ->
+request_stepdown(ClientId, Action, ConnMod, Pid) ->
     Timeout =
         case Action == kick orelse Action == discard of
             true -> ?T_KICK;
@@ -498,8 +499,16 @@ request_stepdown(Action, ConnMod, Pid) ->
                 {error, unexpected_exception}
         end,
     case Action == kick orelse Action == discard of
-        true -> ok;
-        _ -> Return
+        true ->
+            case Return of
+                {error, _} ->
+                    unregister_channel(ClientId),
+                    ok;
+                _ ->
+                    ok
+            end;
+        _ ->
+            Return
     end.
 
 force_kill(Pid) ->
@@ -522,7 +531,7 @@ do_kick_session(Action, ClientId, ChanPid) ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = request_stepdown(Action, ConnMod, ChanPid)
+            ok = request_stepdown(ClientId, Action, ConnMod, ChanPid)
     end.
 
 %% @private This function is shared for session 'kick' and 'discard' (as the first arg Action).
