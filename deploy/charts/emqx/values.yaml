@@ -72,27 +72,8 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
-  EMQX_NAME:  "{{ .Release.Name }}"
-
-  ## Cluster discovery by dns
-  # EMQX_CLUSTER__DISCOVERY: "dns"
-  # EMQX_CLUSTER__DNS__NAME: "{{ .Release.Name }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
-  # EMQX_CLUSTER__DNS__APP: "{{ .Release.Name }}"
-  # EMQX_CLUSTER__DNS__TYPE: "srv"
-
   ## Cluster discovery by k8s
   EMQX_CLUSTER__DISCOVERY: "k8s"
-  EMQX_CLUSTER__K8S__APP_NAME: "{{ .Release.Name }}"
-  EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
-  EMQX_CLUSTER__K8S__SERVICE_NAME: "{{ .Release.Name }}-headless"
-  EMQX_CLUSTER__K8S__NAMESPACE: "{{ .Release.Namespace }}"
-  ## The address type is used to extract host from k8s service.
-  ## Value: ip | dns | hostname
-  ## Note：Hostname is only supported after v4.0-rc.2
-  EMQX_CLUSTER__K8S__ADDRESS_TYPE: "hostname"
-  EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
-  ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
-  # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__ID: "admin"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__SECRET: "public"
 
