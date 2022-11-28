@@ -46,8 +46,10 @@
 ]).
 
 -export([
-    query/4,
-    format_channel_info/1
+    qs2ms/2,
+    run_fuzzy_filter/2,
+    format_channel_info/1,
+    format_channel_info/2
 ]).
 
 %% for batch operation
@@ -73,7 +75,6 @@
     {<<"lte_connected_at">>, timestamp}
 ]).
 
--define(QUERY_FUN, {?MODULE, query}).
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
 -define(CLIENT_ID_NOT_FOUND,
@@ -642,10 +643,11 @@ list_clients(QString) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    QString,
                     ?CLIENT_QTAB,
+                    QString,
                     ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
+                    fun ?MODULE:qs2ms/2,
+                    fun ?MODULE:format_channel_info/2
                 );
             Node0 ->
                 case emqx_misc:safe_to_existing_atom(Node0) of
@@ -653,10 +655,11 @@ list_clients(QString) ->
                         QStringWithoutNode = maps:without([<<"node">>], QString),
                         emqx_mgmt_api:node_query(
                             Node1,
-                            QStringWithoutNode,
                             ?CLIENT_QTAB,
+                            QStringWithoutNode,
                             ?CLIENT_QSCHEMA,
-                            ?QUERY_FUN
+                            fun ?MODULE:qs2ms/2,
+                            fun ?MODULE:format_channel_info/2
                         );
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
@@ -781,30 +784,14 @@ do_unsubscribe(ClientID, Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Query Functions
-
-query(Tab, {QString, []}, Continuation, Limit) ->
-    Ms = qs2ms(QString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_channel_info/1
-    );
-query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = qs2ms(QString),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_channel_info/1
-    ).
-
-%%--------------------------------------------------------------------
 %% QueryString to Match Spec
+
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {QString, FuzzyQString}) ->
+    #{
+        match_spec => qs2ms(QString),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->
@@ -855,13 +842,10 @@ ms(created_at, X) ->
 %%--------------------------------------------------------------------
 %% Match funcs
 
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;
@@ -876,12 +860,11 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, ClientInfo0, ClientStats}) ->
-    Node =
-        case ClientInfo0 of
-            #{node := N} -> N;
-            _ -> node()
-        end,
+format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
+    format_channel_info(node(), ChannInfo).
+
+format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
+    Node = maps:get(node, ClientInfo0, WhichNode),
     ClientInfo1 = emqx_map_lib:deep_remove([conninfo, clientid], ClientInfo0),
     ClientInfo2 = emqx_map_lib:deep_remove([conninfo, username], ClientInfo1),
     StatsMap = maps:without(

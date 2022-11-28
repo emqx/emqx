@@ -213,7 +213,7 @@ t_list_users(_) ->
 
     #{
         data := [#{is_superuser := false, user_id := <<"u3">>}],
-        meta := #{page := 1, limit := 20, count := 1}
+        meta := #{page := 1, limit := 20, count := 0}
     } = emqx_authn_mnesia:list_users(
         #{
             <<"page">> => 1,

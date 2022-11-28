@@ -37,7 +37,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub}).
+    ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}).
 
 t_authenticate(_) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
@@ -60,12 +61,48 @@ t_delayed_authorize(_) ->
     ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), Publish2, InvalidTopic)),
     ok.
 
+t_quick_deny_anonymous(_) ->
+    ok = emqx_hooks:put(
+        'client.authenticate',
+        {?MODULE, quick_deny_anonymous_authn, []},
+        ?HP_AUTHN
+    ),
+
+    RawClient0 = clientinfo(),
+    RawClient = RawClient0#{username => undefined},
+
+    %% No name, No authn
+    Client1 = RawClient#{enable_authn => false},
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Client1)),
+
+    %% No name, With quick_deny_anonymous
+    Client2 = RawClient#{enable_authn => quick_deny_anonymous},
+    ?assertMatch({error, _}, emqx_access_control:authenticate(Client2)),
+
+    %% Bad name, With quick_deny_anonymous
+    Client3 = RawClient#{enable_authn => quick_deny_anonymous, username => <<"badname">>},
+    ?assertMatch({error, _}, emqx_access_control:authenticate(Client3)),
+
+    %% Good name, With quick_deny_anonymous
+    Client4 = RawClient#{enable_authn => quick_deny_anonymous, username => <<"goodname">>},
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Client4)),
+
+    %% Name, With authn
+    Client5 = RawClient#{enable_authn => true, username => <<"badname">>},
+    ?assertMatch({error, _}, emqx_access_control:authenticate(Client5)),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
 authz_stub(_Client, _PubSub, ValidTopic, _DefaultResult, ValidTopic) -> {stop, #{result => allow}};
 authz_stub(_Client, _PubSub, _Topic, _DefaultResult, _ValidTopic) -> {stop, #{result => deny}}.
+
+quick_deny_anonymous_authn(#{username := <<"badname">>}, _AuthResult) ->
+    {stop, {error, not_authorized}};
+quick_deny_anonymous_authn(_ClientInfo, _AuthResult) ->
+    {stop, {ok, #{is_superuser => false}}}.
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->

@@ -56,15 +56,19 @@
     get_delayed_message/2,
     delete_delayed_message/1,
     delete_delayed_message/2,
-    cluster_list/1,
-    cluster_query/4
+    cluster_list/1
+]).
+
+%% exports for query
+-export([
+    qs2ms/2,
+    format_delayed/1,
+    format_delayed/2
 ]).
 
 -export([
     post_config_update/5
 ]).
-
--export([format_delayed/1]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -166,16 +170,29 @@ list(Params) ->
     emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
 
 cluster_list(Params) ->
-    emqx_mgmt_api:cluster_query(Params, ?TAB, [], {?MODULE, cluster_query}).
+    emqx_mgmt_api:cluster_query(
+        ?TAB,
+        Params,
+        [],
+        fun ?MODULE:qs2ms/2,
+        fun ?MODULE:format_delayed/2
+    ).
 
-cluster_query(Table, _QsSpec, Continuation, Limit) ->
-    Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_delayed/1).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Table, {_Qs, _Fuzzy}) ->
+    #{
+        match_spec => [{'$1', [], ['$1']}],
+        fuzzy_fun => undefined
+    }.
 
 format_delayed(Delayed) ->
-    format_delayed(Delayed, false).
+    format_delayed(node(), Delayed).
+
+format_delayed(WhichNode, Delayed) ->
+    format_delayed(WhichNode, Delayed, false).
 
 format_delayed(
+    WhichNode,
     #delayed_message{
         key = {ExpectTimeStamp, Id},
         delayed = Delayed,
@@ -195,7 +212,7 @@ format_delayed(
     RemainingTime = ExpectTimeStamp - ?NOW,
     Result = #{
         msgid => emqx_guid:to_hexstr(Id),
-        node => node(),
+        node => WhichNode,
         publish_at => PublishTime,
         delayed_interval => Delayed,
         delayed_remaining => RemainingTime div 1000,
@@ -222,7 +239,7 @@ get_delayed_message(Id) ->
             {error, not_found};
         Rows ->
             Message = hd(Rows),
-            {ok, format_delayed(Message, true)}
+            {ok, format_delayed(node(), Message, true)}
     end.
 
 get_delayed_message(Node, Id) when Node =:= node() ->

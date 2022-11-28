@@ -31,6 +31,7 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_nodes_api(_) ->
+    Node = atom_to_binary(node(), utf8),
     Topic = <<"test_topic">>,
     {ok, Client} = emqtt:start_link(#{
         username => <<"routes_username">>, clientid => <<"routes_cid">>
@@ -49,11 +50,30 @@ t_nodes_api(_) ->
     Data = maps:get(<<"data">>, RoutesData),
     Route = erlang:hd(Data),
     ?assertEqual(Topic, maps:get(<<"topic">>, Route)),
-    ?assertEqual(atom_to_binary(node(), utf8), maps:get(<<"node">>, Route)),
+    ?assertEqual(Node, maps:get(<<"node">>, Route)),
+
+    %% exact match
+    Topic2 = <<"test_topic_2">>,
+    {ok, _, _} = emqtt:subscribe(Client, Topic2),
+    QS = uri_string:compose_query([
+        {"topic", Topic2},
+        {"node", atom_to_list(node())}
+    ]),
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, MatchResponse} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
+    MatchData = emqx_json:decode(MatchResponse, [return_maps]),
+    ?assertMatch(
+        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
+        maps:get(<<"meta">>, MatchData)
+    ),
+    ?assertMatch(
+        [#{<<"topic">> := Topic2, <<"node">> := Node}],
+        maps:get(<<"data">>, MatchData)
+    ),
 
     %% get topics/:topic
     RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
     RouteData = emqx_json:decode(RouteResponse, [return_maps]),
     ?assertEqual(Topic, maps:get(<<"topic">>, RouteData)),
-    ?assertEqual(atom_to_binary(node(), utf8), maps:get(<<"node">>, RouteData)).
+    ?assertEqual(Node, maps:get(<<"node">>, RouteData)).
