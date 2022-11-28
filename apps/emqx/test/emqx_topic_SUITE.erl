@@ -187,10 +187,6 @@ t_systop(_) ->
 
 t_feed_var(_) ->
     ?assertEqual(
-        <<"$queue/client/clientId">>,
-        feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)
-    ),
-    ?assertEqual(
         <<"username/test/client/x">>,
         feed_var(
             ?PH_USERNAME,
@@ -212,10 +208,6 @@ long_topic() ->
 
 t_parse(_) ->
     ?assertError(
-        {invalid_topic_filter, <<"$queue/t">>},
-        parse(<<"$queue/t">>, #{share => <<"g">>})
-    ),
-    ?assertError(
         {invalid_topic_filter, <<"$share/g/t">>},
         parse(<<"$share/g/t">>, #{share => <<"g">>})
     ),
@@ -229,11 +221,9 @@ t_parse(_) ->
     ),
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
     ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),
-    ?assertEqual({<<"topic">>, #{share => <<"$queue">>}}, parse(<<"$queue/topic">>)),
     ?assertEqual({<<"topic">>, #{share => <<"group">>}}, parse(<<"$share/group/topic">>)),
     %% The '$local' and '$fastlane' topics have been deprecated.
     ?assertEqual({<<"$local/topic">>, #{}}, parse(<<"$local/topic">>)),
-    ?assertEqual({<<"$local/$queue/topic">>, #{}}, parse(<<"$local/$queue/topic">>)),
     ?assertEqual({<<"$local/$share/group/a/b/c">>, #{}}, parse(<<"$local/$share/group/a/b/c">>)),
     ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
 

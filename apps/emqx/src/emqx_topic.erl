@@ -210,12 +210,8 @@ parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
     parse(TopicFilter, Options).
 
 -spec parse(topic(), map()) -> {topic(), map()}.
-parse(TopicFilter = <<"$queue/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic_filter, TopicFilter});
 parse(TopicFilter = <<"$share/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic_filter, TopicFilter});
-parse(<<"$queue/", TopicFilter/binary>>, Options) ->
-    parse(TopicFilter, Options#{share => <<"$queue">>});
 parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
     case binary:split(Rest, <<"/">>) of
         [_Any] ->
