@@ -63,22 +63,24 @@ groups() ->
     ].
 
 init_per_group(tcp, Config0) ->
-    MysqlHost = os:getenv("MYSQL_TCP_HOST", "mysql"),
+    MysqlHost = os:getenv("MYSQL_TCP_HOST", "toxiproxy"),
     MysqlPort = list_to_integer(os:getenv("MYSQL_TCP_PORT", "3306")),
     Config = [
         {mysql_host, MysqlHost},
         {mysql_port, MysqlPort},
-        {enable_tls, false}
+        {enable_tls, false},
+        {proxy_name, "mysql_tcp"}
         | Config0
     ],
     common_init(Config);
 init_per_group(tls, Config0) ->
-    MysqlHost = os:getenv("MYSQL_TLS_HOST", "mysql-tls"),
-    MysqlPort = list_to_integer(os:getenv("MYSQL_TLS_PORT", "3306")),
+    MysqlHost = os:getenv("MYSQL_TLS_HOST", "toxiproxy"),
+    MysqlPort = list_to_integer(os:getenv("MYSQL_TLS_PORT", "3307")),
     Config = [
         {mysql_host, MysqlHost},
         {mysql_port, MysqlPort},
-        {enable_tls, true}
+        {enable_tls, true},
+        {proxy_name, "mysql_tls"}
         | Config0
     ],
     common_init(Config);
@@ -95,6 +97,9 @@ init_per_group(_Group, Config) ->
 
 end_per_group(Group, Config) when Group =:= tcp; Group =:= tls ->
     connect_and_drop_table(Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -107,16 +112,18 @@ end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
     ok.
 
-init_per_testcase(_Testcase, Config0) ->
-    Config = [{mysql_direct_pid, connect_direct_mysql(Config0)} | Config0],
-    catch clear_table(Config),
+init_per_testcase(_Testcase, Config) ->
+    %    Config = [{mysql_direct_pid, connect_direct_mysql(Config0)} | Config0],
+    connect_and_clear_table(Config),
     delete_bridge(Config),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
-    catch clear_table(Config),
-    DirectPid = ?config(mysql_direct_pid, Config),
-    mysql:stop(DirectPid),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    connect_and_clear_table(Config),
+    ok = snabbkaffe:stop(),
     delete_bridge(Config),
     ok.
 
@@ -130,6 +137,10 @@ common_init(Config0) ->
     MysqlPort = ?config(mysql_port, Config0),
     case emqx_common_test_helpers:is_tcp_server_available(MysqlHost, MysqlPort) of
         true ->
+            % Setup toxiproxy
+            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure EE bridge module is loaded
             _ = application:load(emqx_ee_bridge),
             _ = emqx_ee_bridge:module_info(),
@@ -142,7 +153,9 @@ common_init(Config0) ->
                 [
                     {mysql_config, MysqlConfig},
                     {mysql_bridge_type, BridgeType},
-                    {mysql_name, Name}
+                    {mysql_name, Name},
+                    {proxy_host, ProxyHost},
+                    {proxy_port, ProxyPort}
                     | Config0
                 ],
             Config;
@@ -171,7 +184,7 @@ mysql_config(BridgeType, Config) ->
             "    query_mode = ~s\n"
             "  }\n"
             "  ssl = {\n"
-            "                 enable = ~w\n"
+            "    enable = ~w\n"
             "  }\n"
             "}",
             [
@@ -255,14 +268,16 @@ connect_and_drop_table(Config) ->
     ok = mysql:query(DirectPid, ?SQL_DROP_TABLE),
     mysql:stop(DirectPid).
 
-% These funs expects a connection to already exist
-clear_table(Config) ->
-    DirectPid = ?config(mysql_direct_pid, Config),
-    ok = mysql:query(DirectPid, ?SQL_DELETE).
+connect_and_clear_table(Config) ->
+    DirectPid = connect_direct_mysql(Config),
+    ok = mysql:query(DirectPid, ?SQL_DELETE),
+    mysql:stop(DirectPid).
 
-get_payload(Config) ->
-    DirectPid = ?config(mysql_direct_pid, Config),
-    mysql:query(DirectPid, ?SQL_SELECT).
+connect_and_get_payload(Config) ->
+    DirectPid = connect_direct_mysql(Config),
+    Result = mysql:query(DirectPid, ?SQL_SELECT),
+    mysql:stop(DirectPid),
+    Result.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -284,7 +299,7 @@ t_setup_via_config_and_publish(Config) ->
             ),
             ?assertMatch(
                 {ok, [<<"payload">>], [[Val]]},
-                get_payload(Config)
+                connect_and_get_payload(Config)
             ),
             ok
         end,
@@ -319,7 +334,7 @@ t_setup_via_http_api_and_publish(Config) ->
             ),
             ?assertMatch(
                 {ok, [<<"payload">>], [[Val]]},
-                get_payload(Config)
+                connect_and_get_payload(Config)
             ),
             ok
         end,
@@ -329,4 +344,26 @@ t_setup_via_http_api_and_publish(Config) ->
             ok
         end
     ),
+    ok.
+
+t_get_status(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+
+    Name = ?config(mysql_name, Config),
+    BridgeType = ?config(mysql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
+    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+        ?assertMatch(
+            {ok, Status} when Status =:= disconnected orelse Status =:= connecting,
+            emqx_resource_manager:health_check(ResourceID)
+        )
+    end),
     ok.
