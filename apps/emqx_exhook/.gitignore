@@ -19,6 +19,7 @@ rebar3.crashdump
 *~
 rebar.lock
 data/
+!test/data/
 *.conf.rendered
 *.pyc
 .DS_Store

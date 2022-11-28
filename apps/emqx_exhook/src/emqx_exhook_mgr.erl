@@ -183,8 +183,10 @@ pre_config_update(_, {enable, Name, Enable}, OldConf) ->
         NewConf -> {ok, lists:map(fun maybe_write_certs/1, NewConf)}
     end.
 
-post_config_update(_KeyPath, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    {ok, call({update_config, UpdateReq, NewConf})}.
+post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
+    Result = call({update_config, UpdateReq, NewConf}),
+    try_clear_ssl_files(UpdateReq, NewConf, OldConf),
+    {ok, Result}.
 
 %%=====================================================================
 
@@ -600,3 +602,34 @@ new_ssl_source(Source, undefined) ->
     Source;
 new_ssl_source(Source, SSL) ->
     Source#{<<"ssl">> => SSL}.
+
+try_clear_ssl_files({delete, Name}, _NewConf, OldConfs) ->
+    OldSSL = find_server_ssl_cfg(Name, OldConfs),
+    emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), undefined, OldSSL);
+try_clear_ssl_files({Op, Name, _}, NewConfs, OldConfs) when
+    Op =:= update; Op =:= enable
+->
+    NewSSL = find_server_ssl_cfg(Name, NewConfs),
+    OldSSL = find_server_ssl_cfg(Name, OldConfs),
+    emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), NewSSL, OldSSL);
+try_clear_ssl_files(_Req, _NewConf, _OldConf) ->
+    ok.
+
+search_server_cfg(Name, Confs) ->
+    lists:search(
+        fun
+            (#{name := SvrName}) when SvrName =:= Name ->
+                true;
+            (_) ->
+                false
+        end,
+        Confs
+    ).
+
+find_server_ssl_cfg(Name, Confs) ->
+    case search_server_cfg(Name, Confs) of
+        {value, Value} ->
+            maps:get(ssl, Value, undefined);
+        false ->
+            undefined
+    end.
