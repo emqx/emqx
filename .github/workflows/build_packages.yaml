@@ -98,7 +98,7 @@ jobs:
         echo "EQMX uninstaled"
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.profile }}-windows
+        name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
 
   mac:
@@ -209,7 +209,7 @@ jobs:
           --builder "ghcr.io/emqx/emqx-builder/4.4-20:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
 
   docker:
@@ -315,16 +315,11 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        otp:
-          - 24.3.4.2-1
-        include:
-          - profile: emqx
-            otp: windows # otp version on windows is rather fixed
 
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        name: ${{ matrix.profile }}
         path: packages/${{ matrix.profile }}
     - name: install dos2unix
       run: sudo apt-get update && sudo apt install -y dos2unix
