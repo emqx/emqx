@@ -842,21 +842,21 @@ end}.
 %% @doc Define a determined authentication plugin/module check order.
 %% see detailed doc in emqx.conf
 {mapping, "auth_order", "emqx.auth_order", [
-  {default, "none"},
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
   {datatype, string}
 ]}.
 
 %% @doc Same as auth_order, but for ACL.
 {mapping, "acl_order", "emqx.acl_order", [
-  {default, "none"},
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
   {datatype, string}
 ]}.
 
-%% @doc Specify a module that defines the `enrich_clientid_alias/2'
+%% @doc Specify a module that defines the `enrich_with_aliases/2'
 %% function.  This function will be used to enrich the client/channel
 %% information with clientid and/or common name aliases (or other
 %% enrichments the module may implement).
-{mapping, "clientid_enrichment_module", "emqx.clientid_enrichment_module", [
+{mapping, "alias_enrichment_module", "emqx.alias_enrichment_module", [
   {datatype, atom}
 ]}.
 
@@ -1698,11 +1698,11 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.ocsp_refresh_http_timeout", "emqx.listeners", [
-  {default, "15000ms"},
+  {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "listener.ssl.$name.enable_crl_cache", "emqx.listeners", [
+{mapping, "listener.ssl.$name.enable_crl_check", "emqx.listeners", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -1712,12 +1712,12 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ssl.$name.crl_cache_http_timeout", "emqx.listeners", [
+{mapping, "crl_cache_http_timeout", "emqx.crl_cache_http_timeout", [
   {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "crl_cache.refresh_interval", "emqx.crl_cache_refresh_interval", [
+{mapping, "crl_cache_refresh_interval", "emqx.crl_cache_refresh_interval", [
   {default, "15m"},
   {datatype, {duration, ms}}
 ]}.
@@ -2310,7 +2310,16 @@ end}.
     SslOpts = fun(Prefix) ->
                   Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
                                 undefined -> undefined;
-                                L -> [list_to_atom(V) || V <- L]
+                                L ->
+                                  Versions0 = [list_to_atom(V) || V <- L],
+                                  SupportVersions = ['tlsv1', 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
+                                  case lists:all(fun(V) -> lists:member(V, SupportVersions) end, Versions0) of
+                                     false ->
+                                        cuttlefish:invalid(
+                                        lists:flatten(io_lib:format("tls_versions: only support ~p", [SupportVersions])));
+                                      true ->
+                                        Versions0
+                                  end
                             end,
                   TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
                   PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
@@ -2337,9 +2346,9 @@ end}.
                       undefined -> undefined;
                       _ -> {fun emqx_psk:lookup/3, <<>>}
                     end,
-                  CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false) of
+                  CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_check", Conf, false) of
                                true ->
-                                 HTTPTimeout = cuttlefish:conf_get(Prefix ++ ".crl_cache_http_timeout", Conf, timer:seconds(15)),
+                                 HTTPTimeout = cuttlefish:conf_get("crl_cache_http_timeout", Conf, timer:seconds(15)),
                                  %% {crl_check, true} doesn't work
                                  [ {crl_check, peer}
                                  , {crl_cache, {ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}}
@@ -2374,7 +2383,7 @@ end}.
                     undefined -> undefined;
                     URLs -> string:tokens(URLs, ", ")
                   end,
-        Filter([ {crl_cache_enabled, cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false)}
+        Filter([ {crl_check_enabled, cuttlefish:conf_get(Prefix ++ ".enable_crl_check", Conf, false)}
                , {crl_cache_urls, CRLURLs}
                ])
       end,
@@ -2685,13 +2694,13 @@ end}.
 ]}.
 
 %% @doc Configuration of disconnected event reason.
-%% `takeover`: session was takenover by another client with same client ID. (clean_session = false)
-%% `discard`: session was takeover by another client with same client ID. (clean_session = true)
+%% `discarded`: session was discarded by another client with same client ID when new connection use `clean_session = true`.
 {mapping, "broker.client_disconnect_discarded", "emqx.client_disconnect_discarded", [
   {default, off},
   {datatype, flag}
 ]}.
 
+%% `takeovered`: session was takeovered by another client with same client ID when new connection use `clean_session = false`.
 {mapping, "broker.client_disconnect_takeovered", "emqx.client_disconnect_takeovered", [
   {default, off},
   {datatype, flag}
