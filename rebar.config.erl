@@ -196,18 +196,23 @@ overlay_vars(RelType, PkgType, false) ->
     overlay_vars_rel(RelType) ++ overlay_vars_pkg(PkgType).
 
 %% vars per release type, cloud or edge
-overlay_vars_rel(RelType) ->
-    VmArgs = case RelType of
-                 cloud -> "vm.args";
-                 edge -> "vm.args.edge"
-             end,
-    [ {enable_plugin_emqx_rule_engine, RelType =:= cloud}
+overlay_vars_rel(cloud) ->
+    [ {vm_args_file, "vm.args"}
+    | overlay_vars_rel_common(cloud)
+    ];
+overlay_vars_rel(edge) ->
+    [ {vm_args_file, "vm.args.edge"}
+    | overlay_vars_rel_common(edge)
+    ].
+
+overlay_vars_rel_common(RelType) ->
+    [ {emqx_default_erlang_cookie, "emqxsecretcookie"}
+    , {enable_plugin_emqx_rule_engine, RelType =:= cloud}
     , {enable_plugin_emqx_bridge_mqtt, RelType =:= edge}
     , {enable_plugin_emqx_modules, false} %% modules is not a plugin in ce
     , {enable_plugin_emqx_recon, true}
     , {enable_plugin_emqx_retainer, true}
     , {enable_plugin_emqx_telemetry, true}
-    , {vm_args_file, VmArgs}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)

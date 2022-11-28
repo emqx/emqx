@@ -324,11 +324,17 @@ t_handle_in_pubcomp_not_found_error(_) ->
 t_handle_in_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe,
                      fun(_, _, _, Session) -> {ok, Session} end),
-    Channel = channel(#{conn_state => connected}),
-    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
-    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
-    {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
+    meck:new(emqx_mqtt_caps),
+    ok = meck:expect(emqx_mqtt_caps, check_sub, fun(_, _, _) -> ok end),
+    try
+        Channel = channel(#{conn_state => connected}),
+        TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+        Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
+        Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
+        {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel)
+    after
+        meck:unload(emqx_mqtt_caps)
+    end.
 
 t_handle_in_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe,
@@ -397,9 +403,15 @@ t_process_publish_qos1(_) ->
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
-    TopicFilters = [ TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
-        emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
+    meck:new(emqx_mqtt_caps),
+    ok = meck:expect(emqx_mqtt_caps, check_sub, fun(_, _, _) -> ok end),
+    try
+        TopicFilters = [ TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
+        {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
+            emqx_channel:process_subscribe(TopicFilters, #{}, channel())
+    after
+        meck:unload(emqx_mqtt_caps)
+    end.
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
