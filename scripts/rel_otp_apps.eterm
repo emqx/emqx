@@ -13,4 +13,5 @@
 , runtime_tools
 , {mnesia, load}
 , xmerl
+, tools
 ].
