@@ -182,8 +182,19 @@ parse_remaining_len(
     Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
     {ok, Packet, Rest, ?NONE(Options)};
 %% Match PINGREQ.
-parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
+parse_remaining_len(
+    <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGREQ}, 1, 0, Options
+) ->
     parse_frame(Rest, Header, 0, Options);
+parse_remaining_len(
+    <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, Options
+) ->
+    parse_frame(Rest, Header, 0, Options);
+%% Without this clause a crash may will happen when data incorrect, this was found by fuzzing test
+parse_remaining_len(
+    <<0:8, _Rest/binary>>, _Header, 1, 0, _Options
+) ->
+    ?PARSE_ERR(invalid_remaining_len);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 2, Options);
@@ -261,41 +272,51 @@ parse_packet(
     #{strict_mode := StrictMode}
 ) ->
     {ProtoName, Rest} = parse_utf8_string(FrameBin, StrictMode),
-    <<BridgeTag:4, ProtoVer:4, Rest1/binary>> = Rest,
-    % Note: Crash when reserved flag doesn't equal to 0, there is no strict
-    % compliance with the MQTT5.0.
-    <<UsernameFlag:1, PasswordFlag:1, WillRetain:1, WillQoS:2, WillFlag:1, CleanStart:1, 0:1,
-        KeepAlive:16/big, Rest2/binary>> = Rest1,
-
-    {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
-    {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode),
-    ConnPacket = #mqtt_packet_connect{
-        proto_name = ProtoName,
-        proto_ver = ProtoVer,
-        is_bridge = (BridgeTag =:= 8),
-        clean_start = bool(CleanStart),
-        will_flag = bool(WillFlag),
-        will_qos = WillQoS,
-        will_retain = bool(WillRetain),
-        keepalive = KeepAlive,
-        properties = Properties,
-        clientid = ClientId
-    },
-    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
-    {Username, Rest6} = parse_utf8_string(Rest5, StrictMode, bool(UsernameFlag)),
-    {Password, <<>>} = parse_utf8_string(Rest6, StrictMode, bool(PasswordFlag)),
-    ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
+    case Rest of
+        % Note: Crash when reserved flag doesn't equal to 0, there is no strict
+        % compliance with the MQTT5.0.
+        <<BridgeTag:4, ProtoVer:4, UsernameFlag:1, PasswordFlag:1, WillRetain:1, WillQoS:2,
+            WillFlag:1, CleanStart:1, 0:1, KeepAlive:16/big, Rest2/binary>> ->
+            {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
+            {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode),
+            ConnPacket = #mqtt_packet_connect{
+                proto_name = ProtoName,
+                proto_ver = ProtoVer,
+                is_bridge = (BridgeTag =:= 8),
+                clean_start = bool(CleanStart),
+                will_flag = bool(WillFlag),
+                will_qos = WillQoS,
+                will_retain = bool(WillRetain),
+                keepalive = KeepAlive,
+                properties = Properties,
+                clientid = ClientId
+            },
+            {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
+            {Username, Rest6} = parse_utf8_string(Rest5, StrictMode, bool(UsernameFlag)),
+            case parse_utf8_string(Rest6, StrictMode, bool(PasswordFlag)) of
+                {Password, <<>>} ->
+                    ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
+                _ ->
+                    ?PARSE_ERR(malformed_connect_payload)
+            end;
+        _ ->
+            ?PARSE_ERR(malformed_connect_header)
+    end;
 parse_packet(
     #mqtt_packet_header{type = ?CONNACK},
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
     #{version := Ver, strict_mode := StrictMode}
 ) ->
-    {Properties, <<>>} = parse_properties(Rest, Ver, StrictMode),
-    #mqtt_packet_connack{
-        ack_flags = AckFlags,
-        reason_code = ReasonCode,
-        properties = Properties
-    };
+    case parse_properties(Rest, Ver, StrictMode) of
+        {Properties, <<>>} ->
+            #mqtt_packet_connack{
+                ack_flags = AckFlags,
+                reason_code = ReasonCode,
+                properties = Properties
+            };
+        _ ->
+            ?PARSE_ERR(malformed_properties)
+    end;
 parse_packet(
     #mqtt_packet_header{type = ?PUBLISH, qos = QoS},
     Bin,
@@ -411,7 +432,9 @@ parse_packet(
     #{strict_mode := StrictMode, version := ?MQTT_PROTO_V5}
 ) ->
     {Properties, <<>>} = parse_properties(Rest, ?MQTT_PROTO_V5, StrictMode),
-    #mqtt_packet_auth{reason_code = ReasonCode, properties = Properties}.
+    #mqtt_packet_auth{reason_code = ReasonCode, properties = Properties};
+parse_packet(_Header, _FrameBin, _Options) ->
+    ?PARSE_ERR(malformed_packet).
 
 parse_will_message(
     Packet = #mqtt_packet_connect{
@@ -437,7 +460,9 @@ parse_will_message(Packet, Bin, _StrictMode) ->
 
 -compile({inline, [parse_packet_id/1]}).
 parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
-    {PacketId, Rest}.
+    {PacketId, Rest};
+parse_packet_id(_) ->
+    ?PARSE_ERR(invalid_packet_id).
 
 parse_properties(Bin, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
     {#{}, Bin};

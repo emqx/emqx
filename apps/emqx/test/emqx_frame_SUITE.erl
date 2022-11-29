@@ -619,6 +619,18 @@ t_serialize_parse_auth_v5(_) ->
         })
     ).
 
+t_parse_invalid_remaining_len(_) ->
+    ?assertException(
+        throw, {frame_parse_error, invalid_remaining_len}, emqx_frame:parse(<<?CONNECT, 0>>)
+    ).
+
+t_parse_malformed_properties(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_properties},
+        emqx_frame:parse(<<2:4, 0:4, 3:8, 1:8, 0:8, 0:8>>)
+    ).
+
 parse_serialize(Packet) ->
     parse_serialize(Packet, #{strict_mode => true}).
 
