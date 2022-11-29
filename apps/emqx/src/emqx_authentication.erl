@@ -29,9 +29,13 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
+-define(IS_UNDEFINED(X), (X =:= undefined orelse X =:= <<>>)).
 
 %% The authentication entrypoint.
--export([authenticate/2]).
+-export([
+    pre_hook_authenticate/1,
+    authenticate/2
+]).
 
 %% Authenticator manager process start/stop
 -export([
@@ -221,10 +225,23 @@ when
 %%------------------------------------------------------------------------------
 %% Authenticate
 %%------------------------------------------------------------------------------
-
-authenticate(#{enable_authn := false}, _AuthResult) ->
+-spec pre_hook_authenticate(emqx_types:clientinfo()) ->
+    ok | continue | {error, not_authorized}.
+pre_hook_authenticate(#{enable_authn := false}) ->
     inc_authenticate_metric('authentication.success.anonymous'),
-    ?TRACE_RESULT("authentication_result", ignore, enable_authn_false);
+    ?TRACE_RESULT("authentication_result", ok, enable_authn_false);
+pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
+    case maps:get(username, Credential, undefined) of
+        U when ?IS_UNDEFINED(U) ->
+            ?TRACE_RESULT(
+                "authentication_result", {error, not_authorized}, enable_authn_false
+            );
+        _ ->
+            continue
+    end;
+pre_hook_authenticate(_) ->
+    continue.
+
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->

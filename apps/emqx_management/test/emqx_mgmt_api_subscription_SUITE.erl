@@ -93,6 +93,7 @@ t_subscription_api(_) ->
         {"match_topic", "t/#"}
     ]),
     Headers = emqx_mgmt_api_test_util:auth_header_(),
+
     {ok, ResponseTopic2} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
     DataTopic2 = emqx_json:decode(ResponseTopic2, [return_maps]),
     Meta2 = maps:get(<<"meta">>, DataTopic2),
@@ -114,7 +115,8 @@ t_subscription_api(_) ->
     MatchMeta = maps:get(<<"meta">>, MatchData),
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta)),
     ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta)),
-    ?assertEqual(1, maps:get(<<"count">>, MatchMeta)),
+    %% count equals 0 in fuzzy searching
+    ?assertEqual(0, maps:get(<<"count">>, MatchMeta)),
     MatchSubs = maps:get(<<"data">>, MatchData),
     ?assertEqual(1, length(MatchSubs)),
 

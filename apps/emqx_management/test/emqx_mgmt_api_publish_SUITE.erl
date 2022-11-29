@@ -20,9 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
--define(CLIENTID, <<"api_clientid">>).
--define(USERNAME, <<"api_username">>).
+-include_lib("common_test/include/ct.hrl").
 
 -define(TOPIC1, <<"api_topic1">>).
 -define(TOPIC2, <<"api_topic2">>).
@@ -44,25 +42,56 @@ end_per_testcase(Case, Config) ->
     ?MODULE:Case({'end', Config}).
 
 t_publish_api({init, Config}) ->
-    Config;
-t_publish_api({'end', _Config}) ->
-    ok;
-t_publish_api(_) ->
-    {ok, Client} = emqtt:start_link(#{
-        username => <<"api_username">>, clientid => <<"api_clientid">>
-    }),
+    {ok, Client} = emqtt:start_link(
+        #{
+            username => <<"api_username">>,
+            clientid => <<"api_clientid">>,
+            proto_ver => v5
+        }
+    ),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
+    [{client, Client} | Config];
+t_publish_api({'end', Config}) ->
+    Client = ?config(client, Config),
+    emqtt:stop(Client),
+    ok;
+t_publish_api(_) ->
     Payload = <<"hello">>,
     Path = emqx_mgmt_api_test_util:api_path(["publish"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Body = #{topic => ?TOPIC1, payload => Payload},
+    UserProperties = #{<<"foo">> => <<"bar">>},
+    Properties =
+        #{
+            <<"payload_format_indicator">> => 0,
+            <<"message_expiry_interval">> => 1000,
+            <<"response_topic">> => ?TOPIC2,
+            <<"correlation_data">> => <<"some_correlation_id">>,
+            <<"user_properties">> => UserProperties,
+            <<"content_type">> => <<"application/json">>
+        },
+    Body = #{topic => ?TOPIC1, payload => Payload, properties => Properties},
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
     ResponseMap = decode_json(Response),
     ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap))),
-    ?assertEqual(ok, receive_assert(?TOPIC1, 0, Payload)),
-    emqtt:stop(Client).
+    {ok, Message} = receive_assert(?TOPIC1, 0, Payload),
+    RecvProperties = maps:get(properties, Message),
+    UserPropertiesList = maps:to_list(UserProperties),
+    #{
+        'Payload-Format-Indicator' := 0,
+        'Message-Expiry-Interval' := RecvMessageExpiry,
+        'Correlation-Data' := <<"some_correlation_id">>,
+        'User-Property' := UserPropertiesList,
+        'Content-Type' := <<"application/json">>
+    } = RecvProperties,
+    ?assert(RecvMessageExpiry =< 1000),
+    %% note: without props this time
+    Body2 = #{topic => ?TOPIC2, payload => Payload},
+    {ok, Response2} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body2),
+    ResponseMap2 = decode_json(Response2),
+    ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap2))),
+    ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))).
 
 t_publish_no_subscriber({init, Config}) ->
     Config;
@@ -163,16 +192,18 @@ t_publish_bad_topic_bulk(_Config) ->
     ).
 
 t_publish_bulk_api({init, Config}) ->
-    Config;
-t_publish_bulk_api({'end', _Config}) ->
-    ok;
-t_publish_bulk_api(_) ->
     {ok, Client} = emqtt:start_link(#{
         username => <<"api_username">>, clientid => <<"api_clientid">>
     }),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
+    [{client, Client} | Config];
+t_publish_bulk_api({'end', Config}) ->
+    Client = ?config(client, Config),
+    emqtt:stop(Client),
+    ok;
+t_publish_bulk_api(_) ->
     Payload = <<"hello">>,
     Path = emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
@@ -199,9 +230,8 @@ t_publish_bulk_api(_) ->
         end,
         ResponseList
     ),
-    ?assertEqual(ok, receive_assert(?TOPIC1, 0, Payload)),
-    ?assertEqual(ok, receive_assert(?TOPIC2, 0, Payload)),
-    emqtt:stop(Client).
+    ?assertEqual(ok, element(1, receive_assert(?TOPIC1, 0, Payload))),
+    ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))).
 
 t_publish_no_subscriber_bulk({init, Config}) ->
     Config;
@@ -232,8 +262,8 @@ t_publish_no_subscriber_bulk(_) ->
         ],
         ResponseList
     ),
-    ?assertEqual(ok, receive_assert(?TOPIC1, 0, Payload)),
-    ?assertEqual(ok, receive_assert(?TOPIC2, 0, Payload)),
+    ?assertEqual(ok, element(1, receive_assert(?TOPIC1, 0, Payload))),
+    ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))),
     emqtt:stop(Client).
 
 t_publish_bulk_dispatch_one_message_invalid_topic({init, Config}) ->
@@ -267,17 +297,19 @@ t_publish_bulk_dispatch_one_message_invalid_topic(Config) when is_list(Config) -
 t_publish_bulk_dispatch_failure({init, Config}) ->
     meck:new(emqx, [no_link, passthrough, no_history]),
     meck:expect(emqx, is_running, fun() -> false end),
-    Config;
-t_publish_bulk_dispatch_failure({'end', _Config}) ->
-    meck:unload(emqx),
-    ok;
-t_publish_bulk_dispatch_failure(Config) when is_list(Config) ->
     {ok, Client} = emqtt:start_link(#{
         username => <<"api_username">>, clientid => <<"api_clientid">>
     }),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
+    [{client, Client} | Config];
+t_publish_bulk_dispatch_failure({'end', Config}) ->
+    meck:unload(emqx),
+    Client = ?config(client, Config),
+    emqtt:stop(Client),
+    ok;
+t_publish_bulk_dispatch_failure(Config) when is_list(Config) ->
     Payload = <<"hello">>,
     Path = emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
@@ -303,8 +335,7 @@ t_publish_bulk_dispatch_failure(Config) when is_list(Config) ->
             #{<<"reason_code">> := ?RC_NO_MATCHING_SUBSCRIBERS}
         ],
         decode_json(ResponseBody)
-    ),
-    emqtt:stop(Client).
+    ).
 
 receive_assert(Topic, Qos, Payload) ->
     receive
@@ -312,12 +343,12 @@ receive_assert(Topic, Qos, Payload) ->
             ReceiveTopic = maps:get(topic, Message),
             ReceiveQos = maps:get(qos, Message),
             ReceivePayload = maps:get(payload, Message),
-            ?assertEqual(ReceiveTopic, Topic),
-            ?assertEqual(ReceiveQos, Qos),
-            ?assertEqual(ReceivePayload, Payload),
-            ok
+            ?assertEqual(Topic, ReceiveTopic),
+            ?assertEqual(Qos, ReceiveQos),
+            ?assertEqual(Payload, ReceivePayload),
+            {ok, Message}
     after 5000 ->
-        timeout
+        {error, timeout}
     end.
 
 decode_json(In) ->
