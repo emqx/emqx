@@ -9,6 +9,9 @@ on:
     tags:
     - v*
     - e*
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       branch_or_tag:
@@ -41,9 +44,14 @@ jobs:
           cd source
           tag=${{ github.ref }}
           # tag docker-latest-ce or docker-latest-ee
-          if git describe --tags --exact --match 'docker-latest-*'; then
+          if git describe --tags --exact --match 'docker-latest-*' 2>/dev/null; then
+            echo 'docker_latest=true due to docker-latest-* tag'
+            docker_latest=true
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            echo 'docker_latest=true due to release'
             docker_latest=true
           else
+            echo 'docker_latest=false'
             docker_latest=false
           fi
           if git describe --tags --match "[v|e]*" --exact; then
