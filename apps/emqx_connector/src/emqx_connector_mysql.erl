@@ -119,8 +119,14 @@ on_start(
     Prepares = parse_prepare_sql(Config),
     State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok -> {ok, init_prepare(State)};
-        {error, Reason} -> {error, Reason}
+        ok ->
+            {ok, init_prepare(State)};
+        {error, Reason} ->
+            ?tp(
+                mysql_connector_start_failed,
+                #{error => Reason}
+            ),
+            {error, Reason}
     end.
 
 on_stop(InstId, #{poolname := PoolName}) ->

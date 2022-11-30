@@ -113,7 +113,6 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
-    %    Config = [{mysql_direct_pid, connect_direct_mysql(Config0)} | Config0],
     connect_and_clear_table(Config),
     delete_bridge(Config),
     Config.
@@ -231,8 +230,6 @@ send_message(Config, Payload) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    ?assertMatch({ok, connected}, emqx_resource:health_check(ResourceID)),
     emqx_bridge:send_message(BridgeID, Payload).
 
 % We need to create and drop the test table outside of using bridges
@@ -366,4 +363,46 @@ t_get_status(Config) ->
             emqx_resource_manager:health_check(ResourceID)
         )
     end),
+    ok.
+
+t_create_disconnected(Config) ->
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+    ?check_trace(
+        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            ?assertMatch({ok, _}, create_bridge(Config))
+        end),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := {start_pool_failed, _, _}}],
+                ?of_kind(mysql_connector_start_failed, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_write_failure(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} = create_bridge(Config),
+    Val = integer_to_binary(erlang:unique_integer()),
+    SentData = #{payload => Val, timestamp => 1668602148000},
+    ?check_trace(
+        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            send_message(Config, SentData)
+        end),
+        fun(Result, _Trace) ->
+            case QueryMode of
+                sync ->
+                    ?assertMatch({error, {resource_error, _}}, Result);
+                async ->
+                    ?assertEqual(ok, Result)
+            end,
+            ok
+        end
+    ),
     ok.
