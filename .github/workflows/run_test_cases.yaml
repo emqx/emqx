@@ -155,6 +155,7 @@ jobs:
             rm _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt
             ./scripts/ct/run.sh --app $WHICH_APP
         - uses: actions/upload-artifact@v3
+          if: success()
           with:
             name: coverdata
             path: source/_build/test/cover
@@ -202,6 +203,7 @@ jobs:
           run: |
             make "${WHICH_APP}-ct"
         - uses: actions/upload-artifact@v3
+          if: success()
           with:
             name: coverdata
             path: source/_build/test/cover
@@ -226,7 +228,7 @@ jobs:
       runs-on: ubuntu-20.04
       container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
       steps:
-      - uses: AutoModality/action-clean@v1
+      - uses: AutoModality/action-clean@v1.1.0
       - uses: actions/download-artifact@v3
         with:
           name: source-emqx-enterprise
