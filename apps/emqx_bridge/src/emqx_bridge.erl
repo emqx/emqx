@@ -53,7 +53,6 @@
     T == mysql;
     T == influxdb_api_v1;
     T == influxdb_api_v2
-    %% T == influxdb_udp
 ).
 
 load() ->

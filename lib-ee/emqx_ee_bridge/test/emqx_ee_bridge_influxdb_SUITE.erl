@@ -53,6 +53,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    delete_all_bridges(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource]),
     _ = application:stop(emqx_connector),
@@ -222,8 +223,6 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
-    %% catch clear_db(Config),
-    %% delete_bridge(Config),
     delete_all_bridges(),
     Config.
 
@@ -232,8 +231,6 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    %% catch clear_db(Config),
-    %% delete_bridge(Config),
     delete_all_bridges(),
     ok.
 
