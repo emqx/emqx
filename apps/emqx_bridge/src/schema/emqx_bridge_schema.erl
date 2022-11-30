@@ -96,13 +96,17 @@ fields(bridges) ->
         {webhook,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
-                #{desc => ?DESC("bridges_webhook")}
+                #{
+                    desc => ?DESC("bridges_webhook"),
+                    required => false
+                }
             )},
         {mqtt,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mqtt_schema, "config")),
                 #{
                     desc => ?DESC("bridges_mqtt"),
+                    required => false,
                     converter => fun emqx_bridge_mqtt_config:upgrade_pre_ee/1
                 }
             )}

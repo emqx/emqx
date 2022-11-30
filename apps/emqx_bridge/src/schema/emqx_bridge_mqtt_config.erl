@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc This module was created to convert old version (from v5.0.0 to v5.0.11)
+%% mqtt connector configs to newer version (developed for enterprise edition).
 -module(emqx_bridge_mqtt_config).
 
 -export([
