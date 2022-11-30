@@ -24,20 +24,6 @@
     try_clear_certs/3
 ]).
 
-%% TODO: rm `connector` case after `dev/ee5.0` merged into `master`.
-%% The `connector` config layer will be removed.
-%% for bridges with `connector` field. i.e. `mqtt_source` and `mqtt_sink`
-convert_certs(RltvDir, #{<<"connector">> := Connector} = Config) when
-    is_map(Connector)
-->
-    SSL = maps:get(<<"ssl">>, Connector, undefined),
-    new_ssl_config(RltvDir, Config, SSL);
-convert_certs(RltvDir, #{connector := Connector} = Config) when
-    is_map(Connector)
-->
-    SSL = maps:get(ssl, Connector, undefined),
-    new_ssl_config(RltvDir, Config, SSL);
-%% for bridges without `connector` field. i.e. webhook
 convert_certs(RltvDir, #{<<"ssl">> := SSL} = Config) ->
     new_ssl_config(RltvDir, Config, SSL);
 convert_certs(RltvDir, #{ssl := SSL} = Config) ->
@@ -49,14 +35,6 @@ convert_certs(_RltvDir, Config) ->
 clear_certs(RltvDir, Config) ->
     clear_certs2(RltvDir, normalize_key_to_bin(Config)).
 
-clear_certs2(RltvDir, #{<<"connector">> := Connector} = _Config) when
-    is_map(Connector)
-->
-    %% TODO remove the 'connector' clause after dev/ee5.0 is merged back to master
-    %% The `connector` config layer will be removed.
-    %% for bridges with `connector` field. i.e. `mqtt_source` and `mqtt_sink`
-    OldSSL = maps:get(<<"ssl">>, Connector, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
 clear_certs2(RltvDir, #{<<"ssl">> := OldSSL} = _Config) ->
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
 clear_certs2(_RltvDir, _) ->
@@ -69,15 +47,10 @@ try_clear_certs(RltvDir, NewConf, OldConf) ->
         normalize_key_to_bin(OldConf)
     ).
 
-try_clear_certs2(RltvDir, #{<<"connector">> := NewConnector}, #{<<"connector">> := OldConnector}) ->
-    NewSSL = maps:get(<<"ssl">>, NewConnector, undefined),
-    OldSSL = maps:get(<<"ssl">>, OldConnector, undefined),
-    try_clear_certs2(RltvDir, NewSSL, OldSSL);
-try_clear_certs2(RltvDir, NewSSL, OldSSL) when is_map(NewSSL) andalso is_map(OldSSL) ->
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL);
 try_clear_certs2(RltvDir, NewConf, OldConf) ->
-    ?SLOG(debug, #{msg => "unexpected_conf", path => RltvDir, new => NewConf, OldConf => OldConf}),
-    ok.
+    NewSSL = try_map_get(<<"ssl">>, NewConf, undefined),
+    OldSSL = try_map_get(<<"ssl">>, OldConf, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL).
 
 new_ssl_config(RltvDir, Config, SSL) ->
     case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of
@@ -98,5 +71,12 @@ new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
 new_ssl_config(Config, _NewSSL) ->
     Config.
 
-normalize_key_to_bin(Map) ->
+normalize_key_to_bin(undefined) ->
+    undefined;
+normalize_key_to_bin(Map) when is_map(Map) ->
     emqx_map_lib:binary_key_map(Map).
+
+try_map_get(_Key, undefined, Default) ->
+    Default;
+try_map_get(Key, Map, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default).

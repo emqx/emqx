@@ -133,7 +133,7 @@ deep_merge(BaseMap, NewMap) ->
     ),
     maps:merge(MergedBase, maps:with(NewKeys, NewMap)).
 
--spec deep_convert(map(), convert_fun(), Args :: list()) -> map().
+-spec deep_convert(any(), convert_fun(), Args :: list()) -> any().
 deep_convert(Map, ConvFun, Args) when is_map(Map) ->
     maps:fold(
         fun(K, V, Acc) ->

@@ -44,6 +44,9 @@ init_per_testcase(t_get_basic_usage_info_1, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     setup_fake_telemetry_data(),
     Config;
+init_per_testcase(t_update_ssl_conf, Config) ->
+    Path = [bridges, <<"mqtt">>, <<"ssl_update_test">>],
+    [{config_path, Path} | Config];
 init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
@@ -63,6 +66,9 @@ end_per_testcase(t_get_basic_usage_info_1, _Config) ->
     ok = emqx_config:put([bridges], #{}),
     ok = emqx_config:put_raw([bridges], #{}),
     ok;
+end_per_testcase(t_update_ssl_conf, Config) ->
+    Path = proplists:get_value(config_path, Config),
+    emqx:remove_config(Path);
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
@@ -149,82 +155,30 @@ setup_fake_telemetry_data() ->
     ok = snabbkaffe:stop(),
     ok.
 
-t_update_ssl_conf(_) ->
-    Path = [bridges, <<"mqtt">>, <<"ssl_update_test">>],
+t_update_ssl_conf(Config) ->
+    Path = proplists:get_value(config_path, Config),
     EnableSSLConf = #{
-        <<"connector">> =>
+        <<"bridge_mode">> => false,
+        <<"clean_start">> => true,
+        <<"keepalive">> => <<"60s">>,
+        <<"mode">> => <<"cluster_shareload">>,
+        <<"proto_ver">> => <<"v4">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"ssl">> =>
             #{
-                <<"bridge_mode">> => false,
-                <<"clean_start">> => true,
-                <<"keepalive">> => <<"60s">>,
-                <<"mode">> => <<"cluster_shareload">>,
-                <<"proto_ver">> => <<"v4">>,
-                <<"server">> => <<"127.0.0.1:1883">>,
-                <<"ssl">> =>
-                    #{
-                        <<"cacertfile">> => cert_file("cafile"),
-                        <<"certfile">> => cert_file("certfile"),
-                        <<"enable">> => true,
-                        <<"keyfile">> => cert_file("keyfile"),
-                        <<"verify">> => <<"verify_peer">>
-                    }
-            },
-        <<"direction">> => <<"ingress">>,
-        <<"local_qos">> => 1,
-        <<"payload">> => <<"${payload}">>,
-        <<"remote_qos">> => 1,
-        <<"remote_topic">> => <<"t/#">>,
-        <<"retain">> => false
+                <<"cacertfile">> => cert_file("cafile"),
+                <<"certfile">> => cert_file("certfile"),
+                <<"enable">> => true,
+                <<"keyfile">> => cert_file("keyfile"),
+                <<"verify">> => <<"verify_peer">>
+            }
     },
-
-    emqx:update_config(Path, EnableSSLConf),
-    ?assertMatch({ok, [_, _, _]}, list_pem_dir(Path)),
-    NoSSLConf = #{
-        <<"connector">> =>
-            #{
-                <<"bridge_mode">> => false,
-                <<"clean_start">> => true,
-                <<"keepalive">> => <<"60s">>,
-                <<"max_inflight">> => 32,
-                <<"mode">> => <<"cluster_shareload">>,
-                <<"password">> => <<>>,
-                <<"proto_ver">> => <<"v4">>,
-                <<"reconnect_interval">> => <<"15s">>,
-                <<"replayq">> =>
-                    #{<<"offload">> => false, <<"seg_bytes">> => <<"100MB">>},
-                <<"retry_interval">> => <<"15s">>,
-                <<"server">> => <<"127.0.0.1:1883">>,
-                <<"ssl">> =>
-                    #{
-                        <<"ciphers">> => <<>>,
-                        <<"depth">> => 10,
-                        <<"enable">> => false,
-                        <<"reuse_sessions">> => true,
-                        <<"secure_renegotiate">> => true,
-                        <<"user_lookup_fun">> => <<"emqx_tls_psk:lookup">>,
-                        <<"verify">> => <<"verify_peer">>,
-                        <<"versions">> =>
-                            [
-                                <<"tlsv1.3">>,
-                                <<"tlsv1.2">>,
-                                <<"tlsv1.1">>,
-                                <<"tlsv1">>
-                            ]
-                    },
-                <<"username">> => <<>>
-            },
-        <<"direction">> => <<"ingress">>,
-        <<"enable">> => true,
-        <<"local_qos">> => 1,
-        <<"payload">> => <<"${payload}">>,
-        <<"remote_qos">> => 1,
-        <<"remote_topic">> => <<"t/#">>,
-        <<"retain">> => false
-    },
-
-    emqx:update_config(Path, NoSSLConf),
+    {ok, _} = emqx:update_config(Path, EnableSSLConf),
+    {ok, Certs} = list_pem_dir(Path),
+    ?assertMatch([_, _, _], Certs),
+    NoSSLConf = EnableSSLConf#{<<"ssl">> := #{<<"enable">> => false}},
+    {ok, _} = emqx:update_config(Path, NoSSLConf),
     ?assertMatch({error, not_dir}, list_pem_dir(Path)),
-    emqx:remove_config(Path),
     ok.
 
 list_pem_dir(Path) ->
