@@ -124,8 +124,6 @@ jobs:
           fail-fast: false
           matrix:
             app: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
-            otp_release:
-              - "erlang24"
 
         runs-on: aws-amd64
         defaults:
@@ -160,10 +158,16 @@ jobs:
           with:
             name: coverdata
             path: source/_build/test/cover
+        - id: logs_artifact_name
+          if: failure()
+          run: |
+            PRE_NAME="logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}"
+            ARTIFACT_NAME=$(echo "$PRE_NAME" | sed 's/\//-/g')
+            echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: ${{ steps.logs_artifact_name.outputs.artifact_name }}
             path: source/_build/test/logs
 
     ct:
@@ -202,10 +206,16 @@ jobs:
             name: coverdata
             path: source/_build/test/cover
             if-no-files-found: warn # do not fail if no coverdata found
+        - id: logs_artifact_name
+          if: failure()
+          run: |
+            PRE_NAME="logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}"
+            ARTIFACT_NAME=$(echo "$PRE_NAME" | sed 's/\//-/g')
+            echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: ${{ steps.logs_artifact_name.outputs.artifact_name }}
             path: source/_build/test/logs
 
     make_cover:
