@@ -44,7 +44,8 @@ jobs:
           run: |
             make ensure-rebar3
             # fetch all deps and compile
-            make
+            make emqx
+            make test-compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
@@ -69,7 +70,8 @@ jobs:
           run: |
             make ensure-rebar3
             # fetch all deps and compile
-            make
+            make emqx-enterprise
+            make test-compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3

@@ -68,6 +68,10 @@ eunit: $(REBAR) conf-segs
 proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
 
+.PHONY: test-compile
+test-compile: $(REBAR) conf-segs
+	$(REBAR) as test compile
+
 .PHONY: ct
 ct: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-ct
