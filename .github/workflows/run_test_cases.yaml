@@ -22,6 +22,7 @@ jobs:
           fast_ct_apps: ${{ steps.find_ct_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.find_ct_apps.outputs.docker_ct_apps }}
         steps:
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/checkout@v3
           with:
             path: source
@@ -39,11 +40,8 @@ jobs:
           working-directory: source
           env:
             PROFILE: emqx
-              #DIAGNOSTIC: 1
           run: |
-            make ensure-rebar3
-            # this will fetch all deps and compile
-            ./rebar3 as test compile
+            make
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
@@ -56,6 +54,7 @@ jobs:
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         steps:
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/checkout@v3
           with:
             path: source
@@ -63,11 +62,8 @@ jobs:
           working-directory: source
           env:
             PROFILE: emqx-enterprise
-              #DIAGNOSTIC: 1
           run: |
-            make ensure-rebar3
-            # this will fetch all deps and compile
-            ./rebar3 as test compile
+            make
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
@@ -92,7 +88,7 @@ jobs:
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.profile }}
@@ -137,7 +133,9 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
+          with:
+            cleanup_docker: true
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.app[1] }}
@@ -183,7 +181,7 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.app[1] }}
