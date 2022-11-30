@@ -27,15 +27,8 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_statsd_sup:start_link(),
-    maybe_enable_statsd(),
+    emqx_statsd_config:add_handler(),
     {ok, Sup}.
 stop(_) ->
+    emqx_statsd_config:remove_handler(),
     ok.
-
-maybe_enable_statsd() ->
-    case emqx_conf:get([statsd, enable], false) of
-        true ->
-            emqx_statsd_sup:ensure_child_started(?APP, emqx_conf:get([statsd], #{}));
-        false ->
-            ok
-    end.

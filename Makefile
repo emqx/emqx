@@ -6,7 +6,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-d
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.1
+export EMQX_DASHBOARD_VERSION ?= v1.1.2
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.5
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -23,7 +23,7 @@ PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
-CT_READABLE ?= false
+CT_READABLE ?= true
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -67,6 +67,10 @@ eunit: $(REBAR) conf-segs
 .PHONY: proper
 proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
+
+.PHONY: test-compile
+test-compile: $(REBAR) conf-segs
+	$(REBAR) as test compile
 
 .PHONY: ct
 ct: $(REBAR) conf-segs

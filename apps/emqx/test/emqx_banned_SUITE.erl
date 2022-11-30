@@ -21,18 +21,20 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx),
+    emqx_common_test_helpers:start_apps([]),
     ok = ekka:start(),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
     mria:stop(),
-    mria_mnesia:delete_schema().
+    mria_mnesia:delete_schema(),
+    emqx_common_test_helpers:stop_apps([]).
 
 t_add_delete(_) ->
     Banned = #banned{
@@ -95,19 +97,47 @@ t_check(_) ->
     ?assertEqual(0, emqx_banned:info(size)).
 
 t_unused(_) ->
-    catch emqx_banned:stop(),
-    {ok, Banned} = emqx_banned:start_link(),
-    {ok, _} = emqx_banned:create(#banned{
-        who = {clientid, <<"BannedClient1">>},
-        until = erlang:system_time(second)
-    }),
-    {ok, _} = emqx_banned:create(#banned{
-        who = {clientid, <<"BannedClient2">>},
-        until = erlang:system_time(second) - 1
-    }),
-    ?assertEqual(ignored, gen_server:call(Banned, unexpected_req)),
-    ?assertEqual(ok, gen_server:cast(Banned, unexpected_msg)),
-    ?assertEqual(ok, Banned ! ok),
+    Who1 = {clientid, <<"BannedClient1">>},
+    Who2 = {clientid, <<"BannedClient2">>},
+
+    ?assertMatch(
+        {ok, _},
+        emqx_banned:create(#banned{
+            who = Who1,
+            until = erlang:system_time(second)
+        })
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_banned:create(#banned{
+            who = Who2,
+            until = erlang:system_time(second) - 1
+        })
+    ),
+    ?assertEqual(ignored, gen_server:call(emqx_banned, unexpected_req)),
+    ?assertEqual(ok, gen_server:cast(emqx_banned, unexpected_msg)),
     %% expiry timer
     timer:sleep(500),
-    ok = emqx_banned:stop().
+
+    ok = emqx_banned:delete(Who1),
+    ok = emqx_banned:delete(Who2).
+
+t_kick(_) ->
+    ClientId = <<"client">>,
+    snabbkaffe:start_trace(),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId},
+
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    ?assertEqual(1, length(?of_kind(kick_session_due_to_banned, Trace))).

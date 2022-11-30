@@ -68,7 +68,8 @@ pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
 
 post_config_update(Path, '$remove', _, OldConf, _AppEnvs) ->
     _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf);
-post_config_update(_Path, _Req, _, _OldConf, _AppEnvs) ->
+post_config_update(Path, _Req, NewConf, OldConf, _AppEnvs) ->
+    _ = emqx_connector_ssl:try_clear_certs(filename:join(Path), NewConf, OldConf),
     ok.
 
 %% internal functions

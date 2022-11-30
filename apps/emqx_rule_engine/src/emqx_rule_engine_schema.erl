@@ -173,6 +173,15 @@ fields("republish_args") ->
                     default => <<"${payload}">>,
                     example => <<"${payload}">>
                 }
+            )},
+        {user_properties,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC("republish_args_user_properties"),
+                    default => <<"${user_properties}">>,
+                    example => <<"${pub_props.'User-Property'}">>
+                }
             )}
     ].
 

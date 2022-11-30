@@ -23,6 +23,7 @@
     deep_force_put/3,
     deep_remove/2,
     deep_merge/2,
+    binary_key_map/1,
     safe_atom_key_map/1,
     unsafe_atom_key_map/1,
     jsonable_map/1,
@@ -132,7 +133,7 @@ deep_merge(BaseMap, NewMap) ->
     ),
     maps:merge(MergedBase, maps:with(NewKeys, NewMap)).
 
--spec deep_convert(map(), convert_fun(), Args :: list()) -> map().
+-spec deep_convert(any(), convert_fun(), Args :: list()) -> any().
 deep_convert(Map, ConvFun, Args) when is_map(Map) ->
     maps:fold(
         fun(K, V, Acc) ->
@@ -152,6 +153,17 @@ deep_convert(Val, _, _Args) ->
 -spec unsafe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 unsafe_atom_key_map(Map) ->
     covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
+
+-spec binary_key_map(map()) -> map().
+binary_key_map(Map) ->
+    deep_convert(
+        Map,
+        fun
+            (K, V) when is_atom(K) -> {atom_to_binary(K, utf8), V};
+            (K, V) when is_binary(K) -> {K, V}
+        end,
+        []
+    ).
 
 -spec safe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 safe_atom_key_map(Map) ->

@@ -133,23 +133,23 @@ t_list_rule_api(_Config) ->
 
     QueryStr2 = #{query_string => #{<<"like_description">> => <<"也能"/utf8>>}},
     {200, Result2} = emqx_rule_engine_api:'/rules'(get, QueryStr2),
-    ?assertEqual(Result1, Result2),
+    ?assertEqual(maps:get(data, Result1), maps:get(data, Result2)),
 
     QueryStr3 = #{query_string => #{<<"from">> => <<"t/1">>}},
-    {200, #{meta := #{count := Count3}}} = emqx_rule_engine_api:'/rules'(get, QueryStr3),
-    ?assertEqual(19, Count3),
+    {200, #{data := Data3}} = emqx_rule_engine_api:'/rules'(get, QueryStr3),
+    ?assertEqual(19, length(Data3)),
 
     QueryStr4 = #{query_string => #{<<"like_from">> => <<"t/1/+">>}},
     {200, Result4} = emqx_rule_engine_api:'/rules'(get, QueryStr4),
-    ?assertEqual(Result1, Result4),
+    ?assertEqual(maps:get(data, Result1), maps:get(data, Result4)),
 
     QueryStr5 = #{query_string => #{<<"match_from">> => <<"t/+/+">>}},
     {200, Result5} = emqx_rule_engine_api:'/rules'(get, QueryStr5),
-    ?assertEqual(Result1, Result5),
+    ?assertEqual(maps:get(data, Result1), maps:get(data, Result5)),
 
     QueryStr6 = #{query_string => #{<<"like_id">> => RuleID}},
     {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
-    ?assertEqual(Result1, Result6),
+    ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
 
     %% clean up
     lists:foreach(

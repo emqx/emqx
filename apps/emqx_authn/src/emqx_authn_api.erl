@@ -30,6 +30,7 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 -define(ALREADY_EXISTS, 'ALREADY_EXISTS').
+-define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 
 % Swagger
 
@@ -224,7 +225,8 @@ schema("/authentication/:id/status") ->
                     hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
+                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
             }
         }
     };
@@ -576,7 +578,11 @@ authenticator(delete, #{bindings := #{id := AuthenticatorID}}) ->
     delete_authenticator([authentication], ?GLOBAL, AuthenticatorID).
 
 authenticator_status(get, #{bindings := #{id := AuthenticatorID}}) ->
-    lookup_from_all_nodes(?GLOBAL, AuthenticatorID).
+    with_authenticator(
+        AuthenticatorID,
+        [authentication],
+        fun(_) -> lookup_from_all_nodes(?GLOBAL, AuthenticatorID) end
+    ).
 
 listener_authenticators(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
     with_listener(
@@ -647,8 +653,12 @@ listener_authenticator_status(
 ) ->
     with_listener(
         ListenerID,
-        fun(_, _, ChainName) ->
-            lookup_from_all_nodes(ChainName, AuthenticatorID)
+        fun(Type, Name, ChainName) ->
+            with_authenticator(
+                AuthenticatorID,
+                [listeners, Type, Name, authentication],
+                fun(_) -> lookup_from_all_nodes(ChainName, AuthenticatorID) end
+            )
         end
     ).
 
@@ -774,6 +784,18 @@ listener_authenticator_user(delete, #{
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+with_authenticator(AuthenticatorID, ConfKeyPath, Fun) ->
+    case find_authenticator_config(AuthenticatorID, ConfKeyPath) of
+        {ok, AuthenticatorConfig} ->
+            Fun(AuthenticatorConfig);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+find_authenticator_config(AuthenticatorID, ConfKeyPath) ->
+    AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
+    find_config(AuthenticatorID, AuthenticatorsConfig).
+
 with_listener(ListenerID, Fun) ->
     case find_listener(ListenerID) of
         {ok, {BType, BName}} ->
@@ -836,13 +858,13 @@ list_authenticators(ConfKeyPath) ->
     {200, NAuthenticators}.
 
 list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
-    AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    case find_config(AuthenticatorID, AuthenticatorsConfig) of
-        {ok, AuthenticatorConfig} ->
-            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+    with_authenticator(
+        AuthenticatorID,
+        ConfKeyPath,
+        fun(AuthenticatorConfig) ->
+            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))}
+        end
+    ).
 
 resource_provider() ->
     [
@@ -877,7 +899,8 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
 
 lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
-    case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
+    LookupResult = emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID),
+    case is_ok(LookupResult) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
@@ -901,7 +924,7 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
                 node_error => HelpFun(maps:map(Fun, ErrorMap), reason)
             }};
         {error, ErrL} ->
-            {400, #{
+            {500, #{
                 code => <<"INTERNAL_ERROR">>,
                 message => list_to_binary(io_lib:format("~p", [ErrL]))
             }}

@@ -62,9 +62,10 @@
 %% List of business-layer functions that are exempt from the checks:
 %% erlfmt-ignore
 -define(EXEMPTIONS,
-    "emqx_mgmt_api:do_query/6"  % Reason: legacy code. A fun and a QC query are
-                                % passed in the args, it's futile to try to statically
-                                % check it
+    % Reason: legacy code. A fun and a QC query are
+    % passed in the args, it's futile to try to statically
+    % check it
+    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/3"
 ).
 
 -define(XREF, myxref).

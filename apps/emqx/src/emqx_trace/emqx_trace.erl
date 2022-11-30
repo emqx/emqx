@@ -38,7 +38,8 @@
     delete/1,
     clear/0,
     update/2,
-    check/0
+    check/0,
+    now_second/0
 ]).
 
 -export([
@@ -287,7 +288,7 @@ insert_new_trace(Trace) ->
     transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]).
 
 update_trace(Traces) ->
-    Now = erlang:system_time(second),
+    Now = now_second(),
     {_Waiting, Running, Finished} = classify_by_time(Traces, Now),
     disable_finished(Finished),
     Started = emqx_trace_handler:running(),
@@ -455,7 +456,7 @@ ensure_map(Trace) when is_list(Trace) ->
     ).
 
 fill_default(Trace = #?TRACE{start_at = undefined}) ->
-    fill_default(Trace#?TRACE{start_at = erlang:system_time(second)});
+    fill_default(Trace#?TRACE{start_at = now_second()});
 fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
     fill_default(Trace#?TRACE{end_at = StartAt + 10 * 60});
 fill_default(Trace) ->
@@ -493,7 +494,7 @@ to_trace(#{start_at := StartAt} = Trace, Rec) ->
     {ok, Sec} = to_system_second(StartAt),
     to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = Sec});
 to_trace(#{end_at := EndAt} = Trace, Rec) ->
-    Now = erlang:system_time(second),
+    Now = now_second(),
     case to_system_second(EndAt) of
         {ok, Sec} when Sec > Now ->
             to_trace(maps:remove(end_at, Trace), Rec#?TRACE{end_at = Sec});
@@ -517,8 +518,7 @@ validate_ip_address(IP) ->
     end.
 
 to_system_second(Sec) ->
-    Now = erlang:system_time(second),
-    {ok, erlang:max(Now, Sec)}.
+    {ok, erlang:max(now_second(), Sec)}.
 
 zip_dir() ->
     filename:join([trace_dir(), "zip"]).
@@ -570,3 +570,6 @@ filter_cli_handler(Names) ->
         end,
         Names
     ).
+
+now_second() ->
+    os:system_time(second).
