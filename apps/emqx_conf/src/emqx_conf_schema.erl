@@ -41,6 +41,8 @@
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
+-export([emqx_roots/0, other_schemas/0]).
+
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQX is started
@@ -73,31 +75,7 @@ roots() ->
         undefined -> persistent_term:put(PtKey, emqx_authn_schema);
         _ -> ok
     end,
-    emqx_schema_high_prio_roots() ++
-        [
-            {"node",
-                sc(
-                    ?R_REF("node"),
-                    #{translate_to => ["emqx"]}
-                )},
-            {"cluster",
-                sc(
-                    ?R_REF("cluster"),
-                    #{translate_to => ["ekka"]}
-                )},
-            {"log",
-                sc(
-                    ?R_REF("log"),
-                    #{translate_to => ["kernel"]}
-                )},
-            {"rpc",
-                sc(
-                    ?R_REF("rpc"),
-                    #{translate_to => ["gen_rpc"]}
-                )}
-        ] ++
-        emqx_schema:roots(medium) ++
-        emqx_schema:roots(low) ++
+    emqx_roots() ++
         lists:flatmap(fun roots/1, ?MERGED_CONFIGS).
 
 validations() ->
@@ -1408,3 +1386,33 @@ validator_string_re(Val, RE, Error) ->
     catch
         _:_ -> {error, Error}
     end.
+
+emqx_roots() ->
+    emqx_schema_high_prio_roots() ++
+        [
+            {"node",
+                sc(
+                    ?R_REF("node"),
+                    #{translate_to => ["emqx"]}
+                )},
+            {"cluster",
+                sc(
+                    ?R_REF("cluster"),
+                    #{translate_to => ["ekka"]}
+                )},
+            {"log",
+                sc(
+                    ?R_REF("log"),
+                    #{translate_to => ["kernel"]}
+                )},
+            {"rpc",
+                sc(
+                    ?R_REF("rpc"),
+                    #{translate_to => ["gen_rpc"]}
+                )}
+        ] ++
+        emqx_schema:roots(medium) ++
+        emqx_schema:roots(low).
+
+other_schemas() ->
+    ?MERGED_CONFIGS.

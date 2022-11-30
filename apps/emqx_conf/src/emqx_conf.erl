@@ -190,9 +190,22 @@ schema_filename(Dir, Prefix, Lang) ->
 
 gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
     Lang = atom_to_list(Lang0),
-    SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
-    io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
-    ok = gen_doc(SchemaMdFile, SchemaModule, I18nFile, Lang).
+    lists:foreach(
+        fun(
+            #{
+                module := SchemaMod,
+                section_title := SectionTitle,
+                use_template := UseTemplate,
+                slug := Slug
+            }
+        ) ->
+            SlugStr = atom_to_list(Slug) ++ "-",
+            SchemaMdFile = filename:join([Dir, "config-" ++ SlugStr ++ Lang ++ ".md"]),
+            io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
+            ok = gen_doc(SchemaMdFile, SchemaMod, SectionTitle, UseTemplate, I18nFile, Lang)
+        end,
+        schema_sections(SchemaModule)
+    ).
 
 gen_example_conf(Dir, I18nFile, SchemaModule, Lang0) ->
     Lang = atom_to_list(Lang0),
@@ -212,14 +225,86 @@ schema_module() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec gen_doc(file:name_all(), module(), file:name_all(), string()) -> ok.
-gen_doc(File, SchemaModule, I18nFile, Lang) ->
+%% Remember to update the `emqx_conf_others_section' module if the
+%% special sections are changed here.  We have to exclude modules that
+%% have their special sections from the "ordinary" section that has
+%% all other schemas.
+-type doc_section() :: #{
+    module := module(),
+    section_title := string(),
+    use_template := boolean(),
+    slug := atom()
+}.
+-spec schema_sections(module()) -> [doc_section()].
+schema_sections(emqx_conf_schema) ->
+    [
+        #{
+            module => emqx_conf_emqx_section,
+            section_title => emqx_release:description() ++ " Configuration",
+            use_template => true,
+            slug => emqx
+        },
+        #{
+            module => emqx_conf_authn_section,
+            section_title => "Authentication",
+            use_template => false,
+            slug => authn
+        },
+        #{
+            module => emqx_conf_authz_section,
+            section_title => "Authorization",
+            use_template => false,
+            slug => authz
+        },
+        #{
+            module => emqx_bridge_schema,
+            section_title => "Bridges",
+            use_template => false,
+            slug => bridge
+        },
+        #{
+            module => emqx_rule_engine_schema,
+            section_title => "Rule Engine",
+            use_template => false,
+            slug => rule
+        },
+        #{
+            module => emqx_conf_others_section,
+            section_title => "Other Configurations",
+            use_template => false,
+            slug => others
+        }
+    ];
+schema_sections(emqx_enterprise_conf_schema) ->
+    CESections = schema_sections(emqx_conf_schema),
+    NumSections = length(CESections),
+    {Pre, Post} = lists:split(NumSections - 1, CESections),
+    Pre ++
+        [
+            #{
+                module => emqx_license_schema,
+                section_title => "License",
+                use_template => false,
+                slug => license
+            }
+            | Post
+        ].
+
+-spec gen_doc(file:name_all(), module(), string(), boolean(), file:name_all(), string()) -> ok.
+gen_doc(File, SchemaModule, SectionTitle, UseTemplate, I18nFile, Lang) ->
     Version = emqx_release:version(),
     Title =
-        "# " ++ emqx_release:description() ++ " Configuration\n\n" ++
+        "# " ++ SectionTitle ++ "\n\n" ++
             "<!--" ++ Version ++ "-->",
-    BodyFile = filename:join([rel, "emqx_conf.template." ++ Lang ++ ".md"]),
-    {ok, Body} = file:read_file(BodyFile),
+    Body =
+        case UseTemplate of
+            true ->
+                BodyFile = filename:join([rel, "emqx_conf.template." ++ Lang ++ ".md"]),
+                {ok, Body0} = file:read_file(BodyFile),
+                Body0;
+            false ->
+                <<>>
+        end,
     Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},
     Doc = hocon_schema_md:gen(SchemaModule, Opts),
     file:write_file(File, Doc).
