@@ -70,14 +70,11 @@ try_clear_certs(RltvDir, NewConf, OldConf) ->
     ).
 
 try_clear_certs2(RltvDir, #{<<"connector">> := NewConnector}, #{<<"connector">> := OldConnector}) ->
-    NewSSL = maps:get(<<"ssl">>, NewConnector, undefined),
-    OldSSL = maps:get(<<"ssl">>, OldConnector, undefined),
-    try_clear_certs2(RltvDir, NewSSL, OldSSL);
-try_clear_certs2(RltvDir, NewSSL, OldSSL) when is_map(NewSSL) andalso is_map(OldSSL) ->
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL);
+    try_clear_certs2(RltvDir, NewConnector, OldConnector);
 try_clear_certs2(RltvDir, NewConf, OldConf) ->
-    ?SLOG(debug, #{msg => "unexpected_conf", path => RltvDir, new => NewConf, OldConf => OldConf}),
-    ok.
+    NewSSL = try_map_get(<<"ssl">>, NewConf, undefined),
+    OldSSL = try_map_get(<<"ssl">>, OldConf, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL).
 
 new_ssl_config(RltvDir, Config, SSL) ->
     case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of
@@ -100,3 +97,8 @@ new_ssl_config(Config, _NewSSL) ->
 
 normalize_key_to_bin(Map) ->
     emqx_map_lib:binary_key_map(Map).
+
+try_map_get(Key, Map, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default);
+try_map_get(_Key, undefined, Default) ->
+    Default.
