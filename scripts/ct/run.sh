@@ -83,7 +83,7 @@ if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
     CT_DEPS="$(cat "$DOCKER_CT_ENVS_FILE" | xargs)"
 fi
-CT_DEPS="${ERLANG_CONTAINER} ${CT_DEPS}"
+CT_DEPS="${ERLANG_CONTAINER} ${CT_DEPS:-}"
 
 FILES=( )
 
