@@ -150,7 +150,7 @@ else
 fi
 
 # shellcheck disable=2086 # no quotes for F_OPTIONS
-docker-compose $F_OPTIONS up -d --build
+docker-compose $F_OPTIONS up -d --build --remove-orphans
 
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
