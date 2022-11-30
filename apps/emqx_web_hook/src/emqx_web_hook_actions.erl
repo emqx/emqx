@@ -420,9 +420,7 @@ pool_opts(Params = #{<<"url">> := URL}, ResId) ->
      {enable_pipelining, EnablePipelining},
      {pool_size, PoolSize},
      {pool_type, hash},
-     {connect_timeout, ConnectTimeout},
-     {retry, 5},
-     {retry_timeout, 1000} | Opts].
+     {connect_timeout, ConnectTimeout} | Opts].
 
 pool_name(ResId) ->
     list_to_atom("webhook:" ++ str(ResId)).
