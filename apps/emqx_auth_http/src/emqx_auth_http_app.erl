@@ -93,9 +93,8 @@ translate_env(EnvName) ->
                         {enable_pipelining, EnablePipelining},
                         {pool_size, PoolSize},
                         {pool_type, random},
-                        {connect_timeout, ConnectTimeout},
-                        {retry, 5},
-                        {retry_timeout, 1000}] ++ MoreOpts,
+                        {connect_timeout, ConnectTimeout}
+                       ] ++ MoreOpts,
             Method = proplists:get_value(method, Req),
             Headers = proplists:get_value(headers, Req),
             NHeaders = ensure_content_type_header(Method, emqx_http_lib:normalise_headers(Headers)),
