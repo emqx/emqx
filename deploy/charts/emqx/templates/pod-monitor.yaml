@@ -1,6 +1,6 @@
 {{- if and (.Values.metrics.enabled) (eq .Values.metrics.type "prometheus") }}
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
   name: {{ include "emqx.fullname" . }}
   namespace: {{ .Release.Namespace }}
@@ -14,7 +14,7 @@ metadata:
     {{ toYaml .Values.service.annotations | indent 4 }}
   {{- end }}
 spec:
-  endpoints:
+  podMetricsEndpoints:
   - interval: 10s
     port: dashboard
     scheme: http
