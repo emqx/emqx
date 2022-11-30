@@ -680,7 +680,8 @@ name(Id, Index) ->
     list_to_atom(lists:concat([Mod, ":", Id1, ":", Index1])).
 
 disk_queue_dir(Id, Index) ->
-    QDir = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
+    QDir0 = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
+    QDir = lists:flatten(string:replace(lists:flatten(QDir0), ":", "_", all)),
     filename:join([emqx:data_dir(), "resource_worker", node(), QDir]).
 
 ensure_flush_timer(St = #{tref := undefined, batch_time := T}) ->
