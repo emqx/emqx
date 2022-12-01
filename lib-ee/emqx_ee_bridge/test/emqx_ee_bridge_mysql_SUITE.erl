@@ -43,18 +43,12 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {with_batch, [
-            {group, sync_query},
-            {group, async_query}
+            {group, sync_query}
         ]},
         {without_batch, [
-            {group, sync_query},
-            {group, async_query}
+            {group, sync_query}
         ]},
         {sync_query, [
-            {group, tcp},
-            {group, tls}
-        ]},
-        {async_query, [
             {group, tcp},
             {group, tls}
         ]},
@@ -86,8 +80,6 @@ init_per_group(tls, Config0) ->
     common_init(Config);
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
-init_per_group(async_query, Config) ->
-    [{query_mode, async} | Config];
 init_per_group(with_batch, Config) ->
     [{enable_batch, true} | Config];
 init_per_group(without_batch, Config) ->
@@ -387,7 +379,6 @@ t_write_failure(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
-    QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
@@ -396,12 +387,7 @@ t_write_failure(Config) ->
             send_message(Config, SentData)
         end),
         fun(Result, _Trace) ->
-            case QueryMode of
-                sync ->
-                    ?assertMatch({error, {resource_error, _}}, Result);
-                async ->
-                    ?assertEqual(ok, Result)
-            end,
+            ?assertMatch({error, {resource_error, _}}, Result),
             ok
         end
     ),
