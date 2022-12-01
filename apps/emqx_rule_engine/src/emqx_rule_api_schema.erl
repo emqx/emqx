@@ -43,12 +43,6 @@ fields("rule_creation") ->
 fields("rule_info") ->
     [
         rule_id(),
-        {"metrics", sc(ref("metrics"), #{desc => ?DESC("ri_metrics")})},
-        {"node_metrics",
-            sc(
-                hoconsc:array(ref("node_metrics")),
-                #{desc => ?DESC("ri_node_metrics")}
-            )},
         {"from",
             sc(
                 hoconsc:array(binary()),
@@ -63,6 +57,16 @@ fields("rule_info") ->
                 }
             )}
     ] ++ fields("rule_creation");
+fields("rule_metrics") ->
+    [
+        rule_id(),
+        {"metrics", sc(ref("metrics"), #{desc => ?DESC("ri_metrics")})},
+        {"node_metrics",
+            sc(
+                hoconsc:array(ref("node_metrics")),
+                #{desc => ?DESC("ri_node_metrics")}
+            )}
+    ];
 %% TODO: we can delete this API if the Dashboard not depends on it
 fields("rule_events") ->
     ETopics = emqx_rule_events:event_topics_enum(),

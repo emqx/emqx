@@ -641,7 +641,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
         end
     ),
     %% and also the rule should be matched, with matched + 1:
-    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId, "metrics"]), []),
     #{
         <<"id">> := RuleId,
         <<"metrics">> := #{
@@ -748,7 +748,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
     timer:sleep(100),
     wait_for_resource_ready(BridgeIDEgress, 5),
     emqx:publish(emqx_message:make(RuleTopic, Payload2)),
-    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId, "metrics"]), []),
     #{
         <<"id">> := RuleId,
         <<"metrics">> := #{
