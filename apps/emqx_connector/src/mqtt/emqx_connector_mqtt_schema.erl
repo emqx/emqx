@@ -42,17 +42,17 @@ fields("config") ->
         [
             {"ingress",
                 mk(
-                    hoconsc:union([none, ref(?MODULE, "ingress")]),
+                    ref(?MODULE, "ingress"),
                     #{
-                        default => undefined,
+                        required => {false, recursively},
                         desc => ?DESC("ingress_desc")
                     }
                 )},
             {"egress",
                 mk(
-                    hoconsc:union([none, ref(?MODULE, "egress")]),
+                    ref(?MODULE, "egress"),
                     #{
-                        default => undefined,
+                        required => {false, recursively},
                         desc => ?DESC("egress_desc")
                     }
                 )}
@@ -109,6 +109,7 @@ fields("server_configs") ->
                 binary(),
                 #{
                     format => <<"password">>,
+                    sensitive => true,
                     desc => ?DESC("password")
                 }
             )},
@@ -146,7 +147,10 @@ fields("ingress") ->
         {"local",
             mk(
                 ref(?MODULE, "ingress_local"),
-                #{desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")}
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local"),
+                    is_required => false
+                }
             )}
     ];
 fields("ingress_remote") ->
@@ -176,7 +180,8 @@ fields("ingress_local") ->
                 binary(),
                 #{
                     validator => fun emqx_schema:non_empty_string/1,
-                    desc => ?DESC("ingress_local_topic")
+                    desc => ?DESC("ingress_local_topic"),
+                    required => false
                 }
             )},
         {qos,
@@ -209,12 +214,18 @@ fields("egress") ->
         {"local",
             mk(
                 ref(?MODULE, "egress_local"),
-                #{desc => ?DESC(emqx_connector_mqtt_schema, "egress_local")}
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_local"),
+                    required => false
+                }
             )},
         {"remote",
             mk(
                 ref(?MODULE, "egress_remote"),
-                #{desc => ?DESC(emqx_connector_mqtt_schema, "egress_remote")}
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_remote"),
+                    required => true
+                }
             )}
     ];
 fields("egress_local") ->
@@ -224,6 +235,7 @@ fields("egress_local") ->
                 binary(),
                 #{
                     desc => ?DESC("egress_local_topic"),
+                    required => false,
                     validator => fun emqx_schema:non_empty_string/1
                 }
             )}

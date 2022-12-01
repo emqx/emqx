@@ -62,17 +62,26 @@ fields(bridges) ->
         {kafka,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_kafka, "config")),
-                #{desc => <<"EMQX Enterprise Config">>}
+                #{
+                    desc => <<"Kafka Bridge Config">>,
+                    required => false
+                }
             )},
         {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
-                #{desc => <<"EMQX Enterprise Config">>}
+                #{
+                    desc => <<"HStreamDB Bridge Config">>,
+                    required => false
+                }
             )},
         {mysql,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_mysql, "config")),
-                #{desc => <<"EMQX Enterprise Config">>}
+                #{
+                    desc => <<"MySQL Bridge Config">>,
+                    required => false
+                }
             )}
     ] ++ mongodb_structs() ++ influxdb_structs().
 
@@ -81,7 +90,10 @@ mongodb_structs() ->
         {Type,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_mongodb, Type)),
-                #{desc => <<"EMQX Enterprise Config">>}
+                #{
+                    desc => <<"MongoDB Bridge Config">>,
+                    required => false
+                }
             )}
      || Type <- [mongodb_rs, mongodb_sharded, mongodb_single]
     ].
@@ -91,7 +103,10 @@ influxdb_structs() ->
         {Protocol,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_influxdb, Protocol)),
-                #{desc => <<"EMQX Enterprise Config">>}
+                #{
+                    desc => <<"InfluxDB Bridge Config">>,
+                    required => false
+                }
             )}
      || Protocol <- [
             %% influxdb_udp,
