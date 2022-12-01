@@ -62,7 +62,11 @@ schema("/subscriptions") ->
             tags => [<<"Subscriptions">>],
             parameters => parameters(),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{}),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_PARAMETER'], <<"Invalid parameter">>
+                ),
+                500 => emqx_dashboard_swagger:error_codes(['NODE_DOWN'], <<"Bad RPC">>)
             }
         }
     }.
