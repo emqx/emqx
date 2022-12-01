@@ -69,7 +69,10 @@ request_config() ->
         {local_topic,
             mk(
                 binary(),
-                #{desc => ?DESC("config_local_topic")}
+                #{
+                    desc => ?DESC("config_local_topic"),
+                    required => false
+                }
             )},
         {method,
             mk(
