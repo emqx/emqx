@@ -161,7 +161,17 @@ boot_modules(Mods) ->
 
 -spec start_apps(Apps :: apps()) -> ok.
 start_apps(Apps) ->
-    start_apps(Apps, fun(_) -> ok end).
+    %% to avoid keeping the `db_hostname' that is set then loading
+    %% `system_monitor' application in `emqx_machine', and then it
+    %% crashing when trying to connect.
+    %% FIXME: add an `enable' option to sysmon_top and use that to
+    %% decide whether to start it or not.
+    DefaultHandler =
+        fun(_) ->
+            application:set_env(system_monitor, db_hostname, ""),
+            ok
+        end,
+    start_apps(Apps, DefaultHandler).
 
 -spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
 start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
