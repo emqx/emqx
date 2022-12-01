@@ -36,6 +36,7 @@
 ]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
+-define(NOT_FOUND, 'NOT_FOUND').
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -63,7 +64,8 @@ schema("/telemetry/status") ->
                 'requestBody' => status_schema(?DESC(update_telemetry_status_api)),
                 responses =>
                     #{
-                        200 => status_schema(?DESC(update_telemetry_status_api))
+                        200 => status_schema(?DESC(update_telemetry_status_api)),
+                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
                     }
             }
     };
@@ -75,7 +77,12 @@ schema("/telemetry/data") ->
                 description => ?DESC(get_telemetry_data_api),
                 tags => [<<"Telemetry">>],
                 responses =>
-                    #{200 => mk(ref(?MODULE, telemetry), #{desc => ?DESC(get_telemetry_data_api)})}
+                    #{
+                        200 => mk(ref(?MODULE, telemetry), #{desc => ?DESC(get_telemetry_data_api)}),
+                        404 => emqx_dashboard_swagger:error_codes(
+                            [?NOT_FOUND], <<"Telemetry is not enabled">>
+                        )
+                    }
             }
     }.
 
@@ -220,21 +227,29 @@ status(put, #{body := Body}) ->
                     true -> <<"Telemetry status is already enabled">>;
                     false -> <<"Telemetry status is already disabled">>
                 end,
-            {400, #{code => 'BAD_REQUEST', message => Reason}};
+            {400, #{code => ?BAD_REQUEST, message => Reason}};
         false ->
             case enable_telemetry(Enable) of
                 ok ->
                     {200, get_telemetry_status()};
                 {error, Reason} ->
                     {400, #{
-                        code => 'BAD_REQUEST',
+                        code => ?BAD_REQUEST,
                         message => Reason
                     }}
             end
     end.
 
 data(get, _Request) ->
-    {200, emqx_json:encode(get_telemetry_data())}.
+    case emqx_modules_conf:is_telemetry_enabled() of
+        true ->
+            {200, emqx_json:encode(get_telemetry_data())};
+        false ->
+            {404, #{
+                code => ?NOT_FOUND,
+                message => <<"Telemetry is not enabled">>
+            }}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
