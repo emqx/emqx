@@ -19,6 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
 
@@ -118,8 +119,14 @@ on_start(
     Prepares = parse_prepare_sql(Config),
     State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok -> {ok, init_prepare(State)};
-        {error, Reason} -> {error, Reason}
+        ok ->
+            {ok, init_prepare(State)};
+        {error, Reason} ->
+            ?tp(
+                mysql_connector_start_failed,
+                #{error => Reason}
+            ),
+            {error, Reason}
     end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
@@ -398,6 +405,10 @@ on_sql_query(
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     Worker = ecpool:get_client(PoolName),
     {ok, Conn} = ecpool_worker:client(Worker),
+    ?tp(
+        mysql_connector_send_query,
+        #{sql_or_key => SQLOrKey, data => Data}
+    ),
     try mysql:SQLFunc(Conn, SQLOrKey, Data, Timeout) of
         {error, disconnected} = Result ->
             ?SLOG(
@@ -427,6 +438,10 @@ on_sql_query(
             ),
             Result;
         Result ->
+            ?tp(
+                mysql_connector_query_return,
+                #{result => Result}
+            ),
             Result
     catch
         error:badarg ->

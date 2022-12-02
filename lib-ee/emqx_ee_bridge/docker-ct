@@ -1,4 +1,6 @@
+toxiproxy
 influxdb
 kafka
 mongo
 mongo_rs_sharded
+mysql
