@@ -48,6 +48,7 @@
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
+-define(BAD_REQUEST(C, M), {400, #{code => C, message => ?TO_BIN(M)}}).
 -define(TAGS, [<<"Trace">>]).
 
 namespace() -> "trace".
@@ -141,6 +142,7 @@ schema("/trace/:name/download") ->
                                 #{schema => #{type => "string", format => "binary"}}
                         }
                     },
+                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Node Not Found">>),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
             }
         }
@@ -176,9 +178,8 @@ schema("/trace/:name/log") ->
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
                         {meta, fields(bytes) ++ fields(position)}
                     ],
-                400 => emqx_dashboard_swagger:error_codes(
-                    ['READ_FILE_ERROR', 'RPC_ERROR', 'NODE_ERROR'], <<"Trace Log Failed">>
-                )
+                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Trace Log Failed">>),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
             }
         }
     }.
@@ -450,32 +451,33 @@ update_trace(put, #{bindings := #{name := Name}}) ->
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
 %% cowboy_compress_h will auto encode gzip format.
 download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
-    Nodes =
-        case parse_node(Query, undefined) of
-            {ok, undefined} -> mria_mnesia:running_nodes();
-            {ok, Node0} -> [Node0];
-            {error, not_found} -> mria_mnesia:running_nodes()
-        end,
-    case emqx_trace:get_trace_filename(Name) of
-        {ok, TraceLog} ->
-            TraceFiles = collect_trace_file(Nodes, TraceLog),
-            ZipDir = emqx_trace:zip_dir(),
-            Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-            FileName = binary_to_list(Name) ++ ".zip",
-            ZipFileName = filename:join([ZipDir, FileName]),
-            {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
-            %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
-            %% TODO use file replace file_binary.(delete file after send is not ready now).
-            {ok, Binary} = file:read_file(ZipFile),
-            ZipName = filename:basename(ZipFile),
-            _ = file:delete(ZipFile),
-            Headers = #{
-                <<"content-type">> => <<"application/x-zip">>,
-                <<"content-disposition">> => iolist_to_binary("attachment; filename=" ++ ZipName)
-            },
-            {200, Headers, {file_binary, ZipName, Binary}};
+    case parse_node(Query, undefined) of
+        {ok, Node} ->
+            case emqx_trace:get_trace_filename(Name) of
+                {ok, TraceLog} ->
+                    TraceFiles = collect_trace_file(Node, TraceLog),
+                    ZipDir = emqx_trace:zip_dir(),
+                    Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
+                    FileName = binary_to_list(Name) ++ ".zip",
+                    ZipFileName = filename:join([ZipDir, FileName]),
+                    {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
+                    %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
+                    %% TODO use file replace file_binary.(delete file after send is not ready now).
+                    {ok, Binary} = file:read_file(ZipFile),
+                    ZipName = filename:basename(ZipFile),
+                    _ = file:delete(ZipFile),
+                    Headers = #{
+                        <<"content-type">> => <<"application/x-zip">>,
+                        <<"content-disposition">> => iolist_to_binary(
+                            "attachment; filename=" ++ ZipName
+                        )
+                    },
+                    {200, Headers, {file_binary, ZipName, Binary}};
+                {error, not_found} ->
+                    ?NOT_FOUND(Name)
+            end;
         {error, not_found} ->
-            ?NOT_FOUND(Name)
+            ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
     end.
 
 group_trace_file(ZipDir, TraceLog, TraceFiles) ->
@@ -503,8 +505,11 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
         TraceFiles
     ).
 
-collect_trace_file(Nodes, TraceLog) ->
-    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog)).
+collect_trace_file(undefined, TraceLog) ->
+    Nodes = mria_mnesia:running_nodes(),
+    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog));
+collect_trace_file(Node, TraceLog) ->
+    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file([Node], TraceLog)).
 
 collect_trace_file_detail(TraceLog) ->
     Nodes = mria_mnesia:running_nodes(),
@@ -551,21 +556,13 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                 {error, enoent} ->
                     Meta = #{<<"position">> => Position, <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => <<"">>}};
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "read_file_failed",
-                        node => Node,
-                        name => Name,
-                        reason => Reason,
-                        position => Position,
-                        bytes => Bytes
-                    }),
-                    {400, #{code => 'READ_FILE_ERROR', message => Reason}};
+                {error, not_found} ->
+                    ?NOT_FOUND(Name);
                 {badrpc, nodedown} ->
-                    {400, #{code => 'RPC_ERROR', message => "BadRpc node down"}}
+                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
             end;
         {error, not_found} ->
-            {400, #{code => 'NODE_ERROR', message => <<"Node not found">>}}
+            ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
     end.
 
 -spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
@@ -633,8 +630,12 @@ read_file(Path, Offset, Bytes) ->
 parse_node(Query, Default) ->
     try
         case maps:find(<<"node">>, Query) of
-            error -> {ok, Default};
-            {ok, Node} -> {ok, binary_to_existing_atom(Node)}
+            error ->
+                {ok, Default};
+            {ok, NodeBin} ->
+                Node = binary_to_existing_atom(NodeBin),
+                true = lists:member(Node, mria_mnesia:running_nodes()),
+                {ok, Node}
         end
     catch
         _:_ ->
