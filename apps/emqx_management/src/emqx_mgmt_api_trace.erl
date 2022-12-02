@@ -172,8 +172,8 @@ schema("/trace/:name/log") ->
             responses => #{
                 200 =>
                     [
-                        {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})}
-                        | fields(bytes) ++ fields(position)
+                        {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
+                        {meta, fields(bytes) ++ fields(position)}
                     ]
             }
         }
