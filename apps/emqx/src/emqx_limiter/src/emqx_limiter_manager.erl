@@ -107,14 +107,12 @@ insert_bucket(Id, Type, Bucket) ->
 delete_bucket(Type, Id) ->
     ets:delete(?TAB, ?UID(Id, Type)).
 
+post_config_update([limiter], _Config, NewConf, _OldConf, _AppEnvs) ->
+    Types = lists:delete(client, maps:keys(NewConf)),
+    _ = [on_post_config_update(Type, NewConf) || Type <- Types],
+    ok;
 post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
-    Config = maps:get(Type, NewConf),
-    case emqx_limiter_server:whereis(Type) of
-        undefined ->
-            start_server(Type, Config);
-        _ ->
-            emqx_limiter_server:update_config(Type, Config)
-    end.
+    on_post_config_update(Type, NewConf).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -258,3 +256,11 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
+on_post_config_update(Type, NewConf) ->
+    Config = maps:get(Type, NewConf),
+    case emqx_limiter_server:whereis(Type) of
+        undefined ->
+            start_server(Type, Config);
+        _ ->
+            emqx_limiter_server:update_config(Type, Config)
+    end.
