@@ -187,14 +187,14 @@ parse_remaining_len(
 ) ->
     parse_frame(Rest, Header, 0, Options);
 parse_remaining_len(
-    <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, Options
+    <<0:8, _Rest/binary>>, _Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, _Options
 ) ->
-    parse_frame(Rest, Header, 0, Options);
-%% Without this clause a crash may will happen when data incorrect, this was found by fuzzing test
+    ?PARSE_ERR(#{hint => unexpected_packet, header_type => 'PINGRESP'});
+%% All other types of messages should not have a zero remaining length.
 parse_remaining_len(
-    <<0:8, _Rest/binary>>, _Header, 1, 0, _Options
+    <<0:8, _Rest/binary>>, Header, 1, 0, _Options
 ) ->
-    ?PARSE_ERR(invalid_remaining_len);
+    ?PARSE_ERR(#{hint => zero_remaining_len, header_type => Header#mqtt_packet_header.type});
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 2, Options);
@@ -266,42 +266,75 @@ packet(Header, Variable) ->
 packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
+parse_connect(FrameBin, StrictMode) ->
+    {ProtoName, Rest} = parse_utf8_string_with_hint(FrameBin, StrictMode, invalid_proto_name),
+    case ProtoName of
+        <<"MQTT">> ->
+            ok;
+        <<"MQIsdp">> ->
+            ok;
+        _ ->
+            %% from spec: the server MAY send disconnect with reason code 0x84
+            %% we chose to close socket because the client is likely not talking MQTT anyway
+            ?PARSE_ERR(#{
+                hint => invalid_proto_name,
+                expected => <<"'MQTT' or 'MQIsdp'">>,
+                received => ProtoName
+            })
+    end,
+    parse_connect2(ProtoName, Rest, StrictMode).
+
+% Note: return malformed if reserved flag is not 0.
+parse_connect2(
+    ProtoName,
+    <<BridgeTag:4, ProtoVer:4, UsernameFlag:1, PasswordFlag:1, WillRetain:1, WillQoS:2, WillFlag:1,
+        CleanStart:1, 0:1, KeepAlive:16/big, Rest2/binary>>,
+    StrictMode
+) ->
+    {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
+    {ClientId, Rest4} = parse_utf8_string_with_hint(Rest3, StrictMode, invalid_username),
+    ConnPacket = #mqtt_packet_connect{
+        proto_name = ProtoName,
+        proto_ver = ProtoVer,
+        is_bridge = (BridgeTag =:= 8),
+        clean_start = bool(CleanStart),
+        will_flag = bool(WillFlag),
+        will_qos = WillQoS,
+        will_retain = bool(WillRetain),
+        keepalive = KeepAlive,
+        properties = Properties,
+        clientid = ClientId
+    },
+    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
+    {Username, Rest6} = parse_optional(
+        Rest5,
+        fun(Bin) ->
+            parse_utf8_string_with_hint(Bin, StrictMode, invalid_username)
+        end,
+        bool(UsernameFlag)
+    ),
+    {Password, Rest7} = parse_optional(
+        Rest6,
+        fun(Bin) ->
+            parse_utf8_string_with_hint(Bin, StrictMode, invalid_password)
+        end,
+        bool(PasswordFlag)
+    ),
+    case Rest7 of
+        <<>> ->
+            ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
+        _ ->
+            ?PARSE_ERR(malformed_connect_payload)
+    end;
+parse_connect2(_ProtoName, _, _) ->
+    ?PARSE_ERR(malformed_connect_header).
+
 parse_packet(
     #mqtt_packet_header{type = ?CONNECT},
     FrameBin,
     #{strict_mode := StrictMode}
 ) ->
-    {ProtoName, Rest} = parse_utf8_string(FrameBin, StrictMode),
-    case Rest of
-        % Note: Crash when reserved flag doesn't equal to 0, there is no strict
-        % compliance with the MQTT5.0.
-        <<BridgeTag:4, ProtoVer:4, UsernameFlag:1, PasswordFlag:1, WillRetain:1, WillQoS:2,
-            WillFlag:1, CleanStart:1, 0:1, KeepAlive:16/big, Rest2/binary>> ->
-            {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
-            {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode),
-            ConnPacket = #mqtt_packet_connect{
-                proto_name = ProtoName,
-                proto_ver = ProtoVer,
-                is_bridge = (BridgeTag =:= 8),
-                clean_start = bool(CleanStart),
-                will_flag = bool(WillFlag),
-                will_qos = WillQoS,
-                will_retain = bool(WillRetain),
-                keepalive = KeepAlive,
-                properties = Properties,
-                clientid = ClientId
-            },
-            {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
-            {Username, Rest6} = parse_utf8_string(Rest5, StrictMode, bool(UsernameFlag)),
-            case parse_utf8_string(Rest6, StrictMode, bool(PasswordFlag)) of
-                {Password, <<>>} ->
-                    ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
-                _ ->
-                    ?PARSE_ERR(malformed_connect_payload)
-            end;
-        _ ->
-            ?PARSE_ERR(malformed_connect_header)
-    end;
+    parse_connect(FrameBin, StrictMode);
 parse_packet(
     #mqtt_packet_header{type = ?CONNACK},
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
@@ -322,7 +355,7 @@ parse_packet(
     Bin,
     #{strict_mode := StrictMode, version := Ver}
 ) ->
-    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode),
+    {TopicName, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_topic),
     {PacketId, Rest1} =
         case QoS of
             ?QOS_0 -> {undefined, Rest};
@@ -445,7 +478,7 @@ parse_will_message(
     StrictMode
 ) ->
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
-    {Topic, Rest1} = parse_utf8_string(Rest, StrictMode),
+    {Topic, Rest1} = parse_utf8_string_with_hint(Rest, StrictMode, invalid_topic),
     {Payload, Rest2} = parse_binary_data(Rest1),
     {
         Packet#mqtt_packet_connect{
@@ -483,10 +516,10 @@ parse_property(<<16#01, Val, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#02, Val:32/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Message-Expiry-Interval' => Val}, StrictMode);
 parse_property(<<16#03, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_content_type),
     parse_property(Rest, Props#{'Content-Type' => Val}, StrictMode);
 parse_property(<<16#08, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_response_topic),
     parse_property(Rest, Props#{'Response-Topic' => Val}, StrictMode);
 parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Correlation-Data' => Val}, StrictMode);
@@ -496,12 +529,12 @@ parse_property(<<16#0B, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#11, Val:32/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Session-Expiry-Interval' => Val}, StrictMode);
 parse_property(<<16#12, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_assigned_client_id),
     parse_property(Rest, Props#{'Assigned-Client-Identifier' => Val}, StrictMode);
 parse_property(<<16#13, Val:16, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Server-Keep-Alive' => Val}, StrictMode);
 parse_property(<<16#15, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_authn_method),
     parse_property(Rest, Props#{'Authentication-Method' => Val}, StrictMode);
 parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Authentication-Data' => Val}, StrictMode);
@@ -512,13 +545,13 @@ parse_property(<<16#18, Val:32, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#19, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Request-Response-Information' => Val}, StrictMode);
 parse_property(<<16#1A, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_response_info),
     parse_property(Rest, Props#{'Response-Information' => Val}, StrictMode);
 parse_property(<<16#1C, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_server_reference),
     parse_property(Rest, Props#{'Server-Reference' => Val}, StrictMode);
 parse_property(<<16#1F, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string(Bin, StrictMode),
+    {Val, Rest} = parse_utf8_string_with_hint(Bin, StrictMode, invalid_reason_string),
     parse_property(Rest, Props#{'Reason-String' => Val}, StrictMode);
 parse_property(<<16#21, Val:16/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Receive-Maximum' => Val}, StrictMode);
@@ -609,10 +642,18 @@ parse_utf8_pair(Bin, _StrictMode) when
         total_bytes => byte_size(Bin)
     }).
 
-parse_utf8_string(Bin, _StrictMode, false) ->
-    {undefined, Bin};
-parse_utf8_string(Bin, StrictMode, true) ->
-    parse_utf8_string(Bin, StrictMode).
+parse_utf8_string_with_hint(Bin, StrictMode, Hint) ->
+    try
+        parse_utf8_string(Bin, StrictMode)
+    catch
+        throw:{?FRAME_PARSE_ERROR, Reason} when is_map(Reason) ->
+            ?PARSE_ERR(Reason#{hint => Hint})
+    end.
+
+parse_optional(Bin, F, true) ->
+    F(Bin);
+parse_optional(Bin, _F, false) ->
+    {undefined, Bin}.
 
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true) ->
     {validate_utf8(Str), Rest};
@@ -629,7 +670,7 @@ parse_utf8_string(<<Len:16/big, Rest/binary>>, _) when
 parse_utf8_string(Bin, _) when
     2 > byte_size(Bin)
 ->
-    ?PARSE_ERR(malformed_utf8_string_length).
+    ?PARSE_ERR(#{reason => malformed_utf8_string_length}).
 
 parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest};
