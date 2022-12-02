@@ -13,6 +13,9 @@ nl_at_eof() {
         *.png|*rebar3)
             return
             ;;
+        bom.xml)
+            return
+            ;;
         scripts/erlfmt)
             return
             ;;
