@@ -140,7 +140,8 @@ schema("/trace/:name/download") ->
                             'application/octet-stream' =>
                                 #{schema => #{type => "string", format => "binary"}}
                         }
-                    }
+                    },
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
             }
         }
     };
@@ -174,7 +175,10 @@ schema("/trace/:name/log") ->
                     [
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
                         {meta, fields(bytes) ++ fields(position)}
-                    ]
+                    ],
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['READ_FILE_ERROR', 'RPC_ERROR', 'NODE_ERROR'], <<"Trace Log Failed">>
+                )
             }
         }
     }.
