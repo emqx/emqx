@@ -631,6 +631,20 @@ t_parse_malformed_properties(_) ->
         emqx_frame:parse(<<2:4, 0:4, 3:8, 1:8, 0:8, 0:8>>)
     ).
 
+t_parse_malformed_connect(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_header},
+        emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 110, 112, 3, 130, 1, 6>>)
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_payload},
+        emqx_frame:parse(
+            <<16, 21, 0, 6, 77, 81, 73, 115, 110, 112, 3, 130, 1, 6, 0, 0, 2, 67, 49.49>>
+        )
+    ).
+
 parse_serialize(Packet) ->
     parse_serialize(Packet, #{strict_mode => true}).
 
