@@ -72,7 +72,7 @@ schema("/trace") ->
             description => "List all trace",
             tags => ?TAGS,
             responses => #{
-                200 => hoconsc:ref(trace)
+                200 => hoconsc:array(hoconsc:ref(trace))
             }
         },
         post => #{
