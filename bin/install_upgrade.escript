@@ -32,6 +32,7 @@ main(Args) ->
 unpack({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     Version = proplists:get_value(version, Opts),
+    validate_target_version(Version, TargetNode),
     case unpack_release(RelName, TargetNode, Version) of
         {ok, Vsn} ->
             ?INFO("Unpacked successfully: ~p", [Vsn]);
