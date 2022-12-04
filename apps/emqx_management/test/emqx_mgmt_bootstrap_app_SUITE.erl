@@ -42,7 +42,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     ok = application:unset_env(emqx_management, bootstrap_apps_file),
-    _ = mnesia:clear_table(mqtt_app),
+    emqx_mgmt_auth:clear_bootstrap_apps(),
     emqx_ct_helpers:stop_apps([]),
     ok.
 
@@ -55,12 +55,23 @@ t_load_ok(_) ->
     Bin = <<"test-1:secret-1\ntest-2:secret-2">>,
     File = "./bootstrap_apps.txt",
     ok = file:write_file(File, Bin),
-    _ = mnesia:clear_table(mqtt_app),
+    emqx_mgmt_auth:clear_bootstrap_apps(),
     application:set_env(emqx_management, bootstrap_apps_file, File),
     {ok, _} = application:ensure_all_started(emqx_management),
     ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"secret-1">>)),
     ?assert(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"secret-2">>)),
     ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"secret-1">>)),
+
+    %% load twice to check if the table is unchanged.
+    application:stop(emqx_management),
+    Bin1 = <<"test-1:new-secret-1\ntest-2:new-secret-2">>,
+    ok = file:write_file(File, Bin1),
+    application:set_env(emqx_management, bootstrap_apps_file, File),
+    {ok, _} = application:ensure_all_started(emqx_management),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"secret-1">>)),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"secret-2">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"new-secret-1">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"new-secret-2">>)),
     application:stop(emqx_management).
 
 t_bootstrap_user_file_not_found(_) ->
@@ -83,9 +94,9 @@ t_load_invalid_format_failed(_) ->
     ok.
 
 check_load_failed(File) ->
-    _ = mnesia:clear_table(mqtt_app),
+    emqx_mgmt_auth:clear_bootstrap_apps(),
     application:stop(emqx_management),
     application:set_env(emqx_management, bootstrap_apps_file, File),
     ?assertMatch({error, _}, application:ensure_all_started(emqx_management)),
     ?assertNot(lists:member(emqx_management, application:which_applications())),
-    ?assertEqual(0, mnesia:table_info(mqtt_app, size)).
+    ?assert(emqx_mgmt_auth:need_bootstrap()).

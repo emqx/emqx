@@ -36,6 +36,8 @@
         , del_app/1
         , list_apps/0
         , init_bootstrap_apps/0
+        , need_bootstrap/0
+        , clear_bootstrap_apps/0
         ]).
 
 %% APP Auth/ACL API
@@ -81,13 +83,31 @@ add_default_app() ->
     end.
 
 init_bootstrap_apps() ->
-    Bootstrap = application:get_env(emqx_management, bootstrap_apps_file, undefined),
-    Size = mnesia:table_info(mqtt_app, size),
-    init_bootstrap_apps(Bootstrap, Size).
+    case need_bootstrap() of
+        true ->
+            Bootstrap = application:get_env(emqx_management, bootstrap_apps_file, undefined),
+            init_bootstrap_apps(Bootstrap);
+        false ->
+            ok
+    end.
 
-init_bootstrap_apps(undefined, _) -> ok;
-init_bootstrap_apps(_File, Size)when Size > 0 -> ok;
-init_bootstrap_apps(File, 0) ->
+need_bootstrap() ->
+    {atomic, Res} = mnesia:transaction(fun() -> bootstrap_apps() =:= [] end),
+    Res.
+
+clear_bootstrap_apps() ->
+    {atomic, ok} =
+        mnesia:transaction(fun() ->
+            DeleteFun = fun(A) -> mnesia:delete_object(A) end,
+            lists:foreach(DeleteFun, bootstrap_apps())
+                           end),
+    ok.
+
+bootstrap_apps() ->
+    mnesia:match_object(mqtt_app, #mqtt_app{desc = ?BOOTSTRAP_TAG, _ = '_'}, read).
+
+init_bootstrap_apps(undefined) -> ok;
+init_bootstrap_apps(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
@@ -95,7 +115,7 @@ init_bootstrap_apps(File, 0) ->
                 ok -> ok;
                 Error ->
                     %% if failed add bootstrap users, we should clear all bootstrap apps
-                    {atomic, ok} = mnesia:clear_table(mqtt_app),
+                    clear_bootstrap_apps(),
                     Error
             end;
         {error, Reason} = Error ->
