@@ -59,6 +59,7 @@
         ]).
 
 -export([ is_sane_id/1
+        , is_sane_id/3
         ]).
 
 -export([
@@ -73,14 +74,21 @@
 
 -spec is_sane_id(list() | binary()) -> ok | {error, Reason::binary()}.
 is_sane_id(Str) ->
+    is_sane_id(Str, 0, 256).
+
+is_sane_id(Str, Min, Max) ->
     StrLen = len(Str),
-    case StrLen > 0 andalso StrLen =< 256 of
+    case StrLen > Min andalso StrLen =< Max of
         true ->
             case re:run(Str, ?VALID_STR_RE) of
                 nomatch -> {error, <<"required: " ?VALID_STR_RE>>};
                 _ -> ok
             end;
-        false -> {error, <<"0 < Length =< 256">>}
+        false ->
+            Msg = <<(integer_to_binary(Min))/binary,
+                <<" < Length =< ">>/binary,
+                (integer_to_binary(Max))/binary>>,
+            {error, Msg}
     end.
 
 len(Bin) when is_binary(Bin) -> byte_size(Bin);

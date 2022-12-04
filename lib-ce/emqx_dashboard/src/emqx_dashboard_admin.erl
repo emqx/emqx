@@ -79,16 +79,17 @@ start_link() ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    case emqx_misc:is_sane_id(Username) of
-        ok ->
+    case {emqx_misc:is_sane_id(Username), emqx_misc:is_sane_id(Password, 2, 32)} of
+        {ok, ok} ->
             Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
             return(mnesia:transaction(fun add_user_/1, [Admin]));
-        {error, Reason} -> {error, Reason}
+        {{error, Reason}, _} -> {error, Reason};
+        {_, {error, Reason}} -> {error, Reason}
     end.
 
 force_add_user(Username, Password, Tags) ->
-    case emqx_misc:is_sane_id(Username) of
-        ok ->
+    case {emqx_misc:is_sane_id(Username), emqx_misc:is_sane_id(Password, 2, 32)} of
+        {ok, ok} ->
             AddFun = fun() ->
                 mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
                      end,
@@ -96,7 +97,8 @@ force_add_user(Username, Password, Tags) ->
                 {atomic, ok} -> ok;
                 {aborted, Reason} -> {error, Reason}
             end;
-        {error, Reason} -> {error, Reason}
+        {{error, Reason}, _} -> {error, Reason};
+        {_, {error, Reason}} -> {error, Reason}
     end.
 
 %% @private
