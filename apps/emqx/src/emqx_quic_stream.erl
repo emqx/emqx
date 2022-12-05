@@ -159,9 +159,13 @@ getopts(_Socket, _Opts) ->
         {buffer, 80000}
     ]}.
 
+%% @TODO supply some App Error Code
+fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
+    %% handshake aborted.
+    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
+    ok;
 fast_close({quic, Conn, _Stream, _Info}) ->
     %% Since we shutdown the control stream, we shutdown the connection as well
-    %% @TODO supply some App Error Code
     quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
 
