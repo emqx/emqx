@@ -448,7 +448,7 @@ t_jwt_not_allow_empty_claim_name(_) ->
     ),
 
     ?assertMatch(
-        {204},
+        {200, _},
         emqx_authn_api:authenticator(
             put, #{
                 bindings => #{id => <<"jwt">>},
