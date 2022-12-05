@@ -1006,10 +1006,11 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
         )
     of
         {ok, #{
-            post_config_update := #{emqx_authentication := #{id := _ID}},
-            raw_config := _AuthenticatorsConfig
+            post_config_update := #{emqx_authentication := #{id := ID}},
+            raw_config := AuthenticatorsConfig
         }} ->
-            {204};
+            {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
+            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->
