@@ -92,19 +92,21 @@ init_bootstrap_apps() ->
     end.
 
 need_bootstrap() ->
-    {atomic, Res} = mnesia:transaction(fun() -> bootstrap_apps() =:= [] end),
+    {atomic, Res} = mnesia:transaction(
+        fun() ->
+            Spec = [{#mqtt_app{id = '$1', desc = ?BOOTSTRAP_TAG, _ = '_'}, [], ['$1']}],
+            mnesia:select(mqtt_app, Spec, 1, read) =:= '$end_of_table'
+        end),
     Res.
 
 clear_bootstrap_apps() ->
     {atomic, ok} =
         mnesia:transaction(fun() ->
+            All = mnesia:match_object(mqtt_app, #mqtt_app{desc = ?BOOTSTRAP_TAG, _ = '_'}, read),
             DeleteFun = fun(A) -> mnesia:delete_object(A) end,
-            lists:foreach(DeleteFun, bootstrap_apps())
+            lists:foreach(DeleteFun, All)
                            end),
     ok.
-
-bootstrap_apps() ->
-    mnesia:match_object(mqtt_app, #mqtt_app{desc = ?BOOTSTRAP_TAG, _ = '_'}, read).
 
 init_bootstrap_apps(undefined) -> ok;
 init_bootstrap_apps(File) ->
