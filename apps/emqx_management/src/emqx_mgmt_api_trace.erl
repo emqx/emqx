@@ -72,7 +72,7 @@ schema("/trace") ->
             description => "List all trace",
             tags => ?TAGS,
             responses => #{
-                200 => hoconsc:ref(trace)
+                200 => hoconsc:array(hoconsc:ref(trace))
             }
         },
         post => #{
@@ -140,7 +140,8 @@ schema("/trace/:name/download") ->
                             'application/octet-stream' =>
                                 #{schema => #{type => "string", format => "binary"}}
                         }
-                    }
+                    },
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
             }
         }
     };
@@ -172,9 +173,12 @@ schema("/trace/:name/log") ->
             responses => #{
                 200 =>
                     [
-                        {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})}
-                        | fields(bytes) ++ fields(position)
-                    ]
+                        {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
+                        {meta, fields(bytes) ++ fields(position)}
+                    ],
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['READ_FILE_ERROR', 'RPC_ERROR', 'NODE_ERROR'], <<"Trace Log Failed">>
+                )
             }
         }
     }.
