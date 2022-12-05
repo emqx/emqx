@@ -94,10 +94,14 @@ do_request_api(Method, Request, Opts) ->
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+        {ok, {{"HTTP/1.1", Code, _} = Reason, Headers, Body}} when
+            Code >= 200 andalso Code =< 299 andalso ReturnBody
+        ->
+            {ok, {Reason, Headers, Body}};
+        {ok, {{"HTTP/1.1", Code, _}, _, Body}} when
             Code >= 200 andalso Code =< 299
         ->
-            {ok, Return};
+            {ok, Body};
         {ok, {Reason, Headers, Body}} when ReturnBody ->
             {error, {Reason, Headers, Body}};
         {ok, {Reason, _Headers, _Body}} ->

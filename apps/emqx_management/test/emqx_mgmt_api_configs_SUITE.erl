@@ -264,6 +264,7 @@ get_configs(Node, Opts) ->
         end,
     URI = emqx_mgmt_api_test_util:api_path(Path),
     case emqx_mgmt_api_test_util:request_api(get, URI, [], [], [], Opts) of
+        {ok, {_, _, Res}} -> {ok, emqx_json:decode(Res, [return_maps])};
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
         Error -> Error
     end.
