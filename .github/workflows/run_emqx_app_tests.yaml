@@ -22,8 +22,18 @@ jobs:
           - ubuntu20.04
         arch:
           - amd64
+        runs-on:
+          - aws-amd64
+          - ubuntu-20.04
+        use-self-hosted:
+          - ${{ github.repository_owner == 'emqx' }}
+        exclude:
+          - runs-on: ubuntu-20.04
+            use-self-hosted: true
+          - runs-on: aws-amd64
+            use-self-hosted: false
 
-    runs-on: aws-amd64
+    runs-on: ${{ matrix.runs-on }}
     container: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:

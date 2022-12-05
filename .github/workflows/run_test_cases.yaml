@@ -50,13 +50,24 @@ jobs:
 
     eunit_and_proper:
         needs: prepare
-        runs-on: aws-amd64
+        runs-on: ${{ matrix.runs-on }}
         strategy:
           fail-fast: false
           matrix:
             profile:
               - emqx
               - emqx-enterprise
+            runs-on:
+              - aws-amd64
+              - ubuntu-20.04
+            use-self-hosted:
+              - ${{ github.repository_owner == 'emqx' }}
+            exclude:
+              - runs-on: ubuntu-20.04
+                use-self-hosted: true
+              - runs-on: aws-amd64
+                use-self-hosted: false
+
         defaults:
           run:
             shell: bash
@@ -97,8 +108,18 @@ jobs:
           fail-fast: false
           matrix:
             app_name: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
+            runs-on:
+              - aws-amd64
+              - ubuntu-20.04
+            use-self-hosted:
+              - ${{ github.repository_owner == 'emqx' }}
+            exclude:
+              - runs-on: ubuntu-20.04
+                use-self-hosted: true
+              - runs-on: aws-amd64
+                use-self-hosted: false
 
-        runs-on: aws-amd64
+        runs-on: ${{ matrix.runs-on }}
         defaults:
           run:
             shell: bash
@@ -140,8 +161,18 @@ jobs:
             profile:
               - emqx
               - emqx-enterprise
+            runs-on:
+              - aws-amd64
+              - ubuntu-20.04
+            use-self-hosted:
+              - ${{ github.repository_owner == 'emqx' }}
+            exclude:
+              - runs-on: ubuntu-20.04
+                use-self-hosted: true
+              - runs-on: aws-amd64
+                use-self-hosted: false
 
-        runs-on: aws-amd64
+        runs-on: ${{ matrix.runs-on }}
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         defaults:
           run:
