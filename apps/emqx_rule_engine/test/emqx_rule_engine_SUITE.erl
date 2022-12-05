@@ -241,6 +241,7 @@ init_per_testcase(Test, Config)
     | Config];
 init_per_testcase(t_rule_api_unicode_ids, Config) ->
     ok = emqx_dashboard_admin:mnesia(boot),
+    ok = emqx_mgmt_auth:mnesia(boot),
     emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard]),
     Config;
 init_per_testcase(_TestCase, Config) ->
