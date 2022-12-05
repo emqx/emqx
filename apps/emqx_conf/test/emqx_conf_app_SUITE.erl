@@ -54,9 +54,77 @@ t_copy_conf_override_on_restarts(_Config) ->
         stop_cluster(Nodes)
     end.
 
+t_copy_data_dir(_Config) ->
+    net_kernel:start(['master1@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Cluster = cluster([{core, copy1}, {core, copy2}, {core, copy3}]),
+
+    %% 1. Start all nodes
+    [First | Rest] = Nodes = start_cluster(Cluster),
+    try
+        assert_config_load_done(Nodes),
+        rpc:call(First, ?MODULE, create_data_dir, []),
+        {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
+        {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
+        ok = rpc:call(First, application, start, [emqx_conf]),
+        {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
+
+        assert_data_copy_done(Nodes),
+        stop_cluster(Nodes),
+        ok
+    after
+        stop_cluster(Nodes)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
+
+create_data_dir() ->
+    Node = atom_to_list(node()),
+    ok = filelib:ensure_dir(Node ++ "/certs/"),
+    ok = filelib:ensure_dir(Node ++ "/authz/"),
+    ok = filelib:ensure_dir(Node ++ "/configs/"),
+    ok = file:write_file(Node ++ "/certs/fake-cert", list_to_binary(Node)),
+    ok = file:write_file(Node ++ "/authz/fake-authz", list_to_binary(Node)),
+    Telemetry = <<"telemetry.enable = false">>,
+    ok = file:write_file(Node ++ "/configs/cluster-override.conf", Telemetry).
+
+set_data_dir_env() ->
+    Node = atom_to_list(node()),
+    %% will create certs and authz dir
+    ok = filelib:ensure_dir(Node ++ "/configs/"),
+    application:set_env(emqx, data_dir, Node),
+    application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
+    ok.
+
+assert_data_copy_done([First0 | Rest]) ->
+    First = atom_to_list(First0),
+    {ok, FakeCertFile} = file:read_file(First ++ "/certs/fake-cert"),
+    {ok, FakeAuthzFile} = file:read_file(First ++ "/authz/fake-authz"),
+    {ok, FakeOverrideFile} = file:read_file(First ++ "/configs/cluster-override.conf"),
+    lists:foreach(
+        fun(Node0) ->
+            Node = atom_to_list(Node0),
+            ?assertEqual(
+                {ok, FakeCertFile},
+                file:read_file(Node ++ "/certs/fake-cert"),
+                #{node => Node}
+            ),
+            ?assertEqual(
+                {ok, FakeOverrideFile},
+                file:read_file(Node ++ "/configs/cluster-override.conf"),
+                #{node => Node}
+            ),
+            ?assertEqual(
+                {ok, FakeAuthzFile},
+                file:read_file(Node ++ "/authz/fake-authz"),
+                #{node => Node}
+            )
+        end,
+        Rest
+    ).
 
 assert_config_load_done(Nodes) ->
     lists:foreach(
@@ -96,6 +164,7 @@ cluster(Specs) ->
         {env_handler, fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
+                io:format("~p~p~n", [node(), application:get_all_env(emqx)]),
                 ok;
             (_) ->
                 ok

@@ -62,10 +62,11 @@ sync_data_from_node() ->
     TargetDirs = lists:filter(fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, [
         "authz", "certs"
     ]),
-    {ok, Zip} = zip:zip(atom_to_list(node()) ++ "_data.zip", TargetDirs, [{cwd, Dir}]),
-    Res = {ok, _Bin} = file:read_file(Zip),
-    _ = file:delete(Zip),
-    Res.
+    Name = "data.zip",
+    case zip:zip(Name, TargetDirs, [memory, {cwd, Dir}]) of
+        {ok, {Name, Bin}} -> {ok, Bin};
+        {error, Reason} -> {error, Reason}
+    end.
 
 %% ------------------------------------------------------------------------------
 %% Internal functions
@@ -195,8 +196,12 @@ conf_sort({ok, _}, {ok, _}) ->
 sync_data_from_node(Node) ->
     case emqx_conf_proto_v2:sync_data_from_node(Node) of
         {ok, DataBin} ->
-            {ok, Files} = zip:unzip(DataBin, [{cwd, emqx:data_dir()}]),
-            ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ok", files => Files}),
+            case zip:unzip(DataBin, [{cwd, emqx:data_dir()}]) of
+                {ok, []} ->
+                    ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ignore"});
+                {ok, Files} ->
+                    ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ok", files => Files})
+            end,
             ok;
         Error ->
             ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
