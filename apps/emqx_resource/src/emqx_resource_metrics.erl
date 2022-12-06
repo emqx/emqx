@@ -54,6 +54,7 @@
     matched_inc/1,
     matched_inc/2,
     matched_get/1,
+    received_get/1,
     retried_inc/1,
     retried_inc/2,
     retried_get/1,
@@ -283,6 +284,10 @@ failed_inc(ID, Val) ->
 
 failed_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'failed').
+
+%%% @doc Count of message received by the resource
+received_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'received').
 
 %%% @doc Count of message sends that have failed after having been retried
 retried_failed_inc(ID) ->
