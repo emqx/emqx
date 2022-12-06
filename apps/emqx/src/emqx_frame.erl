@@ -288,11 +288,15 @@ parse_connect(FrameBin, StrictMode) ->
 parse_connect2(
     ProtoName,
     <<BridgeTag:4, ProtoVer:4, UsernameFlag:1, PasswordFlag:1, WillRetain:1, WillQoS:2, WillFlag:1,
-        CleanStart:1, 0:1, KeepAlive:16/big, Rest2/binary>>,
+        CleanStart:1, Reserved:1, KeepAlive:16/big, Rest2/binary>>,
     StrictMode
 ) ->
+    case Reserved of
+        0 -> ok;
+        1 -> ?PARSE_ERR(reserved_connect_flag)
+    end,
     {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
-    {ClientId, Rest4} = parse_utf8_string_with_hint(Rest3, StrictMode, invalid_username),
+    {ClientId, Rest4} = parse_utf8_string_with_hint(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
         proto_name = ProtoName,
         proto_ver = ProtoVer,
@@ -324,7 +328,7 @@ parse_connect2(
         <<>> ->
             ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
         _ ->
-            ?PARSE_ERR(malformed_connect_payload)
+            ?PARSE_ERR(malformed_connect_data)
     end;
 parse_connect2(_ProtoName, _, _) ->
     ?PARSE_ERR(malformed_connect_header).
@@ -340,6 +344,7 @@ parse_packet(
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
     #{version := Ver, strict_mode := StrictMode}
 ) ->
+    %% Not possible for broker to receive!
     case parse_properties(Rest, Ver, StrictMode) of
         {Properties, <<>>} ->
             #mqtt_packet_connack{
