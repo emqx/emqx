@@ -313,9 +313,10 @@ t_ingress_mqtt_bridge_with_rules(_) ->
     ),
     %% and also the rule should be matched, with matched + 1:
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    {ok, 200, Metrics} = request(get, uri(["rules", RuleId, "metrics"]), []),
+    ?assertMatch(#{<<"id">> := RuleId}, jsx:decode(Rule1)),
     ?assertMatch(
         #{
-            <<"id">> := RuleId,
             <<"metrics">> := #{
                 <<"matched">> := 1,
                 <<"passed">> := 1,
@@ -332,8 +333,9 @@ t_ingress_mqtt_bridge_with_rules(_) ->
                 <<"actions.failed.unknown">> := 0
             }
         },
-        jsx:decode(Rule1)
+        jsx:decode(Metrics)
     ),
+
     %% we also check if the actions of the rule is triggered
     ?assertMatch(
         #{
@@ -429,24 +431,29 @@ t_egress_mqtt_bridge_with_rules(_) ->
     timer:sleep(100),
     emqx:publish(emqx_message:make(RuleTopic, Payload2)),
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
-    #{
-        <<"id">> := RuleId,
-        <<"metrics">> := #{
-            <<"matched">> := 1,
-            <<"passed">> := 1,
-            <<"failed">> := 0,
-            <<"failed.exception">> := 0,
-            <<"failed.no_result">> := 0,
-            <<"matched.rate">> := _,
-            <<"matched.rate.max">> := _,
-            <<"matched.rate.last5m">> := _,
-            <<"actions.total">> := 1,
-            <<"actions.success">> := 1,
-            <<"actions.failed">> := 0,
-            <<"actions.failed.out_of_service">> := 0,
-            <<"actions.failed.unknown">> := 0
-        }
-    } = jsx:decode(Rule1),
+    ?assertMatch(#{<<"id">> := RuleId, <<"name">> := _}, jsx:decode(Rule1)),
+    {ok, 200, Metrics} = request(get, uri(["rules", RuleId, "metrics"]), []),
+    ?assertMatch(
+        #{
+            <<"metrics">> := #{
+                <<"matched">> := 1,
+                <<"passed">> := 1,
+                <<"failed">> := 0,
+                <<"failed.exception">> := 0,
+                <<"failed.no_result">> := 0,
+                <<"matched.rate">> := _,
+                <<"matched.rate.max">> := _,
+                <<"matched.rate.last5m">> := _,
+                <<"actions.total">> := 1,
+                <<"actions.success">> := 1,
+                <<"actions.failed">> := 0,
+                <<"actions.failed.out_of_service">> := 0,
+                <<"actions.failed.unknown">> := 0
+            }
+        },
+        jsx:decode(Metrics)
+    ),
+
     %% we should receive a message on the "remote" broker, with specified topic
     ?assert(
         receive
