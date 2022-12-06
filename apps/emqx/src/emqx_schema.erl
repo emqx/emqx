@@ -2342,7 +2342,7 @@ authentication(Which) ->
             undefined -> hoconsc:array(typerefl:map());
             Module -> Module:root_type()
         end,
-    %% It is a lazy type because when handing runtime update requests
+    %% It is a lazy type because when handling runtime update requests
     %% the config is not checked by emqx_schema, but by the injected schema
     Type = hoconsc:lazy(Type0),
     #{

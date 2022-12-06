@@ -33,6 +33,7 @@
 -export([
     namespace/0,
     roots/0,
+    tags/0,
     fields/1,
     validations/0,
     desc/1
@@ -64,6 +65,9 @@ type_names() ->
     ].
 
 namespace() -> authz.
+
+tags() ->
+    [<<"Authorization">>].
 
 %% @doc authorization schema is not exported
 %% but directly used by emqx_schema
