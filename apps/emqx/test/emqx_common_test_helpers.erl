@@ -165,7 +165,7 @@ boot_modules(Mods) ->
 
 -spec start_apps(Apps :: apps()) -> ok.
 start_apps(Apps) ->
-    %% to avoid keeping the `db_hostname' that is set then loading
+    %% to avoid keeping the `db_hostname' that is set when loading
     %% `system_monitor' application in `emqx_machine', and then it
     %% crashing when trying to connect.
     %% FIXME: add an `enable' option to sysmon_top and use that to
