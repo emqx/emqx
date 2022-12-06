@@ -37,25 +37,22 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     SimpleTCs = single_config_tests(),
     MatrixTCs = TCs -- SimpleTCs,
+    SynchronyGroups = [
+        {group, sync_query},
+        {group, async_query}
+    ],
+    QueueGroups = [
+        {group, queue_enabled},
+        {group, queue_disabled}
+    ],
+    ResourceGroups = [{group, gcp_pubsub}],
     [
-        {with_batch, [
-            {group, sync_query},
-            {group, async_query}
-        ]},
-        {without_batch, [
-            {group, sync_query},
-            {group, async_query}
-        ]},
-        {sync_query, [
-            {group, queue_enabled},
-            {group, queue_disabled}
-        ]},
-        {async_query, [
-            {group, queue_enabled},
-            {group, queue_disabled}
-        ]},
-        {queue_enabled, [{group, gcp_pubsub}]},
-        {queue_disabled, [{group, gcp_pubsub}]},
+        {with_batch, SynchronyGroups},
+        {without_batch, SynchronyGroups},
+        {sync_query, QueueGroups},
+        {async_query, QueueGroups},
+        {queue_enabled, ResourceGroups},
+        {queue_disabled, ResourceGroups},
         {gcp_pubsub, MatrixTCs}
     ].
 
@@ -582,6 +579,43 @@ t_publish_success(Config) ->
                 <<"topic">> := Topic,
                 <<"payload">> := Payload,
                 <<"metadata">> := #{<<"rule_id">> := RuleId}
+            }
+        ],
+        DecodedMessages
+    ),
+    %% to avoid test flakiness
+    wait_telemetry_event(TelemetryTable, success, ResourceId),
+    assert_metrics(
+        #{
+            batching => 0,
+            dropped => 0,
+            failed => 0,
+            inflight => 0,
+            matched => 1,
+            queuing => 0,
+            retried => 0,
+            success => 1
+        },
+        ResourceId
+    ),
+    ok.
+
+t_publish_success_local_topic(Config) ->
+    ResourceId = ?config(resource_id, Config),
+    ServiceAccountJSON = ?config(service_account_json, Config),
+    TelemetryTable = ?config(telemetry_table, Config),
+    LocalTopic = <<"local/topic">>,
+    {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
+    assert_empty_metrics(ResourceId),
+    Payload = <<"payload">>,
+    Message = emqx_message:make(LocalTopic, Payload),
+    emqx:publish(Message),
+    DecodedMessages = assert_http_request(ServiceAccountJSON),
+    ?assertMatch(
+        [
+            #{
+                <<"topic">> := LocalTopic,
+                <<"payload">> := Payload
             }
         ],
         DecodedMessages

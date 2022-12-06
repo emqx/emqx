@@ -96,6 +96,13 @@ fields(bridge_config) ->
                     desc => ?DESC("payload_template")
                 }
             )},
+        {local_topic,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("local_topic")
+                }
+            )},
         {pubsub_topic,
             sc(
                 binary(),

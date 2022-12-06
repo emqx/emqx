@@ -51,6 +51,7 @@
 -define(EGRESS_DIR_BRIDGES(T),
     T == webhook;
     T == mysql;
+    T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2
 ).
