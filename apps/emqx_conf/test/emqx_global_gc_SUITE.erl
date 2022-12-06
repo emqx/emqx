@@ -29,4 +29,8 @@ t_run_gc(_) ->
     ok = timer:sleep(1500),
     {ok, MilliSecs} = emqx_global_gc:run(),
     ct:print("Global GC: ~w(ms)~n", [MilliSecs]),
-    emqx_global_gc:stop().
+    emqx_global_gc:stop(),
+    ok = emqx_config:put([node, global_gc_interval], disabled),
+    {ok, Pid} = emqx_global_gc:start_link(),
+    ?assertMatch(#{timer := undefined}, sys:get_state(Pid)),
+    ok.

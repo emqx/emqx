@@ -424,7 +424,7 @@ systopic_mon() ->
 sharetopic() ->
     ?LET(
         {Type, Grp, T},
-        {oneof([<<"$queue">>, <<"$share">>]), list(latin_char()), normal_topic()},
+        {oneof([<<"$share">>]), list(latin_char()), normal_topic()},
         <<Type/binary, "/", (iolist_to_binary(Grp))/binary, "/", T/binary>>
     ).
 

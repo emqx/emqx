@@ -90,12 +90,3 @@ jobs:
                 -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ github.ref_name }}\"}}" \
                 "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
           fi
-      - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release' || inputs.publish_release_artefacts
-        with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
-          version: ${{ steps.profile.outputs.version }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: "us-west-2"
-          aws_bucket_name: "repos-emqx-io"

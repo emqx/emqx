@@ -76,7 +76,7 @@ normalize_key_to_bin(undefined) ->
 normalize_key_to_bin(Map) when is_map(Map) ->
     emqx_map_lib:binary_key_map(Map).
 
-try_map_get(_Key, undefined, Default) ->
-    Default;
 try_map_get(Key, Map, Default) when is_map(Map) ->
-    maps:get(Key, Map, Default).
+    maps:get(Key, Map, Default);
+try_map_get(_Key, undefined, Default) ->
+    Default.

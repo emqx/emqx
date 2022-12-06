@@ -82,10 +82,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 ensure_timer(State) ->
-    case application:get_env(emqx_machine, global_gc_interval) of
-        undefined ->
+    case application:get_env(emqx_machine, global_gc_interval, disabled) of
+        disabled ->
             State;
-        {ok, Interval} ->
+        Interval when is_integer(Interval) ->
             TRef = emqx_misc:start_timer(Interval, run),
             State#{timer := TRef}
     end.

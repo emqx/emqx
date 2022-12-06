@@ -61,8 +61,20 @@ init_per_testcase(t_status_non_official, Config) ->
 init_per_testcase(t_status, Config) ->
     meck:new(emqx_telemetry, [non_strict, passthrough]),
     meck:expect(emqx_telemetry, enable, fun() -> ok end),
+    {ok, _, _} =
+        request(
+            put,
+            uri(["telemetry", "status"]),
+            #{<<"enable">> => true}
+        ),
     Config;
 init_per_testcase(_TestCase, Config) ->
+    {ok, _, _} =
+        request(
+            put,
+            uri(["telemetry", "status"]),
+            #{<<"enable">> => true}
+        ),
     Config.
 
 end_per_testcase(t_status_non_official, _Config) ->
@@ -169,4 +181,16 @@ t_data(_) ->
             <<"vm_specs">> := _
         },
         jsx:decode(Result)
-    ).
+    ),
+
+    {ok, 200, _} =
+        request(
+            put,
+            uri(["telemetry", "status"]),
+            #{<<"enable">> => false}
+        ),
+
+    {ok, 404, _} =
+        request(get, uri(["telemetry", "data"])),
+
+    ok.

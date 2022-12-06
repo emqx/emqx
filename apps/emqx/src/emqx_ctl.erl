@@ -103,7 +103,13 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
-    run_command(list_to_atom(Cmd), Args).
+    case emqx_misc:safe_to_existing_atom(Cmd) of
+        {ok, Cmd1} ->
+            run_command(Cmd1, Args);
+        _ ->
+            help(),
+            {error, cmd_not_found}
+    end.
 
 -spec run_command(cmd(), list(string())) -> ok | {error, term()}.
 run_command(help, []) ->
@@ -220,12 +226,13 @@ init([]) ->
 handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq}) ->
     case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
         [] ->
-            ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
+            ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts}),
+            {reply, ok, next_seq(State)};
         [[OriginSeq] | _] ->
             ?SLOG(warning, #{msg => "CMD_overidden", cmd => Cmd, mf => MF}),
-            true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
-    end,
-    {reply, ok, next_seq(State)};
+            true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts}),
+            {reply, ok, State}
+    end;
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.

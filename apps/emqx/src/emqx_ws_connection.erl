@@ -378,10 +378,14 @@ get_peer_info(Type, Listener, Req, Opts) ->
     of
         #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
             SourceName = {SrcAddr, SrcPort},
-            %% Notice: Only CN is available in Proxy Protocol V2 additional info
+            %% Notice: CN is only available in Proxy Protocol V2 additional info.
+            %% `CN` is unsupported in Proxy Protocol V1
+            %% `pp2_ssl_cn` is required by config `peer_cert_as_username` or `peer_cert_as_clientid`.
+            %% It will be parsed by esockd.
+            %% See also `emqx_channel:set_peercert_infos/3` and `esockd_peercert:common_name/1`
             SourceSSL =
                 case maps:get(cn, SSL, undefined) of
-                    undeined -> nossl;
+                    undefined -> undefined;
                     CN -> [{pp2_ssl_cn, CN}]
                 end,
             {SourceName, SourceSSL};

@@ -62,7 +62,11 @@ schema("/subscriptions") ->
             tags => [<<"Subscriptions">>],
             parameters => parameters(),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{}),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_PARAMETER'], <<"Invalid parameter">>
+                ),
+                500 => emqx_dashboard_swagger:error_codes(['NODE_DOWN'], <<"Bad RPC">>)
             }
         }
     }.
@@ -179,10 +183,8 @@ format(WhichNode, {{_Subscriber, Topic}, Options}) ->
         maps:with([qos, nl, rap, rh], Options)
     ).
 
-get_topic(Topic, #{share := <<"$queue">> = Group}) ->
-    filename:join([Group, Topic]);
 get_topic(Topic, #{share := Group}) ->
-    filename:join([<<"$share">>, Group, Topic]);
+    emqx_topic:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _) ->
     Topic.
 

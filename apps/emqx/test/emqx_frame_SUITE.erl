@@ -576,7 +576,12 @@ t_serialize_parse_pingreq(_) ->
 
 t_serialize_parse_pingresp(_) ->
     PingResp = ?PACKET(?PINGRESP),
-    ?assertEqual(PingResp, parse_serialize(PingResp)).
+    Packet = serialize_to_binary(PingResp),
+    ?assertException(
+        throw,
+        {frame_parse_error, #{hint := unexpected_packet, header_type := 'PINGRESP'}},
+        emqx_frame:parse(Packet)
+    ).
 
 t_parse_disconnect(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
@@ -617,6 +622,32 @@ t_serialize_parse_auth_v5(_) ->
             version => ?MQTT_PROTO_V5,
             strict_mode => true
         })
+    ).
+
+t_parse_invalid_remaining_len(_) ->
+    ?assertException(
+        throw, {frame_parse_error, #{hint := zero_remaining_len}}, emqx_frame:parse(<<?CONNECT, 0>>)
+    ).
+
+t_parse_malformed_properties(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_properties},
+        emqx_frame:parse(<<2:4, 0:4, 3:8, 1:8, 0:8, 0:8>>)
+    ).
+
+t_parse_malformed_connect(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_header},
+        emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 110, 112, 3, 130, 1, 6>>)
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_payload},
+        emqx_frame:parse(
+            <<16, 21, 0, 6, 77, 81, 73, 115, 110, 112, 3, 130, 1, 6, 0, 0, 2, 67, 49.49>>
+        )
     ).
 
 parse_serialize(Packet) ->

@@ -132,8 +132,6 @@ jobs:
           fail-fast: false
           matrix:
             app: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
-            otp_release:
-              - "erlang24"
 
         runs-on: aws-amd64
         defaults:
@@ -169,7 +167,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: logs-${{ matrix.profile }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     ct:
@@ -211,7 +209,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: logs-${{ matrix.profile }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     make_cover:

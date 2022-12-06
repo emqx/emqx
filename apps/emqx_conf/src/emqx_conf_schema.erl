@@ -467,7 +467,7 @@ fields("node") ->
             )},
         {"global_gc_interval",
             sc(
-                emqx_schema:duration(),
+                hoconsc:union([disabled, emqx_schema:duration()]),
                 #{
                     mapping => "emqx_machine.global_gc_interval",
                     default => "15m",
