@@ -67,8 +67,8 @@
 -export([clear_screen/0]).
 -export([with_mock/4]).
 -export([
-    on_exit/1,
-    run_on_exit_callbacks/0
+    on_exit/2,
+    run_on_exit_callbacks/1
 ]).
 
 %% Toxiproxy API
@@ -939,19 +939,19 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------
 
-get_on_exit_callbacks() ->
-    persistent_term:get({?MODULE, on_exit}, []).
+get_on_exit_callbacks(Id) ->
+    persistent_term:get({?MODULE, on_exit, Id}, []).
 
-put_on_exit_callbacks(Funs) ->
-    persistent_term:put({?MODULE, on_exit}, Funs).
+put_on_exit_callbacks(Id, Funs) ->
+    persistent_term:put({?MODULE, on_exit, Id}, Funs).
 
-on_exit(Fun) ->
-    Callbacks = get_on_exit_callbacks(),
-    put_on_exit_callbacks([Fun | Callbacks]).
+on_exit(Id, Fun) ->
+    Callbacks = get_on_exit_callbacks(Id),
+    put_on_exit_callbacks(Id, [Fun | Callbacks]).
 
 %% should be called at `end_per_testcase'.
 %% TODO: scope per group and suite as well?
-run_on_exit_callbacks() ->
-    Callbacks = get_on_exit_callbacks(),
-    put_on_exit_callbacks([]),
+run_on_exit_callbacks(Id) ->
+    Callbacks = get_on_exit_callbacks(Id),
+    persistent_term:erase({?MODULE, on_exit, Id}),
     lists:foreach(fun(Fun) -> Fun() end, Callbacks).
