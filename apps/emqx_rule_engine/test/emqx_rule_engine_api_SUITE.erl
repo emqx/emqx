@@ -25,7 +25,17 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    ok.
+    {200, #{data := Rules}} =
+        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+    lists:foreach(
+        fun(#{id := Id}) ->
+            emqx_rule_engine_api:'/rules/:id'(
+                delete,
+                #{bindings => #{id => Id}}
+            )
+        end,
+        Rules
+    ).
 
 t_crud_rule_api(_Config) ->
     RuleID = <<"my_rule">>,
@@ -49,14 +59,17 @@ t_crud_rule_api(_Config) ->
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
-    {200, Rule0} = emqx_rule_engine_api:'/rules/:id/reset_metrics'(put, #{
+    {204} = emqx_rule_engine_api:'/rules/:id/metrics/reset'(put, #{
         bindings => #{id => RuleID}
     }),
-    ?assertEqual(<<"Reset Success">>, Rule0),
 
     {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
     ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule, Rule1),
+
+    {200, Metrics} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{bindings => #{id => RuleID}}),
+    ct:pal("RMetrics : ~p", [Metrics]),
+    ?assertMatch(#{id := RuleID, metrics := _, node_metrics := _}, Metrics),
 
     {200, Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
         bindings => #{id => RuleID},
@@ -67,6 +80,14 @@ t_crud_rule_api(_Config) ->
     %ct:pal("RShow : ~p", [Rule3]),
     ?assertEqual(Rule3, Rule2),
     ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
+
+    {404, _} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => <<"unknown_rule">>}}),
+    {404, _} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{
+        bindings => #{id => <<"unknown_rule">>}
+    }),
+    {404, _} = emqx_rule_engine_api:'/rules/:id/metrics/reset'(put, #{
+        bindings => #{id => <<"unknown_rule">>}
+    }),
 
     ?assertMatch(
         {204},
@@ -150,20 +171,6 @@ t_list_rule_api(_Config) ->
     QueryStr6 = #{query_string => #{<<"like_id">> => RuleID}},
     {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
-
-    %% clean up
-    lists:foreach(
-        fun(Id) ->
-            ?assertMatch(
-                {204},
-                emqx_rule_engine_api:'/rules/:id'(
-                    delete,
-                    #{bindings => #{id => Id}}
-                )
-            )
-        end,
-        AddIds
-    ),
     ok.
 
 test_rule_params() ->
