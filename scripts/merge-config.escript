@@ -29,7 +29,7 @@ main(_) ->
 
     case IsEnterprise of
         true ->
-            EnterpriseCfgs = get_all_cfgs("lib-ee/"),
+            EnterpriseCfgs = get_all_cfgs("lib-ee"),
             EnterpriseConf = merge("", EnterpriseCfgs),
             ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf);
         false ->

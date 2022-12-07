@@ -61,7 +61,7 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
 
 .PHONY: eunit
-eunit: $(REBAR) conf-segs
+eunit: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(PROFILE)-eunit
 
 .PHONY: proper
@@ -69,11 +69,11 @@ proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
 
 .PHONY: test-compile
-test-compile: $(REBAR) conf-segs
+test-compile: $(REBAR) merge-config
 	$(REBAR) as test compile
 
 .PHONY: ct
-ct: $(REBAR) conf-segs
+ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-ct
 
 .PHONY: static_checks
@@ -224,7 +224,7 @@ ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
 $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 .PHONY:
-conf-segs:
+merge-config:
 	@$(SCRIPTS)/merge-config.escript
 	@$(SCRIPTS)/merge-i18n.escript
 

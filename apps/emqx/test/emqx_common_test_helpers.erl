@@ -28,7 +28,6 @@
     boot_modules/1,
     start_apps/1,
     start_apps/2,
-    start_app/4,
     stop_apps/1,
     reload/2,
     app_path/2,
@@ -165,13 +164,15 @@ start_apps(Apps) ->
     start_apps(Apps, fun(_) -> ok end).
 
 -spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
-start_apps(Apps, Handler) when is_function(Handler) ->
+start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
+    %% load emqx_conf config before starting ekka
+    render_and_load_app_config(emqx_conf),
     ok = start_ekka(),
     ok = emqx_ratelimiter_SUITE:load_conf(),
-    lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
+    lists:foreach(fun(App) -> start_app(App, SpecAppConfig) end, [emqx | Apps]).
 
 load(App) ->
     case application:load(App) of
@@ -180,13 +181,35 @@ load(App) ->
         {error, Reason} -> error({failed_to_load_app, App, Reason})
     end.
 
-start_app(App, Handler) ->
-    start_app(
-        App,
-        app_schema(App),
-        app_path(App, filename:join(["etc", app_conf_file(App)])),
-        Handler
-    ).
+render_and_load_app_config(App) ->
+    Schema = app_schema(App),
+    Conf = app_path(App, filename:join(["etc", app_conf_file(App)])),
+    try
+        do_render_app_config(App, Schema, Conf)
+    catch
+        throw:E:St ->
+            %% turn throw into error
+            error({Conf, E, St})
+    end.
+
+do_render_app_config(App, Schema, ConfigFile) ->
+    Vars = mustache_vars(App),
+    RenderedConfigFile = render_config_file(ConfigFile, Vars),
+    read_schema_configs(Schema, RenderedConfigFile),
+    force_set_config_file_paths(App, [RenderedConfigFile]),
+    copy_certs(App, RenderedConfigFile),
+    ok.
+
+start_app(App, SpecAppConfig) ->
+    render_and_load_app_config(App),
+    SpecAppConfig(App),
+    case application:ensure_all_started(App) of
+        {ok, _} ->
+            ok = ensure_dashboard_listeners_started(App),
+            ok;
+        {error, Reason} ->
+            error({failed_to_start_app, App, Reason})
+    end.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
@@ -207,21 +230,6 @@ mustache_vars(App) ->
         {platform_etc_dir, app_path(App, "etc")},
         {platform_log_dir, app_path(App, "log")}
     ].
-
-start_app(App, Schema, ConfigFile, SpecAppConfig) ->
-    Vars = mustache_vars(App),
-    RenderedConfigFile = render_config_file(ConfigFile, Vars),
-    read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
-    copy_certs(App, RenderedConfigFile),
-    SpecAppConfig(App),
-    case application:ensure_all_started(App) of
-        {ok, _} ->
-            ok = ensure_dashboard_listeners_started(App),
-            ok;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
 
 render_config_file(ConfigFile, Vars0) ->
     Temp =
