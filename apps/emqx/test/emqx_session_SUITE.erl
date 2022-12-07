@@ -165,15 +165,45 @@ t_publish_qos2(_) ->
 
 t_publish_qos2_with_error_return(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Session = session(#{
-        max_awaiting_rel => 2,
-        awaiting_rel => #{1 => ts(millisecond)}
-    }),
-    Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
-    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(clientinfo(), 1, Msg, Session),
-    {ok, [], Session1} = emqx_session:publish(clientinfo(), 2, Msg, Session),
-    ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
-    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(clientinfo(), 3, Msg, Session1).
+    ok = meck:expect(emqx_hooks, run, fun
+        ('message.dropped', [Msg, _By, ReasonName]) ->
+            self() ! {'message.dropped', ReasonName, Msg},
+            ok;
+        (_Hook, _Arg) ->
+            ok
+    end),
+
+    Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{PacketId1 = 1 => ts(millisecond)}}),
+    begin
+        Msg1 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload1">>),
+        {error, RC1 = ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(
+            clientinfo(), PacketId1, Msg1, Session
+        ),
+        receive
+            {'message.dropped', Reason1, RecMsg1} ->
+                ?assertEqual(Reason1, emqx_reason_codes:name(RC1)),
+                ?assertEqual(RecMsg1, Msg1)
+        after 1000 ->
+            ct:fail(?FUNCTION_NAME)
+        end
+    end,
+
+    begin
+        Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
+        {ok, [], Session1} = emqx_session:publish(clientinfo(), PacketId2 = 2, Msg2, Session),
+        ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
+        {error, RC2 = ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(
+            clientinfo(), _PacketId3 = 3, Msg2, Session1
+        ),
+        receive
+            {'message.dropped', Reason2, RecMsg2} ->
+                ?assertEqual(Reason2, emqx_reason_codes:name(RC2)),
+                ?assertEqual(RecMsg2, Msg2)
+        after 1000 ->
+            ct:fail(?FUNCTION_NAME)
+        end
+    end,
+    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end).
 
 t_is_awaiting_full_false(_) ->
     Session = session(#{max_awaiting_rel => infinity}),
