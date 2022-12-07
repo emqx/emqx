@@ -344,9 +344,7 @@ fi
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=$(ulimit -n)
 if [ "$ULIMIT_F" -lt 1024 ]; then
-    echo "!!!!"
-    echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
-    echo "!!!!"
+    echo "WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
 fi
 
 SED_REPLACE="sed -i "
@@ -771,11 +769,9 @@ if [ -z "$COOKIE" ]; then
 fi
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
 if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
-    echoerr "!!!!!!"
     echoerr "WARNING: Default (insecure) Erlang cookie is in use."
     echoerr "WARNING: Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
     echoerr "NOTE: Use the same config value for all nodes in the cluster."
-    echoerr "!!!!!!"
 fi
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
