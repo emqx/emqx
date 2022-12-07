@@ -16,7 +16,6 @@
 
 -module(emqx_common_test_helpers).
 
--define(THIS_APP, ?MODULE).
 -include_lib("common_test/include/ct.hrl").
 
 -type special_config_handler() :: fun().
@@ -169,7 +168,13 @@ start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     %% load emqx_conf config before starting ekka
-    render_and_load_app_config(emqx_conf),
+    case application:load(emqx_conf) of
+        {error, _} ->
+            %% running test only for emqx app (standalone)
+            ok;
+        _ ->
+            render_and_load_app_config(emqx_conf)
+    end,
     ok = start_ekka(),
     ok = emqx_ratelimiter_SUITE:load_conf(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig) end, [emqx | Apps]).
@@ -275,42 +280,8 @@ proj_root() ->
 deps_path(App, RelativePath) -> app_path(App, RelativePath).
 
 app_path(App, RelativePath) ->
-    ok = ensure_app_loaded(App),
     Lib = code:lib_dir(App),
     safe_relative_path(filename:join([Lib, RelativePath])).
-
-assert_app_loaded(App) ->
-    case code:lib_dir(App) of
-        {error, bad_name} -> error({not_loaded, ?THIS_APP});
-        _ -> ok
-    end.
-
-ensure_app_loaded(?THIS_APP) ->
-    ok = assert_app_loaded(?THIS_APP);
-ensure_app_loaded(App) ->
-    case code:lib_dir(App) of
-        {error, bad_name} ->
-            ok = assert_app_loaded(?THIS_APP),
-            Dir0 = code:lib_dir(?THIS_APP),
-            LibRoot = upper_level(Dir0),
-            Dir = filename:join([LibRoot, atom_to_list(App), "ebin"]),
-            case code:add_pathz(Dir) of
-                true -> ok;
-                {error, bad_directory} -> error({bad_directory, Dir})
-            end,
-            case application:load(App) of
-                ok -> ok;
-                {error, Reason} -> error({failed_to_load, App, Reason})
-            end,
-            ok = assert_app_loaded(App);
-        _ ->
-            ok
-    end.
-
-upper_level(Dir) ->
-    Split = filename:split(Dir),
-    UpperReverse = tl(lists:reverse(Split)),
-    filename:join(lists:reverse(UpperReverse)).
 
 safe_relative_path(Path) ->
     case filename:split(Path) of
