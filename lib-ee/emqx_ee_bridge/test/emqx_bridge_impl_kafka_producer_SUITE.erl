@@ -67,6 +67,8 @@ init_per_suite(Config) ->
     %% Need to unload emqx_authz. See emqx_machine_SUITE:init_per_suite for
     %% more info.
     application:unload(emqx_authz),
+    %% some configs in emqx_conf app are mandatory
+    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_rule_engine, emqx_bridge, emqx_management, emqx_dashboard],
         fun set_special_configs/1

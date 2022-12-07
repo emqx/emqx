@@ -40,8 +40,7 @@ init_per_group(Type = rs, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ensure_loaded(),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
             [
@@ -60,8 +59,7 @@ init_per_group(Type = sharded, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_SHARDED_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ensure_loaded(),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
             [
@@ -80,8 +78,7 @@ init_per_group(Type = single, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ensure_loaded(),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
             [
@@ -120,6 +117,14 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+start_apps() ->
+    ensure_loaded(),
+    %% some configs in emqx_conf app are mandatory,
+    %% we want to make sure they are loaded before
+    %% ekka start in emqx_common_test_helpers:start_apps/1
+    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]).
 
 ensure_loaded() ->
     _ = application:load(emqx_ee_bridge),

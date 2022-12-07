@@ -89,8 +89,7 @@ init_per_group(InfluxDBType, Config0) when
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge]),
+            ok = start_apps(),
             {ok, _} = application:ensure_all_started(emqx_connector),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, InfluxDBConfig} = influxdb_config(
@@ -158,8 +157,7 @@ init_per_group(InfluxDBType, Config0) when
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge]),
+            ok = start_apps(),
             {ok, _} = application:ensure_all_started(emqx_connector),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, InfluxDBConfig} = influxdb_config(
@@ -855,3 +853,11 @@ t_write_failure(Config) ->
         end
     ),
     ok.
+
+start_apps() ->
+    %% some configs in emqx_conf app are mandatory
+    %% we want to make sure they are loaded before
+    %% ekka start in emqx_common_test_helpers:start_apps/1
+    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge]).

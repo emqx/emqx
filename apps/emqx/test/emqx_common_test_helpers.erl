@@ -33,7 +33,8 @@
     proj_root/0,
     deps_path/2,
     flush/0,
-    flush/1
+    flush/1,
+    render_and_load_app_config/1
 ]).
 
 -export([
@@ -167,14 +168,6 @@ start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
-    %% load emqx_conf config before starting ekka
-    case application:load(emqx_conf) of
-        {error, _} ->
-            %% running test only for emqx app (standalone)
-            ok;
-        _ ->
-            render_and_load_app_config(emqx_conf)
-    end,
     ok = start_ekka(),
     ok = emqx_ratelimiter_SUITE:load_conf(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig) end, [emqx | Apps]).
@@ -187,6 +180,7 @@ load(App) ->
     end.
 
 render_and_load_app_config(App) ->
+    load(App),
     Schema = app_schema(App),
     Conf = app_path(App, filename:join(["etc", app_conf_file(App)])),
     try
