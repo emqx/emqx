@@ -7,8 +7,16 @@ set -euo pipefail
 DEBUG="${DEBUG:-0}"
 [ "$DEBUG" -eq 1 ] && set -x
 
+# We need to find real directory with emqx files on all platforms
+# even when bin/emqx is symlinked on several levels
+# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
+#   so we can't use it universally.
+# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
+#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
 if [ "$(uname -s)" == 'Darwin' ]; then
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+    # if homebrew coreutils package is installed, GNU version of stat can take precedence,
+    # so we use absolute path to ensure we are calling MacOS default
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
 else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 fi
