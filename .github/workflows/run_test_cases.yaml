@@ -167,7 +167,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     ct:
@@ -209,7 +209,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
+            name: logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     make_cover:
