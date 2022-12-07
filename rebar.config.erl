@@ -39,8 +39,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}}.
 
 quicer() ->
-    %% @TODO revert
-    {quicer, {git, "https://github.com/qzhuyan/quic.git", {branch, "dev/william/multi-streams"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.100"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.9"}}}.
