@@ -34,7 +34,7 @@ jobs:
             use-self-hosted: false
 
     runs-on: ${{ matrix.runs-on }}
-    container: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:
