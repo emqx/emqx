@@ -23,7 +23,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -173,7 +173,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -203,27 +203,31 @@ jobs:
           - debian10
           - el8
           - el7
+          - amzn2
         build_machine:
           - aws-arm64
           - ubuntu-20.04
         exclude:
-          - arch: arm64
+        - arch: arm64
+          build_machine: ubuntu-20.04
+        - arch: amd64
+          build_machine: aws-arm64
+        include:
+          - profile: emqx
+            otp: 24.3.4.2-1
+            elixir: 1.13.4
+            build_elixir: with_elixir
+            arch: amd64
+            os: ubuntu20.04
             build_machine: ubuntu-20.04
-          - arch: amd64
-            build_machine: aws-arm64
-            # elixir: only for opensource edition and only on ubuntu20.04 and el8 on amd64
-          - build_elixir: with_elixir
-            profile: emqx-enterprise
-          - build_elixir: with_elixir
-            arch: arm64
-          - build_elixir: with_elixir
-            os: ubuntu18.04
-          - build_elixir: with_elixir
-            os: debian10
-          - build_elixir: with_elixir
-            os: debian11
-          - build_elixir: with_elixir
-            os: el7
+          - profile: emqx
+            otp: 24.3.4.2-1
+            elixir: 1.13.4
+            build_elixir: with_elixir
+            arch: amd64
+            os: amzn2
+            build_machine: ubuntu-20.04
+
     defaults:
       run:
         shell: bash
@@ -268,7 +272,7 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IsElixir}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-18:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-24:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v3
       with:
