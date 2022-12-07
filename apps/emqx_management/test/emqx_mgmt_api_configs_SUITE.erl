@@ -228,10 +228,10 @@ t_configs_node({'end', _}) ->
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 
-    ?assertEqual({ok, <<"self">>}, get_configs(Node, #{return_body => true})),
-    ?assertEqual({ok, <<"other">>}, get_configs("other_node", #{return_body => true})),
+    ?assertEqual({ok, <<"self">>}, get_configs(Node, #{return_all => true})),
+    ?assertEqual({ok, <<"other">>}, get_configs("other_node", #{return_all => true})),
 
-    {ExpType, ExpRes} = get_configs("unknown_node", #{return_body => true}),
+    {ExpType, ExpRes} = get_configs("unknown_node", #{return_all => true}),
     ?assertEqual(error, ExpType),
     ?assertMatch({{_, 404, _}, _, _}, ExpRes),
     {_, _, Body} = ExpRes,

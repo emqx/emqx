@@ -354,7 +354,7 @@ call_deprecated_send_api(ClientId, Cmd, Query) ->
 call_send_api(ClientId, Cmd, Query, API) ->
     ApiPath = emqx_mgmt_api_test_util:api_path([API, ClientId, Cmd]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_body => true},
+    Opts = #{return_all => true},
     {ok, {{"HTTP/1.1", StatusCode, _}, _Headers, Response}} = emqx_mgmt_api_test_util:request_api(
         post, ApiPath, Query, Auth, [], Opts
     ),
