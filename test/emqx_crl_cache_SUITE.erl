@@ -31,6 +31,13 @@
 all() ->
     emqx_ct:all(?MODULE).
 
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
 init_per_testcase(TestCase, Config)
   when TestCase =:= t_empty_cache;
        TestCase =:= t_filled_cache;
