@@ -7,8 +7,16 @@ set -euo pipefail
 DEBUG="${DEBUG:-0}"
 [ "$DEBUG" -eq 1 ] && set -x
 
+# We need to find real directory with emqx files on all platforms
+# even when bin/emqx is symlinked on several levels
+# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
+#   so we can't use it universally.
+# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
+#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
 if [ "$(uname -s)" == 'Darwin' ]; then
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+    # if homebrew coreutils package is installed, GNU version of stat can take precedence,
+    # so we use absolute path to ensure we are calling MacOS default
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
 else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 fi
@@ -38,14 +46,17 @@ export PROGNAME="erl"
 export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
-# Echo to stderr on errors
-echoerr() {
-    echo -e "$*" 1>&2;
+logerr() {
+    echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+}
+
+logwarn() {
+    echo "$(tput setaf 3)WARNING: $*$(tput sgr0)"
 }
 
 die() {
     set +x
-    echoerr "ERROR: $1"
+    logerr "$1"
     errno=${2:-1}
     exit "$errno"
 }
@@ -93,7 +104,7 @@ usage() {
         echo "This command is applicable when EMQX is started in daemon mode."
         echo "It attaches the current shell to EMQX's control console"
         echo "through a named pipe."
-        echo "WARNING: try to use the safer alternative, remote_console command."
+        logwarn "try to use the safer alternative, remote_console command."
         ;;
     remote_console)
         echo "Start an interactive shell running an Erlang or Elixir node which "
@@ -316,19 +327,19 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'BEAM_OK'); then
             ## not able to start beam.smp
             set +x
-            echoerr "$COMPATIBILITY_INFO"
-            echoerr "Please ensure it is running on the correct platform:"
-            echoerr "$BUILD_INFO"
-            echoerr "Version=$REL_VSN"
-            echoerr "Required dependencies: openssl-1.1.1 (libcrypto), libncurses and libatomic1"
+            logerr "$COMPATIBILITY_INFO"
+            logerr "Please ensure it is running on the correct platform:"
+            logerr "$BUILD_INFO"
+            logerr "Version=$REL_VSN"
+            logerr "Required dependencies: openssl-1.1.1 (libcrypto), libncurses and libatomic1"
             exit 1
         elif ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'CRYPTO_OK'); then
             ## not able to start crypto app
             set +x
-            echoerr "$COMPATIBILITY_INFO"
+            logerr "$COMPATIBILITY_INFO"
             exit 2
         fi
-        echoerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
+        logerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
     fi
     [ "$DEBUG" -eq 1 ] && set -x
 fi
@@ -336,9 +347,7 @@ fi
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=$(ulimit -n)
 if [ "$ULIMIT_F" -lt 1024 ]; then
-    echo "!!!!"
-    echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
-    echo "!!!!"
+    logwarn "ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
 fi
 
 SED_REPLACE="sed -i "
@@ -474,10 +483,10 @@ if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ]; then
                 # there is unfortunately no way to support space for this option because we'd need to grep
                 # from 'ps -ef' result to get this option for non-boot commands (nodetool) to run
                 set +x
-                echoerr "Got space in: $SSL_DIST_OPTFILE"
-                echoerr "No space is allowed for Erlang distribution over SSL option file path."
-                echoerr "Configure it from environment variable EMQX_SSL_DIST_OPTFILE."
-                echoerr "Or make sure emqx root path '$RUNNER_ROOT_DIR' has no space"
+                logerr "Got space in: $SSL_DIST_OPTFILE"
+                logerr "No space is allowed for Erlang distribution over SSL option file path."
+                logerr "Configure it from environment variable EMQX_SSL_DIST_OPTFILE."
+                logerr "Or make sure emqx root path '$RUNNER_ROOT_DIR' has no space"
                 exit 1
                 ;;
             *)
@@ -509,9 +518,9 @@ check_license() {
       call_nodetool check_license_key "$key_license"
     else
       set +x
-      echoerr "License not found."
-      echoerr "Please specify one via the EMQX_LICENSE__KEY variable"
-      echoerr "or via license.key in emqx-enterprise.conf."
+      logerr "License not found."
+      logerr "Please specify one via the EMQX_LICENSE__KEY variable"
+      logerr "or via license.key in emqx-enterprise.conf."
       return 1
     fi
 }
@@ -598,8 +607,7 @@ is_down() {
         if ps -p "$PID" | grep -q 'defunct'; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
-            echo "WARNING: $PID is marked <defunct>, parent:"
-            ps -p "$parent"
+            logwarn "$PID is marked <defunct>, parent: $(ps -p "$parent")"
             return 0
         fi
         return 1
@@ -654,11 +662,11 @@ latest_vm_args() {
         echo "$vm_args_file"
     else
         set +x
-        echoerr "Node not initialized?"
-        echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
-        echoerr "in config dir: $CONFIGS_DIR"
-        echoerr "In case the file has been deleted while the node is running,"
-        echoerr "set environment variable '$hint_var_name' to continue"
+        logerr "Node not initialized?"
+        logerr "Generated config file vm.*.args is not found for command '$COMMAND'"
+        logerr "in config dir: $CONFIGS_DIR"
+        logerr "In case the file has been deleted while the node is running,"
+        logerr "set environment variable '$hint_var_name' to continue"
         exit 1
     fi
 }
@@ -688,7 +696,7 @@ tr_log_to_env() {
             # value not set, do nothing
             ;;
         *)
-            echoerr "Unknown environment value for EMQX_LOG__TO=${log_to} discarded"
+            logerr "Unknown environment value for EMQX_LOG__TO=${log_to} discarded"
             ;;
     esac
 }
@@ -763,18 +771,16 @@ if [ -z "$COOKIE" ]; then
 fi
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
 if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
-    echoerr "!!!!!!"
-    echoerr "WARNING: Default (insecure) Erlang cookie is in use."
-    echoerr "WARNING: Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
-    echoerr "NOTE: Use the same config value for all nodes in the cluster."
-    echoerr "!!!!!!"
+    logwarn "Default (insecure) Erlang cookie is in use."
+    logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+    logwarn "Use the same config value for all nodes in the cluster."
 fi
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
 if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "rlog" ]]; then
     if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'MNESIA_OK'); then
-      echoerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
+      logerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
       export EMQX_NODE__DB_BACKEND=mnesia
       export EMQX_NODE__DB_ROLE=core
     fi
@@ -848,7 +854,7 @@ case "${COMMAND}" in
             logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
             # log to user console
             set +x
-            echoerr "Stop failed, $msg"
+            logerr "Stop failed, $msg"
             echo "ERROR: $PID is still around"
             ps -p "$PID"
             exit 1
