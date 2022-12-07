@@ -325,14 +325,24 @@ publish(PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts},
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
                     {ok, Results, Session#session{awaiting_rel = AwaitingRel1}};
                 true ->
-                    {error, ?RC_PACKET_IDENTIFIER_IN_USE}
+                    ?LOG(warning, "Dropped the qos2 packet ~w "
+                         "due to packet ID in use.", [PacketId]),
+                    drop_qos2_msg(Msg, ?RC_PACKET_IDENTIFIER_IN_USE)
             end;
-        true -> {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}
+        true ->
+            ?LOG(warning, "Dropped the qos2 packet ~w "
+                 "due to awaiting_rel is full.", [PacketId]),
+            drop_qos2_msg(Msg, ?RC_RECEIVE_MAXIMUM_EXCEEDED)
     end;
 
 %% Publish QoS0/1 directly
 publish(_PacketId, Msg, Session) ->
     {ok, emqx_broker:publish(Msg), Session}.
+
+drop_qos2_msg(Msg, ReasonCode) ->
+    ok = emqx_metrics:inc('messages.dropped'),
+    ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, emqx_reason_codes:name(ReasonCode)]),
+    {error, ReasonCode}.
 
 -compile({inline, [is_awaiting_full/1]}).
 is_awaiting_full(#session{max_awaiting_rel = 0}) ->

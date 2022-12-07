@@ -142,14 +142,31 @@ t_publish_qos2(_) ->
 
 t_publish_qos2_with_error_return(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Session = session(#{max_awaiting_rel => 2,
-                        awaiting_rel => #{1 => ts(millisecond)}
-                       }),
-    Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
-    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(1, Msg, Session),
-    {ok, [], Session1} = emqx_session:publish(2, Msg, Session),
-    ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
-    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(3, Msg, Session1).
+    ok = meck:expect(emqx_hooks, run, fun('message.dropped', [Msg, _By, Reason]) ->
+                                              persistent_term:put({'message.dropped', Reason}, Msg);
+                                         (_Hook, _Arg) ->
+                                              ok
+                                      end),
+
+    Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{PacketId1 = 1 => ts(millisecond)}}),
+    begin
+        Msg1 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload1">>),
+        {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(PacketId1, Msg1, Session),
+        KeyIdentifierInUse = {'message.dropped', emqx_reason_codes:name(?RC_PACKET_IDENTIFIER_IN_USE)},
+        ?assertEqual(Msg1, persistent_term:get(KeyIdentifierInUse)),
+        persistent_term:erase(KeyIdentifierInUse)
+    end,
+
+    begin
+        Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
+        {ok, [], Session1} = emqx_session:publish(PacketId2 = 2, Msg2, Session),
+        ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
+        {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(PacketId2, Msg2, Session1),
+        KeyMaxExceeded = {'message.dropped', emqx_reason_codes:name(?RC_RECEIVE_MAXIMUM_EXCEEDED)},
+        ?assertEqual(Msg2, persistent_term:get(KeyMaxExceeded)),
+        persistent_term:erase(KeyMaxExceeded)
+    end,
+    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end).
 
 t_is_awaiting_full_false(_) ->
     Session = session(#{max_awaiting_rel => 0}),

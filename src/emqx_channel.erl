@@ -634,8 +634,6 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ?LOG(warning, "Dropped the qos2 packet ~w "
-                 "due to awaiting_rel is full.", [PacketId]),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(disconnect, RC, Channel)
     end.

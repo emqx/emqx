@@ -106,7 +106,7 @@ setup_node(Node, #{} = Opts) ->
     EnvHandler = maps:get(env_handler, Opts, DefaultEnvHandler),
 
     %% apps need to be loaded before starting for ekka to find and create mnesia tables
-    LoadApps = lists:usort([gen_rcp, emqx] ++ ?SLAVE_START_APPS),
+    LoadApps = lists:usort([gen_rpc, emqx] ++ ?SLAVE_START_APPS),
     lists:foreach(fun(App) ->
                           rpc:call(Node, application, load, [App])
                   end, LoadApps),
