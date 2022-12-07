@@ -16,7 +16,7 @@ up:
 		REDIS_TAG=6 \
 		MONGO_TAG=5 \
 		PGSQL_TAG=13 \
-	docker-compose \
+	docker compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
@@ -28,10 +28,13 @@ up:
 		-f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml \
-		up -d --build
+		-f .ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml \
+		-f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+		up -d --build --remove-orphans
 
 down:
-	docker-compose \
+	docker compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
@@ -43,7 +46,10 @@ down:
 		-f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml \
-		down
+		-f .ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml \
+		-f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+		down --remove-orphans
 
 ct:
 	docker exec -i "$(CONTAINER)" bash -c "rebar3 ct --name 'test@127.0.0.1' -v --suite $(SUITE)"

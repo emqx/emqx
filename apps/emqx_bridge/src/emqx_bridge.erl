@@ -52,7 +52,10 @@
     T == webhook;
     T == mysql;
     T == influxdb_api_v1;
-    T == influxdb_api_v2
+    T == influxdb_api_v2;
+    T == redis_single;
+    T == redis_sentinel;
+    T == redis_cluster
     %% T == influxdb_udp
 ).
 
@@ -135,6 +138,7 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     {ok, Message}.
 
 send_to_matched_egress_bridges(Topic, Msg) ->
+    MatchedBridgeIds = get_matched_bridges(Topic),
     lists:foreach(
         fun(Id) ->
             try send_message(Id, Msg) of
@@ -157,7 +161,7 @@ send_to_matched_egress_bridges(Topic, Msg) ->
                     })
             end
         end,
-        get_matched_bridges(Topic)
+        MatchedBridgeIds
     ).
 
 send_message(BridgeId, Message) ->
@@ -242,6 +246,12 @@ disable_enable(Action, BridgeType, BridgeName) when
     ).
 
 create(BridgeType, BridgeName, RawConf) ->
+    ?SLOG(debug, #{
+        brige_action => create,
+        bridge_type => BridgeType,
+        bridge_name => BridgeName,
+        bridge_raw_config => RawConf
+    }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         RawConf,
@@ -249,6 +259,11 @@ create(BridgeType, BridgeName, RawConf) ->
     ).
 
 remove(BridgeType, BridgeName) ->
+    ?SLOG(debug, #{
+        brige_action => remove,
+        bridge_type => BridgeType,
+        bridge_name => BridgeName
+    }),
     emqx_conf:remove(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         #{override_to => cluster}

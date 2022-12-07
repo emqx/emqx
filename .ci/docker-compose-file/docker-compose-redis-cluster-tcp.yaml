@@ -1,9 +1,9 @@
 version: '3.9'
 
 services:
-  redis_server:
+  redis_cluster:
     image: redis:${REDIS_TAG}
-    container_name: redis
+    container_name: redis-cluster
     volumes:
       - ./redis/:/data/conf
     command: bash -c "/bin/bash /data/conf/redis.sh --node cluster && tail -f /var/log/redis-server.log"
