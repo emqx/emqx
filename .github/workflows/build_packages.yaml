@@ -162,32 +162,18 @@ jobs:
           - debian9
           - el8
           - el7
-          # - raspbian10 #armv6l is too slow to emulate
-        exclude:
-        - os: raspbian9
-          arch: amd64
-        - os: raspbian10
-          arch: amd64
-        - os: raspbian9
-          profile: emqx
-        - os: raspbian10
-          profile: emqx
-        - os: raspbian9
-          profile: emqx-ee
-        - os: raspbian10
-          profile: emqx-ee
-
+          - amzn2
     defaults:
       run:
         shell: bash
 
     steps:
-    - uses: docker/setup-buildx-action@v1
-    - uses: docker/setup-qemu-action@v1
+    - uses: docker/setup-qemu-action@v2
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
-    - uses: actions/download-artifact@v2
+    - uses: docker/setup-buildx-action@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -206,8 +192,8 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/4.4-20:${OTP}-${SYSTEM}"
-    - uses: actions/upload-artifact@v1
+          --builder "ghcr.io/emqx/emqx-builder/4.4-23:${OTP}-${SYSTEM}"
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
@@ -233,17 +219,17 @@ jobs:
             registry: 'public.ecr.aws'
 
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - uses: docker/setup-buildx-action@v1
-    - uses: docker/setup-qemu-action@v1
+    - uses: docker/setup-qemu-action@v3
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
+    - uses: docker/setup-buildx-action@v2
     - uses: aws-actions/configure-aws-credentials@v1
       if: matrix.registry == 'public.ecr.aws'
       with:
@@ -253,7 +239,7 @@ jobs:
     - name: Docker login to aws ecr
       if: matrix.registry == 'public.ecr.aws'
       run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-    - uses: docker/login-action@v1
+    - uses: docker/login-action@v2
       if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
@@ -271,7 +257,7 @@ jobs:
           type=match,pattern=[v|e](.*),group=1
         labels:
           org.opencontainers.image.otp.version=${{ matrix.otp }}
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       if: matrix.profile != 'emqx-ee'
       with:
         ## only push when stable tag and rc tag
@@ -282,12 +268,12 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       if: matrix.profile == 'emqx-ee'
       with:
         ## only push when stable tag and rc tag
@@ -298,7 +284,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
