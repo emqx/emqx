@@ -227,7 +227,7 @@ jobs:
 
     - uses: docker/build-push-action@v3
       with:
-        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }} || ${{ github.repository_owner }} != "emqx"
         pull: true
         no-cache: true
         platforms: linux/${{ matrix.arch[0] }}
