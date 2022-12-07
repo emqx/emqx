@@ -84,11 +84,16 @@ schema("/trace") ->
                 200 => hoconsc:ref(trace),
                 400 => emqx_dashboard_swagger:error_codes(
                     [
-                        'ALREADY_EXISTS',
-                        'DUPLICATE_CONDITION',
                         'INVALID_PARAMS'
                     ],
-                    <<"trace name already exists">>
+                    <<"invalid trace params">>
+                ),
+                409 => emqx_dashboard_swagger:error_codes(
+                    [
+                        'ALREADY_EXISTS',
+                        'DUPLICATE_CONDITION'
+                    ],
+                    <<"trace already exists">>
                 )
             }
         },
@@ -392,12 +397,12 @@ trace(post, #{body := Param}) ->
         {ok, Trace0} ->
             {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
-            {400, #{
+            {409, #{
                 code => 'ALREADY_EXISTS',
                 message => ?TO_BIN([Name, " Already Exists"])
             }};
         {error, {duplicate_condition, Name}} ->
-            {400, #{
+            {409, #{
                 code => 'DUPLICATE_CONDITION',
                 message => ?TO_BIN([Name, " Duplication Condition"])
             }};
