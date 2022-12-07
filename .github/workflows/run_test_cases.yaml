@@ -146,7 +146,7 @@ jobs:
             path: .
         - name: unzip source code
           run: unzip -q source.zip
-        - name: docker compose up
+        - name: run tests
           working-directory: source
           env:
             MONGO_TAG: 5
