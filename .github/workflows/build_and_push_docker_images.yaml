@@ -159,7 +159,7 @@ jobs:
 
     - uses: docker/build-push-action@v3
       with:
-        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        push: ${{ needs.prepare.outputs.IS_EXACT_TAG == 'true' || github.repository_owner != 'emqx' }}
         pull: true
         no-cache: true
         platforms: linux/${{ matrix.arch[0] }}
@@ -227,7 +227,7 @@ jobs:
 
     - uses: docker/build-push-action@v3
       with:
-        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        push: ${{ needs.prepare.outputs.IS_EXACT_TAG == 'true' || github.repository_owner != 'emqx' }}
         pull: true
         no-cache: true
         platforms: linux/${{ matrix.arch[0] }}
@@ -310,7 +310,7 @@ jobs:
   docker-elixir-push-multi-arch-manifest:
     # note, we only run on amd64
     # do not build enterprise elixir images for now
-    if: needs.prepare.outputs.IS_EXACT_TAG && needs.prepare.outputs.BUILD_PROFILE == 'emqx'
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true' && needs.prepare.outputs.BUILD_PROFILE == 'emqx'
     needs:
       - prepare
       - docker-elixir
