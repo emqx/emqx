@@ -148,11 +148,14 @@ emqx_test(){
             fi
         ;;
         "rpm")
+            # yum wants python2
+            alternatives --list | grep python && alternatives --set python /usr/bin/python2
             YUM_RES=$(yum install -y "${PACKAGE_PATH}/${packagename}"| tee /dev/null)
             if [[ $YUM_RES =~ "Failed" ]]; then
                echo "yum install failed"
                exit 1
             fi
+            alternatives --list | grep python && alternatives --set python /usr/bin/python3
             if ! rpm -q "${EMQX_NAME}" | grep -q "${EMQX_NAME}"; then
                 echo "package install error"
                 exit 1
