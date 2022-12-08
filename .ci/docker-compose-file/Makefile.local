@@ -2,7 +2,7 @@
 
 define usage
 make -f .ci/docker-compose-file/Makefile.local up
-make -f .ci/docker-compose-file/Makefile.local ct CONTAINER=erlang24 SUITE=apps/emqx_authn/test/emqx_authn_mnesia_SUITE.erl
+make -f .ci/docker-compose-file/Makefile.local ct CONTAINER=erlang SUITE=apps/emqx_authn/test/emqx_authn_mnesia_SUITE.erl
 make -f .ci/docker-compose-file/Makefile.local down
 endef
 export usage

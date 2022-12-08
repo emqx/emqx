@@ -66,7 +66,7 @@ if [ "${WHICH_APP}" = 'novalue' ]; then
     exit 1
 fi
 
-ERLANG_CONTAINER='erlang24'
+ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
 case "${WHICH_APP}" in
@@ -89,7 +89,7 @@ FILES=( )
 
 for dep in ${CT_DEPS}; do
     case "${dep}" in
-        erlang24)
+        erlang)
             FILES+=( '.ci/docker-compose-file/docker-compose.yaml' )
             ;;
         toxiproxy)

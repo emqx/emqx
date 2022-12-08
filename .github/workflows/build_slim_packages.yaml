@@ -31,12 +31,15 @@ jobs:
         profile:
         - ["emqx", "el7"]
         - ["emqx-enterprise", "ubuntu20.04"]
+        builder:
+        - 5.0-26
         otp:
         - 24.3.4.2-1
+        - 25.1.2-2
         elixir:
         - 1.13.4
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.profile[1] }}"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.profile[1] }}"
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -89,7 +92,8 @@ jobs:
         profile:
           - emqx
         otp:
-          - 24.2.1
+          - 24.3.4
+          - 25.1.2
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1.12.0
@@ -119,7 +123,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: windows
-        path: _packages/${{ matrix.profile}}/*
+        path: _packages/${{ matrix.profile }}/*
 
   mac:
     strategy:
@@ -130,6 +134,7 @@ jobs:
         - emqx-enterprise
         otp:
         - 24.3.4.2-1
+        - 25.1.2-2
         os:
         - macos-11
         - macos-12-arm64

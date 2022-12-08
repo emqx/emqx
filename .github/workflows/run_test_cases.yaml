@@ -16,8 +16,20 @@ on:
 jobs:
     prepare:
         runs-on: aws-amd64
-        # prepare source with any OTP version, no need for a matrix
-        container: "ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04"
+        strategy:
+          fail-fast: false
+          matrix:
+            profile:
+            - emqx
+            - emqx-enterprise
+            builder:
+            - 5.0-26
+            otp:
+            - 24.3.4.2-1
+            - 25.1.2-2
+            elixir:
+            - 1.13.4
+        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
         outputs:
           fast_ct_apps: ${{ steps.find_ct_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.find_ct_apps.outputs.docker_ct_apps }}
@@ -32,57 +44,27 @@ jobs:
           run: |
             fast_ct_apps="$(./scripts/find-apps.sh --ci fast)"
             docker_ct_apps="$(./scripts/find-apps.sh --ci docker)"
-            echo "fast: $fast_ct_apps"
-            echo "docker: $docker_ct_apps"
-            echo "::set-output name=fast_ct_apps::$fast_ct_apps"
-            echo "::set-output name=docker_ct_apps::$docker_ct_apps"
+            echo "fast_ct_apps=$fast_ct_apps" | tee -a $GITHUB_OUTPUT
+            echo "docker_ct_apps=$docker_ct_apps" | tee -a $GITHUB_OUTPUT
         - name: get_all_deps
           working-directory: source
           env:
-            PROFILE: emqx
+            PROFILE: ${{ matrix.profile }}
               #DIAGNOSTIC: 1
           run: |
             make ensure-rebar3
             # fetch all deps and compile
-            make emqx
+            make ${{ matrix.profile }}
             make test-compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
           with:
-            name: source-emqx
-            path: source.zip
-
-    prepare_ee:
-        runs-on: aws-amd64
-        # prepare source with any OTP version, no need for a matrix
-        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
-        steps:
-        - uses: AutoModality/action-clean@v1
-        - uses: actions/checkout@v3
-          with:
-            path: source
-        - name: get_all_deps
-          working-directory: source
-          env:
-            PROFILE: emqx-enterprise
-              #DIAGNOSTIC: 1
-          run: |
-            make ensure-rebar3
-            # fetch all deps and compile
-            make emqx-enterprise
-            make test-compile
-            cd ..
-            zip -ryq source.zip source/* source/.[^.]*
-        - uses: actions/upload-artifact@v3
-          with:
-            name: source-emqx-enterprise
+            name: source-${{ matrix.profile }}-${{ matrix.otp }}
             path: source.zip
 
     eunit_and_proper:
-        needs:
-          - prepare
-          - prepare_ee
+        needs: [prepare]
         runs-on: ${{ matrix.runs-on }}
         strategy:
           fail-fast: false
@@ -90,6 +72,13 @@ jobs:
             profile:
               - emqx
               - emqx-enterprise
+            builder:
+              - 5.0-26
+            otp:
+              - 24.3.4.2-1
+              - 25.1.2-2
+            elixir:
+              - 1.13.4
             runs-on:
               - aws-amd64
               - ubuntu-20.04
@@ -104,17 +93,15 @@ jobs:
         defaults:
           run:
             shell: bash
-        container: "ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
 
         steps:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source-${{ matrix.profile }}
+            name: source-${{ matrix.profile }}-${{ matrix.otp }}
             path: .
         - name: unzip source code
-          env:
-            PROFILE: ${{ matrix.profile }}
           run: unzip -o -q source.zip
           # produces eunit.coverdata
         - name: eunit
@@ -136,9 +123,7 @@ jobs:
             path: source/_build/test/cover
 
     ct_docker:
-        needs:
-          - prepare
-          - prepare_ee
+        needs: [prepare]
         strategy:
           fail-fast: false
           matrix:
@@ -148,11 +133,19 @@ jobs:
               - ubuntu-20.04
             use-self-hosted:
               - ${{ github.repository_owner == 'emqx' }}
+            builder:
+              - 5.0-26
+            otp:
+              - 24.3.4.2-1
+              - 25.1.2-2
+            elixir:
+              - 1.13.4
             exclude:
               - runs-on: ubuntu-20.04
                 use-self-hosted: true
               - runs-on: aws-amd64
                 use-self-hosted: false
+
         runs-on: ${{ matrix.runs-on }}
         defaults:
           run:
@@ -162,13 +155,14 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source-${{ matrix.app[1] }}
+            name: source-${{ matrix.app[1] }}-${{ matrix.otp }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
         - name: run tests
           working-directory: source
           env:
+            DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
             MONGO_TAG: 5
             MYSQL_TAG: 8
             PGSQL_TAG: 13
@@ -191,13 +185,18 @@ jobs:
             path: source/_build/test/logs
 
     ct:
-        needs:
-          - prepare
-          - prepare_ee
+        needs: [prepare]
         strategy:
           fail-fast: false
           matrix:
             app: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
+            builder:
+              - 5.0-26
+            otp:
+              - 24.3.4.2-1
+              - 25.1.2-2
+            elixir:
+              - 1.13.4
             runs-on:
               - aws-amd64
               - ubuntu-20.04
@@ -210,7 +209,7 @@ jobs:
                 use-self-hosted: false
 
         runs-on: ${{ matrix.runs-on }}
-        container: "ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
         defaults:
           run:
             shell: bash
@@ -219,7 +218,7 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source-${{ matrix.app[1] }}
+            name: source-${{ matrix.app[1] }}-${{ matrix.otp }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
@@ -249,12 +248,12 @@ jobs:
         - ct
         - ct_docker
       runs-on: ubuntu-20.04
-      container: "ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04"
+      container: "ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04"
       steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-emqx-enterprise
+          name: source-emqx-enterprise-24.3.4.2-1
           path: .
       - name: unzip source code
         run: unzip -q source.zip

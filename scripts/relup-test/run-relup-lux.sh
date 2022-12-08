@@ -45,8 +45,8 @@ fi
 # From now on, no need for the v|e prefix
 OLD_VSN="${old_vsn#[e|v]}"
 
-OLD_PKG="$(pwd)/_upgrade_base/${profile}-${OLD_VSN}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
-CUR_PKG="$(pwd)/_packages/${profile}/${profile}-${cur_vsn}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
+OLD_PKG="$(pwd)/_upgrade_base/${profile}-${OLD_VSN}-otp24.3.4.2-1-ubuntu20.04-amd64.tar.gz"
+CUR_PKG="$(pwd)/_packages/${profile}/${profile}-${cur_vsn}-otp24.3.4.2-1-ubuntu20.04-amd64.tar.gz"
 
 if [ ! -f "$OLD_PKG" ]; then
     echo "$OLD_PKG not found"

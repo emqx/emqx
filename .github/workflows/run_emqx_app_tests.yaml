@@ -11,8 +11,11 @@ jobs:
   run_emqx_app_tests:
     strategy:
       matrix:
+        builder:
+          - 5.0-26
         otp:
           - 24.3.4.2-1
+          - 25.1.2-2
         # no need to use more than 1 version of Elixir, since tests
         # run using only Erlang code.  This is needed just to specify
         # the base image.
@@ -34,7 +37,7 @@ jobs:
             use-self-hosted: false
 
     runs-on: ${{ matrix.runs-on }}
-    container: "ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:

@@ -23,7 +23,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04"
 
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
@@ -119,8 +119,10 @@ jobs:
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
         # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
         #       only support latest otp and elixir, not a matrix
+        builder:
+          - 5.0-26 # update to latest
         otp:
-          - 24.3.4.2-1 # update to latest
+          - 24.3.4.2-1 # switch to 25 once ready to release 5.1
         elixir:
           - 1.13.4 # update to latest
         exclude: # TODO: publish enterprise to ecr too?
@@ -174,7 +176,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
           RUN_FROM=${{ matrix.os[1] }}
           EMQX_NAME=${{ steps.meta.outputs.emqx_name }}
         file: source/${{ matrix.os[2] }}
@@ -208,8 +210,10 @@ jobs:
           - 'docker.io'
         os:
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
+        builder:
+          - 5.0-26 # update to latest
         otp:
-          - 24.3.4.2-1 # update to latest
+          - 25.1.2-2 # update to latest
         elixir:
           - 1.13.4 # update to latest
 
@@ -252,7 +256,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
           RUN_FROM=${{ matrix.os[1] }}
           EMQX_NAME=${{ steps.meta.outputs.emqx_name }}
         file: source/${{ matrix.os[2] }}
@@ -277,7 +281,7 @@ jobs:
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
         # NOTE: only support latest otp version, not a matrix
         otp:
-          - 24.3.4.2-1 # update to latest
+          - 24.3.4.2-1 # switch to 25 once ready to release 5.1
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
@@ -342,7 +346,7 @@ jobs:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
-          - 24.3.4.2-1 # update to latest
+          - 25.1.2-2 # update to latest
         elixir:
           - 1.13.4 # update to latest
         registry:
