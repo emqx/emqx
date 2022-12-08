@@ -270,7 +270,7 @@ relx(Vsn, RelType, PkgType, Edition) ->
         {vm_args, false},
         {release, {emqx, Vsn}, relx_apps(RelType, Edition)},
         {overlay, relx_overlay(RelType, Edition)},
-        {overlay_vars,
+        {overlay_vars_values,
             build_info() ++
                 [
                     {emqx_description, emqx_description(RelType, Edition)}
