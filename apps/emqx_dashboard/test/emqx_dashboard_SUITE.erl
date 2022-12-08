@@ -141,7 +141,7 @@ t_rest_api(_Config) ->
     }),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
-    {ok, 204, _} = http_put(
+    {ok, 204, _} = http_post(
         ["users", "admin", "change_pwd"],
         #{
             <<"old_pwd">> => <<"public">>,

@@ -147,7 +147,7 @@ schema("/users/:username") ->
 schema("/users/:username/change_pwd") ->
     #{
         'operationId' => change_pwd,
-        put => #{
+        post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(change_pwd_api),
             parameters => fields([username_in_path]),
@@ -324,7 +324,7 @@ is_self_auth_token(Username, Token) ->
             false
     end.
 
-change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
+change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
     LogMeta = #{msg => "Dashboard change password", username => Username},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
