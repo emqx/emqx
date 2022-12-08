@@ -45,7 +45,7 @@ defmodule EMQXUmbrella.MixProject do
     # other exact versions, and not ranges.
     [
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-      {:redbug, "2.0.7"},
+      {:redbug, "2.0.8"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.2", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
