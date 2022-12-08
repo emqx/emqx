@@ -65,7 +65,7 @@ paths() ->
         "/logout",
         "/users",
         "/users/:username",
-        "/users/:username/change_pwd"
+        "/users/:username/password"
     ].
 
 schema("/login") ->
@@ -144,7 +144,7 @@ schema("/users/:username") ->
             }
         }
     };
-schema("/users/:username/change_pwd") ->
+schema("/users/:username/password") ->
     #{
         'operationId' => change_pwd,
         put => #{
