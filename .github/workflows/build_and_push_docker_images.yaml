@@ -115,7 +115,9 @@ jobs:
           - 24.3.4.2-1 # update to latest
         elixir:
           - 1.13.4 # update to latest
-
+        exclude: # TODO: publish enterprise to ecr too?
+          - registry: 'public.ecr.aws'
+            profile: emqx-enterprise
     steps:
     - uses: AutoModality/action-clean@v1
       if: matrix.arch[1] == 'aws-arm64'
@@ -261,6 +263,9 @@ jobs:
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
+        exclude:
+          - registry: 'public.ecr.aws'
+            profile: emqx-enterprise
 
     steps:
       - uses: actions/download-artifact@v3

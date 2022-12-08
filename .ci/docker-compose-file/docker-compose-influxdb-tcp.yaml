@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+  influxdb_server_tcp:
+    container_name: influxdb_tcp
+    image: influxdb:${INFLUXDB_TAG}
+    expose:
+      - "8086"
+      - "8089/udp"
+      - "8083"
+    # ports:
+    #   - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: root
+      DOCKER_INFLUXDB_INIT_PASSWORD: emqx@123
+      DOCKER_INFLUXDB_INIT_ORG: emqx
+      DOCKER_INFLUXDB_INIT_BUCKET: mqtt
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: abcdefg
+    volumes:
+      - "./influxdb/setup-v1.sh:/docker-entrypoint-initdb.d/setup-v1.sh"
+    restart: always
+    networks:
+      - emqx_bridge
+
+# networks:
+#   emqx_bridge:
+#     driver: bridge
+#     name: emqx_bridge
+#     ipam:
+#       driver: default
+#       config:
+#         - subnet: 172.100.239.0/24
+#           gateway: 172.100.239.1
+#         - subnet: 2001:3200:3200::/64
+#           gateway: 2001:3200:3200::1

@@ -12,8 +12,12 @@ on:
 jobs:
   elixir_release_build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
     container: ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -23,15 +27,15 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: elixir release
-        run: make emqx-elixir
+        run: make ${{ matrix.profile }}-elixir
       - name: start release
         run: |
-          cd _build/emqx/rel/emqx
+          cd _build/${{ matrix.profile }}/rel/emqx
           bin/emqx start
       - name: check if started
         run: |
           sleep 10
           nc -zv localhost 1883
-          cd _build/emqx/rel/emqx
+          cd _build/${{ matrix.profile }}/rel/emqx
           bin/emqx ping
           bin/emqx ctl status

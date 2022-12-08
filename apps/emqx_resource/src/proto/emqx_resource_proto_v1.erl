@@ -38,7 +38,7 @@ introduced_in() ->
     resource_group(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(ResId, Group, ResourceType, Config, Opts) ->
@@ -58,7 +58,7 @@ create_dry_run(ResourceType, Config) ->
     resource_id(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(ResId, ResourceType, Config, Opts) ->

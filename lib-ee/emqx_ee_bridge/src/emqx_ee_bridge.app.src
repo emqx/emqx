@@ -1,0 +1,15 @@
+{application, emqx_ee_bridge, [
+    {description, "EMQX Enterprise data bridges"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_ee_connector,
+        telemetry
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

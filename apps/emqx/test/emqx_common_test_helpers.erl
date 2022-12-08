@@ -16,7 +16,6 @@
 
 -module(emqx_common_test_helpers).
 
--define(THIS_APP, ?MODULE).
 -include_lib("common_test/include/ct.hrl").
 
 -type special_config_handler() :: fun().
@@ -28,13 +27,14 @@
     boot_modules/1,
     start_apps/1,
     start_apps/2,
-    start_app/4,
     stop_apps/1,
     reload/2,
     app_path/2,
+    proj_root/0,
     deps_path/2,
     flush/0,
-    flush/1
+    flush/1,
+    render_and_load_app_config/1
 ]).
 
 -export([
@@ -62,6 +62,15 @@
     start_epmd/0,
     start_slave/2,
     stop_slave/1
+]).
+
+-export([clear_screen/0]).
+-export([with_mock/4]).
+
+%% Toxiproxy API
+-export([
+    with_failure/5,
+    reset_proxy/2
 ]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
@@ -155,13 +164,13 @@ start_apps(Apps) ->
     start_apps(Apps, fun(_) -> ok end).
 
 -spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
-start_apps(Apps, Handler) when is_function(Handler) ->
+start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
     ok = emqx_ratelimiter_SUITE:load_conf(),
-    lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
+    lists:foreach(fun(App) -> start_app(App, SpecAppConfig) end, [emqx | Apps]).
 
 load(App) ->
     case application:load(App) of
@@ -170,13 +179,36 @@ load(App) ->
         {error, Reason} -> error({failed_to_load_app, App, Reason})
     end.
 
-start_app(App, Handler) ->
-    start_app(
-        App,
-        app_schema(App),
-        app_path(App, filename:join(["etc", app_conf_file(App)])),
-        Handler
-    ).
+render_and_load_app_config(App) ->
+    load(App),
+    Schema = app_schema(App),
+    Conf = app_path(App, filename:join(["etc", app_conf_file(App)])),
+    try
+        do_render_app_config(App, Schema, Conf)
+    catch
+        throw:E:St ->
+            %% turn throw into error
+            error({Conf, E, St})
+    end.
+
+do_render_app_config(App, Schema, ConfigFile) ->
+    Vars = mustache_vars(App),
+    RenderedConfigFile = render_config_file(ConfigFile, Vars),
+    read_schema_configs(Schema, RenderedConfigFile),
+    force_set_config_file_paths(App, [RenderedConfigFile]),
+    copy_certs(App, RenderedConfigFile),
+    ok.
+
+start_app(App, SpecAppConfig) ->
+    render_and_load_app_config(App),
+    SpecAppConfig(App),
+    case application:ensure_all_started(App) of
+        {ok, _} ->
+            ok = ensure_dashboard_listeners_started(App),
+            ok;
+        {error, Reason} ->
+            error({failed_to_start_app, App, Reason})
+    end.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
@@ -197,21 +229,6 @@ mustache_vars(App) ->
         {platform_etc_dir, app_path(App, "etc")},
         {platform_log_dir, app_path(App, "log")}
     ].
-
-start_app(App, Schema, ConfigFile, SpecAppConfig) ->
-    Vars = mustache_vars(App),
-    RenderedConfigFile = render_config_file(ConfigFile, Vars),
-    read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
-    copy_certs(App, RenderedConfigFile),
-    SpecAppConfig(App),
-    case application:ensure_all_started(App) of
-        {ok, _} ->
-            ok = ensure_dashboard_listeners_started(App),
-            ok;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
 
 render_config_file(ConfigFile, Vars0) ->
     Temp =
@@ -245,46 +262,20 @@ stop_apps(Apps) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok.
 
+proj_root() ->
+    filename:join(
+        lists:takewhile(
+            fun(X) -> iolist_to_binary(X) =/= <<"_build">> end,
+            filename:split(app_path(emqx, "."))
+        )
+    ).
+
 %% backward compatible
 deps_path(App, RelativePath) -> app_path(App, RelativePath).
 
 app_path(App, RelativePath) ->
-    ok = ensure_app_loaded(App),
     Lib = code:lib_dir(App),
     safe_relative_path(filename:join([Lib, RelativePath])).
-
-assert_app_loaded(App) ->
-    case code:lib_dir(App) of
-        {error, bad_name} -> error({not_loaded, ?THIS_APP});
-        _ -> ok
-    end.
-
-ensure_app_loaded(?THIS_APP) ->
-    ok = assert_app_loaded(?THIS_APP);
-ensure_app_loaded(App) ->
-    case code:lib_dir(App) of
-        {error, bad_name} ->
-            ok = assert_app_loaded(?THIS_APP),
-            Dir0 = code:lib_dir(?THIS_APP),
-            LibRoot = upper_level(Dir0),
-            Dir = filename:join([LibRoot, atom_to_list(App), "ebin"]),
-            case code:add_pathz(Dir) of
-                true -> ok;
-                {error, bad_directory} -> error({bad_directory, Dir})
-            end,
-            case application:load(App) of
-                ok -> ok;
-                {error, Reason} -> error({failed_to_load, App, Reason})
-            end,
-            ok = assert_app_loaded(App);
-        _ ->
-            ok
-    end.
-
-upper_level(Dir) ->
-    Split = filename:split(Dir),
-    UpperReverse = tl(lists:reverse(Split)),
-    filename:join(lists:reverse(UpperReverse)).
 
 safe_relative_path(Path) ->
     case filename:split(Path) of
@@ -792,4 +783,140 @@ expand_node_specs(Specs, CommonOpts) ->
             }
         end,
         Specs
+    ).
+
+%% is useful when iterating on the tests in a loop, to get rid of all
+%% the garbaged printed before the test itself beings.
+clear_screen() ->
+    io:format(standard_io, "\033[H\033[2J", []),
+    io:format(standard_error, "\033[H\033[2J", []),
+    io:format(standard_io, "\033[H\033[3J", []),
+    io:format(standard_error, "\033[H\033[3J", []),
+    ok.
+
+with_mock(Mod, FnName, MockedFn, Fun) ->
+    ok = meck:new(Mod, [non_strict, no_link, no_history, passthrough]),
+    ok = meck:expect(Mod, FnName, MockedFn),
+    try
+        Fun()
+    after
+        ok = meck:unload(Mod)
+    end.
+
+%%-------------------------------------------------------------------------------
+%% Toxiproxy utils
+%%-------------------------------------------------------------------------------
+
+reset_proxy(ProxyHost, ProxyPort) ->
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/reset",
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
+    ).
+
+with_failure(FailureType, Name, ProxyHost, ProxyPort, Fun) ->
+    enable_failure(FailureType, Name, ProxyHost, ProxyPort),
+    try
+        Fun()
+    after
+        heal_failure(FailureType, Name, ProxyHost, ProxyPort)
+    end.
+
+enable_failure(FailureType, Name, ProxyHost, ProxyPort) ->
+    case FailureType of
+        down -> switch_proxy(off, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(on, Name, ProxyHost, ProxyPort);
+        latency_up -> latency_up_proxy(on, Name, ProxyHost, ProxyPort)
+    end.
+
+heal_failure(FailureType, Name, ProxyHost, ProxyPort) ->
+    case FailureType of
+        down -> switch_proxy(on, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(off, Name, ProxyHost, ProxyPort);
+        latency_up -> latency_up_proxy(off, Name, ProxyHost, ProxyPort)
+    end.
+
+switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name,
+    Body =
+        case Switch of
+            off -> #{<<"enabled">> => false};
+            on -> #{<<"enabled">> => true}
+        end,
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    ).
+
+timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics",
+    NameBin = list_to_binary(Name),
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_timeout">>,
+        <<"type">> => <<"timeout">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{<<"timeout">> => 0}
+    },
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    );
+timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
+    ToxicName = Name ++ "_timeout",
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics/" ++ ToxicName,
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        delete,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
+    ).
+
+latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics",
+    NameBin = list_to_binary(Name),
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_latency_up">>,
+        <<"type">> => <<"latency">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{
+            <<"latency">> => 20_000,
+            <<"jitter">> => 3_000
+        }
+    },
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    );
+latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
+    ToxicName = Name ++ "_latency_up",
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics/" ++ ToxicName,
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        delete,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
     ).

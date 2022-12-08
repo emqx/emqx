@@ -15,41 +15,74 @@ on:
 
 jobs:
     prepare:
-        runs-on: ubuntu-20.04
+        runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         outputs:
-          fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
-          docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
+          fast_ct_apps: ${{ steps.find_ct_apps.outputs.fast_ct_apps }}
+          docker_ct_apps: ${{ steps.find_ct_apps.outputs.docker_ct_apps }}
         steps:
+        - uses: AutoModality/action-clean@v1
         - uses: actions/checkout@v3
           with:
             path: source
-            fetch-depth: 0
-        - name: find_ct_apps
+        - name: Find CT Apps
           working-directory: source
-          id: run_find_apps
+          id: find_ct_apps
           run: |
-            fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
-            docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
-            echo "fast-ct-apps: $fast_ct_apps"
-            echo "docer-ct-apps: $docker_ct_apps"
+            fast_ct_apps="$(./scripts/find-apps.sh --ci fast)"
+            docker_ct_apps="$(./scripts/find-apps.sh --ci docker)"
+            echo "fast: $fast_ct_apps"
+            echo "docker: $docker_ct_apps"
             echo "::set-output name=fast_ct_apps::$fast_ct_apps"
             echo "::set-output name=docker_ct_apps::$docker_ct_apps"
         - name: get_all_deps
           working-directory: source
+          env:
+            PROFILE: emqx
+              #DIAGNOSTIC: 1
           run: |
-            make deps-all
-            ./rebar3 as test compile
+            make ensure-rebar3
+            # fetch all deps and compile
+            make emqx
+            make test-compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
           with:
-            name: source
+            name: source-emqx
+            path: source.zip
+
+    prepare_ee:
+        runs-on: aws-amd64
+        # prepare source with any OTP version, no need for a matrix
+        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
+        steps:
+        - uses: AutoModality/action-clean@v1
+        - uses: actions/checkout@v3
+          with:
+            path: source
+        - name: get_all_deps
+          working-directory: source
+          env:
+            PROFILE: emqx-enterprise
+              #DIAGNOSTIC: 1
+          run: |
+            make ensure-rebar3
+            # fetch all deps and compile
+            make emqx-enterprise
+            make test-compile
+            cd ..
+            zip -ryq source.zip source/* source/.[^.]*
+        - uses: actions/upload-artifact@v3
+          with:
+            name: source-emqx-enterprise
             path: source.zip
 
     eunit_and_proper:
-        needs: prepare
+        needs:
+          - prepare
+          - prepare_ee
         runs-on: aws-amd64
         strategy:
           fail-fast: false
@@ -66,7 +99,7 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.profile }}
             path: .
         - name: unzip source code
           env:
@@ -92,11 +125,13 @@ jobs:
             path: source/_build/test/cover
 
     ct_docker:
-        needs: prepare
+        needs:
+          - prepare
+          - prepare_ee
         strategy:
           fail-fast: false
           matrix:
-            app_name: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
+            app: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
 
         runs-on: aws-amd64
         defaults:
@@ -107,20 +142,24 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.app[1] }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
-        - name: docker compose up
+        - name: run tests
           working-directory: source
           env:
             MONGO_TAG: 5
             MYSQL_TAG: 8
             PGSQL_TAG: 13
             REDIS_TAG: 6
+            INFLUXDB_TAG: 2.5.0
+            WHICH_APP: ${{ matrix.app[0] }}
+            PROFILE: ${{ matrix.app[1] }}
           run: |
+            echo $PROFILE
             rm _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt
-            ./scripts/ct/run.sh --app ${{ matrix.app_name }}
+            ./scripts/ct/run.sh --app $WHICH_APP
         - uses: actions/upload-artifact@v3
           with:
             name: coverdata
@@ -128,19 +167,17 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}
+            name: logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     ct:
-        needs: prepare
+        needs:
+          - prepare
+          - prepare_ee
         strategy:
           fail-fast: false
           matrix:
-            app_name: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
-            profile:
-              - emqx
-              - emqx-enterprise
-
+            app: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
         runs-on: aws-amd64
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         defaults:
@@ -151,37 +188,19 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.app[1] }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
 
-          # produces <app-name>.coverdata
+          # produces $PROFILE-<app-name>.coverdata
         - name: run common test
           working-directory: source
           env:
-            PROFILE: ${{ matrix.profile }}
-            WHICH_APP: ${{ matrix.app_name }}
+            WHICH_APP: ${{ matrix.app[0] }}
+            PROFILE: ${{ matrix.app[1] }}
           run: |
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-              COMPILE_FLAGS="$(grep -R "EMQX_RELEASE_EDITION" "$WHICH_APP" | wc -l || true)"
-              if [ "$COMPILE_FLAGS" -gt 0 ]; then
-                # need to clean first because the default profile was
-                make clean
-                make "${WHICH_APP}-ct"
-              else
-                echo "skip_common_test_run_for_app ${WHICH_APP}-ct"
-              fi
-            else
-              case "$WHICH_APP" in
-                lib-ee/*)
-                  echo "skip_opensource_edition_test_for_lib-ee"
-                  ;;
-                *)
-                  make "${WHICH_APP}-ct"
-                  ;;
-              esac
-            fi
+            make "${WHICH_APP}-ct"
         - uses: actions/upload-artifact@v3
           with:
             name: coverdata
@@ -190,7 +209,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}
+            name: logs-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     make_cover:
@@ -204,7 +223,7 @@ jobs:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source
+          name: source-emqx-enterprise
           path: .
       - name: unzip source code
         run: unzip -q source.zip
@@ -217,12 +236,15 @@ jobs:
 
       - name: make cover
         working-directory: source
+        env:
+          PROFILE: emqx-enterprise
         run: make cover
 
       - name: send to coveralls
         working-directory: source
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE: emqx-enterprise
         run: make coveralls
 
       - name: get coveralls logs
@@ -242,17 +264,3 @@ jobs:
             curl -v -k https://coveralls.io/webhook \
                  --header "Content-Type: application/json" \
                  --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
-
-    allgood_functional_tests:
-      runs-on: ubuntu-20.04
-      needs:
-        - eunit_and_proper
-        - ct_docker
-        - ct
-      steps:
-      - name: Check if all functional tests succeeded
-        uses: re-actors/alls-green@release/v1
-        with:
-          #allowed-failures:
-          #allowed-skips:
-          jobs: ${{ toJSON(needs) }}

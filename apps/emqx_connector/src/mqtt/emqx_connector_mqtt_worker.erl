@@ -68,7 +68,6 @@
 %% APIs
 -export([
     start_link/1,
-    register_metrics/0,
     stop/1
 ]).
 
@@ -92,15 +91,13 @@
     ensure_stopped/1,
     status/1,
     ping/1,
-    send_to_remote/2
+    send_to_remote/2,
+    send_to_remote_async/3
 ]).
 
 -export([get_forwards/1]).
 
 -export([get_subscriptions/1]).
-
-%% Internal
--export([msg_marshaller/1]).
 
 -export_type([
     config/0,
@@ -134,12 +131,6 @@
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
 %%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
-%% replayq.batch_bytes_limit: Max number of bytes to collect in a batch for each
-%%      send call towards emqx_bridge_connect
-%% replayq.batch_count_limit: Max number of messages to collect in a batch for
-%%      each send call towards emqx_bridge_connect
-%% replayq.dir: Directory where replayq should persist messages
-%% replayq.seg_bytes: Size in bytes for each replayq segment file
 %%
 %% Find more connection specific configs in the callback modules
 %% of emqx_bridge_connect behaviour.
@@ -174,9 +165,14 @@ ping(Name) ->
     gen_statem:call(name(Name), ping).
 
 send_to_remote(Pid, Msg) when is_pid(Pid) ->
-    gen_statem:cast(Pid, {send_to_remote, Msg});
+    gen_statem:call(Pid, {send_to_remote, Msg});
 send_to_remote(Name, Msg) ->
-    gen_statem:cast(name(Name), {send_to_remote, Msg}).
+    gen_statem:call(name(Name), {send_to_remote, Msg}).
+
+send_to_remote_async(Pid, Msg, Callback) when is_pid(Pid) ->
+    gen_statem:cast(Pid, {send_to_remote_async, Msg, Callback});
+send_to_remote_async(Name, Msg, Callback) ->
+    gen_statem:cast(name(Name), {send_to_remote_async, Msg, Callback}).
 
 %% @doc Return all forwards (local subscriptions).
 -spec get_forwards(id()) -> [topic()].
@@ -195,12 +191,10 @@ init(#{name := Name} = ConnectOpts) ->
         name => Name
     }),
     erlang:process_flag(trap_exit, true),
-    Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
     State = init_state(ConnectOpts),
     self() ! idle,
     {ok, idle, State#{
-        connect_opts => pre_process_opts(ConnectOpts),
-        replayq => Queue
+        connect_opts => pre_process_opts(ConnectOpts)
     }}.
 
 init_state(Opts) ->
@@ -213,31 +207,10 @@ init_state(Opts) ->
         start_type => StartType,
         reconnect_interval => ReconnDelayMs,
         mountpoint => format_mountpoint(Mountpoint),
-        inflight => [],
         max_inflight => MaxInflightSize,
         connection => undefined,
         name => Name
     }.
-
-open_replayq(Name, QCfg) ->
-    Dir = maps:get(dir, QCfg, undefined),
-    SegBytes = maps:get(seg_bytes, QCfg, ?DEFAULT_SEG_BYTES),
-    MaxTotalSize = maps:get(max_total_size, QCfg, ?DEFAULT_MAX_TOTAL_SIZE),
-    QueueConfig =
-        case Dir =:= undefined orelse Dir =:= "" of
-            true ->
-                #{mem_only => true};
-            false ->
-                #{
-                    dir => filename:join([Dir, node(), Name]),
-                    seg_bytes => SegBytes,
-                    max_total_size => MaxTotalSize
-                }
-        end,
-    replayq:open(QueueConfig#{
-        sizer => fun emqx_connector_mqtt_msg:estimate_size/1,
-        marshaller => fun ?MODULE:msg_marshaller/1
-    }).
 
 pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
     ConnectOpts#{
@@ -247,18 +220,22 @@ pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) 
 
 pre_process_in_out(_, undefined) ->
     undefined;
+pre_process_in_out(in, #{local := LC} = Conf) when is_map(Conf) ->
+    Conf#{local => pre_process_in_out_common(LC)};
 pre_process_in_out(in, Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(local_topic, Conf),
-    Conf2 = pre_process_conf(local_qos, Conf1),
-    pre_process_in_out_common(Conf2);
+    %% have no 'local' field in the config
+    undefined;
+pre_process_in_out(out, #{remote := RC} = Conf) when is_map(Conf) ->
+    Conf#{remote => pre_process_in_out_common(RC)};
 pre_process_in_out(out, Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(remote_topic, Conf),
-    Conf2 = pre_process_conf(remote_qos, Conf1),
-    pre_process_in_out_common(Conf2).
+    %% have no 'remote' field in the config
+    undefined.
 
-pre_process_in_out_common(Conf) ->
-    Conf1 = pre_process_conf(payload, Conf),
-    pre_process_conf(retain, Conf1).
+pre_process_in_out_common(Conf0) ->
+    Conf1 = pre_process_conf(topic, Conf0),
+    Conf2 = pre_process_conf(qos, Conf1),
+    Conf3 = pre_process_conf(payload, Conf2),
+    pre_process_conf(retain, Conf3).
 
 pre_process_conf(Key, Conf) ->
     case maps:find(Key, Conf) of
@@ -273,9 +250,8 @@ pre_process_conf(Key, Conf) ->
 code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
-terminate(_Reason, _StateName, #{replayq := Q} = State) ->
+terminate(_Reason, _StateName, State) ->
     _ = disconnect(State),
-    _ = replayq:close(Q),
     maybe_destroy_session(State).
 
 maybe_destroy_session(#{connect_opts := ConnectOpts = #{clean_start := false}} = State) ->
@@ -300,6 +276,8 @@ idle({call, From}, ensure_started, State) ->
         {error, Reason, _State} ->
             {keep_state_and_data, [{reply, From, {error, Reason}}]}
     end;
+idle({call, From}, {send_to_remote, _}, _State) ->
+    {keep_state_and_data, [{reply, From, {error, {recoverable_error, not_connected}}}]};
 %% @doc Standing by for manual start.
 idle(info, idle, #{start_type := manual}) ->
     keep_state_and_data;
@@ -319,16 +297,19 @@ connecting(#{reconnect_interval := ReconnectDelayMs} = State) ->
             {keep_state_and_data, {state_timeout, ReconnectDelayMs, reconnect}}
     end.
 
-connected(state_timeout, connected, #{inflight := Inflight} = State) ->
-    case retry_inflight(State#{inflight := []}, Inflight) of
-        {ok, NewState} ->
-            {keep_state, NewState, {next_event, internal, maybe_send}};
-        {error, NewState} ->
-            {keep_state, NewState}
+connected(state_timeout, connected, State) ->
+    %% nothing to do
+    {keep_state, State};
+connected({call, From}, {send_to_remote, Msg}, State) ->
+    case do_send(State, Msg) of
+        {ok, NState} ->
+            {keep_state, NState, [{reply, From, ok}]};
+        {error, Reason} ->
+            {keep_state_and_data, [[reply, From, {error, Reason}]]}
     end;
-connected(internal, maybe_send, State) ->
-    {_, NewState} = pop_and_send(State),
-    {keep_state, NewState};
+connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
+    _ = do_send_async(State, Msg, Callback),
+    {keep_state, State};
 connected(
     info,
     {disconnected, Conn, Reason},
@@ -342,9 +323,6 @@ connected(
         false ->
             keep_state_and_data
     end;
-connected(info, {batch_ack, Ref}, State) ->
-    NewState = handle_batch_ack(State, Ref),
-    {keep_state, NewState, {next_event, internal, maybe_send}};
 connected(Type, Content, State) ->
     common(connected, Type, Content, State).
 
@@ -363,13 +341,12 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
     {keep_state_and_data, [{reply, From, Forwards}]};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
+common(_StateName, {call, From}, Req, _State) ->
+    {keep_state_and_data, [{reply, From, {error, {unsupported_request, Req}}}]};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
-common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
-    NewQ = replayq:append(Q, [Msg]),
-    {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(StateName, Type, Content, #{name := Name} = State) ->
-    ?SLOG(notice, #{
+    ?SLOG(error, #{
         msg => "bridge_discarded_event",
         name => Name,
         type => Type,
@@ -381,13 +358,12 @@ common(StateName, Type, Content, #{name := Name} = State) ->
 do_connect(
     #{
         connect_opts := ConnectOpts,
-        inflight := Inflight,
         name := Name
     } = State
 ) ->
     case emqx_connector_mqtt_mod:start(ConnectOpts) of
         {ok, Conn} ->
-            ?tp(info, connected, #{name => Name, inflight => length(Inflight)}),
+            ?tp(info, connected, #{name => Name}),
             {ok, State#{connection => Conn}};
         {error, Reason} ->
             ConnectOpts1 = obfuscate(ConnectOpts),
@@ -399,39 +375,7 @@ do_connect(
             {error, Reason, State}
     end.
 
-%% Retry all inflight (previously sent but not acked) batches.
-retry_inflight(State, []) ->
-    {ok, State};
-retry_inflight(State, [#{q_ack_ref := QAckRef, msg := Msg} | Rest] = OldInf) ->
-    case do_send(State, QAckRef, Msg) of
-        {ok, State1} ->
-            retry_inflight(State1, Rest);
-        {error, #{inflight := NewInf} = State1} ->
-            {error, State1#{inflight := NewInf ++ OldInf}}
-    end.
-
-pop_and_send(#{inflight := Inflight, max_inflight := Max} = State) ->
-    pop_and_send_loop(State, Max - length(Inflight)).
-
-pop_and_send_loop(State, 0) ->
-    ?tp(debug, inflight_full, #{}),
-    {ok, State};
-pop_and_send_loop(#{replayq := Q} = State, N) ->
-    case replayq:is_empty(Q) of
-        true ->
-            ?tp(debug, replayq_drained, #{}),
-            {ok, State};
-        false ->
-            BatchSize = 1,
-            Opts = #{count_limit => BatchSize, bytes_limit => 999999999},
-            {Q1, QAckRef, [Msg]} = replayq:pop(Q, Opts),
-            case do_send(State#{replayq := Q1}, QAckRef, Msg) of
-                {ok, NewState} -> pop_and_send_loop(NewState, N - 1);
-                {error, NewState} -> {error, NewState}
-            end
-    end.
-
-do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
+do_send(#{connect_opts := #{forwards := undefined}}, Msg) ->
     ?SLOG(error, #{
         msg =>
             "cannot_forward_messages_to_remote_broker"
@@ -440,99 +384,68 @@ do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
     });
 do_send(
     #{
-        inflight := Inflight,
         connection := Connection,
         mountpoint := Mountpoint,
         connect_opts := #{forwards := Forwards}
     } = State,
-    QAckRef,
     Msg
 ) ->
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
-    ExportMsg = fun(Message) ->
-        emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
-        emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
-    end,
+    ExportMsg = emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars),
     ?SLOG(debug, #{
         msg => "publish_to_remote_broker",
         message => Msg,
         vars => Vars
     }),
-    case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(Msg)]) of
-        {ok, Refs} ->
-            {ok, State#{
-                inflight := Inflight ++
-                    [
-                        #{
-                            q_ack_ref => QAckRef,
-                            send_ack_ref => map_set(Refs),
-                            msg => Msg
-                        }
-                    ]
-            }};
+    case emqx_connector_mqtt_mod:send(Connection, ExportMsg) of
+        ok ->
+            {ok, State};
+        {ok, #{reason_code := RC}} when
+            RC =:= ?RC_SUCCESS;
+            RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
+        ->
+            {ok, State};
+        {ok, #{reason_code := RC, reason_code_name := RCN}} ->
+            ?SLOG(warning, #{
+                msg => "publish_to_remote_node_falied",
+                message => Msg,
+                reason_code => RC,
+                reason_code_name => RCN
+            }),
+            {error, RCN};
         {error, Reason} ->
             ?SLOG(info, #{
                 msg => "mqtt_bridge_produce_failed",
                 reason => Reason
             }),
-            {error, State}
+            {error, Reason}
     end.
 
-%% map as set, ack-reference -> 1
-map_set(Ref) when is_reference(Ref) ->
-    %% QoS-0 or RPC call returns a reference
-    map_set([Ref]);
-map_set(List) ->
-    map_set(List, #{}).
-
-map_set([], Set) -> Set;
-map_set([H | T], Set) -> map_set(T, Set#{H => 1}).
-
-handle_batch_ack(#{inflight := Inflight0, replayq := Q} = State, Ref) ->
-    Inflight1 = do_ack(Inflight0, Ref),
-    Inflight = drop_acked_batches(Q, Inflight1),
-    State#{inflight := Inflight}.
-
-do_ack([], Ref) ->
-    ?SLOG(debug, #{
-        msg => "stale_batch_ack_reference",
-        ref => Ref
-    }),
-    [];
-do_ack([#{send_ack_ref := Refs} = First | Rest], Ref) ->
-    case maps:is_key(Ref, Refs) of
-        true ->
-            NewRefs = maps:without([Ref], Refs),
-            [First#{send_ack_ref := NewRefs} | Rest];
-        false ->
-            [First | do_ack(Rest, Ref)]
-    end.
-
-%% Drop the consecutive header of the inflight list having empty send_ack_ref
-drop_acked_batches(_Q, []) ->
-    ?tp(debug, inflight_drained, #{}),
-    [];
-drop_acked_batches(
-    Q,
-    [
-        #{
-            send_ack_ref := Refs,
-            q_ack_ref := QAckRef
-        }
-        | Rest
-    ] = All
+do_send_async(#{connect_opts := #{forwards := undefined}}, Msg, _Callback) ->
+    %% TODO: eval callback with undefined error
+    ?SLOG(error, #{
+        msg =>
+            "cannot_forward_messages_to_remote_broker"
+            "_as_'egress'_is_not_configured",
+        messages => Msg
+    });
+do_send_async(
+    #{
+        connection := Connection,
+        mountpoint := Mountpoint,
+        connect_opts := #{forwards := Forwards}
+    },
+    Msg,
+    Callback
 ) ->
-    case maps:size(Refs) of
-        0 ->
-            %% all messages are acked by bridge target
-            %% now it's safe to ack replayq (delete from disk)
-            ok = replayq:ack(Q, QAckRef),
-            %% continue to check more sent batches
-            drop_acked_batches(Q, Rest);
-        _ ->
-            %% the head (oldest) inflight batch is not acked, keep waiting
-            All
-    end.
+    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
+    ExportMsg = emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars),
+    ?SLOG(debug, #{
+        msg => "publish_to_remote_broker",
+        message => Msg,
+        vars => Vars
+    }),
+    emqx_connector_mqtt_mod:send_async(Connection, ExportMsg, Callback).
 
 disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
     emqx_connector_mqtt_mod:stop(Conn),
@@ -540,25 +453,12 @@ disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
 disconnect(State) ->
     State.
 
-%% Called only when replayq needs to dump it to disk.
-msg_marshaller(Bin) when is_binary(Bin) -> emqx_connector_mqtt_msg:from_binary(Bin);
-msg_marshaller(Msg) -> emqx_connector_mqtt_msg:to_binary(Msg).
-
 format_mountpoint(undefined) ->
     undefined;
 format_mountpoint(Prefix) ->
     binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
 name(Id) -> list_to_atom(str(Id)).
-
-register_metrics() ->
-    lists:foreach(
-        fun emqx_metrics:ensure/1,
-        [
-            'bridge.mqtt.message_sent_to_remote',
-            'bridge.mqtt.message_received_from_remote'
-        ]
-    ).
 
 obfuscate(Map) ->
     maps:fold(

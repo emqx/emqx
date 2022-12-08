@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -42,39 +43,19 @@
 
 -export([lookup_from_local_node/2]).
 
--define(CONN_TYPES, [mqtt]).
-
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
-        error:{invalid_bridge_id, Id0} ->
+        throw:{invalid_bridge_id, Reason} ->
             {400,
                 error_msg(
                     'INVALID_ID',
-                    <<"invalid_bridge_id: ", Id0/binary,
-                        ". Bridge Ids must be of format {type}:{name}">>
+                    <<"Invalid bride ID, ", Reason/binary>>
                 )}
     end
 ).
-
--define(METRICS(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX), #{
-    matched => MATCH,
-    success => SUCC,
-    failed => FAILED,
-    rate => RATE,
-    rate_last5m => RATE_5,
-    rate_max => RATE_MAX
-}).
--define(metrics(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX), #{
-    matched := MATCH,
-    success := SUCC,
-    failed := FAILED,
-    rate := RATE,
-    rate_last5m := RATE_5,
-    rate_max := RATE_MAX
-}).
 
 namespace() -> "bridge".
 
@@ -110,7 +91,7 @@ param_path_operation_cluster() ->
             #{
                 in => path,
                 required => true,
-                example => <<"start">>,
+                example => <<"restart">>,
                 desc => ?DESC("desc_param_path_operation_cluster")
             }
         )}.
@@ -146,7 +127,7 @@ param_path_id() ->
             #{
                 in => path,
                 required => true,
-                example => <<"webhook:my_webhook">>,
+                example => <<"webhook:webhook_example">>,
                 desc => ?DESC("desc_param_path_id")
             }
         )}.
@@ -155,70 +136,58 @@ bridge_info_array_example(Method) ->
     [Config || #{value := Config} <- maps:values(bridge_info_examples(Method))].
 
 bridge_info_examples(Method) ->
-    maps:merge(conn_bridge_examples(Method), #{
-        <<"my_webhook">> => #{
-            summary => <<"WebHook">>,
-            value => info_example(webhook, awesome, Method)
-        }
-    }).
-
-conn_bridge_examples(Method) ->
-    lists:foldl(
-        fun(Type, Acc) ->
-            SType = atom_to_list(Type),
-            KeyIngress = bin(SType ++ "_ingress"),
-            KeyEgress = bin(SType ++ "_egress"),
-            maps:merge(Acc, #{
-                KeyIngress => #{
-                    summary => bin(string:uppercase(SType) ++ " Ingress Bridge"),
-                    value => info_example(Type, ingress, Method)
-                },
-                KeyEgress => #{
-                    summary => bin(string:uppercase(SType) ++ " Egress Bridge"),
-                    value => info_example(Type, egress, Method)
-                }
-            })
-        end,
-        #{},
-        ?CONN_TYPES
-    ).
-
-info_example(Type, Direction, Method) ->
     maps:merge(
-        info_example_basic(Type, Direction),
-        method_example(Type, Direction, Method)
+        #{
+            <<"webhook_example">> => #{
+                summary => <<"WebHook">>,
+                value => info_example(webhook, Method)
+            },
+            <<"mqtt_example">> => #{
+                summary => <<"MQTT Bridge">>,
+                value => info_example(mqtt, Method)
+            }
+        },
+        ee_bridge_examples(Method)
     ).
 
-method_example(Type, Direction, Method) when Method == get; Method == post ->
+ee_bridge_examples(Method) ->
+    try
+        emqx_ee_bridge:examples(Method)
+    catch
+        _:_ -> #{}
+    end.
+
+info_example(Type, Method) ->
+    maps:merge(
+        info_example_basic(Type),
+        method_example(Type, Method)
+    ).
+
+method_example(Type, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
-    SDir = atom_to_list(Direction),
-    SName =
-        case Type of
-            webhook -> "my_" ++ SType;
-            _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
-        end,
-    TypeNameExamp = #{
+    SName = SType ++ "_example",
+    TypeNameExam = #{
         type => bin(SType),
         name => bin(SName)
     },
-    maybe_with_metrics_example(TypeNameExamp, Method);
-method_example(_Type, _Direction, put) ->
+    maybe_with_metrics_example(TypeNameExam, Method);
+method_example(_Type, put) ->
     #{}.
 
-maybe_with_metrics_example(TypeNameExamp, get) ->
-    TypeNameExamp#{
-        metrics => ?METRICS(0, 0, 0, 0, 0, 0),
+maybe_with_metrics_example(TypeNameExam, get) ->
+    TypeNameExam#{
+        metrics => ?EMPTY_METRICS,
         node_metrics => [
             #{
                 node => node(),
-                metrics => ?METRICS(0, 0, 0, 0, 0, 0)
+                metrics => ?EMPTY_METRICS
             }
         ]
     };
-maybe_with_metrics_example(TypeNameExamp, _) ->
-    TypeNameExamp.
+maybe_with_metrics_example(TypeNameExam, _) ->
+    TypeNameExam.
 
-info_example_basic(webhook, _) ->
+info_example_basic(webhook) ->
     #{
         enable => true,
         url => <<"http://localhost:9901/messages/${topic}">>,
@@ -231,30 +200,70 @@ info_example_basic(webhook, _) ->
         ssl => #{enable => false},
         local_topic => <<"emqx_webhook/#">>,
         method => post,
-        body => <<"${payload}">>
+        body => <<"${payload}">>,
+        resource_opts => #{
+            worker_pool_size => 1,
+            health_check_interval => 15000,
+            auto_restart_interval => 15000,
+            query_mode => async,
+            async_inflight_window => 100,
+            enable_queue => false,
+            max_queue_bytes => 100 * 1024 * 1024
+        }
     };
-info_example_basic(mqtt, ingress) ->
+info_example_basic(mqtt) ->
+    (mqtt_main_example())#{
+        egress => mqtt_egress_example(),
+        ingress => mqtt_ingress_example()
+    }.
+
+mqtt_main_example() ->
     #{
         enable => true,
-        connector => <<"mqtt:my_mqtt_connector">>,
-        direction => ingress,
-        remote_topic => <<"aws/#">>,
-        remote_qos => 1,
-        local_topic => <<"from_aws/${topic}">>,
-        local_qos => <<"${qos}">>,
-        payload => <<"${payload}">>,
-        retain => <<"${retain}">>
-    };
-info_example_basic(mqtt, egress) ->
+        mode => cluster_shareload,
+        server => <<"127.0.0.1:1883">>,
+        proto_ver => <<"v4">>,
+        username => <<"foo">>,
+        password => <<"bar">>,
+        clean_start => true,
+        keepalive => <<"300s">>,
+        retry_interval => <<"15s">>,
+        max_inflight => 100,
+        resource_opts => #{
+            health_check_interval => <<"15s">>,
+            auto_restart_interval => <<"60s">>,
+            query_mode => sync,
+            enable_queue => false,
+            max_queue_bytes => 100 * 1024 * 1024
+        },
+        ssl => #{
+            enable => false
+        }
+    }.
+mqtt_egress_example() ->
     #{
-        enable => true,
-        connector => <<"mqtt:my_mqtt_connector">>,
-        direction => egress,
-        local_topic => <<"emqx/#">>,
-        remote_topic => <<"from_emqx/${topic}">>,
-        remote_qos => <<"${qos}">>,
-        payload => <<"${payload}">>,
-        retain => false
+        local => #{
+            topic => <<"emqx/#">>
+        },
+        remote => #{
+            topic => <<"from_emqx/${topic}">>,
+            qos => <<"${qos}">>,
+            payload => <<"${payload}">>,
+            retain => false
+        }
+    }.
+mqtt_ingress_example() ->
+    #{
+        remote => #{
+            topic => <<"aws/#">>,
+            qos => 1
+        },
+        local => #{
+            topic => <<"from_aws/${topic}">>,
+            qos => <<"${qos}">>,
+            payload => <<"${payload}">>,
+            retain => <<"${retain}">>
+        }
     }.
 
 schema("/bridges") ->
@@ -321,6 +330,7 @@ schema("/bridges/:id") ->
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(['INVALID_ID'], "Update bridge failed"),
+                403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
@@ -414,13 +424,28 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
                 {404, error_msg('NOT_FOUND', <<"bridge not found">>)}
         end
     );
-'/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
+'/bridges/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+    AlsoDeleteActs =
+        case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+            <<"true">> -> true;
+            true -> true;
+            _ -> false
+        end,
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge:remove(BridgeType, BridgeName) of
-            {ok, _} -> {204};
-            {error, timeout} -> {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-            {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
+        case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+            {ok, _} ->
+                204;
+            {error, {rules_deps_on_this_bridge, RuleIds}} ->
+                {403,
+                    error_msg(
+                        'FORBIDDEN_REQUEST',
+                        {<<"There're some rules dependent on this bridge">>, RuleIds}
+                    )};
+            {error, timeout} ->
+                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+            {error, Reason} ->
+                {500, error_msg('INTERNAL_ERROR', Reason)}
         end
     ).
 
@@ -602,19 +627,36 @@ collect_metrics(Bridges) ->
     [maps:with([node, metrics], B) || B <- Bridges].
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?METRICS(0, 0, 0, 0, 0, 0),
+    InitMetrics = ?EMPTY_METRICS,
     lists:foldl(
         fun(
-            #{metrics := ?metrics(Match1, Succ1, Failed1, Rate1, Rate5m1, RateMax1)},
-            ?metrics(Match0, Succ0, Failed0, Rate0, Rate5m0, RateMax0)
+            #{
+                metrics := ?metrics(
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+                )
+            },
+            ?metrics(
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+            )
         ) ->
             ?METRICS(
-                Match1 + Match0,
-                Succ1 + Succ0,
-                Failed1 + Failed0,
-                Rate1 + Rate0,
-                Rate5m1 + Rate5m0,
-                RateMax1 + RateMax0
+                M1 + N1,
+                M2 + N2,
+                M3 + N3,
+                M4 + N4,
+                M5 + N5,
+                M6 + N6,
+                M7 + N7,
+                M8 + N8,
+                M9 + N9,
+                M10 + N10,
+                M11 + N11,
+                M12 + N12,
+                M13 + N13,
+                M14 + N14,
+                M15 + N15,
+                M16 + N16,
+                M17 + N17
             )
         end,
         InitMetrics,
@@ -643,12 +685,45 @@ format_resp(
     }.
 
 format_metrics(#{
-    counters := #{failed := Failed, exception := Ex, matched := Match, success := Succ},
+    counters := #{
+        'batching' := Batched,
+        'dropped' := Dropped,
+        'dropped.other' := DroppedOther,
+        'dropped.queue_full' := DroppedQueueFull,
+        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
+        'dropped.resource_not_found' := DroppedResourceNotFound,
+        'dropped.resource_stopped' := DroppedResourceStopped,
+        'matched' := Matched,
+        'queuing' := Queued,
+        'retried' := Retried,
+        'failed' := SentFailed,
+        'inflight' := SentInflight,
+        'success' := SentSucc,
+        'received' := Rcvd
+    },
     rate := #{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
     }
 }) ->
-    ?METRICS(Match, Succ, Failed + Ex, Rate, Rate5m, RateMax).
+    ?METRICS(
+        Batched,
+        Dropped,
+        DroppedOther,
+        DroppedQueueFull,
+        DroppedQueueNotEnabled,
+        DroppedResourceNotFound,
+        DroppedResourceStopped,
+        Matched,
+        Queued,
+        Retried,
+        SentFailed,
+        SentInflight,
+        SentSucc,
+        Rate,
+        Rate5m,
+        RateMax,
+        Rcvd
+    ).
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_bridge_conf(Type, RawConf),
@@ -713,6 +788,17 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
                     {200};
                 {error, timeout} ->
                     {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                {error, {start_pool_failed, Name, Reason}} ->
+                    {503,
+                        error_msg(
+                            'SERVICE_UNAVAILABLE',
+                            bin(
+                                io_lib:format(
+                                    "failed to start ~p pool for reason ~p",
+                                    [Name, Reason]
+                                )
+                            )
+                        )};
                 {error, Reason} ->
                     {500, error_msg('INTERNAL_ERROR', Reason)}
             end;

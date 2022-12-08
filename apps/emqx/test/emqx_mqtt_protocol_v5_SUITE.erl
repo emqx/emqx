@@ -529,8 +529,11 @@ t_connack_max_qos_allowed(Config) ->
     %% [MQTT-3.2.2-10]
     {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),
 
-    {ok, _} = emqtt:publish(Client1, Topic, <<"Unsupported Qos 1">>, qos1),
     %% [MQTT-3.2.2-11]
+    ?assertMatch(
+        {error, {disconnected, 155, _}},
+        emqtt:publish(Client1, Topic, <<"Unsupported Qos 1">>, qos1)
+    ),
     ?assertEqual(155, receive_disconnect_reasoncode()),
     waiting_client_process_exit(Client1),
 
@@ -563,8 +566,11 @@ t_connack_max_qos_allowed(Config) ->
     %% [MQTT-3.2.2-10]
     {ok, _, [2]} = emqtt:subscribe(Client3, Topic, 2),
 
-    {ok, _} = emqtt:publish(Client3, Topic, <<"Unsupported Qos 2">>, qos2),
     %% [MQTT-3.2.2-11]
+    ?assertMatch(
+        {error, {disconnected, 155, _}},
+        emqtt:publish(Client3, Topic, <<"Unsupported Qos 2">>, qos2)
+    ),
     ?assertEqual(155, receive_disconnect_reasoncode()),
     waiting_client_process_exit(Client3),
 

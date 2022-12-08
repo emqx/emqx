@@ -68,6 +68,8 @@ ssl_fields() ->
 relational_db_fields() ->
     [
         {database, fun database/1},
+        %% TODO: The `pool_size` for drivers will be deprecated. Ues `worker_pool_size` for emqx_resource
+        %% See emqx_resource.hrl
         {pool_size, fun pool_size/1},
         {username, fun username/1},
         {password, fun password/1},
@@ -102,6 +104,7 @@ username(_) -> undefined.
 password(type) -> binary();
 password(desc) -> ?DESC("password");
 password(required) -> false;
+password(format) -> <<"password">>;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();

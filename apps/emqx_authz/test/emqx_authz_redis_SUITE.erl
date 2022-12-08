@@ -34,14 +34,14 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                 [emqx_conf, emqx_authz],
                 fun set_special_configs/1
             ),
-            ok = start_apps([emqx_resource, emqx_connector]),
+            ok = start_apps([emqx_resource]),
             {ok, _} = emqx_resource:create_local(
                 ?REDIS_RESOURCE,
                 ?RESOURCE_GROUP,
@@ -57,7 +57,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_resource:remove_local(?REDIS_RESOURCE),
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
 
 init_per_testcase(_TestCase, Config) ->
