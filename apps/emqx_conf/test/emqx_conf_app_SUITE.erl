@@ -19,10 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_conf.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
