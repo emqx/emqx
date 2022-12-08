@@ -1,0 +1,17 @@
+{application, emqx_ee_connector, [
+    {description, "EMQX Enterprise connectors"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        hstreamdb_erl,
+        influxdb,
+        wolff,
+        brod
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

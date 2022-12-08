@@ -47,7 +47,6 @@
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
-    auto_retry_interval => 6000,
     start_after_created => false
 }).
 

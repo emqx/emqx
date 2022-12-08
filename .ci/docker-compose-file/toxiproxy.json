@@ -1,0 +1,26 @@
+[
+  {
+    "name": "influxdb_tcp",
+    "listen": "0.0.0.0:8086",
+    "upstream": "influxdb_tcp:8086",
+    "enabled": true
+  },
+  {
+    "name": "influxdb_tls",
+    "listen": "0.0.0.0:8087",
+    "upstream": "influxdb_tls:8086",
+    "enabled": true
+  },
+  {
+    "name": "mysql_tcp",
+    "listen": "0.0.0.0:3306",
+    "upstream": "mysql:3306",
+    "enabled": true
+  },
+  {
+    "name": "mysql_tls",
+    "listen": "0.0.0.0:3307",
+    "upstream": "mysql-tls:3306",
+    "enabled": true
+  }
+]

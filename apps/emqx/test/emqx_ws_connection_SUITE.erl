@@ -535,7 +535,7 @@ t_parse_incoming(_) ->
 
 t_parse_incoming_frame_error(_) ->
     {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
-    FrameError = {frame_error, function_clause},
+    FrameError = {frame_error, malformed_packet},
     [{incoming, FrameError}] = Packets.
 
 t_handle_incomming_frame_error(_) ->

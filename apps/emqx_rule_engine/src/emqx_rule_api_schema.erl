@@ -43,12 +43,6 @@ fields("rule_creation") ->
 fields("rule_info") ->
     [
         rule_id(),
-        {"metrics", sc(ref("metrics"), #{desc => ?DESC("ri_metrics")})},
-        {"node_metrics",
-            sc(
-                hoconsc:array(ref("node_metrics")),
-                #{desc => ?DESC("ri_node_metrics")}
-            )},
         {"from",
             sc(
                 hoconsc:array(binary()),
@@ -63,12 +57,19 @@ fields("rule_info") ->
                 }
             )}
     ] ++ fields("rule_creation");
+fields("rule_metrics") ->
+    [
+        rule_id(),
+        {"metrics", sc(ref("metrics"), #{desc => ?DESC("ri_metrics")})},
+        {"node_metrics",
+            sc(
+                hoconsc:array(ref("node_metrics")),
+                #{desc => ?DESC("ri_node_metrics")}
+            )}
+    ];
 %% TODO: we can delete this API if the Dashboard not depends on it
 fields("rule_events") ->
-    ETopics = [
-        binary_to_atom(emqx_rule_events:event_topic(E))
-     || E <- emqx_rule_events:event_names()
-    ],
+    ETopics = emqx_rule_events:event_topics_enum(),
     [
         {"event", sc(hoconsc:enum(ETopics), #{desc => ?DESC("rs_event"), required => true})},
         {"title", sc(binary(), #{desc => ?DESC("rs_title"), example => "some title"})},
@@ -150,77 +151,43 @@ fields("node_metrics") ->
         fields("metrics");
 fields("ctx_pub") ->
     [
-        {"event_type", sc(message_publish, #{desc => ?DESC("event_event_type"), required => true})},
-        {"id", sc(binary(), #{desc => ?DESC("event_id")})},
-        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
-        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
-        {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
-        {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
-        {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
-        {"publish_received_at",
-            sc(integer(), #{
-                desc => ?DESC("event_publish_received_at")
-            })}
-    ] ++ [qos()];
+        {"event_type", event_type_sc(message_publish)},
+        {"id", sc(binary(), #{desc => ?DESC("event_id")})}
+        | msg_event_common_fields()
+    ];
 fields("ctx_sub") ->
     [
-        {"event_type",
-            sc(session_subscribed, #{desc => ?DESC("event_event_type"), required => true})},
-        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
-        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
-        {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
-        {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
-        {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
-        {"publish_received_at",
-            sc(integer(), #{
-                desc => ?DESC("event_publish_received_at")
-            })}
-    ] ++ [qos()];
+        {"event_type", event_type_sc(session_subscribed)}
+        | msg_event_common_fields()
+    ];
 fields("ctx_unsub") ->
     [
-        {"event_type",
-            sc(session_unsubscribed, #{desc => ?DESC("event_event_type"), required => true})}
-    ] ++
-        proplists:delete("event_type", fields("ctx_sub"));
+        {"event_type", event_type_sc(session_unsubscribed)}
+        | proplists:delete("event_type", fields("ctx_sub"))
+    ];
 fields("ctx_delivered") ->
     [
-        {"event_type",
-            sc(message_delivered, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(message_delivered)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})},
-        {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})},
-        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
-        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
-        {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
-        {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
-        {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
-        {"publish_received_at",
-            sc(integer(), #{
-                desc => ?DESC("event_publish_received_at")
-            })}
-    ] ++ [qos()];
+        {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
+        | msg_event_common_fields()
+    ];
 fields("ctx_acked") ->
-    [{"event_type", sc(message_acked, #{desc => ?DESC("event_event_type"), required => true})}] ++
-        proplists:delete("event_type", fields("ctx_delivered"));
+    [
+        {"event_type", event_type_sc(message_acked)}
+        | proplists:delete("event_type", fields("ctx_delivered"))
+    ];
 fields("ctx_dropped") ->
     [
-        {"event_type", sc(message_dropped, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(message_dropped)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
-        {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})},
-        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
-        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
-        {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
-        {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
-        {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
-        {"publish_received_at",
-            sc(integer(), #{
-                desc => ?DESC("event_publish_received_at")
-            })}
-    ] ++ [qos()];
+        {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})}
+        | msg_event_common_fields()
+    ];
 fields("ctx_connected") ->
     [
-        {"event_type",
-            sc(client_connected, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(client_connected)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"mountpoint", sc(binary(), #{desc => ?DESC("event_mountpoint")})},
@@ -239,8 +206,7 @@ fields("ctx_connected") ->
     ];
 fields("ctx_disconnected") ->
     [
-        {"event_type",
-            sc(client_disconnected, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(client_disconnected)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"reason", sc(binary(), #{desc => ?DESC("event_ctx_disconnected_reason")})},
@@ -253,7 +219,7 @@ fields("ctx_disconnected") ->
     ];
 fields("ctx_connack") ->
     [
-        {"event_type", sc(client_connack, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(client_connack)},
         {"reason_code", sc(binary(), #{desc => ?DESC("event_ctx_connack_reason_code")})},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"clean_start", sc(boolean(), #{desc => ?DESC("event_clean_start"), default => true})},
@@ -271,8 +237,7 @@ fields("ctx_connack") ->
     ];
 fields("ctx_check_authz_complete") ->
     [
-        {"event_type",
-            sc(client_check_authz_complete, #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc(client_check_authz_complete)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
@@ -283,19 +248,16 @@ fields("ctx_check_authz_complete") ->
     ];
 fields("ctx_bridge_mqtt") ->
     [
-        {"event_type",
-            sc('$bridges/mqtt:*', #{desc => ?DESC("event_event_type"), required => true})},
+        {"event_type", event_type_sc('$bridges/mqtt:*')},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
         {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
         {"server", sc(binary(), #{desc => ?DESC("event_server")})},
         {"dup", sc(binary(), #{desc => ?DESC("event_dup")})},
         {"retain", sc(binary(), #{desc => ?DESC("event_retain")})},
-        {"message_received_at",
-            sc(integer(), #{
-                desc => ?DESC("event_publish_received_at")
-            })}
-    ] ++ [qos()].
+        {"message_received_at", publish_received_at_sc()},
+        qos()
+    ].
 
 qos() ->
     {"qos", sc(emqx_schema:qos(), #{desc => ?DESC("event_qos")})}.
@@ -312,4 +274,22 @@ rule_id() ->
         )}.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
 ref(Field) -> hoconsc:ref(?MODULE, Field).
+
+event_type_sc(Event) ->
+    sc(Event, #{desc => ?DESC("event_event_type"), required => true}).
+
+publish_received_at_sc() ->
+    sc(integer(), #{desc => ?DESC("event_publish_received_at")}).
+
+msg_event_common_fields() ->
+    [
+        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
+        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
+        {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
+        {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
+        {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
+        {"publish_received_at", publish_received_at_sc()},
+        qos()
+    ].

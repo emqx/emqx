@@ -20,9 +20,17 @@ for app in ${APPS}; do
         app_path="."
     fi
     src_file="$app_path/src/$(basename "$app").app.src"
-    old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
+    if git show "$latest_release":"$src_file" >/dev/null 2>&1; then
+        old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
+    else
+        old_app_version='not_found'
+    fi
     now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
-    if [ "$old_app_version" = "$now_app_version" ]; then
+
+    if [ "$old_app_version" = 'not_found' ]; then
+        echo "IGNORE: $src_file is newly added"
+        true
+    elif [ "$old_app_version" = "$now_app_version" ]; then
         changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
@@ -30,7 +38,7 @@ for app in ${APPS}; do
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
         if [ "$changed_lines" -gt 0 ]; then
-            echo "$src_file needs a vsn bump"
+            echo "ERROR: $src_file needs a vsn bump"
             bad_app_count=$(( bad_app_count + 1))
         fi
     else

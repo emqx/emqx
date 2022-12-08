@@ -173,7 +173,7 @@ get_metrics(Name, Id) ->
 inc(Name, Id, Metric) ->
     inc(Name, Id, Metric, 1).
 
--spec inc(handler_name(), metric_id(), atom(), pos_integer()) -> ok.
+-spec inc(handler_name(), metric_id(), atom(), integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
     counters:add(get_ref(Name, Id), idx_metric(Name, Id, Metric), Val).
 

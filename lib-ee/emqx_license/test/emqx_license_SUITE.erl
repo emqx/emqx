@@ -42,6 +42,86 @@ set_override_paths(_TestCase) ->
 clean_overrides(_TestCase, _Config) ->
     ok.
 
+setup_test(TestCase, Config) when
+    TestCase =:= t_update_file_cluster_backup
+->
+    DataDir = ?config(data_dir, Config),
+    {LicenseKey, _License} = mk_license(
+        [
+            %% license format version
+            "220111",
+            %% license type
+            "0",
+            %% customer type
+            "10",
+            %% customer name
+            "Foo",
+            %% customer email
+            "contact@foo.com",
+            %% deplayment name
+            "bar-deployment",
+            %% start date
+            "20220111",
+            %% days
+            "100000",
+            %% max connections
+            "19"
+        ]
+    ),
+    Cluster = emqx_common_test_helpers:emqx_cluster(
+        [core, core],
+        [
+            {apps, [emqx_conf, emqx_license]},
+            {load_schema, false},
+            {schema_mod, emqx_ee_conf_schema},
+            {env_handler, fun
+                (emqx) ->
+                    emqx_config:save_schema_mod_and_names(emqx_ee_conf_schema),
+                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
+                    application:set_env(emqx, boot_modules, []),
+                    application:set_env(
+                        emqx,
+                        data_dir,
+                        filename:join([
+                            DataDir,
+                            TestCase,
+                            node()
+                        ])
+                    ),
+                    ok;
+                (emqx_conf) ->
+                    emqx_config:save_schema_mod_and_names(emqx_ee_conf_schema),
+                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
+                    application:set_env(
+                        emqx,
+                        data_dir,
+                        filename:join([
+                            DataDir,
+                            TestCase,
+                            node()
+                        ])
+                    ),
+                    ok;
+                (emqx_license) ->
+                    LicensePath = filename:join(emqx_license:license_dir(), "emqx.lic"),
+                    filelib:ensure_dir(LicensePath),
+                    ok = file:write_file(LicensePath, LicenseKey),
+                    LicConfig = #{type => file, file => LicensePath},
+                    emqx_config:put([license], LicConfig),
+                    RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
+                    emqx_config:put_raw([<<"license">>], RawConfig),
+                    ok = persistent_term:put(
+                        emqx_license_test_pubkey,
+                        emqx_license_test_lib:public_key_pem()
+                    ),
+                    ok;
+                (_) ->
+                    ok
+            end}
+        ]
+    ),
+    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    [{nodes, Nodes}, {cluster, Cluster}, {old_license, LicenseKey}];
 setup_test(_TestCase, _Config) ->
     [].
 

@@ -18,7 +18,7 @@ services:
       --ipv6
       --bind_ip_all
       --replSet rs0
-      
+
   mongo2:
     hostname: mongo2
     container_name: mongo2
@@ -54,10 +54,10 @@ services:
       --ipv6
       --bind_ip_all
       --replSet rs0
-      
-  mongo_client:
+
+  mongo_rs_client:
     image: mongo:${MONGO_TAG}
-    container_name: mongo_client
+    container_name: mongo_rs_client
     networks:
       - emqx_bridge
     depends_on:

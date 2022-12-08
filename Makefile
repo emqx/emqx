@@ -6,8 +6,8 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-d
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.2
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.0
+export EMQX_DASHBOARD_VERSION ?= v1.1.3-sync-code
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.5
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -61,15 +61,19 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
 
 .PHONY: eunit
-eunit: $(REBAR) conf-segs
+eunit: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(PROFILE)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
 
+.PHONY: test-compile
+test-compile: $(REBAR) merge-config
+	$(REBAR) as test compile
+
 .PHONY: ct
-ct: $(REBAR) conf-segs
+ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-ct
 
 .PHONY: static_checks
@@ -97,7 +101,11 @@ $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 .PHONY: ct-suite
 ct-suite: $(REBAR)
 ifneq ($(TESTCASE),)
+ifneq ($(GROUP),)
+	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
+else
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
+endif
 else ifneq ($(GROUP),)
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
 else
@@ -113,8 +121,6 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 COMMON_DEPS := $(REBAR)
-
-ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
@@ -218,19 +224,19 @@ ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
 $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 .PHONY:
-conf-segs:
+merge-config:
 	@$(SCRIPTS)/merge-config.escript
 	@$(SCRIPTS)/merge-i18n.escript
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
-$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS)
 	@env IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
 
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
-$1-elixir-pkg: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$1-elixir-pkg: $(COMMON_DEPS)
 	@env TAR_PKG_DIR=_build/$1-pkg \
 	     IS_ELIXIR=yes \
 	     $(BUILD) $1-pkg pkg
@@ -239,7 +245,7 @@ $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 
 .PHONY: $(REL_PROFILES:%=%-elixir-tgz)
 define gen-elixir-tgz-target
-$1-elixir-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$1-elixir-tgz: $(COMMON_DEPS)
 	@env IS_ELIXIR=yes $(BUILD) $1 tgz
 endef
 ALL_ELIXIR_TGZS = $(REL_PROFILES)

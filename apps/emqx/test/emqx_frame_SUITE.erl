@@ -57,7 +57,13 @@ groups() ->
             t_serialize_parse_v5_connect,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
-            t_serialize_parse_bridge_connect
+            t_serialize_parse_bridge_connect,
+            t_parse_invalid_remaining_len,
+            t_parse_malformed_properties,
+            t_malformed_connect_header,
+            t_malformed_connect_payload,
+            t_reserved_connect_flag,
+            t_invalid_clientid
         ]},
         {connack, [parallel], [
             t_serialize_parse_connack,
@@ -576,7 +582,12 @@ t_serialize_parse_pingreq(_) ->
 
 t_serialize_parse_pingresp(_) ->
     PingResp = ?PACKET(?PINGRESP),
-    ?assertEqual(PingResp, parse_serialize(PingResp)).
+    Packet = serialize_to_binary(PingResp),
+    ?assertException(
+        throw,
+        {frame_parse_error, #{hint := unexpected_packet, header_type := 'PINGRESP'}},
+        emqx_frame:parse(Packet)
+    ).
 
 t_parse_disconnect(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
@@ -617,6 +628,46 @@ t_serialize_parse_auth_v5(_) ->
             version => ?MQTT_PROTO_V5,
             strict_mode => true
         })
+    ).
+
+t_parse_invalid_remaining_len(_) ->
+    ?assertException(
+        throw, {frame_parse_error, #{hint := zero_remaining_len}}, emqx_frame:parse(<<?CONNECT, 0>>)
+    ).
+
+t_parse_malformed_properties(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_properties},
+        emqx_frame:parse(<<2:4, 0:4, 3:8, 1:8, 0:8, 0:8>>)
+    ).
+
+t_malformed_connect_header(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_header},
+        emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 100, 112, 3, 130, 1, 6>>)
+    ).
+
+t_malformed_connect_payload(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, malformed_connect_data},
+        emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 0, 0, 0>>)
+    ).
+
+t_reserved_connect_flag(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, reserved_connect_flag},
+        emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 1, 0, 0, 1, 0, 0>>)
+    ).
+
+t_invalid_clientid(_) ->
+    ?assertException(
+        throw,
+        {frame_parse_error, #{hint := invalid_clientid}},
+        emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 1, 0, 0>>)
     ).
 
 parse_serialize(Packet) ->

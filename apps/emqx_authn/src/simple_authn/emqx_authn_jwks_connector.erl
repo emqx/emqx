@@ -22,14 +22,17 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2,
     connect/1
 ]).
 
 -define(DEFAULT_POOL_SIZE, 8).
+
+callback_mode() -> always_sync.
 
 on_start(InstId, Opts) ->
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
@@ -45,7 +48,7 @@ on_start(InstId, Opts) ->
 on_stop(_InstId, #{pool_name := PoolName}) ->
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, get_jwks, AfterQuery, #{pool_name := PoolName}) ->
+on_query(InstId, get_jwks, #{pool_name := PoolName}) ->
     Result = ecpool:pick_and_do(PoolName, {emqx_authn_jwks_client, get_jwks, []}, no_handover),
     case Result of
         {error, Reason} ->
@@ -54,20 +57,18 @@ on_query(InstId, get_jwks, AfterQuery, #{pool_name := PoolName}) ->
                 connector => InstId,
                 command => get_jwks,
                 reason => Reason
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         _ ->
-            emqx_resource:query_success(AfterQuery)
+            ok
     end,
     Result;
-on_query(_InstId, {update, Opts}, AfterQuery, #{pool_name := PoolName}) ->
+on_query(_InstId, {update, Opts}, #{pool_name := PoolName}) ->
     lists:foreach(
         fun({_, Worker}) ->
             ok = ecpool_worker:exec(Worker, {emqx_authn_jwks_client, update, [Opts]}, infinity)
         end,
         ecpool:workers(PoolName)
     ),
-    emqx_resource:query_success(AfterQuery),
     ok.
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->

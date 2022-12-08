@@ -94,9 +94,9 @@ authorize(
                 resource_id => ResourceID
             }),
             nomatch;
-        [] ->
+        {ok, []} ->
             nomatch;
-        Rows ->
+        {ok, Rows} ->
             Rules = [
                 emqx_authz_rule:compile({Permission, all, Action, Topics})
              || #{

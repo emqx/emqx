@@ -18,17 +18,11 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
+-include("emqx_resource_errors.hrl").
 
 %% APIs for resource types
 
 -export([list_types/0]).
-
-%% APIs for behaviour implementations
-
--export([
-    query_success/1,
-    query_failed/1
-]).
 
 %% APIs for instances
 
@@ -83,19 +77,24 @@
     stop/1,
     %% query the instance
     query/2,
-    %% query the instance with after_query()
-    query/3
+    query/3,
+    %% query the instance without batching and queuing messages.
+    simple_sync_query/2,
+    simple_async_query/3
 ]).
 
 %% Direct calls to the callback module
 
-%% start the instance
 -export([
+    %% get the callback mode of a specific module
+    get_callback_mode/1,
+    %% start the instance
     call_start/3,
     %% verify if the resource is working normally
     call_health_check/3,
     %% stop the instance
-    call_stop/3
+    call_stop/3,
+    is_buffer_supported/1
 ]).
 
 %% list all the instances, id only.
@@ -105,15 +104,22 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    fetch_creation_opts/1,
     %% return all the instances of the same resource type
     list_instances_by_type/1,
     generate_id/1,
     list_group_instances/1
 ]).
 
+-export([inc_received/1, apply_reply_fun/2]).
+
 -optional_callbacks([
-    on_query/4,
-    on_get_status/2
+    on_query/3,
+    on_batch_query/3,
+    on_query_async/4,
+    on_batch_query_async/4,
+    on_get_status/2,
+    is_buffer_supported/0
 ]).
 
 %% when calling emqx_resource:start/1
@@ -124,13 +130,34 @@
 -callback on_stop(resource_id(), resource_state()) -> term().
 
 %% when calling emqx_resource:query/3
--callback on_query(resource_id(), Request :: term(), after_query(), resource_state()) -> term().
+-callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
+
+%% when calling emqx_resource:on_batch_query/3
+-callback on_batch_query(resource_id(), Request :: term(), resource_state()) -> query_result().
+
+%% when calling emqx_resource:on_query_async/4
+-callback on_query_async(
+    resource_id(),
+    Request :: term(),
+    {ReplyFun :: function(), Args :: list()},
+    resource_state()
+) -> query_result().
+
+%% when calling emqx_resource:on_batch_query_async/4
+-callback on_batch_query_async(
+    resource_id(),
+    Request :: term(),
+    {ReplyFun :: function(), Args :: list()},
+    resource_state()
+) -> query_result().
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(resource_id(), resource_state()) ->
     resource_status()
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
+
+-callback is_buffer_supported() -> boolean().
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -148,22 +175,6 @@ is_resource_mod(Module) ->
             proplists:get_value(behaviour, Info, []),
     lists:member(?MODULE, Behaviour).
 
--spec query_success(after_query()) -> ok.
-query_success(undefined) -> ok;
-query_success({OnSucc, _}) -> apply_query_after_calls(OnSucc).
-
--spec query_failed(after_query()) -> ok.
-query_failed(undefined) -> ok;
-query_failed({_, OnFailed}) -> apply_query_after_calls(OnFailed).
-
-apply_query_after_calls(Funcs) ->
-    lists:foreach(
-        fun({Fun, Args}) ->
-            safe_apply(Fun, Args)
-        end,
-        Funcs
-    ).
-
 %% =================================================================================
 %% APIs for resource instances
 %% =================================================================================
@@ -172,7 +183,7 @@ apply_query_after_calls(Funcs) ->
 create(ResId, Group, ResourceType, Config) ->
     create(ResId, Group, ResourceType, Config, #{}).
 
--spec create(resource_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+-spec create(resource_id(), resource_group(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(ResId, Group, ResourceType, Config, Opts) ->
     emqx_resource_proto_v1:create(ResId, Group, ResourceType, Config, Opts).
@@ -188,7 +199,7 @@ create_local(ResId, Group, ResourceType, Config) ->
     resource_group(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()}.
 create_local(ResId, Group, ResourceType, Config, Opts) ->
@@ -209,7 +220,7 @@ create_dry_run_local(ResourceType, Config) ->
 recreate(ResId, ResourceType, Config) ->
     recreate(ResId, ResourceType, Config, #{}).
 
--spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(ResId, ResourceType, Config, Opts) ->
     emqx_resource_proto_v1:recreate(ResId, ResourceType, Config, Opts).
@@ -219,7 +230,7 @@ recreate(ResId, ResourceType, Config, Opts) ->
 recreate_local(ResId, ResourceType, Config) ->
     recreate_local(ResId, ResourceType, Config, #{}).
 
--spec recreate_local(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate_local(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(ResId, ResourceType, Config, Opts) ->
     emqx_resource_manager:recreate(ResId, ResourceType, Config, Opts).
@@ -243,35 +254,39 @@ reset_metrics(ResId) ->
 %% =================================================================================
 -spec query(resource_id(), Request :: term()) -> Result :: term().
 query(ResId, Request) ->
-    query(ResId, Request, inc_metrics_funcs(ResId)).
+    query(ResId, Request, #{}).
 
-%% same to above, also defines what to do when the Module:on_query success or failed
-%% it is the duty of the Module to apply the `after_query()` functions.
--spec query(resource_id(), Request :: term(), after_query()) -> Result :: term().
-query(ResId, Request, AfterQuery) ->
+-spec query(resource_id(), Request :: term(), emqx_resource_worker:query_opts()) ->
+    Result :: term().
+query(ResId, Request, Opts) ->
     case emqx_resource_manager:ets_lookup(ResId) of
-        {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
-            %% the resource state is readonly to Module:on_query/4
-            %% and the `after_query()` functions should be thread safe
-            ok = emqx_metrics_worker:inc(resource_metrics, ResId, matched),
-            try
-                Mod:on_query(ResId, Request, AfterQuery, ResourceState)
-            catch
-                Err:Reason:ST ->
-                    emqx_metrics_worker:inc(resource_metrics, ResId, exception),
-                    erlang:raise(Err, Reason, ST)
+        {ok, _Group, #{query_mode := QM, mod := Module}} ->
+            IsBufferSupported = is_buffer_supported(Module),
+            case {IsBufferSupported, QM} of
+                {true, _} ->
+                    emqx_resource_worker:simple_sync_query(ResId, Request);
+                {false, sync} ->
+                    emqx_resource_worker:sync_query(ResId, Request, Opts);
+                {false, async} ->
+                    emqx_resource_worker:async_query(ResId, Request, Opts)
             end;
-        {ok, _Group, _Data} ->
-            query_error(not_connected, <<"resource not connected">>);
         {error, not_found} ->
-            query_error(not_found, <<"resource not found">>)
+            ?RESOURCE_ERROR(not_found, "resource not found")
     end.
+
+-spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
+simple_sync_query(ResId, Request) ->
+    emqx_resource_worker:simple_sync_query(ResId, Request).
+
+-spec simple_async_query(resource_id(), Request :: term(), reply_fun()) -> Result :: term().
+simple_async_query(ResId, Request, ReplyFun) ->
+    emqx_resource_worker:simple_async_query(ResId, Request, ReplyFun).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->
     start(ResId, #{}).
 
--spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 start(ResId, Opts) ->
     emqx_resource_manager:start(ResId, Opts).
 
@@ -279,7 +294,7 @@ start(ResId, Opts) ->
 restart(ResId) ->
     restart(ResId, #{}).
 
--spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec restart(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 restart(ResId, Opts) ->
     emqx_resource_manager:restart(ResId, Opts).
 
@@ -298,6 +313,10 @@ set_resource_status_connecting(ResId) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
     emqx_resource_manager:lookup(ResId).
+
+-spec fetch_creation_opts(map()) -> creation_opts().
+fetch_creation_opts(Opts) ->
+    maps:get(resource_opts, Opts, #{}).
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->
@@ -321,6 +340,19 @@ generate_id(Name) when is_binary(Name) ->
 
 -spec list_group_instances(resource_group()) -> [resource_id()].
 list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
+
+-spec get_callback_mode(module()) -> callback_mode().
+get_callback_mode(Mod) ->
+    Mod:callback_mode().
+
+-spec is_buffer_supported(module()) -> boolean().
+is_buffer_supported(Module) ->
+    try
+        Module:is_buffer_supported()
+    catch
+        _:_ ->
+            false
+    end.
 
 -spec call_start(manager_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -359,7 +391,7 @@ check_and_create(ResId, Group, ResourceType, RawConfig) ->
     resource_group(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(ResId, Group, ResourceType, RawConfig, Opts) ->
@@ -384,7 +416,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig) ->
     resource_group(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) -> {ok, resource_data()} | {error, term()}.
 check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(
@@ -397,7 +429,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
     resource_id(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
@@ -411,7 +443,7 @@ check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
     resource_id(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate_local(ResId, ResourceType, RawConfig, Opts) ->
@@ -427,18 +459,16 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
         Error -> Error
     end.
 
+apply_reply_fun({F, A}, Result) when is_function(F) ->
+    _ = erlang:apply(F, A ++ [Result]),
+    ok;
+apply_reply_fun(From, Result) ->
+    gen_server:reply(From, Result).
+
 %% =================================================================================
+
+inc_received(ResId) ->
+    emqx_metrics_worker:inc(?RES_METRICS, ResId, 'received').
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
-
-inc_metrics_funcs(ResId) ->
-    OnFailed = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, failed]}],
-    OnSucc = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, success]}],
-    {OnSucc, OnFailed}.
-
-safe_apply(Func, Args) ->
-    ?SAFE_CALL(erlang:apply(Func, Args)).
-
-query_error(Reason, Msg) ->
-    {error, {?MODULE, #{reason => Reason, msg => Msg}}}.

@@ -28,6 +28,7 @@
     unload/1,
     event_names/0,
     event_name/1,
+    event_topics_enum/0,
     event_topic/1,
     eventmsg_publish/1
 ]).
@@ -78,6 +79,22 @@ event_names() ->
         'delivery.dropped'
     ].
 
+%% for documentation purposes
+event_topics_enum() ->
+    [
+        '$events/client_connected',
+        '$events/client_disconnected',
+        '$events/client_connack',
+        '$events/client_check_authz_complete',
+        '$events/session_subscribed',
+        '$events/session_unsubscribed',
+        '$events/message_delivered',
+        '$events/message_acked',
+        '$events/message_dropped',
+        '$events/delivery_dropped'
+        % '$events/message_publish' % not possible to use in SELECT FROM
+    ].
+
 reload() ->
     lists:foreach(
         fun(Rule) ->
@@ -88,21 +105,22 @@ reload() ->
 
 load(Topic) ->
     HookPoint = event_name(Topic),
+    HookFun = hook_fun_name(HookPoint),
     emqx_hooks:put(
-        HookPoint, {?MODULE, hook_fun(HookPoint), [#{event_topic => Topic}]}, ?HP_RULE_ENGINE
+        HookPoint, {?MODULE, HookFun, [#{event_topic => Topic}]}, ?HP_RULE_ENGINE
     ).
 
 unload() ->
     lists:foreach(
         fun(HookPoint) ->
-            emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
+            emqx_hooks:del(HookPoint, {?MODULE, hook_fun_name(HookPoint)})
         end,
         event_names()
     ).
 
 unload(Topic) ->
     HookPoint = event_name(Topic),
-    emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)}).
+    emqx_hooks:del(HookPoint, {?MODULE, hook_fun_name(HookPoint)}).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -987,15 +1005,25 @@ columns_example_props_specific(unsub_props) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-hook_fun(<<"$bridges/", _/binary>>) ->
-    on_bridge_message_received;
-hook_fun(Event) ->
-    case string:split(atom_to_list(Event), ".") of
-        [Prefix, Name] ->
-            list_to_atom(lists:append(["on_", Prefix, "_", Name]));
-        [_] ->
-            error(invalid_event, Event)
-    end.
+hook_fun_name(HookPoint) ->
+    HookFun = hook_fun(HookPoint),
+    {name, HookFunName} = erlang:fun_info(HookFun, name),
+    HookFunName.
+
+%% return static function references to help static code checks
+hook_fun(<<"$bridges/", _/binary>>) -> fun ?MODULE:on_bridge_message_received/2;
+hook_fun('client.connected') -> fun ?MODULE:on_client_connected/3;
+hook_fun('client.disconnected') -> fun ?MODULE:on_client_disconnected/4;
+hook_fun('client.connack') -> fun ?MODULE:on_client_connack/4;
+hook_fun('client.check_authz_complete') -> fun ?MODULE:on_client_check_authz_complete/6;
+hook_fun('session.subscribed') -> fun ?MODULE:on_session_subscribed/4;
+hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
+hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
+hook_fun('message.acked') -> fun ?MODULE:on_message_acked/3;
+hook_fun('message.dropped') -> fun ?MODULE:on_message_dropped/4;
+hook_fun('delivery.dropped') -> fun ?MODULE:on_delivery_dropped/4;
+hook_fun('message.publish') -> fun ?MODULE:on_message_publish/2;
+hook_fun(Event) -> error({invalid_event, Event}).
 
 reason(Reason) when is_atom(Reason) -> Reason;
 reason({shutdown, Reason}) when is_atom(Reason) -> Reason;
@@ -1006,19 +1034,20 @@ ntoa(undefined) -> undefined;
 ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
 ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
-event_name(<<"$events/client_connected", _/binary>>) -> 'client.connected';
-event_name(<<"$events/client_disconnected", _/binary>>) -> 'client.disconnected';
-event_name(<<"$events/client_connack", _/binary>>) -> 'client.connack';
-event_name(<<"$events/client_check_authz_complete", _/binary>>) -> 'client.check_authz_complete';
-event_name(<<"$events/session_subscribed", _/binary>>) -> 'session.subscribed';
-event_name(<<"$events/session_unsubscribed", _/binary>>) -> 'session.unsubscribed';
-event_name(<<"$events/message_delivered", _/binary>>) -> 'message.delivered';
-event_name(<<"$events/message_acked", _/binary>>) -> 'message.acked';
-event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped';
-event_name(<<"$events/delivery_dropped", _/binary>>) -> 'delivery.dropped';
-event_name(<<"$bridges/", _/binary>> = Topic) -> Topic;
+event_name(<<"$bridges/", _/binary>> = Bridge) -> Bridge;
+event_name(<<"$events/client_connected">>) -> 'client.connected';
+event_name(<<"$events/client_disconnected">>) -> 'client.disconnected';
+event_name(<<"$events/client_connack">>) -> 'client.connack';
+event_name(<<"$events/client_check_authz_complete">>) -> 'client.check_authz_complete';
+event_name(<<"$events/session_subscribed">>) -> 'session.subscribed';
+event_name(<<"$events/session_unsubscribed">>) -> 'session.unsubscribed';
+event_name(<<"$events/message_delivered">>) -> 'message.delivered';
+event_name(<<"$events/message_acked">>) -> 'message.acked';
+event_name(<<"$events/message_dropped">>) -> 'message.dropped';
+event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
+event_topic(<<"$bridges/", _/binary>> = Bridge) -> Bridge;
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;
@@ -1029,8 +1058,7 @@ event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
-event_topic('message.publish') -> <<"$events/message_publish">>;
-event_topic(<<"$bridges/", _/binary>> = Topic) -> Topic.
+event_topic('message.publish') -> <<"$events/message_publish">>.
 
 printable_maps(undefined) ->
     #{};

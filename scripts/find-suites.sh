@@ -8,5 +8,9 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/.."
 
-TESTDIR="$1/test"
-find "${TESTDIR}" -name "*_SUITE.erl" -print0 2>/dev/null | xargs -0 | tr ' ' ','
+if [ -z "${EMQX_CT_SUITES:-}" ]; then
+    TESTDIR="$1/test"
+    find "${TESTDIR}" -name "*_SUITE.erl" -print0 2>/dev/null | xargs -0 | tr ' ' ','
+else
+    echo "${EMQX_CT_SUITES}"
+fi
