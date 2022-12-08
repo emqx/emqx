@@ -2,7 +2,7 @@
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_gcp_pubsub_resource).
+-module(emqx_ee_connector_gcp_pubsub).
 
 -behaviour(emqx_resource).
 
