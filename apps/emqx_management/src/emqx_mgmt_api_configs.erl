@@ -62,7 +62,6 @@
         <<"event_message">>,
         <<"prometheus">>,
         <<"telemetry">>,
-        <<"sys_topics">>,
         <<"listeners">>
     ] ++ global_zone_roots()
 ).
