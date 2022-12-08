@@ -166,7 +166,20 @@ all_ciphers(['tlsv1.3']) ->
 all_ciphers(Versions) ->
     %% assert non-empty
     List = lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions]),
-    [_ | _] = dedup(List).
+
+    %% Some PSK ciphers are both supported by OpenSSL and Erlang, but they need manual add here.
+    %% Found by this cmd
+    %% openssl ciphers -v|grep ^PSK| awk '{print $1}'| sed  "s/^/\"/;s/$/\"/" | tr "\n" ","
+    %% Then remove the ciphers that aren't supported by Erlang
+    PSK = [
+        "PSK-AES256-GCM-SHA384",
+        "PSK-AES128-GCM-SHA256",
+        "PSK-AES256-CBC-SHA384",
+        "PSK-AES256-CBC-SHA",
+        "PSK-AES128-CBC-SHA256",
+        "PSK-AES128-CBC-SHA"
+    ],
+    [_ | _] = dedup(List ++ PSK).
 
 %% @doc All Pre-selected TLS ciphers.
 default_ciphers() ->
