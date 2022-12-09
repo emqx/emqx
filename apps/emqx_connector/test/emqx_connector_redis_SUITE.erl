@@ -111,6 +111,14 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     % Perform query as further check that the resource is working as expected
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
+    ?assertEqual(
+        {ok, [{ok, <<"PONG">>}, {ok, <<"PONG">>}]},
+        emqx_resource:query(PoolName, {cmds, [RedisCommand, RedisCommand]})
+    ),
+    ?assertMatch(
+        {error, [{ok, <<"PONG">>}, {error, _}]},
+        emqx_resource:query(PoolName, {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]})
+    ),
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -152,14 +160,14 @@ redis_config_cluster() ->
 redis_config_sentinel() ->
     redis_config_base("sentinel", "servers").
 
--define(REDIS_CONFIG_BASE(MaybeSentinel),
+-define(REDIS_CONFIG_BASE(MaybeSentinel, MaybeDatabase),
     "" ++
         "\n" ++
         "    auto_reconnect = true\n" ++
-        "    database = 1\n" ++
         "    pool_size = 8\n" ++
         "    redis_type = ~s\n" ++
         MaybeSentinel ++
+        MaybeDatabase ++
         "    password = public\n" ++
         "    ~s = \"~s:~b\"\n" ++
         "    " ++
@@ -171,15 +179,22 @@ redis_config_base(Type, ServerKey) ->
         "sentinel" ->
             Host = ?REDIS_SENTINEL_HOST,
             Port = ?REDIS_SENTINEL_PORT,
-            MaybeSentinel = "    sentinel = mymaster\n";
-        _ ->
+            MaybeSentinel = "    sentinel = mymaster\n",
+            MaybeDatabase = "    database = 1\n";
+        "single" ->
             Host = ?REDIS_SINGLE_HOST,
             Port = ?REDIS_SINGLE_PORT,
-            MaybeSentinel = ""
+            MaybeSentinel = "",
+            MaybeDatabase = "    database = 1\n";
+        "cluster" ->
+            Host = ?REDIS_SINGLE_HOST,
+            Port = ?REDIS_SINGLE_PORT,
+            MaybeSentinel = "",
+            MaybeDatabase = ""
     end,
     RawConfig = list_to_binary(
         io_lib:format(
-            ?REDIS_CONFIG_BASE(MaybeSentinel),
+            ?REDIS_CONFIG_BASE(MaybeSentinel, MaybeDatabase),
             [Type, ServerKey, Host, Port]
         )
     ),

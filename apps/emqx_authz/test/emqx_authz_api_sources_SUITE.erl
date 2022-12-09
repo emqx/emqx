@@ -80,7 +80,6 @@
     <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
     <<"redis_type">> => <<"cluster">>,
     <<"pool_size">> => 1,
-    <<"database">> => 0,
     <<"password">> => <<"ee">>,
     <<"auto_reconnect">> => true,
     <<"ssl">> => #{<<"enable">> => false},

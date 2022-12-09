@@ -440,7 +440,10 @@ is_all_tcp_servers_available(Servers) ->
         fun({Host, Port}) ->
             is_tcp_server_available(Host, Port)
         end,
-    lists:all(Fun, Servers).
+    case lists:partition(Fun, Servers) of
+        {_, []} -> true;
+        {_, Unavail} -> ct:print("Unavailable servers: ~p", [Unavail])
+    end.
 
 -spec is_tcp_server_available(
     Host :: inet:socket_address() | inet:hostname(),
