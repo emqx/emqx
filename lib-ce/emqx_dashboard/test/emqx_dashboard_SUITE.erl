@@ -82,6 +82,20 @@ t_overview(_) ->
 t_admins_add_delete({init, Config}) -> Config;
 t_admins_add_delete({'end', _Config}) -> ok;
 t_admins_add_delete(_) ->
+    ?assertEqual({error,<<"0 < Length =< 256">>},
+        emqx_dashboard_admin:add_user(<<"">>, <<"password">>, <<"tag1">>)),
+
+    ?assertEqual({error,<<"2 < Length =< 32">>},
+        emqx_dashboard_admin:add_user(<<"badusername">>, <<"">>, <<"tag1">>)),
+    ?assertEqual({error,<<"2 < Length =< 32">>},
+        emqx_dashboard_admin:add_user(<<"badusername">>, <<"p">>, <<"tag1">>)),
+    P33 = iolist_to_binary(lists:duplicate(33, <<"p">>)),
+    ?assertEqual({error,<<"2 < Length =< 32">>},
+        emqx_dashboard_admin:add_user(<<"badusername">>, P33, <<"tag1">>)),
+    P32 = iolist_to_binary(lists:duplicate(32, <<"p">>)),
+    ?assertEqual(ok, emqx_dashboard_admin:add_user(<<"goodusername">>, P32, <<"tag1">>)),
+    ok = emqx_dashboard_admin:remove_user(<<"goodusername">>),
+
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
     ok = emqx_dashboard_admin:add_user(<<"1username1">>, <<"password1">>, <<"tag1">>),
