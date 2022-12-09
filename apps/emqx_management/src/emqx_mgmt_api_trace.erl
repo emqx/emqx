@@ -451,10 +451,10 @@ update_trace(put, #{bindings := #{name := Name}}) ->
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
 %% cowboy_compress_h will auto encode gzip format.
 download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
-    case parse_node(Query, undefined) of
-        {ok, Node} ->
-            case emqx_trace:get_trace_filename(Name) of
-                {ok, TraceLog} ->
+    case emqx_trace:get_trace_filename(Name) of
+        {ok, TraceLog} ->
+            case parse_node(Query, undefined) of
+                {ok, Node} ->
                     TraceFiles = collect_trace_file(Node, TraceLog),
                     ZipDir = emqx_trace:zip_dir(),
                     Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
@@ -474,10 +474,10 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     },
                     {200, Headers, {file_binary, ZipName, Binary}};
                 {error, not_found} ->
-                    ?NOT_FOUND(Name)
+                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
             end;
         {error, not_found} ->
-            ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+            ?NOT_FOUND(Name)
     end.
 
 group_trace_file(ZipDir, TraceLog, TraceFiles) ->
