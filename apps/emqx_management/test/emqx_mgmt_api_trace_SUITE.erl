@@ -213,6 +213,27 @@ t_log_file(_Config) ->
     Path = api_path("trace/test_client_id/download?node=" ++ atom_to_list(node())),
     {ok, Binary2} = request_api(get, Path, Header),
     ?assertEqual(ZipTab, zip:table(Binary2)),
+    {error, {_, 400, _}, _} =
+        request_api(
+            get,
+            api_path("trace/test_client_id/download?node=unknonwn_node"),
+            Header
+        ),
+    {error, {_, 400, _}, _} =
+        request_api(
+            get,
+            % known atom but unknown node
+            api_path("trace/test_client_id/download?node=undefined"),
+            Header
+        ),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 404, "Not Found"}, _},
+        request_api(
+            get,
+            api_path("trace/test_client_not_found/download?node=" ++ atom_to_list(node())),
+            Header
+        )
+    ),
     ok = emqtt:disconnect(Client),
     ok.
 
@@ -267,6 +288,25 @@ t_stream_log(_Config) ->
     #{<<"meta">> := Meta1, <<"items">> := Bin1} = json(Binary1),
     ?assertEqual(#{<<"position">> => 30, <<"bytes">> => 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
+    {error, {_, 400, _}, _} =
+        request_api(
+            get,
+            api_path("trace/test_stream_log/log?node=unknonwn_node"),
+            Header
+        ),
+    {error, {_, 400, _}, _} =
+        request_api(
+            get,
+            % known atom but not a node
+            api_path("trace/test_stream_log/log?node=undefined"),
+            Header
+        ),
+    {error, {_, 404, _}, _} =
+        request_api(
+            get,
+            api_path("trace/test_stream_log_not_found/log"),
+            Header
+        ),
     unload(),
     ok.
 
