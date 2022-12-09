@@ -318,6 +318,25 @@ t_message_expiry_2(_) ->
     end,
     with_conf(ConfMod, Case).
 
+t_table_full(_) ->
+    ConfMod = fun(Conf) ->
+        Conf#{<<"backend">> => #{<<"max_retained_messages">> => <<"1">>}}
+    end,
+    Case = fun() ->
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
+        emqtt:publish(C1, <<"retained/t/1">>, <<"a">>, [{qos, 0}, {retain, true}]),
+        emqtt:publish(C1, <<"retained/t/2">>, <<"b">>, [{qos, 0}, {retain, true}]),
+
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/1">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(1, length(receive_messages(1))),
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/2">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(0, length(receive_messages(1))),
+
+        ok = emqtt:disconnect(C1)
+    end,
+    with_conf(ConfMod, Case).
+
 t_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
