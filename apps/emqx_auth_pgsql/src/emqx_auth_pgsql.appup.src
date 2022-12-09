@@ -17,3 +17,4 @@
      {load_module,emqx_auth_pgsql,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}]}.
+

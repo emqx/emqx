@@ -153,8 +153,11 @@ init_per_group(_Group, Config) ->
 
 end_per_group(resilience, Config) ->
     OriginalServer = ?config(original_server, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
     application:set_env(emqx_auth_mongo, server, OriginalServer),
     emqx_ct_helpers:stop_apps([emqx_auth_mongo]),
+    reset_proxy(ProxyHost, ProxyPort),
     emqx_ct_helpers:start_apps([emqx_auth_mongo], fun set_special_confs/1),
     ok;
 end_per_group(_Group, _Config) ->

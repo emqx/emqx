@@ -195,34 +195,41 @@ create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
         {ok, Select} ->
             RuleId = maps:get(id, Params, rule_id()),
             Enabled = maps:get(enabled, Params, true),
-            try prepare_actions(ActArgs, Enabled) of
-                Actions ->
-                    Rule = #rule{
-                        id = RuleId,
-                        rawsql = Sql,
-                        for = emqx_rule_sqlparser:select_from(Select),
-                        is_foreach = emqx_rule_sqlparser:select_is_foreach(Select),
-                        fields = emqx_rule_sqlparser:select_fields(Select),
-                        doeach = emqx_rule_sqlparser:select_doeach(Select),
-                        incase = emqx_rule_sqlparser:select_incase(Select),
-                        conditions = emqx_rule_sqlparser:select_where(Select),
-                        on_action_failed = maps:get(on_action_failed, Params, continue),
-                        actions = Actions,
-                        enabled = Enabled,
-                        created_at = erlang:system_time(millisecond),
-                        description = maps:get(description, Params, ""),
-                        state = normal
-                    },
-                    ok = emqx_rule_registry:add_rule(Rule),
-                    ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-                    {ok, Rule}
-            catch
-                throw:{action_not_found, ActionName} ->
-                    {error, {action_not_found, ActionName}};
-                throw:Reason ->
-                    {error, Reason}
-            end;
+            Rule = #rule{
+                id = RuleId,
+                rawsql = Sql,
+                for = emqx_rule_sqlparser:select_from(Select),
+                is_foreach = emqx_rule_sqlparser:select_is_foreach(Select),
+                fields = emqx_rule_sqlparser:select_fields(Select),
+                doeach = emqx_rule_sqlparser:select_doeach(Select),
+                incase = emqx_rule_sqlparser:select_incase(Select),
+                conditions = emqx_rule_sqlparser:select_where(Select),
+                on_action_failed = maps:get(on_action_failed, Params, continue),
+                actions = [],
+                enabled = Enabled,
+                created_at = erlang:system_time(millisecond),
+                description = maps:get(description, Params, ""),
+                state = normal
+            },
+            do_create_rule(Rule, ActArgs);
         Reason -> {error, Reason}
+    end.
+
+do_create_rule(Rule0 = #rule{id = RuleId, enabled = Enabled}, ActArgs) ->
+    try prepare_actions(ActArgs, Enabled) of
+        Actions ->
+            Rule = Rule0#rule{actions = Actions},
+            ok = emqx_rule_registry:add_rule(Rule),
+            ok = emqx_rule_metrics:create_rule_metrics(RuleId),
+            {ok, Rule}
+    catch
+        throw:{resource_not_initialized, _} when Enabled =:= true ->
+            %% try again with rule disabled
+            do_create_rule(Rule0#rule{enabled = false}, ActArgs);
+        throw:{action_not_found, ActionName} ->
+            {error, {action_not_found, ActionName}};
+        throw:Reason ->
+            {error, Reason}
     end.
 
 -spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | {error, {not_found, rule_id()} | term()}).

@@ -63,6 +63,7 @@
         , call_fold/3
         ]).
 
+
 -elvis([{elvis_style, god_modules, disable}]).
 
 -define(STOP_OR_OK(Res),

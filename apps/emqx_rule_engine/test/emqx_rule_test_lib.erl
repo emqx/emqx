@@ -125,6 +125,17 @@ make_simple_resource_type(ResTypeName) ->
        title = #{en => <<"Simple Resource Type">>},
        description = #{en => <<"Simple Resource Type">>}}.
 
+make_bad_resource_type() ->
+    #resource_type{
+       name = bad_resource,
+       provider = ?APP,
+       params_spec = #{},
+       on_create = {?MODULE, on_bad_resource_type_create},
+       on_destroy = {?MODULE, on_bad_resource_type_destroy},
+       on_status = {?MODULE, on_bad_resource_type_status},
+       title = #{en => <<"Bad Resource Type">>},
+       description = #{en => <<"Bad Resource Type">>}}.
+
 init_events_counters() ->
     ets:new(events_record_tab, [named_table, bag, public]).
 
@@ -200,3 +211,7 @@ on_get_resource_status(_id, _) -> #{is_alive => true}.
 on_simple_resource_type_create(_Id, #{}) -> #{}.
 on_simple_resource_type_destroy(_Id, #{}) -> ok.
 on_simple_resource_type_status(_Id, #{}, #{}) -> #{is_alive => true}.
+
+on_bad_resource_type_create(_Id, #{}) -> error(never_get_started).
+on_bad_resource_type_destroy(_Id, #{}) -> ok.
+on_bad_resource_type_status(_Id, #{}, #{}) -> #{is_alive => false}.
