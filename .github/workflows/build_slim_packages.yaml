@@ -175,17 +175,3 @@ jobs:
     - name: Run spellcheck
       run: |
         bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
-
-  allgood_packaging:
-    runs-on: ubuntu-latest
-    needs:
-      - linux
-      - windows
-      - mac
-    steps:
-    - name: Check if all packging builds succeeded
-      uses: re-actors/alls-green@release/v1
-      with:
-        #allowed-failures:
-        #allowed-skips:
-        jobs: ${{ toJSON(needs) }}
