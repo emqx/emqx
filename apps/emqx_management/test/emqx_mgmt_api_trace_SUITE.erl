@@ -149,7 +149,7 @@ t_create_failed(_Config) ->
     {ok, Create} = request_api(post, api_path("trace"), Header, [GoodName | Trace]),
     ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create)),
     ?assertMatch(
-        {error, {"HTTP/1.1", 400, _}, _},
+        {error, {"HTTP/1.1", 409, _}, _},
         request_api(post, api_path("trace"), Header, [GoodName | Trace])
     ),
 
@@ -171,6 +171,16 @@ t_create_failed(_Config) ->
         {error, {"HTTP/1.1", 400, _}, _},
         request_api(post, api_path("trace"), Header, [GoodName1 | Trace])
     ),
+    %% clear
+    ?assertMatch({ok, _}, request_api(delete, api_path("trace"), Header, [])),
+    {ok, Create} = request_api(post, api_path("trace"), Header, [GoodName | Trace]),
+    %% new name but same trace
+    GoodName2 = {<<"name">>, <<"test-name-1">>},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 409, _}, _},
+        request_api(post, api_path("trace"), Header, [GoodName2 | Trace])
+    ),
+
     unload(),
     emqx_trace:clear(),
     ok.
