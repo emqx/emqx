@@ -143,6 +143,7 @@ node_info() ->
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
+        edition => emqx_release:edition_longstr(),
         role => mria_rlog:role()
     }.
 

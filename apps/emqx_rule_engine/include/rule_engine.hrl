@@ -88,18 +88,18 @@
 %% Logical operators
 -define(is_logical(Op), (Op =:= 'and' orelse Op =:= 'or')).
 
--define(RAISE(_EXP_, _ERROR_),
-    ?RAISE(_EXP_, _ = do_nothing, _ERROR_)
+-define(RAISE(EXP, ERROR),
+    ?RAISE(EXP, _ = do_nothing, ERROR)
 ).
 
--define(RAISE(_EXP_, _EXP_ON_FAIL_, _ERROR_),
+-define(RAISE(EXP, EXP_ON_FAIL, ERROR),
     fun() ->
         try
-            (_EXP_)
+            (EXP)
         catch
-            _EXCLASS_:_EXCPTION_:_ST_ ->
-                _EXP_ON_FAIL_,
-                throw(_ERROR_)
+            EXCLASS:EXCPTION:ST ->
+                EXP_ON_FAIL,
+                throw(ERROR)
         end
     end()
 ).

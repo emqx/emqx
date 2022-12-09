@@ -103,7 +103,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
@@ -120,7 +120,7 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_authz, emqx_dashboard],
         fun set_special_configs/1
     ),
-    ok = start_apps([emqx_resource, emqx_connector]),
+    ok = start_apps([emqx_resource]),
     Config.
 
 end_per_suite(_Config) ->
@@ -134,7 +134,7 @@ end_per_suite(_Config) ->
     ),
     %% resource and connector should be stop first,
     %% or authz_[mysql|pgsql|redis..]_SUITE would be failed
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.

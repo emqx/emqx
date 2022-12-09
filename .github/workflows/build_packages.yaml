@@ -86,14 +86,13 @@ jobs:
 
   windows:
     runs-on: windows-2019
+    if: startsWith(github.ref_name, 'v')
     needs: prepare
     strategy:
       fail-fast: false
       matrix:
         profile: # for now only CE for windows
           - emqx
-        otp:
-          - 24.2.1
     steps:
     - uses: actions/download-artifact@v3
       with:
@@ -104,7 +103,7 @@ jobs:
     - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: ${{ matrix.otp }}
+        otp-version: 24.2.1
     - name: build
       env:
         PYTHON: python
@@ -129,7 +128,7 @@ jobs:
         echo "EMQX uninstalled"
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.profile }}-windows
+        name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
 
   mac:
@@ -167,7 +166,7 @@ jobs:
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
 
   linux:
@@ -182,7 +181,7 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.3.4.2-1 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.3.4.2-1
         elixir:
           - 1.13.4
         # used to split elixir packages into a separate job, since the
@@ -200,51 +199,31 @@ jobs:
         os:
           - ubuntu20.04
           - ubuntu18.04
-          - ubuntu16.04
           - debian11
           - debian10
-          - debian9
           - el8
           - el7
-          - raspbian10
         build_machine:
           - aws-arm64
           - ubuntu-20.04
         exclude:
-        - arch: arm64
-          build_machine: ubuntu-20.04
-        - arch: amd64
-          build_machine: aws-arm64
-        - os: raspbian9
-          arch: amd64
-        - os: raspbian10
-          arch: amd64
-        - os: raspbian10 # we only have arm32 image
-          arch: arm64
-        - os: raspbian9
-          profile: emqx
-        - os: raspbian10
-          profile: emqx
-        - os: raspbian9
-          profile: emqx-enterprise
-        - os: raspbian10
-          profile: emqx-enterprise
-        include:
-          - profile: emqx
-            otp: 24.3.4.2-1
-            elixir: 1.13.4
-            build_elixir: with_elixir
-            arch: amd64
-            os: ubuntu20.04
+          - arch: arm64
             build_machine: ubuntu-20.04
-          - profile: emqx
-            otp: 24.3.4.2-1
-            elixir: 1.13.4
-            build_elixir: with_elixir
-            arch: amd64
-            os: el8
-            build_machine: ubuntu-20.04
-
+          - arch: amd64
+            build_machine: aws-arm64
+            # elixir: only for opensource edition and only on ubuntu20.04 and el8 on amd64
+          - build_elixir: with_elixir
+            profile: emqx-enterprise
+          - build_elixir: with_elixir
+            arch: arm64
+          - build_elixir: with_elixir
+            os: ubuntu18.04
+          - build_elixir: with_elixir
+            os: debian10
+          - build_elixir: with_elixir
+            os: debian11
+          - build_elixir: with_elixir
+            os: el7
     defaults:
       run:
         shell: bash
@@ -293,7 +272,7 @@ jobs:
         done
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
 
   publish_artifacts:
@@ -305,15 +284,10 @@ jobs:
       matrix:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
-        otp:
-          - 24.3.4.2-1
-        include:
-          - profile: emqx
-            otp: windows # otp version on windows is rather fixed
     steps:
     - uses: actions/download-artifact@v3
       with:
-        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        name: ${{ matrix.profile }}
         path: packages/${{ matrix.profile }}
     - name: install dos2unix
       run: sudo apt-get update && sudo apt install -y dos2unix

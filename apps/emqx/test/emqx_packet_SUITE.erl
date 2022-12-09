@@ -212,7 +212,9 @@ t_check_publish(_) ->
         ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>)
     ),
     %% TODO::
-    %% {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)),
+    %% {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
+    %%    ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)
+    %%),
     ok = emqx_packet:check(
         ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)
     ),
@@ -414,5 +416,5 @@ t_format(_) ->
 
 t_parse_empty_publish(_) ->
     %% 52: 0011(type=PUBLISH) 0100 (QoS=2)
-    {ok, Packet, <<>>, {none, _}} = emqx_frame:parse(<<52, 0>>),
+    Packet = #mqtt_packet_publish{topic_name = <<>>},
     ?assertEqual({error, ?RC_PROTOCOL_ERROR}, emqx_packet:check(Packet)).

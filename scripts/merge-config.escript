@@ -13,21 +13,32 @@
 
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
-
     Cfgs = get_all_cfgs("apps/"),
+    IsEnterprise = is_enterprise(),
+    Enterprise =
+        case IsEnterprise of
+            false -> [];
+            true -> [io_lib:nl(), "include emqx-enterprise.conf", io_lib:nl()]
+        end,
     Conf = [
         merge(BaseConf, Cfgs),
         io_lib:nl(),
-        io_lib:nl(),
-        "include emqx_enterprise.conf",
-        io_lib:nl()
+        Enterprise
     ],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
 
-    EnterpriseCfgs = get_all_cfgs("lib-ee/"),
-    EnterpriseConf = merge("", EnterpriseCfgs),
+    case IsEnterprise of
+        true ->
+            EnterpriseCfgs = get_all_cfgs("lib-ee"),
+            EnterpriseConf = merge("", EnterpriseCfgs),
+            ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf);
+        false ->
+            ok
+    end.
 
-    ok = file:write_file("apps/emqx_conf/etc/emqx_enterprise.conf.all", EnterpriseConf).
+is_enterprise() ->
+    Profile = os:getenv("PROFILE", "emqx"),
+    nomatch =/= string:find(Profile, "enterprise").
 
 merge(BaseConf, Cfgs) ->
     lists:foldl(

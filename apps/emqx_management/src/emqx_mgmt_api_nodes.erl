@@ -215,7 +215,12 @@ fields(node_info) ->
         {version,
             mk(
                 string(),
-                #{desc => <<"Release version">>, example => "5.0.0-beat.3-00000000"}
+                #{desc => <<"Release version">>, example => "5.0.0"}
+            )},
+        {edition,
+            mk(
+                enum(['Opensource', 'Enterprise']),
+                #{desc => <<"Release edition">>, example => "Opensource"}
             )},
         {sys_path,
             mk(

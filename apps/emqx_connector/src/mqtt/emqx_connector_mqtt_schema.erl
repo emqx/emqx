@@ -28,12 +28,9 @@
     desc/1
 ]).
 
--export([
-    ingress_desc/0,
-    egress_desc/0
-]).
-
 -import(emqx_schema, [mk_duration/2]).
+
+-import(hoconsc, [mk/2, ref/2]).
 
 namespace() -> "connector-mqtt".
 
@@ -41,12 +38,29 @@ roots() ->
     fields("config").
 
 fields("config") ->
-    fields("connector") ++
-        topic_mappings();
-fields("connector") ->
+    fields("server_configs") ++
+        [
+            {"ingress",
+                mk(
+                    ref(?MODULE, "ingress"),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("ingress_desc")
+                    }
+                )},
+            {"egress",
+                mk(
+                    ref(?MODULE, "egress"),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("egress_desc")
+                    }
+                )}
+        ];
+fields("server_configs") ->
     [
         {mode,
-            sc(
+            mk(
                 hoconsc:enum([cluster_shareload]),
                 #{
                     default => cluster_shareload,
@@ -54,7 +68,7 @@ fields("connector") ->
                 }
             )},
         {server,
-            sc(
+            mk(
                 emqx_schema:host_port(),
                 #{
                     required => true,
@@ -68,7 +82,7 @@ fields("connector") ->
                 #{default => "15s"}
             )},
         {proto_ver,
-            sc(
+            mk(
                 hoconsc:enum([v3, v4, v5]),
                 #{
                     default => v4,
@@ -76,7 +90,7 @@ fields("connector") ->
                 }
             )},
         {bridge_mode,
-            sc(
+            mk(
                 boolean(),
                 #{
                     default => false,
@@ -84,21 +98,23 @@ fields("connector") ->
                 }
             )},
         {username,
-            sc(
+            mk(
                 binary(),
                 #{
                     desc => ?DESC("username")
                 }
             )},
         {password,
-            sc(
+            mk(
                 binary(),
                 #{
+                    format => <<"password">>,
+                    sensitive => true,
                     desc => ?DESC("password")
                 }
             )},
         {clean_start,
-            sc(
+            mk(
                 boolean(),
                 #{
                     default => true,
@@ -113,20 +129,34 @@ fields("connector") ->
                 #{default => "15s"}
             )},
         {max_inflight,
-            sc(
+            mk(
                 non_neg_integer(),
                 #{
                     default => 32,
                     desc => ?DESC("max_inflight")
                 }
-            )},
-        {replayq, sc(ref("replayq"), #{})}
+            )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("ingress") ->
-    %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
     [
-        {remote_topic,
-            sc(
+        {"remote",
+            mk(
+                ref(?MODULE, "ingress_remote"),
+                #{desc => ?DESC(emqx_connector_mqtt_schema, "ingress_remote")}
+            )},
+        {"local",
+            mk(
+                ref(?MODULE, "ingress_local"),
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local"),
+                    is_required => false
+                }
+            )}
+    ];
+fields("ingress_remote") ->
+    [
+        {topic,
+            mk(
                 binary(),
                 #{
                     required => true,
@@ -134,47 +164,44 @@ fields("ingress") ->
                     desc => ?DESC("ingress_remote_topic")
                 }
             )},
-        {remote_qos,
-            sc(
+        {qos,
+            mk(
                 qos(),
                 #{
                     default => 1,
                     desc => ?DESC("ingress_remote_qos")
                 }
-            )},
-        {local_topic,
-            sc(
+            )}
+    ];
+fields("ingress_local") ->
+    [
+        {topic,
+            mk(
                 binary(),
                 #{
                     validator => fun emqx_schema:non_empty_string/1,
-                    desc => ?DESC("ingress_local_topic")
+                    desc => ?DESC("ingress_local_topic"),
+                    required => false
                 }
             )},
-        {local_qos,
-            sc(
+        {qos,
+            mk(
                 qos(),
                 #{
                     default => <<"${qos}">>,
                     desc => ?DESC("ingress_local_qos")
                 }
             )},
-        {hookpoint,
-            sc(
-                binary(),
-                #{desc => ?DESC("ingress_hookpoint")}
-            )},
-
         {retain,
-            sc(
+            mk(
                 hoconsc:union([boolean(), binary()]),
                 #{
                     default => <<"${retain}">>,
                     desc => ?DESC("retain")
                 }
             )},
-
         {payload,
-            sc(
+            mk(
                 binary(),
                 #{
                     default => undefined,
@@ -183,18 +210,40 @@ fields("ingress") ->
             )}
     ];
 fields("egress") ->
-    %% the message maybe sent from rules, in this case 'local_topic' is not necessary
     [
-        {local_topic,
-            sc(
+        {"local",
+            mk(
+                ref(?MODULE, "egress_local"),
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_local"),
+                    required => false
+                }
+            )},
+        {"remote",
+            mk(
+                ref(?MODULE, "egress_remote"),
+                #{
+                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_remote"),
+                    required => true
+                }
+            )}
+    ];
+fields("egress_local") ->
+    [
+        {topic,
+            mk(
                 binary(),
                 #{
                     desc => ?DESC("egress_local_topic"),
+                    required => false,
                     validator => fun emqx_schema:non_empty_string/1
                 }
-            )},
-        {remote_topic,
-            sc(
+            )}
+    ];
+fields("egress_remote") ->
+    [
+        {topic,
+            mk(
                 binary(),
                 #{
                     required => true,
@@ -202,104 +251,48 @@ fields("egress") ->
                     desc => ?DESC("egress_remote_topic")
                 }
             )},
-        {remote_qos,
-            sc(
+        {qos,
+            mk(
                 qos(),
                 #{
                     required => true,
                     desc => ?DESC("egress_remote_qos")
                 }
             )},
-
         {retain,
-            sc(
+            mk(
                 hoconsc:union([boolean(), binary()]),
                 #{
                     required => true,
                     desc => ?DESC("retain")
                 }
             )},
-
         {payload,
-            sc(
+            mk(
                 binary(),
                 #{
                     default => undefined,
                     desc => ?DESC("payload")
                 }
             )}
-    ];
-fields("replayq") ->
-    [
-        {dir,
-            sc(
-                hoconsc:union([boolean(), string()]),
-                #{desc => ?DESC("dir")}
-            )},
-        {seg_bytes,
-            sc(
-                emqx_schema:bytesize(),
-                #{
-                    default => "100MB",
-                    desc => ?DESC("seg_bytes")
-                }
-            )},
-        {offload,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC("offload")
-                }
-            )}
     ].
 
-desc("connector") ->
-    ?DESC("desc_connector");
+desc("server_configs") ->
+    ?DESC("server_configs");
 desc("ingress") ->
-    ingress_desc();
+    ?DESC("ingress_desc");
+desc("ingress_remote") ->
+    ?DESC("ingress_remote");
+desc("ingress_local") ->
+    ?DESC("ingress_local");
 desc("egress") ->
-    egress_desc();
-desc("replayq") ->
-    ?DESC("desc_replayq");
+    ?DESC("egress_desc");
+desc("egress_remote") ->
+    ?DESC("egress_remote");
+desc("egress_local") ->
+    ?DESC("egress_local");
 desc(_) ->
     undefined.
 
-topic_mappings() ->
-    [
-        {ingress,
-            sc(
-                ref("ingress"),
-                #{default => #{}}
-            )},
-        {egress,
-            sc(
-                ref("egress"),
-                #{default => #{}}
-            )}
-    ].
-
-ingress_desc() ->
-    "\n"
-    "The ingress config defines how this bridge receive messages from the remote MQTT broker, and then\n"
-    "send them to the local broker.<br/>"
-    "Template with variables is allowed in 'local_topic', 'remote_qos', 'qos', 'retain',\n"
-    "'payload'.<br/>"
-    "NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also local_topic is\n"
-    "configured, then messages got from the remote broker will be sent to both the 'local_topic' and\n"
-    "the rule.\n".
-
-egress_desc() ->
-    "\n"
-    "The egress config defines how this bridge forwards messages from the local broker to the remote\n"
-    "broker.<br/>"
-    "Template with variables is allowed in 'remote_topic', 'qos', 'retain', 'payload'.<br/>"
-    "NOTE: if this bridge is used as the action of a rule (emqx rule engine), and also local_topic\n"
-    "is configured, then both the data got from the rule and the MQTT messages that matches\n"
-    "local_topic will be forwarded.\n".
-
 qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
-ref(Field) -> hoconsc:ref(?MODULE, Field).

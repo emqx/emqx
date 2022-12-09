@@ -26,9 +26,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -112,6 +113,8 @@ servers(desc) -> ?DESC("servers");
 servers(_) -> undefined.
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     #{
@@ -177,7 +180,7 @@ on_stop(InstId, #{poolname := PoolName, type := Type}) ->
         _ -> emqx_plugin_libs_pool:stop_pool(PoolName)
     end.
 
-on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
+on_query(InstId, {cmd, Command}, #{poolname := PoolName, type := Type} = State) ->
     ?TRACE(
         "QUERY",
         "redis_connector_received",
@@ -195,10 +198,9 @@ on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := T
                 connector => InstId,
                 sql => Command,
                 reason => Reason
-            }),
-            emqx_resource:query_failed(AfterCommand);
+            });
         _ ->
-            emqx_resource:query_success(AfterCommand)
+            ok
     end,
     Result.
 

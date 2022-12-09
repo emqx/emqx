@@ -115,7 +115,7 @@ message_expiry_interval_init() ->
 message_expiry_interval_exipred(CPublish, CControl, QoS) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
     %% publish to t/a and waiting for the message expired
-    emqtt:publish(
+    _ = emqtt:publish(
         CPublish,
         <<"t/a">>,
         #{'Message-Expiry-Interval' => 1},
@@ -152,7 +152,7 @@ message_expiry_interval_exipred(CPublish, CControl, QoS) ->
 message_expiry_interval_not_exipred(CPublish, CControl, QoS) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
     %% publish to t/a
-    emqtt:publish(
+    _ = emqtt:publish(
         CPublish,
         <<"t/a">>,
         #{'Message-Expiry-Interval' => 20},

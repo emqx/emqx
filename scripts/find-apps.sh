@@ -8,25 +8,18 @@ cd -P -- "$(dirname -- "$0")/.."
 help() {
     echo
     echo "-h|--help:        To display this usage info"
-    echo "--ct fast|docker: Print apps which needs docker-compose to run ct"
-    echo "--json:           Print apps in json"
+    echo "--ci fast|docker: Print apps in json format for github ci mtrix"
 }
 
-WANT_JSON='no'
-CT='novalue'
+CI='novalue'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
             help
             exit 0
             ;;
-        --json)
-            WANT_JSON='yes'
-            shift 1
-            ;;
-
-        --ct)
-            CT="$2"
+        --ci)
+            CI="$2"
             shift 2
             ;;
         *)
@@ -52,27 +45,58 @@ CE="$(find_app 'apps')"
 EE="$(find_app 'lib-ee')"
 APPS_ALL="$(echo -e "${CE}\n${EE}")"
 
-if [ "$CT" = 'novalue' ]; then
-    RESULT="${APPS_ALL}"
-else
-    APPS_NORMAL_CT=( )
-    APPS_DOCKER_CT=( )
-    for app in ${APPS_ALL}; do
-        if [ -f "${app}/docker-ct" ]; then
-            APPS_DOCKER_CT+=("$app")
-        else
-            APPS_NORMAL_CT+=("$app")
-        fi
-    done
-    if [ "$CT" = 'docker' ]; then
-        RESULT="${APPS_DOCKER_CT[*]}"
-    else
-        RESULT="${APPS_NORMAL_CT[*]}"
-    fi
+if [ "$CI" = 'novalue' ]; then
+    echo "${APPS_ALL}"
+    exit 0
 fi
 
-if [ "$WANT_JSON" = 'yes' ]; then
-    echo "${RESULT}" | xargs | tr -d '\n' | jq -R -s -c 'split(" ")'
-else
-    echo "${RESULT}" | xargs
-fi
+##################################################
+###### now deal with the github action's matrix.
+##################################################
+
+dimensions() {
+    app="$1"
+    if [ -f "${app}/docker-ct" ]; then
+        if [[ "$CI" != 'docker' ]]; then
+            return
+        fi
+    else
+        if [[ "$CI" != 'fast' ]]; then
+            return
+        fi
+    fi
+    case "${app}" in
+        apps/*)
+            profile='emqx'
+            ;;
+        lib-ee/*)
+            profile='emqx-enterprise'
+            ;;
+        *)
+            echo "unknown app: $app"
+            exit 1
+            ;;
+    esac
+    ## poor-man's json formatter
+    echo -n -e "[\"$app\", \"$profile\"]"
+}
+
+matrix() {
+    first_row='yes'
+    for app in ${APPS_ALL}; do
+        row="$(dimensions "$app")"
+        if [ -z "$row" ]; then
+            continue
+        fi
+        if [ "$first_row" = 'yes' ]; then
+            first_row='no'
+            echo -n "$row"
+        else
+            echo -n ",${row}"
+        fi
+    done
+}
+
+echo -n '['
+matrix
+echo ']'

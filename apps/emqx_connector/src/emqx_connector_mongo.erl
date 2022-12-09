@@ -25,9 +25,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -36,7 +37,7 @@
 
 -export([roots/0, fields/1, desc/1]).
 
--export([mongo_query/5, check_worker_health/1]).
+-export([mongo_query/5, mongo_insert/3, check_worker_health/1]).
 
 -define(HEALTH_CHECK_TIMEOUT, 30000).
 
@@ -45,6 +46,10 @@
     host_type => hostname,
     default_port => ?MONGO_DEFAULT_PORT
 }).
+
+-ifdef(TEST).
+-export([to_servers_raw/1]).
+-endif.
 
 %%=====================================================================
 roots() ->
@@ -139,6 +144,8 @@ mongo_fields() ->
 
 %% ===================================================================
 
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     Config = #{
@@ -174,9 +181,16 @@ on_start(
         {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    Collection = maps:get(collection, Config, <<"mqtt">>),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts) of
-        ok -> {ok, #{poolname => PoolName, type => Type}};
-        {error, Reason} -> {error, Reason}
+        ok ->
+            {ok, #{
+                poolname => PoolName,
+                type => Type,
+                collection => Collection
+            }};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
@@ -188,8 +202,36 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(
     InstId,
+    {send_message, Document},
+    #{poolname := PoolName, collection := Collection} = State
+) ->
+    Request = {insert, Collection, Document},
+    ?TRACE(
+        "QUERY",
+        "mongodb_connector_received",
+        #{request => Request, connector => InstId, state => State}
+    ),
+    case
+        ecpool:pick_and_do(
+            PoolName,
+            {?MODULE, mongo_insert, [Collection, Document]},
+            no_handover
+        )
+    of
+        {{false, Reason}, _Document} ->
+            ?SLOG(error, #{
+                msg => "mongodb_connector_do_query_failed",
+                request => Request,
+                reason => Reason,
+                connector => InstId
+            }),
+            {error, Reason};
+        {{true, _Info}, _Document} ->
+            ok
+    end;
+on_query(
+    InstId,
     {Action, Collection, Filter, Projector},
-    AfterQuery,
     #{poolname := PoolName} = State
 ) ->
     Request = {Action, Collection, Filter, Projector},
@@ -212,14 +254,11 @@ on_query(
                 reason => Reason,
                 connector => InstId
             }),
-            emqx_resource:query_failed(AfterQuery),
             {error, Reason};
         {ok, Cursor} when is_pid(Cursor) ->
-            emqx_resource:query_success(AfterQuery),
-            mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000);
+            {ok, mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)};
         Result ->
-            emqx_resource:query_success(AfterQuery),
-            Result
+            {ok, Result}
     end.
 
 -dialyzer({nowarn_function, [on_get_status/2]}).
@@ -292,6 +331,9 @@ mongo_query(Conn, find_one, Collection, Filter, Projector) ->
 %% Todo xxx
 mongo_query(_Conn, _Action, _Collection, _Filter, _Projector) ->
     ok.
+
+mongo_insert(Conn, Collection, Documents) ->
+    mongo_api:insert(Conn, Collection, Documents).
 
 init_type(#{mongo_type := rs, replica_set_name := ReplicaSetName}) ->
     {rs, ReplicaSetName};
@@ -409,7 +451,7 @@ may_parse_srv_and_txt_records_(
         true ->
             error({missing_parameter, replica_set_name});
         false ->
-            Config#{hosts => servers_to_bin(Servers)}
+            Config#{hosts => servers_to_bin(lists:flatten(Servers))}
     end;
 may_parse_srv_and_txt_records_(
     #{
@@ -519,8 +561,32 @@ to_servers_raw(Servers) ->
         fun(Server) ->
             emqx_connector_schema_lib:parse_server(Server, ?MONGO_HOST_OPTIONS)
         end,
-        string:tokens(str(Servers), ", ")
+        split_servers(Servers)
     ).
+
+split_servers(L) when is_list(L) ->
+    PossibleTypes = [
+        list(binary()),
+        list(string()),
+        string()
+    ],
+    TypeChecks = lists:map(fun(T) -> typerefl:typecheck(T, L) end, PossibleTypes),
+    case TypeChecks of
+        [ok, _, _] ->
+            %% list(binary())
+            lists:map(fun binary_to_list/1, L);
+        [_, ok, _] ->
+            %% list(string())
+            L;
+        [_, _, ok] ->
+            %% string()
+            string:tokens(L, ", ");
+        [_, _, _] ->
+            %% invalid input
+            throw("List of servers must contain only strings")
+    end;
+split_servers(B) when is_binary(B) ->
+    string:tokens(str(B), ", ").
 
 str(A) when is_atom(A) ->
     atom_to_list(A);

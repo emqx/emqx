@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_plugin_libs, [
     {description, "EMQX Plugin utility libs"},
-    {vsn, "4.3.3"},
+    {vsn, "4.3.4"},
     {modules, []},
     {applications, [kernel, stdlib]},
     {env, []}

@@ -45,22 +45,6 @@ send(SendFun, Batch) when is_function(SendFun, 2) ->
 
 stop(_Pid) -> ok.
 
-%% bridge worker should retry connecting remote node indefinitely
-% reconnect_test() ->
-%     emqx_metrics:start_link(),
-%     emqx_connector_mqtt_worker:register_metrics(),
-%     Ref = make_ref(),
-%     Config = make_config(Ref, self(), {error, test}),
-%     {ok, Pid} = emqx_connector_mqtt_worker:start_link(?BRIDGE_NAME, Config),
-%     %% assert name registered
-%     ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
-%     ?WAIT({connection_start_attempt, Ref}, 1000),
-%     %% expect same message again
-%     ?WAIT({connection_start_attempt, Ref}, 1000),
-%     ok = emqx_connector_mqtt_worker:stop(?BRIDGE_REG_NAME),
-%     emqx_metrics:stop(),
-%     ok.
-
 %% connect first, disconnect, then connect again
 disturbance_test() ->
     meck:new(emqx_connector_mqtt_mod, [passthrough, no_history]),
@@ -69,7 +53,6 @@ disturbance_test() ->
     meck:expect(emqx_connector_mqtt_mod, stop, 1, fun(Pid) -> stop(Pid) end),
     try
         emqx_metrics:start_link(),
-        emqx_connector_mqtt_worker:register_metrics(),
         Ref = make_ref(),
         TestPid = self(),
         Config = make_config(Ref, TestPid, {ok, #{client_pid => TestPid}}),
@@ -84,36 +67,6 @@ disturbance_test() ->
         meck:unload(emqx_connector_mqtt_mod)
     end.
 
-% % %% buffer should continue taking in messages when disconnected
-% buffer_when_disconnected_test_() ->
-%     {timeout, 10000, fun test_buffer_when_disconnected/0}.
-
-% test_buffer_when_disconnected() ->
-%     Ref = make_ref(),
-%     Nums = lists:seq(1, 100),
-%     Sender = spawn_link(fun() -> receive {bridge, Pid} -> sender_loop(Pid, Nums, _Interval = 5) end end),
-%     SenderMref = monitor(process, Sender),
-%     Receiver = spawn_link(fun() -> receive {bridge, Pid} -> receiver_loop(Pid, Nums, _Interval = 1) end end),
-%     ReceiverMref = monitor(process, Receiver),
-%     SendFun = fun(Batch) ->
-%                       BatchRef = make_ref(),
-%                       Receiver ! {batch, BatchRef, Batch},
-%                       {ok, BatchRef}
-%               end,
-%     Config0 = make_config(Ref, false, {ok, #{client_pid => undefined}}),
-%     Config = Config0#{reconnect_delay_ms => 100},
-%     emqx_metrics:start_link(),
-%     emqx_connector_mqtt_worker:register_metrics(),
-%     {ok, Pid} = emqx_connector_mqtt_worker:start_link(?BRIDGE_NAME, Config),
-%     Sender ! {bridge, Pid},
-%     Receiver ! {bridge, Pid},
-%     ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
-%     Pid ! {disconnected, Ref, test},
-%     ?WAIT({'DOWN', SenderMref, process, Sender, normal}, 5000),
-%     ?WAIT({'DOWN', ReceiverMref, process, Receiver, normal}, 1000),
-%     ok = emqx_connector_mqtt_worker:stop(?BRIDGE_REG_NAME),
-%     emqx_metrics:stop().
-
 manual_start_stop_test() ->
     meck:new(emqx_connector_mqtt_mod, [passthrough, no_history]),
     meck:expect(emqx_connector_mqtt_mod, start, 1, fun(Conf) -> start(Conf) end),
@@ -121,7 +74,6 @@ manual_start_stop_test() ->
     meck:expect(emqx_connector_mqtt_mod, stop, 1, fun(Pid) -> stop(Pid) end),
     try
         emqx_metrics:start_link(),
-        emqx_connector_mqtt_worker:register_metrics(),
         Ref = make_ref(),
         TestPid = self(),
         BridgeName = manual_start_stop,

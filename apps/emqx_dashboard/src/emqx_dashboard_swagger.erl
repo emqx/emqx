@@ -677,6 +677,13 @@ typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
 typename_to_spec("host_port()", _Mod) ->
     #{type => string, example => <<"example.host.domain:80">>};
+typename_to_spec("write_syntax()", _Mod) ->
+    #{
+        type => string,
+        example =>
+            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+                "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>
+    };
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
 typename_to_spec("connect_timeout()", Mod) ->

@@ -31,12 +31,18 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 %% API callbacks
--export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
+-export([
+    '/rule_events'/2,
+    '/rule_test'/2,
+    '/rules'/2,
+    '/rules/:id'/2,
+    '/rules/:id/metrics'/2,
+    '/rules/:id/metrics/reset'/2
+]).
 
 %% query callback
 -export([qs2ms/2, run_fuzzy_match/2, format_rule_resp/1]).
 
--define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON), begin
     R0 = err_msg(REASON),
     <<"Bad Arguments: ", R0/binary>>
@@ -126,7 +132,15 @@ namespace() -> "rule".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id", "/rules/:id/reset_metrics"].
+paths() ->
+    [
+        "/rule_events",
+        "/rule_test",
+        "/rules",
+        "/rules/:id",
+        "/rules/:id/metrics",
+        "/rules/:id/metrics/reset"
+    ].
 
 error_schema(Code, Message) when is_atom(Code) ->
     emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
@@ -139,6 +153,9 @@ rule_test_schema() ->
 
 rule_info_schema() ->
     ref(emqx_rule_api_schema, "rule_info").
+
+rule_metrics_schema() ->
+    ref(emqx_rule_api_schema, "rule_metrics").
 
 schema("/rules") ->
     #{
@@ -230,17 +247,31 @@ schema("/rules/:id") ->
             }
         }
     };
-schema("/rules/:id/reset_metrics") ->
+schema("/rules/:id/metrics") ->
     #{
-        'operationId' => '/rules/:id/reset_metrics',
+        'operationId' => '/rules/:id/metrics',
+        get => #{
+            tags => [<<"rules">>],
+            description => ?DESC("api4_1"),
+            summary => <<"Get a Rule's Metrics">>,
+            parameters => param_path_id(),
+            responses => #{
+                404 => error_schema('NOT_FOUND', "Rule not found"),
+                200 => rule_metrics_schema()
+            }
+        }
+    };
+schema("/rules/:id/metrics/reset") ->
+    #{
+        'operationId' => '/rules/:id/metrics/reset',
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api7"),
             summary => <<"Reset a Rule Metrics">>,
             parameters => param_path_id(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "RPC Call Failed"),
-                200 => <<"Reset Success">>
+                404 => error_schema('NOT_FOUND', "Rule not found"),
+                204 => <<"Reset Success">>
             }
         }
     };
@@ -363,15 +394,29 @@ param_path_id() ->
             }),
             {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
     end.
-'/rules/:id/reset_metrics'(put, #{bindings := #{id := RuleId}}) ->
-    case emqx_rule_engine_proto_v1:reset_metrics(RuleId) of
-        ok ->
-            {200, <<"Reset Success">>};
-        Failed ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => err_msg(Failed)
-            }}
+
+'/rules/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            NodeMetrics = get_rule_metrics(Id),
+            MetricsResp =
+                #{
+                    id => Id,
+                    metrics => aggregate_metrics(NodeMetrics),
+                    node_metrics => NodeMetrics
+                },
+            {200, MetricsResp};
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
+    end.
+
+'/rules/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            ok = emqx_rule_engine_proto_v1:reset_metrics(Id),
+            {204};
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
 %%------------------------------------------------------------------------------
@@ -394,15 +439,12 @@ format_rule_resp(#{
     enable := Enable,
     description := Descr
 }) ->
-    NodeMetrics = get_rule_metrics(Id),
     #{
         id => Id,
         name => Name,
         from => Topics,
         actions => format_action(Action),
         sql => SQL,
-        metrics => aggregate_metrics(NodeMetrics),
-        node_metrics => NodeMetrics,
         enable => Enable,
         created_at => format_datetime(CreatedAt, millisecond),
         description => Descr
