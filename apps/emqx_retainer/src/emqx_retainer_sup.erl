@@ -34,8 +34,9 @@ init([Env]) ->
              type     => worker,
              modules  => [emqx_retainer]} || not is_managed_by_modules()]}}.
 
--ifdef(EMQX_ENTERPRISE).
-
+%% This function is added to enterprise branch only.
+%% In enterprise edition, the retainer worker may start under modules supervisor
+%% so we should avoid starting it under the application root supervisor.
 is_managed_by_modules() ->
     try
         case supervisor:get_childspec(emqx_modules_sup, emqx_retainer) of
@@ -46,11 +47,3 @@ is_managed_by_modules() ->
         exit : {noproc, _} ->
             false
     end.
-
--else.
-
-is_managed_by_modules() ->
-    %% always false for opensource edition
-    false.
-
--endif.

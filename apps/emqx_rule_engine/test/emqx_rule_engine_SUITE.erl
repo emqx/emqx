@@ -25,15 +25,19 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--include("emqx_rule_test.hrl").
--import(emqx_rule_test_lib, [make_simple_resource_type/1]).
-
-%% API request funcs
 -import(emqx_rule_test_lib,
         [ request_api/4
         , request_api/5
         , auth_header_/0
         , api_path/1
+        , stop_apps/0
+        , start_apps/0
+        , create_simple_repub_rule/2
+        , create_simple_repub_rule/3
+        , make_simple_debug_resource_type/0
+        , make_simple_resource_type/1
+        , make_bad_resource_type/0
+        , init_events_counters/0
         ]).
 
 %%-define(PROPTEST(M,F), true = proper:quickcheck(M:F())).
@@ -63,6 +67,7 @@ groups() ->
        t_reset_metrics,
        t_reset_metrics_fallbacks,
        t_create_resource,
+       t_create_rule_with_resource,
        t_clean_resource_alarms
       ]},
      {actions, [],
@@ -310,6 +315,41 @@ t_create_resource(_Config) ->
     emqx_rule_registry:remove_resource(ResId),
     ok.
 
+t_create_rule_with_resource(_) ->
+    emqx_rule_registry:register_resource_types([make_bad_resource_type()]),
+    ok = emqx_rule_engine:load_providers(),
+    {ok, #resource{id = BadResId}} = emqx_rule_engine:create_resource(
+            #{type => bad_resource,
+              config => #{},
+              description => <<"bad resource">>}),
+    {ok, #resource{id = GoodResId}} = emqx_rule_engine:create_resource(
+            #{type => built_in,
+              config => #{},
+              description => <<"bad resource">>}),
+
+    {ok, #rule{id = BadRuleId, enabled = Enabled}} = emqx_rule_engine:create_rule(
+                #{rawsql => "select clientid as c, username as u "
+                            "from \"t1\" ",
+                  actions => [#{name => 'inspect',
+                                args => #{<<"$resource">> => BadResId, a=>1, b=>2}}],
+                  description => <<"Inspect rule">>
+                }),
+    ?assertEqual(false, Enabled),
+
+    {ok, #rule{id = GoodRuleId, enabled = Enabled1}} = emqx_rule_engine:create_rule(
+                #{rawsql => "select clientid as c, username as u "
+                            "from \"t1\" ",
+                  actions => [#{name => 'inspect',
+                                args => #{<<"$resource">> => GoodResId, a=>1, b=>2}}],
+                  description => <<"Inspect rule">>
+                }),
+    ?assertEqual(true, Enabled1),
+    emqx_rule_registry:remove_rule(BadRuleId),
+    emqx_rule_registry:remove_rule(GoodRuleId),
+    emqx_rule_registry:remove_resource(BadResId),
+    emqx_rule_registry:remove_resource(GoodResId),
+    ok.
+
 t_clean_resource_alarms(_Config) ->
     lists:foreach(fun(ResId) ->
             clean_resource_alarms(ResId)
@@ -350,8 +390,7 @@ t_inspect_action(_Config) ->
                 #{rawsql => "select clientid as c, username as u "
                             "from \"t1\" ",
                   actions => [#{name => 'inspect',
-                                args => #{'$resource' => ResId, a=>1, b=>2}}],
-                  type => built_in,
+                                args => #{<<"$resource">> => ResId, a=>1, b=>2}}],
                   description => <<"Inspect rule">>
                   }),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -369,7 +408,6 @@ t_reset_metrics(_Config) ->
             #{rawsql => "select clientid as c, username as u "
             "from \"t1\" ",
             actions => [#{name => 'inspect', args => #{a=>1, b=>2}}],
-            type => built_in,
             description => <<"Inspect rule">>
             }),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -414,7 +452,6 @@ t_reset_metrics_fallbacks(_Config) ->
                               #{name => 'inspect', args => #{}, fallbacks => []},
                               #{name => 'inspect', args => #{}, fallbacks => []}
                           ]}],
-            type => built_in,
             description => <<"Inspect rule">>
             }),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),

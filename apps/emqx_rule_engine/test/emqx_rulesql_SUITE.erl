@@ -26,7 +26,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--include("emqx_rule_test.hrl").
+-import(emqx_rule_test_lib,
+        [ stop_apps/0
+        , start_apps/0
+        , create_simple_repub_rule/2
+        , create_simple_repub_rule/3
+        , make_simple_debug_resource_type/0
+        , init_events_counters/0
+        ]).
 
 all() ->
     [ {group, rulesql_select}
