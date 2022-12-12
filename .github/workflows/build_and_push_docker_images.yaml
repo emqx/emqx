@@ -180,6 +180,15 @@ jobs:
         file: source/${{ matrix.os[2] }}
         context: source
 
+    - name: Docker Hub Description
+      if: matrix.registry == 'docker.io'
+      uses: peter-evans/dockerhub-description@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+        repository: "emqx/${{ needs.prepare.outputs.BUILD_PROFILE }}"
+        readme-filepath: ./source/deploy/docker/README.md
+
   docker-elixir:
     runs-on: ${{ matrix.arch[1] }}
     needs: prepare
