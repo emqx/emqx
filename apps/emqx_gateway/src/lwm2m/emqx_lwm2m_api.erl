@@ -81,7 +81,7 @@ schema(?PATH("/observe")) ->
             ],
             'requestBody' => [],
             responses => #{
-                200 => <<"No Content">>,
+                204 => <<"No Content">>,
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
             }
         }
@@ -98,7 +98,7 @@ schema(?PATH("/read")) ->
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
             ],
             responses => #{
-                200 => <<"No Content">>,
+                204 => <<"No Content">>,
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"clientid not found">>)
             }
         }
@@ -121,7 +121,7 @@ schema(?PATH("/write")) ->
                 {value, mk(binary(), #{in => query, required => true, example => 123})}
             ],
             responses => #{
-                200 => <<"No Content">>,
+                204 => <<"No Content">>,
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
             }
         }
@@ -275,7 +275,7 @@ send_cmd(ClientId, Cmd) ->
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
             ok = emqx_lwm2m_channel:send_cmd(Channel, Cmd),
-            {200};
+            {204};
         _ ->
             {404, #{code => 'CLIENT_NOT_FOUND'}}
     end.

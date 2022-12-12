@@ -89,16 +89,20 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
     ).
 
 do_request_api(Method, Request, Opts) ->
-    ReturnBody = maps:get(return_body, Opts, false),
+    ReturnAll = maps:get(return_all, Opts, false),
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+        {ok, {{"HTTP/1.1", Code, _} = Reason, Headers, Body}} when
+            Code >= 200 andalso Code =< 299 andalso ReturnAll
+        ->
+            {ok, {Reason, Headers, Body}};
+        {ok, {{"HTTP/1.1", Code, _}, _, Body}} when
             Code >= 200 andalso Code =< 299
         ->
-            {ok, Return};
-        {ok, {Reason, Headers, Body}} when ReturnBody ->
+            {ok, Body};
+        {ok, {Reason, Headers, Body}} when ReturnAll ->
             {error, {Reason, Headers, Body}};
         {ok, {Reason, _Headers, _Body}} ->
             {error, Reason}
