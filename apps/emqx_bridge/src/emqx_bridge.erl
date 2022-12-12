@@ -138,7 +138,7 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     {ok, Message}.
 
 send_to_matched_egress_bridges(Topic, Msg) ->
-    MatchedBridgeIds = get_matched_bridges(Topic),
+    MatchedBridgeIds = get_matched_egress_bridges(Topic),
     lists:foreach(
         fun(Id) ->
             try send_message(Id, Msg) of
@@ -339,13 +339,19 @@ flatten_confs(Conf0) ->
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
 
-get_matched_bridges(Topic) ->
+get_matched_egress_bridges(Topic) ->
     Bridges = emqx:get_config([bridges], #{}),
     maps:fold(
         fun(BType, Conf, Acc0) ->
             maps:fold(
-                fun(BName, BConf, Acc1) ->
-                    get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
+                fun
+                    (BName, #{egress := _} = BConf, Acc1) when BType =:= mqtt ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1);
+                    (_BName, #{ingress := _}, Acc1) when BType =:= mqtt ->
+                        %% ignore ingress only bridge
+                        Acc1;
+                    (BName, BConf, Acc1) ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
                 end,
                 Acc0,
                 Conf
