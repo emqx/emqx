@@ -446,15 +446,23 @@ lines_to_points(
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     case emqx_plugin_libs_rule:proc_tmpl(Timestamp, Data, TransOptions) of
         [TimestampInt] when is_integer(TimestampInt) ->
-            {_, EncodeTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
-            {_, EncodeFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
+            {_, EncodedTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
+            {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
             Point = #{
                 measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Data),
                 timestamp => TimestampInt,
-                tags => EncodeTags,
-                fields => EncodeFields
+                tags => EncodedTags,
+                fields => EncodedFields
             },
-            lines_to_points(Data, Rest, [Point | ResultPointsAcc], ErrorPointsAcc);
+            case map_size(EncodedFields) =:= 0 of
+                true ->
+                    %% influxdb client doesn't like empty field maps...
+                    lines_to_points(Data, Rest, ResultPointsAcc, [
+                        {error, no_fields} | ErrorPointsAcc
+                    ]);
+                false ->
+                    lines_to_points(Data, Rest, [Point | ResultPointsAcc], ErrorPointsAcc)
+            end;
         BadTimestamp ->
             lines_to_points(Data, Rest, ResultPointsAcc, [
                 {error, {bad_timestamp, BadTimestamp}} | ErrorPointsAcc
