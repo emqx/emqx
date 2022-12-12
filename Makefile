@@ -238,8 +238,8 @@ define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
 $1-elixir-pkg: $(COMMON_DEPS)
 	@env TAR_PKG_DIR=_build/$1-pkg \
-	     IS_ELIXIR=yes \
-	     $(BUILD) $1-pkg pkg
+		IS_ELIXIR=yes \
+		$(BUILD) $1-pkg pkg
 endef
 $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 
