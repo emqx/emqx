@@ -8,6 +8,6 @@ jobs:
     container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run check-deps-integrity.escript
         run: ./scripts/check-deps-integrity.escript
