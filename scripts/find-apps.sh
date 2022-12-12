@@ -78,7 +78,9 @@ dimensions() {
             ;;
     esac
     ## poor-man's json formatter
-    echo -n -e "[\"$app\", \"$profile\"]"
+    ## apps/<app name>, <profile>, apps_<app name>
+    ## third one is for github actions (they don't like slash in variables)
+    echo -n -e "[\"$app\", \"$profile\", \"${app//\//_}\"]"
 }
 
 matrix() {
