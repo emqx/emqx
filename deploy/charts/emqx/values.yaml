@@ -72,7 +72,7 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
-  ## Cluster discovery by k8s
+  ## Cluster discovery by 'k8s' or 'dns'
   EMQX_CLUSTER__DISCOVERY: "k8s"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__ID: "admin"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__SECRET: "public"
