@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - ["emqx", "amzn2"]
+        - ["emqx", "el7"]
         - ["emqx-enterprise", "ubuntu20.04"]
         otp:
         - 24.3.4.2-1
