@@ -419,7 +419,7 @@ on_sql_query(
     {ok, Conn} = ecpool_worker:client(Worker),
     ?tp(
         mysql_connector_send_query,
-        #{sql_or_key => SQLOrKey, data => Data}
+        #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Data}
     ),
     try mysql:SQLFunc(Conn, SQLOrKey, Data, Timeout) of
         {error, disconnected} = Result ->
@@ -431,6 +431,10 @@ on_sql_query(
             _ = exit(Conn, restart),
             Result;
         {error, not_prepared} = Error ->
+            ?tp(
+                mysql_connector_prepare_query_failed,
+                #{error => not_prepared}
+            ),
             ?SLOG(
                 warning,
                 LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}
