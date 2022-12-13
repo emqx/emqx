@@ -149,8 +149,12 @@ on_query(
     {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
     case on_sql_query(InstId, MySqlFunction, SQLOrKey2, Data, Timeout, State) of
         {error, not_prepared} ->
-            case prepare_sql(Prepares, PoolName) of
+            case maybe_prepare_sql(SQLOrKey2, Prepares, PoolName) of
                 ok ->
+                    ?tp(
+                        mysql_connector_on_query_prepared_sql,
+                        #{type_or_key => TypeOrKey, sql_or_key => SQLOrKey, params => Params}
+                    ),
                     %% not return result, next loop will try again
                     on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, State);
                 {error, Reason} ->
@@ -182,7 +186,7 @@ on_batch_query(
         Request ->
             LogMeta = #{connector => InstId, first_request => Request, state => State},
             ?SLOG(error, LogMeta#{msg => "invalid request"}),
-            {error, invald_request}
+            {error, invalid_request}
     end.
 
 mysql_function(sql) ->
@@ -256,6 +260,12 @@ init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
             end
     end.
 
+maybe_prepare_sql(SQLOrKey, Prepares, PoolName) ->
+    case maps:is_key(SQLOrKey, Prepares) of
+        true -> prepare_sql(Prepares, PoolName);
+        false -> {error, prepared_statement_is_unprepared}
+    end.
+
 prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
     prepare_sql(maps:to_list(Prepares), PoolName);
 prepare_sql(Prepares, PoolName) ->
@@ -305,6 +315,8 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
             ?SLOG(info, LogMeta#{result => success}),
             prepare_sql_to_conn(Conn, PrepareList);
         {error, Reason} ->
+            % FIXME: we should try to differ on transient failers and
+            % syntax failures. Retrying syntax failures is not very productive.
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, Reason}
     end.
