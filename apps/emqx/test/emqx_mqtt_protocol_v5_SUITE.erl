@@ -919,7 +919,7 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(Config) ->
         emqtt,
         connected,
         fun
-            (cast, ?PUBLISH_PACKET(?QOS_2, _PacketId), _State) ->
+            (cast, {?PUBLISH_PACKET(?QOS_2, _PacketId), _Via}, _State) ->
                 ok = counters:add(CRef, 1, 1),
                 {stop, {shutdown, for_testing}};
             (Arg1, ARg2, Arg3) ->
