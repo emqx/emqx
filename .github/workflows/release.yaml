@@ -7,7 +7,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.detect-profiles.outputs.profiles}}
