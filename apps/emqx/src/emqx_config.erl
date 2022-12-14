@@ -575,10 +575,10 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 do_get_raw(Path) ->
-    hocon_tconf:remove_env_meta(do_get(?RAW_CONF, Path)).
+    do_get(?RAW_CONF, Path).
 
 do_get_raw(Path, Default) ->
-    hocon_tconf:remove_env_meta(do_get(?RAW_CONF, Path, Default)).
+    do_get(?RAW_CONF, Path, Default).
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),
