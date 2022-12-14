@@ -198,9 +198,6 @@ jobs:
           fail-fast: false
           matrix:
             app: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
-            profile:
-              - emqx
-              - emqx-enterprise
             runs-on:
               - aws-amd64
               - ubuntu-20.04

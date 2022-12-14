@@ -402,6 +402,7 @@ merge_envs(SchemaMod, RawConf) ->
         required => false,
         format => map,
         apply_override_envs => true,
+        remove_env_meta => true,
         check_lazy => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
@@ -575,10 +576,10 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 do_get_raw(Path) ->
-    hocon_tconf:remove_env_meta(do_get(?RAW_CONF, Path)).
+    do_get(?RAW_CONF, Path).
 
 do_get_raw(Path, Default) ->
-    hocon_tconf:remove_env_meta(do_get(?RAW_CONF, Path, Default)).
+    do_get(?RAW_CONF, Path, Default).
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),
