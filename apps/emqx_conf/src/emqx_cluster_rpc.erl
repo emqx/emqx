@@ -172,7 +172,7 @@ do_multicall(M, F, A, RequiredSyncs, Timeout) ->
                 %% don't need rpc again inside transaction.
                 case mria_status:upstream_node(?CLUSTER_RPC_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, InitReq, Timeout);
-                    disconnected -> {error, disconnected}
+                    disconnected -> {init_failure, {error, disconnected}}
                 end
         end,
     End = erlang:monotonic_time(),
