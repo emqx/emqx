@@ -209,20 +209,27 @@ t_log_file(_Config) ->
     ?assertMatch([#{<<"mtime">> := _, <<"size">> := _, <<"node">> := _}], json(Detail)),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download"), Header),
     {ok, [
-        _Comment,
+        Comment,
         #zip_file{
             name = ZipName,
             info = #file_info{size = Size, type = regular, access = read_write}
         }
-    ]} =
-        ZipTab =
-        zip:table(Binary),
+    ]} = zip:table(Binary),
     ?assert(Size > 0),
     ZipNamePrefix = lists:flatten(io_lib:format("~s-trace_~s", [node(), Name])),
     ?assertNotEqual(nomatch, re:run(ZipName, [ZipNamePrefix])),
     Path = api_path("trace/test_client_id/download?node=" ++ atom_to_list(node())),
     {ok, Binary2} = request_api(get, Path, Header),
-    ?assertEqual(ZipTab, zip:table(Binary2)),
+    ?assertMatch(
+        {ok, [
+            Comment,
+            #zip_file{
+                name = ZipName,
+                info = #file_info{size = Size, type = regular, access = read_write}
+            }
+        ]},
+        zip:table(Binary2)
+    ),
     {error, {_, 400, _}, _} =
         request_api(
             get,
