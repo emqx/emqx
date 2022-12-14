@@ -255,6 +255,15 @@ handle_call(_Req, _From, S) ->
 
 %% @doc handle DOWN messages from streams.
 %% @TODO handle DOWN from supervisor?
+handle_info({'DOWN', _Ref, process, Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
+    case Reason of
+        normal ->
+            quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+        _ ->
+            %% @TODO have some reasons mappings here.
+            quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 1)
+    end,
+    {ok, S};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, #{streams := Streams} = S) when
     Reason =:= normal orelse
         Reason =:= {shutdown, protocol_error}

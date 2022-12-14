@@ -164,9 +164,13 @@ fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
     %% handshake aborted.
     quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok;
-fast_close({quic, Conn, _Stream, _Info}) ->
-    %% Since we shutdown the control stream, we shutdown the connection as well
-    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
+fast_close({quic, _Conn, Stream, _Info}) ->
+    %% Force flush
+    quicer:async_shutdown_stream(Stream),
+    %% @FIXME Since we shutdown the control stream, we shutdown the connection as well
+    %% *BUT* Msquic does not flush the send buffer if we shutdown the connection after
+    %% gracefully shutdown the stream.
+    % quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
