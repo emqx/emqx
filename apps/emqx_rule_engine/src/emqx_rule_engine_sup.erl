@@ -24,6 +24,8 @@
 
 -export([ start_locker/0
         , start_jwt_sup/0
+        , ensure_api_delegator_started/0
+        , ensure_api_delegator_stopped/0
         ]).
 
 -export([init/1]).
@@ -58,7 +60,8 @@ init([]) ->
                 type => worker,
                 modules => [emqx_rule_monitor]},
     JWTSup = jwt_sup_child_spec(),
-    {ok, {SupFlags, [Registry, Metrics, Monitor, JWTSup]}}.
+    API = api_delegator_sup_spec(),
+    {ok, {SupFlags, [Registry, Metrics, Monitor, JWTSup, API]}}.
 
 start_locker() ->
     Locker = #{id => emqx_rule_locker,
@@ -97,3 +100,31 @@ ensure_table(Name, Opts) ->
         error:badarg ->
             ok
     end.
+
+%% This is called by the emqx_rule_engine.appup.src when release upgrade
+ensure_api_delegator_started() ->
+    case supervisor:start_child(?MODULE, api_delegator_sup_spec()) of
+        {ok, _} -> ok;
+        {error, already_present} -> ok;
+        {error, {already_started, _Pid}} -> ok;
+        {error, _} = Err -> throw({failed_to_start_ensure_api, Err})
+    end.
+
+%% This is called by the emqx_rule_engine.appup.src when release downgrade
+ensure_api_delegator_stopped() ->
+    case supervisor:terminate_child(?MODULE, emqx_rule_engine_api) of
+        ok ->
+            %% don't crash if delete failed
+            supervisor:delete_child(?MODULE, emqx_rule_engine_api);
+        {error, not_found} -> ok
+    end.
+
+api_delegator_sup_spec() ->
+    #{
+        id => emqx_rule_engine_api,
+        start => {emqx_rule_engine_api, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_rule_engine_api]
+    }.
