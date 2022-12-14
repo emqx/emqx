@@ -119,7 +119,7 @@ is_win32() ->
     win32 =:= element(1, os:type()).
 
 project_app_dirs() ->
-    project_app_dirs(get_edition_from_profille_env()).
+    project_app_dirs(get_edition_from_profile_env()).
 
 project_app_dirs(Edition) ->
     ["apps/*"] ++
@@ -154,14 +154,14 @@ test_deps() ->
         {erl_csv, "0.2.0"}
     ].
 
-common_compile_opts(Vsn) ->
-    common_compile_opts(get_edition_from_profille_env(), Vsn).
+common_compile_opts() ->
+    common_compile_opts(get_edition_from_profile_env(), undefined).
 
 common_compile_opts(Edition, Vsn) ->
     % always include debug_info
     [
         debug_info,
-        {compile_info, [{emqx_vsn, Vsn}]},
+        {compile_info, [{emqx_vsn, Vsn} || Vsn /= undefined]},
         {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
@@ -180,7 +180,7 @@ warn_profile_env() ->
     end.
 
 %% this function is only used for test/check profiles
-get_edition_from_profille_env() ->
+get_edition_from_profile_env() ->
     case os:getenv("PROFILE") of
         "emqx-enterprise" ++ _ ->
             ee;
@@ -243,15 +243,14 @@ profiles_ee() ->
 
 %% EE has more files than CE, always test/check with EE options.
 profiles_dev() ->
-    Vsn = get_vsn('emqx-enterprise'),
     [
         {check, [
-            {erl_opts, common_compile_opts(Vsn)},
+            {erl_opts, common_compile_opts()},
             {project_app_dirs, project_app_dirs()}
         ]},
         {test, [
             {deps, test_deps()},
-            {erl_opts, common_compile_opts(Vsn) ++ erl_opts_i()},
+            {erl_opts, common_compile_opts() ++ erl_opts_i()},
             {extra_src_dirs, [{"test", [{recursive, true}]}]},
             {project_app_dirs, project_app_dirs()}
         ]}
