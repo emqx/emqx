@@ -14,7 +14,11 @@ case "$UNAME" in
         SYSTEM="${DIST}${VERSION_ID}"
         ;;
     Linux)
-        if grep -q -i 'rhel' /etc/*-release; then
+        # /etc/os-release on amazon linux 2 contains both rhel and centos strings
+        if grep -q -i 'amzn' /etc/*-release; then
+            DIST='amzn'
+            VERSION_ID="$(sed -n '/^VERSION_ID=/p' /etc/os-release | sed -r 's/VERSION_ID=(.*)/\1/g' | sed 's/"//g')"
+        elif grep -q -i 'rhel' /etc/*-release; then
             DIST='el'
             VERSION_ID="$(rpm --eval '%{rhel}')"
         else
