@@ -154,8 +154,8 @@ handle_info({timeout, TRef, ?refresh_jwt}, State0 = #{refresh_timer := TRef}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-format_status(State) ->
-    censor_secrets(State).
+format_status(Status = #{state := State}) ->
+    Status#{state => censor_secrets(State)}.
 
 format_status(_Opt, [_PDict, State0]) ->
     State = censor_secrets(State0),
@@ -222,16 +222,13 @@ ensure_timer(State) ->
     State.
 
 -spec censor_secrets(state()) -> map().
-censor_secrets(State) ->
-    maps:map(
-        fun
-            (Key, _Value) when
-                Key =:= jwt;
-                Key =:= jwk
-            ->
-                "******";
-            (_Key, Value) ->
-                Value
-        end,
-        State
-    ).
+censor_secrets(State = #{jwt := JWT, jwk := JWK}) ->
+    State#{
+        jwt := censor_secret(JWT),
+        jwk := censor_secret(JWK)
+    }.
+
+censor_secret(undefined) ->
+    undefined;
+censor_secret(_Secret) ->
+    "******".
