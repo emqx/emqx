@@ -274,7 +274,7 @@ do_store_retained_message(Msg, TopicTokens, ExpiryTime) ->
         msg = Msg,
         expiry_time = ExpiryTime
     },
-    ok = mria:dirty_write_sync(?TAB_MESSAGE, RetainedMessage).
+    ok = mria:dirty_write(?TAB_MESSAGE, RetainedMessage).
 
 do_store_retained_indices(TopicTokens, ExpiryTime) ->
     Indices = dirty_indices(write),
