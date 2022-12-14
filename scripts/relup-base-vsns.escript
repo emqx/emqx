@@ -171,6 +171,11 @@ filter_froms(Froms0, AvailableVersionsIndex) ->
                   fun(Vsn) ->
                           not lists:member(Vsn, [<<"4.4.0">>, <<"4.4.1">>])
                   end, Froms0);
+            %% amzn2 is introduced since v4.4.12 and e4.4.12
+            %% exclude tags before them
+            "amzn2" ->
+                Excluded = [list_to_binary(["4.4.", integer_to_list(X)]) || X <- lists:seq(0,11)],
+                lists:filter(fun(Vsn) -> not lists:member(Vsn, Excluded) end, Froms0);
             _ ->
                 Froms0
         end,

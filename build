@@ -195,6 +195,14 @@ make_zip() {
                     ;;
             esac
             ;;
+        amzn2)
+            case "$PKG_VSN" in
+                4.4.12*)
+                    # this is the first version for amzn2, no relup
+                    has_relup='no'
+                    ;;
+            esac
+            ;;
     esac
     # shellcheck disable=SC2207
     bases=($(relup_db base-vsns "$PKG_VSN"))
