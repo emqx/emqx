@@ -402,6 +402,7 @@ merge_envs(SchemaMod, RawConf) ->
         required => false,
         format => map,
         apply_override_envs => true,
+        remove_env_meta => true,
         check_lazy => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
