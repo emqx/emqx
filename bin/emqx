@@ -104,14 +104,14 @@ usage() {
         echo "Print path to Erlang runtime bin dir"
         ;;
     rpc)
-        echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
+        echo "Usage: $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
         echo "Connect to the EMQX node and make an Erlang RPC"
         echo "This command blocks for at most 60 seconds."
         echo "It exits with non-zero code in case of any RPC failure"
         echo "including connection error and runtime exception"
         ;;
     rpcterms)
-        echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
+        echo "Usage: $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
         echo "Connect to the EMQX node and make an Erlang RPC"
         echo "The result of the RPC call is pretty-printed as an "
         echo "Erlang term"
