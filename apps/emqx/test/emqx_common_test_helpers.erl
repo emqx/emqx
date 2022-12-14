@@ -66,6 +66,9 @@
 
 -export([clear_screen/0]).
 -export([with_mock/4]).
+-export([
+    on_exit/1
+]).
 
 %% Toxiproxy API
 -export([
@@ -161,7 +164,17 @@ boot_modules(Mods) ->
 
 -spec start_apps(Apps :: apps()) -> ok.
 start_apps(Apps) ->
-    start_apps(Apps, fun(_) -> ok end).
+    %% to avoid keeping the `db_hostname' that is set when loading
+    %% `system_monitor' application in `emqx_machine', and then it
+    %% crashing when trying to connect.
+    %% FIXME: add an `enable' option to sysmon_top and use that to
+    %% decide whether to start it or not.
+    DefaultHandler =
+        fun(_) ->
+            application:set_env(system_monitor, db_hostname, ""),
+            ok
+        end,
+    start_apps(Apps, DefaultHandler).
 
 -spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
 start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
@@ -920,3 +933,21 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
         [],
         [{body_format, binary}]
     ).
+
+%%-------------------------------------------------------------------------------
+%% Testcase teardown utilities
+%%-------------------------------------------------------------------------------
+
+get_or_spawn_janitor() ->
+    case get({?MODULE, janitor_proc}) of
+        undefined ->
+            {ok, Janitor} = emqx_test_janitor:start_link(),
+            put({?MODULE, janitor_proc}, Janitor),
+            Janitor;
+        Janitor ->
+            Janitor
+    end.
+
+on_exit(Fun) ->
+    Janitor = get_or_spawn_janitor(),
+    ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).

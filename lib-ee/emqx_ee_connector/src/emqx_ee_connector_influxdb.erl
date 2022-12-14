@@ -87,7 +87,7 @@ on_batch_query(InstId, BatchData, _State = #{write_syntax := SyntaxLines, client
 on_query_async(
     InstId,
     {send_message, Data},
-    {ReplayFun, Args},
+    {ReplyFun, Args},
     _State = #{write_syntax := SyntaxLines, client := Client}
 ) ->
     case data_to_points(Data, SyntaxLines) of
@@ -96,7 +96,7 @@ on_query_async(
                 influxdb_connector_send_query,
                 #{points => Points, batch => false, mode => async}
             ),
-            do_async_query(InstId, Client, Points, {ReplayFun, Args});
+            do_async_query(InstId, Client, Points, {ReplyFun, Args});
         {error, ErrorPoints} = Err ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -109,7 +109,7 @@ on_query_async(
 on_batch_query_async(
     InstId,
     BatchData,
-    {ReplayFun, Args},
+    {ReplyFun, Args},
     #{write_syntax := SyntaxLines, client := Client}
 ) ->
     case parse_batch_data(InstId, BatchData, SyntaxLines) of
@@ -118,7 +118,7 @@ on_batch_query_async(
                 influxdb_connector_send_query,
                 #{points => Points, batch => true, mode => async}
             ),
-            do_async_query(InstId, Client, Points, {ReplayFun, Args});
+            do_async_query(InstId, Client, Points, {ReplyFun, Args});
         {error, Reason} ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -336,13 +336,13 @@ do_query(InstId, Client, Points) ->
             Err
     end.
 
-do_async_query(InstId, Client, Points, ReplayFunAndArgs) ->
+do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
     ?SLOG(info, #{
         msg => "influxdb write point async",
         connector => InstId,
         points => Points
     }),
-    ok = influxdb:write_async(Client, Points, ReplayFunAndArgs).
+    ok = influxdb:write_async(Client, Points, ReplyFunAndArgs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
