@@ -1,8 +1,8 @@
 version: '3.9'
 
 services:
-  redis_server:
-    container_name: redis
+  redis_cluster_tls:
+    container_name: redis-cluster-tls
     image: redis:${REDIS_TAG}
     volumes:
       - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt

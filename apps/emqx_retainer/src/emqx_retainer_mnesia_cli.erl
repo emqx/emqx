@@ -50,11 +50,39 @@ retainer(["reindex", "status"]) ->
 retainer(["reindex", "start"]) ->
     retainer(["reindex", "start", "false"]);
 retainer(["reindex", "start", ForceParam]) ->
-    Force =
-        case ForceParam of
-            "true" -> true;
-            _ -> false
-        end,
+    case mria_rlog:role() of
+        core ->
+            Force =
+                case ForceParam of
+                    "true" -> true;
+                    _ -> false
+                end,
+            do_reindex(Force);
+        replicant ->
+            ?PRINT_MSG("Can't run reindex on a replicant node")
+    end;
+retainer(_) ->
+    emqx_ctl:usage(
+        [
+            {"retainer info", "Show the count of retained messages"},
+            {"retainer topics", "Show all topics of retained messages"},
+            {"retainer clean", "Clean all retained messages"},
+            {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
+            {"retainer reindex status", "Show reindex status"},
+            {"retainer reindex start [force]",
+                "Generate new retainer topic indices from config settings.\n"
+                "Pass true as <Force> to ignore previously started reindexing"}
+        ]
+    ).
+
+unload() ->
+    ok = emqx_ctl:unregister_command(retainer).
+
+%%------------------------------------------------------------------------------
+%% Private
+%%------------------------------------------------------------------------------
+
+do_reindex(Force) ->
     ?PRINT_MSG("Starting reindexing~n"),
     emqx_retainer_mnesia:reindex(
         Force,
@@ -69,20 +97,4 @@ retainer(["reindex", "start", ForceParam]) ->
             ?PRINT("Reindexed ~p messages~n", [Done])
         end
     ),
-    ?PRINT_MSG("Reindexing finished~n");
-retainer(_) ->
-    emqx_ctl:usage(
-        [
-            {"retainer info", "Show the count of retained messages"},
-            {"retainer topics", "Show all topics of retained messages"},
-            {"retainer clean", "Clean all retained messages"},
-            {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
-            {"retainer reindex status", "Show reindex status"},
-            {"retainer reindex start [force]",
-                "Generate new retainer topic indices config settings.\n"
-                "Pass true as <Force> to ignore previously started reindexing"}
-        ]
-    ).
-
-unload() ->
-    ok = emqx_ctl:unregister_command(retainer).
+    ?PRINT_MSG("Reindexing finished~n").

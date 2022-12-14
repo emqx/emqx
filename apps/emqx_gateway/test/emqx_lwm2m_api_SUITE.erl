@@ -253,7 +253,7 @@ t_read(Config) ->
     test_recv_mqtt_response(RespTopic),
 
     %% step2, call Read API
-    call_send_api(Epn, "read", "path=/3/0/0"),
+    ?assertMatch({204, []}, call_send_api(Epn, "read", "path=/3/0/0")),
     timer:sleep(100),
     #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
     ?assertEqual(con, Type),
@@ -289,7 +289,7 @@ t_write(Config) ->
     test_recv_mqtt_response(RespTopic),
 
     %% step2, call write API
-    call_send_api(Epn, "write", "path=/3/0/13&type=Integer&value=123"),
+    ?assertMatch({204, []}, call_send_api(Epn, "write", "path=/3/0/13&type=Integer&value=123")),
     timer:sleep(100),
     #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
     ?assertEqual(con, Type),
@@ -326,7 +326,7 @@ t_observe(Config) ->
     test_recv_mqtt_response(RespTopic),
 
     %% step2, call observe API
-    call_deprecated_send_api(Epn, "observe", "path=/3/0/1&enable=false"),
+    ?assertMatch({204, []}, call_deprecated_send_api(Epn, "observe", "path=/3/0/1&enable=false")),
     timer:sleep(100),
     #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
     ?assertEqual(con, Type),
@@ -354,9 +354,12 @@ call_deprecated_send_api(ClientId, Cmd, Query) ->
 call_send_api(ClientId, Cmd, Query, API) ->
     ApiPath = emqx_mgmt_api_test_util:api_path([API, ClientId, Cmd]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, ApiPath, Query, Auth),
+    Opts = #{return_all => true},
+    {ok, {{"HTTP/1.1", StatusCode, _}, _Headers, Response}} = emqx_mgmt_api_test_util:request_api(
+        post, ApiPath, Query, Auth, [], Opts
+    ),
     ?LOGT("rest api response:~ts~n", [Response]),
-    Response.
+    {StatusCode, Response}.
 
 no_received_request(ClientId, Path, Action) ->
     Response = call_lookup_api(ClientId, Path, Action),

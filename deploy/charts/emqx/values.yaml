@@ -94,19 +94,6 @@ initContainers: {}
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
-  EMQX_CLUSTER__DNS__NAME: "{{ .Release.Name }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
-  EMQX_CLUSTER__DNS__RECORD_TYPE: "srv"
-  # EMQX_CLUSTER__DISCOVERY_STRATEGY: "k8s"
-  # EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
-  # EMQX_CLUSTER__K8S__SERVICE_NAME: "{{ .Release.Name }}-headless"
-  # EMQX_CLUSTER__K8S__NAMESPACE: "{{ .Release.Namespace }}"
-  ## The address type is used to extract host from k8s service.
-  ## Value: ip | dns | hostname
-  ## Note：Hostname is only supported after v4.0-rc.2
-  EMQX_CLUSTER__K8S__ADDRESS_TYPE: "hostname"
-  EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
-  ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
-  # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
   EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
   EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
 
@@ -162,6 +149,12 @@ service:
   ## Set the ExternalIPs
   ##
   externalIPs: []
+  ## Denotes if this Service desires to route external traffic to node-local or cluster-wide endpoints.
+  ## There are two available options: Cluster (default) and Local.
+  ## Cluster obscures the client source IP and may cause a second hop to another node, but should have good overall load-spreading.
+  ## Local preserves the client source IP and avoids a second hop for LoadBalancer and NodePort type Services, but risks potentially imbalanced traffic spreading.
+  ##
+  externalTrafficPolicy: "Cluster"
   ## Provide any additional annotations which may be required. Evaluated as a template
   ##
   annotations: {}
