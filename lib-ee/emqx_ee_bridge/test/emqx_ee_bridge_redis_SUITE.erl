@@ -85,6 +85,7 @@ init_per_suite(Config) ->
             ProxyHost = os:getenv("PROXY_HOST", ?PROXY_HOST),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", ?PROXY_PORT)),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+            emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([
                 emqx_resource, emqx_bridge, emqx_rule_engine
