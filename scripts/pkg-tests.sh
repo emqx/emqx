@@ -47,10 +47,11 @@ export EMQX_NAME
 export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 
+SYSTEM="$("$SCRIPTS"/get-distro.sh)"
+
 if [ "$PACKAGE_TYPE" = 'tgz' ]; then
     PKG_SUFFIX="tar.gz"
 else
-    SYSTEM="$("$SCRIPTS"/get-distro.sh)"
     case "${SYSTEM:-}" in
         ubuntu*|debian*|raspbian*)
             PKG_SUFFIX='deb'
@@ -149,7 +150,15 @@ emqx_test(){
         ;;
         "rpm")
             # yum wants python2
-            alternatives --list | grep python && alternatives --set python /usr/bin/python2
+            case "${SYSTEM:-}" in
+                "el8")
+                    # el8 is fine with python3
+                    true
+                    ;;
+                *)
+                    alternatives --list | grep python && alternatives --set python /usr/bin/python2
+                    ;;
+            esac
             YUM_RES=$(yum install -y "${PACKAGE_PATH}/${packagename}"| tee /dev/null)
             if [[ $YUM_RES =~ "Failed" ]]; then
                echo "yum install failed"
