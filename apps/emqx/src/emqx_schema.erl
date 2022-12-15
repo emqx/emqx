@@ -1942,7 +1942,6 @@ common_ssl_opts_schema(Defaults) ->
     ].
 
 %% @doc Make schema for SSL listener options.
-%% When it's for ranch listener, an extra field `handshake_timeout' is added.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
@@ -1981,26 +1980,23 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         default => Df("client_renegotiation", true),
                         desc => ?DESC(server_ssl_opts_schema_client_renegotiation)
                     }
+                )},
+            {"handshake_timeout",
+                sc(
+                    duration(),
+                    #{
+                        default => Df("handshake_timeout", "15s"),
+                        desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
+                    }
                 )}
-            | [
-                {"handshake_timeout",
-                    sc(
-                        duration(),
-                        #{
-                            default => Df("handshake_timeout", "15s"),
-                            desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
-                        }
-                    )}
-             || IsRanchListener
-            ] ++
-                [
-                    {"gc_after_handshake",
-                        sc(boolean(), #{
-                            default => false,
-                            desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
-                        })}
-                 || not IsRanchListener
-                ]
+        ] ++
+        [
+            {"gc_after_handshake",
+                sc(boolean(), #{
+                    default => false,
+                    desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
+                })}
+         || not IsRanchListener
         ].
 
 %% @doc Make schema for SSL client.

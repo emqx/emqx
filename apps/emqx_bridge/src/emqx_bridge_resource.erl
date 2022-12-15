@@ -298,8 +298,8 @@ parse_confs(Type, Name, Conf) when ?IS_BI_DIR_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
-    BName = bridge_id(Type, Name),
-    Conf#{hookpoint => <<"$bridges/", BName/binary>>, bridge_name => Name};
+    BId = bridge_id(Type, Name),
+    Conf#{hookpoint => <<"$bridges/", BId/binary>>, bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
 

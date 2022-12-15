@@ -22,6 +22,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx_hooks.hrl").
+
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -35,6 +37,20 @@
     end)()
 ).
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
+-define(NOT_SUPERUSER, #{is_superuser => false}).
+
+-define(assertAuthSuccessForUser(User),
+    ?assertMatch(
+        {ok, _},
+        emqx_access_control:authenticate(ClientInfo#{username => atom_to_binary(User)})
+    )
+).
+-define(assertAuthFailureForUser(User),
+    ?assertMatch(
+        {error, _},
+        emqx_access_control:authenticate(ClientInfo#{username => atom_to_binary(User)})
+    )
+).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -88,8 +104,21 @@ update(_Config, _State) ->
 
 authenticate(#{username := <<"good">>}, _State) ->
     {ok, #{is_superuser => true}};
+authenticate(#{username := <<"ignore">>}, _State) ->
+    ignore;
 authenticate(#{username := _}, _State) ->
     {error, bad_username_or_password}.
+
+hook_authenticate(#{username := <<"hook_user_good">>}, _AuthResult) ->
+    {ok, {ok, ?NOT_SUPERUSER}};
+hook_authenticate(#{username := <<"hook_user_bad">>}, _AuthResult) ->
+    {ok, {error, invalid_username}};
+hook_authenticate(#{username := <<"hook_user_finally_good">>}, _AuthResult) ->
+    {stop, {ok, ?NOT_SUPERUSER}};
+hook_authenticate(#{username := <<"hook_user_finally_bad">>}, _AuthResult) ->
+    {stop, {error, invalid_username}};
+hook_authenticate(_ClientId, AuthResult) ->
+    {ok, AuthResult}.
 
 destroy(_State) ->
     ok.
@@ -112,6 +141,10 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(Case, Config) ->
     _ = ?MODULE:Case({'end', Config}),
     ok.
+
+%%=================================================================================
+%% Testcases
+%%=================================================================================
 
 t_chain({'init', Config}) ->
     Config;
@@ -499,6 +532,92 @@ t_convert_certs(Config) when is_list(Config) ->
     ?assertEqual(true, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))),
     clear_certs(CertsDir, #{<<"ssl">> => NCerts3}),
     ?assertEqual(false, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))).
+
+t_combine_authn_and_callback({init, Config}) ->
+    [
+        {listener_id, 'tcp:default'},
+        {authn_type, {password_based, built_in_database}}
+        | Config
+    ];
+t_combine_authn_and_callback(Config) when is_list(Config) ->
+    ListenerID = ?config(listener_id),
+    ClientInfo = #{
+        zone => default,
+        listener => ListenerID,
+        protocol => mqtt,
+        password => <<"any">>
+    },
+
+    %% no emqx_authentication authenticators, anonymous is allowed
+    ?assertAuthSuccessForUser(bad),
+
+    AuthNType = ?config(authn_type),
+    register_provider(AuthNType, ?MODULE),
+
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
+
+    %% emqx_authentication alone
+    ?assertAuthSuccessForUser(good),
+    ?assertAuthFailureForUser(ignore),
+    ?assertAuthFailureForUser(bad),
+
+    %% add hook with higher priority
+    ok = hook(?HP_AUTHN + 1),
+
+    %% for hook unrelataed users everything is the same
+    ?assertAuthSuccessForUser(good),
+    ?assertAuthFailureForUser(ignore),
+    ?assertAuthFailureForUser(bad),
+
+    %% higher-priority hook can permit access with {ok,...},
+    %% then emqx_authentication overrides the result
+    ?assertAuthFailureForUser(hook_user_good),
+    ?assertAuthFailureForUser(hook_user_bad),
+
+    %% higher-priority hook can permit and return {stop,...},
+    %% then emqx_authentication cannot override the result
+    ?assertAuthSuccessForUser(hook_user_finally_good),
+    ?assertAuthFailureForUser(hook_user_finally_bad),
+
+    ok = unhook(),
+
+    %% add hook with lower priority
+    ok = hook(?HP_AUTHN - 1),
+
+    %% for hook unrelataed users
+    ?assertAuthSuccessForUser(good),
+    ?assertAuthFailureForUser(bad),
+    ?assertAuthFailureForUser(ignore),
+
+    %% lower-priority hook can overrride auth result,
+    %% because emqx_authentication permits/denies with {ok, ...}
+    ?assertAuthSuccessForUser(hook_user_good),
+    ?assertAuthFailureForUser(hook_user_bad),
+    ?assertAuthSuccessForUser(hook_user_finally_good),
+    ?assertAuthFailureForUser(hook_user_finally_bad),
+
+    ok = unhook();
+t_combine_authn_and_callback({'end', Config}) ->
+    ?AUTHN:delete_chain(?config(listener_id)),
+    ?AUTHN:deregister_provider(?config(authn_type)),
+    ok.
+
+%%=================================================================================
+%% Helpers fns
+%%=================================================================================
+
+hook(Priority) ->
+    ok = emqx_hooks:put(
+        'client.authenticate', {?MODULE, hook_authenticate, []}, Priority
+    ).
+
+unhook() ->
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, hook_authenticate}).
 
 update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).

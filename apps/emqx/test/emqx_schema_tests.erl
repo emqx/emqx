@@ -37,11 +37,11 @@ ssl_opts_dtls_test() ->
 ssl_opts_tls_1_3_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
-    ?assertNot(maps:is_key(handshake_timeout, Checked)),
     ?assertMatch(
         #{
             versions := ['tlsv1.3'],
-            ciphers := []
+            ciphers := [],
+            handshake_timeout := _
         },
         Checked
     ).

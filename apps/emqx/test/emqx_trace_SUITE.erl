@@ -43,6 +43,9 @@ init_per_suite(Config) ->
             timer:seconds(100)
         ),
         fun(Trace) ->
+            ct:pal("listener start statuses: ~p", [
+                ?of_kind([listener_started, listener_not_started], Trace)
+            ]),
             %% more than one listener
             ?assertMatch([_ | _], ?of_kind(listener_started, Trace))
         end

@@ -22,7 +22,10 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
         ref(emqx_ee_bridge_hstreamdb, Method),
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v1"),
-        ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2")
+        ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2"),
+        ref(emqx_ee_bridge_redis, Method ++ "_single"),
+        ref(emqx_ee_bridge_redis, Method ++ "_sentinel"),
+        ref(emqx_ee_bridge_redis, Method ++ "_cluster")
     ].
 
 schema_modules() ->
@@ -32,7 +35,8 @@ schema_modules() ->
         emqx_ee_bridge_gcp_pubsub,
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mongodb,
-        emqx_ee_bridge_mysql
+        emqx_ee_bridge_mysql,
+        emqx_ee_bridge_redis
     ].
 
 examples(Method) ->
@@ -56,7 +60,10 @@ resource_type(mongodb_sharded) -> emqx_connector_mongo;
 resource_type(mongodb_single) -> emqx_connector_mongo;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
-resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb.
+resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb;
+resource_type(redis_single) -> emqx_ee_connector_redis;
+resource_type(redis_sentinel) -> emqx_ee_connector_redis;
+resource_type(redis_cluster) -> emqx_ee_connector_redis.
 
 fields(bridges) ->
     [
@@ -92,7 +99,7 @@ fields(bridges) ->
                     required => false
                 }
             )}
-    ] ++ mongodb_structs() ++ influxdb_structs().
+    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs().
 
 mongodb_structs() ->
     [
@@ -120,5 +127,22 @@ influxdb_structs() ->
      || Protocol <- [
             influxdb_api_v1,
             influxdb_api_v2
+        ]
+    ].
+
+redis_structs() ->
+    [
+        {Type,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_redis, Type)),
+                #{
+                    desc => <<"Redis Bridge Config">>,
+                    required => false
+                }
+            )}
+     || Type <- [
+            redis_single,
+            redis_sentinel,
+            redis_cluster
         ]
     ].
