@@ -637,7 +637,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     EnvHandler = maps:get(env_handler, Opts, fun(_) -> ok end),
     ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
     LoadSchema = maps:get(load_schema, Opts, true),
-    SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
+    % SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
     LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
     Env = maps:get(env, Opts, []),
     Conf = maps:get(conf, Opts, []),
@@ -647,7 +647,21 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ]),
 
     %% Load env before doing anything to avoid overriding
-    [ok = rpc:call(Node, application, load, [App]) || App <- LoadApps],
+    [
+        begin
+            Res = rpc:call(Node, application, load, [App]),
+            case Res of
+                {error, {already_loaded, _}} ->
+                    ok;
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ct:pal(critical, "Failed to load app ~p on node ~p: ~p~n", [App, Node, Reason]),
+                    exit({load_app_failed, App, Node, Reason})
+            end
+        end
+     || App <- LoadApps
+    ],
 
     %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
     %% in emqx_common_test_helpers:start_apps(...)
@@ -671,6 +685,11 @@ setup_node(Node, Opts) when is_map(Opts) ->
             %% We load configuration, and than set the special environment variable
             %% which says that emqx shouldn't load configuration at startup
             %% Otherwise, configuration gets loaded and all preset env in EnvHandler is lost
+            SchemaMod =
+                case App of
+                    emqx_conf -> emqx_conf_schema;
+                    _ -> emqx_schema
+                end,
             LoadSchema andalso
                 begin
                     emqx_config:init_load(SchemaMod),

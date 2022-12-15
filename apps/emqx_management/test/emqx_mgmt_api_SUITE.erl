@@ -115,7 +115,7 @@ cluster_specs() ->
     CommOpts =
         [
             {env, [{emqx, boot_modules, all}]},
-            {apps, []},
+            {apps, [emqx_conf]},
             {conf, [
                 {[listeners, ssl, default, enabled], false},
                 {[listeners, ws, default, enabled], false},

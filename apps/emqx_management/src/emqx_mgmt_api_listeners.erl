@@ -104,7 +104,7 @@ schema("/listeners") ->
             'requestBody' => create_listener_schema(#{bind => true}),
             responses => #{
                 200 => listener_schema(#{bind => true}),
-                400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'])
+                400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST', 'PARTIAL_FAILURE'])
             }
         }
     };
@@ -138,7 +138,7 @@ schema("/listeners/:id") ->
             'requestBody' => listener_schema(#{bind => true}),
             responses => #{
                 200 => listener_schema(#{bind => true}),
-                400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'])
+                400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST', 'PARTIAL_FAILURE'])
             },
             deprecated => true
         },
@@ -639,11 +639,12 @@ action(Path, Action, Conf) ->
     wrap(emqx_conf:update(Path, {action, Action, Conf}, ?OPTS(cluster))).
 
 create(Path, Conf) ->
-    wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
+    wrap(emqx_conf:strict_update(Path, {create, Conf}, ?OPTS(cluster))).
 
 ensure_remove(Path) ->
     wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
 
+wrap({partial_failure, #{reason := stopped_nodes, init_result := Res}}) -> Res;
 wrap({error, {post_config_update, emqx_listeners, Reason}}) -> {error, Reason};
 wrap({error, {pre_config_update, emqx_listeners, Reason}}) -> {error, Reason};
 wrap({error, Reason}) -> {error, Reason};
@@ -815,6 +816,16 @@ create_listener(Body) ->
             case create(Path, Conf) of
                 {ok, #{raw_config := _RawConf}} ->
                     crud_listeners_by_id(get, #{bindings => #{id => Id}});
+                {partial_failure, #{reason := peers_lagging} = Failure} ->
+                    #{nodes := Nodes, tnx_id := TnxId} = Failure,
+                    lists:foreach(
+                        fun(Node) -> emqx_cluster_rpc:fast_forward_to_commit(Node, TnxId) end, Nodes
+                    ),
+                    {ok, _} = ensure_remove(Path),
+                    {400, #{
+                        code => 'PARTIAL_FAILURE',
+                        message => <<"Partial failed on some nodes then rollback">>
+                    }};
                 {error, already_exist} ->
                     {400, #{code => 'BAD_LISTENER_ID', message => <<"Already Exist">>}};
                 {error, Reason} ->

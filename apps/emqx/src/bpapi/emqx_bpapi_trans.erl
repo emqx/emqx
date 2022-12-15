@@ -169,6 +169,10 @@ extract_mfa(?BACKEND(emqx_cluster_rpc, multicall), [M, F, A]) ->
     {call, M, F, A};
 extract_mfa(?BACKEND(emqx_cluster_rpc, multicall), [M, F, A, _RequiredNum, _Timeout]) ->
     {call, M, F, A};
+extract_mfa(?BACKEND(emqx_cluster_rpc, strict_multicall), [M, F, A]) ->
+    {call, M, F, A};
+extract_mfa(?BACKEND(emqx_cluster_rpc, strict_multicall), [M, F, A, _RequiredNum, _Timeout]) ->
+    {call, M, F, A};
 extract_mfa(_, _) ->
     error("unrecognized RPC call").
 

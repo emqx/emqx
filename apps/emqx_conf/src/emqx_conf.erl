@@ -23,6 +23,7 @@
 -export([get/1, get/2, get_raw/1, get_raw/2, get_all/1]).
 -export([get_by_node/2, get_by_node/3]).
 -export([update/3, update/4]).
+-export([strict_update/3]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
 -export([dump_schema/1, dump_schema/3]).
@@ -93,6 +94,25 @@ get_node_and_config(KeyPath) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts) ->
     emqx_conf_proto_v2:update(KeyPath, UpdateReq, Opts).
+
+%% @doc Update all value of key path in cluster-override.conf or local-override.conf.
+-spec strict_update(
+    emqx_map_lib:config_key_path(),
+    emqx_config:update_request(),
+    emqx_config:update_opts()
+) ->
+    {ok, emqx_config:update_result()}
+    | {error, emqx_config:update_error()}
+    | {partial_failure, #{
+        reason := peers_lagging | stopped_nodes,
+        nodes := [node()],
+        tnx_id := emqx_cluster_rpc:tnx_id(),
+        init_result := {ok, emqx_config:update_result()}
+    }}.
+strict_update(KeyPath, UpdateReq, Opts) ->
+    X = emqx_conf_proto_v3:strict_update(KeyPath, UpdateReq, Opts),
+    io:format("strict:~p~n", [{X, mria_mnesia:cluster_info()}]),
+    X.
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(

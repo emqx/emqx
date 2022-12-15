@@ -623,7 +623,7 @@ fields("cluster_call") ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(cluster_call_retry_interval),
-                    default => "1m"
+                    default => "2s"
                 }
             )},
         {"max_history",

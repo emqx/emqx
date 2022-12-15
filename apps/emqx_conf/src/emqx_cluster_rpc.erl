@@ -24,6 +24,7 @@
 %% forget to update it when adding or removing them here:
 -export([
     multicall/3, multicall/5,
+    strict_multicall/3, strict_multicall/5,
     query/1,
     reset/0,
     status/0,
@@ -67,9 +68,11 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
+-define(TIMEOUT, timer:seconds(30)).
+
 -define(INITIATE(MFA), {initiate, MFA}).
 -define(CATCH_UP, catch_up).
--define(TIMEOUT, timer:minutes(1)).
+
 -define(APPLY_KIND_REPLICATE, replicate).
 -define(APPLY_KIND_INITIATE, initiate).
 -define(IS_STATUS(_A_), (_A_ =:= peers_lagging orelse _A_ =:= stopped_nodes)).
@@ -133,15 +136,28 @@ start_link(Node, Name, RetryMs) ->
 %% but the initial local apply result is returned.
 -spec multicall(module(), atom(), list()) -> term().
 multicall(M, F, A) ->
-    multicall(M, F, A, all, timer:minutes(2)).
+    multicall(M, F, A, all, timer:minutes(1)).
 
 -spec multicall(module(), atom(), list(), succeed_num(), timeout()) -> term().
 multicall(M, F, A, RequiredSyncs, Timeout) when RequiredSyncs =:= all orelse RequiredSyncs >= 1 ->
+    case strict_multicall(M, F, A, RequiredSyncs, Timeout) of
+        {partial_failure, #{init_result := Res}} -> Res;
+        Res -> Res
+    end.
+
+-spec strict_multicall(module(), atom(), list()) -> term().
+strict_multicall(M, F, A) ->
+    strict_multicall(M, F, A, all, timer:minutes(1)).
+
+-spec strict_multicall(module(), atom(), list(), succeed_num(), timeout()) -> term().
+strict_multicall(M, F, A, RequiredSyncs, Timeout) when
+    RequiredSyncs =:= all orelse RequiredSyncs >= 1
+->
     case do_multicall(M, F, A, RequiredSyncs, Timeout) of
         {ok, _TxnId, Result} ->
             Result;
-        {init_failure, Error} ->
-            Error;
+        {init_failure, Failure} ->
+            Failure;
         {Status, TnxId, Res, Nodes} when ?IS_STATUS(Status) ->
             %% The init MFA return ok, but some other nodes failed.
             ?SLOG(error, #{
@@ -150,7 +166,9 @@ multicall(M, F, A, RequiredSyncs, Timeout) when RequiredSyncs =:= all orelse Req
                 nodes => Nodes,
                 tnx_id => TnxId
             }),
-            Res
+            {partial_failure, #{
+                reason => Status, nodes => Nodes, tnx_id => TnxId, init_result => Res
+            }}
     end.
 
 %% Return {ok, TnxId, MFARes} the first MFA result when all MFA run ok.
@@ -262,7 +280,7 @@ skip_failed_commit(Node) ->
 %% If CurrTnxId >= TnxId, nothing happened.
 %% If CurrTnxId < TnxId, the CurrTnxId will skip to TnxId.
 -spec fast_forward_to_commit(node(), pos_integer()) -> pos_integer().
-fast_forward_to_commit(Node, ToTnxId) ->
+fast_forward_to_commit(Node, ToTnxId) when is_atom(Node) ->
     gen_server:call({?MODULE, Node}, {fast_forward_to_commit, ToTnxId}).
 %%%===================================================================
 %%% gen_server callbacks
@@ -307,7 +325,8 @@ handle_call(_, _From, State) ->
 handle_cast(_, State) ->
     {noreply, State, catch_up(State)}.
 
-handle_info({mnesia_table_event, _}, State) ->
+handle_info({mnesia_table_event, X}, State) ->
+    ?SLOG(error, #{msg => mnesia_table_event, node => node(), event => X, status => State}),
     {noreply, State, catch_up(State)};
 handle_info(_, State) ->
     {noreply, State, catch_up(State)}.
@@ -560,7 +579,7 @@ commit_status_trans(Operator, TnxId) ->
     mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
 
 get_retry_ms() ->
-    emqx_conf:get([node, cluster_call, retry_interval], timer:minutes(1)).
+    emqx_conf:get([node, cluster_call, retry_interval], timer:seconds(15)).
 
 maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
