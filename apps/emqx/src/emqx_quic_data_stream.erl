@@ -240,6 +240,10 @@ do_handle_appl_msg({incoming, #mqtt_packet{} = Packet}, #{channel := Channel} = 
     Channel =/= undefined
 ->
     with_channel(handle_in, [Packet], S);
+do_handle_appl_msg({incoming, {frame_error, _} = FE}, #{channel := Channel} = S) when
+    Channel =/= undefined
+->
+    with_channel(handle_in, [FE], S);
 do_handle_appl_msg({close, Reason}, S) ->
     %% @TODO shall we abort shutdown or graceful shutdown?
     with_channel(handle_info, [{sock_closed, Reason}], S);

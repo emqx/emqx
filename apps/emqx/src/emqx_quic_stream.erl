@@ -108,15 +108,15 @@ wait({ConnOwner, Conn, ConnInfo}) ->
         %% Connection owner process down
         {'EXIT', ConnOwner, _Reason} ->
             {error, enotconn}
-    end;
-%% For ownership handover
-wait({PrevOwner, Conn, Stream, SocketInfo}) ->
-    case quicer:wait_for_handoff(PrevOwner, Stream) of
-        ok ->
-            {ok, socket(Conn, Stream, SocketInfo)};
-        owner_down ->
-            {error, owner_down}
     end.
+%% UNUSED, for ownership handover,
+%% wait({PrevOwner, Conn, Stream, SocketInfo}) ->
+%%     case quicer:wait_for_handoff(PrevOwner, Stream) of
+%%         ok ->
+%%             {ok, socket(Conn, Stream, SocketInfo)};
+%%         owner_down ->
+%%             {error, owner_down}
+%%     end.
 
 type(_) ->
     quic.
