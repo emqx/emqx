@@ -20,6 +20,7 @@
 -include("logger.hrl").
 -ifndef(BUILD_WITHOUT_QUIC).
 -include_lib("quicer/include/quicer.hrl").
+-include_lib("emqx/include/emqx_quic.hrl").
 -else.
 -define(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0).
 -endif.
@@ -36,9 +37,9 @@
     local_address_changed/3,
     peer_address_changed/3,
     streams_available/3,
-    peer_needs_streams/3,
+    % @TODO wait for newer quicer
+    %peer_needs_streams/3,
     resumed/3,
-    nst_received/3,
     new_stream/3
 ]).
 
@@ -120,11 +121,16 @@ new_conn(
                     ok = quicer:async_handshake(Conn),
                     {ok, S#{conn := Conn, ctrl_pid := CtrlPid}};
                 {'EXIT', _Pid, _Reason} ->
-                    {error, stream_accept_error}
+                    {stop, stream_accept_error, S}
             end;
         true ->
             emqx_metrics:inc('olp.new_conn'),
-            {error, overloaded}
+            quicer:async_shutdown_connection(
+                Conn,
+                ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                ?MQTT_QUIC_CONN_ERROR_OVERLOADED
+            ),
+            {stop, normal, S}
     end.
 
 %% @doc callback when connection is connected.
@@ -132,8 +138,8 @@ new_conn(
     {ok, cb_state()} | {error, any()}.
 connected(Conn, Props, #{slow_start := false} = S) ->
     ?SLOG(debug, Props),
-    {ok, _Pid} = emqx_connection:start_link(emqx_quic_stream, Conn, S),
-    {ok, S};
+    {ok, Pid} = emqx_connection:start_link(emqx_quic_stream, Conn, S),
+    {ok, S#{ctrl_pid => Pid}};
 connected(_Conn, Props, S) ->
     ?SLOG(debug, Props),
     {ok, S}.
@@ -146,12 +152,6 @@ resumed(Conn, Data, #{resumed_callback := ResumeFun} = S) when
     ResumeFun(Conn, Data, S);
 resumed(_Conn, _Data, S) ->
     {ok, S#{is_resumed := true}}.
-
-%% @doc callback for receiving nst, should never happen on server.
--spec nst_received(quicer:connection_handle(), TicketBin :: binary(), cb_state()) -> cb_ret().
-nst_received(_Conn, _Data, S) ->
-    %% As server we should not recv NST!
-    {stop, no_nst_for_server, S}.
 
 %% @doc callback for handling orphan data streams
 %%      depends on the connecion state and control stream state.
@@ -233,9 +233,9 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 %%      should cope with rate limiting
 %% @TODO this is not going to get triggered in current version
 %% for https://github.com/microsoft/msquic/issues/3120
--spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
-peer_needs_streams(_C, undefined, S) ->
-    {ok, S}.
+%% -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
+%% peer_needs_streams(_C, undefined, S) ->
+%%     {ok, S}.
 
 %% @doc handle API calls
 handle_call(
@@ -296,5 +296,6 @@ init_cb_state(#{zone := _Zone} = Map) ->
         streams => [],
         parse_state => undefined,
         channel => undefined,
-        serialize => undefined
+        serialize => undefined,
+        is_resumed => false
     }.
