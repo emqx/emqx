@@ -110,9 +110,12 @@ jobs:
           - 24.3.4.2-1
         os:
           - macos-11
+          - macos-12-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
+    - uses: emqx/self-hosted-cleanup-action@v1.0.3
+      if: matrix.os == macos-12-arm64
     - uses: actions/download-artifact@v3
       with:
         name: source
