@@ -111,7 +111,7 @@
     comma_separated_atoms/0
 ]).
 
--export([namespace/0, roots/0, roots/1, fields/1, desc/1]).
+-export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
 -export([sc/2, map/2]).
@@ -119,6 +119,9 @@
 -elvis([{elvis_style, god_modules, disable}]).
 
 namespace() -> broker.
+
+tags() ->
+    [<<"EMQX">>].
 
 roots() ->
     %% TODO change config importance to a field metadata
