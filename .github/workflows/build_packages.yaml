@@ -225,7 +225,7 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-qemu-action@v2
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
