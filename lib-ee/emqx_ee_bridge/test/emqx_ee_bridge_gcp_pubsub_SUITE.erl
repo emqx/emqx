@@ -139,6 +139,7 @@ end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     delete_all_bridges(),
     ok = emqx_connector_web_hook_server:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------

@@ -67,7 +67,8 @@
 -export([clear_screen/0]).
 -export([with_mock/4]).
 -export([
-    on_exit/1
+    on_exit/1,
+    call_janitor/0
 ]).
 
 %% Toxiproxy API
@@ -940,6 +941,13 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %%-------------------------------------------------------------------------------
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------
+
+%% stop the janitor gracefully to ensure proper cleanup order and less
+%% noise in the logs.
+call_janitor() ->
+    Janitor = get_or_spawn_janitor(),
+    exit(Janitor, normal),
+    ok.
 
 get_or_spawn_janitor() ->
     case get({?MODULE, janitor_proc}) of
