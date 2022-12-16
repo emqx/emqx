@@ -116,7 +116,20 @@ emqx_test(){
             fi
         ;;
         "rpm")
-            yum install -y "${PACKAGE_PATH}/${packagename}"
+            # yum wants python2
+            if [[ "${SYSTEM:-}" == "amzn2" ]]; then
+                alternatives --list | grep python && alternatives --set python /usr/bin/python2
+            fi
+            YUM_RES="$(yum install -y "${PACKAGE_PATH}/${packagename}"| tee /dev/null)"
+            if [[ $YUM_RES =~ "Failed" ]]; then
+               echo "yum install failed"
+               exit 1
+            fi
+            # restore python3
+            if [[ "${SYSTEM:-}" == "amzn2" ]]; then
+                alternatives --list | grep python && alternatives --set python /usr/bin/python3
+            fi
+
             if ! rpm -q "${PROFILE}" | grep -q "${PROFILE}"; then
                 echo "package install error"
                 exit 1
