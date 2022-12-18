@@ -112,6 +112,7 @@ jobs:
         - name: eunit
           env:
             PROFILE: ${{ matrix.profile }}
+            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           working-directory: source
           run: make eunit
 
@@ -119,6 +120,7 @@ jobs:
         - name: proper
           env:
             PROFILE: ${{ matrix.profile }}
+            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           working-directory: source
           run: make proper
 
@@ -159,6 +161,7 @@ jobs:
             REDIS_TAG: 6
             INFLUXDB_TAG: 2.5.0
             PROFILE: ${{ matrix.profile }}
+            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           run: ./scripts/ct/run.sh --app ${{ matrix.app }}
         - uses: actions/upload-artifact@v3
           with:
@@ -199,6 +202,7 @@ jobs:
           working-directory: source
           env:
             PROFILE: ${{ matrix.profile }}
+            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           run: |
             make "${{ matrix.app }}-ct"
         - uses: actions/upload-artifact@v3

@@ -24,6 +24,7 @@ PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
 CT_READABLE ?= true
+CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -62,7 +63,7 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(PROFILE)-eunit
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
@@ -74,7 +75,7 @@ test-compile: $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-ct
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 .PHONY: static_checks
 static_checks:
@@ -86,7 +87,10 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 define gen-app-ct-target
 $1-ct: $(REBAR)
 	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-$(subst /,-,$1) --suite $(shell $(SCRIPTS)/find-suites.sh $1)
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+		--name $(CT_NODE_NAME) \
+		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
+		--suite $(shell $(SCRIPTS)/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
