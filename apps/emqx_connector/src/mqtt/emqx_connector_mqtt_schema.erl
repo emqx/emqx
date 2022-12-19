@@ -255,7 +255,8 @@ fields("egress_remote") ->
             mk(
                 qos(),
                 #{
-                    required => true,
+                    required => false,
+                    default => 1,
                     desc => ?DESC("egress_remote_qos")
                 }
             )},
@@ -263,7 +264,8 @@ fields("egress_remote") ->
             mk(
                 hoconsc:union([boolean(), binary()]),
                 #{
-                    required => true,
+                    required => false,
+                    default => false,
                     desc => ?DESC("retain")
                 }
             )},
