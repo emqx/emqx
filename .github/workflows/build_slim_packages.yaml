@@ -29,17 +29,15 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - emqx
-        - emqx-enterprise
-        otp:
-        - 24.3.4.2-1
+        - ["emqx", "24.3.4.2-1", "el7"]
+        - ["emqx", "25.1.2-2", "ubuntu20.04"]
+        - ["emqx-enterprise", "24.3.4.2-1", "ubuntu20.04"]
+        builder:
+        - 5.0-26
         elixir:
         - 1.13.4
-        os:
-        - ubuntu20.04
-        - el8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -48,7 +46,7 @@ jobs:
         fetch-depth: 0
     - name: prepare
       run: |
-        echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
+        echo "EMQX_NAME=${{ matrix.profile[0] }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
     - name: Work around https://github.com/actions/checkout/issues/766
       run: |
@@ -75,14 +73,14 @@ jobs:
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
-        path: _packages/${{ matrix.profile}}/*
+        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
+        path: _packages/${{ matrix.profile[0] }}/*
     - uses: actions/upload-artifact@v3
       with:
-        name: "${{ matrix.profile }}_schema_dump"
+        name: "${{ matrix.profile[0] }}_schema_dump"
         path: |
           scripts/spellcheck
-          _build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+          _build/${{ matrix.profile[0] }}/lib/emqx_dashboard/priv/www/static/schema.json
 
   windows:
     runs-on: windows-2019
@@ -92,7 +90,7 @@ jobs:
         profile:
           - emqx
         otp:
-          - 24.2.1
+          - 25.1.2
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1.12.0
@@ -122,7 +120,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: windows
-        path: _packages/${{ matrix.profile}}/*
+        path: _packages/${{ matrix.profile }}/*
 
   mac:
     strategy:

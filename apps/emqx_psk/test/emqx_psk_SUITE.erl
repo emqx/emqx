@@ -24,8 +24,13 @@
 -define(CR, 13).
 -define(LF, 10).
 
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, normal}, {group, ciphers}].
+
+groups() ->
+    [
+        {normal, [], emqx_common_test_helpers:all(?MODULE)},
+        {ciphers, [], [ciphers_test]}
+    ].
 
 init_per_suite(Config) ->
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
@@ -128,3 +133,47 @@ t_trim_crlf(_) ->
     ?assertEqual(Bin, emqx_psk:trim_crlf(Bin)),
     ?assertEqual(Bin, emqx_psk:trim_crlf(<<Bin/binary, ?LF>>)),
     ?assertEqual(Bin, emqx_psk:trim_crlf(<<Bin/binary, ?CR, ?LF>>)).
+
+ciphers_test(Config) ->
+    Ciphers = [
+        "PSK-AES256-GCM-SHA384",
+        "PSK-AES128-GCM-SHA256",
+        "PSK-AES256-CBC-SHA384",
+        "PSK-AES256-CBC-SHA",
+        "PSK-AES128-CBC-SHA256",
+        "PSK-AES128-CBC-SHA"
+    ],
+    lists:foreach(fun(Cipher) -> cipher_test(Cipher, Config) end, Ciphers).
+
+cipher_test(Cipher, _) ->
+    ct:pal("Test PSK with Cipher:~p~n", [Cipher]),
+    PSKIdentity1 = "myclient1",
+    SharedSecret1 = <<"8c701116e9127c57a99d5563709af3deaca75563e2c4dd0865701ae839fb6d79">>,
+
+    ClientLookup = fun
+        (psk, undefined, _) -> {ok, SharedSecret1};
+        (psk, _, _) -> error
+    end,
+
+    ClientTLSOpts = #{
+        versions => ['tlsv1.2'],
+        ciphers => [Cipher],
+        psk_identity => PSKIdentity1,
+        verify => verify_none,
+        user_lookup_fun => {ClientLookup, undefined}
+    },
+
+    ServerTLSOpts = #{
+        versions => ['tlsv1.2'],
+        ciphers => [Cipher],
+        verify => verify_none,
+        reuseaddr => true,
+        user_lookup_fun => {fun emqx_tls_psk:lookup/3, undefined}
+    },
+    emqx_config:put([listeners, ssl, default, ssl_options], ServerTLSOpts),
+    emqx_listeners:restart_listener('ssl:default'),
+
+    {ok, Socket} = ssl:connect("127.0.0.1", 8883, maps:to_list(ClientTLSOpts)),
+    ssl:close(Socket),
+
+    ok.

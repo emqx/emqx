@@ -10,10 +10,25 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
+  EMQX_NAME:  {{ .Release.Name }}
+  {{- if eq (.Values.emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY)  "k8s"  }}
+  EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
+  EMQX_CLUSTER__K8S__SERVICE_NAME:  {{ include "emqx.fullname" . }}-headless
+  EMQX_CLUSTER__K8S__NAMESPACE: {{ .Release.Namespace }}
+  EMQX_CLUSTER__K8S__ADDRESS_TYPE: "hostname"
+  EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
+  {{- else if eq (.Values.emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY)  "dns"  }}
+  EMQX_CLUSTER__DNS__NAME: "{{  include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
+  EMQX_CLUSTER__DNS__RECORD_TYPE: "srv"
+  {{- end -}}
   {{- range $index, $value := .Values.emqxConfig }}
   {{- if $value }}
   {{- $key := (regexReplaceAllLiteral "\\." (regexReplaceAllLiteral "EMQX[_\\.]" (upper (trimAll " " $index)) "") "__") }}
+  {{- if or (kindIs "map" $value) (kindIs "slice" $value) }}
+  {{ print "EMQX_" $key }}: {{ tpl (printf "%q" (toJson $value)) $ }}
+  {{- else }}
   {{ print "EMQX_" $key }}: "{{ tpl (printf "%v" $value) $ }}"
+  {{- end }}
   {{- end }}
   {{- end }}
 {{- end }}

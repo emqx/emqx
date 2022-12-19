@@ -752,15 +752,6 @@ do_publish(
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "dropped_qos2_packet",
-                    reason => emqx_reason_codes:name(RC),
-                    packet_id => PacketId
-                },
-                #{topic => Msg#message.topic}
-            ),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(disconnect, RC, Channel)
     end.

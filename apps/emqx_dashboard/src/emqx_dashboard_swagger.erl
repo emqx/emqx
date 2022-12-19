@@ -702,6 +702,8 @@ typename_to_spec("wordsize()", _Mod) ->
     #{type => string, example => <<"1024KB">>};
 typename_to_spec("map()", _Mod) ->
     #{type => object, example => #{}};
+typename_to_spec("service_account_json()", _Mod) ->
+    #{type => object, example => #{}};
 typename_to_spec("#{" ++ _, Mod) ->
     typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->

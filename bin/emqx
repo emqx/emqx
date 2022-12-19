@@ -13,10 +13,17 @@ DEBUG="${DEBUG:-0}"
 #   so we can't use it universally.
 # - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
 #   as a universal solution either because GNU stat has different syntax and this argument is invalid.
+#   Also, version of stat which supports this syntax is only available since MacOS 12
 if [ "$(uname -s)" == 'Darwin' ]; then
-    # if homebrew coreutils package is installed, GNU version of stat can take precedence,
-    # so we use absolute path to ensure we are calling MacOS default
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+    product_version="$(sw_vers -productVersion | cut -d '.' -f 1)"
+    if [ "$product_version" -ge 12 ]; then
+        # if homebrew coreutils package is installed, GNU version of stat can take precedence,
+        # so we use absolute path to ensure we are calling MacOS default
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+    else
+        # try our best to resolve link on MacOS <= 11
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+    fi
 else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 fi
@@ -115,14 +122,14 @@ usage() {
         echo "Print path to Erlang runtime bin dir"
         ;;
     rpc)
-        echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
+        echo "Usage: $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
         echo "Connect to the EMQX node and make an Erlang RPC"
         echo "This command blocks for at most 60 seconds."
         echo "It exits with non-zero code in case of any RPC failure"
         echo "including connection error and runtime exception"
         ;;
     rpcterms)
-        echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
+        echo "Usage: $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
         echo "Connect to the EMQX node and make an Erlang RPC"
         echo "The result of the RPC call is pretty-printed as an "
         echo "Erlang term"

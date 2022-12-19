@@ -22,7 +22,7 @@ WEBHOOK="webhook.$NET"
 BENCH="bench.$NET"
 COOKIE='this-is-a-secret'
 ## Erlang image is needed to run webhook server and emqtt-bench
-ERLANG_IMAGE="ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+ERLANG_IMAGE="ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04"
 # builder has emqtt-bench installed
 BENCH_IMAGE="$ERLANG_IMAGE"
 

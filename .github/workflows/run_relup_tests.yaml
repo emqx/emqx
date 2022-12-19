@@ -16,7 +16,7 @@ on:
 jobs:
   relup_test_plan:
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04"
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
       OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
@@ -37,8 +37,8 @@ jobs:
         ee_vsn="$(./pkg-vsn.sh enterprise)"
         old_ee_vsns="$(./scripts/relup-build/base-vsns.sh enterprise | xargs)"
         old_vsns=$(echo -n "${old_ee_vsns}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
-        echo "::set-output name=CUR_EE_VSN::$ee_vsn"
-        echo "::set-output name=OLD_VERSIONS::$old_vsns"
+        echo "CUR_EE_VSN=$ee_vsn" >> $GITHUB_OUTPUT
+        echo "OLD_VERSIONS=$old_vsns" >> $GITHUB_OUTPUT
     - name: build emqx
       run: |
         set -x
@@ -74,7 +74,7 @@ jobs:
       # setup Erlang to run lux
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
       with:
         repository: hawk/lux

@@ -228,7 +228,6 @@ when
 -spec pre_hook_authenticate(emqx_types:clientinfo()) ->
     ok | continue | {error, not_authorized}.
 pre_hook_authenticate(#{enable_authn := false}) ->
-    inc_authenticate_metric('authentication.success.anonymous'),
     ?TRACE_RESULT("authentication_result", ok, enable_authn_false);
 pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
     case maps:get(username, Credential, undefined) of
@@ -242,29 +241,18 @@ pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
 pre_hook_authenticate(_) ->
     continue.
 
-authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
+authenticate(#{listener := Listener, protocol := Protocol} = Credential, AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
-                    inc_authenticate_metric('authentication.success.anonymous'),
-                    ?TRACE_RESULT("authentication_result", ignore, empty_chain);
+                    ?TRACE_RESULT("authentication_result", AuthResult, empty_chain);
                 NAuthenticators ->
                     Result = do_authenticate(ChainName, NAuthenticators, Credential),
-
-                    case Result of
-                        {stop, {ok, _}} ->
-                            inc_authenticate_metric('authentication.success');
-                        {stop, {error, _}} ->
-                            inc_authenticate_metric('authentication.failure');
-                        _ ->
-                            ok
-                    end,
                     ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
-            inc_authenticate_metric('authentication.success.anonymous'),
-            ?TRACE_RESULT("authentication_result", ignore, no_chain)
+            ?TRACE_RESULT("authentication_result", AuthResult, no_chain)
     end.
 
 get_authenticators(Listener, Global) ->
@@ -649,7 +637,7 @@ handle_create_authenticator(Chain, Config, Providers) ->
     end.
 
 do_authenticate(_ChainName, [], _) ->
-    {stop, {error, not_authorized}};
+    {ok, {error, not_authorized}};
 do_authenticate(
     ChainName, [#authenticator{id = ID} = Authenticator | More], Credential
 ) ->
@@ -673,7 +661,7 @@ do_authenticate(
                 _ ->
                     ok
             end,
-            {stop, Result}
+            {ok, Result}
     catch
         Class:Reason:Stacktrace ->
             ?TRACE_AUTHN(warning, "authenticator_error", #{
@@ -947,9 +935,3 @@ to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
-
-inc_authenticate_metric('authentication.success.anonymous' = Metric) ->
-    emqx_metrics:inc(Metric),
-    emqx_metrics:inc('authentication.success');
-inc_authenticate_metric(Metric) ->
-    emqx_metrics:inc(Metric).

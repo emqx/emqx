@@ -64,34 +64,10 @@ wait_until_kafka_is_up(Attempts) ->
     end.
 
 init_per_suite(Config) ->
-    %% Need to unload emqx_authz. See emqx_machine_SUITE:init_per_suite for
-    %% more info.
-    application:unload(emqx_authz),
-    %% some configs in emqx_conf app are mandatory
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_rule_engine, emqx_bridge, emqx_management, emqx_dashboard],
-        fun set_special_configs/1
-    ),
-    application:set_env(emqx_machine, applications, [
-        emqx_prometheus,
-        emqx_modules,
-        emqx_dashboard,
-        emqx_gateway,
-        emqx_statsd,
-        emqx_resource,
-        emqx_rule_engine,
-        emqx_bridge,
-        emqx_ee_bridge,
-        emqx_plugin_libs,
-        emqx_management,
-        emqx_retainer,
-        emqx_exhook,
-        emqx_authn,
-        emqx_authz,
-        emqx_plugin
-    ]),
-    {ok, _} = application:ensure_all_started(emqx_machine),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    emqx_mgmt_api_test_util:init_suite(),
     wait_until_kafka_is_up(),
     %% Wait until bridges API is up
     (fun WaitUntilRestApiUp() ->
@@ -106,32 +82,12 @@ init_per_suite(Config) ->
     end)(),
     Config.
 
-end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps([
-        emqx_prometheus,
-        emqx_modules,
-        emqx_dashboard,
-        emqx_gateway,
-        emqx_statsd,
-        emqx_resource,
-        emqx_rule_engine,
-        emqx_bridge,
-        emqx_ee_bridge,
-        emqx_plugin_libs,
-        emqx_management,
-        emqx_retainer,
-        emqx_exhook,
-        emqx_authn,
-        emqx_authz,
-        emqx_plugin,
-        emqx_conf,
-        emqx_bridge,
-        emqx_management,
-        emqx_dashboard,
-        emqx_machine
-    ]),
-    mria:stop(),
-    Config.
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite(),
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
+    _ = application:stop(emqx_connector),
+    ok.
 
 set_special_configs(emqx_management) ->
     Listeners = #{http => #{port => 8081}},

@@ -66,7 +66,7 @@ if [ "${WHICH_APP}" = 'novalue' ]; then
     exit 1
 fi
 
-ERLANG_CONTAINER='erlang24'
+ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
 case "${WHICH_APP}" in
@@ -89,7 +89,7 @@ FILES=( )
 
 for dep in ${CT_DEPS}; do
     case "${dep}" in
-        erlang24)
+        erlang)
             FILES+=( '.ci/docker-compose-file/docker-compose.yaml' )
             ;;
         toxiproxy)
@@ -112,6 +112,10 @@ for dep in ${CT_DEPS}; do
                      '.ci/docker-compose-file/docker-compose-redis-single-tls.yaml'
                      '.ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml' )
+            ;;
+        redis_cluster)
+            FILES+=( '.ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml' )
             ;;
         mysql)
             FILES+=( '.ci/docker-compose-file/docker-compose-mysql-tcp.yaml'

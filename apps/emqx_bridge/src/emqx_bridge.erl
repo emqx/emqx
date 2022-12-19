@@ -51,9 +51,12 @@
 -define(EGRESS_DIR_BRIDGES(T),
     T == webhook;
     T == mysql;
+    T == gcp_pubsub;
     T == influxdb_api_v1;
-    T == influxdb_api_v2
-    %% T == influxdb_udp
+    T == influxdb_api_v2;
+    T == redis_single;
+    T == redis_sentinel;
+    T == redis_cluster
 ).
 
 load() ->
@@ -135,6 +138,7 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     {ok, Message}.
 
 send_to_matched_egress_bridges(Topic, Msg) ->
+    MatchedBridgeIds = get_matched_egress_bridges(Topic),
     lists:foreach(
         fun(Id) ->
             try send_message(Id, Msg) of
@@ -157,7 +161,7 @@ send_to_matched_egress_bridges(Topic, Msg) ->
                     })
             end
         end,
-        get_matched_bridges(Topic)
+        MatchedBridgeIds
     ).
 
 send_message(BridgeId, Message) ->
@@ -242,6 +246,12 @@ disable_enable(Action, BridgeType, BridgeName) when
     ).
 
 create(BridgeType, BridgeName, RawConf) ->
+    ?SLOG(debug, #{
+        brige_action => create,
+        bridge_type => BridgeType,
+        bridge_name => BridgeName,
+        bridge_raw_config => RawConf
+    }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         RawConf,
@@ -249,6 +259,11 @@ create(BridgeType, BridgeName, RawConf) ->
     ).
 
 remove(BridgeType, BridgeName) ->
+    ?SLOG(debug, #{
+        brige_action => remove,
+        bridge_type => BridgeType,
+        bridge_name => BridgeName
+    }),
     emqx_conf:remove(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         #{override_to => cluster}
@@ -324,13 +339,19 @@ flatten_confs(Conf0) ->
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
 
-get_matched_bridges(Topic) ->
+get_matched_egress_bridges(Topic) ->
     Bridges = emqx:get_config([bridges], #{}),
     maps:fold(
         fun(BType, Conf, Acc0) ->
             maps:fold(
-                fun(BName, BConf, Acc1) ->
-                    get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
+                fun
+                    (BName, #{egress := _} = BConf, Acc1) when BType =:= mqtt ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1);
+                    (_BName, #{ingress := _}, Acc1) when BType =:= mqtt ->
+                        %% ignore ingress only bridge
+                        Acc1;
+                    (BName, BConf, Acc1) ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
                 end,
                 Acc0,
                 Conf

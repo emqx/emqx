@@ -2,12 +2,12 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-debian11
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-debian11
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.3-sync-code
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.5
+export EMQX_DASHBOARD_VERSION ?= v1.1.4-beta.1
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.9
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -24,6 +24,7 @@ PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
 CT_READABLE ?= true
+CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -62,7 +63,7 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(PROFILE)-eunit
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
@@ -74,7 +75,7 @@ test-compile: $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-ct
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 .PHONY: static_checks
 static_checks:
@@ -86,7 +87,10 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 define gen-app-ct-target
 $1-ct: $(REBAR)
 	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(PROFILE)-$(subst /,-,$1) --suite $(shell $(SCRIPTS)/find-suites.sh $1)
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+		--name $(CT_NODE_NAME) \
+		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
+		--suite $(shell $(SCRIPTS)/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
@@ -238,8 +242,8 @@ define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
 $1-elixir-pkg: $(COMMON_DEPS)
 	@env TAR_PKG_DIR=_build/$1-pkg \
-	     IS_ELIXIR=yes \
-	     $(BUILD) $1-pkg pkg
+		IS_ELIXIR=yes \
+		$(BUILD) $1-pkg pkg
 endef
 $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 

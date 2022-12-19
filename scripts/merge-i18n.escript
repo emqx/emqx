@@ -10,6 +10,7 @@ main(_) ->
     Conf = [merge(Conf0, Cfgs1),
             io_lib:nl()
            ],
+    ok = filelib:ensure_dir("apps/emqx_dashboard/priv/i18n.conf"),
     ok = file:write_file("apps/emqx_dashboard/priv/i18n.conf", Conf).
 
 merge(BaseConf, Cfgs) ->

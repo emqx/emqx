@@ -128,8 +128,11 @@ case "$UNAME_M" in
     aarch64)
         ARCH='arm64'
         ;;
+    arm64)
+        ARCH='arm64'
+        ;;
     arm*)
-        ARCH=arm
+        ARCH='arm'
         ;;
 esac
 

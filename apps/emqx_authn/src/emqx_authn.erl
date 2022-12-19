@@ -39,12 +39,15 @@ providers() ->
         {{scram, built_in_database}, emqx_enhanced_authn_scram_mnesia}
     ].
 
-check_configs(C) when is_map(C) ->
-    check_configs([C]);
-check_configs([]) ->
+check_configs(CM) when is_map(CM) ->
+    check_configs([CM]);
+check_configs(CL) ->
+    check_configs(CL, 1).
+
+check_configs([], _Nth) ->
     [];
-check_configs([Config | Configs]) ->
-    [check_config(Config) | check_configs(Configs)].
+check_configs([Config | Configs], Nth) ->
+    [check_config(Config, #{id_for_log => Nth}) | check_configs(Configs, Nth + 1)].
 
 check_config(Config) ->
     check_config(Config, #{}).
@@ -55,15 +58,16 @@ check_config(Config, Opts) ->
         #{?CONF_NS_BINARY := WithDefaults} -> WithDefaults
     end.
 
-do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
+do_check_config(#{<<"mechanism">> := Mec0} = Config, Opts) ->
+    Mec = atom(Mec0, #{error => unknown_mechanism}),
     Key =
         case maps:get(<<"backend">>, Config, false) of
-            false -> atom(Mec);
-            Backend -> {atom(Mec), atom(Backend)}
+            false -> Mec;
+            Backend -> {Mec, atom(Backend, #{error => unknown_backend})}
         end,
     case lists:keyfind(Key, 1, providers()) of
         false ->
-            throw({unknown_handler, Key});
+            throw(#{error => unknown_authn_provider, which => Key});
         {_, ProviderModule} ->
             hocon_tconf:check_plain(
                 ProviderModule,
@@ -71,15 +75,22 @@ do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
                 Opts#{atom_key => true}
             )
     end;
-do_check_config(_Config, _Opts) ->
-    throw({invalid_config, "mechanism_field_required"}).
+do_check_config(Config, Opts) when is_map(Config) ->
+    throw(#{
+        error => invalid_config,
+        which => maps:get(id_for_log, Opts, unknown),
+        reason => "mechanism_field_required"
+    }).
 
-atom(Bin) ->
+%% The atoms have to be loaded already,
+%% which might be an issue for plugins which are loaded after node boot
+%% but they should really manage their own configs in that case.
+atom(Bin, ErrorContext) ->
     try
         binary_to_existing_atom(Bin, utf8)
     catch
         _:_ ->
-            throw({unknown_auth_provider, Bin})
+            throw(ErrorContext#{value => Bin})
     end.
 
 -spec get_enabled_authns() ->

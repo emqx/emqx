@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_connector, [
     {description, "An OTP application"},
-    {vsn, "0.1.9"},
+    {vsn, "0.1.10"},
     {registered, []},
     {mod, {emqx_connector_app, []}},
     {applications, [
@@ -16,6 +16,7 @@
         mysql,
         mongodb,
         ehttpc,
+        jose,
         emqx,
         emqtt
     ]},
