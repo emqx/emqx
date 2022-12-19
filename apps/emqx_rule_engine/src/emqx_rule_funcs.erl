@@ -187,6 +187,24 @@
     sha256/1
 ]).
 
+%% zip Funcs
+-export([
+    zip/1,
+    unzip/1
+]).
+
+%% gzip Funcs
+-export([
+    gzip/1,
+    gunzip/1
+]).
+
+%% compressed Funcs
+-export([
+    zip_compress/1,
+    zip_uncompress/1
+]).
+
 %% Data encode and decode
 -export([
     base64_encode/1,
@@ -927,6 +945,36 @@ sha256(S) when is_binary(S) ->
 
 hash(Type, Data) ->
     emqx_misc:bin_to_hexstr(crypto:hash(Type, Data), lower).
+
+%%------------------------------------------------------------------------------
+%% gzip Funcs
+%%------------------------------------------------------------------------------
+
+gzip(S) when is_binary(S) ->
+    zlib:gzip(S).
+
+gunzip(S) when is_binary(S) ->
+    zlib:gunzip(S).
+
+%%------------------------------------------------------------------------------
+%% zip Funcs
+%%------------------------------------------------------------------------------
+
+zip(S) when is_binary(S) ->
+    zlib:zip(S).
+
+unzip(S) when is_binary(S) ->
+    zlib:unzip(S).
+
+%%------------------------------------------------------------------------------
+%% zip_compress Funcs
+%%------------------------------------------------------------------------------
+
+zip_compress(S) when is_binary(S) ->
+    zlib:compress(S).
+
+zip_uncompress(S) when is_binary(S) ->
+    zlib:uncompress(S).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
