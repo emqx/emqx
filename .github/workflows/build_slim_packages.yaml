@@ -124,7 +124,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
-      if: matrix.os == macos-12-arm64
+      if: ${{ matrix.os == 'macos-12-arm64' }}
     - uses: actions/checkout@v3
       with:
           fetch-depth: 0 # clone full git history
