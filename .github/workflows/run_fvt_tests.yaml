@@ -16,7 +16,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-alpine3.15.1
+    container: ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-alpine3.15.1
 
     steps:
       - uses: actions/checkout@v3
@@ -48,6 +48,8 @@ jobs:
           - rlog
         os:
           - ["alpine3.15.1", "alpine:3.15.1"]
+        builder:
+          - 5.0-26
         otp:
           - 24.3.4.2-1
         elixir:
@@ -57,7 +59,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3.4
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -68,7 +70,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
         EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker
@@ -119,6 +121,8 @@ jobs:
         - emqx-enterprise
         os:
         - ["debian11", "debian:11-slim"]
+        builder:
+        - 5.0-26
         otp:
         - 24.3.4.2-1
         elixir:
@@ -130,7 +134,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3.4
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -141,7 +145,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
         EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker

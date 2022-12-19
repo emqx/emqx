@@ -641,6 +641,7 @@ close_socket_ok(State) ->
     ok.
 
 %% tell truth about the original exception
+-spec maybe_raise_exception(any()) -> no_return().
 maybe_raise_exception(#{
     exception := Exception,
     context := Context,

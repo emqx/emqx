@@ -55,18 +55,6 @@
 %% non-empty list of strings
 -define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso ?IS_STRING(hd(L)))).
 
-%% The ciphers that ssl:cipher_suites(exclusive, 'tlsv1.3', openssl)
-%% should return when running on otp 23.
-%% But we still have to hard-code them because tlsv1.3 on otp 22 is
-%% not trustworthy.
--define(TLSV13_EXCLUSIVE_CIPHERS, [
-    "TLS_AES_256_GCM_SHA384",
-    "TLS_AES_128_GCM_SHA256",
-    "TLS_CHACHA20_POLY1305_SHA256",
-    "TLS_AES_128_CCM_SHA256",
-    "TLS_AES_128_CCM_8_SHA256"
-]).
-
 -define(SELECTED_CIPHERS, [
     "ECDHE-ECDSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES256-GCM-SHA384",
@@ -162,7 +150,7 @@ all_ciphers(['tlsv1.3']) ->
     %% because 'all' returns legacy cipher suites too,
     %% which does not make sense since tlsv1.3 can not use
     %% legacy cipher suites.
-    ?TLSV13_EXCLUSIVE_CIPHERS;
+    ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
 all_ciphers(Versions) ->
     %% assert non-empty
     List = lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions]),
@@ -197,7 +185,7 @@ selected_ciphers(Vsns) ->
 
 do_selected_ciphers('tlsv1.3') ->
     case lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())) of
-        true -> ?TLSV13_EXCLUSIVE_CIPHERS;
+        true -> ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
         false -> []
     end ++ do_selected_ciphers('tlsv1.2');
 do_selected_ciphers(_) ->

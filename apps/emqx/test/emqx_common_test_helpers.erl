@@ -16,8 +16,6 @@
 
 -module(emqx_common_test_helpers).
 
--include_lib("common_test/include/ct.hrl").
-
 -type special_config_handler() :: fun().
 
 -type apps() :: list(atom()).
@@ -77,12 +75,6 @@
 ]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
-
--define(MQTT_SSL_TWOWAY, [
-    {cacertfile, ?CERTS_PATH("cacert.pem")},
-    {verify, verify_peer},
-    {fail_if_no_peer_cert, true}
-]).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},

@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - name: download jmeter
       timeout-minutes: 3
       env:
@@ -36,7 +36,7 @@ jobs:
         PROFILE='emqx'
         make "${PROFILE}-docker"
         VSN="$(./pkg-vsn.sh $PROFILE)"
-        echo "::set-output name=version::${VSN}"
+        echo "version=${VSN}" >> $GITHUB_OUTPUT
         docker save -o emqx.tar emqx/emqx:${VSN}
     - uses: actions/upload-artifact@v3
       with:
@@ -59,7 +59,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -155,7 +155,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -261,7 +261,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -363,7 +363,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -462,7 +462,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: "24.2"
+        otp-version: 24.3
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:

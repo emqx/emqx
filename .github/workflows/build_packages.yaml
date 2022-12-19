@@ -23,7 +23,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-24:1.13.4-24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -48,7 +48,7 @@ jobs:
             echo "WARN: This is NOT an exact git tag, will not publish release"
             is_exact_tag='false'
           fi
-          echo "::set-output name=IS_EXACT_TAG::${is_exact_tag}"
+          echo "IS_EXACT_TAG=${is_exact_tag}" >> $GITHUB_OUTPUT
           case $tag in
             refs/tags/v*)
               PROFILE='emqx'
@@ -103,7 +103,7 @@ jobs:
     - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: 24.2.1
+        otp-version: 24.3.4
     - name: build
       env:
         PYTHON: python
@@ -173,13 +173,15 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-24:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
+        builder:
+          - 5.0-26
         otp:
           - 24.3.4.2-1
         elixir:
@@ -244,6 +246,7 @@ jobs:
     - name: build emqx packages
       working-directory: source
       env:
+        BUILDER: ${{ matrix.builder }}
         OTP: ${{ matrix.otp }}
         ELIXIR: ${{ matrix.elixir }}
         PROFILE: ${{ matrix.profile }}
@@ -272,7 +275,7 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IsElixir}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-24:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v3
       with:

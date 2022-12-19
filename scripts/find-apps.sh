@@ -8,10 +8,10 @@ cd -P -- "$(dirname -- "$0")/.."
 help() {
     echo
     echo "-h|--help:        To display this usage info"
-    echo "--ci fast|docker: Print apps in json format for github ci mtrix"
+    echo "--ci:             Print apps in json format for github ci matrix"
 }
 
-CI='novalue'
+MODE='list'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -19,8 +19,8 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         --ci)
-            CI="$2"
-            shift 2
+            MODE='ci'
+            shift 1
             ;;
         *)
             echo "unknown option $1"
@@ -45,7 +45,7 @@ CE="$(find_app 'apps')"
 EE="$(find_app 'lib-ee')"
 APPS_ALL="$(echo -e "${CE}\n${EE}")"
 
-if [ "$CI" = 'novalue' ]; then
+if [ "$MODE" = 'list' ]; then
     echo "${APPS_ALL}"
     exit 0
 fi
@@ -54,16 +54,22 @@ fi
 ###### now deal with the github action's matrix.
 ##################################################
 
-dimensions() {
+format_app_description() {
+    ## prefix is for github actions (they don't like slash in variables)
+    local prefix=${1//\//_}
+    echo -n -e "$(
+cat <<END
+    {"app": "${1}", "profile": "${2}", "runner": "${3}", "prefix": "${prefix}"}
+END
+    )"
+}
+
+describe_app() {
     app="$1"
+    local runner="host"
+    local profile
     if [ -f "${app}/docker-ct" ]; then
-        if [[ "$CI" != 'docker' ]]; then
-            return
-        fi
-    else
-        if [[ "$CI" != 'fast' ]]; then
-            return
-        fi
+        runner="docker"
     fi
     case "${app}" in
         apps/*)
@@ -77,28 +83,20 @@ dimensions() {
             exit 1
             ;;
     esac
-    ## poor-man's json formatter
-    ## apps/<app name>, <profile>, apps_<app name>
-    ## third one is for github actions (they don't like slash in variables)
-    echo -n -e "[\"$app\", \"$profile\", \"${app//\//_}\"]"
+    format_app_description "$app" "$profile" "$runner"
 }
 
 matrix() {
-    first_row='yes'
+    local sep='['
     for app in ${APPS_ALL}; do
-        row="$(dimensions "$app")"
+        row="$(describe_app "$app")"
         if [ -z "$row" ]; then
             continue
         fi
-        if [ "$first_row" = 'yes' ]; then
-            first_row='no'
-            echo -n "$row"
-        else
-            echo -n ",${row}"
-        fi
+        echo -n "${sep}${row}"
+        sep=', '
     done
+    echo ']'
 }
 
-echo -n '['
 matrix
-echo ']'
