@@ -100,7 +100,13 @@ abort() ->
     _ = cover:stop(),
     case whereis(?SRC) of
         undefined -> ok;
-        Pid -> exit(Pid, kill)
+        Pid ->
+            Ref = monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, _} ->
+                    ok
+            end
     end,
     ok.
 
