@@ -43,15 +43,15 @@
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
-    %%======================================= Deprecated Opts:
+    %%======================================= Deprecated Opts BEGIN
     %% use health_check_interval instead
     health_check_timeout => integer(),
     %% use start_timeout instead
     wait_for_resource_ready => integer(),
     %% use auto_restart_interval instead
     auto_retry_interval => integer(),
-    %%======================================= Deprecated Opts End
-    worker_pool_size => pos_integer(),
+    %%======================================= Deprecated Opts END
+    worker_pool_size => non_neg_integer(),
     %% use `integer()` compatibility to release 5.0.0 bpapi
     health_check_interval => integer(),
     %% We can choose to block the return of emqx_resource:start until
