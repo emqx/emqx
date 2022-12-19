@@ -203,6 +203,16 @@ make_zip() {
                     ;;
             esac
             ;;
+        macos*)
+            case "$PKG_VSN" in
+                4.4.12*)
+                    # this is the first version for macos arm (M1/M2), no relup
+                    if [ "$ARCH" = arm64 ]; then
+                        has_relup='no'
+                    fi
+                    ;;
+            esac
+            ;;
     esac
     # shellcheck disable=SC2207
     bases=($(relup_db base-vsns "$PKG_VSN"))
@@ -236,10 +246,18 @@ make_zip() {
                     #   --apple-id <apple id> \
                     #   --password <apple id password>
                     #   --team-id <apple team id> <submission-id>
-                xcrun notarytool submit \
-                      --apple-id "${APPLE_ID}" \
-                      --password "${APPLE_ID_PASSWORD}" \
-                      --team-id "${APPLE_TEAM_ID}" "${target_zip}" --wait
+                echo 'Submitting the package for notarization to Apple (normally takes about a minute)'
+                notarytool_output="$(xcrun notarytool submit \
+                                           --apple-id "${APPLE_ID}" \
+                                           --password "${APPLE_ID_PASSWORD}" \
+                                           --team-id "${APPLE_TEAM_ID}" "${target_zip}" \
+                                           --no-progress \
+                                           --wait)"
+                echo "$notarytool_output"
+                echo "$notarytool_output" | grep -q 'status: Accepted' || {
+                    echo 'Notarization failed';
+                    exit 1;
+                }
             fi
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target_zip}" | cut -d ' ' -f 2  > "${target_zip}.sha256"
