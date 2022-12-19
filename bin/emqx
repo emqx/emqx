@@ -54,11 +54,19 @@ export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
 logerr() {
-    echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo -e "ERROR: $*" 1>&2
+    else
+        echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+    fi
 }
 
 logwarn() {
-    echo "$(tput setaf 3)WARNING: $*$(tput sgr0)"
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo "WARNING: $*"
+    else
+        echo "$(tput setaf 3)WARNING: $*$(tput sgr0)"
+    fi
 }
 
 die() {
