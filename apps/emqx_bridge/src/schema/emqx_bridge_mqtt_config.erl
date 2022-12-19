@@ -86,7 +86,9 @@ default_resource_opts() ->
         <<"health_check_interval">> => <<"15s">>,
         <<"max_queue_bytes">> => <<"1GB">>,
         <<"query_mode">> => <<"sync">>,
-        <<"worker_pool_size">> => 16
+        %% there is only one underlying MQTT connection
+        %% doesn't make a lot of sense to have a large pool
+        <<"worker_pool_size">> => 4
     }.
 
 egress(Config) ->
