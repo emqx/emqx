@@ -81,8 +81,6 @@
     | round_robin_per_group
     | sticky
     | local
-    %% same as hash_clientid, backward compatible
-    | hash
     | hash_clientid
     | hash_topic.
 
@@ -360,9 +358,6 @@ pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
 
 do_pick_subscriber(_Group, _Topic, random, _ClientId, _SourceTopic, Count) ->
     rand:uniform(Count);
-do_pick_subscriber(Group, Topic, hash, ClientId, SourceTopic, Count) ->
-    %% backward compatible
-    do_pick_subscriber(Group, Topic, hash_clientid, ClientId, SourceTopic, Count);
 do_pick_subscriber(_Group, _Topic, hash_clientid, ClientId, _SourceTopic, Count) ->
     1 + erlang:phash2(ClientId) rem Count;
 do_pick_subscriber(_Group, _Topic, hash_topic, _ClientId, SourceTopic, Count) ->

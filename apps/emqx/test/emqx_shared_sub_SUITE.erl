@@ -378,8 +378,8 @@ t_sticky_unsubscribe(Config) when is_list(Config) ->
     ok.
 
 t_hash(Config) when is_list(Config) ->
-    ok = ensure_config(hash, false),
-    test_two_messages(hash).
+    ok = ensure_config(hash_clientid, false),
+    test_two_messages(hash_clientid).
 
 t_hash_clinetid(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
@@ -486,7 +486,7 @@ test_two_messages(Strategy, Group) ->
         sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         round_robin_per_group -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
-        hash -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        hash_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         _ -> ok
     end,
     ok.
