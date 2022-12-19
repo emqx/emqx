@@ -844,6 +844,48 @@ prop_hash_fun() ->
     ).
 
 %%------------------------------------------------------------------------------
+%% Test cases for zip funcs
+%%------------------------------------------------------------------------------
+
+t_zip_funcs(_) ->
+    ?PROPTEST(prop_zip_fun).
+
+prop_zip_fun() ->
+    ?FORALL(
+        S,
+        binary(),
+        S == apply_func(unzip, [apply_func(zip, [S])])
+    ).
+
+%%------------------------------------------------------------------------------
+%% Test cases for gzip funcs
+%%------------------------------------------------------------------------------
+
+t_gzip_funcs(_) ->
+    ?PROPTEST(prop_gzip_fun).
+
+prop_gzip_fun() ->
+    ?FORALL(
+        S,
+        binary(),
+        S == apply_func(gunzip, [apply_func(gzip, [S])])
+    ).
+
+%%------------------------------------------------------------------------------
+%% Test cases for zip funcs
+%%------------------------------------------------------------------------------
+
+t_zip_compress_funcs(_) ->
+    ?PROPTEST(prop_zip_compress_fun).
+
+prop_zip_compress_fun() ->
+    ?FORALL(
+        S,
+        binary(),
+        S == apply_func(zip_uncompress, [apply_func(zip_compress, [S])])
+    ).
+
+%%------------------------------------------------------------------------------
 %% Test cases for base64
 %%------------------------------------------------------------------------------
 
