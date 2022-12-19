@@ -446,6 +446,7 @@ handle_info(
     {mnesia_table_event, {write, #emqx_shared_subscription{subpid = SubPid}, _}},
     State = #state{pmon = PMon}
 ) ->
+    ok = maybe_insert_alive_tab(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
 %% it `unsubscribed` the last topic.
