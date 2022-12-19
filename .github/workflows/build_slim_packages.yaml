@@ -149,5 +149,5 @@ jobs:
         path: ./rebar3.crashdump
     - uses: actions/upload-artifact@v3
       with:
-        name: macos
+        name: ${{ matrix.os }}
         path: _packages/**/*.zip

@@ -203,6 +203,16 @@ make_zip() {
                     ;;
             esac
             ;;
+        macos*)
+            case "$PKG_VSN" in
+                4.4.12*)
+                    # this is the first version for macos arm (M1/M2), no relup
+                    if [ "$ARCH" = arm64 ]; then
+                        has_relup='no'
+                    fi
+                    ;;
+            esac
+            ;;
     esac
     # shellcheck disable=SC2207
     bases=($(relup_db base-vsns "$PKG_VSN"))
