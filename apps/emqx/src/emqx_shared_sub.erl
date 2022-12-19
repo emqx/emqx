@@ -139,7 +139,7 @@ record(Group, Topic, SubPid) ->
 -spec dispatch(emqx_types:group(), emqx_types:topic(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 dispatch(Group, Topic, Delivery) ->
-    dispatch(Group, Topic, Delivery, _FailedSubs = []).
+    dispatch(Group, Topic, Delivery, _FailedSubs = #{}).
 
 dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
     #message{from = ClientId, topic = SourceTopic} = Msg,
@@ -151,9 +151,9 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             case do_dispatch(SubPid, Group, Topic, Msg1, Type) of
                 ok ->
                     {ok, 1};
-                {error, _Reason} ->
+                {error, Reason} ->
                     %% Failed to dispatch to this sub, try next.
-                    dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
+                    dispatch(Group, Topic, Delivery, FailedSubs#{SubPid => Reason})
             end
     end.
 
@@ -262,7 +262,8 @@ redispatch_shared_message(#message{} = Msg) ->
     %% Note that dispatch is called with self() in failed subs
     %% This is done to avoid dispatching back to caller
     Delivery = #delivery{sender = self(), message = Msg},
-    dispatch(Group, Topic, Delivery, [self()]).
+    FailedSubs = #{self() => sender},
+    dispatch(Group, Topic, Delivery, FailedSubs).
 
 %% @hidden Return the `redispatch_to` group-topic in the message header.
 %% `false` is returned if the message is not a shared dispatch.
@@ -307,14 +308,22 @@ maybe_ack(Msg) ->
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    case is_active_sub(Sub0, FailedSubs) of
+    All = subscribers(Group, Topic),
+    case is_active_sub(Sub0, FailedSubs, All) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
             {fresh, Sub0};
         false ->
             %% randomly pick one for the first message
-            {Type, Sub} = do_pick(random, ClientId, SourceTopic, Group, Topic, [Sub0 | FailedSubs]),
+            {Type, Sub} = do_pick(
+                random,
+                ClientId,
+                SourceTopic,
+                Group,
+                Topic,
+                FailedSubs#{Sub0 => noproc}
+            ),
             %% stick to whatever pick result
             erlang:put({shared_sub_sticky, Group, Topic}, Sub),
             {Type, Sub}
@@ -324,7 +333,7 @@ pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
 
 do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     All = subscribers(Group, Topic),
-    case All -- FailedSubs of
+    case lists:filter(fun(Sub) -> not maps:is_key(Sub, FailedSubs) end, All) of
         [] when All =:= [] ->
             %% Genuinely no subscriber
             false;
@@ -512,8 +521,10 @@ update_stats(State) ->
     State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list
-is_active_sub(Pid, FailedSubs) ->
-    is_alive_sub(Pid) andalso not lists:member(Pid, FailedSubs).
+is_active_sub(Pid, FailedSubs, All) ->
+    lists:member(Pid, All) andalso
+        is_alive_sub(Pid) andalso
+        (not maps:is_key(Pid, FailedSubs)).
 
 %% erlang:is_process_alive/1 does not work with remote pid.
 is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->
