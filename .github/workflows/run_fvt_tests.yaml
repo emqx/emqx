@@ -12,7 +12,7 @@ jobs:
         runs-on: ubuntu-20.04
 
         steps:
-        - uses: actions/checkout@v1
+        - uses: actions/checkout@v3
         - uses: erlef/setup-beam@v1
           with:
             otp-version: "24.1.5"
@@ -75,7 +75,7 @@ jobs:
               - dns
 
         steps:
-        - uses: actions/checkout@v1
+        - uses: actions/checkout@v3
         - uses: erlef/setup-beam@v1
           with:
             otp-version: "24.1.5"
@@ -175,7 +175,7 @@ jobs:
           run: |
             kubectl describe pods emqx-2
             kubectl logs emqx-2
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           with:
             repository: emqx/paho.mqtt.testing
             ref: develop-4.0
@@ -211,7 +211,7 @@ jobs:
           run:
             shell: bash
         steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           name: Checkout
           with:
             path: emqx
@@ -260,7 +260,7 @@ jobs:
           PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
           BROKER: "${{ needs.relup_test_plan.outputs.broker }}"
         steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           name: Checkout
           with:
             path: emqx
@@ -273,7 +273,7 @@ jobs:
             fi
         - name: Build emqx
           run: make -C emqx ${PROFILE}-zip
-        - uses: actions/upload-artifact@v2
+        - uses: actions/upload-artifact@v3
           name: Upload built emqx and test scenario
           with:
             name: emqx_built
@@ -302,12 +302,12 @@ jobs:
           run:
             shell: bash
         steps:
-        - uses: actions/download-artifact@v2
+        - uses: actions/download-artifact@v3
           name: Download built emqx and test scenario
           with:
             name: emqx_built
             path: emqx_built
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           name: Checkout one_more_emqx
           with:
             repository: terry-xiaoyu/one_more_emqx
@@ -332,7 +332,7 @@ jobs:
             --var FROM_OTP_VSN="${old_otp_vsn}" \
             --var TO_OTP_VSN="24.3.4.2-1" \
             emqx_built/.ci/fvt_tests/relup.lux
-        - uses: actions/upload-artifact@v2
+        - uses: actions/upload-artifact@v3
           name: Save debug data
           if: failure()
           with:

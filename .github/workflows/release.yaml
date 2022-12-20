@@ -28,7 +28,7 @@ jobs:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
 
     steps:
-      - uses: aws-actions/configure-aws-credentials@v1
+      - uses: aws-actions/configure-aws-credentials@v1-node16
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -41,7 +41,7 @@ jobs:
               s3dir=${{ matrix.profile }}
           fi
           aws s3 cp --recursive  s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
-      - uses: alexellis/upload-assets@0.2.2
+      - uses: alexellis/upload-assets@0.4.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
