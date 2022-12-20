@@ -247,7 +247,7 @@ defmodule EMQXUmbrella.MixProject do
       ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
-      if(enable_jq?(), do: [jq: :permanent], else: []) ++
+      if(enable_jq?(), do: [jq: :load], else: []) ++
       if(is_app(:observer),
         do: [observer: :load],
         else: []
@@ -518,7 +518,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Path.join("RELEASES")
     |> File.open!([:write, :utf8], fn handle ->
       IO.puts(handle, "%% coding: utf-8")
-      :io.format(handle, '~tp.~n', [release_entry])
+      :io.format(handle, ~c"~tp.~n", [release_entry])
     end)
 
     release

@@ -398,7 +398,9 @@ relx_apps(ReleaseType, Edition) ->
         ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
-        [jq || is_jq_supported()] ++
+        %% Started automatically when needed (only needs to be started when the
+        %% port implementation is used)
+        [{jq, load} || is_jq_supported()] ++
         [{observer, load} || is_app(observer)] ++
         relx_apps_per_edition(Edition).
 
