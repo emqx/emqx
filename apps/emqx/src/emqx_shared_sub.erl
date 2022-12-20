@@ -81,8 +81,6 @@
     | round_robin_per_group
     | sticky
     | local
-    %% same as hash_clientid, backward compatible
-    | hash
     | hash_clientid
     | hash_topic.
 
@@ -97,6 +95,7 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 -define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
+-define(SUBSCRIBER_DOWN, noproc).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_topic:group(), emqx_topic:topic()).
 
@@ -139,7 +138,7 @@ record(Group, Topic, SubPid) ->
 -spec dispatch(emqx_types:group(), emqx_types:topic(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 dispatch(Group, Topic, Delivery) ->
-    dispatch(Group, Topic, Delivery, _FailedSubs = []).
+    dispatch(Group, Topic, Delivery, _FailedSubs = #{}).
 
 dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
     #message{from = ClientId, topic = SourceTopic} = Msg,
@@ -151,9 +150,9 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             case do_dispatch(SubPid, Group, Topic, Msg1, Type) of
                 ok ->
                     {ok, 1};
-                {error, _Reason} ->
+                {error, Reason} ->
                     %% Failed to dispatch to this sub, try next.
-                    dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
+                    dispatch(Group, Topic, Delivery, FailedSubs#{SubPid => Reason})
             end
     end.
 
@@ -262,7 +261,9 @@ redispatch_shared_message(#message{} = Msg) ->
     %% Note that dispatch is called with self() in failed subs
     %% This is done to avoid dispatching back to caller
     Delivery = #delivery{sender = self(), message = Msg},
-    dispatch(Group, Topic, Delivery, [self()]).
+    %% Self is terminating, it makes no sense to loop-back the dispatch
+    FailedSubs = #{self() => ?SUBSCRIBER_DOWN},
+    dispatch(Group, Topic, Delivery, FailedSubs).
 
 %% @hidden Return the `redispatch_to` group-topic in the message header.
 %% `false` is returned if the message is not a shared dispatch.
@@ -307,27 +308,33 @@ maybe_ack(Msg) ->
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    case is_active_sub(Sub0, FailedSubs) of
+    All = subscribers(Group, Topic, FailedSubs),
+    case is_active_sub(Sub0, FailedSubs, All) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
             {fresh, Sub0};
         false ->
             %% randomly pick one for the first message
-            {Type, Sub} = do_pick(random, ClientId, SourceTopic, Group, Topic, [Sub0 | FailedSubs]),
-            %% stick to whatever pick result
-            erlang:put({shared_sub_sticky, Group, Topic}, Sub),
-            {Type, Sub}
+            FailedSubs1 = FailedSubs#{Sub0 => ?SUBSCRIBER_DOWN},
+            Res = do_pick(All, random, ClientId, SourceTopic, Group, Topic, FailedSubs1),
+            case Res of
+                {_, Sub} ->
+                    %% stick to whatever pick result
+                    erlang:put({shared_sub_sticky, Group, Topic}, Sub);
+                _ ->
+                    ok
+            end,
+            Res
     end;
 pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
-    do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
+    All = subscribers(Group, Topic, FailedSubs),
+    do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
 
-do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
-    All = subscribers(Group, Topic),
-    case All -- FailedSubs of
-        [] when All =:= [] ->
-            %% Genuinely no subscriber
-            false;
+do_pick([], _Strategy, _ClientId, _SourceTopic, _Group, _Topic, _FailedSubs) ->
+    false;
+do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    case lists:filter(fun(Sub) -> not maps:is_key(Sub, FailedSubs) end, All) of
         [] ->
             %% All offline? pick one anyway
             {retry, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, All)};
@@ -351,9 +358,6 @@ pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
 
 do_pick_subscriber(_Group, _Topic, random, _ClientId, _SourceTopic, Count) ->
     rand:uniform(Count);
-do_pick_subscriber(Group, Topic, hash, ClientId, SourceTopic, Count) ->
-    %% backward compatible
-    do_pick_subscriber(Group, Topic, hash_clientid, ClientId, SourceTopic, Count);
 do_pick_subscriber(_Group, _Topic, hash_clientid, ClientId, _SourceTopic, Count) ->
     1 + erlang:phash2(ClientId) rem Count;
 do_pick_subscriber(_Group, _Topic, hash_topic, _ClientId, SourceTopic, Count) ->
@@ -374,6 +378,16 @@ do_pick_subscriber(Group, Topic, round_robin_per_group, _ClientId, _SourceTopic,
         {Group, Topic}, 0
     }).
 
+%% Select ETS table to get all subscriber pids which are not down.
+subscribers(Group, Topic, FailedSubs) ->
+    lists:filter(
+        fun(P) ->
+            ?SUBSCRIBER_DOWN =/= maps:get(P, FailedSubs, false)
+        end,
+        subscribers(Group, Topic)
+    ).
+
+%% Select ETS table to get all subscriber pids.
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
@@ -427,6 +441,7 @@ handle_info(
     {mnesia_table_event, {write, #emqx_shared_subscription{subpid = SubPid}, _}},
     State = #state{pmon = PMon}
 ) ->
+    ok = maybe_insert_alive_tab(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
 %% it `unsubscribed` the last topic.
@@ -512,8 +527,10 @@ update_stats(State) ->
     State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list
-is_active_sub(Pid, FailedSubs) ->
-    is_alive_sub(Pid) andalso not lists:member(Pid, FailedSubs).
+is_active_sub(Pid, FailedSubs, All) ->
+    lists:member(Pid, All) andalso
+        (not maps:is_key(Pid, FailedSubs)) andalso
+        is_alive_sub(Pid).
 
 %% erlang:is_process_alive/1 does not work with remote pid.
 is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->

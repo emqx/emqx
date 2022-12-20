@@ -190,7 +190,7 @@ t_publish_qos2_with_error_return(_) ->
 
     begin
         Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
-        {ok, [], Session1} = emqx_session:publish(clientinfo(), PacketId2 = 2, Msg2, Session),
+        {ok, [], Session1} = emqx_session:publish(clientinfo(), _PacketId2 = 2, Msg2, Session),
         ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
         {error, RC2 = ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(
             clientinfo(), _PacketId3 = 3, Msg2, Session1

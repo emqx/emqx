@@ -344,9 +344,42 @@ t_sticky(Config) when is_list(Config) ->
     ok = ensure_config(sticky, true),
     test_two_messages(sticky).
 
+%% two subscribers in one shared group
+%% one unsubscribe after receiving a message
+%% the other one in the group should receive the next message
+t_sticky_unsubscribe(Config) when is_list(Config) ->
+    ok = ensure_config(sticky, false),
+    Topic = <<"foo/bar/sticky-unsub">>,
+    ClientId1 = <<"c1-sticky-unsub">>,
+    ClientId2 = <<"c2-sticky-unsub">>,
+    Group = <<"gsu">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    ShareTopic = <<"$share/", Group/binary, "/", Topic/binary>>,
+    emqtt:subscribe(ConnPid1, {ShareTopic, 0}),
+    emqtt:subscribe(ConnPid2, {ShareTopic, 0}),
+
+    Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
+    ct:sleep(100),
+
+    emqx:publish(Message1),
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
+    emqtt:unsubscribe(UsedSubPid1, ShareTopic),
+    emqx:publish(Message2),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
+    ?assertNotEqual(UsedSubPid1, UsedSubPid2),
+
+    kill_process(ConnPid1, fun(_) -> emqtt:stop(ConnPid1) end),
+    kill_process(ConnPid2, fun(_) -> emqtt:stop(ConnPid2) end),
+    ok.
+
 t_hash(Config) when is_list(Config) ->
-    ok = ensure_config(hash, false),
-    test_two_messages(hash).
+    ok = ensure_config(hash_clientid, false),
+    test_two_messages(hash_clientid).
 
 t_hash_clinetid(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
@@ -453,7 +486,7 @@ test_two_messages(Strategy, Group) ->
         sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         round_robin_per_group -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
-        hash -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        hash_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         _ -> ok
     end,
     ok.

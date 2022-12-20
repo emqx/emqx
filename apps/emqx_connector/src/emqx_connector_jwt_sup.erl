@@ -18,7 +18,7 @@
 
 -behaviour(supervisor).
 
--include("emqx_connector_tables.hrl").
+-include_lib("emqx_connector/include/emqx_connector_tables.hrl").
 
 -export([
     start_link/0,

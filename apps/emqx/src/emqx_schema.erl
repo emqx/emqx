@@ -1198,6 +1198,10 @@ fields("broker") ->
             sc(
                 boolean(),
                 #{
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% in favor of session message re-dispatch at termination
+                    %% we will stop supporting dispatch acks for shared
+                    %% subscriptions.
                     default => false,
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
