@@ -514,6 +514,52 @@ t_reset_bridges(Config) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
+-define(MQTT_BRIDGE(Server), #{
+    <<"server">> => Server,
+    <<"username">> => <<"user1">>,
+    <<"password">> => <<"">>,
+    <<"proto_ver">> => <<"v5">>,
+    <<"ssl">> => #{<<"enable">> => false},
+    <<"type">> => <<"mqtt">>,
+    <<"name">> => <<"mqtt_egress_test_bridge">>
+}).
+
+t_bridges_probe(Config) ->
+    Port = ?config(port, Config),
+    URL = ?URL(Port, "some_path"),
+
+    {ok, 204, <<>>} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+
+    %% second time with same name is ok since no real bridge created
+    {ok, 204, <<>>} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+
+    {ok, 400, _} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+
+    {ok, 204, _} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)
+    ),
+
+    {ok, 400, _} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:2883">>)
+    ),
+    ok.
+
 request(Method, Url, Body) ->
     request(<<"bridge_admin">>, Method, Url, Body).
 

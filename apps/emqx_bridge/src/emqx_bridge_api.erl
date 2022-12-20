@@ -38,7 +38,8 @@
     '/bridges/:id'/2,
     '/bridges/:id/operation/:operation'/2,
     '/nodes/:node/bridges/:id/operation/:operation'/2,
-    '/bridges/:id/reset_metrics'/2
+    '/bridges/:id/reset_metrics'/2,
+    '/bridges_probe'/2
 ]).
 
 -export([lookup_from_local_node/2]).
@@ -68,7 +69,8 @@ paths() ->
         "/bridges/:id",
         "/bridges/:id/operation/:operation",
         "/nodes/:node/bridges/:id/operation/:operation",
-        "/bridges/:id/reset_metrics"
+        "/bridges/:id/reset_metrics",
+        "/bridges_probe"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -386,6 +388,23 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
+    };
+schema("/bridges_probe") ->
+    #{
+        'operationId' => '/bridges_probe',
+        post => #{
+            tags => [<<"bridges">>],
+            desc => ?DESC("desc_api9"),
+            summary => <<"Test creating bridge">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_schema:post_request(),
+                bridge_info_examples(post)
+            ),
+            responses => #{
+                204 => <<"Test bridge OK">>,
+                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+            }
+        }
     }.
 
 '/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
@@ -461,6 +480,59 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
             Reason -> {400, error_msg('BAD_REQUEST', Reason)}
         end
     ).
+
+'/bridges_probe'(post, Request) ->
+    RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
+    case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
+        {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
+            case do_probe(ConnType, maps:remove(<<"type">>, Params)) of
+                ok ->
+                    {204};
+                {error, Error} ->
+                    {400, error_msg('TEST_FAILED', Error)}
+            end;
+        BadRequest ->
+            BadRequest
+    end.
+
+do_probe(ConnType, Params) ->
+    case test_connection(host_and_port(ConnType, Params)) of
+        ok ->
+            emqx_bridge_resource:create_dry_run(ConnType, Params);
+        Error ->
+            Error
+    end.
+
+host_and_port(mqtt, #{<<"server">> := Server}) ->
+    Server;
+host_and_port(webhook, #{<<"url">> := Url}) ->
+    {BaseUrl, _Path} = parse_url(Url),
+    {ok, #{host := Host, port := Port}} = emqx_http_lib:uri_parse(BaseUrl),
+    {Host, Port};
+host_and_port(_Unknown, _) ->
+    undefined.
+
+test_connection(undefined) ->
+    %% be friendly, it might fail later on with a 'timeout' error.
+    ok;
+test_connection({Host, Port}) ->
+    case gen_tcp:connect(Host, Port, []) of
+        {ok, TestSocket} -> gen_tcp:close(TestSocket);
+        Error -> Error
+    end.
+
+parse_url(Url) ->
+    case string:split(Url, "//", leading) of
+        [Scheme, UrlRem] ->
+            case string:split(UrlRem, "/", leading) of
+                [HostPort, Path] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
+                [HostPort] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
+            end;
+        [Url] ->
+            error({invalid_url, Url})
+    end.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     Nodes = mria_mnesia:running_nodes(),
