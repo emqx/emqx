@@ -26,6 +26,12 @@ NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
 
+if [ -f EMQX_ENTERPRISE ]; then
+    REL_DIR='emqx-ee'
+else
+    REL_DIR='emqx'
+fi
+
 ## clean up
 docker rm -f "$NODE1" >/dev/null 2>&1 || true
 docker rm -f "$NODE2" >/dev/null 2>&1 || true
@@ -33,22 +39,22 @@ docker network rm "$NET" >/dev/null 2>&1 || true
 
 docker network create "$NET"
 
-docker run -d -t --restart=always --name "$NODE1" \
+docker run -d -it --restart=always --name "$NODE1" \
   --net "$NET" \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
   -p 18083:18083 \
-  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
+  -v "$PROJ_DIR"/_build/"${REL_DIR}"/rel/emqx:/built \
   "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
 
-docker run -d -t --restart=always --name "$NODE2" \
+docker run -d -it --restart=always --name "$NODE2" \
   --net "$NET" \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
   -p 18084:18083 \
-  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
+  -v "$PROJ_DIR"/_build/"${REL_DIR}"/rel/emqx:/built \
   "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
 
 wait (){
