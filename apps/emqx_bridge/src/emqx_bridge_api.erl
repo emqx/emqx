@@ -512,11 +512,12 @@ host_and_port(webhook, #{<<"url">> := Url}) ->
 host_and_port(_Unknown, _) ->
     undefined.
 
+%% [TODO] remove in EMQX-8588 when resource manager handles things more elegantly
 test_connection(undefined) ->
     %% be friendly, it might fail later on with a 'timeout' error.
     ok;
 test_connection({Host, Port}) ->
-    case gen_tcp:connect(Host, Port, []) of
+    case gen_tcp:connect(Host, Port, [], 5000) of
         {ok, TestSocket} -> gen_tcp:close(TestSocket);
         Error -> Error
     end.
