@@ -421,15 +421,12 @@ t_write_timeout(Config) ->
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     Timeout = 10,
-    ?check_trace(
-        emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
+    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
+        ?assertMatch(
+            {error, {resource_error, _}},
             query_resource(Config, {send_message, SentData, [], Timeout})
-        end),
-        fun(Result, _Trace) ->
-            ?assertMatch({error, {resource_error, _}}, Result),
-            ok
-        end
-    ),
+        )
+    end),
     ok.
 
 t_simple_sql_query(Config) ->
