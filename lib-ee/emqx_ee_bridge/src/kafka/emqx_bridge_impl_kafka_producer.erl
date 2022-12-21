@@ -266,11 +266,11 @@ handle_telemetry_event(
     emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
 handle_telemetry_event(
     [wolff, queuing],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
+    #{gauge_set := Val},
+    #{bridge_id := ID, partition_id := PartitionID},
     _HandlerConfig
 ) when is_integer(Val) ->
-    emqx_resource_metrics:queuing_change(ID, Val);
+    emqx_resource_metrics:queuing_set(ID, PartitionID, Val);
 handle_telemetry_event(
     [wolff, retried],
     #{counter_inc := Val},
@@ -287,11 +287,11 @@ handle_telemetry_event(
     emqx_resource_metrics:failed_inc(ID, Val);
 handle_telemetry_event(
     [wolff, inflight],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
+    #{gauge_set := Val},
+    #{bridge_id := ID, partition_id := PartitionID},
     _HandlerConfig
 ) when is_integer(Val) ->
-    emqx_resource_metrics:inflight_change(ID, Val);
+    emqx_resource_metrics:inflight_set(ID, PartitionID, Val);
 handle_telemetry_event(
     [wolff, retried_failed],
     #{counter_inc := Val},
