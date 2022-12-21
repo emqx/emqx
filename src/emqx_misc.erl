@@ -26,6 +26,7 @@
 -export([ merge_opts/2
         , maybe_apply/2
         , maybe_mute_rpc_log/0
+        , safe_io_device/0
         , compose/1
         , compose/2
         , run_fold/3
@@ -476,6 +477,34 @@ maybe_mute_rpc_log(Node) ->
             %% otherwise set group leader to local node
             _ = group_leader(whereis(init), self()),
             ok
+    end.
+
+is_group_leader_node_connected() ->
+    GLNode = node(group_leader()),
+    case atom_to_list(GLNode) of
+        "remsh" ++ _ ->
+            {ok, Nodes} = net_kernel:nodes_info(),
+            lists:keymember(GLNode, 1, Nodes);
+        _ ->
+            %% for a non-remsh node
+            %% as long as the group leader is showing up
+            %% it should be connected
+            true
+    end.
+
+%% @doc Return 'standard_io' or 'standard_error' io device depending on the
+%% current group leader node.
+%% EMQX nodes do not use EPMD, there is no way for a EMQX node to connect to
+%% a remsh node which is not directly connected already.
+%% In this case, io:format may fail with {io,terminated} exception.
+%% For io:format calls which can be evaluated from RPC calls, call this
+%% function to get a safe io device.
+safe_io_device() ->
+    case is_group_leader_node_connected() of
+        true ->
+            standard_io;
+        false ->
+            standard_error
     end.
 
 is_sensitive_key(token) -> true;
