@@ -72,7 +72,7 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
-  ## Cluster discovery by k8s
+  ## Cluster discovery by 'k8s' or 'dns'
   EMQX_CLUSTER__DISCOVERY: "k8s"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__ID: "admin"
   EMQX_MANAGEMENT__DEFAULT_APPLICATION__SECRET: "public"
@@ -174,6 +174,12 @@ service:
   ## Set the ExternalIPs
   ##
   externalIPs: []
+  ## Denotes if this Service desires to route external traffic to node-local or cluster-wide endpoints.
+  ## There are two available options: Cluster (default) and Local.
+  ## Cluster obscures the client source IP and may cause a second hop to another node, but should have good overall load-spreading.
+  ## Local preserves the client source IP and avoids a second hop for LoadBalancer and NodePort type Services, but risks potentially imbalanced traffic spreading.
+  ##
+  externalTrafficPolicy: "Cluster"
   ## Provide any additional annotations which may be required. Evaluated as a template
   ##
   annotations: {}

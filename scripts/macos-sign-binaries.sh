@@ -43,10 +43,24 @@ done
 security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
 # known runtime executables and binaries
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/erts-*/bin/{beam.smp,dyn_erl,epmd,erl,erl_call,erl_child_setup,erlexec,escript,heart,inet_gethost,run_erl,to_erl}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/os_mon-*/priv/bin/{cpu_sup,memsup}
+codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
+         "${REL_DIR}"/erts-*/bin/{beam.smp,dyn_erl,epmd,erl,erl_call,erl_child_setup,erlexec,escript,heart,inet_gethost,run_erl,to_erl}
+codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
+         "${REL_DIR}"/lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
+codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
+         "${REL_DIR}"/lib/os_mon-*/priv/bin/{cpu_sup,memsup}
 # other files from runtime and dependencies
-for f in asn1rt_nif.so bcrypt_nif.so crypto.so otp_test_engine.so crypto_callback.so jiffy.so crc32cer_nif.so sasl_auth.so snappyer.so odbcserver; do
+for f in \
+        asn1rt_nif.so \
+        bcrypt_nif.so \
+        crypto.so \
+        otp_test_engine.so \
+        crypto_callback.so \
+        jiffy.so \
+        crc32cer_nif.so \
+        sasl_auth.so \
+        snappyer.so \
+        odbcserver \
+    ; do
     find "${REL_DIR}"/lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
 done

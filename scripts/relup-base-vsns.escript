@@ -162,16 +162,26 @@ filter_froms(Froms0, AvailableVersionsIndex) ->
     Froms1 =
         case get_system() of
             %% we do not support relup for windows
-            "windows" ->
+            {"windows", _} ->
                 [];
             %% debian11 is introduced since v4.4.2 and e4.4.2
             %% exclude tags before them
-            "debian11" ->
+            {"debian11", _} ->
                 lists:filter(
                   fun(Vsn) ->
                           not lists:member(Vsn, [<<"4.4.0">>, <<"4.4.1">>])
                   end, Froms0);
-            _ ->
+            %% amzn2 is introduced since v4.4.12 and e4.4.12
+            %% exclude tags before them
+            {"amzn2", _} ->
+                Excluded = [list_to_binary(["4.4.", integer_to_list(X)]) || X <- lists:seq(0,11)],
+                lists:filter(fun(Vsn) -> not lists:member(Vsn, Excluded) end, Froms0);
+            %% macos arm64 (M1/M2) packages are introduced since v4.4.12 and e4.4.12
+            %% exclude tags before them
+            {"macos" ++ _, "aarch64" ++ _} ->
+                Excluded = [list_to_binary(["4.4.", integer_to_list(X)]) || X <- lists:seq(0,11)],
+                lists:filter(fun(Vsn) -> not lists:member(Vsn, Excluded) end, Froms0);
+            {_, _} ->
                 Froms0
         end,
     lists:filter(
@@ -179,11 +189,12 @@ filter_froms(Froms0, AvailableVersionsIndex) ->
       Froms1).
 
 get_system() ->
+    Arch = erlang:system_info(system_architecture),
     case os:getenv("SYSTEM") of
         false ->
-            string:trim(os:cmd("./scripts/get-distro.sh"));
+            {string:trim(os:cmd("./scripts/get-distro.sh")), Arch};
         System ->
-            System
+            {System, Arch}
     end.
 
 %% assumes that's X.Y.Z, without pre-releases
