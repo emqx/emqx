@@ -179,3 +179,6 @@ t_pmap_exception(_) ->
             [{2, 3}, {3, 4}, error]
         )
     ).
+
+t_safe_io_device(_) ->
+    ?assertEqual(standard_io, emqx_misc:safe_io_device()).
