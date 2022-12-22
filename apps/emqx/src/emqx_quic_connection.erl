@@ -37,8 +37,7 @@
     local_address_changed/3,
     peer_address_changed/3,
     streams_available/3,
-    % @TODO wait for newer quicer
-    %peer_needs_streams/3,
+    peer_needs_streams/3,
     resumed/3,
     new_stream/3
 ]).
@@ -233,9 +232,12 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 %%      should cope with rate limiting
 %% @TODO this is not going to get triggered in current version
 %% for https://github.com/microsoft/msquic/issues/3120
-%% -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
-%% peer_needs_streams(_C, undefined, S) ->
-%%     {ok, S}.
+-spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
+peer_needs_streams(_C, undefined, S) ->
+    ?SLOG(info, #{
+        msg => "ignore: peer need more streames", info => maps:with([conn_pid, ctrl_pid], S)
+    }),
+    {ok, S}.
 
 %% @doc handle API calls
 handle_call(
@@ -255,7 +257,7 @@ handle_call(_Req, _From, S) ->
 
 %% @doc handle DOWN messages from streams.
 %% @TODO handle DOWN from supervisor?
-handle_info({'DOWN', _Ref, process, Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
+handle_info({'EXIT', Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
     case Reason of
         normal ->
             quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
@@ -264,12 +266,13 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, #{ctrl_pid := Pid, conn := Con
             quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 1)
     end,
     {ok, S};
-handle_info({'DOWN', _Ref, process, Pid, Reason}, #{streams := Streams} = S) when
-    Reason =:= normal orelse
-        Reason =:= {shutdown, protocol_error}
-->
+handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
     case proplists:is_defined(Pid, Streams) of
-        true ->
+        true when
+            Reason =:= normal orelse
+                Reason =:= {shutdown, protocol_error} orelse
+                Reason =:= killed
+        ->
             {ok, S};
         false ->
             {stop, unknown_pid_down, S}
