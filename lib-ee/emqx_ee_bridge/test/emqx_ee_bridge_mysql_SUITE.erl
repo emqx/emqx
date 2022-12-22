@@ -480,7 +480,7 @@ t_unprepared_statement_query(Config) ->
     Result = query_resource(Config, Request),
     case ?config(enable_batch, Config) of
         true -> ?assertEqual({error, invalid_request}, Result);
-        false -> ?assertEqual({error, prepared_statement_is_unprepared}, Result)
+        false -> ?assertEqual({error, prepared_statement_invalid}, Result)
     end,
     ok.
 

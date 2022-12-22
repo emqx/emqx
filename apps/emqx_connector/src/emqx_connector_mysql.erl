@@ -263,7 +263,7 @@ init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
 maybe_prepare_sql(SQLOrKey, Prepares, PoolName) ->
     case maps:is_key(SQLOrKey, Prepares) of
         true -> prepare_sql(Prepares, PoolName);
-        false -> {error, prepared_statement_is_unprepared}
+        false -> {error, prepared_statement_invalid}
     end.
 
 prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
