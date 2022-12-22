@@ -47,6 +47,7 @@ set_special_cfg(PluginsDir) ->
     ok.
 
 end_per_suite(_Config) ->
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:stop_apps([]),
     file:delete(get(loaded_file)).
 

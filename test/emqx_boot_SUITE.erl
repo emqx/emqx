@@ -39,5 +39,6 @@ t_is_enabled(_) ->
     ok = application:set_env(emqx, boot_modules, [router, broker, listeners]),
     ?assert(emqx_boot:is_enabled(router)),
     ?assert(emqx_boot:is_enabled(broker)),
-    ?assert(emqx_boot:is_enabled(listeners)).
+    ?assert(emqx_boot:is_enabled(listeners)),
+    ok = application:set_env(emqx, boot_modules, all).
 
