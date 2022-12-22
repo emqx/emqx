@@ -72,9 +72,9 @@ jobs:
         shell: bash
     steps:
       # setup Erlang to run lux
-    - uses: erlef/setup-beam@v1
+    - uses: emqx/setup-beam@v1.16.1-emqx
       with:
-        otp-version: 24.3
+        otp-version: 24.3.4.6
     - uses: actions/checkout@v3
       with:
         repository: hawk/lux
