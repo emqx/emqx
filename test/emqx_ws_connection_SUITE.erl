@@ -41,6 +41,13 @@ all() -> emqx_ct:all(?MODULE).
 %% CT callbacks
 %%--------------------------------------------------------------------
 
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
