@@ -59,11 +59,19 @@ runs:
         fi
         git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
         cd "$OTP_SOURCE_PATH"
+        if [ "$(arch)" = arm64 ]; then
+            export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+            export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+        fi
         ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
         make -j$(nproc)
         rm -rf "$OTP_INSTALL_PATH"
         make install
-    - name: build ${{ inputs.profile }}
+        if [ "$(arch)" = arm64 ]; then
+            unset LDFLAGS
+            unset CC
+        fi
+    - name: build
       env:
         HOMEBREW_NO_AUTO_UPDATE: 1
         HOMEBREW_NO_INSTALL_UPGRADE: 1

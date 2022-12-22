@@ -21,10 +21,16 @@ REL_DIR="${1}"
 PKSC12_FILE="$HOME/developer-id-application.p12"
 base64 --decode > "${PKSC12_FILE}" <<<"${APPLE_DEVELOPER_ID_BUNDLE}"
 
-KEYCHAIN='emqx.keychain-db'
+KEYCHAIN="emqx-$(date +%s).keychain-db"
 KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
-security delete-keychain "${KEYCHAIN}" 2>/dev/null || true
+trap cleanup EXIT
+
+function cleanup {
+    set +e
+    security delete-keychain "${KEYCHAIN}" 2>/dev/null
+}
+
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
 security set-keychain-settings -lut 21600 "${KEYCHAIN}"
 security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
@@ -69,3 +75,5 @@ for f in \
         ; do
     find "${REL_DIR}"/lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
 done
+
+cleanup
