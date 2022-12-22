@@ -3,10 +3,6 @@ inputs:
   otp: # 24.2.1-1, 23.3.4.9-3
     required: true
     type: string
-  os:
-    required: false
-    type: string
-    default: macos-11
   apple_id_password:
     required: true
     type: string
@@ -19,6 +15,10 @@ inputs:
   apple_developer_id_bundle_password:
     required: true
     type: string
+  os:
+    required: false
+    type: string
+    default: macos-11
 
 runs:
   using: composite
