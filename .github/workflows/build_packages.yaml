@@ -115,7 +115,7 @@ jobs:
 
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
-      if: matrix.os == macos-12-arm64
+      if: matrix.os == 'macos-12-arm64'
     - uses: actions/download-artifact@v3
       with:
         name: source
