@@ -59,6 +59,10 @@
 
 -define(BANNED_TAB, ?MODULE).
 
+%% The default expiration time should be infinite
+%% but for compatibility, a large number (1 years) is used here to represent the 'infinite'
+-define(EXPIRATION_TIME, 31536000).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -126,7 +130,7 @@ parse(Params) ->
             By = maps:get(<<"by">>, Params, <<"mgmt_api">>),
             Reason = maps:get(<<"reason">>, Params, <<"">>),
             At = maps:get(<<"at">>, Params, erlang:system_time(second)),
-            Until = maps:get(<<"until">>, Params, At + 5 * 60),
+            Until = maps:get(<<"until">>, Params, At + ?EXPIRATION_TIME),
             case Until > erlang:system_time(second) of
                 true ->
                     #banned{
