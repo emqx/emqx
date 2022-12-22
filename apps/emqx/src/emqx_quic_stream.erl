@@ -137,13 +137,13 @@ getstat({quic, Conn, _Stream, _Info}, Stats) ->
         Res -> Res
     end.
 
-setopts(Socket, Opts) ->
+setopts({quic, _Conn, Stream, _Info}, Opts) ->
     lists:foreach(
         fun
             ({Opt, V}) when is_atom(Opt) ->
-                quicer:setopt(Socket, Opt, V);
+                quicer:setopt(Stream, Opt, V);
             (Opt) when is_atom(Opt) ->
-                quicer:setopt(Socket, Opt, true)
+                quicer:setopt(Stream, Opt, true)
         end,
         Opts
     ),
