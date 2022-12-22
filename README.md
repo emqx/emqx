@@ -86,9 +86,9 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ## Build From Source
 
-The `master` branch is for the latest version 5 release, checkout branch `main-v4.3` for version 4.3 and `main-v4.4` for version 4.4.
+The `master` branch is for the latest version 5 release, checkout `main-v4.4` for version 4.4.
 
-EMQX requires OTP 22 or 23 for version 4.3, and OTP 24 for 4.4 and 5.0.
+EMQX requires OTP 24 for 4.4, 5.0 can be built with OTP 24 or 25.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
@@ -105,27 +105,6 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
-
-### Building on Apple silicon (M1, M2)
-
-Homebrew on Apple silicon [changed default location of it's home directory](https://github.com/Homebrew/brew/issues/9177) from `/usr/local` to `/opt/homebrew` and as a result a few things broke in the process.
-
-Concerning EMQX, when you install `unixodbc` package (one of the dependencies) via Homebrew, and build Erlang/OTP  with [kerl](https://github.com/kerl/kerl), kerl will not be able to find `unixodbc`.
-
-Here is how to solve it:
-
-```bash
-brew install unixodbc kerl
-sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
-export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
-export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
-kerl build 24.3
-mkdir ~/.kerl/installations
-kerl install 24.3 ~/.kerl/installations/24.3
-. ~/.kerl/installations/24.3/activate
-```
-
-Then you can proceed with `make`.
 
 ## License
 

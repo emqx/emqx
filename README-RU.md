@@ -82,9 +82,9 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 ## Сборка из исходного кода
 
-Ветка `master` предназначена для последней версии 5, переключитесь на ветку `main-v4.3` для версии 4.3 и `main-v4.4` для версии 4.4.
+Ветка `master` предназначена для последней версии 5, переключитесь на ветку `main-v4.4` для версии 4.4.
 
-EMQX требует OTP 22 или 23 для версии 4.3 и OTP 24 для версий 4.4 и 5.0.
+EMQX требует OTP 24 для версии 4.4. Версию 5.0 можно собирать с OTP 24 или 25.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
@@ -101,25 +101,6 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
-
-### Сборка на Apple silicon (M1, M2)
-
-Пакетный менеджер Homebrew, когда установлен на Apple silicon, [стал использовать другую домашнюю папку по умолчанию](https://github.com/Homebrew/brew/issues/9177), `/opt/homebrew` вместо `/usr/local`. В результате некоторые библиотеки перестали собираться автоматически.
-
-Касательно EMQX, сборка Erlang из исходного кода не найдёт библиотеку `unixodbc`, установленную с homebrew, без дополнительных действий:
-
-```bash
-brew install unixodbc kerl
-sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
-export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
-export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
-kerl build 24.3
-mkdir ~/.kerl/installations
-kerl install 24.3 ~/.kerl/installations/24.3
-. ~/.kerl/installations/24.3/activate
-```
-
-Дальше можно собирать emqx как обычно, с помощью `make`.
 
 ## Лицензия
 
