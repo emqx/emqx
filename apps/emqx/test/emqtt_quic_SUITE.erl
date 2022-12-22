@@ -21,6 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("quicer/include/quicer.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -79,7 +80,10 @@ groups() ->
             t_multi_streams_shutdown_data_stream_abortive,
             t_multi_streams_dup_sub,
             t_multi_streams_packet_boundary,
-            t_multi_streams_packet_malform
+            t_multi_streams_packet_malform,
+            t_multi_streams_kill_sub_stream,
+            t_multi_streams_packet_too_large,
+            t_conn_change_client_addr
         ]},
 
         {shutdown, [
@@ -537,10 +541,82 @@ t_multi_streams_packet_malform(Config) ->
     timer:sleep(200),
     ?assert(is_list(emqtt:info(C))),
 
-    {error, stm_send_error, aborted} = quicer:send(MalformStream, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>),
+    {error, stm_send_error, aborted} = quicer:send(MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>),
+
     timer:sleep(200),
     ?assert(is_list(emqtt:info(C))),
 
+    ok = emqtt:disconnect(C).
+
+t_multi_streams_packet_too_large(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    meck:new(emqx_frame, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_frame,
+        serialize_opts,
+        fun(#mqtt_packet_connect{proto_ver = ProtoVer}) ->
+            #{version => ProtoVer, max_size => 1024}
+        end
+    ),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
+
+    {ok, PubVia} = emqtt:start_data_stream(C, []),
+    ok = emqtt:publish_async(
+        C,
+        PubVia,
+        Topic,
+        binary:copy(<<"stream data 1">>, 1024),
+        [{qos, PubQos}],
+        undefined
+    ),
+    timeout = recv_pub(1),
+    ?assert(is_list(emqtt:info(C))),
+    ok = meck:unload(emqx_frame),
+    ok = emqtt:disconnect(C).
+
+t_conn_change_client_addr(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
+
+    {ok, {quic, Conn, _} = PubVia} = emqtt:start_data_stream(C, []),
+    ok = emqtt:publish_async(
+        C,
+        PubVia,
+        Topic,
+        <<"stream data 1">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := _PktId1,
+                payload := <<"stream data 1">>,
+                qos := RecQos
+            }}
+        ],
+        recv_pub(1)
+    ),
+    NewPort = select_port(),
+    {ok, OldAddr} = quicer:sockname(Conn),
+    ?assertEqual(
+        ok, quicer:setopt(Conn, param_conn_local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
+    ),
+    {ok, NewAddr} = quicer:sockname(Conn),
+    ct:pal("NewAddr: ~p, Old Addr: ~p", [NewAddr, OldAddr]),
+    ?assertNotEqual(OldAddr, NewAddr),
+    ?assert(is_list(emqtt:info(C))),
     ok = emqtt:disconnect(C).
 
 t_multi_streams_sub_pub_async(Config) ->
@@ -814,6 +890,57 @@ t_multi_streams_unsub(Config) ->
 
     timeout = recv_pub(1),
     ok = emqtt:disconnect(C).
+
+t_multi_streams_kill_sub_stream(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId1 = calc_pkt_id(RecQos, 1),
+
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Topic2 = <<Topic/binary, "two">>,
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, #{via := _SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, #{via := _SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic2, [{qos, SubQos}]}
+    ]),
+    [TopicStreamOwner] = emqx_broker:subscribers(Topic),
+    exit(TopicStreamOwner, kill),
+    case
+        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
+    of
+        ok when PubQos == 0 ->
+            ok;
+        {ok, #{reason_code := Code, via := _PVia}} when Code == 0 orelse Code == 16 ->
+            ok
+    end,
+
+    case
+        emqtt:publish_via(C, {new_data_stream, []}, Topic2, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
+    of
+        ok when PubQos == 0 ->
+            ok;
+        {ok, #{reason_code := 0, via := _PVia2}} ->
+            ok
+    end,
+
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                topic := Topic2,
+                payload := <<1, 2, 3, 4, 5>>,
+                qos := RecQos
+            }}
+        ],
+        recv_pub(1)
+    ),
+    ?assertEqual(timeout, recv_pub(1)),
+    ok.
 
 t_multi_streams_unsub_via_other(Config) ->
     PubQos = ?config(pub_qos, Config),
@@ -1208,7 +1335,9 @@ t_conn_resume(Config) ->
         {nst, NST}
         | Config
     ]),
-    {ok, _} = emqtt:quic_connect(C).
+    {ok, _} = emqtt:quic_connect(C),
+    Cid = proplists:get_value(clientid, emqtt:info(C)),
+    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
 
 t_conn_without_ctrl_stream(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1289,3 +1418,19 @@ start_emqx_quic(UdpPort) ->
 -spec stop_emqx() -> ok.
 stop_emqx() ->
     emqx_common_test_helpers:stop_apps([]).
+
+%% select a random port picked by OS
+-spec select_port() -> inet:port_number().
+select_port() ->
+    {ok, S} = gen_udp:open(0, [{reuseaddr, true}]),
+    {ok, {_, Port}} = inet:sockname(S),
+    gen_udp:close(S),
+    case os:type() of
+        {unix, darwin} ->
+            %% in MacOS, still get address_in_use after close port
+            timer:sleep(500);
+        _ ->
+            skip
+    end,
+    ct:pal("select port: ~p", [Port]),
+    Port.
