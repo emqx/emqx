@@ -68,11 +68,11 @@ activate_data(StreamPid, {PS, Serialize, Channel}) ->
 %% @TODO -spec
 init_handoff(
     Stream,
-    #{parse_state := PS} = _StreamOpts,
+    _StreamOpts,
     Connection,
     #{is_orphan := true, flags := Flags}
 ) ->
-    {ok, init_state(Stream, Connection, Flags, PS)}.
+    {ok, init_state(Stream, Connection, Flags)}.
 
 %%
 %% @doc Post handoff data stream
@@ -239,6 +239,7 @@ do_handle_appl_msg(
 do_handle_appl_msg({incoming, #mqtt_packet{} = Packet}, #{channel := Channel} = S) when
     Channel =/= undefined
 ->
+    ok = inc_incoming_stats(Packet),
     with_channel(handle_in, [Packet], S);
 do_handle_appl_msg({incoming, {frame_error, _} = FE}, #{channel := Channel} = S) when
     Channel =/= undefined
@@ -422,6 +423,19 @@ do_parse_incoming(Data, Packets, ParseState) ->
     end.
 
 %% followings are copied from emqx_connection
+-compile({inline, [inc_incoming_stats/1]}).
+inc_incoming_stats(Packet = ?PACKET(Type)) ->
+    inc_counter(recv_pkt, 1),
+    case Type =:= ?PUBLISH of
+        true ->
+            inc_counter(recv_msg, 1),
+            inc_qos_stats(recv_msg, Packet),
+            inc_counter(incoming_pubs, 1);
+        false ->
+            ok
+    end,
+    emqx_metrics:inc_recv(Packet).
+
 -compile({inline, [inc_outgoing_stats/1]}).
 inc_outgoing_stats({error, message_too_large}) ->
     inc_counter('send_msg.dropped', 1),

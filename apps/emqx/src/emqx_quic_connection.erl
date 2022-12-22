@@ -135,20 +135,17 @@ new_conn(
 %% @doc callback when connection is connected.
 -spec connected(quicer:connection_handler(), quicer:connected_props(), cb_state()) ->
     {ok, cb_state()} | {error, any()}.
-connected(Conn, Props, #{slow_start := false} = S) ->
-    ?SLOG(debug, Props),
-    {ok, Pid} = emqx_connection:start_link(emqx_quic_stream, Conn, S),
-    {ok, S#{ctrl_pid => Pid}};
 connected(_Conn, Props, S) ->
     ?SLOG(debug, Props),
     {ok, S}.
 
 %% @doc callback when connection is resumed from 0-RTT
 -spec resumed(quicer:connection_handle(), SessionData :: binary() | false, cb_state()) -> cb_ret().
-resumed(Conn, Data, #{resumed_callback := ResumeFun} = S) when
-    is_function(ResumeFun)
-->
-    ResumeFun(Conn, Data, S);
+%% reserve resume conn with callback.
+%% resumed(Conn, Data, #{resumed_callback := ResumeFun} = S) when
+%%     is_function(ResumeFun)
+%% ->
+%%     ResumeFun(Conn, Data, S);
 resumed(_Conn, _Data, S) ->
     {ok, S#{is_resumed := true}}.
 
@@ -245,9 +242,11 @@ handle_call(
     _From,
     #{streams := Streams} = S
 ) ->
-    [emqx_quic_data_stream:activate_data(OwnerPid, ActivateData) || {OwnerPid, _Stream} <- Streams],
+    [
+        catch emqx_quic_data_stream:activate_data(OwnerPid, ActivateData)
+     || {OwnerPid, _Stream} <- Streams
+    ],
     {reply, ok, S#{
-        %streams := [], %% @FIXME what ??????
         channel := Channel,
         serialize := Serialize,
         parse_state := PS
