@@ -26,7 +26,6 @@
 ]).
 
 -export([
-    ip_port_to_string/1,
     parse_server/2
 ]).
 
@@ -111,11 +110,6 @@ auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
-
-ip_port_to_string({Ip, Port}) when is_list(Ip) ->
-    iolist_to_binary([Ip, ":", integer_to_list(Port)]);
-ip_port_to_string({Ip, Port}) when is_tuple(Ip) ->
-    iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).
 
 parse_server(Str, #{host_type := inet_addr, default_port := DefaultPort}) ->
     case string:tokens(str(Str), ": ") of
