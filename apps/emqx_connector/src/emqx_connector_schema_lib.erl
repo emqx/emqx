@@ -105,6 +105,7 @@ password(type) -> binary();
 password(desc) -> ?DESC("password");
 password(required) -> false;
 password(format) -> <<"password">>;
+password(sensitive) -> true;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();
