@@ -409,11 +409,13 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
 '/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
-    Conf = filter_out_request_body(Conf0),
+    Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
+                RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+                Conf = deobfuscate(Conf1, RawConf),
                 case ensure_bridge_created(BridgeType, BridgeName, Conf) of
                     ok ->
                         lookup_from_all_nodes(BridgeType, BridgeName, 200);
@@ -604,12 +606,12 @@ format_bridge_info([FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
     NodeStatus = collect_status(Bridges),
     NodeMetrics = collect_metrics(Bridges),
-    Res#{
+    redact(Res#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics
-    }.
+    }).
 
 collect_status(Bridges) ->
     [maps:with([node, status], B) || B <- Bridges].
@@ -676,13 +678,13 @@ format_resp(
     Node
 ) ->
     RawConfFull = fill_defaults(Type, RawConf),
-    RawConfFull#{
+    redact(RawConfFull#{
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => Node,
         status => Status,
         metrics => format_metrics(Metrics)
-    }.
+    }).
 
 format_metrics(#{
     counters := #{
@@ -806,3 +808,27 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
         {error, _} ->
             {400, error_msg('INVALID_NODE', <<"invalid node">>)}
     end.
+
+redact(Term) ->
+    emqx_misc:redact(Term).
+
+deobfuscate(NewConf, OldConf) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            case maps:find(K, OldConf) of
+                error ->
+                    Acc#{K => V};
+                {ok, OldV} when is_map(V), is_map(OldV) ->
+                    Acc#{K => deobfuscate(V, OldV)};
+                {ok, OldV} ->
+                    case emqx_misc:is_redacted(K, V) of
+                        true ->
+                            Acc#{K => OldV};
+                        _ ->
+                            Acc#{K => V}
+                    end
+            end
+        end,
+        #{},
+        NewConf
+    ).
