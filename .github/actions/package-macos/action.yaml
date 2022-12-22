@@ -3,10 +3,6 @@ inputs:
   otp: # 24.2.1-1, 23.3.4.9-3
     required: true
     type: string
-  os:
-    required: false
-    type: string
-    default: macos-11
   apple_id_password:
     required: true
     type: string
@@ -19,33 +15,55 @@ inputs:
   apple_developer_id_bundle_password:
     required: true
     type: string
+  os:
+    required: false
+    type: string
+    default: macos-11
 
 runs:
   using: composite
   steps:
-    - name: prepare
+    - id: prepare
       shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_UPGRADE: 1
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
       run: |
         brew update
-        brew install curl zip unzip gnu-sed coreutils unixodbc freetds openssl@1.1
+        brew install curl zip unzip gnu-sed coreutils autoconf automake cmake unixodbc freetds openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
+        OTP_SOURCE_PATH="$HOME/src/otp-${{ inputs.otp }}"
+        OTP_INSTALL_PATH="$HOME/otp/${{ inputs.otp }}"
+        echo "OTP_SOURCE_PATH=$OTP_SOURCE_PATH" >> $GITHUB_OUTPUT
+        echo "OTP_INSTALL_PATH=$OTP_INSTALL_PATH" >> $GITHUB_OUTPUT
+        mkdir -p "$OTP_INSTALL_PATH"
     - uses: actions/cache@v3
       id: cache
       with:
-        path: /opt/erlang/${{ inputs.otp }}
+        path: ${{ steps.prepare.outputs.OTP_INSTALL_PATH }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git $HOME/otp-${{ inputs.otp }}
-        cd $HOME/otp-${{ inputs.otp }}
-        ./configure --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit --prefix=/opt/erlang/${{ inputs.otp }}
+        OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
+        OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
+        if [ -d "$OTP_SOURCE_PATH" ]; then
+          rm -rf "$OTP_SOURCE_PATH"
+        fi
+        git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
+        cd "$OTP_SOURCE_PATH"
+        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
         make -j$(nproc)
-        sudo make install
+        rm -rf "$OTP_INSTALL_PATH"
+        make install
     - name: build
       env:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_UPGRADE: 1
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         AUTO_INSTALL_BUILD_DEPS: 1
         APPLE_SIGN_BINARIES: 1
         APPLE_ID: developers@emqx.io
@@ -56,13 +74,16 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
       shell: bash
       run: |
-        export PATH="/opt/erlang/${{ inputs.otp }}/bin:$PATH"
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
+        mkdir -p $HOME/bin
+        cp rebar3 $HOME/bin/rebar3
+        export PATH="$HOME/bin:$PATH"
         make ${EMQX_NAME}-zip
     - name: test
       shell: bash
       run: |
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         pkg_name=$(basename _packages/${EMQX_NAME}/${EMQX_NAME}-*.zip)
         unzip -q _packages/${EMQX_NAME}/$pkg_name
         # test with a spaces in path

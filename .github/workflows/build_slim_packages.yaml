@@ -20,7 +20,7 @@ jobs:
           - 24.3.4.2-1
         os:
           - ubuntu20.04
-          - el8
+          - el7
         runs-on:
           - aws-amd64
           - ubuntu-20.04
@@ -32,7 +32,7 @@ jobs:
           - runs-on: aws-amd64
             use-self-hosted: false
 
-    container: ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -84,11 +84,11 @@ jobs:
         profile:
           - emqx
         otp:
-          - 24.3.4.2
+          - 24.3.4.6
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: erlef/setup-beam@v1
+    - uses: emqx/setup-beam@v1.16.1-emqx
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
@@ -120,8 +120,11 @@ jobs:
           - 24.3.4.2-1
         os:
           - macos-11
+          - macos-12-arm64
     runs-on: ${{ matrix.os }}
     steps:
+    - uses: emqx/self-hosted-cleanup-action@v1.0.3
+      if: matrix.os == 'macos-12-arm64'
     - uses: actions/checkout@v3
       with:
           fetch-depth: 0 # clone full git history
@@ -146,5 +149,5 @@ jobs:
         path: ./rebar3.crashdump
     - uses: actions/upload-artifact@v3
       with:
-        name: macos
+        name: ${{ matrix.os }}
         path: _packages/**/*.zip

@@ -5,6 +5,7 @@
    , excl_apps =>
          [ observer
          , redbug
+         , covertool
          ]
    , excl_mods =>
          [ hipe_unified_loader
@@ -14,6 +15,7 @@
          , basho_bench_driver_erldis
          , release_handler
          , cuttlefish_rebar_plugin
+         , emqx_cover
          ]
    , filters =>
          [{{coap_client,channel_apply,3},{coap_dtls_socket,close,1}},
@@ -239,6 +241,7 @@
    , analysis => undefined_functions
    , excl_apps =>
          [ observer
+         , covertool
          ]
    , excl_mods =>
          [ systools
@@ -246,6 +249,7 @@
          , release_handler
          , systools_relup
          , cuttlefish_rebar_plugin
+         , emqx_cover
          ]
    , filters =>
          [{'Elixir.Atom',to_string,1},

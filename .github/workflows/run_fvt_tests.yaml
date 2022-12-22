@@ -13,9 +13,9 @@ jobs:
 
         steps:
         - uses: actions/checkout@v3
-        - uses: erlef/setup-beam@v1
+        - uses: emqx/setup-beam@v1.16.1-emqx
           with:
-            otp-version: "24.1.5"
+            otp-version: 24.3.4.6
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -75,10 +75,15 @@ jobs:
               - dns
 
         steps:
+<<<<<<< HEAD
         - uses: actions/checkout@v3
         - uses: erlef/setup-beam@v1
+=======
+        - uses: actions/checkout@v1
+        - uses: emqx/setup-beam@v1.16.1-emqx
+>>>>>>> origin/release-v44
           with:
-            otp-version: "24.1.5"
+            otp-version: 24.3.4.6
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -200,7 +205,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -251,7 +256,7 @@ jobs:
              otp:
              - 24.3.4.2-1
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -288,7 +293,7 @@ jobs:
           - relup_test_plan
           - relup_test_build
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
         strategy:
           fail-fast: false
           matrix:
