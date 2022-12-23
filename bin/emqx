@@ -455,7 +455,7 @@ fi
 
 resolve_data_dir() {
     DIR=$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf get "node.data_dir")
-    echo -e "$DIR" | sed 's/\"//g'
+    echo -e "$DIR" | tr -d \"
 }
 get_boot_configs() {
     NODE_DATA_DIR=$(resolve_data_dir)
