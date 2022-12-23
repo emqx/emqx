@@ -152,7 +152,7 @@ on_start(InstId, Conf) ->
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
-        clientid => clientid(InstId),
+        clientid => clientid(InstId, Conf),
         subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), Conf, InstId),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
@@ -246,7 +246,7 @@ basic_config(
         ssl := #{enable := EnableSsl} = Ssl
     } = Conf
 ) ->
-    BaiscConf = #{
+    BasicConf = #{
         %% connection opts
         server => Server,
         %% 30s
@@ -268,7 +268,7 @@ basic_config(
         ssl_opts => maps:to_list(maps:remove(enable, Ssl)),
         if_record_metrics => true
     },
-    maybe_put_fields([username, password], Conf, BaiscConf).
+    maybe_put_fields([username, password], Conf, BasicConf).
 
 maybe_put_fields(Fields, Conf, Acc0) ->
     lists:foldl(
@@ -285,5 +285,7 @@ maybe_put_fields(Fields, Conf, Acc0) ->
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Id) ->
+clientid(Id, _Conf = #{clientid_prefix := Prefix = <<_/binary>>}) ->
+    iolist_to_binary([Prefix, ":", Id, ":", atom_to_list(node())]);
+clientid(Id, _Conf) ->
     iolist_to_binary([Id, ":", atom_to_list(node())]).
