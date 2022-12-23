@@ -93,14 +93,14 @@ make_iterator(#db{handle = DBHandle}, TopicFilter, StartTime) ->
             Hash = compute_topic_hash(TopicFilter),
             HashBitmask = make_bitmask(TopicFilter),
             HashFilter = Hash band HashBitmask,
-            #it{
+            {ok, #it{
                 handle = ITHandle,
                 next_action = {seek, combine(HashFilter, StartTime, <<>>)},
                 topic_filter = TopicFilter,
                 start_time = StartTime,
                 hash_filter = HashFilter,
                 hash_bitmask = HashBitmask
-            };
+            }};
         Err ->
             Err
     end.
@@ -193,17 +193,6 @@ ones(Bits) ->
 
 %% |123|056|678| & |fff|000|fff| = |123|000|678|.
 
-%% Filter = |123|***|678|
-%% Key1   = |123|011|108| → Seek = |123|011|678|
-%% Key1   = |123|011|679| → Seek = |123|012|678|
-%% Key1   = |123|999|679| → Seek = 1|123|000|678| → eos
-
-%% Filter = |123|***|678|***|
-%% Key1   = |123|011|108|121| → Seek = |123|011|678|000|
-%% Key1   = |123|011|679|919| → Seek = |123|012|678|000|
-%% Key1   = |123|999|679|001| → Seek = 1|123|000|678|000| → eos
-%% Key1   = |125|999|179|017| → Seek = 1|123|000|678|000| → eos
-
 match_next(
     It = #it{
         topic_filter = TopicFilter,
@@ -256,8 +245,6 @@ compute_next_seek(TopicHash, HashFilter, HashBitmask, BitsPerLevel) ->
     % TODO make at least remotely readable / optimize later
     Result = zipfoldr3(
         fun(LevelHash, Filter, LevelMask, Bits, Shift, {Carry, Acc}) ->
-            %   io:format(user, "~n *** LH: ~.16B / F: ~.16B / M: ~.16B / Bs: ~B / Sh: ~B~n", [LevelHash, Filter, LevelMask, Bits, Shift]),
-            %   io:format(user, "~n *** Carry: ~B / Acc: ~.16B~n", [Carry, Acc]),
             case LevelMask of
                 0 when Carry == 0 ->
                     {0, Acc + (LevelHash bsl Shift)};
@@ -288,12 +275,6 @@ compute_next_seek(TopicHash, HashFilter, HashBitmask, BitsPerLevel) ->
             none
     end.
 
-% zipfoldr3(FoldFun, Acc, I1, I2, I3, Shift, [Bits]) ->
-%     { Shift + Bits
-%     , FoldFun( I1 band ones(Bits)
-%              , I2 band ones(Bits)
-%              , I3 band ones(Bits)
-%              , Bits, Acc ) };
 zipfoldr3(_FoldFun, Acc, _, _, _, []) ->
     {0, Acc};
 zipfoldr3(FoldFun, Acc, I1, I2, I3, [Bits | Rest]) ->
@@ -305,7 +286,6 @@ zipfoldr3(FoldFun, Acc, I1, I2, I3, [Bits | Rest]) ->
         I3,
         Rest
     ),
-    % { FoldFun(I1 band ones(Bits), I2 band ones(Bits), I3 band ones(Bits), Bits, AccNext).
     {
         Shift + Bits,
         FoldFun(
@@ -377,6 +357,14 @@ compute_test_next_seek(TopicHash, HashFilter, HashBitmask) ->
 
 next_seek_test_() ->
     [
+        ?_assertMatch(
+            none,
+            compute_test_next_seek(
+                16#FD_42_4242_043,
+                16#FD_42_4242_042,
+                16#FF_FF_FFFF_FFF
+            )
+        ),
         ?_assertMatch(
             16#FD_11_0678_000,
             compute_test_next_seek(
