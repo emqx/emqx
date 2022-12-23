@@ -225,6 +225,7 @@ t_mqtt_conn_bridge_egress(_) ->
         <<"name">> := ?BRIDGE_NAME_EGRESS
     } = jsx:decode(Bridge),
     BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
@@ -238,8 +239,10 @@ t_mqtt_conn_bridge_egress(_) ->
     %% we should receive a message on the "remote" broker, with specified topic
     ?assert(
         receive
-            {deliver, RemoteTopic, #message{payload = Payload}} ->
+            {deliver, RemoteTopic, #message{payload = Payload, from = From}} ->
                 ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
+                Size = byte_size(ResourceID),
+                ?assertMatch(<<ResourceID:Size/binary, _/binary>>, From),
                 true;
             Msg ->
                 ct:pal("Msg: ~p", [Msg]),
@@ -269,6 +272,45 @@ t_mqtt_conn_bridge_egress(_) ->
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    ok.
+
+t_egress_custom_clientid_prefix(_Config) ->
+    User1 = <<"user1">>,
+    {ok, 201, Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?SERVER_CONF(User1)#{
+            <<"clientid_prefix">> => <<"my-custom-prefix">>,
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => ?BRIDGE_NAME_EGRESS,
+            <<"egress">> => ?EGRESS_CONF
+        }
+    ),
+    #{
+        <<"type">> := ?TYPE_MQTT,
+        <<"name">> := ?BRIDGE_NAME_EGRESS
+    } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+    LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
+    RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(RemoteTopic),
+    timer:sleep(100),
+    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+
+    receive
+        {deliver, RemoteTopic, #message{from = From}} ->
+            Size = byte_size(ResourceID),
+            ?assertMatch(<<"my-custom-prefix:", ResouceID:Size/binary, _/binary>>, From),
+            ok
+    after 1000 ->
+        ct:fail("should have published message")
+    end,
+
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
     ok.
 
 t_mqtt_conn_bridge_ingress_and_egress(_) ->

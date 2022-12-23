@@ -75,6 +75,7 @@ fields("server_configs") ->
                     desc => ?DESC("server")
                 }
             )},
+        {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
         {reconnect_interval,
             mk_duration(
                 "Reconnect interval. Delay for the MQTT bridge to retry establishing the connection "
