@@ -5,7 +5,13 @@
 set -euo pipefail
 
 DEBUG="${DEBUG:-0}"
-[ "$DEBUG" -eq 1 ] && set -x
+if [ "$DEBUG" -eq 1 ]; then
+  set -x
+fi
+if [ "$DEBUG" -eq 2 ]; then
+  set -x
+  export PS4='+(${BASH_SOURCE}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+fi
 
 # We need to find real directory with emqx files on all platforms
 # even when bin/emqx is symlinked on several levels
@@ -36,6 +42,7 @@ export RUNNER_ROOT_DIR
 export EMQX_ETC_DIR
 export REL_VSN
 export SCHEMA_MOD
+export IS_ENTERPRISE
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
@@ -540,6 +547,121 @@ check_license() {
     fi
 }
 
+# When deciding which install upgrade script to run, we have to check
+# our own version so we may avoid infinite loops and call the correct
+# version.
+current_script_version() {
+  curr_script=$(basename "${BASH_SOURCE[0]}")
+  suffix=${curr_script#*-}
+  if [[ "${suffix}" == "${curr_script}" ]]; then
+    # there's no suffix, so we're running the default `emqx` script;
+    # we'll have to trust the REL_VSN variable
+    echo "$REL_VSN"
+  else
+    echo "${suffix}"
+  fi
+}
+
+parse_semver() {
+    echo "$1" | tr '.|-' ' '
+}
+
+max_version_of() {
+  local vsn1="$1"
+  local vsn2="$2"
+
+  echo "${vsn1}" "${vsn2}" | tr " " "\n" | sort -rV | head -n1
+}
+
+versioned_script_path() {
+  local script_name="$1"
+  local vsn="$2"
+
+  echo "$RUNNER_ROOT_DIR/bin/$script_name-$vsn"
+}
+
+does_script_version_exist() {
+  local script_name="$1"
+  local vsn="$2"
+
+  if [[ -f "$(versioned_script_path "$script_name" "$vsn")" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# extract_from_package packege_path destination file1 file2
+extract_from_package() {
+  local package="$1"
+  local dest_dir="$2"
+  shift 2
+
+  tar -C "$dest_dir" -xf "$package" "$@"
+}
+
+am_i_the_newest_script() {
+  local curr_vsn other_vsn
+  curr_vsn="$(current_script_version)"
+  other_vsn="$1"
+  max_vsn="$(max_version_of "$other_vsn" "$curr_vsn")"
+
+  if [[ "$max_vsn" == "$curr_vsn" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+locate_package() {
+  local package_path candidates vsn
+  vsn="$1"
+
+  if [[ "${IS_ENTERPRISE}" == "yes" ]]; then
+    package_pattern="$RUNNER_ROOT_DIR/releases/emqx-enterprise-$vsn-*.tar.gz"
+  else
+    package_pattern="$RUNNER_ROOT_DIR/releases/emqx-$vsn-*.tar.gz"
+  fi
+
+  # shellcheck disable=SC2207,SC2086
+  candidates=($(ls $package_pattern))
+
+  if [[ "${#candidates[@]}" == 0 ]]; then
+    logerr "No package matching $package_pattern found."
+    exit 1
+  elif [[ "${#candidates[@]}" -gt 1 ]]; then
+    logerr "Multiple packages matching $package_pattern found.  Ensure only one exists."
+    exit 1
+  else
+    echo "${candidates[0]}"
+  fi
+}
+
+ensure_newest_script_is_extracted() {
+  local newest_vsn="$1"
+  local package_path tmpdir
+
+  if does_script_version_exist "emqx" "$newest_vsn" \
+     && does_script_version_exist "install_upgrade.escript" "$newest_vsn"; then
+    return
+  else
+    package_path="$(locate_package "$newest_vsn")"
+    tmpdir="$(mktemp -dp /tmp emqx.XXXXXXXXXXX)"
+
+    extract_from_package \
+      "$package_path" \
+      "$tmpdir" \
+      "bin/emqx-$newest_vsn" \
+      "bin/install_upgrade.escript-$newest_vsn"
+
+    cp "$tmpdir/bin/emqx-$newest_vsn" \
+       "$tmpdir/bin/install_upgrade.escript-$newest_vsn" \
+       "$RUNNER_ROOT_DIR/bin/"
+
+    rm -rf "$tmpdir"
+  fi
+}
+
 # Run an escript in the node's environment
 relx_escript() {
     shift; scriptpath="$1"; shift
@@ -922,8 +1044,20 @@ case "${COMMAND}" in
 
         assert_node_alive
 
+        curr_vsn="$(current_script_version)"
+        target_vsn="$1"
+        newest_vsn="$(max_version_of "$target_vsn" "$curr_vsn")"
+        ensure_newest_script_is_extracted "$newest_vsn"
+        # if we are not the newest script, run the same command from it
+        if ! am_i_the_newest_script "$newest_vsn"; then
+          script_path="$(versioned_script_path emqx "$newest_vsn")"
+          exec "$script_path" "$COMMAND" "$@"
+        fi
+
+        upgrade_script_path="$(versioned_script_path install_upgrade.escript "$newest_vsn")"
+
         ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" \
-        exec "$BINDIR/escript" "$RUNNER_ROOT_DIR/bin/install_upgrade.escript" \
+        exec "$BINDIR/escript" "$upgrade_script_path" \
              "$COMMAND" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
 
