@@ -9,7 +9,7 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[English](./README.md) | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | русский
+[English](./README.md) | [简体中文](./README-CN.md) | русский
 
 *EMQX* — это самый масштабируемый и популярный высокопроизводительный MQTT брокер с полностью открытым кодом для интернета вещей, межмашинного взаимодействия и мобильных приложений. EMQX может поддерживать более чем 100 миллионов одновременных соединенией на одном кластере с задержкой в 1 миллисекунду, а также принимать и обрабабывать миллионы MQTT сообщений в секунду.
 
