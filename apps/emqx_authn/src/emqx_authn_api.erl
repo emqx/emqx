@@ -1133,7 +1133,7 @@ find_config(AuthenticatorID, AuthenticatorsConfig) ->
 fill_defaults(Configs) when is_list(Configs) ->
     lists:map(fun fill_defaults/1, Configs);
 fill_defaults(Config) ->
-    emqx_authn:check_config(merge_default_headers(Config), #{make_serialiable => true}).
+    emqx_authn:check_config(merge_default_headers(Config), #{make_serializable => true}).
 
 merge_default_headers(Config) ->
     case maps:find(<<"headers">>, Config) of
