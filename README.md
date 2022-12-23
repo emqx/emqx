@@ -11,7 +11,7 @@
 
 
 
-English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [русский](./README-RU.md)
+English | [简体中文](./README-CN.md) | [русский](./README-RU.md)
 
 EMQX is the world's most scalable open-source MQTT broker with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
 
