@@ -484,8 +484,7 @@ get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),
     Schema = #{roots => emqx_exhook_schema:fields(exhook), fields => #{}},
     Conf = #{<<"servers">> => RawConfig},
-    Options = #{only_fill_defaults => true},
-    #{<<"servers">> := Servers} = hocon_tconf:check_plain(Schema, Conf, Options),
+    #{<<"servers">> := Servers} = hocon_tconf:make_serializable(Schema, Conf, #{}),
     Servers.
 
 position_example() ->

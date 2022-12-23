@@ -446,7 +446,7 @@ fill_defaults(RawConf, Opts) ->
 
 -spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(SchemaMod, RawConf, Opts0) ->
-    Opts = maps:merge(#{required => false, only_fill_defaults => true}, Opts0),
+    Opts = maps:merge(#{required => false, make_serializable => true}, Opts0),
     hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
