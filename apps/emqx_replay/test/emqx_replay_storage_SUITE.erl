@@ -22,8 +22,6 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("proper/include/proper.hrl").
 
--define(DB_FILE, ?MODULE_STRING).
-
 %% Smoke test of store function
 t_store(Config) ->
     DB = ?config(handle, Config),
@@ -60,13 +58,76 @@ t_iterate(Config) ->
     ],
     ok.
 
+%% Smoke test for iteration with wildcard topic filter
+t_iterate_wildcard(Config) ->
+    DB = ?config(handle, Config),
+    %% Prepare data:
+    Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
+    Timestamps = lists:seq(1, 10),
+    _ = [
+        store(DB, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+     || Topic <- Topics, PublishedAt <- Timestamps
+    ],
+    ?assertEqual(
+        lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- Timestamps]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 0)])
+    ),
+    ?assertEqual(
+        [],
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 10 + 1)])
+    ),
+    ?assertEqual(
+        lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- lists:seq(5, 10)]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 5)])
+    ),
+    ?assertEqual(
+        lists:sort([
+            {Topic, PublishedAt}
+         || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
+        ]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/#", 0)])
+    ),
+    ?assertEqual(
+        lists:sort([{"foo/bar", PublishedAt} || PublishedAt <- Timestamps]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/+", 0)])
+    ),
+    ?assertEqual(
+        [],
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/+/bar", 0)])
+    ),
+    ?assertEqual(
+        lists:sort([
+            {Topic, PublishedAt}
+         || Topic <- ["foo/bar", "foo/bar/baz", "a/bar"], PublishedAt <- Timestamps
+        ]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "+/bar/#", 0)])
+    ),
+    ?assertEqual(
+        lists:sort([{Topic, PublishedAt} || Topic <- ["a", "a/bar"], PublishedAt <- Timestamps]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "a/#", 0)])
+    ),
+    ok.
+
+store(DB, PublishedAt, Topic, Payload) ->
+    ID = emqx_guid:gen(),
+    emqx_replay_message_storage:store(DB, ID, PublishedAt, parse_topic(Topic), Payload).
+
+iterate(DB, TopicFilter, StartTime) ->
+    {ok, It} = emqx_replay_message_storage:make_iterator(DB, parse_topic(TopicFilter), StartTime),
+    iterate(It).
+
 iterate(It) ->
     case emqx_replay_message_storage:next(It) of
-        {value, Val} ->
-            [Val | iterate(It)];
+        {value, Payload, ItNext} ->
+            [Payload | iterate(ItNext)];
         none ->
             []
     end.
+
+parse_topic(Topic = [L | _]) when is_binary(L); is_atom(L) ->
+    Topic;
+parse_topic(Topic) ->
+    emqx_topic:words(iolist_to_binary(Topic)).
 
 %% CT callbacks
 
