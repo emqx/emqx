@@ -75,10 +75,11 @@ init([]) ->
     process_flag(trap_exit, true),
     #{
         tags := TagsRaw,
-        server := {Host, Port},
+        server := Server,
         sample_time_interval := SampleTimeInterval,
         flush_time_interval := FlushTimeInterval
     } = emqx_conf:get([statsd]),
+    {Host, Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
     Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
     Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
     {ok, Pid} = estatsd:start_link(Opts),

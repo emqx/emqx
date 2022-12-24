@@ -35,7 +35,6 @@
 
 %% influxdb servers don't need parse
 -define(INFLUXDB_HOST_OPTIONS, #{
-    host_type => hostname,
     default_port => ?INFLUXDB_DEFAULT_PORT
 }).
 
@@ -141,7 +140,7 @@ namespace() -> connector_influxdb.
 
 fields(common) ->
     [
-        {server, fun server/1},
+        {server, server()},
         {precision,
             mk(enum([ns, us, ms, s, m, h]), #{
                 required => false, default => ms, desc => ?DESC("precision")
@@ -164,13 +163,14 @@ fields(influxdb_api_v2) ->
             {token, mk(binary(), #{required => true, desc => ?DESC("token")})}
         ] ++ emqx_connector_schema_lib:ssl_fields().
 
-server(type) -> emqx_schema:ip_port();
-server(required) -> true;
-server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
-server(converter) -> fun to_server_raw/1;
-server(default) -> <<"127.0.0.1:8086">>;
-server(desc) -> ?DESC("server");
-server(_) -> undefined.
+server() ->
+    Meta = #{
+        required => false,
+        default => <<"127.0.0.1:8086">>,
+        desc => ?DESC("server"),
+        converter => fun convert_server/2
+    },
+    emqx_schema:servers_sc(Meta, ?INFLUXDB_HOST_OPTIONS).
 
 desc(common) ->
     ?DESC("common");
@@ -261,9 +261,10 @@ do_start_client(
 client_config(
     InstId,
     Config = #{
-        server := {Host, Port}
+        server := Server
     }
 ) ->
+    {Host, Port} = emqx_schema:parse_server(Server, ?INFLUXDB_HOST_OPTIONS),
     [
         {host, str(Host)},
         {port, Port},
@@ -542,17 +543,12 @@ log_error_points(InstId, Errs) ->
         Errs
     ).
 
-%% ===================================================================
-%% typereflt funcs
-
--spec to_server_raw(string() | binary()) ->
-    {string(), pos_integer()}.
-to_server_raw(<<"http://", Server/binary>>) ->
-    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS);
-to_server_raw(<<"https://", Server/binary>>) ->
-    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS);
-to_server_raw(Server) ->
-    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS).
+convert_server(<<"http://", Server/binary>>, HoconOpts) ->
+    convert_server(Server, HoconOpts);
+convert_server(<<"https://", Server/binary>>, HoconOpts) ->
+    convert_server(Server, HoconOpts);
+convert_server(Server, HoconOpts) ->
+    emqx_schema:convert_servers(Server, HoconOpts).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);
@@ -567,22 +563,6 @@ str(S) when is_list(S) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
-
-to_server_raw_test_() ->
-    [
-        ?_assertEqual(
-            {"foobar", 1234},
-            to_server_raw(<<"http://foobar:1234">>)
-        ),
-        ?_assertEqual(
-            {"foobar", 1234},
-            to_server_raw(<<"https://foobar:1234">>)
-        ),
-        ?_assertEqual(
-            {"foobar", 1234},
-            to_server_raw(<<"foobar:1234">>)
-        )
-    ].
 
 %% for coverage
 desc_test_() ->
@@ -605,7 +585,7 @@ desc_test_() ->
         ),
         ?_assertMatch(
             {desc, _, _},
-            server(desc)
+            hocon_schema:field_schema(server(), desc)
         ),
         ?_assertMatch(
             connector_influxdb,

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,7 +13,10 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_connector_lib).
 
--define(APP, emqx_statsd).
--define(STATSD, [statsd]).
--define(SERVER_PARSE_OPTS, #{default_port => 8125}).
+-export([resolve_dns/2]).
+
+%% @doc Mostly for meck.
+resolve_dns(DNS, Type) ->
+    inet_res:lookup(DNS, in, Type).

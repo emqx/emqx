@@ -177,10 +177,8 @@ on_get_status(_InstId, _State) ->
     connected.
 
 %% Parse comma separated host:port list into a [{Host,Port}] list
-hosts(Hosts) when is_binary(Hosts) ->
-    hosts(binary_to_list(Hosts));
-hosts(Hosts) when is_list(Hosts) ->
-    kpro:parse_endpoints(Hosts).
+hosts(Hosts) ->
+    emqx_schema:parse_servers(Hosts, emqx_ee_bridge_kafka:host_opts()).
 
 %% Extra socket options, such as sndbuf size etc.
 socket_opts(Opts) when is_map(Opts) ->

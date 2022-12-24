@@ -31,7 +31,12 @@
 -define(ResourceID, <<"password_based:redis">>).
 
 all() ->
-    [{group, require_seeds}, t_create, t_create_invalid].
+    [
+        {group, require_seeds},
+        t_create,
+        t_create_with_config_values_wont_work,
+        t_create_invalid_config
+    ].
 
 groups() ->
     [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
@@ -97,7 +102,7 @@ t_create(_Config) ->
 
     {ok, [#{provider := emqx_authn_redis}]} = emqx_authentication:list_authenticators(?GLOBAL).
 
-t_create_invalid(_Config) ->
+t_create_with_config_values_wont_work(_Config) ->
     AuthConfig = raw_redis_auth_config(),
     InvalidConfigs =
         [
@@ -131,7 +136,6 @@ t_create_invalid(_Config) ->
 
     InvalidConfigs1 =
         [
-            maps:without([<<"server">>], AuthConfig),
             AuthConfig#{<<"server">> => <<"unknownhost:3333">>},
             AuthConfig#{<<"password">> => <<"wrongpass">>},
             AuthConfig#{<<"database">> => <<"5678">>}
@@ -150,6 +154,22 @@ t_create_invalid(_Config) ->
             )
         end,
         InvalidConfigs1
+    ).
+
+t_create_invalid_config(_Config) ->
+    Config0 = raw_redis_auth_config(),
+    Config = maps:without([<<"server">>], Config0),
+    ?assertMatch(
+        {error,
+            {bad_authenticator_config, #{
+                reason := {emqx_authn_redis, [#{kind := validation_error}]}
+            }}},
+        emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, Config})
+    ),
+    ?assertMatch([], emqx_config:get_raw([authentication])),
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authentication:list_authenticators(?GLOBAL)
     ).
 
 t_authenticate(_Config) ->
@@ -591,7 +611,7 @@ redis_config() ->
         pool_size => 8,
         redis_type => single,
         password => "public",
-        server => {?REDIS_HOST, ?REDIS_DEFAULT_PORT},
+        server => <<?REDIS_HOST>>,
         ssl => #{enable => false}
     }.
 

@@ -40,8 +40,9 @@
 -type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
--type host_port() :: tuple().
 -type cipher() :: map().
+-type port_number() :: 1..65536.
+-type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -53,7 +54,6 @@
 -typerefl_from_string({comma_separated_binary/0, emqx_schema, to_comma_separated_binary}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
--typerefl_from_string({host_port/0, emqx_schema, to_host_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
@@ -80,9 +80,17 @@
     to_comma_separated_binary/1,
     to_bar_separated_list/1,
     to_ip_port/1,
-    to_host_port/1,
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1
+]).
+
+-export([
+    parse_server/2,
+    parse_servers/2,
+    servers_validator/2,
+    servers_sc/2,
+    convert_servers/1,
+    convert_servers/2
 ]).
 
 -behaviour(hocon_schema).
@@ -99,7 +107,6 @@
     comma_separated_binary/0,
     bar_separated_list/0,
     ip_port/0,
-    host_port/0,
     cipher/0,
     comma_separated_atoms/0
 ]).
@@ -2172,40 +2179,15 @@ to_bar_separated_list(Str) ->
 %%  - :1883
 %%  - :::1883
 to_ip_port(Str) ->
-    to_host_port(Str, ip_addr).
-
-%% @doc support the following format:
-%%  - 127.0.0.1:1883
-%%  - ::1:1883
-%%  - [::1]:1883
-%%  - :1883
-%%  - :::1883
-%%  - example.com:80
-to_host_port(Str) ->
-    to_host_port(Str, hostname).
-
-%%  - example.com:80
-to_host_port(Str, IpOrHost) ->
-    case split_host_port(Str) of
-        {"", Port} when IpOrHost =:= ip_addr ->
+    case split_ip_port(Str) of
+        {"", Port} ->
             %% this is a local address
             {ok, list_to_integer(Port)};
-        {"", _Port} ->
-            %% must specify host part when it's a remote endpoint
-            {error, bad_host_port};
         {MaybeIp, Port} ->
             PortVal = list_to_integer(Port),
             case inet:parse_address(MaybeIp) of
                 {ok, IpTuple} ->
                     {ok, {IpTuple, PortVal}};
-                _ when IpOrHost =:= hostname ->
-                    %% check is a rfc1035's hostname
-                    case inet_parse:domain(MaybeIp) of
-                        true ->
-                            {ok, {MaybeIp, PortVal}};
-                        _ ->
-                            {error, bad_hostname}
-                    end;
                 _ ->
                     {error, bad_ip_port}
             end;
@@ -2213,7 +2195,7 @@ to_host_port(Str, IpOrHost) ->
             {error, bad_ip_port}
     end.
 
-split_host_port(Str0) ->
+split_ip_port(Str0) ->
     Str = re:replace(Str0, " ", "", [{return, list}, global]),
     case lists:split(string:rchr(Str, $:), Str) of
         %% no colon
@@ -2376,3 +2358,229 @@ non_empty_string(<<>>) -> {error, empty_string_not_allowed};
 non_empty_string("") -> {error, empty_string_not_allowed};
 non_empty_string(S) when is_binary(S); is_list(S) -> ok;
 non_empty_string(_) -> {error, invalid_string}.
+
+%% @doc Make schema for 'server' or 'servers' field.
+%% for each field, there are three passes:
+%% 1. converter: Normalize the value.
+%%               This normalized value is stored in EMQX's raw config.
+%% 2. validator: Validate the normalized value.
+%%               Besides checkin if the value can be empty or undefined
+%%               it also calls the 3rd pass to see if the provided
+%%               hosts can be successfully parsed.
+%% 3. parsing: Done at runtime in each module which uses this config
+servers_sc(Meta0, ParseOpts) ->
+    Required = maps:get(required, Meta0, true),
+    Meta = #{
+        required => Required,
+        converter => fun convert_servers/2,
+        validator => servers_validator(ParseOpts, Required)
+    },
+    sc(string(), maps:merge(Meta, Meta0)).
+
+%% @hidden Convert a deep map to host:port pairs.
+%% This is due to the fact that a host:port string
+%% often can be parsed as a HOCON struct.
+%% e.g. when a string from environment variable is `host.domain.name:80'
+%% without escaped quotes, it's parsed as
+%% `#{<<"host">> => #{<<"domain">> => #{<<"name">> => 80}}}'
+%% and when it is a comma-separated list of host:port pairs
+%% like `h1.foo:80, h2.bar:81' then it is parsed as
+%% `#{<<"h1">> => #{<<"foo">> => 80}, <<"h2">> => #{<<"bar">> => 81}}'
+%% This function is to format the map back to host:port (pairs)
+%% This function also tries to remove spaces around commas in comma-separated,
+%% `host:port' list, and format string array to comma-separated.
+convert_servers(HoconValue, _HoconOpts) ->
+    convert_servers(HoconValue).
+
+convert_servers(undefined) ->
+    %% should not format 'undefined' as string
+    %% not to throw exception either
+    %% (leave it to the 'required => true | false' check)
+    undefined;
+convert_servers(Map) when is_map(Map) ->
+    try
+        List = convert_hocon_map_host_port(Map),
+        iolist_to_binary(string:join(List, ","))
+    catch
+        _:_ ->
+            throw("bad_host_port")
+    end;
+convert_servers([H | _] = Array) when is_binary(H) orelse is_list(H) ->
+    %% if the old config was a string array
+    %% we want to make sure it's converted to a comma-separated
+    iolist_to_binary([[I, ","] || I <- Array]);
+convert_servers(Str) ->
+    normalize_host_port_str(Str).
+
+%% remove spaces around comma (,)
+normalize_host_port_str(Str) ->
+    iolist_to_binary(re:replace(Str, "(\s)*,(\s)*", ",")).
+
+%% @doc Shared validation function for both 'server' and 'servers' string.
+%% NOTE: Validator is called after converter.
+servers_validator(Opts, Required) ->
+    fun(Str0) ->
+        Str = str(Str0),
+        case Str =:= "" orelse Str =:= "undefined" of
+            true when Required ->
+                %% it's a required field
+                %% but value is set to an empty string (from environment override)
+                %% or when the filed is not set in config file
+                %% NOTE: assuming nobody is going to name their server "undefined"
+                throw("cannot_be_empty");
+            true ->
+                ok;
+            _ ->
+                %% it's valid as long as it can be parsed
+                _ = parse_servers(Str, Opts),
+                ok
+        end
+    end.
+
+%% @doc Parse `host[:port]' endpoint to a `{Host, Port}' tuple or just `Host' string.
+%% `Opt' is a `map()' with below options supported:
+%%
+%% `default_port': a port number, so users are not forced to configure
+%%                 port number.
+%% `no_port': by default it's `false', when set to `true',
+%%            a `throw' exception is raised if the port is found.
+-spec parse_server(undefined | string() | binary(), server_parse_option()) ->
+    {string(), port_number()}.
+parse_server(Str, Opts) ->
+    case parse_servers(Str, Opts) of
+        undefined ->
+            undefined;
+        [L] ->
+            L;
+        [_ | _] = L ->
+            throw("expecting_one_host_but_got: " ++ integer_to_list(length(L)))
+    end.
+
+%% @doc Parse comma separated `host[:port][,host[:port]]' endpoints
+%% into a list of `{Host, Port}' tuples or just `Host' string.
+-spec parse_servers(undefined | string() | binary(), server_parse_option()) ->
+    [{string(), port_number()}].
+parse_servers(undefined, _Opts) ->
+    %% should not parse 'undefined' as string,
+    %% not to throw exception either,
+    %% leave it to the 'required => true | false' check
+    undefined;
+parse_servers(Str, Opts) ->
+    case do_parse_servers(Str, Opts) of
+        [] ->
+            %% treat empty as 'undefined'
+            undefined;
+        [_ | _] = L ->
+            L
+    end.
+
+do_parse_servers([H | _] = Array, Opts) when is_binary(H) orelse is_list(H) ->
+    %% the old schema allowed providing a list of strings
+    %% e.g. ["server1:80", "server2:80"]
+    lists:map(
+        fun(HostPort) ->
+            do_parse_server(str(HostPort), Opts)
+        end,
+        Array
+    );
+do_parse_servers(Str, Opts) when is_binary(Str) orelse is_list(Str) ->
+    lists:map(
+        fun(HostPort) ->
+            do_parse_server(HostPort, Opts)
+        end,
+        split_host_port(Str)
+    ).
+
+split_host_port(Str) ->
+    lists:filtermap(
+        fun(S) ->
+            case string:strip(S) of
+                "" -> false;
+                X -> {true, X}
+            end
+        end,
+        string:tokens(str(Str), ",")
+    ).
+
+do_parse_server(Str, Opts) ->
+    DefaultPort = maps:get(default_port, Opts, undefined),
+    NotExpectingPort = maps:get(no_port, Opts, false),
+    case is_integer(DefaultPort) andalso NotExpectingPort of
+        true ->
+            %% either provide a default port from schema,
+            %% or do not allow user to set port number
+            error("bad_schema");
+        false ->
+            ok
+    end,
+    %% do not split with space, there should be no space allowed between host and port
+    case string:tokens(Str, ":") of
+        [Hostname, Port] ->
+            NotExpectingPort andalso throw("not_expecting_port_number"),
+            {check_hostname(Hostname), parse_port(Port)};
+        [Hostname] ->
+            case is_integer(DefaultPort) of
+                true ->
+                    {check_hostname(Hostname), DefaultPort};
+                false when NotExpectingPort ->
+                    check_hostname(Hostname);
+                false ->
+                    throw("missing_port_number")
+            end;
+        _ ->
+            throw("bad_host_port")
+    end.
+
+check_hostname(Str) ->
+    %% not intended to use inet_parse:domain here
+    %% only checking space because it interferes the parsing
+    case string:tokens(Str, " ") of
+        [H] ->
+            case is_port_number(H) of
+                true ->
+                    throw("expecting_hostname_but_got_a_number");
+                false ->
+                    H
+            end;
+        _ ->
+            throw("hostname_has_space")
+    end.
+
+convert_hocon_map_host_port(Map) ->
+    lists:map(
+        fun({Host, Port}) ->
+            %% Only when Host:Port string is a valid HOCON object
+            %% is it possible for the converter to reach here.
+            %%
+            %% For example EMQX_FOO__SERVER='1.2.3.4:1234' is parsed as
+            %% a HOCON string value "1.2.3.4:1234" but not a map because
+            %% 1 is not a valid HOCON field.
+            %%
+            %% EMQX_FOO__SERVER="local.domain.host" (without ':port')
+            %% is also not a valid HOCON object (because it has no value),
+            %% hence parsed as string.
+            true = (Port > 0),
+            str(Host) ++ ":" ++ integer_to_list(Port)
+        end,
+        hocon_maps:flatten(Map, #{})
+    ).
+
+is_port_number(Port) ->
+    try
+        _ = parse_port(Port),
+        true
+    catch
+        _:_ ->
+            false
+    end.
+
+parse_port(Port) ->
+    try
+        P = list_to_integer(string:strip(Port)),
+        true = (P > 0),
+        true = (P =< 65535),
+        P
+    catch
+        _:_ ->
+            throw("bad_port_number")
+    end.

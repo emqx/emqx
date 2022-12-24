@@ -322,8 +322,7 @@ raw_pgsql_authz_config() ->
             "SELECT permission, action, topic "
             "FROM acl WHERE username = ${username}"
         >>,
-
-        <<"server">> => pgsql_server()
+        <<"server">> => <<?PGSQL_HOST>>
     }.
 
 q(Sql) ->
@@ -393,9 +392,6 @@ setup_config(SpecialParams) ->
         SpecialParams
     ).
 
-pgsql_server() ->
-    iolist_to_binary(io_lib:format("~s", [?PGSQL_HOST])).
-
 pgsql_config() ->
     #{
         auto_reconnect => true,
@@ -403,7 +399,7 @@ pgsql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?PGSQL_HOST, ?PGSQL_DEFAULT_PORT},
+        server => <<?PGSQL_HOST>>,
         ssl => #{enable => false}
     }.
 

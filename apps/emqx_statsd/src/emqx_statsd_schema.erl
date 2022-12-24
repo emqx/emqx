@@ -18,6 +18,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_statsd.hrl").
 
 -behaviour(hocon_schema).
 
@@ -44,7 +45,7 @@ fields("statsd") ->
                     desc => ?DESC(enable)
                 }
             )},
-        {server, fun server/1},
+        {server, server()},
         {sample_time_interval, fun sample_interval/1},
         {flush_time_interval, fun flush_interval/1},
         {tags, fun tags/1}
@@ -53,11 +54,12 @@ fields("statsd") ->
 desc("statsd") -> ?DESC(statsd);
 desc(_) -> undefined.
 
-server(type) -> emqx_schema:host_port();
-server(required) -> true;
-server(default) -> "127.0.0.1:8125";
-server(desc) -> ?DESC(?FUNCTION_NAME);
-server(_) -> undefined.
+server() ->
+    Meta = #{
+        required => true,
+        desc => ?DESC(?FUNCTION_NAME)
+    },
+    emqx_schema:servers_sc(Meta, ?SERVER_PARSE_OPTS).
 
 sample_interval(type) -> emqx_schema:duration_ms();
 sample_interval(required) -> true;

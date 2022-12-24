@@ -26,10 +26,6 @@
 ]).
 
 -export([
-    parse_server/2
-]).
-
--export([
     pool_size/1,
     database/1,
     username/1,
@@ -111,53 +107,3 @@ auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
-
-parse_server(Str, #{host_type := inet_addr, default_port := DefaultPort}) ->
-    case string:tokens(str(Str), ": ") of
-        [Ip, Port] ->
-            {parse_ip(Ip), parse_port(Port)};
-        [Ip] ->
-            {parse_ip(Ip), DefaultPort};
-        _ ->
-            throw("Bad server schema")
-    end;
-parse_server(Str, #{host_type := hostname, default_port := DefaultPort}) ->
-    case string:tokens(str(Str), ": ") of
-        [Hostname, Port] ->
-            {Hostname, parse_port(Port)};
-        [Hostname] ->
-            {Hostname, DefaultPort};
-        _ ->
-            throw("Bad server schema")
-    end;
-parse_server(_, _) ->
-    throw("Invalid Host").
-
-parse_ip(Str) ->
-    case inet:parse_address(Str) of
-        {ok, R} ->
-            R;
-        _ ->
-            %% check is a rfc1035's hostname
-            case inet_parse:domain(Str) of
-                true ->
-                    Str;
-                _ ->
-                    throw("Bad IP or Host")
-            end
-    end.
-
-parse_port(Port) ->
-    try
-        list_to_integer(Port)
-    catch
-        _:_ ->
-            throw("Bad port number")
-    end.
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.

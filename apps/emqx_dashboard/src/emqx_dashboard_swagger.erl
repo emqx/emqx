@@ -675,8 +675,6 @@ typename_to_spec("file()", _Mod) ->
     #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
-typename_to_spec("host_port()", _Mod) ->
-    #{type => string, example => <<"example.host.domain:80">>};
 typename_to_spec("write_syntax()", _Mod) ->
     #{
         type => string,

@@ -777,15 +777,13 @@ t_publish_success_batch(Config) ->
 
 t_not_a_json(Config) ->
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason := #{exception := {error, {badmap, "not a json"}}},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason := #{exception := {error, {badmap, "not a json"}}},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge(
             Config,
             #{
@@ -797,15 +795,13 @@ t_not_a_json(Config) ->
 
 t_not_of_service_account_type(Config) ->
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason := {wrong_type, <<"not a service account">>},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason := {wrong_type, <<"not a service account">>},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge(
             Config,
             #{
@@ -818,22 +814,20 @@ t_not_of_service_account_type(Config) ->
 t_json_missing_fields(Config) ->
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason :=
-                        {missing_keys, [
-                            <<"client_email">>,
-                            <<"private_key">>,
-                            <<"private_key_id">>,
-                            <<"project_id">>,
-                            <<"type">>
-                        ]},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason :=
+                {missing_keys, [
+                    <<"client_email">>,
+                    <<"private_key">>,
+                    <<"private_key_id">>,
+                    <<"project_id">>,
+                    <<"type">>
+                ]},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge([
             {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
             | Config

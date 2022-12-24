@@ -50,8 +50,8 @@ send_and_ack_test() ->
     try
         Max = 1,
         Batch = lists:seq(1, Max),
-        {ok, Conn} = emqx_connector_mqtt_mod:start(#{server => {{127, 0, 0, 1}, 1883}}),
-        %     %% return last packet id as batch reference
+        {ok, Conn} = emqx_connector_mqtt_mod:start(#{server => "127.0.0.1:1883"}),
+        %% return last packet id as batch reference
         {ok, _AckRef} = emqx_connector_mqtt_mod:send(Conn, Batch),
 
         ok = emqx_connector_mqtt_mod:stop(Conn)
