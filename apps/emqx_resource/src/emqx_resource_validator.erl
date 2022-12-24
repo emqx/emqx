@@ -30,6 +30,7 @@ min(Type, Min) ->
 
 not_empty(ErrMsg) ->
     fun
+        (undefined) -> {error, ErrMsg};
         (<<>>) -> {error, ErrMsg};
         (_) -> ok
     end.
