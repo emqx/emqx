@@ -59,7 +59,7 @@
 
 -export([
     validate_heap_size/1,
-    parse_user_lookup_fun/1,
+    user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     non_empty_string/1,
     validations/0
@@ -1931,7 +1931,7 @@ common_ssl_opts_schema(Defaults) ->
                 typerefl:alias("string", any()),
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
-                    converter => fun ?MODULE:parse_user_lookup_fun/1,
+                    converter => fun ?MODULE:user_lookup_fun_tr/2,
                     desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                 }
             )},
@@ -2276,6 +2276,19 @@ validate_alarm_actions(Actions) ->
         [] -> ok;
         Error -> {error, Error}
     end.
+
+user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
+    fmt_user_lookup_fun(Lookup);
+user_lookup_fun_tr(Lookup, _) ->
+    parse_user_lookup_fun(Lookup).
+
+fmt_user_lookup_fun({Fun, _}) when is_function(Fun, 3) ->
+    {module, Mod} = erlang:fun_info(Fun, module),
+    {name, Name} = erlang:fun_info(Fun, name),
+    atom_to_list(Mod) ++ ":" ++ atom_to_list(Name);
+fmt_user_lookup_fun(Other) ->
+    %% already serializable
+    Other.
 
 parse_user_lookup_fun({Fun, _} = Lookup) when is_function(Fun, 3) -> Lookup;
 parse_user_lookup_fun(StrConf) ->

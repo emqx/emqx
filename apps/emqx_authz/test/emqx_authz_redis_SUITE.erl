@@ -161,12 +161,13 @@ t_lookups(_Config) ->
         ]
     ).
 
-t_create_invalid(_Config) ->
+%% should still succeed to create even if the config will not work,
+%% because it's not a part of the schema check
+t_create_with_config_values_wont_works(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
 
     InvalidConfigs =
         [
-            maps:without([<<"server">>], AuthzConfig),
             AuthzConfig#{<<"server">> => <<"unknownhost:3333">>},
             AuthzConfig#{<<"password">> => <<"wrongpass">>},
             AuthzConfig#{<<"database">> => <<"5678">>}
@@ -178,6 +179,15 @@ t_create_invalid(_Config) ->
             [_] = emqx_authz:lookup()
         end,
         InvalidConfigs
+    ).
+
+%% creating without a require filed should return error
+t_create_invalid_schema(_Config) ->
+    AuthzConfig = raw_redis_authz_config(),
+    C = maps:without([<<"server">>], AuthzConfig),
+    ?assertMatch(
+        {error, {emqx_conf_schema, _}},
+        emqx_authz:update(?CMD_REPLACE, [C])
     ).
 
 t_redis_error(_Config) ->
