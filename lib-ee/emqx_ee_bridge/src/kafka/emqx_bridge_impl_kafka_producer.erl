@@ -86,6 +86,19 @@ on_start(InstId, Config) ->
                 kafka_topic => KafkaTopic,
                 reason => Reason2
             }),
+            %% Need to stop the already running client; otherwise, the
+            %% next `on_start' call will try to ensure the client
+            %% exists and it will be already present and using the old
+            %% config.  This is specially bad if the original crash
+            %% was due to misconfiguration and we are trying to fix
+            %% it...
+            _ = with_log_at_error(
+                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
+                #{
+                    msg => "failed_to_delete_kafka_client",
+                    client_id => ClientId
+                }
+            ),
             throw(failed_to_start_kafka_producer)
     end.
 
