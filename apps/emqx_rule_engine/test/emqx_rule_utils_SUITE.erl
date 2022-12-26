@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(PORT, 9876).
+-define(PORT, 29876).
 
 all() -> emqx_ct:all(?MODULE).
 

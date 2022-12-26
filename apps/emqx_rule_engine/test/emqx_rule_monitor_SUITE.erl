@@ -89,13 +89,17 @@ end_per_testcase(_, Config) ->
     Config.
 
 common_init_per_testcase() ->
+    AlarmOpts = [{actions, [log, publish]}, {size_limit, 1000}, {validity_period, 86400}],
+    {ok, _} = emqx_alarm:start_link(AlarmOpts),
     {ok, _} = emqx_rule_monitor:start_link().
 
 common_end_per_testcases() ->
+    ok = emqx_alarm:stop(),
     emqx_rule_monitor:erase_retry_interval(),
     emqx_rule_monitor:stop().
 
 t_restart_resource(_) ->
+    ct:pal("emqx_alarm: ~p", [sys:get_state(whereis(emqx_alarm))]),
     ok = emqx_rule_registry:register_resource_types(
             [#resource_type{
                 name = test_res_1,
