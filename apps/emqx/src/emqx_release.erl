@@ -18,6 +18,7 @@
 
 -export([
     edition/0,
+    edition_vsn_prefix/0,
     edition_longstr/0,
     description/0,
     version/0
@@ -45,11 +46,11 @@ description() ->
 -spec edition() -> ce | ee.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.
-
+edition_vsn_prefix() -> "e".
 edition_longstr() -> <<"Enterprise">>.
 -else.
 edition() -> ce.
-
+edition_vsn_prefix() -> "v".
 edition_longstr() -> <<"Opensource">>.
 -endif.
 
