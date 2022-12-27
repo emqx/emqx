@@ -196,6 +196,10 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
+        builder:
+          - 5.0-26
+        elixir:
+          - 1.13.4
         exclude:
         - arch: arm64
           build_machine: ubuntu-20.04
@@ -207,13 +211,17 @@ jobs:
             arch: amd64
             os: ubuntu20.04
             build_machine: ubuntu-20.04
-            is_elixir: yes
+            builder: 5.0-26
+            elixir: 1.13.4
+            release_with: elixir
           - profile: emqx
             otp: 25.1.2-2
             arch: amd64
             os: amzn2
             build_machine: ubuntu-20.04
-            is_elixir: yes
+            builder: 5.0-26
+            elixir: 1.13.4
+            release_with: elixir
 
     defaults:
       run:
@@ -231,8 +239,8 @@ jobs:
     - name: build emqx packages
       working-directory: source
       env:
-        BUILDER: '5.0-26'
-        ELIXIR: '1.13.4'
+        BUILDER: ${{ matrix.builder }}
+        ELIXIR: ${{ matrix.elixir }}
         OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
@@ -246,14 +254,14 @@ jobs:
           cd /emqx
         fi
         echo "pwd is $PWD"
-        PkgTypes="tgz pkg"
+        PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
-        if [ ${{ matrix.is_elixir }} == 'yes' ]; then
-          PkgTypes="tgz"
+        if [ ${{ matrix.release_with }} == 'elixir' ]; then
+          PKGTYPES="tgz"
           # set Elixir build flag
           IS_ELIXIR="yes"
         fi
-        for PKGTYPE in ${PkgTypes};
+        for PKGTYPE in ${PKGTYPES};
         do
           ./scripts/buildx.sh \
             --profile "${PROFILE}" \
