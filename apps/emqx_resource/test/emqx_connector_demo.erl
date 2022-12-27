@@ -17,6 +17,7 @@
 -module(emqx_connector_demo).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
 
@@ -95,8 +96,11 @@ on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     From = {self(), ReqRef},
     Pid ! {From, {inc, N}},
     receive
-        {ReqRef, ok} -> ok;
-        {ReqRef, incorrect_status} -> {error, {recoverable_error, incorrect_status}}
+        {ReqRef, ok} ->
+            ?tp(connector_demo_inc_counter, #{n => N}),
+            ok;
+        {ReqRef, incorrect_status} ->
+            {error, {recoverable_error, incorrect_status}}
     after 1000 ->
         {error, timeout}
     end;
@@ -127,7 +131,8 @@ on_query_async(_InstId, get_counter, ReplyFun, #{pid := Pid}) ->
     ok.
 
 on_batch_query(InstId, BatchReq, State) ->
-    %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
+    %% Requests can be either 'get_counter' or 'inc_counter', but
+    %% cannot be mixed.
     case hd(BatchReq) of
         {inc_counter, _} ->
             batch_inc_counter(InstId, BatchReq, State);
@@ -187,6 +192,7 @@ counter_loop(
             {inc, N, ReplyFun} when Status == running ->
                 %ct:pal("async counter recv: ~p", [{inc, N}]),
                 apply_reply(ReplyFun, ok),
+                ?tp(connector_demo_inc_counter_async, #{n => N}),
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
                 %ct:pal("sync counter recv: ~p", [{inc, N}]),

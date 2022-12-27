@@ -49,10 +49,8 @@ fields("creation_opts") ->
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
         {async_inflight_window, fun async_inflight_window/1},
-        {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
-        {enable_queue, fun enable_queue/1},
         {max_queue_bytes, fun max_queue_bytes/1}
     ].
 
@@ -79,18 +77,6 @@ query_mode(desc) -> ?DESC("query_mode");
 query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
-
-enable_batch(type) -> boolean();
-enable_batch(required) -> false;
-enable_batch(default) -> true;
-enable_batch(desc) -> ?DESC("enable_batch");
-enable_batch(_) -> undefined.
-
-enable_queue(type) -> boolean();
-enable_queue(required) -> false;
-enable_queue(default) -> false;
-enable_queue(desc) -> ?DESC("enable_queue");
-enable_queue(_) -> undefined.
 
 async_inflight_window(type) -> pos_integer();
 async_inflight_window(desc) -> ?DESC("async_inflight_window");

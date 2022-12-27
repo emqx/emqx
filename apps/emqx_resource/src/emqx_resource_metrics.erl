@@ -24,9 +24,6 @@
 ]).
 
 -export([
-    batching_set/3,
-    batching_shift/3,
-    batching_get/1,
     inflight_set/3,
     inflight_get/1,
     queuing_set/3,
@@ -77,7 +74,6 @@ events() ->
     [
         [?TELEMETRY_PREFIX, Event]
      || Event <- [
-            batching,
             dropped_other,
             dropped_queue_full,
             dropped_queue_not_enabled,
@@ -154,24 +150,10 @@ handle_telemetry_event(
     _HandlerConfig
 ) ->
     case Event of
-        batching ->
-            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'batching', Val);
         inflight ->
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'inflight', Val);
         queuing ->
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing', Val);
-        _ ->
-            ok
-    end;
-handle_telemetry_event(
-    [?TELEMETRY_PREFIX, Event],
-    _Measurements = #{gauge_shift := Val},
-    _Metadata = #{resource_id := ID, worker_id := WorkerID},
-    _HandlerConfig
-) ->
-    case Event of
-        batching ->
-            emqx_metrics_worker:shift_gauge(?RES_METRICS, ID, WorkerID, 'batching', Val);
         _ ->
             ok
     end;
@@ -180,27 +162,6 @@ handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
 
 %% Gauges (value can go both up and down):
 %% --------------------------------------
-
-%% @doc Count of messages that are currently accumulated in memory waiting for
-%% being sent in one batch
-batching_set(ID, WorkerID, Val) ->
-    telemetry:execute(
-        [?TELEMETRY_PREFIX, batching],
-        #{gauge_set => Val},
-        #{resource_id => ID, worker_id => WorkerID}
-    ).
-
-batching_shift(_ID, _WorkerID = undefined, _Val) ->
-    ok;
-batching_shift(ID, WorkerID, Val) ->
-    telemetry:execute(
-        [?TELEMETRY_PREFIX, batching],
-        #{gauge_shift => Val},
-        #{resource_id => ID, worker_id => WorkerID}
-    ).
-
-batching_get(ID) ->
-    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'batching').
 
 %% @doc Count of batches of messages that are currently
 %% queuing. [Gauge]

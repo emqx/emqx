@@ -37,13 +37,17 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
+    ct:timetrap({seconds, 30}),
     emqx_connector_demo:set_callback_mode(always_sync),
     Config.
 
 end_per_testcase(_, _Config) ->
+    snabbkaffe:stop(),
     _ = emqx_resource:remove(?ID).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
+    snabbkaffe:fix_ct_logging(),
     code:ensure_loaded(?TEST_RESOURCE),
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
     {ok, _} = application:ensure_all_started(emqx_resource),
@@ -140,6 +144,21 @@ t_create_remove_local(_) ->
     ?assertNot(is_process_alive(Pid)).
 
 t_do_not_start_after_created(_) ->
+    redbug:start(
+        [
+            "emqx_resource_worker:batch_reply_caller -> return",
+            "emqx_resource_worker:call_query -> return",
+            "replayq:pop -> return",
+            "replayq:peek -> return",
+            "replayq:ack",
+            "replayq:append",
+            "emqx_connector_demo:on_batch_query -> return",
+            "emqx_connector_demo:on_query -> return",
+            "emqx_connector_demo:on_query_async -> return"
+        ],
+        [{msgs, 100}]
+    ),
+    ct:pal("creating resource"),
     {ok, _} = emqx_resource:create_local(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
@@ -159,16 +178,19 @@ t_do_not_start_after_created(_) ->
     ),
 
     %% start the resource manually..
+    ct:pal("starting resource manually"),
     ok = emqx_resource:start(?ID),
     {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     ?assert(is_process_alive(Pid)),
 
     %% restart the resource
+    ct:pal("restarting resource"),
     ok = emqx_resource:restart(?ID),
     ?assertNot(is_process_alive(Pid)),
     {ok, #{pid := Pid2}} = emqx_resource:query(?ID, get_state),
     ?assert(is_process_alive(Pid2)),
 
+    ct:pal("removing resource"),
     ok = emqx_resource:remove_local(?ID),
 
     ?assertNot(is_process_alive(Pid2)).
@@ -207,12 +229,13 @@ t_query_counter(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_batch_query_counter(_) ->
+    BatchSize = 100,
     {ok, _} = emqx_resource:create_local(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{enable_batch => true, query_mode => sync}
+        #{batch_size => BatchSize, query_mode => sync}
     ),
 
     ?check_trace(
@@ -225,15 +248,26 @@ t_batch_query_counter(_) ->
         end
     ),
 
+    NMsgs = 1_000,
     ?check_trace(
         ?TRACE_OPTS,
-        inc_counter_in_parallel(1000),
+        begin
+            NEvents = round(math:ceil(NMsgs / BatchSize)),
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := connector_demo_inc_counter}),
+                NEvents,
+                _Timeout = 10_000
+            ),
+            inc_counter_in_parallel(NMsgs),
+            {ok, _} = snabbkaffe:receive_events(SRef),
+            ok
+        end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query, Trace),
             ?assertMatch([#{batch := BatchReq} | _] when length(BatchReq) > 1, QueryTrace)
         end
     ),
-    {ok, 1000} = emqx_resource:query(?ID, get_counter),
+    {ok, NMsgs} = emqx_resource:query(?ID, get_counter),
 
     ok = emqx_resource:remove_local(?ID).
 
@@ -243,20 +277,28 @@ t_query_counter_async_query(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, enable_batch => false}
+        #{query_mode => async, batch_size => 1}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    NMsgs = 1_000,
     ?check_trace(
         ?TRACE_OPTS,
-        inc_counter_in_parallel(1000),
+        begin
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := connector_demo_inc_counter}),
+                NMsgs,
+                _Timeout = 60_000
+            ),
+            inc_counter_in_parallel(NMsgs),
+            {ok, _} = snabbkaffe:receive_events(SRef),
+            ok
+        end,
         fun(Trace) ->
-            %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
+            %% the callback_mode of 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
-    %% wait for 1s to make sure all the aysnc query is sent to the resource.
-    timer:sleep(1000),
     %% simple query ignores the query_mode and batching settings in the resource_worker
     ?check_trace(
         ?TRACE_OPTS,
@@ -285,20 +327,33 @@ t_query_counter_async_callback(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, enable_batch => false, async_inflight_window => 1000000}
+        #{
+            query_mode => async,
+            batch_size => 1,
+            async_inflight_window => 1000000,
+            worker_pool_size => 1
+        }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    NMsgs = 1_000,
     ?check_trace(
-        ?TRACE_OPTS,
-        inc_counter_in_parallel(1000, ReqOpts),
+        %% ?TRACE_OPTS,
+        begin
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
+                NMsgs,
+                _Timeout = 60_000
+            ),
+            inc_counter_in_parallel(NMsgs, ReqOpts),
+            {ok, _} = snabbkaffe:receive_events(SRef),
+            ok
+        end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
 
-    %% wait for 1s to make sure all the aysnc query is sent to the resource.
-    timer:sleep(1000),
     %% simple query ignores the query_mode and batching settings in the resource_worker
     ?check_trace(
         ?TRACE_OPTS,
@@ -339,11 +394,10 @@ t_query_counter_async_inflight(_) ->
         #{name => test_resource, register => true},
         #{
             query_mode => async,
-            enable_batch => false,
+            batch_size => 1,
             async_inflight_window => WindowSize,
             worker_pool_size => 1,
-            resume_interval => 300,
-            enable_queue => false
+            resume_interval => 300
         }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
@@ -506,9 +560,9 @@ t_stop_start(_) ->
     %% add some metrics to test their persistence
     WorkerID0 = <<"worker:0">>,
     WorkerID1 = <<"worker:1">>,
-    emqx_resource_metrics:batching_set(?ID, WorkerID0, 2),
-    emqx_resource_metrics:batching_set(?ID, WorkerID1, 3),
-    ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
+    emqx_resource_metrics:inflight_set(?ID, WorkerID0, 2),
+    emqx_resource_metrics:inflight_set(?ID, WorkerID1, 3),
+    ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
 
     {ok, _} = emqx_resource:check_and_recreate(
         ?ID,
@@ -522,7 +576,7 @@ t_stop_start(_) ->
     ?assert(is_process_alive(Pid0)),
 
     %% metrics are reset when recreating
-    ?assertEqual(0, emqx_resource_metrics:batching_get(?ID)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
 
     ok = emqx_resource:stop(?ID),
 
@@ -541,11 +595,11 @@ t_stop_start(_) ->
     ?assert(is_process_alive(Pid1)),
 
     %% now stop while resetting the metrics
-    emqx_resource_metrics:batching_set(?ID, WorkerID0, 1),
-    emqx_resource_metrics:batching_set(?ID, WorkerID1, 4),
-    ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
+    emqx_resource_metrics:inflight_set(?ID, WorkerID0, 1),
+    emqx_resource_metrics:inflight_set(?ID, WorkerID1, 4),
+    ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
     ok = emqx_resource:stop(?ID),
-    ?assertEqual(0, emqx_resource_metrics:batching_get(?ID)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
 
     ok.
 
@@ -641,18 +695,22 @@ create_dry_run_local_succ() ->
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
+    ct:timetrap({seconds, 120}),
+    ct:pal("creating with creation error"),
     Res1 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
         #{create_error => true}
     ),
     ?assertMatch({error, _}, Res1),
 
+    ct:pal("creating with health check error"),
     Res2 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
         #{name => test_resource, health_check_error => true}
     ),
     ?assertMatch({error, _}, Res2),
 
+    ct:pal("creating with stop error"),
     Res3 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
         #{name => test_resource, stop_error => true}

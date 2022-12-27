@@ -90,7 +90,7 @@
 -define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
 
 %% count
--define(DEFAULT_BATCH_SIZE, 100).
+-define(DEFAULT_BATCH_SIZE, 1).
 
 %% milliseconds
 -define(DEFAULT_BATCH_TIME, 20).
