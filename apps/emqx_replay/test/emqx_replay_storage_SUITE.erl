@@ -106,6 +106,10 @@ t_iterate_wildcard(Config) ->
         lists:sort([{Topic, PublishedAt} || Topic <- ["a", "a/bar"], PublishedAt <- Timestamps]),
         lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "a/#", 0)])
     ),
+    ?assertEqual(
+        [],
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "a/+/+", 0)])
+    ),
     ok.
 
 store(DB, PublishedAt, Topic, Payload) ->
@@ -128,6 +132,108 @@ parse_topic(Topic = [L | _]) when is_binary(L); is_atom(L) ->
     Topic;
 parse_topic(Topic) ->
     emqx_topic:words(iolist_to_binary(Topic)).
+
+%%
+
+t_prop_topic_hash_computes(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(Topic, topic(), begin
+                Hash = emqx_replay_message_storage:compute_topic_hash(Topic),
+                is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
+            end)
+        )
+    ).
+
+t_prop_hash_bitmask_computes(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(TopicFilter, topic_filter(), begin
+                Hash = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter),
+                is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
+            end)
+        )
+    ).
+
+t_prop_iterate_stored_messages(Config) ->
+    DB = ?config(handle, Config),
+    ?assertEqual(
+        true,
+        proper:quickcheck(
+            ?FORALL(
+                Streams,
+                messages(),
+                begin
+                    Stream = payload_gen:interleave_streams(Streams),
+                    ok = store_message_stream(DB, Stream)
+                    % TODO actually verify some property
+                end
+            )
+        )
+    ).
+
+store_message_stream(DB, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
+    MessageID = <<ChunkNum:32>>,
+    PublishedAt = rand:uniform(ChunkNum),
+    ok = emqx_replay_message_storage:store(DB, MessageID, PublishedAt, Topic, Payload),
+    store_message_stream(DB, payload_gen:next(Rest));
+store_message_stream(_DB, []) ->
+    ok.
+
+messages() ->
+    ?LET(Topics, list(topic()), begin
+        [{Topic, payload_gen:binary_stream_gen(64)} || Topic <- Topics]
+    end).
+
+topic() ->
+    % TODO
+    % Somehow generate topic levels with variance according to the entropy distribution?
+    non_empty(list(topic_level())).
+
+topic(EntropyWeights) ->
+    ?LET(
+        L,
+        list(1),
+        % ?SIZED(S, [topic(S * nth(I, EntropyWeights, 1)) || I <- lists:seq(1, Len)])
+        % [topic(10 * nth(I, EntropyWeights, 1)) || I <- lists:seq(1, Len)]
+        ?SIZED(S, [topic_level(S * EW) || EW <- lists:sublist(EntropyWeights ++ L, length(L))])
+    ).
+
+topic_filter() ->
+    ?SUCHTHAT(
+        L,
+        non_empty(
+            list(
+                frequency([
+                    {5, topic_level()},
+                    {2, '+'},
+                    {1, '#'}
+                ])
+            )
+        ),
+        not lists:member('#', L) orelse lists:last(L) == '#'
+    ).
+
+% topic() ->
+%     ?LAZY(?SIZED(S, frequency([
+%         {S, [topic_level() | topic()]},
+%         {1, []}
+%     ]))).
+
+% topic_filter() ->
+%     ?LAZY(?SIZED(S, frequency([
+%         {round(S / 3 * 2), [topic_level() | topic_filter()]},
+%         {round(S / 3 * 1), ['+' | topic_filter()]},
+%         {1, []},
+%         {1, ['#']}
+%     ]))).
+
+topic_level() ->
+    ?LET(L, list(oneof([range($a, $z), range($0, $9)])), iolist_to_binary(L)).
+
+topic_level(Entropy) ->
+    S = floor(1 + math:log2(Entropy) / 4),
+    ?LET(I, range(1, Entropy), iolist_to_binary(io_lib:format("~*.16.0B", [S, I]))).
 
 %% CT callbacks
 
