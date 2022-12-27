@@ -313,13 +313,16 @@ handle_telemetry_event(
     _HandlerConfig
 ) when is_integer(Val) ->
     emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
+%% FIXME: correct this clause after wolff 1.7.4
 handle_telemetry_event(
     [wolff, queuing],
-    #{counter_inc := Val},
+    #{counter_inc := _Val},
     #{bridge_id := ID},
     _HandlerConfig
-) when is_integer(Val) ->
-    emqx_resource_metrics:queuing_change(ID, Val);
+) when is_integer(_Val) ->
+    %% temporary value until wolff 1.7.4
+    WorkerID = ID,
+    emqx_resource_metrics:queuing_set(ID, WorkerID, 0);
 handle_telemetry_event(
     [wolff, retried],
     #{counter_inc := Val},
@@ -334,13 +337,16 @@ handle_telemetry_event(
     _HandlerConfig
 ) when is_integer(Val) ->
     emqx_resource_metrics:failed_inc(ID, Val);
+%% FIXME: correct this clause after wolff 1.7.4
 handle_telemetry_event(
     [wolff, inflight],
-    #{counter_inc := Val},
+    #{counter_inc := _Val},
     #{bridge_id := ID},
     _HandlerConfig
-) when is_integer(Val) ->
-    emqx_resource_metrics:inflight_change(ID, Val);
+) when is_integer(_Val) ->
+    %% temporary value until wolff 1.7.4
+    WorkerID = ID,
+    emqx_resource_metrics:inflight_set(ID, WorkerID, 0);
 handle_telemetry_event(
     [wolff, retried_failed],
     #{counter_inc := Val},

@@ -686,7 +686,6 @@ format_resp(
 
 format_metrics(#{
     counters := #{
-        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
@@ -694,17 +693,19 @@ format_metrics(#{
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
-        'queuing' := Queued,
         'retried' := Retried,
         'failed' := SentFailed,
-        'inflight' := SentInflight,
         'success' := SentSucc,
         'received' := Rcvd
     },
+    gauges := Gauges,
     rate := #{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
     }
 }) ->
+    Batched = maps:get('batching', Gauges, 0),
+    Queued = maps:get('queuing', Gauges, 0),
+    SentInflight = maps:get('inflight', Gauges, 0),
     ?METRICS(
         Batched,
         Dropped,
