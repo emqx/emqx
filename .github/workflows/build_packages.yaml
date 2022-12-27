@@ -127,9 +127,18 @@ jobs:
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
     - uses: actions/upload-artifact@v3
+      if: success()
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.23.0
+      if: failure() && github.event_name == 'schedule'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      with:
+        payload: |
+          {"text": "Scheduled run of ${{ github.workflow }}@Windows failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   mac:
     needs: prepare
@@ -165,9 +174,18 @@ jobs:
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@v3
+      if: success()
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.23.0
+      if: failure() && github.event_name == 'schedule'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      with:
+        payload: |
+          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   linux:
     needs: prepare
@@ -278,9 +296,18 @@ jobs:
             --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v3
+      if: success()
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.23.0
+      if: failure() && github.event_name == 'schedule'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      with:
+        payload: |
+          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   publish_artifacts:
     runs-on: ubuntu-20.04
