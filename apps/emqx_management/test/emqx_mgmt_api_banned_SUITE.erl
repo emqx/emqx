@@ -20,6 +20,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(EXPIRATION_TIME, 31536000).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -82,6 +84,28 @@ t_create(_Config) ->
     {ok, #{<<"data">> := List}} = list_banned(),
     Bans = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) -> {A, W} end, List)),
     ?assertEqual([{<<"clientid">>, ClientId}, {<<"peerhost">>, PeerHost}], Bans),
+
+    ClientId2 = <<"TestClient2"/utf8>>,
+    ClientIdBanned2 = #{
+        as => As,
+        who => ClientId2,
+        by => By,
+        reason => Reason,
+        at => At
+    },
+    {ok, ClientIdBannedRes2} = create_banned(ClientIdBanned2),
+    Until2 = emqx_banned:to_rfc3339(Now + ?EXPIRATION_TIME),
+    ?assertEqual(
+        #{
+            <<"as">> => As,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until2,
+            <<"who">> => ClientId2
+        },
+        ClientIdBannedRes2
+    ),
     ok.
 
 t_create_failed(_Config) ->
