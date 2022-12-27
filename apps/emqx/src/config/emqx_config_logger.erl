@@ -37,9 +37,14 @@ remove_handler() ->
 %% so we need to refresh the logger config after this node starts.
 %% It will not affect the logger config when cluster-override.conf is unchanged.
 refresh_config() ->
-    Log = emqx:get_raw_config(?LOG),
-    {ok, _} = emqx:update_config(?LOG, Log),
-    ok.
+    case emqx:get_raw_config(?LOG, undefined) of
+        %% no logger config when CT is running.
+        undefined ->
+            ok;
+        Log ->
+            {ok, _} = emqx:update_config(?LOG, Log),
+            ok
+    end.
 
 post_config_update(?LOG, _Req, _NewConf, _OldConf, AppEnvs) ->
     Kernel = proplists:get_value(kernel, AppEnvs),
