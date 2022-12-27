@@ -24,11 +24,12 @@
 ]).
 
 -export([
-    batching_change/2,
+    batching_set/3,
+    batching_shift/3,
     batching_get/1,
-    inflight_change/2,
+    inflight_set/3,
     inflight_get/1,
-    queuing_change/2,
+    queuing_set/3,
     queuing_get/1,
     dropped_inc/1,
     dropped_inc/2,
@@ -114,8 +115,6 @@ handle_telemetry_event(
     _HandlerConfig
 ) ->
     case Event of
-        batching ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'batching', Val);
         dropped_other ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.other', Val);
@@ -133,12 +132,8 @@ handle_telemetry_event(
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.resource_stopped', Val);
         failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
-        inflight ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'inflight', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
-        queuing ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'queuing', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
@@ -152,6 +147,34 @@ handle_telemetry_event(
         _ ->
             ok
     end;
+handle_telemetry_event(
+    [?TELEMETRY_PREFIX, Event],
+    _Measurements = #{gauge_set := Val},
+    _Metadata = #{resource_id := ID, worker_id := WorkerID},
+    _HandlerConfig
+) ->
+    case Event of
+        batching ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'batching', Val);
+        inflight ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'inflight', Val);
+        queuing ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing', Val);
+        _ ->
+            ok
+    end;
+handle_telemetry_event(
+    [?TELEMETRY_PREFIX, Event],
+    _Measurements = #{gauge_shift := Val},
+    _Metadata = #{resource_id := ID, worker_id := WorkerID},
+    _HandlerConfig
+) ->
+    case Event of
+        batching ->
+            emqx_metrics_worker:shift_gauge(?RES_METRICS, ID, WorkerID, 'batching', Val);
+        _ ->
+            ok
+    end;
 handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
     ok.
 
@@ -160,26 +183,48 @@ handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
 
 %% @doc Count of messages that are currently accumulated in memory waiting for
 %% being sent in one batch
-batching_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, batching], #{counter_inc => Val}, #{resource_id => ID}).
+batching_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, batching],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
+
+batching_shift(_ID, _WorkerID = undefined, _Val) ->
+    ok;
+batching_shift(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, batching],
+        #{gauge_shift => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
 
 batching_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'batching').
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'batching').
 
-%% @doc Count of messages that are currently queuing. [Gauge]
-queuing_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, queuing], #{counter_inc => Val}, #{resource_id => ID}).
+%% @doc Count of batches of messages that are currently
+%% queuing. [Gauge]
+queuing_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, queuing],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
 
 queuing_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'queuing').
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'queuing').
 
-%% @doc Count of messages that were sent asynchronously but ACKs are not
-%% received. [Gauge]
-inflight_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, inflight], #{counter_inc => Val}, #{resource_id => ID}).
+%% @doc Count of batches of messages that were sent asynchronously but
+%% ACKs are not yet received. [Gauge]
+inflight_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, inflight],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
 
 inflight_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'inflight').
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'inflight').
 
 %% Counters (value can only got up):
 %% --------------------------------------

@@ -18,6 +18,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% API functions
 -export([
     start_link/1,
@@ -30,6 +32,11 @@
     inc/3,
     inc/4,
     get/3,
+    get_gauge/3,
+    set_gauge/5,
+    shift_gauge/5,
+    get_gauges/2,
+    delete_gauges/2,
     get_rate/2,
     get_counters/2,
     create_metrics/3,
@@ -68,14 +75,21 @@
     last5m := float()
 }.
 -type metrics() :: #{
-    counters := #{atom() => integer()},
-    rate := #{atom() => rate()}
+    counters := #{metric_name() => integer()},
+    gauges := #{metric_name() => integer()},
+    rate := #{metric_name() => rate()}
 }.
 -type handler_name() :: atom().
+%% metric_id() is actually a resource id
 -type metric_id() :: binary() | atom().
+-type metric_name() :: atom().
+-type worker_id() :: term().
 
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
+-define(GAUGE_TABLE(NAME),
+    list_to_atom(atom_to_list(?MODULE) ++ "_" ++ atom_to_list(NAME) ++ "_gauge")
+).
 
 -record(rate, {
     max = 0 :: number(),
@@ -112,11 +126,12 @@ child_spec(ChldName, Name) ->
         modules => [emqx_metrics_worker]
     }.
 
--spec create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}.
+-spec create_metrics(handler_name(), metric_id(), [metric_name()]) -> ok | {error, term()}.
 create_metrics(Name, Id, Metrics) ->
     create_metrics(Name, Id, Metrics, Metrics).
 
--spec create_metrics(handler_name(), metric_id(), [atom()], [atom()]) -> ok | {error, term()}.
+-spec create_metrics(handler_name(), metric_id(), [metric_name()], [metric_name()]) ->
+    ok | {error, term()}.
 create_metrics(Name, Id, Metrics, RateMetrics) ->
     gen_server:call(Name, {create_metrics, Id, Metrics, RateMetrics}).
 
@@ -135,7 +150,7 @@ has_metrics(Name, Id) ->
         _ -> true
     end.
 
--spec get(handler_name(), metric_id(), atom() | integer()) -> number().
+-spec get(handler_name(), metric_id(), metric_name() | integer()) -> number().
 get(Name, Id, Metric) ->
     case get_ref(Name, Id) of
         not_found ->
@@ -167,15 +182,101 @@ reset_counters(Name, Id) ->
 
 -spec get_metrics(handler_name(), metric_id()) -> metrics().
 get_metrics(Name, Id) ->
-    #{rate => get_rate(Name, Id), counters => get_counters(Name, Id)}.
+    #{
+        rate => get_rate(Name, Id),
+        counters => get_counters(Name, Id),
+        gauges => get_gauges(Name, Id)
+    }.
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
 inc(Name, Id, Metric) ->
     inc(Name, Id, Metric, 1).
 
--spec inc(handler_name(), metric_id(), atom(), integer()) -> ok.
+-spec inc(handler_name(), metric_id(), metric_name(), integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
     counters:add(get_ref(Name, Id), idx_metric(Name, Id, Metric), Val).
+
+-spec set_gauge(handler_name(), metric_id(), worker_id(), metric_name(), integer()) -> ok.
+set_gauge(Name, Id, WorkerId, Metric, Val) ->
+    Table = ?GAUGE_TABLE(Name),
+    try
+        true = ets:insert(Table, {{Id, Metric, WorkerId}, Val}),
+        ok
+    catch
+        error:badarg ->
+            ok
+    end.
+
+-spec shift_gauge(handler_name(), metric_id(), worker_id(), metric_name(), integer()) -> ok.
+shift_gauge(Name, Id, WorkerId, Metric, Val) ->
+    Table = ?GAUGE_TABLE(Name),
+    try
+        _ = ets:update_counter(
+            Table,
+            {Id, Metric, WorkerId},
+            Val,
+            {{Id, Metric, WorkerId}, 0}
+        ),
+        ok
+    catch
+        error:badarg ->
+            ok
+    end.
+
+-spec get_gauge(handler_name(), metric_id(), metric_name()) -> integer().
+get_gauge(Name, Id, Metric) ->
+    Table = ?GAUGE_TABLE(Name),
+    MatchSpec =
+        ets:fun2ms(
+            fun({{Id0, Metric0, _WorkerId}, Val}) when Id0 =:= Id, Metric0 =:= Metric ->
+                Val
+            end
+        ),
+    try
+        lists:sum(ets:select(Table, MatchSpec))
+    catch
+        error:badarg ->
+            0
+    end.
+
+-spec get_gauges(handler_name(), metric_id()) -> map().
+get_gauges(Name, Id) ->
+    Table = ?GAUGE_TABLE(Name),
+    MatchSpec =
+        ets:fun2ms(
+            fun({{Id0, Metric, _WorkerId}, Val}) when Id0 =:= Id ->
+                {Metric, Val}
+            end
+        ),
+    try
+        lists:foldr(
+            fun({Metric, Val}, Acc) ->
+                maps:update_with(Metric, fun(X) -> X + Val end, Val, Acc)
+            end,
+            #{},
+            ets:select(Table, MatchSpec)
+        )
+    catch
+        error:badarg ->
+            #{}
+    end.
+
+-spec delete_gauges(handler_name(), metric_id()) -> ok.
+delete_gauges(Name, Id) ->
+    Table = ?GAUGE_TABLE(Name),
+    MatchSpec =
+        ets:fun2ms(
+            fun({{Id0, _Metric, _WorkerId}, _Val}) when Id0 =:= Id ->
+                true
+            end
+        ),
+    try
+        _ = ets:select_delete(Table, MatchSpec),
+        ok
+    catch
+        error:badarg ->
+            ok
+    end.
 
 start_link(Name) ->
     gen_server:start_link({local, Name}, ?MODULE, Name, []).
@@ -185,6 +286,7 @@ init(Name) ->
     %% the rate metrics
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     persistent_term:put(?CntrRef(Name), #{}),
+    _ = ets:new(?GAUGE_TABLE(Name), [named_table, ordered_set, public, {write_concurrency, true}]),
     {ok, #state{}}.
 
 handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
@@ -220,7 +322,10 @@ handle_call(
     _From,
     State = #state{metric_ids = MIDs, rates = Rates}
 ) ->
-    {reply, delete_counters(get_self_name(), Id), State#state{
+    Name = get_self_name(),
+    delete_counters(Name, Id),
+    delete_gauges(Name, Id),
+    {reply, ok, State#state{
         metric_ids = sets:del_element(Id, MIDs),
         rates =
             case Rates of
@@ -233,7 +338,9 @@ handle_call(
     _From,
     State = #state{rates = Rates}
 ) ->
-    {reply, reset_counters(get_self_name(), Id), State#state{
+    Name = get_self_name(),
+    delete_gauges(Name, Id),
+    {reply, reset_counters(Name, Id), State#state{
         rates =
             case Rates of
                 undefined ->
