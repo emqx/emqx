@@ -139,10 +139,13 @@ init({Id, Index, Opts}) ->
             true ->
                 replayq:open(#{
                     dir => disk_queue_dir(Id, Index),
-                    seg_bytes => SegBytes,
+                    marshaller => fun ?MODULE:queue_item_marshaller/1,
                     max_total_bytes => TotalBytes,
-                    sizer => fun ?MODULE:estimate_size/1,
-                    marshaller => fun ?MODULE:queue_item_marshaller/1
+                    %% we don't want to retain the queue after
+                    %% resource restarts.
+                    offload => true,
+                    seg_bytes => SegBytes,
+                    sizer => fun ?MODULE:estimate_size/1
                 });
             false ->
                 undefined
