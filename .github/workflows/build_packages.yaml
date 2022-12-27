@@ -215,7 +215,7 @@ jobs:
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
-            otp: 25.1.2-2
+            otp: 24.3.4.2-1 # TODO: 25.1.2-2
             arch: amd64
             os: amzn2
             build_machine: ubuntu-20.04
