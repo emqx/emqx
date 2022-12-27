@@ -24,7 +24,13 @@
 -export([next/1]).
 
 %% Debug/troubleshooting:
--export([make_message_key/3, compute_topic_hash/1, hash/2, combine/3]).
+-export([
+    make_message_key/3,
+    compute_topic_hash/1,
+    compute_hash_bitmask/1,
+    hash/2,
+    combine/3
+]).
 
 -export_type([db/0, iterator/0]).
 
@@ -91,7 +97,7 @@ make_iterator(#db{handle = DBHandle}, TopicFilter, StartTime) ->
     case rocksdb:iterator(DBHandle, []) of
         {ok, ITHandle} ->
             Hash = compute_topic_hash(TopicFilter),
-            HashBitmask = make_bitmask(TopicFilter),
+            HashBitmask = compute_hash_bitmask(TopicFilter),
             HashFilter = Hash band HashBitmask,
             {ok, #it{
                 handle = ITHandle,
@@ -146,9 +152,9 @@ hash(Input, Bits) ->
     % at most 32 bits
     erlang:phash2(Input, 1 bsl Bits).
 
--spec make_bitmask(emqx_topic:words()) -> integer().
-make_bitmask(TopicFilter) ->
-    make_bitmask(TopicFilter, ?TOPIC_LEVELS_ENTROPY_BITS, 0).
+-spec compute_hash_bitmask(emqx_topic:words()) -> integer().
+compute_hash_bitmask(TopicFilter) ->
+    compute_hash_bitmask(TopicFilter, ?TOPIC_LEVELS_ENTROPY_BITS, 0).
 
 %%================================================================================
 %% Internal functions
@@ -164,17 +170,17 @@ compute_topic_hash([Level | LevelsRest], [Bits | BitsRest], Acc) ->
     Hash = hash(Level, Bits),
     compute_topic_hash(LevelsRest, BitsRest, Acc bsl Bits + Hash).
 
-make_bitmask(['#'], BitsPerLevel, Acc) ->
+compute_hash_bitmask(['#'], BitsPerLevel, Acc) ->
     Acc bsl lists:sum(BitsPerLevel) + 0;
-make_bitmask(['+' | LevelsRest], [Bits | BitsRest], Acc) ->
-    make_bitmask(LevelsRest, BitsRest, Acc bsl Bits + 0);
-make_bitmask(_, [Bits], Acc) ->
+compute_hash_bitmask(['+' | LevelsRest], [Bits | BitsRest], Acc) ->
+    compute_hash_bitmask(LevelsRest, BitsRest, Acc bsl Bits + 0);
+compute_hash_bitmask(_, [Bits], Acc) ->
     Acc bsl Bits + ones(Bits);
-make_bitmask([], [Bits | BitsRest], Acc) ->
-    make_bitmask([], BitsRest, Acc bsl Bits + ones(Bits));
-make_bitmask([_ | LevelsRest], [Bits | BitsRest], Acc) ->
-    make_bitmask(LevelsRest, BitsRest, Acc bsl Bits + ones(Bits));
-make_bitmask(_, [], Acc) ->
+compute_hash_bitmask([], [Bits | BitsRest], Acc) ->
+    compute_hash_bitmask([], BitsRest, Acc bsl Bits + ones(Bits));
+compute_hash_bitmask([_ | LevelsRest], [Bits | BitsRest], Acc) ->
+    compute_hash_bitmask(LevelsRest, BitsRest, Acc bsl Bits + ones(Bits));
+compute_hash_bitmask(_, [], Acc) ->
     Acc.
 
 ones(Bits) ->
@@ -302,26 +308,26 @@ zipfoldr3(FoldFun, Acc, I1, I2, I3, [Bits | Rest]) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
-make_test_bitmask(TopicFilter) ->
-    make_bitmask(TopicFilter, [3, 4, 5, 2], 0).
+compute_test_bitmask(TopicFilter) ->
+    compute_hash_bitmask(TopicFilter, [3, 4, 5, 2], 0).
 
 bitmask_test_() ->
     [
         ?_assertEqual(
             2#111_1111_11111_11,
-            make_test_bitmask([<<"foo">>, <<"bar">>])
+            compute_test_bitmask([<<"foo">>, <<"bar">>])
         ),
         ?_assertEqual(
             2#111_0000_11111_11,
-            make_test_bitmask([<<"foo">>, '+'])
+            compute_test_bitmask([<<"foo">>, '+'])
         ),
         ?_assertEqual(
             2#111_0000_00000_11,
-            make_test_bitmask([<<"foo">>, '+', '+'])
+            compute_test_bitmask([<<"foo">>, '+', '+'])
         ),
         ?_assertEqual(
             2#111_0000_11111_00,
-            make_test_bitmask([<<"foo">>, '+', <<"bar">>, '+'])
+            compute_test_bitmask([<<"foo">>, '+', <<"bar">>, '+'])
         )
     ].
 
@@ -329,19 +335,19 @@ wildcard_bitmask_test_() ->
     [
         ?_assertEqual(
             2#000_0000_00000_00,
-            make_test_bitmask(['#'])
+            compute_test_bitmask(['#'])
         ),
         ?_assertEqual(
             2#111_0000_00000_00,
-            make_test_bitmask([<<"foo">>, '#'])
+            compute_test_bitmask([<<"foo">>, '#'])
         ),
         ?_assertEqual(
             2#111_1111_11111_00,
-            make_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, '#'])
+            compute_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, '#'])
         ),
         ?_assertEqual(
             2#111_1111_11111_11,
-            make_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, <<>>, '#'])
+            compute_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, <<>>, '#'])
         )
     ].
 
