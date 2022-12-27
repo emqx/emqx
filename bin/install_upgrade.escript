@@ -148,7 +148,7 @@ parse_arguments([VersionStr|Rest], Acc) ->
     parse_arguments(Rest, [{version, Version}] ++ Acc).
 
 unpack_release(RelName, TargetNode, Version) ->
-    StartScriptExists = filelib:is_dir(filename:join(["releases", Version, "start.boot"])),
+    StartScriptExists = filelib:is_regular(filename:join(["releases", Version, "start.boot"])),
     WhichReleases = which_releases(TargetNode),
     case proplists:get_value(Version, WhichReleases) of
         Res when Res =:= undefined; (Res =:= unpacked andalso not StartScriptExists) ->
