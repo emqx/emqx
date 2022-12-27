@@ -32,7 +32,7 @@ function cleanup {
 }
 
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
-security set-keychain-settings -lut 21600 "${KEYCHAIN}"
+security set-keychain-settings "${KEYCHAIN}"
 security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
 security import "${PKSC12_FILE}" -P "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD}" -t cert -f pkcs12 -k "${KEYCHAIN}" -T /usr/bin/codesign
 security set-key-partition-list -S "apple-tool:,apple:,codesign:" -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
