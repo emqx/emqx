@@ -908,7 +908,7 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
-        remsh
+        ERL_LIBS="$ERTS_LIB_DIR" remsh
         ;;
 
     upgrade|downgrade|install|unpack|uninstall)
@@ -922,7 +922,7 @@ case "${COMMAND}" in
 
         assert_node_alive
 
-        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" ERL_LIBS="$ERTS_LIB_DIR" \
         exec "$BINDIR/escript" "$RUNNER_ROOT_DIR/bin/install_upgrade.escript" \
              "$COMMAND" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
@@ -932,7 +932,7 @@ case "${COMMAND}" in
 
         shift
 
-        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" ERL_LIBS="$ERTS_LIB_DIR" \
         exec "$BINDIR/escript" "$RUNNER_ROOT_DIR/bin/install_upgrade.escript" \
              "versions" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
