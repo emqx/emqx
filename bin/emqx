@@ -1055,6 +1055,7 @@ case "${COMMAND}" in
         fi
 
         upgrade_script_path="$(versioned_script_path install_upgrade.escript "$newest_vsn")"
+        echo "using ${upgrade_script_path} to run ${COMMAND} $*"
 
         ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" \
         exec "$BINDIR/escript" "$upgrade_script_path" \
