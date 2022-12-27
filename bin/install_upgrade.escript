@@ -224,7 +224,8 @@ find_and_link_release_package(Version, RelName, IsEnterprise) ->
             false -> RelNameStr;
             true -> RelNameStr ++ "-enterprise"
         end,
-    TarBalls = filename:join(["releases", ReleaseNamePattern ++ "-" ++ Version ++ "*.tar.gz"]),
+    FilePattern = lists:flatten([ReleaseNamePattern, "-", Version, "*.tar.gz"]),
+    TarBalls = filename:join(["releases", FilePattern]),
     case filelib:wildcard(TarBalls) of
         [] ->
             {undefined, undefined};
