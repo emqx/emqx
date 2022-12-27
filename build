@@ -190,10 +190,18 @@ make_zip() {
                     #   --apple-id <apple id> \
                     #   --password <apple id password>
                     #   --team-id <apple team id> <submission-id>
-                xcrun notarytool submit \
-                      --apple-id "${APPLE_ID}" \
-                      --password "${APPLE_ID_PASSWORD}" \
-                      --team-id "${APPLE_TEAM_ID}" "${zipball}" --wait
+                echo 'Submitting the package for notarization to Apple (normally takes about a minute)'
+                notarytool_output="$(xcrun notarytool submit \
+                                           --apple-id "${APPLE_ID}" \
+                                           --password "${APPLE_ID_PASSWORD}" \
+                                           --team-id "${APPLE_TEAM_ID}" "${zipball}" \
+                                           --no-progress \
+                                           --wait)"
+                echo "$notarytool_output"
+                echo "$notarytool_output" | grep -q 'status: Accepted' || {
+                    echo 'Notarization failed';
+                    exit 1;
+                }
             fi
             ;;
         *)

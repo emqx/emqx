@@ -25,6 +25,10 @@ runs:
   steps:
     - name: prepare
       shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_UPGRADE: 1
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
       run: |
         brew update
         brew install curl zip unzip gnu-sed coreutils unixodbc freetds openssl@1.1
@@ -46,6 +50,9 @@ runs:
         sudo make install
     - name: build
       env:
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_UPGRADE: 1
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         AUTO_INSTALL_BUILD_DEPS: 1
         APPLE_SIGN_BINARIES: 1
         APPLE_ID: developers@emqx.io
