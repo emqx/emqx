@@ -133,6 +133,8 @@ t_start_stop_listeners(_) ->
 t_restart_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop(),
+    %% flakyness: eaddrinuse
+    timer:sleep(timer:seconds(2)),
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
