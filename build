@@ -182,6 +182,9 @@ make_zip() {
     local target_zip="${pkgpath}/${pkgname}"
     tar zxf "${tarball}" -C "${tard}/emqx"
     has_relup='yes'
+    if [[ "$PROFILE" = *edge* ]]; then
+        has_relup='no'
+    fi
     case "$SYSTEM" in
         windows*)
             # no relup support for windows
