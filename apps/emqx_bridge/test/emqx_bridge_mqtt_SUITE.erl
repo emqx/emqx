@@ -302,7 +302,7 @@ t_egress_custom_clientid_prefix(_Config) ->
     receive
         {deliver, RemoteTopic, #message{from = From}} ->
             Size = byte_size(ResourceID),
-            ?assertMatch(<<"my-custom-prefix:", ResouceID:Size/binary, _/binary>>, From),
+            ?assertMatch(<<"my-custom-prefix:", _ResouceID:Size/binary, _/binary>>, From),
             ok
     after 1000 ->
         ct:fail("should have published message")

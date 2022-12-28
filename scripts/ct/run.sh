@@ -12,7 +12,7 @@ help() {
     echo "-h|--help:              To display this usage info"
     echo "--app lib_dir/app_name: For which app to run start docker-compose, and run common tests"
     echo "--suites SUITE1,SUITE2: Comma separated SUITE names to run. e.g. apps/emqx/test/emqx_SUITE.erl"
-    echo "--console:              Start EMQX in console mode"
+    echo "--console:              Start EMQX in console mode but do not run test cases"
     echo "--attach:               Attach to the Erlang docker container without running any test case"
     echo "--only-up:              Only start the testbed but do not run CT"
     echo "--keep-up:              Keep the testbed running after CT"
@@ -143,7 +143,7 @@ F_OPTIONS=""
 for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
-
+ORIG_UID_GID="$UID:$UID"
 if [[ "${NEED_ROOT:-}" == 'yes' ]]; then
     export UID_GID='root:root'
 else
@@ -152,7 +152,7 @@ else
     # Permissions issue happens because we are mounting local filesystem
     # where files are owned by $UID to docker container where it's using
     # root (UID=0) by default, and git is not happy about it.
-    export UID_GID="$UID:$UID"
+    export UID_GID="$ORIG_UID_GID"
 fi
 
 # shellcheck disable=2086 # no quotes for F_OPTIONS
@@ -171,23 +171,37 @@ docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache &
 # need to initialize .erlang.cookie manually here because / is not writable by $UID
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID_GID /.erlang.cookie && chmod 0400 /.erlang.cookie"
 
+restore_ownership() {
+    if [[ "$ORIG_UID_GID" != "$UID_GID" ]]; then
+        docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx"
+    fi
+}
+
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
 fi
 
+set +e
+
 if [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
+    restore_ownership
 elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
+    restore_ownership
 else
-    set +e
     docker exec -e PROFILE="$PROFILE" -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     RESULT=$?
-    if [ "$KEEP_UP" = 'yes' ]; then
-        exit $RESULT
-    else
+    restore_ownership
+    if [ $RESULT -ne 0 ]; then
+        LOG='_build/test/logs/docker-compose.log'
+        echo "Dumping docker-compose log to $LOG"
+        # shellcheck disable=2086 # no quotes for F_OPTIONS
+        docker-compose $F_OPTIONS logs --no-color > "$LOG"
+    fi
+    if [ "$KEEP_UP" != 'yes' ]; then
         # shellcheck disable=2086 # no quotes for F_OPTIONS
         docker-compose $F_OPTIONS down
-        exit $RESULT
     fi
+    exit $RESULT
 fi
