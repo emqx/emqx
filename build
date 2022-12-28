@@ -69,6 +69,8 @@ make_rel() {
 
 relup_db() {
     case "$PROFILE" in
+        *edge*)
+            ;;
         *-ee*)
             ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths-ee.eterm
             ;;
