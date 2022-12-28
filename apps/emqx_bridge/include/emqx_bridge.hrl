@@ -16,12 +16,11 @@
 
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
 -define(METRICS(
-    Batched,
     Dropped,
     DroppedOther,
     DroppedQueueFull,
@@ -39,7 +38,6 @@
     Rcvd
 ),
     #{
-        'batching' => Batched,
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
         'dropped.queue_full' => DroppedQueueFull,
@@ -59,7 +57,6 @@
 ).
 
 -define(metrics(
-    Batched,
     Dropped,
     DroppedOther,
     DroppedQueueFull,
@@ -77,7 +74,6 @@
     Rcvd
 ),
     #{
-        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,

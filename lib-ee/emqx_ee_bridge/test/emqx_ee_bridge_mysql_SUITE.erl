@@ -78,10 +78,10 @@ init_per_group(tls, Config) ->
         | Config
     ];
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true} | Config0],
+    Config = [{batch_size, 100} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false} | Config0],
+    Config = [{batch_size, 1} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -157,7 +157,7 @@ mysql_config(BridgeType, Config) ->
     MysqlPort = integer_to_list(?config(mysql_port, Config)),
     Server = ?config(mysql_host, Config) ++ ":" ++ MysqlPort,
     Name = atom_to_binary(?MODULE),
-    EnableBatch = ?config(enable_batch, Config),
+    BatchSize = ?config(batch_size, Config),
     QueryMode = ?config(query_mode, Config),
     TlsEnabled = ?config(enable_tls, Config),
     ConfigString =
@@ -170,7 +170,7 @@ mysql_config(BridgeType, Config) ->
             "  password = ~p\n"
             "  sql = ~p\n"
             "  resource_opts = {\n"
-            "    enable_batch = ~p\n"
+            "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"
             "  ssl = {\n"
@@ -185,7 +185,7 @@ mysql_config(BridgeType, Config) ->
                 ?MYSQL_USERNAME,
                 ?MYSQL_PASSWORD,
                 ?SQL_BRIDGE,
-                EnableBatch,
+                BatchSize,
                 QueryMode,
                 TlsEnabled
             ]
@@ -436,7 +436,9 @@ t_simple_sql_query(Config) ->
     ),
     Request = {sql, <<"SELECT count(1) AS T">>},
     Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
         true -> ?assertEqual({error, batch_select_not_implemented}, Result);
         false -> ?assertEqual({ok, [<<"T">>], [[1]]}, Result)
     end,
@@ -448,7 +450,9 @@ t_missing_data(Config) ->
         create_bridge(Config)
     ),
     Result = send_message(Config, #{}),
-    case ?config(enable_batch, Config) of
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
         true ->
             ?assertMatch(
                 {error, {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}, Result
@@ -465,7 +469,9 @@ t_bad_sql_parameter(Config) ->
     ),
     Request = {sql, <<"">>, [bad_parameter]},
     Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
         true -> ?assertEqual({error, invalid_request}, Result);
         false -> ?assertEqual({error, {invalid_params, [bad_parameter]}}, Result)
     end,
@@ -478,7 +484,9 @@ t_unprepared_statement_query(Config) ->
     ),
     Request = {prepared_query, unprepared_query, []},
     Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
         true -> ?assertEqual({error, invalid_request}, Result);
         false -> ?assertEqual({error, prepared_statement_invalid}, Result)
     end,

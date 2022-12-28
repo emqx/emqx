@@ -204,9 +204,9 @@ init_per_group(sync_query, Config) ->
 init_per_group(async_query, Config) ->
     [{query_mode, async} | Config];
 init_per_group(with_batch, Config) ->
-    [{enable_batch, true} | Config];
+    [{batch_size, 100} | Config];
 init_per_group(without_batch, Config) ->
-    [{enable_batch, false} | Config];
+    [{batch_size, 1} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -261,7 +261,6 @@ example_write_syntax() ->
         "${undef_key}=\"hard-coded-value\",", "bool=${payload.bool}">>.
 
 influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
-    EnableBatch = proplists:get_value(enable_batch, Config, true),
     BatchSize = proplists:get_value(batch_size, Config, 100),
     QueryMode = proplists:get_value(query_mode, Config, sync),
     UseTLS = proplists:get_value(use_tls, Config, false),
@@ -278,7 +277,6 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
-            "    enable_batch = ~p\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
             "  }\n"
@@ -292,7 +290,6 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
                 InfluxDBHost,
                 InfluxDBPort,
                 WriteSyntax,
-                EnableBatch,
                 QueryMode,
                 BatchSize,
                 UseTLS
@@ -300,7 +297,6 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
         ),
     {Name, ConfigString, parse_and_check(ConfigString, Type, Name)};
 influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
-    EnableBatch = proplists:get_value(enable_batch, Config, true),
     BatchSize = proplists:get_value(batch_size, Config, 100),
     QueryMode = proplists:get_value(query_mode, Config, sync),
     UseTLS = proplists:get_value(use_tls, Config, false),
@@ -317,7 +313,6 @@ influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
-            "    enable_batch = ~p\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
             "  }\n"
@@ -331,7 +326,6 @@ influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
                 InfluxDBHost,
                 InfluxDBPort,
                 WriteSyntax,
-                EnableBatch,
                 QueryMode,
                 BatchSize,
                 UseTLS
@@ -723,7 +717,7 @@ t_bad_timestamp(Config) ->
     InfluxDBType = ?config(influxdb_type, Config),
     InfluxDBName = ?config(influxdb_name, Config),
     QueryMode = ?config(query_mode, Config),
-    EnableBatch = ?config(enable_batch, Config),
+    BatchSize = ?config(batch_size, Config),
     InfluxDBConfigString0 = ?config(influxdb_config_string, Config),
     InfluxDBTypeCfg =
         case InfluxDBType of
@@ -774,7 +768,8 @@ t_bad_timestamp(Config) ->
         fun(Result, Trace) ->
             ?assertMatch({_, {ok, _}}, Result),
             {Return, {ok, _}} = Result,
-            case {QueryMode, EnableBatch} of
+            IsBatch = BatchSize > 1,
+            case {QueryMode, IsBatch} of
                 {async, true} ->
                     ?assertEqual(ok, Return),
                     ?assertMatch(
@@ -921,12 +916,13 @@ t_write_failure(Config) ->
 
 t_missing_field(Config) ->
     QueryMode = ?config(query_mode, Config),
-    EnableBatch = ?config(enable_batch, Config),
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
     {ok, _} =
         create_bridge(
             Config,
             #{
-                <<"resource_opts">> => #{<<"batch_size">> => 1},
+                <<"resource_opts">> => #{<<"worker_pool_size">> => 1},
                 <<"write_syntax">> => <<"${clientid} foo=${foo}i">>
             }
         ),
@@ -943,9 +939,14 @@ t_missing_field(Config) ->
         begin
             emqx:publish(Msg0),
             emqx:publish(Msg1),
+            NEvents =
+                case IsBatch of
+                    true -> 1;
+                    false -> 2
+                end,
             {ok, _} =
                 snabbkaffe:block_until(
-                    ?match_n_events(2, #{
+                    ?match_n_events(NEvents, #{
                         ?snk_kind := influxdb_connector_send_query_error,
                         mode := QueryMode
                     }),
@@ -956,10 +957,10 @@ t_missing_field(Config) ->
         fun(Trace) ->
             PersistedData0 = query_by_clientid(ClientId0, Config),
             PersistedData1 = query_by_clientid(ClientId1, Config),
-            case EnableBatch of
+            case IsBatch of
                 true ->
                     ?assertMatch(
-                        [#{error := points_trans_failed}, #{error := points_trans_failed} | _],
+                        [#{error := points_trans_failed} | _],
                         ?of_kind(influxdb_connector_send_query_error, Trace)
                     );
                 false ->

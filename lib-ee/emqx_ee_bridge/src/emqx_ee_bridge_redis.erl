@@ -79,8 +79,7 @@ values(common, RedisType, SpecificOpts) ->
         auto_reconnect => true,
         command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
         resource_opts => #{
-            enable_batch => false,
-            batch_size => 100,
+            batch_size => 1,
             batch_time => <<"20ms">>
         },
         ssl => #{enable => false}

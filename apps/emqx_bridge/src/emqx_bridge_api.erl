@@ -630,11 +630,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15
             )
         ) ->
             ?METRICS(
@@ -652,8 +652,7 @@ aggregate_metrics(AllMetrics) ->
                 M12 + N12,
                 M13 + N13,
                 M14 + N14,
-                M15 + N15,
-                M16 + N16
+                M15 + N15
             )
         end,
         InitMetrics,
@@ -699,11 +698,9 @@ format_metrics(#{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
     }
 }) ->
-    Batched = maps:get('batching', Gauges, 0),
     Queued = maps:get('queuing', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
     ?METRICS(
-        Batched,
         Dropped,
         DroppedOther,
         DroppedQueueFull,
