@@ -198,21 +198,8 @@ jobs:
       matrix:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
-        builder:
-          - 5.0-26
         otp:
           - 24.3.4.2-1
-        elixir:
-          - 1.13.4
-        # used to split elixir packages into a separate job, since the
-        # entire job may take a lot of time, especially on arm64
-        # emulation.
-        # we only want to build ubuntu and centos with elixir for the
-        # time being, so it's easier to just include those with
-        # `with_elixir` set.
-        build_elixir:
-          # - with_elixir
-          - no_elixir
         arch:
           - amd64
           - arm64
@@ -227,6 +214,10 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
+        builder:
+          - 5.0-26
+        elixir:
+          - 1.13.4
         exclude:
         - arch: arm64
           build_machine: ubuntu-20.04
@@ -234,19 +225,21 @@ jobs:
           build_machine: aws-arm64
         include:
           - profile: emqx
-            otp: 24.3.4.2-1
-            elixir: 1.13.4
-            build_elixir: with_elixir
+            otp: 25.1.2-2
             arch: amd64
             os: ubuntu20.04
             build_machine: ubuntu-20.04
-          - profile: emqx
-            otp: 24.3.4.2-1
+            builder: 5.0-26
             elixir: 1.13.4
-            build_elixir: with_elixir
+            release_with: elixir
+          - profile: emqx
+            otp: 24.3.4.2-1 # TODO: 25.1.2-2
             arch: amd64
             os: amzn2
             build_machine: ubuntu-20.04
+            builder: 5.0-26
+            elixir: 1.13.4
+            release_with: elixir
 
     defaults:
       run:
@@ -265,8 +258,8 @@ jobs:
       working-directory: source
       env:
         BUILDER: ${{ matrix.builder }}
-        OTP: ${{ matrix.otp }}
         ELIXIR: ${{ matrix.elixir }}
+        OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -279,20 +272,20 @@ jobs:
           cd /emqx
         fi
         echo "pwd is $PWD"
-        PkgTypes="tgz pkg"
-        IsElixir="no"
-        if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
-          PkgTypes="tgz"
+        PKGTYPES="tgz pkg"
+        IS_ELIXIR="no"
+        if [ ${{ matrix.release_with }} == 'elixir' ]; then
+          PKGTYPES="tgz"
           # set Elixir build flag
-          IsElixir="yes"
+          IS_ELIXIR="yes"
         fi
-        for PKGTYPE in ${PkgTypes};
+        for PKGTYPE in ${PKGTYPES};
         do
           ./scripts/buildx.sh \
             --profile "${PROFILE}" \
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
-            --elixir "${IsElixir}" \
+            --elixir "${IS_ELIXIR}" \
             --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v3
