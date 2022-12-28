@@ -558,7 +558,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down({ChanPid, ClientId}) ->
-    do_unregister_channel({ClientId, ChanPid}).
+    do_unregister_channel({ClientId, ChanPid}),
+    ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->
     lists:foreach(fun update_stats/1, ?CHAN_STATS).
