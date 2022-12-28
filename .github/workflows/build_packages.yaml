@@ -234,6 +234,7 @@ jobs:
           build_machine: aws-arm64
         include:
           - profile: emqx
+            builder: 5.0-26
             otp: 24.3.4.2-1
             elixir: 1.13.4
             build_elixir: with_elixir
@@ -241,6 +242,7 @@ jobs:
             os: ubuntu20.04
             build_machine: ubuntu-20.04
           - profile: emqx
+            builder: 5.0-26
             otp: 24.3.4.2-1
             elixir: 1.13.4
             build_elixir: with_elixir
