@@ -236,10 +236,14 @@ producers_config(BridgeName, ClientId, Input) ->
             mode := BufferMode,
             per_partition_limit := PerPartitionLimit,
             segment_bytes := SegmentBytes,
-            memory_overload_protection := MemOLP
+            memory_overload_protection := MemOLP0
         }
     } = Input,
-
+    MemOLP =
+        case os:type() of
+            {unix, linux} -> MemOLP0;
+            _ -> false
+        end,
     {OffloadMode, ReplayqDir} =
         case BufferMode of
             memory -> {false, false};
