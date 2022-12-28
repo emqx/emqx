@@ -207,7 +207,6 @@ info_example_basic(webhook) ->
             auto_restart_interval => 15000,
             query_mode => async,
             async_inflight_window => 100,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         }
     };
@@ -233,7 +232,6 @@ mqtt_main_example() ->
             health_check_interval => <<"15s">>,
             auto_restart_interval => <<"60s">>,
             query_mode => sync,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         },
         ssl => #{

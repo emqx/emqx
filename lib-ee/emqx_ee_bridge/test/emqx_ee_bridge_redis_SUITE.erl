@@ -449,8 +449,6 @@ toxiproxy_redis_bridge_config() ->
     Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>
@@ -463,8 +461,7 @@ invalid_command_bridge_config() ->
     Conf1 = maps:merge(Conf0, ?COMMON_REDIS_OPTS),
     Conf1#{
         <<"resource_opts">> => #{
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>,
+            <<"batch_size">> => <<"1">>,
             <<"worker_pool_size">> => <<"1">>
         },
         <<"command_template">> => [<<"BAD">>, <<"COMMAND">>, <<"${payload}">>]
@@ -474,13 +471,10 @@ resource_configs() ->
     #{
         batch_off => #{
             <<"query_mode">> => <<"sync">>,
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>
+            <<"batch_size">> => <<"1">>
         },
         batch_on => #{
             <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE)
         }
