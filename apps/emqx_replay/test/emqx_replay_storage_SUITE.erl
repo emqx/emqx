@@ -136,20 +136,28 @@ parse_topic(Topic) ->
 %%
 
 t_prop_topic_hash_computes(_) ->
+    Keymapper = emqx_replay_message_storage:make_keymapper(#{
+        topic_bits_per_level => [8, 12, 16, 24],
+        timestamp_bits => 0
+    }),
     ?assert(
         proper:quickcheck(
             ?FORALL(Topic, topic(), begin
-                Hash = emqx_replay_message_storage:compute_topic_hash(Topic),
+                Hash = emqx_replay_message_storage:compute_topic_hash(Topic, Keymapper),
                 is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
             end)
         )
     ).
 
 t_prop_hash_bitmask_computes(_) ->
+    Keymapper = emqx_replay_message_storage:make_keymapper(#{
+        topic_bits_per_level => [8, 12, 16, 24],
+        timestamp_bits => 0
+    }),
     ?assert(
         proper:quickcheck(
             ?FORALL(TopicFilter, topic_filter(), begin
-                Hash = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter),
+                Hash = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter, Keymapper),
                 is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
             end)
         )
@@ -165,8 +173,9 @@ t_prop_iterate_stored_messages(Config) ->
                 messages(),
                 begin
                     Stream = payload_gen:interleave_streams(Streams),
-                    ok = store_message_stream(DB, Stream)
+                    ok = store_message_stream(DB, Stream),
                     % TODO actually verify some property
+                    true
                 end
             )
         )
@@ -194,8 +203,6 @@ topic(EntropyWeights) ->
     ?LET(
         L,
         list(1),
-        % ?SIZED(S, [topic(S * nth(I, EntropyWeights, 1)) || I <- lists:seq(1, Len)])
-        % [topic(10 * nth(I, EntropyWeights, 1)) || I <- lists:seq(1, Len)]
         ?SIZED(S, [topic_level(S * EW) || EW <- lists:sublist(EntropyWeights ++ L, length(L))])
     ).
 
@@ -242,7 +249,13 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_testcase(TC, Config) ->
     Filename = filename:join(?MODULE_STRING, atom_to_list(TC)),
     ok = filelib:ensure_dir(Filename),
-    {ok, DB} = emqx_replay_message_storage:open(Filename, []),
+    {ok, DB} = emqx_replay_message_storage:open(Filename, #{
+        column_family => {atom_to_list(TC), []},
+        keymapper => emqx_replay_message_storage:make_keymapper(#{
+            topic_bits_per_level => [8, 8, 32, 16],
+            timestamp_bits => 64
+        })
+    }),
     [{handle, DB} | Config].
 
 end_per_testcase(_TC, Config) ->
