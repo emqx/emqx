@@ -30,6 +30,8 @@
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
 -define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -43,7 +45,9 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
-    _ = emqx_resource:remove(?ID).
+    _ = emqx_resource:remove(?ID),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
@@ -330,8 +334,7 @@ t_query_counter_async_callback(_) ->
         #{
             query_mode => async,
             batch_size => 1,
-            async_inflight_window => 1000000,
-            worker_pool_size => 1
+            async_inflight_window => 1000000
         }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
@@ -379,11 +382,45 @@ t_query_counter_async_callback(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter_async_inflight(_) ->
+    redbug:start(
+        [
+            "emqx_resource_worker:batch_reply_caller -> return",
+            "emqx_resource_worker:reply_caller -> return",
+            "emqx_resource_worker:call_query -> return",
+            "replayq:pop -> return",
+            "replayq:peek -> return",
+            "replayq:ack",
+            "replayq:append",
+            "emqx_connector_demo:on_batch_query -> return",
+            "emqx_connector_demo:on_query -> return",
+            "emqx_connector_demo:on_query_async -> return"
+        ],
+        [{msgs, 10000}]
+    ),
+
     emqx_connector_demo:set_callback_mode(async_if_possible),
+    MetricsTab = ets:new(metrics_tab, [ordered_set, public]),
+    ok = telemetry:attach_many(
+        ?FUNCTION_NAME,
+        emqx_resource_metrics:events(),
+        fun(Event, Measurements, Meta, _Config) ->
+            ets:insert(
+                MetricsTab,
+                {erlang:monotonic_time(), #{
+                    event => Event, measurements => Measurements, metadata => Meta
+                }}
+            ),
+            ok
+        end,
+        unused_config
+    ),
+    on_exit(fun() -> telemetry:detach(?FUNCTION_NAME) end),
 
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
     Insert0 = fun(Tab, Result) ->
-        ets:insert(Tab, {make_ref(), Result})
+        Ref = make_ref(),
+        ct:pal("inserting ~p", [{Ref, Result}]),
+        ets:insert(Tab, {Ref, Result})
     end,
     ReqOpts = #{async_reply_fun => {Insert0, [Tab0]}},
     WindowSize = 15,
@@ -416,38 +453,66 @@ t_query_counter_async_inflight(_) ->
     ),
 
     %% this will block the resource_worker as the inflight window is full now
-    ok = emqx_resource:query(?ID, {inc_counter, 1}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqx_resource:query(?ID, {inc_counter, 1}),
+            #{?snk_kind := resource_worker_enter_blocked},
+            1_000
+        ),
     ?assertMatch(0, ets:info(Tab0, size)),
-    %% sleep to make the resource_worker resume some times
-    timer:sleep(2000),
 
     %% send query now will fail because the resource is blocked.
     Insert = fun(Tab, Ref, Result) ->
-        ets:insert(Tab, {Ref, Result})
+        ct:pal("inserting ~p", [{Ref, Result}]),
+        ets:insert(Tab, {Ref, Result}),
+        ?tp(tmp_query_inserted, #{})
     end,
-    ok = emqx_resource:query(?ID, {inc_counter, 1}, #{
-        async_reply_fun => {Insert, [Tab0, tmp_query]}
-    }),
-    timer:sleep(100),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqx_resource:query(?ID, {inc_counter, 1}, #{
+                async_reply_fun => {Insert, [Tab0, tmp_query]}
+            }),
+            #{?snk_kind := tmp_query_inserted},
+            1_000
+        ),
+    %% since this counts as a failure, it'll be enqueued and retried
+    %% later, when the resource is unblocked.
     ?assertMatch([{_, {error, {resource_error, #{reason := blocked}}}}], ets:take(Tab0, tmp_query)),
 
     %% all response should be received after the resource is resumed.
+    {ok, SRef0} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
+        WindowSize,
+        _Timeout = 60_000
+    ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
-    timer:sleep(1000),
+    {ok, _} = snabbkaffe:receive_events(SRef0),
     ?assertEqual(WindowSize, ets:info(Tab0, size)),
 
     %% send async query, this time everything should be ok.
     Num = 10,
     ?check_trace(
         ?TRACE_OPTS,
-        inc_counter_in_parallel(Num, ReqOpts),
+        begin
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
+                Num,
+                _Timeout = 60_000
+            ),
+            inc_counter_in_parallel(Num, ReqOpts),
+            {ok, _} = snabbkaffe:receive_events(SRef),
+            ok
+        end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
-    timer:sleep(1000),
-    ?assertEqual(WindowSize + Num, ets:info(Tab0, size)),
+    %% since the previous tmp_query was enqueued to be retried, we
+    %% take it again from the table; this time, it should have
+    %% succeeded.
+    ?assertMatch([{tmp_query, ok}], ets:take(Tab0, tmp_query)),
+    ?assertEqual(WindowSize + Num, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
 
     %% block the resource
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
@@ -465,27 +530,34 @@ t_query_counter_async_inflight(_) ->
     ok = emqx_resource:query(?ID, {inc_counter, 1}),
 
     Sent = WindowSize + Num + WindowSize,
+    {ok, SRef1} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
+        WindowSize,
+        _Timeout = 60_000
+    ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
-    timer:sleep(1000),
+    {ok, _} = snabbkaffe:receive_events(SRef1),
     ?assertEqual(Sent, ets:info(Tab0, size)),
 
     {ok, Counter} = emqx_resource:simple_sync_query(?ID, get_counter),
     ct:pal("get_counter: ~p, sent: ~p", [Counter, Sent]),
     ?assert(Sent =< Counter),
 
-    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
-    ct:pal("metrics: ~p", [C]),
-    {ok, IncorrectStatusCount} = emqx_resource:simple_sync_query(?ID, get_incorrect_status_count),
-    %% The `simple_sync_query' we just did also increases the matched
-    %% count, hence the + 1.
-    ExtraSimpleCallCount = IncorrectStatusCount + 1,
+    %% give the metrics some time to stabilize.
+    ct:sleep(200),
+    {ok, _, #{metrics := #{counters := C, gauges := G}}} = emqx_resource:get_instance(?ID),
+    ct:pal("metrics: ~p", [#{counters => C, gauges => G}]),
     ?assertMatch(
-        #{matched := M, success := Ss, dropped := Dp, 'retried.success' := Rs} when
-            M == Ss + Dp - Rs + ExtraSimpleCallCount,
-        C,
         #{
-            metrics => C,
-            extra_simple_call_count => ExtraSimpleCallCount
+            counters :=
+                #{matched := M, success := Ss, dropped := Dp, retried := Retr},
+            gauges := #{queuing := Qing, inflight := Infl}
+        } when
+            M == Ss + Retr + Dp + Qing + Infl,
+        #{counters => C, gauges => G},
+        #{
+            metrics => #{counters => C, gauges => G},
+            metrics_trace => ets:tab2list(MetricsTab)
         }
     ),
     ?assert(

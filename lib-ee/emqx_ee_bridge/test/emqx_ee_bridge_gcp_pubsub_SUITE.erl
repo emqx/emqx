@@ -38,18 +38,12 @@ groups() ->
         {group, sync_query},
         {group, async_query}
     ],
-    QueueGroups = [
-        {group, queue_enabled},
-        {group, queue_disabled}
-    ],
     ResourceGroups = [{group, gcp_pubsub}],
     [
         {with_batch, SynchronyGroups},
         {without_batch, SynchronyGroups},
-        {sync_query, QueueGroups},
-        {async_query, QueueGroups},
-        {queue_enabled, ResourceGroups},
-        {queue_disabled, ResourceGroups},
+        {sync_query, ResourceGroups},
+        {async_query, ResourceGroups},
         {gcp_pubsub, MatrixTCs}
     ].
 
@@ -72,6 +66,7 @@ single_config_tests() ->
     ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
     {ok, _} = application:ensure_all_started(emqx_connector),
@@ -99,13 +94,9 @@ init_per_group(sync_query, Config) ->
 init_per_group(async_query, Config) ->
     [{query_mode, async} | Config];
 init_per_group(with_batch, Config) ->
-    [{enable_batch, true} | Config];
+    [{batch_size, 100} | Config];
 init_per_group(without_batch, Config) ->
-    [{enable_batch, false} | Config];
-init_per_group(queue_enabled, Config) ->
-    [{enable_queue, true} | Config];
-init_per_group(queue_disabled, Config) ->
-    [{enable_queue, false} | Config];
+    [{batch_size, 1} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -118,16 +109,16 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(TestCase, Config0) when
     TestCase =:= t_publish_success_batch
 ->
-    case ?config(enable_batch, Config0) of
-        true ->
+    case ?config(batch_size, Config0) of
+        1 ->
+            {skip, no_batching};
+        _ ->
             {ok, _} = start_echo_http_server(),
             delete_all_bridges(),
             Tid = install_telemetry_handler(TestCase),
             Config = generate_config(Config0),
             put(telemetry_table, Tid),
-            [{telemetry_table, Tid} | Config];
-        false ->
-            {skip, no_batching}
+            [{telemetry_table, Tid} | Config]
     end;
 init_per_testcase(TestCase, Config0) ->
     {ok, _} = start_echo_http_server(),
@@ -271,9 +262,7 @@ certs() ->
     ].
 
 gcp_pubsub_config(Config) ->
-    EnableBatch = proplists:get_value(enable_batch, Config, true),
     QueryMode = proplists:get_value(query_mode, Config, sync),
-    EnableQueue = proplists:get_value(enable_queue, Config, false),
     BatchSize = proplists:get_value(batch_size, Config, 100),
     BatchTime = proplists:get_value(batch_time, Config, <<"20ms">>),
     PayloadTemplate = proplists:get_value(payload_template, Config, ""),
@@ -296,9 +285,7 @@ gcp_pubsub_config(Config) ->
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
             "    worker_pool_size = 1\n"
-            "    enable_batch = ~p\n"
             "    query_mode = ~s\n"
-            "    enable_queue = ~p\n"
             "    batch_size = ~b\n"
             "    batch_time = \"~s\"\n"
             "  }\n"
@@ -309,9 +296,7 @@ gcp_pubsub_config(Config) ->
                 PayloadTemplate,
                 PubSubTopic,
                 PipelineSize,
-                EnableBatch,
                 QueryMode,
-                EnableQueue,
                 BatchSize,
                 BatchTime
             ]
@@ -358,11 +343,9 @@ service_account_json(PrivateKeyPEM) ->
 
 metrics_mapping() ->
     #{
-        batching => fun emqx_resource_metrics:batching_get/1,
         dropped => fun emqx_resource_metrics:dropped_get/1,
         dropped_other => fun emqx_resource_metrics:dropped_other_get/1,
         dropped_queue_full => fun emqx_resource_metrics:dropped_queue_full_get/1,
-        dropped_queue_not_enabled => fun emqx_resource_metrics:dropped_queue_not_enabled_get/1,
         dropped_resource_not_found => fun emqx_resource_metrics:dropped_resource_not_found_get/1,
         dropped_resource_stopped => fun emqx_resource_metrics:dropped_resource_stopped_get/1,
         failed => fun emqx_resource_metrics:failed_get/1,
@@ -602,7 +585,6 @@ t_publish_success(Config) ->
     ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -651,7 +633,6 @@ t_publish_success_local_topic(Config) ->
     ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -738,7 +719,6 @@ t_publish_templated(Config) ->
     ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -805,7 +785,6 @@ t_publish_success_batch(Config) ->
     ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -994,7 +973,6 @@ t_publish_timeout(Config) ->
     do_econnrefused_or_timeout_test(Config, timeout).
 
 do_econnrefused_or_timeout_test(Config, Error) ->
-    EnableQueue = ?config(enable_queue, Config),
     QueryMode = ?config(query_mode, Config),
     ResourceId = ?config(resource_id, Config),
     TelemetryTable = ?config(telemetry_table, Config),
@@ -1070,39 +1048,42 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         end
     ),
 
-    case {Error, QueryMode, EnableQueue} of
-        {_, sync, false} ->
-            wait_telemetry_event(TelemetryTable, dropped_queue_not_enabled, ResourceId, #{
-                timeout => 10_000,
-                n_events => 1
-            }),
-            assert_metrics(
-                #{
-                    batching => 0,
-                    dropped => 1,
-                    dropped_queue_not_enabled => 1,
-                    failed => 0,
-                    inflight => 0,
-                    matched => 1,
-                    queuing => 0,
-                    retried => 0,
-                    success => 0
-                },
-                ResourceId
-            );
+    case {Error, QueryMode} of
+        %% {_, sync, false} ->
+        %%     wait_telemetry_event(TelemetryTable, dropped_queue_not_enabled, ResourceId, #{
+        %%         timeout => 10_000,
+        %%         n_events => 1
+        %%     }),
+        %%     assert_metrics(
+        %%         #{
+        %%             batching => 0,
+        %%             dropped => 1,
+        %%             dropped_queue_not_enabled => 1,
+        %%             failed => 0,
+        %%             inflight => 0,
+        %%             matched => 1,
+        %%             queuing => 0,
+        %%             retried => 0,
+        %%             success => 0
+        %%         },
+        %%         ResourceId
+        %%     );
+
         %% apparently, async with disabled queue doesn't mark the
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
-        {econnrefused, async, _} ->
+        {econnrefused, async} ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
                 timeout => 10_000, n_events => 1
             }),
+            %% even waiting, hard to avoid flakiness... simpler to just sleep
+            %% a bit until stabilization.
+            ct:sleep(200),
             CurrentMetrics = current_metrics(ResourceId),
             RecordedEvents = ets:tab2list(TelemetryTable),
             ct:pal("telemetry events: ~p", [RecordedEvents]),
             ?assertMatch(
                 #{
-                    batching := 0,
                     dropped := Dropped,
                     failed := 0,
                     inflight := Inflight,
@@ -1113,13 +1094,15 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 } when Matched >= 1 andalso Inflight + Queueing + Dropped =< 2,
                 CurrentMetrics
             );
-        {timeout, async, _} ->
+        {timeout, async} ->
             wait_telemetry_event(TelemetryTable, success, ResourceId, #{
                 timeout => 10_000, n_events => 2
             }),
+            %% even waiting, hard to avoid flakiness... simpler to just sleep
+            %% a bit until stabilization.
+            ct:sleep(200),
             assert_metrics(
                 #{
-                    batching => 0,
                     dropped => 0,
                     failed => 0,
                     inflight => 0,
@@ -1130,13 +1113,15 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 },
                 ResourceId
             );
-        {_, sync, true} ->
+        {_, sync} ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
                 timeout => 10_000, n_events => 2
             }),
+            %% even waiting, hard to avoid flakiness... simpler to just sleep
+            %% a bit until stabilization.
+            ct:sleep(200),
             assert_metrics(
                 #{
-                    batching => 0,
                     dropped => 0,
                     failed => 0,
                     inflight => 0,
@@ -1343,9 +1328,11 @@ t_unrecoverable_error(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    %% even waiting, hard to avoid flakiness... simpler to just sleep
+    %% a bit until stabilization.
+    ct:sleep(200),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 1,
             inflight => 0,

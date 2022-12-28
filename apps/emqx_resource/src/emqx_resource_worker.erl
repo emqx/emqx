@@ -183,7 +183,8 @@ init({Id, Index, Opts}) ->
     {ok, blocked, St, {next_event, cast, resume}}.
 
 running(enter, _, St) ->
-    flush(St);
+    ct:pal("~p enter running", [self()]),
+    maybe_flush(St);
 running(cast, resume, _St) ->
     keep_state_and_data;
 running(cast, block, St) ->
@@ -196,18 +197,24 @@ running(
     Q1 = append_queue(Id, Index, Q, [?Q_ITEM(Query) || Query <- Batch]),
     {next_state, blocked, St#{queue := Q1}};
 running(info, ?SEND_REQ(_From, _Req) = Request0, Data) ->
+    ct:pal("~p running req ~p", [self(), Request0]),
     handle_query_requests(Request0, Data);
 running(info, {flush, Ref}, St = #{tref := {_TRef, Ref}}) ->
+    ct:pal("~p flush timer", [self()]),
     flush(St#{tref := undefined});
 running(internal, flush, St) ->
+    ct:pal("~p internal flush", [self()]),
     flush(St);
 running(info, {flush, _Ref}, _St) ->
+    ct:pal("~p spurious flush?!?", [self()]),
     keep_state_and_data;
 running(info, Info, _St) ->
     ?SLOG(error, #{msg => unexpected_msg, info => Info}),
     keep_state_and_data.
 
 blocked(enter, _, #{resume_interval := ResumeT} = _St) ->
+    ct:pal("~p enter blocked", [self()]),
+    ?tp(resource_worker_enter_blocked, #{}),
     {keep_state_and_data, {state_timeout, ResumeT, resume}};
 blocked(cast, block, _St) ->
     keep_state_and_data;
@@ -223,6 +230,7 @@ blocked(cast, resume, St) ->
 blocked(state_timeout, resume, St) ->
     do_resume(St);
 blocked(info, ?SEND_REQ(ReqFrom, {query, Request, Opts}), Data0) ->
+    ct:pal("~p blocked req ~p", [self(), ?SEND_REQ(ReqFrom, {query, Request, Opts})]),
     #{
         id := Id,
         index := Index,
@@ -295,14 +303,14 @@ pick_cast(Id, Key, Query) ->
     end).
 %% ?PICK(Id, Key, gen_statem:cast(Pid, Query)).
 
-do_resume(#{id := Id, name := Name} = St) ->
+do_resume(#{id := Id, name := Name} = Data) ->
     case inflight_get_first(Name) of
         empty ->
-            retry_queue(St);
+            retry_queue(Data);
         {Ref, FirstQuery} ->
             %% We retry msgs in inflight window sync, as if we send them
             %% async, they will be appended to the end of inflight window again.
-            retry_inflight_sync(Id, Ref, FirstQuery, Name, St)
+            retry_inflight_sync(Id, Ref, FirstQuery, Name, Data)
     end.
 
 retry_queue(
@@ -310,15 +318,44 @@ retry_queue(
         queue := Q,
         id := Id,
         index := Index,
-        batch_size := BatchSize,
+        batch_size := 1,
+        name := Name,
         resume_interval := ResumeT
-    } = St
+    } = Data0
 ) ->
+    %% no batching
+    case get_first_n_from_queue(Q, 1) of
+        [] ->
+            {next_state, running, Data0};
+        [?QUERY(_, Request, HasSent) = Query] ->
+            QueryOpts = #{inflight_name => Name},
+            Result = call_query(configured, Id, Index, Query, QueryOpts),
+            Reply = ?REPLY(undefined, Request, HasSent, Result),
+            case reply_caller(Id, Reply) of
+                true ->
+                    {keep_state, Data0, {state_timeout, ResumeT, resume}};
+                false ->
+                    NewQ = drop_head(Q, Id, Index),
+                    Data = Data0#{queue := NewQ},
+                    retry_queue(Data)
+            end
+    end;
+retry_queue(
+    #{
+        queue := Q,
+        id := Id,
+        index := Index,
+        batch_size := BatchSize,
+        name := Name,
+        resume_interval := ResumeT
+    } = Data0
+) ->
+    %% batching
     case get_first_n_from_queue(Q, BatchSize) of
         [] ->
-            {next_state, running, St};
+            {next_state, running, Data0};
         Batch0 ->
-            QueryOpts = #{inflight_name => maps:get(name, St)},
+            QueryOpts = #{inflight_name => Name},
             Result = call_query(configured, Id, Index, Batch0, QueryOpts),
             %% The caller has been replied with ?RESOURCE_ERROR(blocked, _) before saving into the queue,
             %% we now change the 'from' field to 'undefined' so it will not reply the caller again.
@@ -328,9 +365,11 @@ retry_queue(
             ],
             case batch_reply_caller(Id, Result, Batch) of
                 true ->
-                    {keep_state, St, {state_timeout, ResumeT, resume}};
+                    {keep_state, Data0, {state_timeout, ResumeT, resume}};
                 false ->
-                    retry_queue(St#{queue := drop_first_n_from_queue(Q, length(Batch), Id, Index)})
+                    NewQ = drop_first_n_from_queue(Q, length(Batch), Id, Index),
+                    Data = Data0#{queue := NewQ},
+                    retry_queue(Data)
             end
     end.
 
@@ -361,6 +400,7 @@ handle_query_requests(Request0, Data0) ->
         queue := Q
     } = Data0,
     Requests = collect_requests([Request0], ?COLLECT_REQ_LIMIT),
+    ct:pal("~p collected ~p", [self(), Requests]),
     QueueItems =
         lists:map(
             fun
@@ -387,8 +427,10 @@ maybe_flush(Data) ->
     QueueCount = queue_count(Q),
     case QueueCount >= BatchSize of
         true ->
+            ct:pal("~p gonna flush", [self()]),
             flush(Data);
         false ->
+            ct:pal("~p not flushing for now, waiting ~p", [self(), maps:get(batch_time, Data)]),
             {keep_state, ensure_flush_timer(Data)}
     end.
 
@@ -401,7 +443,8 @@ flush(Data0) ->
     } = Data0,
     case replayq:count(Q0) of
         0 ->
-            keep_state_and_data;
+            Data = cancel_flush_timer(Data0),
+            {keep_state, Data};
         _ ->
             {Q1, QAckRef, Batch0} = replayq:pop(Q0, #{count_limit => BatchSize}),
             Batch = [Item || ?Q_ITEM(Item) <- Batch0],
@@ -421,6 +464,7 @@ flush(Data0) ->
 }) ->
     gen_statem:event_handler_result(state(), data()).
 do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef}) ->
+    ct:pal("do_flush ~p", [#{data => Data0, is_batch => true, batch => Batch, ack_ref => QAckRef}]),
     #{
         id := Id,
         index := Index,
@@ -432,6 +476,7 @@ do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef}) ->
     Data1 = cancel_flush_timer(Data0),
     case batch_reply_caller(Id, Result, Batch) of
         true ->
+            ct:pal("batch sent 'true'"),
             %% call failed and will retry later; we re-append them to
             %% the queue to give chance to other batches to be tried
             %% before this failed one is eventually retried.
@@ -440,7 +485,9 @@ do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef}) ->
             Data = Data1#{queue := Q1},
             {next_state, blocked, Data};
         false ->
+            ct:pal("batch sent 'false'"),
             ok = replayq:ack(Q0, QAckRef),
+            emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q0)),
             case replayq:count(Q0) > 0 of
                 true ->
                     {keep_state, Data1, [{next_event, internal, flush}]};
@@ -455,15 +502,17 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
         name := Name,
         queue := Q0
     } = Data0,
+    ct:pal("do_flush ~p", [#{data => Data0, is_batch => false, batch => Batch, ack_ref => QAckRef}]),
     %% unwrap when not batching (i.e., batch size == 1)
     [?QUERY(From, CoreReq, _HasBeenSent) = Request] = Batch,
-    %% [Request = {query, CoreReq, _Opts}] = Batch,
     QueryOpts = #{inflight_name => Name},
     Result = call_query(configured, Id, Index, Request, QueryOpts),
     Data2 = cancel_flush_timer(Data0),
     HasBeenSent = false,
-    case reply_caller(Id, ?REPLY(From, CoreReq, HasBeenSent, Result)) of
+    Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
+    case reply_caller(Id, Reply) of
         true ->
+            ct:pal("~p single sent 'true' ~p", [self(), #{reply => Reply, res => Result}]),
             %% call failed and will retry later; we re-append them to
             %% the queue to give chance to other batches to be tried
             %% before this failed one is eventually retried.
@@ -472,7 +521,9 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
             Data = Data2#{queue := Q1},
             {next_state, blocked, Data};
         false ->
+            ct:pal("~p single sent 'false' ~p", [self(), #{reply => Reply, res => Result}]),
             ok = replayq:ack(Q0, QAckRef),
+            emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q0)),
             case replayq:count(Q0) > 0 of
                 true ->
                     {keep_state, Data2, [{next_event, internal, flush}]};
@@ -497,10 +548,27 @@ reply_caller(Id, Reply) ->
     reply_caller(Id, Reply, BlockWorker).
 
 reply_caller(Id, ?REPLY(undefined, _, HasSent, Result), BlockWorker) ->
+    ct:print("~p replying undef ~p", [
+        self(),
+        #{
+            block => BlockWorker,
+            res => Result,
+            has_sent => HasSent
+        }
+    ]),
     handle_query_result(Id, Result, HasSent, BlockWorker);
 reply_caller(Id, ?REPLY({ReplyFun, Args}, _, HasSent, Result), BlockWorker) when
     is_function(ReplyFun)
 ->
+    ct:print("~p replying fun ~p", [
+        self(),
+        #{
+            args => Args,
+            block => BlockWorker,
+            res => Result,
+            has_sent => HasSent
+        }
+    ]),
     _ =
         case Result of
             {async_return, _} -> no_reply_for_now;
@@ -508,6 +576,15 @@ reply_caller(Id, ?REPLY({ReplyFun, Args}, _, HasSent, Result), BlockWorker) when
         end,
     handle_query_result(Id, Result, HasSent, BlockWorker);
 reply_caller(Id, ?REPLY(From, _, HasSent, Result), BlockWorker) ->
+    ct:print("~p replying from ~p", [
+        self(),
+        #{
+            from => From,
+            block => BlockWorker,
+            res => Result,
+            has_sent => HasSent
+        }
+    ]),
     gen_statem:reply(From, Result),
     handle_query_result(Id, Result, HasSent, BlockWorker).
 
@@ -602,7 +679,7 @@ apply_query_fun(async, Mod, Id, Index, ?QUERY(_, Request, _) = Query, ResSt, Que
     Name = maps:get(inflight_name, QueryOpts, undefined),
     ?APPLY_RESOURCE(
         call_query_async,
-        case inflight_is_full(Name) of
+        case is_inflight_full(Name) of
             true ->
                 {async_return, inflight_full};
             false ->
@@ -624,7 +701,7 @@ apply_query_fun(async, Mod, Id, Index, [?QUERY(_, _, _) | _] = Batch, ResSt, Que
     Name = maps:get(inflight_name, QueryOpts, undefined),
     ?APPLY_RESOURCE(
         call_batch_query_async,
-        case inflight_is_full(Name) of
+        case is_inflight_full(Name) of
             true ->
                 {async_return, inflight_full};
             false ->
@@ -662,7 +739,7 @@ batch_reply_after_query(Pid, Id, Index, Name, Ref, Batch, Result) ->
     end.
 
 drop_inflight_and_resume(Pid, Name, Ref, Id, Index) ->
-    case inflight_is_full(Name) of
+    case is_inflight_full(Name) of
         true ->
             inflight_drop(Name, Ref, Id, Index),
             ?MODULE:resume(Pid);
@@ -696,6 +773,8 @@ append_queue(Id, Index, Q, Items) ->
         end,
     Q3 = replayq:append(Q2, Items),
     emqx_resource_metrics:queuing_set(Id, Index, replayq:count(Q3)),
+    ?tp(resource_worker_appended_to_queue, #{id => Id, items => Items}),
+    ct:pal("~p append ~p", [self(), Items]),
     Q3.
 
 get_first_n_from_queue(Q, N) ->
@@ -742,15 +821,18 @@ inflight_get_first(Name) ->
             end
     end.
 
-inflight_is_full(undefined) ->
+is_inflight_full(undefined) ->
     false;
-inflight_is_full(Name) ->
+is_inflight_full(Name) ->
     [{_, {max_size, MaxSize}}] = ets:lookup(Name, ?SIZE_REF),
     Size = inflight_size(Name),
+    ct:pal("~p is inflight full? ~p ~p", [
+        self(), Size >= MaxSize, #{size => Size, max_size => MaxSize}
+    ]),
     Size >= MaxSize.
 
 inflight_size(Name) ->
-    %% Note: we subtract 1 because there's a metadata row that hold
+    %% Note: we subtract 1 because there's a metadata row that holds
     %% the maximum size value.
     MetadataRowCount = 1,
     case ets:info(Name, size) of
@@ -761,11 +843,13 @@ inflight_size(Name) ->
 inflight_append(undefined, _Ref, _Query, _Id, _Index) ->
     ok;
 inflight_append(Name, Ref, [?QUERY(_, _, _) | _] = Batch, Id, Index) ->
-    ets:insert(Name, {Ref, [?QUERY(From, Req, true) || ?QUERY(From, Req, _) <- Batch]}),
+    HasBeenSent = true,
+    ets:insert(Name, {Ref, [?QUERY(From, Req, HasBeenSent) || ?QUERY(From, Req, _) <- Batch]}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_size(Name)),
     ok;
 inflight_append(Name, Ref, ?QUERY(From, Req, _), Id, Index) ->
-    ets:insert(Name, {Ref, ?QUERY(From, Req, true)}),
+    HasBeenSent = true,
+    ets:insert(Name, {Ref, ?QUERY(From, Req, HasBeenSent)}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_size(Name)),
     ok;
 inflight_append(Name, Ref, Data, _Id, _Index) ->
@@ -828,13 +912,17 @@ disk_queue_dir(Id, Index) ->
 ensure_flush_timer(St = #{tref := undefined, batch_time := T}) ->
     Ref = make_ref(),
     TRef = erlang:send_after(T, self(), {flush, Ref}),
+    ct:pal("~p flush timer set", [self()]),
     St#{tref => {TRef, Ref}};
 ensure_flush_timer(St) ->
+    ct:pal("~p flush timer already set", [self()]),
     St.
 
 cancel_flush_timer(St = #{tref := undefined}) ->
+    ct:pal("~p cancel flush timer already cancelled", [self()]),
     St;
 cancel_flush_timer(St = #{tref := {TRef, _Ref}}) ->
+    ct:pal("~p cancel flush timer", [self()]),
     _ = erlang:cancel_timer(TRef),
     St#{tref => undefined}.
 

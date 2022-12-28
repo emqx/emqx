@@ -117,8 +117,6 @@ fields("metrics") ->
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
         {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
         {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},
-        {"dropped.queue_not_enabled",
-            mk(integer(), #{desc => ?DESC("metric_dropped_queue_not_enabled")})},
         {"dropped.resource_not_found",
             mk(integer(), #{desc => ?DESC("metric_dropped_resource_not_found")})},
         {"dropped.resource_stopped",

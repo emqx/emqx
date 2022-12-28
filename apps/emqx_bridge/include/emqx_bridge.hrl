@@ -16,7 +16,7 @@
 
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
@@ -25,7 +25,6 @@
     Dropped,
     DroppedOther,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
@@ -44,7 +43,6 @@
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
         'dropped.queue_full' => DroppedQueueFull,
-        'dropped.queue_not_enabled' => DroppedQueueNotEnabled,
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
@@ -65,7 +63,6 @@
     Dropped,
     DroppedOther,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
@@ -84,7 +81,6 @@
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,

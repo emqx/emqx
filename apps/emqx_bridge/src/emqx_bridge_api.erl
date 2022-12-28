@@ -632,11 +632,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16
             )
         ) ->
             ?METRICS(
@@ -655,8 +655,7 @@ aggregate_metrics(AllMetrics) ->
                 M13 + N13,
                 M14 + N14,
                 M15 + N15,
-                M16 + N16,
-                M17 + N17
+                M16 + N16
             )
         end,
         InitMetrics,
@@ -689,7 +688,6 @@ format_metrics(#{
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
@@ -711,7 +709,6 @@ format_metrics(#{
         Dropped,
         DroppedOther,
         DroppedQueueFull,
-        DroppedQueueNotEnabled,
         DroppedResourceNotFound,
         DroppedResourceStopped,
         Matched,
