@@ -41,7 +41,6 @@ fields("statsd") ->
                 boolean(),
                 #{
                     default => false,
-                    required => true,
                     desc => ?DESC(enable)
                 }
             )},
@@ -56,25 +55,22 @@ desc(_) -> undefined.
 
 server() ->
     Meta = #{
-        required => true,
+        default => <<"127.0.0.1:8125">>,
         desc => ?DESC(?FUNCTION_NAME)
     },
     emqx_schema:servers_sc(Meta, ?SERVER_PARSE_OPTS).
 
 sample_interval(type) -> emqx_schema:duration_ms();
-sample_interval(required) -> true;
 sample_interval(default) -> "30s";
 sample_interval(desc) -> ?DESC(?FUNCTION_NAME);
 sample_interval(_) -> undefined.
 
 flush_interval(type) -> emqx_schema:duration_ms();
-flush_interval(required) -> true;
 flush_interval(default) -> "30s";
 flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
 
 tags(type) -> map();
-tags(required) -> false;
 tags(default) -> #{};
 tags(desc) -> ?DESC(?FUNCTION_NAME);
 tags(_) -> undefined.

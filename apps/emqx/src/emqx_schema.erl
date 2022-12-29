@@ -2369,7 +2369,11 @@ non_empty_string(_) -> {error, invalid_string}.
 %%               hosts can be successfully parsed.
 %% 3. parsing: Done at runtime in each module which uses this config
 servers_sc(Meta0, ParseOpts) ->
-    Required = maps:get(required, Meta0, true),
+    %% if this filed has a default value
+    %% then it is not NOT required
+    %% NOTE: maps:is_key is not the solution beause #{default => undefined} is legit
+    HasDefault = (maps:get(default, Meta0, undefined) =/= undefined),
+    Required = maps:get(required, Meta0, not HasDefault),
     Meta = #{
         required => Required,
         converter => fun convert_servers/2,
