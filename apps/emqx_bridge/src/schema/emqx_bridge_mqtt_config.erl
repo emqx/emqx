@@ -82,7 +82,6 @@ default_resource_opts() ->
     #{
         <<"async_inflight_window">> => 100,
         <<"auto_restart_interval">> => <<"60s">>,
-        <<"enable_queue">> => false,
         <<"health_check_interval">> => <<"15s">>,
         <<"max_queue_bytes">> => <<"1GB">>,
         <<"query_mode">> => <<"sync">>,

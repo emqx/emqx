@@ -69,6 +69,7 @@ done
 
 if [ "${WHICH_APP}" = 'novalue' ]; then
     echo "must provide --app arg"
+    help
     exit 1
 fi
 

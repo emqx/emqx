@@ -662,7 +662,6 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"reconnect_interval">> => <<"1s">>,
             <<"resource_opts">> => #{
                 <<"worker_pool_size">> => 2,
-                <<"enable_queue">> => true,
                 <<"query_mode">> => <<"sync">>,
                 %% to make it check the healthy quickly
                 <<"health_check_interval">> => <<"0.5s">>
