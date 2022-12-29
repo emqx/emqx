@@ -22,6 +22,7 @@
 %% API
 -export([ lookup_jwt/1
         , lookup_jwt/2
+        , delete_jwt/2
         ]).
 
 -type jwt() :: binary().
@@ -42,4 +43,14 @@ lookup_jwt(TId, ResourceId) ->
     catch
         error:badarg ->
             {error, not_found}
+    end.
+
+-spec delete_jwt(ets:table(), resource_id()) -> ok.
+delete_jwt(TId, ResourceId) ->
+    try
+        ets:delete(TId, {ResourceId, jwt}),
+        ok
+    catch
+        error:badarg ->
+            ok
     end.

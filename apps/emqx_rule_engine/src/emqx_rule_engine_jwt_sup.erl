@@ -72,7 +72,7 @@ jwt_worker_child_spec(Id, Config) ->
      , restart => transient
      , type => worker
      , significant => false
-     , shutdown => brutal_kill
+     , shutdown => 5_000
      , modules => [emqx_rule_engine_jwt_worker]
      }.
 
