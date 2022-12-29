@@ -69,3 +69,4 @@ apps/emqx/test/emqx_static_checks_data/master.bpapi
 *.conf.rendered
 lux_logs/
 /.prepare
+bom.json
