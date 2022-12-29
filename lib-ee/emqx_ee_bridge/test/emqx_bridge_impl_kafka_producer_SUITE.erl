@@ -390,7 +390,7 @@ t_failed_creation_then_fix(_Config) ->
     },
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
-    ?assertEqual(ok, ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State)),
+    ?assertEqual({async_return, ok}, ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State)),
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     %% TODO: refactor those into init/end per testcase
@@ -455,7 +455,7 @@ publish_helper(#{
     StartRes = ?PRODUCER:on_start(InstId, Conf),
     {ok, State} = StartRes,
     OnQueryRes = ?PRODUCER:on_query(InstId, {send_message, Msg}, State),
-    ok = OnQueryRes,
+    {async_return, ok} = OnQueryRes,
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     ok = ?PRODUCER:on_stop(InstId, State),
