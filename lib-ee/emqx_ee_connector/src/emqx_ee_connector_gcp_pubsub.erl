@@ -154,6 +154,7 @@ on_stop(
         connector => InstanceId
     }),
     emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
+    emqx_connector_jwt:delete_jwt(?JWT_TABLE, InstanceId),
     ehttpc_sup:stop_pool(PoolName).
 
 -spec on_query(
