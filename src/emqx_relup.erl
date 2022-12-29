@@ -31,12 +31,14 @@
 post_release_upgrade(FromRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
     ?INFO("emqx has been upgraded from ~s to ~s!", [FromRelVsn, CurrRelVsn]),
+    maybe_refresh_jwt_module(FromRelVsn),
     reload_components().
 
 %% What to do after downgraded to an old release vsn.
 post_release_downgrade(ToRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
     ?INFO("emqx has been downgraded from ~s to ~s!", [CurrRelVsn, ToRelVsn]),
+    maybe_refresh_jwt_module(ToRelVsn),
     reload_components().
 
 -ifdef(EMQX_ENTERPRISE).
@@ -73,3 +75,21 @@ load_plugins() ->
         true -> emqx_plugins:force_load();
         false -> emqx_plugins:load()
     end.
+
+-ifdef(EMQX_ENTERPRISE).
+maybe_refresh_jwt_module(Release) when Release =:= "4.4.0"
+    orelse Release =:= "4.4.1"
+    orelse Release =:= "4.4.2"
+    orelse Release =:= "4.4.3" ->
+    _ = emqx:unhook('client.authenticate', fun emqx_auth_jwt:check/3),
+    _ = emqx:unhook('client.authenticate', fun emqx_auth_jwt:check_auth/3),
+    emqx_modules:refresh_module(jwt_authentication);
+maybe_refresh_jwt_module(_) ->
+    ok.
+
+-else.
+
+maybe_refresh_jwt_module(_) ->
+    ok.
+
+-endif.

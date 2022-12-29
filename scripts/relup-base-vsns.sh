@@ -46,6 +46,10 @@ case "${EDITION}" in
         GIT_TAG_PREFIX="e"
         RELUP_PATH_FILE="./data/relup-paths-ee.eterm"
         ;;
+    *edge*)
+        # no relup for emqx-edge
+        exit 0
+        ;;
     *)
         GIT_TAG_PREFIX="v"
         RELUP_PATH_FILE="./data/relup-paths.eterm"
