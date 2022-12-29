@@ -197,7 +197,7 @@ else
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
         # shellcheck disable=2086 # no quotes for F_OPTIONS
-        docker-compose $F_OPTIONS logs --no-color > "$LOG"
+        docker-compose $F_OPTIONS logs --no-color --timestamps > "$LOG"
     fi
     if [ "$KEEP_UP" != 'yes' ]; then
         # shellcheck disable=2086 # no quotes for F_OPTIONS
