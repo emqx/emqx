@@ -259,4 +259,6 @@ t_start_supervised_worker(_Config) ->
     %% ensure it cleans up its own tokens to avoid leakage when
     %% probing/testing rule resources.
     ?assertEqual({error, not_found}, emqx_rule_engine_jwt:lookup_jwt(TId, ResourceId)),
+    %% ensure the specs are removed from the supervision tree.
+    ?assertEqual([], supervisor:which_children(emqx_rule_engine_jwt_sup)),
     ok.

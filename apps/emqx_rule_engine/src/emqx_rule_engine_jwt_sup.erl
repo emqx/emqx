@@ -62,8 +62,10 @@ ensure_worker_present(Id, Config) ->
 -spec ensure_worker_deleted(worker_id()) -> ok.
 ensure_worker_deleted(Id) ->
     case supervisor:terminate_child(?MODULE, Id) of
-        ok -> ok;
-        {error, not_found} -> ok
+        ok ->
+            ok = supervisor:delete_child(?MODULE, Id);
+        {error, not_found} ->
+            ok
     end.
 
 jwt_worker_child_spec(Id, Config) ->
