@@ -22,6 +22,7 @@ sleep 3
 
 echo "+++++++ Starting Kafka ++++++++"
 
+# fork start Kafka
 start-kafka.sh &
 
 SERVER=localhost
@@ -40,6 +41,12 @@ timeout $TIMEOUT bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do slee
 echo "+++++++ Run config commands ++++++++"
 
 kafka-configs.sh --bootstrap-server localhost:9092 --alter --add-config 'SCRAM-SHA-256=[iterations=8192,password=password],SCRAM-SHA-512=[password=password]' --entity-type users --entity-name emqxuser
+
+echo "+++++++ Creating Kafka Topics ++++++++"
+
+# create topics after re-configuration
+# there seem to be a race condition when creating the topics (too early)
+env KAFKA_CREATE_TOPICS="$KAFKA_CREATE_TOPICS_NG" KAFKA_PORT="$PORT1" create-topics.sh
 
 echo "+++++++ Wait until Kafka ports are down ++++++++"
 
