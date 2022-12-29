@@ -205,7 +205,8 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{1 => 1}}),
-    Channel = channel(#{conn_state => connected, session => Session}),
+    Channel = emqx_channel:ensure_timer(await_timer, 2000,
+        channel(#{conn_state => connected, session => Session})),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     {ok, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), Channel} =
         emqx_channel:handle_in(Publish1, Channel),
