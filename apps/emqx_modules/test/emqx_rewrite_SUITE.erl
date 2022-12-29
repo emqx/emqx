@@ -215,16 +215,16 @@ t_update_re_failed(_Config) ->
             <<"action">> => <<"publish">>
         }
     ],
-    ?assertError(
-        {badmatch,
-            {error,
-                {_, [
-                    #{
-                        kind := validation_error,
-                        reason := {Re, {"nothing to repeat", 0}},
-                        value := Re
-                    }
-                ]}}},
+    ?assertThrow(
+        #{
+            kind := validation_error,
+            path := "rewrite.1.re",
+            reason := #{
+                regexp := <<"*^test/*">>,
+                compile_error := {"nothing to repeat", 0}
+            },
+            value := <<"*^test/*">>
+        },
         emqx_rewrite:update(Rules)
     ),
     ok.
