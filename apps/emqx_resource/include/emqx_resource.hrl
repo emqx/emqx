@@ -107,5 +107,8 @@
 -define(AUTO_RESTART_INTERVAL, 60000).
 -define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
 
+%% auto_reconnect
+-define(AUTO_RECONNECT, true).
+
 -define(TEST_ID_PREFIX, "_test_:").
 -define(RES_METRICS, resource_metrics).

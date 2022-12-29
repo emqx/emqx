@@ -463,8 +463,11 @@ handle_disconnected_state_enter(Data) ->
     {next_state, disconnected, Data, retry_actions(Data)}.
 
 retry_actions(Data) ->
-    case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
-        undefined ->
+    case
+        maps:get(auto_reconnect, Data#data.config, ?AUTO_RECONNECT) andalso
+            maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL)
+    of
+        false ->
             [];
         RetryInterval ->
             [{state_timeout, RetryInterval, auto_retry}]
