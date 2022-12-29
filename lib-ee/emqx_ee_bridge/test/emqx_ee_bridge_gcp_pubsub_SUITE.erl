@@ -783,6 +783,9 @@ t_publish_success_batch(Config) ->
         ResourceId,
         #{timeout => 15_000, n_events => NumMessages}
     ),
+    %% even waiting, hard to avoid flakiness... simpler to just sleep
+    %% a bit until stabilization.
+    ct:sleep(200),
     assert_metrics(
         #{
             dropped => 0,

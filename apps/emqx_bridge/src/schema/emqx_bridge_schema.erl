@@ -113,7 +113,6 @@ fields(bridges) ->
     ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
-        {"batching", mk(integer(), #{desc => ?DESC("metric_batching")})},
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
         {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
         {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},

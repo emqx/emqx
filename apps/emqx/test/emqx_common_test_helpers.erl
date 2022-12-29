@@ -447,8 +447,11 @@ is_all_tcp_servers_available(Servers) ->
             is_tcp_server_available(Host, Port)
         end,
     case lists:partition(Fun, Servers) of
-        {_, []} -> true;
-        {_, Unavail} -> ct:print("Unavailable servers: ~p", [Unavail])
+        {_, []} ->
+            true;
+        {_, Unavail} ->
+            ct:print("Unavailable servers: ~p", [Unavail]),
+            false
     end.
 
 -spec is_tcp_server_available(

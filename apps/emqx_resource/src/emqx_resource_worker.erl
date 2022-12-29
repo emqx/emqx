@@ -468,6 +468,7 @@ do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef}) ->
     #{
         id := Id,
         index := Index,
+        batch_size := BatchSize,
         name := Name,
         queue := Q0
     } = Data0,
@@ -488,11 +489,15 @@ do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef}) ->
             ct:pal("batch sent 'false'"),
             ok = replayq:ack(Q0, QAckRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q0)),
-            case replayq:count(Q0) > 0 of
-                true ->
+            CurrentCount = replayq:count(Q0),
+            case {CurrentCount > 0, CurrentCount >= BatchSize} of
+                {false, _} ->
+                    {keep_state, Data1};
+                {true, true} ->
                     {keep_state, Data1, [{next_event, internal, flush}]};
-                false ->
-                    {keep_state, Data1}
+                {true, false} ->
+                    Data2 = ensure_flush_timer(Data1),
+                    {keep_state, Data2}
             end
     end;
 do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
@@ -507,7 +512,7 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
     [?QUERY(From, CoreReq, _HasBeenSent) = Request] = Batch,
     QueryOpts = #{inflight_name => Name},
     Result = call_query(configured, Id, Index, Request, QueryOpts),
-    Data2 = cancel_flush_timer(Data0),
+    Data1 = cancel_flush_timer(Data0),
     HasBeenSent = false,
     Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
     case reply_caller(Id, Reply) of
@@ -518,7 +523,7 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
             %% before this failed one is eventually retried.
             ok = replayq:ack(Q0, QAckRef),
             Q1 = append_queue(Id, Index, Q0, [?Q_ITEM(Query) || Query <- Batch]),
-            Data = Data2#{queue := Q1},
+            Data = Data1#{queue := Q1},
             {next_state, blocked, Data};
         false ->
             ct:pal("~p single sent 'false' ~p", [self(), #{reply => Reply, res => Result}]),
@@ -526,9 +531,9 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef}) ->
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q0)),
             case replayq:count(Q0) > 0 of
                 true ->
-                    {keep_state, Data2, [{next_event, internal, flush}]};
+                    {keep_state, Data1, [{next_event, internal, flush}]};
                 false ->
-                    {keep_state, Data2}
+                    {keep_state, Data1}
             end
     end.
 
@@ -909,14 +914,14 @@ disk_queue_dir(Id, Index) ->
     QDir = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
     filename:join([emqx:data_dir(), "resource_worker", node(), QDir]).
 
-ensure_flush_timer(St = #{tref := undefined, batch_time := T}) ->
+ensure_flush_timer(Data = #{tref := undefined, batch_time := T}) ->
     Ref = make_ref(),
     TRef = erlang:send_after(T, self(), {flush, Ref}),
     ct:pal("~p flush timer set", [self()]),
-    St#{tref => {TRef, Ref}};
-ensure_flush_timer(St) ->
+    Data#{tref => {TRef, Ref}};
+ensure_flush_timer(Data) ->
     ct:pal("~p flush timer already set", [self()]),
-    St.
+    Data.
 
 cancel_flush_timer(St = #{tref := undefined}) ->
     ct:pal("~p cancel flush timer already cancelled", [self()]),
