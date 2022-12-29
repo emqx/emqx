@@ -54,7 +54,7 @@ services:
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
       KAFKA_JMX_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
-      KAFKA_CREATE_TOPICS: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
+      KAFKA_CREATE_TOPICS_NG: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
       KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
       KAFKA_SSL_TRUSTSTORE_LOCATION: /var/lib/secret/kafka.truststore.jks
       KAFKA_SSL_TRUSTSTORE_PASSWORD: password
@@ -66,8 +66,8 @@ services:
     volumes:
       - emqx-shared-secret:/var/lib/secret
       - ./kafka/jaas.conf:/etc/kafka/jaas.conf
-      - ./kafka/run_add_scram_users.sh:/bin/run_add_scram_users.sh
+      - ./kafka/kafka-entrypoint.sh:/bin/kafka-entrypoint.sh
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
-    command: run_add_scram_users.sh
+    command: kafka-entrypoint.sh
 
