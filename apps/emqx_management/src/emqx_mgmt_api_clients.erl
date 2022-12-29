@@ -65,7 +65,6 @@
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
-    {<<"proto_name">>, binary},
     {<<"proto_ver">>, integer},
     {<<"like_clientid">>, binary},
     {<<"like_username">>, binary},
@@ -144,14 +143,6 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         description => <<"Whether the client uses a new session">>
-                    })},
-                {proto_name,
-                    hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
-                        in => query,
-                        required => false,
-                        description =>
-                            <<"Client protocol name, ",
-                                "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>
                     })},
                 {proto_ver,
                     hoconsc:mk(binary(), #{
@@ -830,8 +821,6 @@ ms(ip_address, X) ->
     #{conninfo => #{peername => {X, '_'}}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
 ms(proto_ver, X) ->
     #{conninfo => #{proto_ver => X}};
 ms(connected_at, X) ->
@@ -879,7 +868,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
-    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap5 = convert_expiry_interval_unit(ClientInfoMap4),
+    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap5),
 
     RemoveList =
         [
@@ -948,6 +938,9 @@ peername_dispart({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
     %% PortBinary = integer_to_binary(Port),
     {AddrBinary, Port}.
+
+convert_expiry_interval_unit(ClientInfoMap = #{expiry_interval := Interval}) ->
+    ClientInfoMap#{expiry_interval := Interval div 1000}.
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{
