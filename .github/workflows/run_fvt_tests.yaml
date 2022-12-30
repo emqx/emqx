@@ -75,13 +75,8 @@ jobs:
               - dns
 
         steps:
-<<<<<<< HEAD
         - uses: actions/checkout@v3
-        - uses: erlef/setup-beam@v1
-=======
-        - uses: actions/checkout@v1
         - uses: emqx/setup-beam@v1.16.1-emqx
->>>>>>> origin/release-v44
           with:
             otp-version: 24.3.4.6
         - name: prepare
