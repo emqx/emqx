@@ -66,9 +66,54 @@ ignored_apps() ->
      emqx_modules_spec %% generic appup file for all versions
     ] ++ otp_standard_apps().
 
+%% modules with qlc.hrl included are not deterministic
+%% beam md5 may change even though nothing in the code is changed
+%% this should not be applied to other modules in general because
+%% a module may include other hrl files,
+%% or if it has parse-transform etc, beam may implicitly change.
+qlc_modules0() ->
+    ["src/emqx_cm.erl",
+     "apps/emqx_management/src/emqx_mgmt.erl",
+     "apps/emqx_management/src/emqx_mgmt_api.erl",
+     "apps/emqx_auth_mnesia/src/emqx_auth_mnesia_api.erl",
+     "apps/emqx_auth_mnesia/src/emqx_acl_mnesia_db.erl",
+     "apps/emqx_rule_engine/src/emqx_rule_registry.erl",
+     "lib-ee/emqx_eviction_agent/src/emqx_eviction_agent.erl",
+     "lib-ee/emqx_node_rebalance/src/emqx_node_rebalance_agent.erl"
+    ].
+
+qlc_modules() ->
+    Files = lists:filter(fun(F) -> filelib:is_regular(F) end, qlc_modules0()),
+    lists:map(fun(F) ->
+                      Module = filename:basename(F, ".erl"),
+                      {list_to_atom(Module), F}
+              end, Files).
+
+is_git_diff(BaseVsn, File) ->
+    CMD = "git diff --name-only "++ BaseVsn ++ "...HEAD " ++ File,
+    case string:trim(os:cmd(CMD)) of
+        "" ->
+            false;
+        File ->
+            true;
+        Other ->
+            logerr("Failed to git diff: ~s", [File]),
+            logerr("~s", [Other]),
+            halt(1)
+    end.
+
+qlc_module_git_diff(BaseVsn) ->
+    lists:map(fun({Module, F}) ->
+                      {Module, #{path => F,
+                                 is_git_diff => is_git_diff(BaseVsn, F)
+                                }}
+              end, qlc_modules()).
+
 main(Args) ->
     #{prev_tag := Baseline} = Options = parse_args(Args, default_options()),
-    init_globals(Options),
+    QlcModules = qlc_module_git_diff(Baseline),
+    log("Changed modules which have qlc.hrl included: ~p", [QlcModules]),
+    init_globals(Options, QlcModules),
     main(Options, Baseline).
 
 parse_args([PrevTag = [A|_]], State) when A =/= $- ->
@@ -113,7 +158,7 @@ changes, supervisor changes, process restarts and so on. Also the load order of
 the beam files might need updating.~n"),
     halt(0);
 warn_and_exit(false) ->
-    logerr("Incomplete appups found. Please inspect the output for more details.~n", []),
+    logerr("Incomplete appups found. Please inspect the output for more details.", []),
     halt(1).
 
 prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}) ->
@@ -514,8 +559,8 @@ check_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
             ok;
         {diffs, Diffs} ->
             set_invalid(),
-            logerr("Appup file for '~p' is not complete.~n"
-                   "Missing:~100p~n", [App, Diffs]),
+            logerr("Appup file for '~p' is not complete.", [App]),
+            logerr("Missing:~100p", [Diffs]),
             notok
     end.
 
@@ -596,8 +641,11 @@ diff_app(UpOrDown, App,
          #app{version = OldVersion, modules = OldModules}) ->
     {New, Changed} =
         maps:fold( fun(Mod, MD5, {New, Changed}) ->
+                           IsGitIdentical = (nochange =:= git_status(Mod)),
                            case OldModules of
-                               #{Mod := OldMD5} when MD5 =:= OldMD5 ->
+                               #{Mod := OldMD5} when MD5 =:= OldMD5 orelse IsGitIdentical ->
+                                   %% if md5 is identical or no git diff recorded
+                                   %% skip over this module
                                    {New, Changed};
                                #{Mod := _} ->
                                    {New, [Mod | Changed]};
@@ -659,10 +707,22 @@ is_app_external(App) ->
 %% Global state
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-init_globals(Options) ->
+init_globals(Options, QlcModules) ->
     ets:new(globals, [named_table, set, public]),
+    ets:insert(globals, {qlc_module_git_diff, maps:from_list(QlcModules)}),
     ets:insert(globals, {valid, true}),
     ets:insert(globals, {options, Options}).
+
+git_status(Module) ->
+    [{_, ModuleStatuses}] = ets:lookup(globals, qlc_module_git_diff),
+    case maps:get(Module, ModuleStatuses, undefined) of
+        undefined ->
+            unknown;
+        #{is_git_diff := true}->
+            changed;
+        #{is_git_diff := false} ->
+            nochange
+    end.
 
 putopt(Option, Value) ->
     ets:insert(globals, {{option, Option}, Value}).
@@ -764,7 +824,7 @@ log(Msg, Args) ->
     io:format(standard_error, Msg, Args).
 
 logerr(Msg, Args) ->
-    io:format(standard_error,  ?RED ++ "ERROR: "++ Msg ++ ?RESET, Args).
+    io:format(standard_error,  ?RED ++ "ERROR: "++ Msg ++ "~n" ++ ?RESET , Args).
 
 otp_standard_apps() ->
     [ssl, mnesia, kernel, asn1, stdlib].
