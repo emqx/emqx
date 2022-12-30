@@ -374,21 +374,15 @@ all_test_hosts() ->
     lists:flatmap(
         fun
             (#{<<"servers">> := ServersRaw}) ->
-                lists:map(
-                    fun(Server) ->
-                        parse_server(Server)
-                    end,
-                    string:tokens(binary_to_list(ServersRaw), ", ")
-                );
+                parse_servers(ServersRaw);
             (#{<<"server">> := ServerRaw}) ->
-                [parse_server(ServerRaw)]
+                parse_servers(ServerRaw)
         end,
         Confs
     ).
 
-parse_server(Server) ->
-    emqx_connector_schema_lib:parse_server(Server, #{
-        host_type => hostname,
+parse_servers(Servers) ->
+    emqx_schema:parse_servers(Servers, #{
         default_port => 6379
     }).
 

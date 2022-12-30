@@ -32,7 +32,11 @@
 -define(PATH, [authentication]).
 
 all() ->
-    [{group, require_seeds}, t_create_invalid].
+    [
+        {group, require_seeds},
+        t_update_with_invalid_config,
+        t_update_with_bad_config_value
+    ].
 
 groups() ->
     [{require_seeds, [], [t_create, t_authenticate, t_update, t_destroy, t_is_superuser]}].
@@ -96,12 +100,36 @@ t_create(_Config) ->
     {ok, [#{provider := emqx_authn_pgsql}]} = emqx_authentication:list_authenticators(?GLOBAL),
     emqx_authn_test_lib:delete_config(?ResourceID).
 
-t_create_invalid(_Config) ->
+%% invalid config which does not pass the schema check should result in an error
+t_update_with_invalid_config(_Config) ->
+    AuthConfig = raw_pgsql_auth_config(),
+    BadConfig = maps:without([<<"server">>], AuthConfig),
+    ?assertMatch(
+        {error,
+            {bad_authenticator_config, #{
+                reason :=
+                    {emqx_authn_pgsql, [
+                        #{
+                            kind := validation_error,
+                            path := "authentication.server",
+                            reason := required_field,
+                            value := undefined
+                        }
+                    ]}
+            }}},
+        emqx:update_config(
+            ?PATH,
+            {create_authenticator, ?GLOBAL, BadConfig}
+        )
+    ),
+    ok.
+
+%% bad config values may cause connection failure, but should still be able to update
+t_update_with_bad_config_value(_Config) ->
     AuthConfig = raw_pgsql_auth_config(),
 
     InvalidConfigs =
         [
-            maps:without([<<"server">>], AuthConfig),
             AuthConfig#{<<"server">> => <<"unknownhost:3333">>},
             AuthConfig#{<<"password">> => <<"wrongpass">>},
             AuthConfig#{<<"database">> => <<"wrongdatabase">>}
@@ -591,7 +619,7 @@ pgsql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?PGSQL_HOST, ?PGSQL_DEFAULT_PORT},
+        server => pgsql_server(),
         ssl => #{enable => false}
     }.
 

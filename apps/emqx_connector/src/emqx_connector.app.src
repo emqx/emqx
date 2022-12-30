@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_connector, [
-    {description, "An OTP application"},
+    {description, "EMQX Data Integration Connectors"},
     {vsn, "0.1.11"},
     {registered, []},
     {mod, {emqx_connector_app, []}},

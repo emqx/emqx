@@ -88,8 +88,13 @@ regular_expression(_) -> undefined.
 
 is_re(Bin) ->
     case re:compile(Bin) of
-        {ok, _} -> ok;
-        {error, Reason} -> {error, {Bin, Reason}}
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, #{
+                regexp => Bin,
+                compile_error => Reason
+            }}
     end.
 
 array(Name, Meta) -> {Name, ?HOCON(?ARRAY(?R_REF(Name)), Meta)}.

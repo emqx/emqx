@@ -25,12 +25,15 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    parse_server/1
 ]).
 
 -import(emqx_schema, [mk_duration/2]).
 
 -import(hoconsc, [mk/2, ref/2]).
+
+-define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
 namespace() -> "connector-mqtt".
 
@@ -67,14 +70,7 @@ fields("server_configs") ->
                     desc => ?DESC("mode")
                 }
             )},
-        {server,
-            mk(
-                emqx_schema:host_port(),
-                #{
-                    required => true,
-                    desc => ?DESC("server")
-                }
-            )},
+        {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
         {reconnect_interval,
             mk_duration(
@@ -299,3 +295,6 @@ desc(_) ->
 
 qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
+
+parse_server(Str) ->
+    emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS).

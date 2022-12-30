@@ -45,11 +45,7 @@ set_prompt_func() ->
 prompt_func(PropList) ->
     Line = proplists:get_value(history, PropList, 1),
     Version = emqx_release:version(),
-    Prefix =
-        case emqx_release:edition() of
-            ce -> "v";
-            ee -> "e"
-        end,
+    Prefix = emqx_release:edition_vsn_prefix(),
     case is_alive() of
         true -> io_lib:format(<<"~ts~ts(~s)~w> ">>, [Prefix, Version, node(), Line]);
         false -> io_lib:format(<<"~ts~ts ~w> ">>, [Prefix, Version, Line])

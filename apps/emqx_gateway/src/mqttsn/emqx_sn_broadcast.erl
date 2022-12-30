@@ -18,7 +18,13 @@
 
 -behaviour(gen_server).
 
+-ifdef(TEST).
+%% make rebar3 ct happy when testing with --suite path/to/module_SUITE.erl
+-include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
+-else.
+%% make mix happy
 -include("src/mqttsn/include/emqx_sn.hrl").
+-endif.
 -include_lib("emqx/include/logger.hrl").
 
 -export([

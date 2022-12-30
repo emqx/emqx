@@ -41,7 +41,6 @@
 
 %% redis host don't need parse
 -define(REDIS_HOST_OPTIONS, #{
-    host_type => hostname,
     default_port => ?REDIS_DEFAULT_PORT
 }).
 
@@ -61,7 +60,7 @@ roots() ->
 
 fields(single) ->
     [
-        {server, fun server/1},
+        {server, server()},
         {redis_type, #{
             type => single,
             default => single,
@@ -73,7 +72,7 @@ fields(single) ->
         emqx_connector_schema_lib:ssl_fields();
 fields(cluster) ->
     [
-        {servers, fun servers/1},
+        {servers, servers()},
         {redis_type, #{
             type => cluster,
             default => cluster,
@@ -85,7 +84,7 @@ fields(cluster) ->
         emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
     [
-        {servers, fun servers/1},
+        {servers, servers()},
         {redis_type, #{
             type => sentinel,
             default => sentinel,
@@ -101,21 +100,16 @@ fields(sentinel) ->
         redis_fields() ++
         emqx_connector_schema_lib:ssl_fields().
 
-server(type) -> emqx_schema:host_port();
-server(required) -> true;
-server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
-server(converter) -> fun to_server_raw/1;
-server(desc) -> ?DESC("server");
-server(_) -> undefined.
+server() ->
+    Meta = #{desc => ?DESC("server")},
+    emqx_schema:servers_sc(Meta, ?REDIS_HOST_OPTIONS).
 
-servers(type) -> list();
-servers(required) -> true;
-servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
-servers(converter) -> fun to_servers_raw/1;
-servers(desc) -> ?DESC("servers");
-servers(_) -> undefined.
+servers() ->
+    Meta = #{desc => ?DESC("servers")},
+    emqx_schema:servers_sc(Meta, ?REDIS_HOST_OPTIONS).
 
 %% ===================================================================
+
 callback_mode() -> always_sync.
 
 on_start(
@@ -132,11 +126,13 @@ on_start(
         connector => InstId,
         config => Config
     }),
-    Servers =
+    ConfKey =
         case Type of
-            single -> [{servers, [maps:get(server, Config)]}];
-            _ -> [{servers, maps:get(servers, Config)}]
+            single -> server;
+            _ -> servers
         end,
+    Servers0 = maps:get(ConfKey, Config),
+    Servers = [{servers, emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)}],
     Database =
         case Type of
             cluster -> [];
@@ -299,25 +295,3 @@ redis_fields() ->
         }},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
-
--spec to_server_raw(string()) ->
-    {string(), pos_integer()}.
-to_server_raw(Server) ->
-    emqx_connector_schema_lib:parse_server(Server, ?REDIS_HOST_OPTIONS).
-
--spec to_servers_raw(string()) ->
-    [{string(), pos_integer()}].
-to_servers_raw(Servers) ->
-    lists:map(
-        fun(Server) ->
-            emqx_connector_schema_lib:parse_server(Server, ?REDIS_HOST_OPTIONS)
-        end,
-        string:tokens(str(Servers), ", ")
-    ).
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.

@@ -413,6 +413,31 @@ check_config(SchemaMod, RawConf) ->
     check_config(SchemaMod, RawConf, #{}).
 
 check_config(SchemaMod, RawConf, Opts0) ->
+    try
+        do_check_config(SchemaMod, RawConf, Opts0)
+    catch
+        throw:{Schema, Errors} ->
+            compact_errors(Schema, Errors)
+    end.
+
+%% HOCON tries to be very informative about all the detailed errors
+%% it's maybe too much when reporting to the user
+-spec compact_errors(any(), any()) -> no_return().
+compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
+    Error1 = Error0#{discarded_errors_count => length(More)},
+    Error =
+        case is_atom(Schema) of
+            true ->
+                Error1#{schema_module => Schema};
+            false ->
+                Error1
+        end,
+    throw(Error);
+compact_errors(Schema, Errors) ->
+    %% unexpected, we need the stacktrace reported, hence error
+    error({Schema, Errors}).
+
+do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
         format => map,

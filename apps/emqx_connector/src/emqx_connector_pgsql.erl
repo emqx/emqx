@@ -44,7 +44,6 @@
 -export([do_get_status/1]).
 
 -define(PGSQL_HOST_OPTIONS, #{
-    host_type => inet_addr,
     default_port => ?PGSQL_DEFAULT_PORT
 }).
 
@@ -54,17 +53,14 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [{server, fun server/1}] ++
+    [{server, server()}] ++
         emqx_connector_schema_lib:relational_db_fields() ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
 
-server(type) -> emqx_schema:host_port();
-server(required) -> true;
-server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
-server(converter) -> fun to_server/1;
-server(desc) -> ?DESC("server");
-server(_) -> undefined.
+server() ->
+    Meta = #{desc => ?DESC("server")},
+    emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
 
 %% ===================================================================
 callback_mode() -> always_sync.
@@ -72,7 +68,7 @@ callback_mode() -> always_sync.
 on_start(
     InstId,
     #{
-        server := {Host, Port},
+        server := Server,
         database := DB,
         username := User,
         password := Password,
@@ -81,6 +77,7 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
+    {Host, Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
     ?SLOG(info, #{
         msg => "starting_postgresql_connector",
         connector => InstId,
@@ -209,11 +206,3 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
-
-%% ===================================================================
-%% typereflt funcs
-
--spec to_server(string()) ->
-    {inet:ip_address() | inet:hostname(), pos_integer()}.
-to_server(Str) ->
-    emqx_connector_schema_lib:parse_server(Str, ?PGSQL_HOST_OPTIONS).

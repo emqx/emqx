@@ -51,15 +51,15 @@
 
 start(Config) ->
     Parent = self(),
-    {Host, Port} = maps:get(server, Config),
+    ServerStr = iolist_to_binary(maps:get(server, Config)),
+    {Server, Port} = emqx_connector_mqtt_schema:parse_server(ServerStr),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Subscriptions = maps:get(subscriptions, Config, undefined),
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
-    ServerStr = ip_port_to_server_str(Host, Port),
     Handlers = make_hdlr(Parent, Vars, #{server => ServerStr}),
     Config1 = Config#{
         msg_handler => Handlers,
-        host => Host,
+        host => Server,
         port => Port,
         force_ping => true,
         proto_ver => maps:get(proto_ver, Config, v4)
@@ -234,11 +234,3 @@ printable_maps(Headers) ->
         #{},
         Headers
     ).
-
-ip_port_to_server_str(Host, Port) ->
-    HostStr =
-        case inet:ntoa(Host) of
-            {error, einval} -> Host;
-            IPStr -> IPStr
-        end,
-    list_to_binary(io_lib:format("~s:~w", [HostStr, Port])).

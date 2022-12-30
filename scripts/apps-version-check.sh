@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')
+latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*')
+echo "Compare base: $latest_release"
 
 bad_app_count=0
 
