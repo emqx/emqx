@@ -52,7 +52,7 @@ t_iterate(Config) ->
         begin
             {ok, It} = emqx_replay_message_storage:make_iterator(DB, Topic, 0),
             Values = iterate(It),
-            ?assertEqual(Values, lists:map(fun integer_to_binary/1, Timestamps))
+            ?assertEqual(lists:map(fun integer_to_binary/1, Timestamps), Values)
         end
      || Topic <- Topics
     ],
@@ -137,28 +137,30 @@ parse_topic(Topic) ->
 
 t_prop_topic_hash_computes(_) ->
     Keymapper = emqx_replay_message_storage:make_keymapper(#{
+        timestamp_bits => 32,
         topic_bits_per_level => [8, 12, 16, 24],
-        timestamp_bits => 0
+        max_tau => 10000
     }),
     ?assert(
         proper:quickcheck(
-            ?FORALL(Topic, topic(), begin
-                Hash = emqx_replay_message_storage:compute_topic_hash(Topic, Keymapper),
-                is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
+            ?FORALL({Topic, Timestamp}, {topic(), integer()}, begin
+                BS = emqx_replay_message_storage:compute_bitstring(Topic, Timestamp, Keymapper),
+                is_integer(BS) andalso (BS < (1 bsl 92))
             end)
         )
     ).
 
 t_prop_hash_bitmask_computes(_) ->
     Keymapper = emqx_replay_message_storage:make_keymapper(#{
-        topic_bits_per_level => [8, 12, 16, 24],
-        timestamp_bits => 0
+        timestamp_bits => 16,
+        topic_bits_per_level => [8, 12, 16],
+        max_tau => 100
     }),
     ?assert(
         proper:quickcheck(
             ?FORALL(TopicFilter, topic_filter(), begin
-                Hash = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter, Keymapper),
-                is_integer(Hash) andalso (byte_size(binary:encode_unsigned(Hash)) =< 8)
+                Mask = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter, Keymapper),
+                is_integer(Mask) andalso (Mask < (1 bsl (36 + 6)))
             end)
         )
     ).
@@ -252,8 +254,9 @@ init_per_testcase(TC, Config) ->
     {ok, DB} = emqx_replay_message_storage:open(Filename, #{
         column_family => {atom_to_list(TC), []},
         keymapper => emqx_replay_message_storage:make_keymapper(#{
+            timestamp_bits => 64,
             topic_bits_per_level => [8, 8, 32, 16],
-            timestamp_bits => 64
+            max_tau => 5
         })
     }),
     [{handle, DB} | Config].
