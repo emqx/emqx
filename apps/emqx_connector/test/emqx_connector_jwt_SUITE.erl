@@ -67,3 +67,13 @@ t_lookup_jwt_missing(_Config) ->
     ResourceId = <<"resource id">>,
     ?assertEqual({error, not_found}, emqx_connector_jwt:lookup_jwt(ResourceId)),
     ok.
+
+t_delete_jwt(_Config) ->
+    TId = ?JWT_TABLE,
+    JWT = <<"some jwt">>,
+    ResourceId = <<"resource id">>,
+    true = insert_jwt(TId, ResourceId, JWT),
+    {ok, _} = emqx_connector_jwt:lookup_jwt(ResourceId),
+    ?assertEqual(ok, emqx_connector_jwt:delete_jwt(TId, ResourceId)),
+    ?assertEqual({error, not_found}, emqx_connector_jwt:lookup_jwt(TId, ResourceId)),
+    ok.

@@ -1336,6 +1336,7 @@ t_stop(Config) ->
         fun(Res, Trace) ->
             ?assertMatch({ok, {ok, _}}, Res),
             ?assertMatch([_], ?of_kind(gcp_pubsub_stop, Trace)),
+            ?assertMatch([_ | _], ?of_kind(connector_jwt_deleted, Trace)),
             ok
         end
     ),
