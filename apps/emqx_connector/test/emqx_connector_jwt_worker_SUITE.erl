@@ -81,7 +81,7 @@ t_create_success(_Config) ->
     receive
         {Ref, token_created} ->
             ok
-    after 1_000 ->
+    after 5_000 ->
         ct:fail(
             "should have confirmed token creation; msgs: ~0p",
             [process_info(self(), messages)]
