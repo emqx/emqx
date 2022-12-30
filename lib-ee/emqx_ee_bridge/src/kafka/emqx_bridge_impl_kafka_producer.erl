@@ -173,8 +173,11 @@ on_kafka_ack(_Partition, _Offset, _Extra) ->
     %% Maybe need to bump some counters?
     ok.
 
-on_get_status(_InstId, _State) ->
-    connected.
+on_get_status(_InstId, #{client_id := ClientID}) ->
+    case wolff:check_connectivity(ClientID) of
+        ok -> connected;
+        _ -> disconnected
+    end.
 
 %% Parse comma separated host:port list into a [{Host,Port}] list
 hosts(Hosts) ->
