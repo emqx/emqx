@@ -140,12 +140,22 @@ t_refresh(_Config) ->
          {ok, SecondJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
          ?assertNot(is_expired(SecondJWT)),
          ?assert(is_expired(FirstJWT)),
-         {FirstJWT, SecondJWT}
+         %% check yet another refresh to ensure the timer was properly
+         %% reset.
+         ?block_until(#{?snk_kind := rule_engine_jwt_worker_refresh,
+                        jwt := JWT1} when JWT1 =/= SecondJWT
+                                          andalso JWT1 =/= FirstJWT, 15_000),
+         {ok, ThirdJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
+         ?assertNot(is_expired(ThirdJWT)),
+         ?assert(is_expired(SecondJWT)),
+         {FirstJWT, SecondJWT, ThirdJWT}
        end,
-       fun({FirstJWT, SecondJWT}, Trace) ->
-         ?assertMatch([_, _ | _],
+       fun({FirstJWT, SecondJWT, ThirdJWT}, Trace) ->
+         ?assertMatch([_, _, _ | _],
                       ?of_kind(rule_engine_jwt_worker_token_stored, Trace)),
          ?assertNotEqual(FirstJWT, SecondJWT),
+         ?assertNotEqual(SecondJWT, ThirdJWT),
+         ?assertNotEqual(FirstJWT, ThirdJWT),
          ok
        end),
     ok.
@@ -225,7 +235,7 @@ t_lookup_badarg(_Config) ->
 
 t_start_supervised_worker(_Config) ->
     {ok, _} = emqx_rule_engine_jwt_sup:start_link(),
-    Config = #{resource_id := ResourceId} = generate_config(),
+    Config = #{resource_id := ResourceId, table := TId} = generate_config(),
     {ok, Pid} = emqx_rule_engine_jwt_sup:ensure_worker_present(ResourceId, Config),
     Ref = emqx_rule_engine_jwt_worker:ensure_jwt(Pid),
     receive
@@ -237,6 +247,7 @@ t_start_supervised_worker(_Config) ->
     end,
     MRef = monitor(process, Pid),
     ?assert(is_process_alive(Pid)),
+    ?assertMatch({ok, _}, emqx_rule_engine_jwt:lookup_jwt(TId, ResourceId)),
     ok = emqx_rule_engine_jwt_sup:ensure_worker_deleted(ResourceId),
     receive
         {'DOWN', MRef, process, Pid, _} ->
@@ -245,4 +256,9 @@ t_start_supervised_worker(_Config) ->
         1_000 ->
             ct:fail("timeout")
     end,
+    %% ensure it cleans up its own tokens to avoid leakage when
+    %% probing/testing rule resources.
+    ?assertEqual({error, not_found}, emqx_rule_engine_jwt:lookup_jwt(TId, ResourceId)),
+    %% ensure the specs are removed from the supervision tree.
+    ?assertEqual([], supervisor:which_children(emqx_rule_engine_jwt_sup)),
     ok.
