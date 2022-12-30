@@ -14,6 +14,7 @@ help() {
     echo "--suites SUITE1,SUITE2: Comma separated SUITE names to run. e.g. apps/emqx/test/emqx_SUITE.erl"
     echo "--console:              Start EMQX in console mode but do not run test cases"
     echo "--attach:               Attach to the Erlang docker container without running any test case"
+    echo "--stop:                 Stop running containers for the given app"
     echo "--only-up:              Only start the testbed but do not run CT"
     echo "--keep-up:              Keep the testbed running after CT"
 }
@@ -24,6 +25,7 @@ KEEP_UP='no'
 ONLY_UP='no'
 SUITES=''
 ATTACH='no'
+STOP='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -44,6 +46,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --attach)
             ATTACH='yes'
+            shift 1
+            ;;
+        --stop)
+            STOP='yes'
             shift 1
             ;;
         --console)
@@ -155,8 +161,10 @@ else
     export UID_GID="$ORIG_UID_GID"
 fi
 
-# shellcheck disable=2086 # no quotes for F_OPTIONS
-docker-compose $F_OPTIONS up -d --build --remove-orphans
+if [ "$STOP" = 'no' ]; then
+    # shellcheck disable=2086 # no quotes for F_OPTIONS
+    docker-compose $F_OPTIONS up -d --build --remove-orphans
+fi
 
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
@@ -183,7 +191,10 @@ fi
 
 set +e
 
-if [ "$ATTACH" = 'yes' ]; then
+if [ "$STOP" = 'yes' ]; then
+    # shellcheck disable=2086 # no quotes for F_OPTIONS
+    docker-compose $F_OPTIONS down --remove-orphans
+elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
     restore_ownership
 elif [ "$CONSOLE" = 'yes' ]; then
