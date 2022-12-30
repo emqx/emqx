@@ -404,9 +404,13 @@ t_write_failure(Config) ->
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
             send_message(Config, SentData)
         end),
-        fun(Result, _Trace) ->
-            ?assertMatch({error, {resource_error, _}}, Result),
-            ok
+        fun
+            ({error, {resource_error, _}}, _Trace) ->
+                ok;
+            ({error, {recoverable_error, disconnected}}, _Trace) ->
+                ok;
+            (_, _Trace) ->
+                ?assert(false)
         end
     ),
     ok.
