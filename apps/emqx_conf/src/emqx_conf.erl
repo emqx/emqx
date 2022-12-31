@@ -316,7 +316,7 @@ hocon_schema_to_spec(?UNION(Types), LocalModule) ->
             {[Schema | Acc], SubRefs ++ RefsAcc}
         end,
         {[], []},
-        Types
+        hoconsc:union_members(Types)
     ),
     {#{<<"oneOf">> => OneOf}, Refs};
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->

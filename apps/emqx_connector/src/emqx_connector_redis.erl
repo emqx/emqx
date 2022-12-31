@@ -63,7 +63,6 @@ fields(single) ->
         {server, server()},
         {redis_type, #{
             type => single,
-            default => single,
             required => true,
             desc => ?DESC("single")
         }}
@@ -75,7 +74,6 @@ fields(cluster) ->
         {servers, servers()},
         {redis_type, #{
             type => cluster,
-            default => cluster,
             required => true,
             desc => ?DESC("cluster")
         }}
@@ -87,7 +85,6 @@ fields(sentinel) ->
         {servers, servers()},
         {redis_type, #{
             type => sentinel,
-            default => sentinel,
             required => true,
             desc => ?DESC("sentinel")
         }},

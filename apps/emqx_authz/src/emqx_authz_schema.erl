@@ -47,14 +47,8 @@
 %% Hocon Schema
 %%--------------------------------------------------------------------
 
-namespace() -> authz.
-
-%% @doc authorization schema is not exported
-%% but directly used by emqx_schema
-roots() -> [].
-
-fields("authorization") ->
-    Types = [
+type_names() ->
+    [
         file,
         http_get,
         http_post,
@@ -67,12 +61,26 @@ fields("authorization") ->
         redis_single,
         redis_sentinel,
         redis_cluster
-    ],
-    Unions = [?R_REF(Type) || Type <- Types],
+    ].
+
+namespace() -> authz.
+
+%% @doc authorization schema is not exported
+%% but directly used by emqx_schema
+roots() -> [].
+
+fields("authorization") ->
+    Types = [?R_REF(Type) || Type <- type_names()],
+    UnionMemberSelector =
+        fun
+            (all_union_members) -> Types;
+            %% must return list
+            ({value, Value}) -> [select_union_member(Value)]
+        end,
     [
         {sources,
             ?HOCON(
-                ?ARRAY(?UNION(Unions)),
+                ?ARRAY(?UNION(UnionMemberSelector)),
                 #{
                     default => [],
                     desc => ?DESC(sources)
@@ -408,9 +416,75 @@ common_rate_field() ->
     ].
 
 method(Method) ->
-    ?HOCON(Method, #{default => Method, required => true, desc => ?DESC(method)}).
+    ?HOCON(Method, #{required => true, desc => ?DESC(method)}).
 
 array(Ref) -> array(Ref, Ref).
 
 array(Ref, DescId) ->
     ?HOCON(?ARRAY(?R_REF(Ref)), #{desc => ?DESC(DescId)}).
+
+select_union_member(#{<<"type">> := <<"mongodb">>} = Value) ->
+    MongoType = maps:get(<<"mongo_type">>, Value, undefined),
+    case MongoType of
+        <<"single">> ->
+            ?R_REF(mongo_single);
+        <<"rs">> ->
+            ?R_REF(mongo_rs);
+        <<"sharded">> ->
+            ?R_REF(mongo_sharded);
+        Else ->
+            throw(#{
+                reason => "unknown_mongo_type",
+                expected => "single | rs | sharded",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"redis">>} = Value) ->
+    RedisType = maps:get(<<"redis_type">>, Value, undefined),
+    case RedisType of
+        <<"single">> ->
+            ?R_REF(redis_single);
+        <<"cluster">> ->
+            ?R_REF(redis_cluster);
+        <<"sentinel">> ->
+            ?R_REF(redis_sentinel);
+        Else ->
+            throw(#{
+                reason => "unknown_redis_type",
+                expected => "single | cluster | sentinel",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"http">>} = Value) ->
+    RedisType = maps:get(<<"method">>, Value, undefined),
+    case RedisType of
+        <<"get">> ->
+            ?R_REF(http_get);
+        <<"post">> ->
+            ?R_REF(http_post);
+        Else ->
+            throw(#{
+                reason => "unknown_http_method",
+                expected => "get | post",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"built_in_database">>}) ->
+    ?R_REF(mnesia);
+select_union_member(#{<<"type">> := Type}) ->
+    select_union_member_loop(Type, type_names());
+select_union_member(_) ->
+    throw("missing_type_field").
+
+select_union_member_loop(TypeValue, []) ->
+    throw(#{
+        reason => "unknown_authz_type",
+        got => TypeValue
+    });
+select_union_member_loop(TypeValue, [Type | Types]) ->
+    case TypeValue =:= atom_to_binary(Type) of
+        true ->
+            ?R_REF(Type);
+        false ->
+            select_union_member_loop(TypeValue, Types)
+    end.

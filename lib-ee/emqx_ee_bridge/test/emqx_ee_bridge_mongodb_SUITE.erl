@@ -151,6 +151,7 @@ mongo_config(MongoHost, MongoPort0, rs = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  mongo_type = rs\n"
             "}",
             [Name, Servers]
         ),
@@ -167,6 +168,7 @@ mongo_config(MongoHost, MongoPort0, sharded = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  mongo_type = sharded\n"
             "}",
             [Name, Servers]
         ),
@@ -183,6 +185,7 @@ mongo_config(MongoHost, MongoPort0, single = Type) ->
             "  server = ~p\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  mongo_type = single\n"
             "}",
             [Name, Server]
         ),

@@ -50,19 +50,22 @@ values(Protocol, get) ->
 values("single", post) ->
     SpecificOpts = #{
         server => <<"127.0.0.1:6379">>,
+        redis_type => single,
         database => 1
     },
     values(common, "single", SpecificOpts);
 values("sentinel", post) ->
     SpecificOpts = #{
         servers => [<<"127.0.0.1:26379">>],
+        redis_type => sentinel,
         sentinel => <<"mymaster">>,
         database => 1
     },
     values(common, "sentinel", SpecificOpts);
 values("cluster", post) ->
     SpecificOpts = #{
-        servers => [<<"127.0.0.1:6379">>]
+        servers => [<<"127.0.0.1:6379">>],
+        redis_type => cluster
     },
     values(common, "cluster", SpecificOpts);
 values(Protocol, put) ->

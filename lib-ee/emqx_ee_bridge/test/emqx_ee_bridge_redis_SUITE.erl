@@ -17,7 +17,8 @@
 %%------------------------------------------------------------------------------
 
 -define(REDIS_TOXYPROXY_CONNECT_CONFIG, #{
-    <<"server">> => <<"toxiproxy:6379">>
+    <<"server">> => <<"toxiproxy:6379">>,
+    <<"redis_type">> => <<"single">>
 }).
 
 -define(COMMON_REDIS_OPTS, #{
@@ -425,19 +426,23 @@ redis_connect_configs() ->
     #{
         redis_single => #{
             tcp => #{
+                <<"redis_type">> => <<"single">>,
                 <<"server">> => <<"redis:6379">>
             },
             tls => #{
+                <<"redis_type">> => <<"single">>,
                 <<"server">> => <<"redis-tls:6380">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_single)
             }
         },
         redis_sentinel => #{
             tcp => #{
+                <<"redis_type">> => <<"sentinel">>,
                 <<"servers">> => <<"redis-sentinel:26379">>,
                 <<"sentinel">> => <<"mymaster">>
             },
             tls => #{
+                <<"redis_type">> => <<"sentinel">>,
                 <<"servers">> => <<"redis-sentinel-tls:26380">>,
                 <<"sentinel">> => <<"mymaster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_sentinel)
@@ -445,9 +450,11 @@ redis_connect_configs() ->
         },
         redis_cluster => #{
             tcp => #{
+                <<"redis_type">> => <<"cluster">>,
                 <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>
             },
             tls => #{
+                <<"redis_type">> => <<"cluster">>,
                 <<"servers">> =>
                     <<"redis-cluster-tls:8000,redis-cluster-tls:8001,redis-cluster-tls:8002">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_cluster)

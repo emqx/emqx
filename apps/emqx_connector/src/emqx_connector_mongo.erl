@@ -67,7 +67,6 @@ fields(single) ->
     [
         {mongo_type, #{
             type => single,
-            default => single,
             required => true,
             desc => ?DESC("single_mongo_type")
         }},
@@ -78,7 +77,6 @@ fields(rs) ->
     [
         {mongo_type, #{
             type => rs,
-            default => rs,
             required => true,
             desc => ?DESC("rs_mongo_type")
         }},
@@ -91,7 +89,6 @@ fields(sharded) ->
     [
         {mongo_type, #{
             type => sharded,
-            default => sharded,
             required => true,
             desc => ?DESC("sharded_mongo_type")
         }},
