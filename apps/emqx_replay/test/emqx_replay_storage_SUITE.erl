@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,24 +22,29 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("proper/include/proper.hrl").
 
+-define(ZONE, zone(?FUNCTION_NAME)).
+
+%% Smoke test for opening and reopening the database
+t_open(Config) ->
+    ok = emqx_replay_local_store_sup:stop_zone(?ZONE),
+    {ok, _} = emqx_replay_local_store_sup:start_zone(?ZONE).
+
 %% Smoke test of store function
 t_store(Config) ->
-    DB = ?config(handle, Config),
     MessageID = emqx_guid:gen(),
     PublishedAt = 1000,
     Topic = [<<"foo">>, <<"bar">>],
     Payload = <<"message">>,
-    ?assertMatch(ok, emqx_replay_message_storage:store(DB, MessageID, PublishedAt, Topic, Payload)).
+    ?assertMatch(ok, emqx_replay_local_store:store(?ZONE, MessageID, PublishedAt, Topic, Payload)).
 
 %% Smoke test for iteration through a concrete topic
 t_iterate(Config) ->
-    DB = ?config(handle, Config),
     %% Prepare data:
     Topics = [[<<"foo">>, <<"bar">>], [<<"foo">>, <<"bar">>, <<"baz">>], [<<"a">>]],
     Timestamps = lists:seq(1, 10),
     [
-        emqx_replay_message_storage:store(
-            DB,
+        emqx_replay_local_store:store(
+            ?ZONE,
             emqx_guid:gen(),
             PublishedAt,
             Topic,
@@ -50,7 +55,7 @@ t_iterate(Config) ->
     %% Iterate through individual topics:
     [
         begin
-            {ok, It} = emqx_replay_message_storage:make_iterator(DB, Topic, 0),
+            {ok, It} = emqx_replay_local_store:make_iterator(?ZONE, Topic, 0),
             Values = iterate(It),
             ?assertEqual(lists:map(fun integer_to_binary/1, Timestamps), Values)
         end
@@ -60,68 +65,67 @@ t_iterate(Config) ->
 
 %% Smoke test for iteration with wildcard topic filter
 t_iterate_wildcard(Config) ->
-    DB = ?config(handle, Config),
     %% Prepare data:
     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
     Timestamps = lists:seq(1, 10),
     _ = [
-        store(DB, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 10 + 1)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 10 + 1)])
     ),
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- lists:seq(5, 10)]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "#", 5)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 5)])
     ),
     ?assertEqual(
         lists:sort([
             {Topic, PublishedAt}
          || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/#", 0)])
     ),
     ?assertEqual(
         lists:sort([{"foo/bar", PublishedAt} || PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/+", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/+", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "foo/+/bar", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/+/bar", 0)])
     ),
     ?assertEqual(
         lists:sort([
             {Topic, PublishedAt}
          || Topic <- ["foo/bar", "foo/bar/baz", "a/bar"], PublishedAt <- Timestamps
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "+/bar/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "+/bar/#", 0)])
     ),
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- ["a", "a/bar"], PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "a/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/#", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(DB, "a/+/+", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/+/+", 0)])
     ),
     ok.
 
-store(DB, PublishedAt, Topic, Payload) ->
+store(Zone, PublishedAt, Topic, Payload) ->
     ID = emqx_guid:gen(),
-    emqx_replay_message_storage:store(DB, ID, PublishedAt, parse_topic(Topic), Payload).
+    emqx_replay_local_store:store(Zone, ID, PublishedAt, parse_topic(Topic), Payload).
 
 iterate(DB, TopicFilter, StartTime) ->
-    {ok, It} = emqx_replay_message_storage:make_iterator(DB, parse_topic(TopicFilter), StartTime),
+    {ok, It} = emqx_replay_local_store:make_iterator(DB, parse_topic(TopicFilter), StartTime),
     iterate(It).
 
 iterate(It) ->
-    case emqx_replay_message_storage:next(It) of
+    case emqx_replay_local_store:next(It) of
         {value, Payload, ItNext} ->
             [Payload | iterate(ItNext)];
         none ->
@@ -166,7 +170,6 @@ t_prop_hash_bitmask_computes(_) ->
     ).
 
 t_prop_iterate_stored_messages(Config) ->
-    DB = ?config(handle, Config),
     ?assertEqual(
         true,
         proper:quickcheck(
@@ -175,7 +178,7 @@ t_prop_iterate_stored_messages(Config) ->
                 messages(),
                 begin
                     Stream = payload_gen:interleave_streams(Streams),
-                    ok = store_message_stream(DB, Stream),
+                    ok = store_message_stream(?ZONE, Stream),
                     % TODO actually verify some property
                     true
                 end
@@ -183,12 +186,12 @@ t_prop_iterate_stored_messages(Config) ->
         )
     ).
 
-store_message_stream(DB, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
+store_message_stream(Zone, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
     MessageID = <<ChunkNum:32>>,
     PublishedAt = rand:uniform(ChunkNum),
-    ok = emqx_replay_message_storage:store(DB, MessageID, PublishedAt, Topic, Payload),
-    store_message_stream(DB, payload_gen:next(Rest));
-store_message_stream(_DB, []) ->
+    ok = emqx_replay_local_store:store(Zone, MessageID, PublishedAt, Topic, Payload),
+    store_message_stream(Zone, payload_gen:next(Rest));
+store_message_stream(_Zone, []) ->
     ok.
 
 messages() ->
@@ -249,18 +252,12 @@ topic_level(Entropy) ->
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(TC, Config) ->
-    Filename = filename:join(?MODULE_STRING, atom_to_list(TC)),
-    ok = filelib:ensure_dir(Filename),
-    {ok, DB} = emqx_replay_message_storage:open(Filename, #{
-        column_family => {atom_to_list(TC), []},
-        keymapper => emqx_replay_message_storage:make_keymapper(#{
-            timestamp_bits => 64,
-            topic_bits_per_level => [8, 8, 32, 16],
-            max_tau => 5
-        })
-    }),
-    [{handle, DB} | Config].
+    {ok, _} = application:ensure_all_started(emqx_replay),
+    {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
+    Config.
 
 end_per_testcase(_TC, Config) ->
-    DB = ?config(handle, Config),
-    catch emqx_replay_message_storage:close(DB).
+    ok = application:stop(emqx_replay).
+
+zone(TC) ->
+    list_to_atom(?MODULE_STRING ++ atom_to_list(TC)).
