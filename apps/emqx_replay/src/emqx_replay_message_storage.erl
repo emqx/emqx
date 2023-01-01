@@ -106,6 +106,8 @@
 
 -export_type([db/0, iterator/0]).
 
+-compile({inline, [ones/1, bitwise_concat/3]}).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -343,40 +345,43 @@ hash(Input, Bits) ->
 
 compute_bitstring(Topic, Timestamp, [{timestamp, Offset, Size} | Rest], Acc) ->
     I = (Timestamp bsr Offset) band ones(Size),
-    compute_bitstring(Topic, Timestamp, Rest, (Acc bsl Size) + I);
+    compute_bitstring(Topic, Timestamp, Rest, bitwise_concat(Acc, I, Size));
 compute_bitstring([], Timestamp, [{hash, level, Size} | Rest], Acc) ->
     I = hash(<<"/">>, Size),
-    compute_bitstring([], Timestamp, Rest, (Acc bsl Size) + I);
+    compute_bitstring([], Timestamp, Rest, bitwise_concat(Acc, I, Size));
 compute_bitstring([Level | Tail], Timestamp, [{hash, level, Size} | Rest], Acc) ->
     I = hash(Level, Size),
-    compute_bitstring(Tail, Timestamp, Rest, (Acc bsl Size) + I);
+    compute_bitstring(Tail, Timestamp, Rest, bitwise_concat(Acc, I, Size));
 compute_bitstring(Tail, Timestamp, [{hash, levels, Size} | Rest], Acc) ->
     I = hash(Tail, Size),
-    compute_bitstring(Tail, Timestamp, Rest, (Acc bsl Size) + I);
+    compute_bitstring(Tail, Timestamp, Rest, bitwise_concat(Acc, I, Size));
 compute_bitstring(_, _, [], Acc) ->
     Acc.
 
 compute_hash_bitmask(Filter, [{timestamp, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Filter, Rest, (Acc bsl Size) + 0);
+    compute_hash_bitmask(Filter, Rest, bitwise_concat(Acc, 0, Size));
 compute_hash_bitmask(['#'], [{hash, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(['#'], Rest, (Acc bsl Size) + 0);
+    compute_hash_bitmask(['#'], Rest, bitwise_concat(Acc, 0, Size));
 compute_hash_bitmask(['+' | Tail], [{hash, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Tail, Rest, (Acc bsl Size) + 0);
+    compute_hash_bitmask(Tail, Rest, bitwise_concat(Acc, 0, Size));
 compute_hash_bitmask([], [{hash, level, Size} | Rest], Acc) ->
-    compute_hash_bitmask([], Rest, (Acc bsl Size) + ones(Size));
+    compute_hash_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
 compute_hash_bitmask([_ | Tail], [{hash, level, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Tail, Rest, (Acc bsl Size) + ones(Size));
+    compute_hash_bitmask(Tail, Rest, bitwise_concat(Acc, ones(Size), Size));
 compute_hash_bitmask(_, [{hash, levels, Size} | Rest], Acc) ->
-    compute_hash_bitmask([], Rest, (Acc bsl Size) + ones(Size));
+    compute_hash_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
 compute_hash_bitmask(_, [], Acc) ->
     Acc.
 
 compute_time_bitmask([{timestamp, _, Size} | Rest], Acc) ->
-    compute_time_bitmask(Rest, (Acc bsl Size) + ones(Size));
+    compute_time_bitmask(Rest, bitwise_concat(Acc, ones(Size), Size));
 compute_time_bitmask([{hash, _, Size} | Rest], Acc) ->
-    compute_time_bitmask(Rest, (Acc bsl Size) + 0);
+    compute_time_bitmask(Rest, bitwise_concat(Acc, 0, Size));
 compute_time_bitmask([], Acc) ->
     Acc.
+
+bitwise_concat(Acc, Item, ItemSize) ->
+    (Acc bsl ItemSize) bor Item.
 
 ones(Bits) ->
     1 bsl Bits - 1.
