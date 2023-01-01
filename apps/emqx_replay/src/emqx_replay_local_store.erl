@@ -168,7 +168,7 @@ ensure_current_generation(S = #s{zone = Zone, db = DBHandle, column_families = C
 create_new_generation_schema(
     GenId, S = #s{zone = Zone, db = DBHandle, column_families = CFs}
 ) ->
-    {Module, Options} = new_generation_config(Zone),
+    {Module, Options} = emqx_replay_conf:zone_config(Zone),
     {NewGenData, NewCFs} = Module:create_new(DBHandle, GenId, Options),
     NewGen = #generation{
         module = Module,
@@ -178,23 +178,10 @@ create_new_generation_schema(
     ok = schema_put_gen(DBHandle, GenId, NewGen),
     S#s{column_families = NewCFs ++ CFs}.
 
--spec new_generation_config(emqx_types:zone()) ->
-    {module(), term()}.
-new_generation_config(Zone) ->
-    %% TODO: make a proper HOCON schema and all...
-    Zones = application:get_env(emqx_replay, zone_config, #{}),
-    DefaultConf =
-        #{
-            timestamp_bits => 64,
-            topic_bits_per_level => [8, 8, 8, 32, 16],
-            max_tau => 5
-        },
-    maps:get(Zone, Zones, {emqx_replay_message_storage, DefaultConf}).
-
 -spec open_db(emqx_types:zone()) -> {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 open_db(Zone) ->
     Filename = atom_to_list(Zone),
-    DBOptions = application:get_env(emqx_replay, db_options, []),
+    DBOptions = emqx_replay_conf:db_options(),
     ColumnFamiles =
         case rocksdb:list_column_families(Filename, DBOptions) of
             {ok, ColumnFamiles0} ->
