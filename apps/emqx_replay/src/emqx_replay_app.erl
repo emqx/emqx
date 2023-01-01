@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,4 +16,7 @@
 
 -module(emqx_replay_app).
 
--export([]).
+-export([start/2]).
+
+start(_Type, _Args) ->
+    emqx_replay_sup:start_link().

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,8 +16,80 @@
 
 -module(emqx_replay_message_storage).
 
+%%================================================================================
+%% @doc Description of the schema
+%%
+%% Let us assume that `T' is a topic and `t' is time. These are the two
+%% dimensions used to index messages. They can be viewed as
+%% "coordinates" of an MQTT message in a 2D space.
+%%
+%% Oftentimes, when wildcard subscription is used, keys must be
+%% scanned in both dimensions simultaneously.
+%%
+%% Rocksdb allows to iterate over sorted keys very fast. This means we
+%% need to map our two-dimentional keys to a single index that is
+%% sorted in a way that helps to iterate over both time and topic
+%% without having to do a lot of random seeks.
+%%
+%% == Mapping of 2D keys to rocksdb keys ==
+%%
+%% We use "zigzag" pattern to store messages, where rocksdb key is
+%% composed like like this:
+%%
+%%              |ttttt|TTTTTTTTT|tttt|
+%%                 ^       ^      ^
+%%                 |       |      |
+%%         +-------+       |      +---------+
+%%         |               |                |
+%% most significant    topic hash   least significant
+%% bits of timestamp                bits of timestamp
+%%
+%% Topic hash is level-aware: each topic level is hashed separately
+%% and the resulting hashes are bitwise-concatentated. This allows us
+%% to map topics to fixed-length bitstrings while keeping some degree
+%% of information about the hierarchy.
+%%
+%% Next important concept is what we call "tau-interval". It is time
+%% interval determined by the number of least significant bits of the
+%% timestamp found at the tail of the rocksdb key.
+%%
+%% The resulting index is a space-filling curve that looks like
+%% this in the topic-time 2D space:
+%%
+%% T ^ ---->------   |---->------   |---->------
+%%   |       --/     /      --/     /      --/
+%%   |   -<-/       |   -<-/       |   -<-/
+%%   | -/           | -/           | -/
+%%   | ---->------  | ---->------  | ---->------
+%%   |       --/    /       --/    /       --/
+%%   |   ---/      |    ---/      |    ---/
+%%   | -/          ^  -/          ^  -/
+%%   | ---->------ |  ---->------ |  ---->------
+%%   |       --/   /        --/   /        --/
+%%   |   -<-/     |     -<-/     |     -<-/
+%%   | -/         |   -/         |   -/
+%%   | ---->------|   ---->------|   ---------->
+%%   |
+%%  -+------------+-----------------------------> t
+%%        tau
+%%
+%% This structure allows to quickly seek to a the first message that
+%% was recorded in a certain tau-interval in a certain topic or a
+%% group of topics matching filter like `foo/bar/+/+' or `foo/bar/#`.
+%%
+%% Due to its structure, for each pair of rocksdb keys K1 and K2, such
+%% that K1 > K2 and topic(K1) = topic(K2), timestamp(K1) >
+%% timestamp(K2).
+%% That is, replay doesn't reorder messages published in each
+%% individual topic.
+%%
+%% This property doesn't hold between different topics, but it's not deemed
+%% a problem right now.
+%%
+%%================================================================================
+
 %% API:
--export([open/2, close/1]).
+-export([create_new/3, open/4]).
 -export([make_keymapper/1]).
 
 -export([store/5]).
@@ -55,29 +127,11 @@
 %% and _rest of levels_ (if any) get 16 bits.
 -type bits_per_level() :: [bits(), ...].
 
-%% see rocksdb:db_options()
--type db_options() :: proplists:proplist().
-
-%% see rocksdb:cf_options()
--type db_cf_options() :: proplists:proplist().
-
-%% see rocksdb:write_options()
--type db_write_options() :: proplists:proplist().
-
-%% see rocksdb:read_options()
--type db_read_options() :: proplists:proplist().
-
 -type options() :: #{
     %% Keymapper.
     keymapper := keymapper(),
     %% Name and options to use to open specific column family.
-    column_family => {_Name :: string(), db_cf_options()},
-    %% Options to use when opening the DB.
-    open_options => db_options(),
-    %% Options to use when writing a message to the DB.
-    write_options => db_write_options(),
-    %% Options to use when iterating over messages in the DB.
-    read_options => db_read_options()
+    cf_options => emqx_replay_local_store:db_cf_options()
 }.
 
 -define(DEFAULT_COLUMN_FAMILY, {"default", []}).
@@ -90,12 +144,18 @@
 -define(DEFAULT_WRITE_OPTIONS, [{sync, true}]).
 -define(DEFAULT_READ_OPTIONS, []).
 
+%% Persistent configuration of the generation, it is used to create db
+%% record when the database is reopened
+-record(schema, {keymapper :: keymapper()}).
+
+-type schema() :: #schema{}.
+
 -record(db, {
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
-    write_options = [{sync, true}] :: db_write_options(),
-    read_options = [] :: db_write_options()
+    write_options = [{sync, true}] :: emqx_replay_local_store:db_write_options(),
+    read_options = [] :: emqx_replay_local_store:db_write_options()
 }).
 
 -record(it, {
@@ -132,40 +192,33 @@
 %% API funcions
 %%================================================================================
 
--spec open(file:filename_all(), options()) ->
-    {ok, db()} | {error, _TODO}.
-open(Filename, Options) ->
-    CFDescriptors =
-        case maps:get(column_family, Options, undefined) of
-            CF = {_Name, _} ->
-                % TODO
-                % > When opening a DB in a read-write mode, you need to specify all
-                % > Column Families that currently exist in a DB. If that's not the case,
-                % > DB::Open call will return Status::InvalidArgument().
-                % This probably means that we need the _manager_ (the thing which knows
-                % about all the column families there is) to hold the responsibility to
-                % open the database and hold all the handles.
-                [CF, ?DEFAULT_COLUMN_FAMILY];
-            undefined ->
-                [?DEFAULT_COLUMN_FAMILY]
-        end,
-    DBOptions = maps:get(open_options, Options, ?DEFAULT_OPEN_OPTIONS),
-    case rocksdb:open(Filename, DBOptions, CFDescriptors) of
-        {ok, Handle, [CFHandle | _]} ->
-            {ok, #db{
-                handle = Handle,
-                cf = CFHandle,
-                keymapper = maps:get(keymapper, Options),
-                write_options = maps:get(write_options, Options, ?DEFAULT_WRITE_OPTIONS),
-                read_options = maps:get(read_options, Options, ?DEFAULT_READ_OPTIONS)
-            }};
-        Error ->
-            Error
-    end.
+%% Create a new column family for the generation and a serializable representation of the schema
+-spec create_new(rocksdb:db_handle(), emqx_replay_local_store:generation_id(), options()) ->
+    {schema(), emqx_replay_local_store:cf_refs()}.
+create_new(DBHandle, GenId, Options) ->
+    CFName = data_cf(GenId),
+    CFOptions = maps:get(cf_options, Options, []),
+    {ok, CFHandle} = rocksdb:create_column_family(DBHandle, CFName, CFOptions),
+    Schema = #schema{keymapper = make_keymapper(Options)},
+    {Schema, [{CFName, CFHandle}]}.
 
--spec close(db()) -> ok | {error, _}.
-close(#db{handle = DB}) ->
-    rocksdb:close(DB).
+%% Reopen the database
+-spec open(
+    rocksdb:db_handle(),
+    emqx_replay_local_store:generation_id(),
+    [{_CFName :: string(), _CFHandle :: reference()}],
+    schema()
+) ->
+    db().
+open(DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+    CFHandle = proplists:get_value(data_cf(GenId), CFs),
+    % assert
+    true = is_reference(CFHandle),
+    #db{
+        handle = DBHandle,
+        cf = CFHandle,
+        keymapper = Keymapper
+    }.
 
 -spec make_keymapper(Options) -> keymapper() when
     Options :: #{
@@ -460,6 +513,11 @@ zipfoldr3(FoldFun, Acc, I1, I2, I3, Offset, [Source = {_, _, S} | Rest]) ->
 
 substring(I, Offset, Size) ->
     (I bsr Offset) band ones(Size).
+
+%% @doc Generate a column family ID for the MQTT messages
+-spec data_cf(emqx_replay_local_store:gen_id()) -> string().
+data_cf(GenId) ->
+    ?MODULE_STRING ++ integer_to_list(GenId).
 
 -ifdef(TEST).
 
