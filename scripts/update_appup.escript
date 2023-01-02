@@ -90,7 +90,7 @@ qlc_modules() ->
               end, Files).
 
 is_git_diff(BaseVsn, File) ->
-    CMD = "git diff --name-only "++ BaseVsn ++ "...HEAD " ++ File,
+    CMD = "git diff --name-only "++ BaseVsn ++ "...HEAD -G '(^[^\\s?%])'" ++ File,
     case string:trim(os:cmd(CMD)) of
         "" ->
             false;
