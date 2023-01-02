@@ -80,6 +80,12 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    wait_for_ci_redis(redis_checks(), Config).
+
+wait_for_ci_redis(0, _Config) ->
+    throw(no_redis);
+wait_for_ci_redis(Checks, Config) ->
+    timer:sleep(1000),
     TestHosts = all_test_hosts(),
     case emqx_common_test_helpers:is_all_tcp_servers_available(TestHosts) of
         true ->
@@ -97,15 +103,15 @@ init_per_suite(Config) ->
                 | Config
             ];
         false ->
-            assert_ci()
+            wait_for_ci_redis(Checks - 1, Config)
     end.
 
-assert_ci() ->
+redis_checks() ->
     case os:getenv("IS_CI") of
         "yes" ->
-            throw(no_redis);
+            10;
         _ ->
-            {skip, no_redis}
+            1
     end.
 
 end_per_suite(_Config) ->
