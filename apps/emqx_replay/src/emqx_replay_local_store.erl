@@ -38,7 +38,7 @@
 
 -type db_write_options() :: proplists:proplist().
 
--type cf_refs() :: [{_CFName :: string(), _CFRef :: reference()}].
+-type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 
 -record(generation, {
     %% Module that handles data for the generation
@@ -142,12 +142,12 @@ terminate(_Reason, #s{db = DB, zone = Zone}) ->
 %% Internal functions
 %%================================================================================
 
--spec read_metadata(#s{}) -> #s{}.
+-spec read_metadata(#s{}) -> ok.
 read_metadata(S) ->
     %% TODO: just a mockup to make the existing tests pass
     read_metadata(0, S).
 
--spec read_metadata(gen_id(), #s{}) -> #s{}.
+-spec read_metadata(gen_id(), #s{}) -> ok.
 read_metadata(GenId, S = #s{zone = Zone, db = DBHandle, column_families = CFs}) ->
     Gen = #generation{module = Mod, data = Data} = schema_get_gen(DBHandle, GenId),
     DB = Mod:open(DBHandle, GenId, CFs, Data),
@@ -206,12 +206,12 @@ open_db(Zone) ->
 
 -spec schema_get_gen(rocksdb:db_handle(), gen_id()) -> #generation{}.
 schema_get_gen(DBHandle, GenId) ->
-    {ok, Bin} = rocksdb:get(DBHandle, gen_rocksdb_key(GenId), ?SCHEMA_READ_OPTS),
+    {ok, Bin} = rocksdb:get(DBHandle, schema_gen_key(GenId), ?SCHEMA_READ_OPTS),
     binary_to_term(Bin).
 
 -spec schema_put_gen(rocksdb:db_handle(), gen_id(), #generation{}) -> ok | {error, _}.
 schema_put_gen(DBHandle, GenId, Gen) ->
-    rocksdb:put(DBHandle, gen_rocksdb_key(GenId), term_to_binary(Gen), ?SCHEMA_WRITE_OPTS).
+    rocksdb:put(DBHandle, schema_gen_key(GenId), term_to_binary(Gen), ?SCHEMA_WRITE_OPTS).
 
 -spec schema_get_current(rocksdb:db_handle()) -> gen_id() | undefined.
 schema_get_current(DBHandle) ->
@@ -226,8 +226,8 @@ schema_get_current(DBHandle) ->
 schema_put_current(DBHandle, GenId) ->
     rocksdb:put(DBHandle, ?CURRENT_GEN, integer_to_binary(GenId), ?SCHEMA_WRITE_OPTS).
 
--spec gen_rocksdb_key(integer()) -> string().
-gen_rocksdb_key(N) ->
+-spec schema_gen_key(integer()) -> binary().
+schema_gen_key(N) ->
     <<"gen", N:32>>.
 
 -undef(CURRENT_GEN).
