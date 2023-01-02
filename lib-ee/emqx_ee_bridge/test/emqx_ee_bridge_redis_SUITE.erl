@@ -220,16 +220,24 @@ t_check_replay(Config) ->
         begin
             ?wait_async_action(
                 with_down_failure(Config, ProxyName, fun() ->
-                    ct:sleep(100),
-                    lists:foreach(
-                        fun(_) ->
-                            _ = publish_message(Topic, <<"test_payload">>)
-                        end,
-                        lists:seq(1, ?BATCH_SIZE)
-                    )
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            lists:foreach(
+                                fun(_) ->
+                                    _ = publish_message(Topic, <<"test_payload">>)
+                                end,
+                                lists:seq(1, ?BATCH_SIZE)
+                            ),
+                            #{
+                                ?snk_kind := redis_ee_connector_send_done,
+                                batch := true,
+                                result := {error, _}
+                            },
+                            10_000
+                        )
                 end),
                 #{?snk_kind := redis_ee_connector_send_done, batch := true, result := {ok, _}},
-                10000
+                10_000
             )
         end,
         fun(Trace) ->
