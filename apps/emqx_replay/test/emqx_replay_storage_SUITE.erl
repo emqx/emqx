@@ -25,12 +25,12 @@
 -define(ZONE, zone(?FUNCTION_NAME)).
 
 %% Smoke test for opening and reopening the database
-t_open(Config) ->
+t_open(_Config) ->
     ok = emqx_replay_local_store_sup:stop_zone(?ZONE),
     {ok, _} = emqx_replay_local_store_sup:start_zone(?ZONE).
 
 %% Smoke test of store function
-t_store(Config) ->
+t_store(_Config) ->
     MessageID = emqx_guid:gen(),
     PublishedAt = 1000,
     Topic = [<<"foo">>, <<"bar">>],
@@ -38,7 +38,7 @@ t_store(Config) ->
     ?assertMatch(ok, emqx_replay_local_store:store(?ZONE, MessageID, PublishedAt, Topic, Payload)).
 
 %% Smoke test for iteration through a concrete topic
-t_iterate(Config) ->
+t_iterate(_Config) ->
     %% Prepare data:
     Topics = [[<<"foo">>, <<"bar">>], [<<"foo">>, <<"bar">>, <<"baz">>], [<<"a">>]],
     Timestamps = lists:seq(1, 10),
@@ -64,7 +64,7 @@ t_iterate(Config) ->
     ok.
 
 %% Smoke test for iteration with wildcard topic filter
-t_iterate_wildcard(Config) ->
+t_iterate_wildcard(_Config) ->
     %% Prepare data:
     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
     Timestamps = lists:seq(1, 10),
