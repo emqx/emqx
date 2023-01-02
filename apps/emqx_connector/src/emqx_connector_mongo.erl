@@ -102,15 +102,15 @@ fields(topology) ->
     [
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {max_overflow, fun max_overflow/1},
-        {overflow_ttl, fun duration/1},
-        {overflow_check_period, fun duration/1},
-        {local_threshold_ms, fun duration/1},
-        {connect_timeout_ms, fun duration/1},
-        {socket_timeout_ms, fun duration/1},
-        {server_selection_timeout_ms, fun duration/1},
-        {wait_queue_timeout_ms, fun duration/1},
-        {heartbeat_frequency_ms, fun duration/1},
-        {min_heartbeat_frequency_ms, fun duration/1}
+        {overflow_ttl, duration("overflow_ttl")},
+        {overflow_check_period, duration("overflow_check_period")},
+        {local_threshold_ms, duration("local_threshold")},
+        {connect_timeout_ms, duration("connect_timeout")},
+        {socket_timeout_ms, duration("socket_timeout")},
+        {server_selection_timeout_ms, duration("server_selection_timeout")},
+        {wait_queue_timeout_ms, duration("wait_queue_timeout")},
+        {heartbeat_frequency_ms, duration("heartbeat_period")},
+        {min_heartbeat_frequency_ms, duration("min_heartbeat_period")}
     ].
 
 desc(single) ->
@@ -403,10 +403,12 @@ r_mode(desc) -> ?DESC("r_mode");
 r_mode(default) -> master;
 r_mode(_) -> undefined.
 
-duration(type) -> emqx_schema:duration_ms();
-duration(desc) -> ?DESC("duration");
-duration(required) -> false;
-duration(_) -> undefined.
+duration(Desc) ->
+    #{
+        type => emqx_schema:duration_ms(),
+        required => false,
+        desc => ?DESC(Desc)
+    }.
 
 max_overflow(type) -> non_neg_integer();
 max_overflow(desc) -> ?DESC("max_overflow");
