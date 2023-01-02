@@ -111,7 +111,7 @@
     list_group_instances/1
 ]).
 
--export([inc_received/1, apply_reply_fun/2]).
+-export([apply_reply_fun/2]).
 
 -optional_callbacks([
     on_query/3,
@@ -466,9 +466,6 @@ apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
 
 %% =================================================================================
-
-inc_received(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, 'received').
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].

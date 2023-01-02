@@ -55,6 +55,9 @@
     matched_inc/1,
     matched_inc/2,
     matched_get/1,
+    received_inc/1,
+    received_inc/2,
+    received_get/1,
     retried_inc/1,
     retried_inc/2,
     retried_get/1,
@@ -87,6 +90,7 @@ events() ->
             inflight,
             matched,
             queuing,
+            received,
             retried_failed,
             retried_success,
             success
@@ -134,6 +138,8 @@ handle_telemetry_event(
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
+        received ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
@@ -308,6 +314,16 @@ matched_inc(ID, Val) ->
 
 matched_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'matched').
+
+%% @doc The number of messages that have been received from a bridge
+received_inc(ID) ->
+    received_inc(ID, 1).
+
+received_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, received], #{counter_inc => Val}, #{resource_id => ID}).
+
+received_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'received').
 
 %% @doc The number of times message sends have been retried
 retried_inc(ID) ->
