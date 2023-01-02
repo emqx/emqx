@@ -33,7 +33,7 @@ zone_config(Zone) ->
         #{
             timestamp_bits => 64,
             topic_bits_per_level => [8, 8, 8, 32, 16],
-            max_tau => 5
+            epoch => 5
         },
     DefaultZoneConfig = application:get_env(
         ?APP, default_zone_config, {emqx_replay_message_storage, DefaultConf}

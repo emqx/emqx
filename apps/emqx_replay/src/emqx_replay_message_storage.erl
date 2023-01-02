@@ -43,13 +43,14 @@
 %%         |               |                |
 %% most significant    topic hash   least significant
 %% bits of timestamp                bits of timestamp
+%% (a.k.a epoch)                    (a.k.a time offset)
 %%
 %% Topic hash is level-aware: each topic level is hashed separately
 %% and the resulting hashes are bitwise-concatentated. This allows us
 %% to map topics to fixed-length bitstrings while keeping some degree
 %% of information about the hierarchy.
 %%
-%% Next important concept is what we call "tau-interval". It is time
+%% Next important concept is what we call "epoch". It is time
 %% interval determined by the number of least significant bits of the
 %% timestamp found at the tail of the rocksdb key.
 %%
@@ -71,11 +72,11 @@
 %%   | ---->------|   ---->------|   ---------->
 %%   |
 %%  -+------------+-----------------------------> t
-%%        tau
+%%        epoch
 %%
 %% This structure allows to quickly seek to a the first message that
-%% was recorded in a certain tau-interval in a certain topic or a
-%% group of topics matching filter like `foo/bar/+/+' or `foo/bar/#`.
+%% was recorded in a certain epoch in a certain topic or a
+%% group of topics matching filter like `foo/bar/#`.
 %%
 %% Due to its structure, for each pair of rocksdb keys K1 and K2, such
 %% that K1 > K2 and topic(K1) = topic(K2), timestamp(K1) >
@@ -176,7 +177,7 @@
 -record(keymapper, {
     source :: [bitsource(), ...],
     bitsize :: bits(),
-    tau :: non_neg_integer()
+    epoch :: non_neg_integer()
 }).
 
 -type bitsource() ::
@@ -229,14 +230,14 @@ open(DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
         %% Number of bits in a key allocated to each level in a message topic.
         topic_bits_per_level := bits_per_level(),
         %% Maximum granularity of iteration over time.
-        max_tau := time()
+        epoch := time()
     }.
 make_keymapper(#{
     timestamp_bits := TimestampBits,
     topic_bits_per_level := BitsPerLevel,
-    max_tau := MaxTau
+    epoch := MaxEpoch
 }) ->
-    TimestampLSBs = floor(math:log2(MaxTau)),
+    TimestampLSBs = floor(math:log2(MaxEpoch)),
     TimestampMSBs = TimestampBits - TimestampLSBs,
     NLevels = length(BitsPerLevel),
     {LevelBits, [TailLevelsBits]} = lists:split(NLevels - 1, BitsPerLevel),
@@ -249,7 +250,7 @@ make_keymapper(#{
     #keymapper{
         source = Source,
         bitsize = lists:sum([S || {_, _, S} <- Source]),
-        tau = 1 bsl TimestampLSBs
+        epoch = 1 bsl TimestampLSBs
     }.
 
 -spec store(db(), emqx_guid:guid(), time(), topic(), binary()) ->
@@ -540,12 +541,12 @@ make_keymapper_test_() ->
                     {timestamp, 0, 9}
                 ],
                 bitsize = 46,
-                tau = 512
+                epoch = 512
             },
             make_keymapper(#{
                 timestamp_bits => 32,
                 topic_bits_per_level => [2, 4, 8],
-                max_tau => 1000
+                epoch => 1000
             })
         ),
         ?_assertEqual(
@@ -555,12 +556,12 @@ make_keymapper_test_() ->
                     {hash, levels, 16}
                 ],
                 bitsize = 48,
-                tau = 1
+                epoch = 1
             },
             make_keymapper(#{
                 timestamp_bits => 32,
                 topic_bits_per_level => [16],
-                max_tau => 1
+                epoch => 1
             })
         )
     ].

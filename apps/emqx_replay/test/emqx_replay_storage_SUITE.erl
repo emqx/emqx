@@ -143,7 +143,7 @@ t_prop_topic_hash_computes(_) ->
     Keymapper = emqx_replay_message_storage:make_keymapper(#{
         timestamp_bits => 32,
         topic_bits_per_level => [8, 12, 16, 24],
-        max_tau => 10000
+        epoch => 10000
     }),
     ?assert(
         proper:quickcheck(
@@ -158,7 +158,7 @@ t_prop_hash_bitmask_computes(_) ->
     Keymapper = emqx_replay_message_storage:make_keymapper(#{
         timestamp_bits => 16,
         topic_bits_per_level => [8, 12, 16],
-        max_tau => 100
+        epoch => 100
     }),
     ?assert(
         proper:quickcheck(
