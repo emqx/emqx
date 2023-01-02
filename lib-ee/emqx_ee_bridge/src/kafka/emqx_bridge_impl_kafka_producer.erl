@@ -318,7 +318,14 @@ handle_telemetry_event(
     #{bridge_id := ID},
     #{bridge_id := ID}
 ) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
+    %% When wolff emits a `dropped_queue_full' event due to replayq
+    %% overflow, it also emits a `dropped' event (at the time of
+    %% writing, wolff is 1.7.4).  Since we already bump `dropped' when
+    %% `dropped.queue_full' occurs, we have to correct it here.  This
+    %% correction will have to be dropped if wolff stops also emitting
+    %% `dropped'.
+    emqx_resource_metrics:dropped_queue_full_inc(ID, Val),
+    emqx_resource_metrics:dropped_inc(ID, -Val);
 handle_telemetry_event(
     [wolff, queuing],
     #{gauge_set := Val},
