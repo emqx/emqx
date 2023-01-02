@@ -39,6 +39,7 @@ groups() ->
 init_per_testcase(_, Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
     Config.
+
 end_per_testcase(_, _Config) ->
     _ = emqx_resource:remove(?ID).
 
@@ -503,7 +504,10 @@ t_stop_start(_) ->
     ),
 
     %% add some metrics to test their persistence
-    emqx_resource_metrics:batching_change(?ID, 5),
+    WorkerID0 = <<"worker:0">>,
+    WorkerID1 = <<"worker:1">>,
+    emqx_resource_metrics:batching_set(?ID, WorkerID0, 2),
+    emqx_resource_metrics:batching_set(?ID, WorkerID1, 3),
     ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
 
     {ok, _} = emqx_resource:check_and_recreate(
@@ -537,7 +541,8 @@ t_stop_start(_) ->
     ?assert(is_process_alive(Pid1)),
 
     %% now stop while resetting the metrics
-    emqx_resource_metrics:batching_change(?ID, 5),
+    emqx_resource_metrics:batching_set(?ID, WorkerID0, 1),
+    emqx_resource_metrics:batching_set(?ID, WorkerID1, 4),
     ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
     ok = emqx_resource:stop(?ID),
     ?assertEqual(0, emqx_resource_metrics:batching_get(?ID)),

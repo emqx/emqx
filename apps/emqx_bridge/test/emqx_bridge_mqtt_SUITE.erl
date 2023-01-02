@@ -19,6 +19,7 @@
 -compile(export_all).
 
 -import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -124,6 +125,7 @@ init_per_testcase(_, Config) ->
     Config.
 end_per_testcase(_, _Config) ->
     clear_resources(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 clear_resources() ->
@@ -672,6 +674,12 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         <<"name">> := ?BRIDGE_NAME_EGRESS
     } = jsx:decode(Bridge),
     BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+    on_exit(fun() ->
+        %% delete the bridge
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
+        {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+        ok
+    end),
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
@@ -733,15 +741,20 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
 
     %% verify the metrics of the bridge, the message should be queued
     {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    Decoded1 = jsx:decode(BridgeStr1),
+    ?assertMatch(
+        Status when (Status == <<"connected">> orelse Status == <<"connecting">>),
+        maps:get(<<"status">>, Decoded1)
+    ),
     %% matched >= 3 because of possible retries.
     ?assertMatch(
         #{
-            <<"status">> := Status,
-            <<"metrics">> := #{
-                <<"matched">> := Matched, <<"success">> := 1, <<"failed">> := 0, <<"queuing">> := 2
-            }
-        } when Matched >= 3 andalso (Status == <<"connected">> orelse Status == <<"connecting">>),
-        jsx:decode(BridgeStr1)
+            <<"matched">> := Matched,
+            <<"success">> := 1,
+            <<"failed">> := 0,
+            <<"queuing">> := 2
+        } when Matched >= 3,
+        maps:get(<<"metrics">>, Decoded1)
     ),
 
     %% start the listener 1883 to make the bridge reconnected
@@ -766,9 +779,6 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     %% also verify the 2 messages have been sent to the remote broker
     assert_mqtt_msg_received(RemoteTopic, Payload1),
     assert_mqtt_msg_received(RemoteTopic, Payload2),
-    %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
 
 assert_mqtt_msg_received(Topic, Payload) ->

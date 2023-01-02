@@ -124,6 +124,7 @@ init_per_testcase(TestCase, Config0) when
             delete_all_bridges(),
             Tid = install_telemetry_handler(TestCase),
             Config = generate_config(Config0),
+            put(telemetry_table, Tid),
             [{telemetry_table, Tid} | Config];
         false ->
             {skip, no_batching}
@@ -133,12 +134,14 @@ init_per_testcase(TestCase, Config0) ->
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
     Config = generate_config(Config0),
+    put(telemetry_table, Tid),
     [{telemetry_table, Tid} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     delete_all_bridges(),
     ok = emqx_connector_web_hook_server:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -392,7 +395,11 @@ assert_metrics(ExpectedMetrics, ResourceId) ->
             maps:keys(ExpectedMetrics)
         ),
     CurrentMetrics = current_metrics(ResourceId),
-    ?assertEqual(ExpectedMetrics, Metrics, #{current_metrics => CurrentMetrics}),
+    TelemetryTable = get(telemetry_table),
+    RecordedEvents = ets:tab2list(TelemetryTable),
+    ?assertEqual(ExpectedMetrics, Metrics, #{
+        current_metrics => CurrentMetrics, recorded_events => RecordedEvents
+    }),
     ok.
 
 assert_empty_metrics(ResourceId) ->
@@ -553,6 +560,7 @@ t_publish_success(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     ?check_trace(
         create_bridge(Config),
@@ -581,6 +589,17 @@ t_publish_success(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
             batching => 0,
@@ -600,6 +619,7 @@ t_publish_success_local_topic(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     LocalTopic = <<"local/topic">>,
     {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
     assert_empty_metrics(ResourceId),
@@ -618,6 +638,17 @@ t_publish_success_local_topic(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
             batching => 0,
@@ -648,6 +679,7 @@ t_publish_templated(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     PayloadTemplate = <<
         "{\"payload\": \"${payload}\","
@@ -693,6 +725,17 @@ t_publish_templated(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
             batching => 0,
@@ -1046,7 +1089,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         %% response expired, this succeeds.
         {econnrefused, async, _} ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
-                timeout => 10_000, n_events => 2
+                timeout => 10_000, n_events => 1
             }),
             CurrentMetrics = current_metrics(ResourceId),
             RecordedEvents = ets:tab2list(TelemetryTable),
@@ -1283,6 +1326,17 @@ t_unrecoverable_error(Config) ->
         end
     ),
     wait_telemetry_event(TelemetryTable, failed, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
             batching => 0,

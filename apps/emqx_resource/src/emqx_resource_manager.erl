@@ -141,9 +141,6 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'dropped.resource_not_found',
             'dropped.resource_stopped',
             'dropped.other',
-            'queuing',
-            'batching',
-            'inflight',
             'received'
         ],
         [matched]
