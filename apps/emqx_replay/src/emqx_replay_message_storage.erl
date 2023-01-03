@@ -143,16 +143,6 @@
     cf_options => emqx_replay_local_store:db_cf_options()
 }.
 
--define(DEFAULT_COLUMN_FAMILY, {"default", []}).
-
--define(DEFAULT_OPEN_OPTIONS, [
-    {create_if_missing, true},
-    {create_missing_column_families, true}
-]).
-
--define(DEFAULT_WRITE_OPTIONS, [{sync, true}]).
--define(DEFAULT_READ_OPTIONS, []).
-
 %% Persistent configuration of the generation, it is used to create db
 %% record when the database is reopened
 -record(schema, {keymapper :: keymapper()}).
