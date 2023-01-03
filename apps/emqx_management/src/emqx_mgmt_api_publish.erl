@@ -102,12 +102,6 @@ fields(message) ->
                 required => false,
                 default => 0
             })},
-        {clientid,
-            hoconsc:mk(binary(), #{
-                desc => ?DESC(clientid),
-                required => false,
-                example => <<"api_example_client">>
-            })},
         {payload,
             hoconsc:mk(binary(), #{
                 desc => ?DESC(payload),
@@ -254,7 +248,6 @@ is_ok_deliver({_NodeOrShare, _MatchedTopic, {error, _}}) -> false.
 %% %%%%%% Below error codes are not implemented so far %%%%
 %%
 %% If HTTP request passes HTTP authentication, it is considered trusted.
-%% In the future, we may choose to check ACL for the provided MQTT Client ID
 %% 135                Not authorized                          401
 %%
 %% %%%%%% Below error codes are not applicable %%%%%%%
@@ -326,7 +319,6 @@ make_message(Map) ->
     Encoding = maps:get(<<"payload_encoding">>, Map, plain),
     case decode_payload(Encoding, maps:get(<<"payload">>, Map)) of
         {ok, Payload} ->
-            From = maps:get(<<"clientid">>, Map, http_api),
             QoS = maps:get(<<"qos">>, Map, 0),
             Topic = maps:get(<<"topic">>, Map),
             Retain = maps:get(<<"retain">>, Map, false),
@@ -346,7 +338,9 @@ make_message(Map) ->
                 error:_Reason ->
                     throw(invalid_topic_name)
             end,
-            Message = emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, Headers),
+            Message = emqx_message:make(
+                http_api, QoS, Topic, Payload, #{retain => Retain}, Headers
+            ),
             Size = emqx_message:estimate_size(Message),
             (Size > size_limit()) andalso throw(packet_too_large),
             {ok, Message};
