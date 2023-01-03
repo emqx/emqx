@@ -28,6 +28,7 @@
     "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
     "  interval = \"1s\"\n"
     "  headers = { Authorization = \"some-authz-tokens\"}\n"
+    "  job_name = \"${name}~${host}\"\n"
     "  enable = true\n"
     "  vm_dist_collector = enabled\n"
     "  mnesia_collector = enabled\n"
@@ -91,7 +92,7 @@ t_assert_push(_) ->
     Self = self(),
     AssertPush = fun(Method, Req = {Url, Headers, ContentType, _Data}, HttpOpts, Opts) ->
         ?assertEqual(post, Method),
-        ?assertMatch("http://127.0.0.1:9091/metrics/job/" ++ _, Url),
+        ?assertMatch("http://127.0.0.1:9091/metrics/job/test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
         Self ! pass,

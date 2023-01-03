@@ -101,9 +101,10 @@ handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
     #{
         interval := Interval,
         headers := Headers,
+        job_name := JobName,
         push_gateway_server := Server
     } = opts(),
-    PushRes = push_to_push_gateway(Server, Headers),
+    PushRes = push_to_push_gateway(Server, Headers, JobName),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
     %% Data is too big, hibernate for saving memory and stop system monitor warning.
@@ -111,9 +112,17 @@ handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Uri, Headers0) when is_map(Headers0) ->
+push_to_push_gateway(Uri, Headers0, JobName) when is_map(Headers0) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
-    Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/", Name, "~", Ip]),
+    JobName1 = emqx_placeholder:preproc_tmpl(JobName),
+    JobName2 = binary_to_list(
+        emqx_placeholder:proc_tmpl(
+            JobName1,
+            #{<<"name">> => Name, <<"host">> => Ip}
+        )
+    ),
+
+    Url = lists:concat([Uri, "/metrics/job/", JobName2]),
     Data = prometheus_text_format:format(),
     Headers = maps:fold(
         fun(K, V, Acc) ->

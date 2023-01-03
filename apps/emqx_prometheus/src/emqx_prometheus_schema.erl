@@ -61,6 +61,16 @@ fields("prometheus") ->
                     desc => ?DESC(headers)
                 }
             )},
+        {job_name,
+            ?HOCON(
+                binary(),
+                #{
+                    default => <<"${name}/instance/${name}~${host}">>,
+                    required => true,
+                    desc => ?DESC(job_name)
+                }
+            )},
+
         {enable,
             ?HOCON(
                 boolean(),
