@@ -17,6 +17,7 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_gcp_pubsub, Method),
         ref(emqx_ee_bridge_kafka, Method),
         ref(emqx_ee_bridge_mysql, Method),
+        ref(emqx_ee_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
@@ -36,7 +37,8 @@ schema_modules() ->
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
-        emqx_ee_bridge_redis
+        emqx_ee_bridge_redis,
+        emqx_ee_bridge_pgsql
     ].
 
 examples(Method) ->
@@ -63,7 +65,8 @@ resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
 resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb;
 resource_type(redis_single) -> emqx_ee_connector_redis;
 resource_type(redis_sentinel) -> emqx_ee_connector_redis;
-resource_type(redis_cluster) -> emqx_ee_connector_redis.
+resource_type(redis_cluster) -> emqx_ee_connector_redis;
+resource_type(pgsql) -> emqx_connector_pgsql.
 
 fields(bridges) ->
     [
@@ -96,6 +99,14 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_ee_bridge_mysql, "config")),
                 #{
                     desc => <<"MySQL Bridge Config">>,
+                    required => false
+                }
+            )},
+        {pgsql,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
+                #{
+                    desc => <<"PostgreSQL Bridge Config">>,
                     required => false
                 }
             )}
