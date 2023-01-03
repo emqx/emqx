@@ -50,7 +50,7 @@ init_per_suite(Config) ->
             {ok, _} = application:ensure_all_started(emqx_connector),
             Config;
         false ->
-            {skip, no_redis}
+            assert_ci()
     end.
 
 end_per_suite(_Config) ->
@@ -63,6 +63,13 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
+assert_ci() ->
+    case os:getenv("IS_CI") of
+        "yes" ->
+            throw(no_redis);
+        _ ->
+            {skip, no_redis}
+    end.
 % %%------------------------------------------------------------------------------
 % %% Testcases
 % %%------------------------------------------------------------------------------
