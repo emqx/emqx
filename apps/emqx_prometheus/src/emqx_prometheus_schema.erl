@@ -52,6 +52,15 @@ fields("prometheus") ->
                     desc => ?DESC(interval)
                 }
             )},
+        {headers,
+            ?HOCON(
+                map(),
+                #{
+                    default => #{},
+                    required => false,
+                    desc => ?DESC(headers)
+                }
+            )},
         {enable,
             ?HOCON(
                 boolean(),

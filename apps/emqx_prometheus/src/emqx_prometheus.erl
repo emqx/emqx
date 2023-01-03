@@ -98,8 +98,12 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
-    #{interval := Interval, push_gateway_server := Server} = opts(),
-    PushRes = push_to_push_gateway(Server),
+    #{
+        interval := Interval,
+        headers := Headers,
+        push_gateway_server := Server
+    } = opts(),
+    PushRes = push_to_push_gateway(Server, Headers),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
     %% Data is too big, hibernate for saving memory and stop system monitor warning.
@@ -107,12 +111,19 @@ handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Uri) ->
+push_to_push_gateway(Uri, Headers0) when is_map(Headers0) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/", Name, "~", Ip]),
     Data = prometheus_text_format:format(),
-    case httpc:request(post, {Url, [], "text/plain", Data}, ?HTTP_OPTIONS, []) of
-        {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, _Body}} ->
+    Headers = maps:fold(
+        fun(K, V, Acc) ->
+            [{atom_to_list(K), binary_to_list(V)} | Acc]
+        end,
+        [],
+        Headers0
+    ),
+    case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
+        {ok, {{"HTTP/1.1", 200, _}, _Headers, _Body}} ->
             ok;
         Error ->
             ?SLOG(error, #{

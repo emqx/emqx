@@ -121,6 +121,7 @@ prometheus_config_example() ->
         enable => true,
         interval => "15s",
         push_gateway_server => <<"http://127.0.0.1:9091">>,
+        headers => #{'header-name' => 'header-value'},
         vm_dist_collector => enabled,
         mnesia_collector => enabled,
         vm_statistics_collector => enabled,
