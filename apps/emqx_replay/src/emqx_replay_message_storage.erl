@@ -101,10 +101,10 @@
 -export([
     make_message_key/4,
     compute_bitstring/3,
-    compute_hash_bitmask/2,
+    compute_topic_bitmask/2,
     compute_next_seek/4,
     compute_time_seek/3,
-    compute_hash_seek/4,
+    compute_topic_seek/4,
     hash/2
 ]).
 
@@ -255,7 +255,7 @@ make_iterator(DB = #db{handle = DBHandle, cf = CFHandle}, TopicFilter, StartTime
     case rocksdb:iterator(DBHandle, CFHandle, DB#db.read_options) of
         {ok, ITHandle} ->
             Bitstring = compute_bitstring(TopicFilter, StartTime, DB#db.keymapper),
-            HashBitmask = compute_hash_bitmask(TopicFilter, DB#db.keymapper),
+            HashBitmask = compute_topic_bitmask(TopicFilter, DB#db.keymapper),
             TimeBitmask = compute_time_bitmask(DB#db.keymapper),
             HashBitfilter = Bitstring band HashBitmask,
             TimeBitfilter = Bitstring band TimeBitmask,
@@ -315,9 +315,9 @@ extract(Key, #keymapper{bitsize = Size}) ->
 compute_bitstring(Topic, Timestamp, #keymapper{source = Source}) ->
     compute_bitstring(Topic, Timestamp, Source, 0).
 
--spec compute_hash_bitmask(emqx_topic:words(), keymapper()) -> integer().
-compute_hash_bitmask(TopicFilter, #keymapper{source = Source}) ->
-    compute_hash_bitmask(TopicFilter, Source, 0).
+-spec compute_topic_bitmask(emqx_topic:words(), keymapper()) -> integer().
+compute_topic_bitmask(TopicFilter, #keymapper{source = Source}) ->
+    compute_topic_bitmask(TopicFilter, Source, 0).
 
 -spec compute_time_bitmask(keymapper()) -> integer().
 compute_time_bitmask(#keymapper{source = Source}) ->
@@ -346,19 +346,19 @@ compute_bitstring(Tail, Timestamp, [{hash, levels, Size} | Rest], Acc) ->
 compute_bitstring(_, _, [], Acc) ->
     Acc.
 
-compute_hash_bitmask(Filter, [{timestamp, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Filter, Rest, bitwise_concat(Acc, 0, Size));
-compute_hash_bitmask(['#'], [{hash, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(['#'], Rest, bitwise_concat(Acc, 0, Size));
-compute_hash_bitmask(['+' | Tail], [{hash, _, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Tail, Rest, bitwise_concat(Acc, 0, Size));
-compute_hash_bitmask([], [{hash, level, Size} | Rest], Acc) ->
-    compute_hash_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
-compute_hash_bitmask([_ | Tail], [{hash, level, Size} | Rest], Acc) ->
-    compute_hash_bitmask(Tail, Rest, bitwise_concat(Acc, ones(Size), Size));
-compute_hash_bitmask(_, [{hash, levels, Size} | Rest], Acc) ->
-    compute_hash_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
-compute_hash_bitmask(_, [], Acc) ->
+compute_topic_bitmask(Filter, [{timestamp, _, Size} | Rest], Acc) ->
+    compute_topic_bitmask(Filter, Rest, bitwise_concat(Acc, 0, Size));
+compute_topic_bitmask(['#'], [{hash, _, Size} | Rest], Acc) ->
+    compute_topic_bitmask(['#'], Rest, bitwise_concat(Acc, 0, Size));
+compute_topic_bitmask(['+' | Tail], [{hash, _, Size} | Rest], Acc) ->
+    compute_topic_bitmask(Tail, Rest, bitwise_concat(Acc, 0, Size));
+compute_topic_bitmask([], [{hash, level, Size} | Rest], Acc) ->
+    compute_topic_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
+compute_topic_bitmask([_ | Tail], [{hash, level, Size} | Rest], Acc) ->
+    compute_topic_bitmask(Tail, Rest, bitwise_concat(Acc, ones(Size), Size));
+compute_topic_bitmask(_, [{hash, levels, Size} | Rest], Acc) ->
+    compute_topic_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
+compute_topic_bitmask(_, [], Acc) ->
     Acc.
 
 compute_time_bitmask([{timestamp, _, Size} | Rest], Acc) ->
@@ -431,7 +431,7 @@ stop_iteration(It) ->
 
 %% `Bitstring` is out of the hash space defined by `HashBitfilter`.
 compute_next_seek(_HashMatches = false, _, Bitstring, It) ->
-    NextBitstring = compute_hash_seek(
+    NextBitstring = compute_topic_seek(
         Bitstring,
         It#it.hash_bitfilter,
         It#it.hash_bitmask,
@@ -458,12 +458,12 @@ compute_time_seek(Bitstring, TimeBitfilter, TimeBitmask) ->
 %% * greater than `Bitstring`,
 %% * and falls into the hash space defined by `HashBitfilter`.
 %% Note that the result can end up "back" in time and out of the time range.
-compute_hash_seek(Bitstring, HashBitfilter, HashBitmask, Keymapper) ->
+compute_topic_seek(Bitstring, HashBitfilter, HashBitmask, Keymapper) ->
     Sources = Keymapper#keymapper.source,
     Size = Keymapper#keymapper.bitsize,
-    compute_hash_seek(Bitstring, HashBitfilter, HashBitmask, Sources, Size).
+    compute_topic_seek(Bitstring, HashBitfilter, HashBitmask, Sources, Size).
 
-compute_hash_seek(Bitstring, HashBitfilter, HashBitmask, Sources, Size) ->
+compute_topic_seek(Bitstring, HashBitfilter, HashBitmask, Sources, Size) ->
     % NOTE
     % We're iterating through `Substring` here, in lockstep with `HashBitfilter`
     % and`HashBitmask`, starting from least signigicant bits. Each bitsource in
@@ -615,7 +615,7 @@ make_keymapper_test_() ->
     ].
 
 compute_test_bitmask(TopicFilter) ->
-    compute_hash_bitmask(
+    compute_topic_bitmask(
         TopicFilter,
         [
             {hash, level, 3},
@@ -673,8 +673,8 @@ wildcard_bitmask_test_() ->
 %% Key3   = |123|999|679|001| → Seek = 1 |123|000|678|000| → eos
 %% Key4   = |125|011|179|017| → Seek = 1 |123|000|678|000| → eos
 
-compute_test_hash_seek(Bitstring, Bitfilter, HBitmask) ->
-    compute_hash_seek(
+compute_test_topic_seek(Bitstring, Bitfilter, HBitmask) ->
+    compute_topic_seek(
         Bitstring,
         Bitfilter,
         HBitmask,
@@ -691,7 +691,7 @@ next_seek_test_() ->
     [
         ?_assertMatch(
             none,
-            compute_test_hash_seek(
+            compute_test_topic_seek(
                 16#FD_42_4242_043,
                 16#FD_42_4242_042,
                 16#FF_FF_FFFF_FFF
@@ -699,7 +699,7 @@ next_seek_test_() ->
         ),
         ?_assertMatch(
             16#FD_11_0678_000,
-            compute_test_hash_seek(
+            compute_test_topic_seek(
                 16#FD_11_0108_121,
                 16#FD_00_0678_000,
                 16#FF_00_FFFF_000
@@ -707,7 +707,7 @@ next_seek_test_() ->
         ),
         ?_assertMatch(
             16#FD_12_0678_000,
-            compute_test_hash_seek(
+            compute_test_topic_seek(
                 16#FD_11_0679_919,
                 16#FD_00_0678_000,
                 16#FF_00_FFFF_000
@@ -715,7 +715,7 @@ next_seek_test_() ->
         ),
         ?_assertMatch(
             none,
-            compute_test_hash_seek(
+            compute_test_topic_seek(
                 16#FD_FF_0679_001,
                 16#FD_00_0678_000,
                 16#FF_00_FFFF_000
@@ -723,7 +723,7 @@ next_seek_test_() ->
         ),
         ?_assertMatch(
             none,
-            compute_test_hash_seek(
+            compute_test_topic_seek(
                 16#FE_11_0179_017,
                 16#FD_00_0678_000,
                 16#FF_00_FFFF_000
