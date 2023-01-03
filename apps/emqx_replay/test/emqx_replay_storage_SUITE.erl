@@ -169,7 +169,7 @@ t_prop_hash_bitmask_computes(_) ->
         )
     ).
 
-t_prop_iterate_stored_messages(Config) ->
+t_prop_iterate_stored_messages(_) ->
     ?assertEqual(
         true,
         proper:quickcheck(
@@ -256,7 +256,7 @@ init_per_testcase(TC, Config) ->
     {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
     Config.
 
-end_per_testcase(_TC, Config) ->
+end_per_testcase(_TC, _Config) ->
     ok = application:stop(emqx_replay).
 
 zone(TC) ->
