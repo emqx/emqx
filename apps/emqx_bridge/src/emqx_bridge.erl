@@ -115,7 +115,9 @@ load_hook(Bridges) ->
         maps:to_list(Bridges)
     ).
 
-do_load_hook(Type, #{local_topic := _}) when ?EGRESS_DIR_BRIDGES(Type) ->
+do_load_hook(Type, #{local_topic := _LocalTopic}) when
+    ?EGRESS_DIR_BRIDGES(Type) andalso is_binary(_LocalTopic)
+->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
 do_load_hook(mqtt, #{egress := #{local := #{topic := _}}}) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
@@ -363,14 +365,27 @@ get_matched_egress_bridges(Topic) ->
 
 get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
-get_matched_bridge_id(BType, #{local_topic := Filter}, Topic, BName, Acc) when
+get_matched_bridge_id(BType, BConf, Topic, BName, Acc) when
     ?EGRESS_DIR_BRIDGES(BType)
 ->
-    do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc);
+    case maps:get(local_topic, BConf, undefined) of
+        undefined ->
+            Acc;
+        Filter ->
+            do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc)
+    end;
 get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
     do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
 get_matched_bridge_id(kafka, #{producer := #{mqtt := #{topic := Filter}}}, Topic, BName, Acc) ->
-    do_get_matched_bridge_id(Topic, Filter, kafka, BName, Acc).
+    do_get_matched_bridge_id(Topic, Filter, kafka, BName, Acc);
+get_matched_bridge_id(_BType, _, _Topic, _BName, Acc) ->
+    ?SLOG(error, #{
+        msg => "match_bridge_failed",
+        type => _BType,
+        name => _BName,
+        topic => _Topic
+    }),
+    Acc.
 
 do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
