@@ -189,6 +189,38 @@ t_list_rule_api(_Config) ->
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
     ok.
 
+t_reset_metrics_on_disable(_Config) ->
+    Params = #{
+        <<"description">> => <<"A simple rule">>,
+        <<"enable">> => true,
+        <<"actions">> => [#{<<"function">> => <<"console">>}],
+        <<"sql">> => <<"SELECT * from \"t/1\"">>,
+        <<"name">> => atom_to_binary(?FUNCTION_NAME)
+    },
+    {201, #{id := RuleId}} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+
+    %% generate some fake metrics
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched', 10),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed', 10),
+    {200, #{metrics := Metrics0}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+        get,
+        #{bindings => #{id => RuleId}}
+    ),
+    ?assertMatch(#{passed := 10, matched := 10}, Metrics0),
+
+    %% disable the rule; metrics should be reset
+    {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+        bindings => #{id => RuleId},
+        body => Params#{<<"enable">> := false}
+    }),
+
+    {200, #{metrics := Metrics1}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+        get,
+        #{bindings => #{id => RuleId}}
+    ),
+    ?assertMatch(#{passed := 0, matched := 0}, Metrics1),
+    ok.
+
 test_rule_params() ->
     #{
         body => #{
