@@ -268,7 +268,7 @@ load_hooks_for_rule(#{from := Topics}) ->
 maybe_add_metrics_for_rule(Id) ->
     case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
         true ->
-            ok;
+            ok = reset_metrics_for_rule(Id);
         false ->
             ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
     end.
