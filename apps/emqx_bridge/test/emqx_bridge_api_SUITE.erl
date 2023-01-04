@@ -514,6 +514,39 @@ t_reset_bridges(Config) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
+t_with_redact_update(_Config) ->
+    Name = <<"redact_update">>,
+    Type = <<"mqtt">>,
+    Password = <<"123456">>,
+    Template = #{
+        <<"type">> => Type,
+        <<"name">> => Name,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"username">> => <<"test">>,
+        <<"password">> => Password,
+        <<"ingress">> =>
+            #{<<"remote">> => #{<<"topic">> => <<"t/#">>}}
+    },
+
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        Template
+    ),
+
+    %% update with redacted config
+    Conf = emqx_misc:redact(Template),
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
+    {ok, 200, _ResBin} = request(
+        put,
+        uri(["bridges", BridgeID]),
+        Conf
+    ),
+    RawConf = emqx:get_raw_config([bridges, Type, Name]),
+    Value = maps:get(<<"password">>, RawConf),
+    ?assertEqual(Password, Value),
+    ok.
+
 request(Method, Url, Body) ->
     request(<<"bridge_admin">>, Method, Url, Body).
 
