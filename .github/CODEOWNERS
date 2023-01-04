@@ -24,6 +24,7 @@
 /apps/emqx_prometheus/     @JimMoen @ieQu1
 /apps/emqx_psk/            @lafirest @thalesmg @terry-xiaoyu
 /apps/emqx_resource/       @terry-xiaoyu @thalesmg
+/apps/emqx_replay/         @ieQu1
 /apps/emqx_retainer/       @lafirest @ieQu1 @thalesmg
 /apps/emqx_rule_engine/    @terry-xiaoyu @HJianBo @kjellwinblad
 /apps/emqx_slow_subs/      @lafirest @HJianBo

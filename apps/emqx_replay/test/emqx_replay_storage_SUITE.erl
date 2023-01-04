@@ -154,7 +154,7 @@ t_prop_topic_hash_computes(_) ->
         )
     ).
 
-t_prop_hash_bitmask_computes(_) ->
+t_prop_topic_bitmask_computes(_) ->
     Keymapper = emqx_replay_message_storage:make_keymapper(#{
         timestamp_bits => 16,
         topic_bits_per_level => [8, 12, 16],
@@ -163,13 +163,13 @@ t_prop_hash_bitmask_computes(_) ->
     ?assert(
         proper:quickcheck(
             ?FORALL(TopicFilter, topic_filter(), begin
-                Mask = emqx_replay_message_storage:compute_hash_bitmask(TopicFilter, Keymapper),
+                Mask = emqx_replay_message_storage:compute_topic_bitmask(TopicFilter, Keymapper),
                 is_integer(Mask) andalso (Mask < (1 bsl (36 + 6)))
             end)
         )
     ).
 
-t_prop_iterate_stored_messages(Config) ->
+t_prop_iterate_stored_messages(_) ->
     ?assertEqual(
         true,
         proper:quickcheck(
@@ -256,7 +256,7 @@ init_per_testcase(TC, Config) ->
     {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
     Config.
 
-end_per_testcase(_TC, Config) ->
+end_per_testcase(_TC, _Config) ->
     ok = application:stop(emqx_replay).
 
 zone(TC) ->
