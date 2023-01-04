@@ -146,7 +146,9 @@ store_retained(_, Msg = #message{topic = Topic}) ->
                 reason => table_is_full
             });
         false ->
-            do_store_retained(Msg, Tokens, ExpiryTime)
+            do_store_retained(Msg, Tokens, ExpiryTime),
+            ?tp(message_retained, #{topic => Topic}),
+            ok
     end.
 
 clear_expired(_) ->
