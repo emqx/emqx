@@ -32,7 +32,6 @@
     sync_query/3,
     async_query/3,
     block/1,
-    block/2,
     resume/1
 ]).
 
@@ -69,7 +68,6 @@
 
 -type id() :: binary().
 -type index() :: pos_integer().
--type query() :: {query, request(), query_opts()}.
 -type queue_query() :: ?QUERY(from(), request(), HasBeenSent :: boolean()).
 -type request() :: term().
 -type from() :: pid() | reply_fun() | request_from().
@@ -139,10 +137,6 @@ simple_async_query(Id, Request, ReplyFun) ->
 block(ServerRef) ->
     gen_statem:cast(ServerRef, block).
 
--spec block(pid() | atom(), [query()]) -> ok.
-block(ServerRef, Query) ->
-    gen_statem:cast(ServerRef, {block, Query}).
-
 -spec resume(pid() | atom()) -> ok.
 resume(ServerRef) ->
     gen_statem:cast(ServerRef, resume).
@@ -192,13 +186,6 @@ running(cast, resume, _St) ->
     keep_state_and_data;
 running(cast, block, St) ->
     {next_state, blocked, St};
-running(
-    cast, {block, [?QUERY(_, _, _) | _] = Batch}, #{id := Id, index := Index, queue := Q} = St
-) when
-    is_list(Batch)
-->
-    Q1 = append_queue(Id, Index, Q, Batch),
-    {next_state, blocked, St#{queue := Q1}};
 running(info, ?SEND_REQ(_From, _Req) = Request0, Data) ->
     handle_query_requests(Request0, Data);
 running(info, {flush, Ref}, St = #{tref := {_TRef, Ref}}) ->
@@ -216,13 +203,6 @@ blocked(enter, _, #{resume_interval := ResumeT} = _St) ->
     {keep_state_and_data, {state_timeout, ResumeT, resume}};
 blocked(cast, block, _St) ->
     keep_state_and_data;
-blocked(
-    cast, {block, [?QUERY(_, _, _) | _] = Batch}, #{id := Id, index := Index, queue := Q} = St
-) when
-    is_list(Batch)
-->
-    Q1 = append_queue(Id, Index, Q, Batch),
-    {keep_state, St#{queue := Q1}};
 blocked(cast, resume, St) ->
     do_resume(St);
 blocked(state_timeout, resume, St) ->
