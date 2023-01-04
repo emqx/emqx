@@ -33,18 +33,19 @@
         )
     )
 ).
--define(HTTP_BRIDGE(URL, TYPE, NAME), #{
+-define(HTTP_BRIDGE(URL, TYPE, NAME, BODY), #{
+    <<"url">> => URL,
     <<"type">> => TYPE,
     <<"name">> => NAME,
-    <<"url">> => URL,
+    <<"body">> => BODY,
     <<"local_topic">> => <<"emqx_webhook/#">>,
     <<"method">> => <<"post">>,
     <<"ssl">> => #{<<"enable">> => false},
-    <<"body">> => <<"${payload}">>,
     <<"headers">> => #{
         <<"content-type">> => <<"application/json">>
     }
 }).
+-define(HTTP_BRIDGE(URL, TYPE, NAME), ?HTTP_BRIDGE(URL, TYPE, NAME, <<"">>)).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -195,10 +196,32 @@ t_http_crud_apis(Config) ->
         <<"node_status">> := [_ | _],
         <<"metrics">> := _,
         <<"node_metrics">> := [_ | _],
-        <<"url">> := URL1
+        <<"url">> := URL1,
+        <<"body">> := <<"">>
     } = jsx:decode(Bridge),
 
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+
+    %% update the request-body of the bridge
+    {ok, 200, Bridge1} = request(
+        put,
+        uri(["bridges", BridgeID]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name, <<"${payload}">>)
+    ),
+    ?assertMatch(
+        #{
+            <<"type">> := ?BRIDGE_TYPE,
+            <<"name">> := Name,
+            <<"body">> := <<"${payload}">>,
+            <<"enable">> := true,
+            <<"status">> := _,
+            <<"node_status">> := [_ | _],
+            <<"metrics">> := _,
+            <<"node_metrics">> := [_ | _],
+            <<"url">> := URL1
+        },
+        jsx:decode(Bridge1)
+    ),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
     emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
