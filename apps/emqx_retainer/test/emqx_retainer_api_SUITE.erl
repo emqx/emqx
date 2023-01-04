@@ -31,6 +31,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     application:load(emqx_conf),
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
@@ -218,6 +219,56 @@ t_lookup_and_delete(_) ->
     {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(get, API),
 
     ok = emqtt:disconnect(C1).
+
+t_change_storage_type(_Config) ->
+    Path = api_path(["mqtt", "retainer"]),
+    {ok, ConfJson} = request_api(get, Path),
+    RawConf = emqx_json:decode(ConfJson, [return_maps]),
+    %% pre-conditions
+    ?assertMatch(
+        #{
+            <<"backend">> := #{
+                <<"type">> := <<"built_in_database">>,
+                <<"storage_type">> := <<"ram">>
+            },
+            <<"enable">> := true
+        },
+        RawConf
+    ),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_INDEX_META, storage_type)),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_MESSAGE, storage_type)),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_INDEX, storage_type)),
+
+    ChangedConf = emqx_map_lib:deep_merge(
+        RawConf,
+        #{
+            <<"backend">> =>
+                #{<<"storage_type">> => <<"disc">>}
+        }
+    ),
+    {ok, UpdateResJson} = request_api(
+        put,
+        Path,
+        [],
+        auth_header_(),
+        ChangedConf
+    ),
+    UpdatedRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"backend">> := #{
+                <<"type">> := <<"built_in_database">>,
+                <<"storage_type">> := <<"disc">>
+            },
+            <<"enable">> := true
+        },
+        UpdatedRawConf
+    ),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_INDEX_META, storage_type)),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_MESSAGE, storage_type)),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_INDEX, storage_type)),
+
+    ok.
 
 %%--------------------------------------------------------------------
 %% HTTP Request
