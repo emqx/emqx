@@ -132,7 +132,7 @@ t_refresh(_Config) ->
          {{ok, _Pid}, {ok, _Event}} =
            ?wait_async_action(
               emqx_rule_engine_jwt_worker:start_link(Config),
-              #{?snk_kind := rule_engine_jwt_worker_token_stored},
+              #{?snk_kind := rule_engine_jwt_token_stored},
               5_000),
          {ok, FirstJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
          ?block_until(#{?snk_kind := rule_engine_jwt_worker_refresh,
@@ -152,7 +152,7 @@ t_refresh(_Config) ->
        end,
        fun({FirstJWT, SecondJWT, ThirdJWT}, Trace) ->
          ?assertMatch([_, _, _ | _],
-                      ?of_kind(rule_engine_jwt_worker_token_stored, Trace)),
+                      ?of_kind(rule_engine_jwt_token_stored, Trace)),
          ?assertNotEqual(FirstJWT, SecondJWT),
          ?assertNotEqual(SecondJWT, ThirdJWT),
          ?assertNotEqual(FirstJWT, ThirdJWT),
