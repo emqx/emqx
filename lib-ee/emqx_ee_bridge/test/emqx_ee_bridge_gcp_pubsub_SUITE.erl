@@ -1136,6 +1136,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             wait_telemetry_event(TelemetryTable, success, ResourceId, #{
                 timeout => 10_000, n_events => 2
             }),
+            wait_until_gauge_is(inflight, 0, _Timeout = 400),
+            wait_until_gauge_is(queuing, 0, _Timeout = 400),
             assert_metrics(
                 #{
                     batching => 0,
