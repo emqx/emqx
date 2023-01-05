@@ -15,6 +15,8 @@ services:
       - 8087:8087
       - 13306:3306
       - 13307:3307
+      - 15432:5432
+      - 15433:5433
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"
