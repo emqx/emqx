@@ -182,7 +182,8 @@ handle_stream_data(
 %%             {ok, State}
 %%     end.
 
-passive(_Stream, undefined, S) ->
+passive(Stream, undefined, S) ->
+    quicer:setopt(Stream, active, 10),
     {ok, S}.
 
 stream_closed(
