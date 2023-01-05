@@ -110,7 +110,7 @@ init_per_testcase(TestCase, Config0) when
 ->
     case ?config(batch_size, Config0) of
         1 ->
-            {skip, no_batching};
+            [{skip_due_to_no_batching, true}];
         _ ->
             {ok, _} = start_echo_http_server(),
             delete_all_bridges(),
@@ -754,6 +754,15 @@ t_publish_templated(Config) ->
     ok.
 
 t_publish_success_batch(Config) ->
+    case proplists:get_bool(skip_due_to_no_batching, Config) of
+        true ->
+            ct:pal("this test case is skipped due to non-applicable config"),
+            ok;
+        false ->
+            test_publish_success_batch(Config)
+    end.
+
+test_publish_success_batch(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
