@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/authz/[...]").
@@ -64,7 +65,14 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_authz_http_test_server:stop().
+    try
+        ok = emqx_authz_http_test_server:stop()
+    catch
+        exit:noproc ->
+            ok
+    end,
+    snabbkaffe:stop(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -148,7 +156,39 @@ t_response_handling(_Config) ->
     ?assertEqual(
         deny,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
-    ).
+    ),
+
+    %% the server cannot be reached; should skip to the next
+    %% authorizer in the chain.
+    ok = emqx_authz_http_test_server:stop(),
+
+    ?check_trace(
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        ?snk_kind := authz_http_request_failure,
+                        error := {recoverable_error, econnrefused}
+                    }
+                ],
+                ?of_kind(authz_http_request_failure, Trace)
+            ),
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := authz_http_request_failure},
+                    #{?snk_kind := authz_non_superuser, result := nomatch},
+                    Trace
+                )
+            ),
+            ok
+        end
+    ),
+
+    ok.
 
 t_query_params(_Config) ->
     ok = setup_handler_and_config(
