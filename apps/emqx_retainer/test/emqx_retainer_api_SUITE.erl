@@ -103,11 +103,12 @@ t_messages(_) ->
     end,
 
     ?check_trace(
-        ?wait_async_action(
-            lists:foreach(Each, lists:seq(1, 5)),
-            #{?snk_kind := message_retained, topic := <<"retained/A">>},
-            500
-        ),
+        {ok, {ok, _}} =
+            ?wait_async_action(
+                lists:foreach(Each, lists:seq(1, 5)),
+                #{?snk_kind := message_retained, topic := <<"retained/A">>},
+                500
+            ),
         []
     ),
 
@@ -149,11 +150,12 @@ t_messages_page(_) ->
     end,
 
     ?check_trace(
-        ?wait_async_action(
-            lists:foreach(Each, lists:seq(1, 5)),
-            #{?snk_kind := message_retained, topic := <<"retained/A">>},
-            500
-        ),
+        {ok, {ok, _}} =
+            ?wait_async_action(
+                lists:foreach(Each, lists:seq(1, 5)),
+                #{?snk_kind := message_retained, topic := <<"retained/A">>},
+                500
+            ),
         []
     ),
     Page = 4,
@@ -218,6 +220,92 @@ t_lookup_and_delete(_) ->
     {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(get, API),
 
     ok = emqtt:disconnect(C1).
+
+t_change_storage_type(_Config) ->
+    Path = api_path(["mqtt", "retainer"]),
+    {ok, ConfJson} = request_api(get, Path),
+    RawConf = emqx_json:decode(ConfJson, [return_maps]),
+    %% pre-conditions
+    ?assertMatch(
+        #{
+            <<"backend">> := #{
+                <<"type">> := <<"built_in_database">>,
+                <<"storage_type">> := <<"ram">>
+            },
+            <<"enable">> := true
+        },
+        RawConf
+    ),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_INDEX_META, storage_type)),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_MESSAGE, storage_type)),
+    ?assertEqual(ram_copies, mnesia:table_info(?TAB_INDEX, storage_type)),
+    %% insert some retained messages
+    {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C0),
+    ok = snabbkaffe:start_trace(),
+    Topic = <<"retained">>,
+    Payload = <<"retained">>,
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:publish(C0, Topic, Payload, [{qos, 0}, {retain, true}]),
+            #{?snk_kind := message_retained, topic := Topic},
+            500
+        ),
+    emqtt:stop(C0),
+    ok = snabbkaffe:stop(),
+    {ok, MsgsJson0} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
+    #{data := Msgs0, meta := _} = decode_json(MsgsJson0),
+    ?assertEqual(1, length(Msgs0)),
+
+    ChangedConf = emqx_map_lib:deep_merge(
+        RawConf,
+        #{
+            <<"backend">> =>
+                #{<<"storage_type">> => <<"disc">>}
+        }
+    ),
+    {ok, UpdateResJson} = request_api(
+        put,
+        Path,
+        [],
+        auth_header_(),
+        ChangedConf
+    ),
+    UpdatedRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"backend">> := #{
+                <<"type">> := <<"built_in_database">>,
+                <<"storage_type">> := <<"disc">>
+            },
+            <<"enable">> := true
+        },
+        UpdatedRawConf
+    ),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_INDEX_META, storage_type)),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_MESSAGE, storage_type)),
+    ?assertEqual(disc_copies, mnesia:table_info(?TAB_INDEX, storage_type)),
+    %% keep retained messages
+    {ok, MsgsJson1} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
+    #{data := Msgs1, meta := _} = decode_json(MsgsJson1),
+    ?assertEqual(1, length(Msgs1)),
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, _, _} = emqtt:subscribe(C1, Topic),
+
+    receive
+        {publish, #{topic := T, payload := P, retain := R}} ->
+            ?assertEqual(Payload, P),
+            ?assertEqual(Topic, T),
+            ?assert(R),
+            ok
+    after 500 ->
+        emqtt:stop(C1),
+        ct:fail("should have preserved retained messages")
+    end,
+    emqtt:stop(C1),
+
+    ok.
 
 %%--------------------------------------------------------------------
 %% HTTP Request
