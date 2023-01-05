@@ -401,7 +401,7 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
 websocket_handle({binary, Data}, State) ->
     State2 = ensure_stats_timer(State),
     {Packets, State3} = parse_incoming(Data, [], State2),
-    LenMsg = erlang:length(Packets),
+    LenMsg = emqx_packet:count_publish_packets(Packets),
     ByteSize = erlang:iolist_size(Data),
     inc_recv_stats(LenMsg, ByteSize),
     State4 = check_limiter(

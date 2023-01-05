@@ -732,7 +732,7 @@ handle_timeout(TRef, Msg, State) ->
 -compile({inline, [when_bytes_in/3]}).
 when_bytes_in(Oct, Data, State) ->
     {Packets, NState} = parse_incoming(Data, [], State),
-    Len = erlang:length(Packets),
+    Len = emqx_packet:count_publish_packets(Packets),
     check_limiter(
         [{Oct, ?LIMITER_BYTES_IN}, {Len, ?LIMITER_MESSAGE_IN}],
         Packets,

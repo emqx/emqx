@@ -418,3 +418,7 @@ t_parse_empty_publish(_) ->
     %% 52: 0011(type=PUBLISH) 0100 (QoS=2)
     Packet = #mqtt_packet_publish{topic_name = <<>>},
     ?assertEqual({error, ?RC_PROTOCOL_ERROR}, emqx_packet:check(Packet)).
+
+t_count_publish_packets(_) ->
+    Packets = [P || {_, _, P} <- ?PACKETS],
+    ?assertEqual(1, emqx_packet:count_publish_packets(Packets)).

@@ -55,7 +55,8 @@
     format/2
 ]).
 
--export([encode_hex/1]).
+%% Utils
+-export([encode_hex/1, count_publish_packets/1]).
 
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
@@ -697,4 +698,17 @@ hex(X) ->
             16#4542, 16#4543, 16#4544, 16#4545, 16#4546, 16#4630, 16#4631, 16#4632, 16#4633,
             16#4634, 16#4635, 16#4636, 16#4637, 16#4638, 16#4639, 16#4641, 16#4642, 16#4643,
             16#4644, 16#4645, 16#4646}
+    ).
+
+-spec count_publish_packets([emqx_types:packet()]) -> non_neg_integer().
+count_publish_packets(Packets) ->
+    lists:foldl(
+        fun
+            (?PACKET(?PUBLISH), Acc) ->
+                Acc + 1;
+            (_, Acc) ->
+                Acc
+        end,
+        0,
+        Packets
     ).
