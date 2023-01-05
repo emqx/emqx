@@ -305,6 +305,55 @@ t_http_crud_apis(Config) ->
     ),
     ok.
 
+t_http_bridges_local_topic(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name1 = <<"t_http_bridges_with_local_topic1">>,
+    Name2 = <<"t_http_bridges_without_local_topic1">>,
+    %% create one http bridge with local_topic
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name1)
+    ),
+    %% and we create another one without local_topic
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        maps:remove(<<"local_topic">>, ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name2))
+    ),
+    BridgeID1 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name1),
+    BridgeID2 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name2),
+    %% Send an message to emqx and the message should be forwarded to the HTTP server.
+    %% This is to verify we can have 2 bridges with and without local_topic fields
+    %% at the same time.
+    Body = <<"my msg">>,
+    emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
+    ?assert(
+        receive
+            {http_server, received, #{
+                method := <<"POST">>,
+                path := <<"/path1">>,
+                body := Body
+            }} ->
+                true;
+            Msg ->
+                ct:pal("error: http got unexpected request: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end
+    ),
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID1]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID2]), []),
+    ok.
+
 t_check_dependent_actions_on_delete(Config) ->
     Port = ?config(port, Config),
     %% assert we there's no bridges at first
