@@ -56,6 +56,7 @@ start_slave(Name, Opts) ->
             throw(Other)
     end,
     pong = net_adm:ping(Node),
+    put_slave_mod(Node, SlaveMod),
     setup_node(Node, Opts),
     Node.
 
@@ -70,11 +71,14 @@ make_node_name(Name) ->
 
 stop_slave(Node0) ->
     Node = make_node_name(Node0),
+    SlaveMod = get_slave_mod(Node),
+    erase_slave_mod(Node),
     case rpc:call(Node, ekka, leave, []) of
         ok -> ok;
         {badrpc, nodedown} -> ok
     end,
-    case ct_slave:stop(Node) of
+    case SlaveMod:stop(Node) of
+        ok -> ok;
         {ok, _} -> ok;
         {error, not_started, _} -> ok
     end.
@@ -167,3 +171,16 @@ check_consistent_view([{View, Node} | Rest], Acc) ->
 
 add_to_list(Node, Nodes) when is_list(Nodes) -> [Node | Nodes];
 add_to_list(Node, Node1) -> [Node, Node1].
+
+put_slave_mod(Node, SlaveMod) ->
+    put({?MODULE, Node}, SlaveMod),
+    ok.
+
+get_slave_mod(Node) ->
+    case get({?MODULE, Node}) of
+        undefined -> ct_slave;
+        SlaveMod -> SlaveMod
+    end.
+
+erase_slave_mod(Node) ->
+    erase({?MODULE, Node}).
