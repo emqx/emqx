@@ -17,6 +17,7 @@
 -module(emqx_connector_demo).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
 
@@ -28,6 +29,7 @@
     on_query/3,
     on_query_async/4,
     on_batch_query/3,
+    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -35,6 +37,8 @@
 
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
+
+-define(CM_KEY, {?MODULE, callback_mode}).
 
 roots() ->
     [
@@ -51,7 +55,6 @@ register(required) -> true;
 register(default) -> false;
 register(_) -> undefined.
 
--define(CM_KEY, {?MODULE, callback_mode}).
 callback_mode() ->
     persistent_term:get(?CM_KEY).
 
@@ -60,17 +63,12 @@ set_callback_mode(Mode) ->
 
 on_start(_InstId, #{create_error := true}) ->
     error("some error");
-on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
-    Register = maps:get(register, Opts, false),
-    {ok, Opts#{
-        id => InstId,
-        stop_error => true,
-        pid => spawn_counter_process(Name, Register)
-    }};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
+    StopError = maps:get(stop_error, Opts, false),
     {ok, Opts#{
         id => InstId,
+        stop_error => StopError,
         pid => spawn_counter_process(Name, Register)
     }}.
 
@@ -95,8 +93,11 @@ on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     From = {self(), ReqRef},
     Pid ! {From, {inc, N}},
     receive
-        {ReqRef, ok} -> ok;
-        {ReqRef, incorrect_status} -> {error, {recoverable_error, incorrect_status}}
+        {ReqRef, ok} ->
+            ?tp(connector_demo_inc_counter, #{n => N}),
+            ok;
+        {ReqRef, incorrect_status} ->
+            {error, {recoverable_error, incorrect_status}}
     after 1000 ->
         {error, timeout}
     end;
@@ -127,18 +128,30 @@ on_query_async(_InstId, get_counter, ReplyFun, #{pid := Pid}) ->
     ok.
 
 on_batch_query(InstId, BatchReq, State) ->
-    %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
+    %% Requests can be either 'get_counter' or 'inc_counter', but
+    %% cannot be mixed.
     case hd(BatchReq) of
         {inc_counter, _} ->
-            batch_inc_counter(InstId, BatchReq, State);
+            batch_inc_counter(sync, InstId, BatchReq, State);
         get_counter ->
-            batch_get_counter(InstId, State)
+            batch_get_counter(sync, InstId, State)
     end.
 
-batch_inc_counter(InstId, BatchReq, State) ->
+on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, State) ->
+    %% Requests can be either 'get_counter' or 'inc_counter', but
+    %% cannot be mixed.
+    case hd(BatchReq) of
+        {inc_counter, _} ->
+            batch_inc_counter({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        get_counter ->
+            batch_get_counter({async, ReplyFunAndArgs}, InstId, State)
+    end.
+
+batch_inc_counter(CallMode, InstId, BatchReq, State) ->
     TotalN = lists:foldl(
         fun
             ({inc_counter, N}, Total) ->
+                ?tp(connector_demo_batch_inc_individual, #{n => N}),
                 Total + N;
             (Req, _Total) ->
                 error({mixed_requests_not_allowed, {inc_counter, Req}})
@@ -146,10 +159,17 @@ batch_inc_counter(InstId, BatchReq, State) ->
         0,
         BatchReq
     ),
-    on_query(InstId, {inc_counter, TotalN}, State).
+    case CallMode of
+        sync ->
+            on_query(InstId, {inc_counter, TotalN}, State);
+        {async, ReplyFunAndArgs} ->
+            on_query_async(InstId, {inc_counter, TotalN}, ReplyFunAndArgs, State)
+    end.
 
-batch_get_counter(InstId, State) ->
-    on_query(InstId, get_counter, State).
+batch_get_counter(sync, InstId, State) ->
+    on_query(InstId, get_counter, State);
+batch_get_counter({async, ReplyFunAndArgs}, InstId, State) ->
+    on_query_async(InstId, get_counter, ReplyFunAndArgs, State).
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     disconnected;
@@ -187,6 +207,7 @@ counter_loop(
             {inc, N, ReplyFun} when Status == running ->
                 %ct:pal("async counter recv: ~p", [{inc, N}]),
                 apply_reply(ReplyFun, ok),
+                ?tp(connector_demo_inc_counter_async, #{n => N}),
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
                 %ct:pal("sync counter recv: ~p", [{inc, N}]),

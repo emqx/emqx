@@ -207,7 +207,6 @@ info_example_basic(webhook) ->
             auto_restart_interval => 15000,
             query_mode => async,
             async_inflight_window => 100,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         }
     };
@@ -233,7 +232,6 @@ mqtt_main_example() ->
             health_check_interval => <<"15s">>,
             auto_restart_interval => <<"60s">>,
             query_mode => sync,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         },
         ssl => #{
@@ -634,11 +632,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15
             )
         ) ->
             ?METRICS(
@@ -656,9 +654,7 @@ aggregate_metrics(AllMetrics) ->
                 M12 + N12,
                 M13 + N13,
                 M14 + N14,
-                M15 + N15,
-                M16 + N16,
-                M17 + N17
+                M15 + N15
             )
         end,
         InitMetrics,
@@ -691,7 +687,6 @@ format_metrics(#{
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
@@ -705,15 +700,12 @@ format_metrics(#{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
     }
 }) ->
-    Batched = maps:get('batching', Gauges, 0),
     Queued = maps:get('queuing', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
     ?METRICS(
-        Batched,
         Dropped,
         DroppedOther,
         DroppedQueueFull,
-        DroppedQueueNotEnabled,
         DroppedResourceNotFound,
         DroppedResourceStopped,
         Matched,

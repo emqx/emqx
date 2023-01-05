@@ -64,10 +64,8 @@
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
     auto_restart_interval => pos_integer(),
-    enable_batch => boolean(),
     batch_size => pos_integer(),
     batch_time => pos_integer(),
-    enable_queue => boolean(),
     max_queue_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
@@ -90,7 +88,7 @@
 -define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
 
 %% count
--define(DEFAULT_BATCH_SIZE, 100).
+-define(DEFAULT_BATCH_SIZE, 1).
 
 %% milliseconds
 -define(DEFAULT_BATCH_TIME, 20).

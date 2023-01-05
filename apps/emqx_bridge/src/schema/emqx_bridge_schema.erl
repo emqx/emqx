@@ -128,12 +128,9 @@ fields(bridges) ->
     ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
-        {"batching", mk(integer(), #{desc => ?DESC("metric_batching")})},
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
         {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
         {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},
-        {"dropped.queue_not_enabled",
-            mk(integer(), #{desc => ?DESC("metric_dropped_queue_not_enabled")})},
         {"dropped.resource_not_found",
             mk(integer(), #{desc => ?DESC("metric_dropped_resource_not_found")})},
         {"dropped.resource_stopped",
@@ -142,7 +139,7 @@ fields("metrics") ->
         {"queuing", mk(integer(), #{desc => ?DESC("metric_queuing")})},
         {"retried", mk(integer(), #{desc => ?DESC("metric_retried")})},
         {"failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
-        {"inflight", mk(integer(), #{desc => ?DESC("metric_sent_inflight")})},
+        {"inflight", mk(integer(), #{desc => ?DESC("metric_inflight")})},
         {"success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},
         {"rate", mk(float(), #{desc => ?DESC("metric_rate")})},
         {"rate_max", mk(float(), #{desc => ?DESC("metric_rate_max")})},

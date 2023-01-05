@@ -136,7 +136,6 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'success',
             'failed',
             'dropped',
-            'dropped.queue_not_enabled',
             'dropped.queue_full',
             'dropped.resource_not_found',
             'dropped.resource_stopped',
