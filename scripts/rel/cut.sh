@@ -206,9 +206,18 @@ if [ -d "${CHECKS_DIR}" ]; then
     done
 fi
 
+generate_changelog () {
+    local CHANGES_EN_MD="changes/${TAG}-en.md" CHANGES_ZH_MD="changes/${TAG}-zh.md"
+    ./scripts/format-changelog.sh "${TAG}" "en" > "$CHANGES_EN_MD"
+    ./scripts/format-changelog.sh "${TAG}" "zh" > "$CHANGES_ZH_MD"
+    git add "$CHANGES_EN_MD" "$CHANGES_ZH_MD"
+    [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
+}
+
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else
+    generate_changelog
     git tag "$TAG"
     logmsg "$TAG is created OK."
 fi
