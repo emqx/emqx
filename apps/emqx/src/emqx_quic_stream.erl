@@ -270,8 +270,9 @@ start_completed(_Stream, #{status := Other} = Prop, S) ->
 %%     {stop, unimpl}.
 
 -spec passive(stream_handle(), undefined, cb_data()) -> cb_ret().
-passive(_Stream, undefined, _S) ->
-    {stop, unimpl}.
+passive(Stream, undefined, S) ->
+    quicer:setopt(Stream, active, 10),
+    {ok, S}.
 
 -spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_data()) -> cb_ret().
 stream_closed(
