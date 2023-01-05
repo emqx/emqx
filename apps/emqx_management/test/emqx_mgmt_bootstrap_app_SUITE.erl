@@ -68,10 +68,10 @@ t_load_ok(_) ->
     ok = file:write_file(File, Bin1),
     application:set_env(emqx_management, bootstrap_apps_file, File),
     {ok, _} = application:ensure_all_started(emqx_management),
-    ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"secret-1">>)),
-    ?assert(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"secret-2">>)),
-    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"new-secret-1">>)),
-    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"new-secret-2">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"secret-1">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"secret-2">>)),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"new-secret-1">>)),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"new-secret-2">>)),
     application:stop(emqx_management).
 
 t_bootstrap_user_file_not_found(_) ->
@@ -84,13 +84,17 @@ t_load_invalid_username_failed(_) ->
     File = "./bootstrap_apps.txt",
     ok = file:write_file(File, Bin),
     check_load_failed(File),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"password-1">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test&2">>, <<"password-2">>)),
     ok.
 
 t_load_invalid_format_failed(_) ->
-    Bin = <<"test-1:password-1\ntest-2password-2">>,
+    Bin = <<"test-1:password-1\ntest-2 password-2">>,
     File = "./bootstrap_apps.txt",
     ok = file:write_file(File, Bin),
     check_load_failed(File),
+    ?assert(emqx_mgmt_auth:is_authorized(<<"test-1">>, <<"password-1">>)),
+    ?assertNot(emqx_mgmt_auth:is_authorized(<<"test-2">>, <<"password-2">>)),
     ok.
 
 check_load_failed(File) ->
@@ -98,5 +102,4 @@ check_load_failed(File) ->
     application:stop(emqx_management),
     application:set_env(emqx_management, bootstrap_apps_file, File),
     ?assertMatch({error, _}, application:ensure_all_started(emqx_management)),
-    ?assertNot(lists:member(emqx_management, application:which_applications())),
-    ?assert(emqx_mgmt_auth:need_bootstrap()).
+    ?assertNot(lists:member(emqx_management, application:which_applications())).
