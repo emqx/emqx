@@ -36,22 +36,16 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_all_tcp_servers_available(
-            [
-                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
-                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
-            ]
-        )
-    of
-        true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            Config;
-        false ->
-            assert_ci()
-    end.
+    Checks =
+        case os:getenv("IS_CI") of
+            "yes" -> 10;
+            _ -> 1
+        end,
+    ok = wait_for_redis(Checks),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    Config.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_resource]),
@@ -63,13 +57,24 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-assert_ci() ->
-    case os:getenv("IS_CI") of
-        "yes" ->
-            throw(no_redis);
-        _ ->
-            {skip, no_redis}
+wait_for_redis(0) ->
+    throw(timeout);
+wait_for_redis(Checks) ->
+    case
+        emqx_common_test_helpers:is_all_tcp_servers_available(
+            [
+                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
+                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
+            ]
+        )
+    of
+        true ->
+            ok;
+        false ->
+            timer:sleep(1000),
+            wait_for_redis(Checks - 1)
     end.
+
 % %%------------------------------------------------------------------------------
 % %% Testcases
 % %%------------------------------------------------------------------------------
