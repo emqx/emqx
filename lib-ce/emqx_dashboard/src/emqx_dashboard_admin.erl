@@ -23,6 +23,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -define(DEFAULT_PASSWORD, <<"public">>).
+-define(INVALID_PASSWORD_MSG, <<"The password must contain at least two different kind of characters from groups of letters, numbers, and special characters. For example, if password is composed from letters, it must contain at least one number or a special character.">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -41,8 +42,10 @@
         , lookup_user/1
         , change_password/2
         , change_password/3
+        , force_change_password/2
         , all_users/0
         , check/2
+        , hash/1
         ]).
 
 %% gen_server Function Exports
@@ -79,7 +82,7 @@ start_link() ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    case {emqx_misc:is_sane_id(Username), emqx_misc:is_sane_id(Password, 2, 32)} of
+    case {emqx_misc:is_sane_id(Username), is_valid_pwd(Password)} of
         {ok, ok} ->
             Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
             return(mnesia:transaction(fun add_user_/1, [Admin]));
@@ -88,17 +91,12 @@ add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password)
     end.
 
 force_add_user(Username, Password, Tags) ->
-    case {emqx_misc:is_sane_id(Username), emqx_misc:is_sane_id(Password, 2, 32)} of
-        {ok, ok} ->
-            AddFun = fun() ->
-                mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
-                     end,
-            case mnesia:transaction(AddFun) of
-                {atomic, ok} -> ok;
-                {aborted, Reason} -> {error, Reason}
-            end;
-        {{error, Reason}, _} -> {error, Reason};
-        {_, {error, Reason}} -> {error, Reason}
+    AddFun = fun() ->
+        mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
+             end,
+    case mnesia:transaction(AddFun) of
+        {atomic, ok} -> ok;
+        {aborted, Reason} -> {error, Reason}
     end.
 
 %% @private
@@ -138,12 +136,49 @@ change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
     end.
 
 change_password(Username, Password) when is_binary(Username), is_binary(Password) ->
+    case is_valid_pwd(Password) of
+        ok -> change_password_hash(Username, hash(Password));
+        {error, Error} -> {error, Error}
+    end.
+
+force_change_password(Username, Password) when is_binary(Username), is_binary(Password) ->
     change_password_hash(Username, hash(Password)).
 
 change_password_hash(Username, PasswordHash) ->
     update_pwd(Username, fun(User) ->
                         User#mqtt_admin{password = PasswordHash}
                 end).
+
+-define(LOW_LETTER_CHARS, "abcdefghijklmnopqrstuvwxyz").
+-define(UPPER_LETTER_CHARS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ").
+-define(LETTER, ?LOW_LETTER_CHARS ++ ?UPPER_LETTER_CHARS).
+-define(NUMBER, "0123456789").
+-define(SPECIAL_CHARS, "!@#$%^&*()_+-=[]{}\"|;':,./<>?`~ ").
+
+is_valid_pwd(Password) when is_binary(Password) ->
+    is_valid_pwd(binary_to_list(Password));
+is_valid_pwd(Password) ->
+    Len = erlang:length(Password),
+    case Len >= 8 andalso Len =< 64 of
+        true ->
+            Letter = contain(Password, ?LETTER),
+            Number = contain(Password, ?NUMBER),
+            Special = contain(Password, ?SPECIAL_CHARS),
+            OK = lists:filter(fun(C) -> C end, [Letter, Number, Special]),
+            case length(OK) >= 2 of
+                true ->
+                   %% regex-any-ascii-character
+                    case re:run(Password, "[^\\x00-\\x7F]+", [unicode, {capture, none}]) of
+                        match -> {error, <<"only ascii characters are allowed in the password">>};
+                        nomatch -> ok
+                    end;
+                _ -> {error, ?INVALID_PASSWORD_MSG}
+            end;
+        false ->
+            {error, <<"The password length: 8-64">>}
+    end.
+
+contain(Xs, Spec) -> lists:any(fun(X) -> lists:member(X, Spec) end, Xs).
 
 update_pwd(Username, Fun) ->
     Trans = fun() ->
@@ -317,3 +352,36 @@ maybe_warn_default_pwd() ->
         false ->
             ok
     end.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+password_test() ->
+    ?assertEqual({error, <<"The password length: 8-64">>}, is_valid_pwd(<<"123">>)),
+    MaxPassword = iolist_to_binary([lists:duplicate(63, "x"), "1"]),
+    ?assertEqual(ok, is_valid_pwd(MaxPassword)),
+    TooLongPassword = lists:duplicate(65, "y"),
+    ?assertEqual({error, <<"The password length: 8-64">>}, is_valid_pwd(TooLongPassword)),
+
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, is_valid_pwd(<<"12345678">>)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, is_valid_pwd(?LETTER)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, is_valid_pwd(?NUMBER)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, is_valid_pwd(?SPECIAL_CHARS)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, is_valid_pwd(<<"映映映映无天在请"/utf8>>)),
+    ?assertEqual({error, <<"only ascii characters are allowed in the password">>}, is_valid_pwd(<<"️test_for_non_ascii1中"/utf8>>)),
+    ?assertEqual({error, <<"only ascii characters are allowed in the password">>}, is_valid_pwd(<<"云☁️test_for_unicode"/utf8>>)),
+
+    ?assertEqual(ok, is_valid_pwd(?LOW_LETTER_CHARS ++ ?NUMBER)),
+    ?assertEqual(ok, is_valid_pwd(?UPPER_LETTER_CHARS ++ ?NUMBER)),
+    ?assertEqual(ok, is_valid_pwd(?LOW_LETTER_CHARS ++ ?SPECIAL_CHARS)),
+    ?assertEqual(ok, is_valid_pwd(?UPPER_LETTER_CHARS ++ ?SPECIAL_CHARS)),
+    ?assertEqual(ok, is_valid_pwd(?SPECIAL_CHARS ++ ?NUMBER)),
+
+    ?assertEqual(ok, is_valid_pwd(<<"abckldiekflkdf12">>)),
+    ?assertEqual(ok, is_valid_pwd(<<"abckldiekflkdf w">>)),
+    ?assertEqual(ok, is_valid_pwd(<<"# abckldiekflkdf w">>)),
+    ?assertEqual(ok, is_valid_pwd(<<"# 12344858">>)),
+    ?assertEqual(ok, is_valid_pwd(<<"# %12344858">>)),
+    ok.
+
+-endif.
