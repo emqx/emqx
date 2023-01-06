@@ -19,9 +19,9 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(WORK_DIR, ["_build", "test"]).
+-define(RUN_ID, {?MODULE, testrun_id}).
 -define(GEN_ID, 42).
-
--define(PROP_FULLNAME, ?MODULE_STRING ++ "." ++ atom_to_list(?FUNCTION_NAME)).
 
 %%--------------------------------------------------------------------
 %% Properties
@@ -72,17 +72,18 @@ prop_next_seek_eq_initial_seek() ->
 
 prop_iterate_eq_iterate_with_preserve_restore() ->
     TBPL = [4, 8, 16, 12],
-    DB = open(?PROP_FULLNAME, #{
+    Options = #{
         timestamp_bits => 32,
         topic_bits_per_level => TBPL,
         epoch => 500
-    }),
+    },
+    {DB, _Handle} = open_db(make_filepath(?FUNCTION_NAME), Options),
     ?FORALL(Stream, non_empty(messages(topic(TBPL))), begin
         % TODO
         % This proptest is impure because messages from testruns assumed to be
         % independent of each other are accumulated in the same storage. This
         % would probably confuse shrinker in the event a testrun fails.
-        ok = store(DB, Stream),
+        ok = store_db(DB, Stream),
         ?FORALL(
             {
                 {Topic, _},
@@ -100,7 +101,7 @@ prop_iterate_eq_iterate_with_preserve_restore() ->
                 TopicFilter = make_topic_filter(Pat, Topic),
                 Iterator = make_iterator(DB, TopicFilter, StartTime),
                 Messages = run_iterator_commands(Commands, Iterator, DB),
-                Messages =:= iterate(DB, TopicFilter, StartTime)
+                equals(Messages, iterate_db(DB, TopicFilter, StartTime))
             end
         )
     end).
@@ -115,7 +116,7 @@ prop_iterate_eq_iterate_with_preserve_restore() ->
 % store_message_stream(_Zone, []) ->
 %     ok.
 
-store(DB, Messages) ->
+store_db(DB, Messages) ->
     lists:foreach(
         fun({Topic, Payload = {MessageID, Timestamp, _}}) ->
             Bin = term_to_binary(Payload),
@@ -124,13 +125,13 @@ store(DB, Messages) ->
         Messages
     ).
 
-iterate(DB, TopicFilter, StartTime) ->
-    iterate(make_iterator(DB, TopicFilter, StartTime)).
+iterate_db(DB, TopicFilter, StartTime) ->
+    iterate_db(make_iterator(DB, TopicFilter, StartTime)).
 
-iterate(It) ->
+iterate_db(It) ->
     case emqx_replay_message_storage:next(It) of
         {value, Payload, ItNext} ->
-            [binary_to_term(Payload) | iterate(ItNext)];
+            [binary_to_term(Payload) | iterate_db(ItNext)];
         none ->
             []
     end.
@@ -151,16 +152,42 @@ run_iterator_commands([{preserve, restore} | Rest], It, DB) ->
     {ok, ItNext} = emqx_replay_message_storage:restore_iterator(DB, Serial),
     run_iterator_commands(Rest, ItNext, DB);
 run_iterator_commands([], It, _DB) ->
-    iterate(It).
+    iterate_db(It).
 
 %%--------------------------------------------------------------------
 %% Setup / teardown
 %%--------------------------------------------------------------------
 
-open(Filename, Options) ->
-    {ok, DBHandle} = rocksdb:open(Filename, [{create_if_missing, true}]),
-    {Schema, CFRefs} = emqx_replay_message_storage:create_new(DBHandle, ?GEN_ID, Options),
-    emqx_replay_message_storage:open(DBHandle, ?GEN_ID, CFRefs, Schema).
+open_db(Filepath, Options) ->
+    {ok, Handle} = rocksdb:open(Filepath, [{create_if_missing, true}]),
+    {Schema, CFRefs} = emqx_replay_message_storage:create_new(Handle, ?GEN_ID, Options),
+    DB = emqx_replay_message_storage:open(Handle, ?GEN_ID, CFRefs, Schema),
+    {DB, Handle}.
+
+close_db(Handle) ->
+    rocksdb:close(Handle).
+
+make_filepath(TC) ->
+    make_filepath(TC, 0).
+
+make_filepath(TC, InstID) ->
+    Name = io_lib:format("~0p.~0p", [TC, InstID]),
+    Path = filename:join(?WORK_DIR ++ ["proper", "runs", get_run_id(), ?MODULE_STRING, Name]),
+    ok = filelib:ensure_dir(Path),
+    Path.
+
+get_run_id() ->
+    case persistent_term:get(?RUN_ID, undefined) of
+        RunID when RunID /= undefined ->
+            RunID;
+        undefined ->
+            RunID = make_run_id(),
+            ok = persistent_term:put(?RUN_ID, RunID),
+            RunID
+    end.
+
+make_run_id() ->
+    calendar:system_time_to_rfc3339(erlang:system_time(second), [{offset, "Z"}]).
 
 %%--------------------------------------------------------------------
 %% Type generators
