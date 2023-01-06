@@ -457,8 +457,13 @@ compute_topic_bitmask([], [{hash, level, Size} | Rest], Acc) ->
     compute_topic_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
 compute_topic_bitmask([_ | Tail], [{hash, level, Size} | Rest], Acc) ->
     compute_topic_bitmask(Tail, Rest, bitwise_concat(Acc, ones(Size), Size));
-compute_topic_bitmask(_, [{hash, levels, Size} | Rest], Acc) ->
-    compute_topic_bitmask([], Rest, bitwise_concat(Acc, ones(Size), Size));
+compute_topic_bitmask(Tail, [{hash, levels, Size} | Rest], Acc) ->
+    Mask =
+        case lists:member('+', Tail) orelse lists:member('#', Tail) of
+            true -> 0;
+            false -> ones(Size)
+        end,
+    compute_topic_bitmask([], Rest, bitwise_concat(Acc, Mask, Size));
 compute_topic_bitmask(_, [], Acc) ->
     Acc.
 
