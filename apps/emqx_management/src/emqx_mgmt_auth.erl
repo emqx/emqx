@@ -36,7 +36,6 @@
         , del_app/1
         , list_apps/0
         , init_bootstrap_apps/0
-        , need_bootstrap/0
         , clear_bootstrap_apps/0
         ]).
 
@@ -83,21 +82,8 @@ add_default_app() ->
     end.
 
 init_bootstrap_apps() ->
-    case need_bootstrap() of
-        true ->
-            Bootstrap = application:get_env(emqx_management, bootstrap_apps_file, undefined),
-            init_bootstrap_apps(Bootstrap);
-        false ->
-            ok
-    end.
-
-need_bootstrap() ->
-    {atomic, Res} = mnesia:transaction(
-        fun() ->
-            Spec = [{#mqtt_app{id = '$1', desc = ?BOOTSTRAP_TAG, _ = '_'}, [], ['$1']}],
-            mnesia:select(mqtt_app, Spec, 1, read) =:= '$end_of_table'
-        end),
-    Res.
+    Bootstrap = application:get_env(emqx_management, bootstrap_apps_file, undefined),
+    init_bootstrap_apps(Bootstrap).
 
 clear_bootstrap_apps() ->
     {atomic, ok} =
@@ -113,13 +99,7 @@ init_bootstrap_apps(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
-            case init_bootstrap_apps(File, Dev, MP) of
-                ok -> ok;
-                Error ->
-                    %% if failed add bootstrap users, we should clear all bootstrap apps
-                    clear_bootstrap_apps(),
-                    Error
-            end;
+            init_bootstrap_apps(File, Dev, MP);
         {error, Reason} = Error ->
             ?LOG(error,
                 "failed to open the mgmt bootstrap apps file(~s) for ~p",
@@ -145,8 +125,8 @@ add_bootstrap_app(File, Dev, MP, Line) ->
             case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
                 {match, [[AppId, AppSecret]]} ->
                     Name = <<"bootstraped">>,
-                    case add_app(AppId, Name, AppSecret, ?BOOTSTRAP_TAG, true, undefined) of
-                        {ok, _} ->
+                    case force_add_app(AppId, Name, AppSecret, ?BOOTSTRAP_TAG, true, undefined) of
+                        ok ->
                             add_bootstrap_app(File, Dev, MP, Line + 1);
                         {error, Reason} ->
                             throw(#{file => File, line => Line, content => Bin, reason => Reason})
