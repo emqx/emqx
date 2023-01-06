@@ -101,6 +101,8 @@
 
 -export_type([oom_policy/0]).
 
+-export_type([takeover_data/0]).
+
 -type proto_ver() ::
     ?MQTT_PROTO_V3
     | ?MQTT_PROTO_V4
@@ -242,3 +244,5 @@
     max_heap_size => non_neg_integer(),
     enable => boolean()
 }.
+
+-type takeover_data() :: map().
