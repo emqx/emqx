@@ -53,6 +53,8 @@
 
 -export([reply_after_query/7, batch_reply_after_query/7]).
 
+-export([clear_disk_queue_dir/2]).
+
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -define(Q_ITEM(REQUEST), {q_item, REQUEST}).
@@ -176,6 +178,7 @@ init({Id, Index, Opts}) ->
         resume_interval => maps:get(resume_interval, Opts, HCItvl),
         tref => undefined
     },
+    ?tp(resource_worker_init, #{id => Id, index => Index}),
     {ok, blocked, St, {next_event, cast, resume}}.
 
 running(enter, _, St) ->
@@ -232,7 +235,9 @@ blocked(info, Info, _Data) ->
 terminate(_Reason, #{id := Id, index := Index, queue := Q}) ->
     emqx_resource_metrics:inflight_set(Id, Index, 0),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q)),
-    gproc_pool:disconnect_worker(Id, {Id, Index}).
+    gproc_pool:disconnect_worker(Id, {Id, Index}),
+    replayq:close(Q),
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -432,7 +437,11 @@ flush(Data0) ->
             {Q1, QAckRef, Batch0} = replayq:pop(Q0, #{count_limit => BatchSize}),
             Batch = [Item || ?Q_ITEM(Item) <- Batch0],
             IsBatch = BatchSize =/= 1,
-            do_flush(Data0, #{
+            %% We *must* use the new queue, because we currently can't
+            %% `nack' a `pop'.
+            %% Maybe we could re-open the queue?
+            Data1 = Data0#{queue := Q1},
+            do_flush(Data1, #{
                 new_queue => Q1,
                 is_batch => IsBatch,
                 batch => Batch,
@@ -463,24 +472,35 @@ do_flush(Data0, #{is_batch := false, batch := Batch, ack_ref := QAckRef, new_que
         %% failed and is not async; keep the request in the queue to
         %% be retried
         {true, false} ->
-            {next_state, blocked, Data1};
+            %% Note: currently, we cannot safely pop an item from
+            %% `replayq', keep the old reference to the queue and
+            %% later try to append new items to the old ref: by
+            %% popping an item, we may cause the side effect of
+            %% closing an open segment and opening a new one, and the
+            %% later `append' with the old file descriptor will fail
+            %% with `einval' because it has been closed.  So we are
+            %% forced to re-append the item, changing the order of
+            %% requests...
+            ok = replayq:ack(Q1, QAckRef),
+            SentBatch = mark_as_sent(Batch),
+            Q2 = append_queue(Id, Index, Q1, SentBatch),
+            Data2 = Data1#{queue := Q2},
+            {next_state, blocked, Data2};
         %% failed and is async; remove the request from the queue, as
         %% it is already in inflight table
         {true, true} ->
             ok = replayq:ack(Q1, QAckRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
-            Data = Data1#{queue := Q1},
-            {next_state, blocked, Data};
+            {next_state, blocked, Data1};
         %% success; just ack
         {false, _} ->
             ok = replayq:ack(Q1, QAckRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
-            Data2 = Data1#{queue := Q1},
             case replayq:count(Q1) > 0 of
                 true ->
-                    {keep_state, Data2, [{next_event, internal, flush}]};
+                    {keep_state, Data1, [{next_event, internal, flush}]};
                 false ->
-                    {keep_state, Data2}
+                    {keep_state, Data1}
             end
     end;
 do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef, new_queue := Q1}) ->
@@ -498,28 +518,39 @@ do_flush(Data0, #{is_batch := true, batch := Batch, ack_ref := QAckRef, new_queu
         %% failed and is not async; keep the request in the queue to
         %% be retried
         {true, false} ->
-            {next_state, blocked, Data1};
+            %% Note: currently, we cannot safely pop an item from
+            %% `replayq', keep the old reference to the queue and
+            %% later try to append new items to the old ref: by
+            %% popping an item, we may cause the side effect of
+            %% closing an open segment and opening a new one, and the
+            %% later `append' with the old file descriptor will fail
+            %% with `einval' because it has been closed.  So we are
+            %% forced to re-append the item, changing the order of
+            %% requests...
+            ok = replayq:ack(Q1, QAckRef),
+            SentBatch = mark_as_sent(Batch),
+            Q2 = append_queue(Id, Index, Q1, SentBatch),
+            Data2 = Data1#{queue := Q2},
+            {next_state, blocked, Data2};
         %% failed and is async; remove the request from the queue, as
         %% it is already in inflight table
         {true, true} ->
             ok = replayq:ack(Q1, QAckRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
-            Data = Data1#{queue := Q1},
-            {next_state, blocked, Data};
+            {next_state, blocked, Data1};
         %% success; just ack
         {false, _} ->
             ok = replayq:ack(Q1, QAckRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             CurrentCount = replayq:count(Q1),
-            Data2 = Data1#{queue := Q1},
             case {CurrentCount > 0, CurrentCount >= BatchSize} of
                 {false, _} ->
-                    {keep_state, Data2};
+                    {keep_state, Data1};
                 {true, true} ->
-                    {keep_state, Data2, [{next_event, internal, flush}]};
+                    {keep_state, Data1, [{next_event, internal, flush}]};
                 {true, false} ->
-                    Data3 = ensure_flush_timer(Data2),
-                    {keep_state, Data3}
+                    Data2 = ensure_flush_timer(Data1),
+                    {keep_state, Data2}
             end
     end.
 
@@ -873,6 +904,15 @@ queue_count(Q) ->
 disk_queue_dir(Id, Index) ->
     QDir = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
     filename:join([emqx:data_dir(), "resource_worker", node(), QDir]).
+
+clear_disk_queue_dir(Id, Index) ->
+    ReplayQDir = disk_queue_dir(Id, Index),
+    case file:del_dir_r(ReplayQDir) of
+        {error, enoent} ->
+            ok;
+        Res ->
+            Res
+    end.
 
 ensure_flush_timer(Data = #{tref := undefined, batch_time := T}) ->
     Ref = make_ref(),

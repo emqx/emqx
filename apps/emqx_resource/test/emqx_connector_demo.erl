@@ -88,6 +88,19 @@ on_query(_InstId, block, #{pid := Pid}) ->
 on_query(_InstId, resume, #{pid := Pid}) ->
     Pid ! resume,
     ok;
+on_query(_InstId, {big_payload, Payload}, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, {big_payload, Payload}},
+    receive
+        {ReqRef, ok} ->
+            ?tp(connector_demo_big_payload, #{payload => Payload}),
+            ok;
+        {ReqRef, incorrect_status} ->
+            {error, {recoverable_error, incorrect_status}}
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     ReqRef = make_ref(),
     From = {self(), ReqRef},
@@ -214,6 +227,9 @@ counter_loop(
                 FromPid ! {ReqRef, ok},
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->
+                FromPid ! {ReqRef, incorrect_status},
+                State#{incorrect_status_count := IncorrectCount + 1};
+            {{FromPid, ReqRef}, {big_payload, _Payload}} when Status == blocked ->
                 FromPid ! {ReqRef, incorrect_status},
                 State#{incorrect_status_count := IncorrectCount + 1};
             {get, ReplyFun} ->

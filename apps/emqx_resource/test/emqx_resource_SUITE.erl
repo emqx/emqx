@@ -1116,6 +1116,88 @@ t_retry_batch(_Config) ->
     ),
     ok.
 
+t_delete_and_re_create_with_same_name(_Config) ->
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            worker_pool_size => 2,
+            queue_seg_bytes => 100,
+            resume_interval => 1_000
+        }
+    ),
+    %% pre-condition: we should have just created a new queue
+    Queuing0 = emqx_resource_metrics:queuing_get(?ID),
+    ?assertEqual(0, Queuing0),
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
+            NumRequests = 10,
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := resource_worker_appended_to_queue}),
+                %% +1 because the first request will fail,
+                %% block the resource, and will be
+                %% re-appended to the queue.
+                NumRequests + 1,
+                _Timeout = 5_000
+            ),
+            %% ensure replayq offloads to disk
+            Payload = binary:copy(<<"a">>, 119),
+            lists:foreach(
+                fun(N) ->
+                    {error, _} =
+                        emqx_resource:query(
+                            ?ID,
+                            {big_payload, <<(integer_to_binary(N))/binary, Payload/binary>>}
+                        )
+                end,
+                lists:seq(1, NumRequests)
+            ),
+
+            {ok, _} = snabbkaffe:receive_events(SRef),
+
+            %% ensure that stuff got enqueued into disk
+            Queuing1 = emqx_resource_metrics:queuing_get(?ID),
+            ?assertEqual(NumRequests, Queuing1),
+
+            %% now, we delete the resource
+            ok = emqx_resource:remove_local(?ID),
+            ?assertEqual({error, not_found}, emqx_resource_manager:lookup(?ID)),
+
+            %% re-create the resource with the *same name*
+            {{ok, _}, {ok, _Events}} =
+                ?wait_async_action(
+                    emqx_resource:create(
+                        ?ID,
+                        ?DEFAULT_RESOURCE_GROUP,
+                        ?TEST_RESOURCE,
+                        #{name => test_resource},
+                        #{
+                            query_mode => async,
+                            batch_size => 1,
+                            worker_pool_size => 2,
+                            queue_seg_bytes => 100,
+                            resume_interval => 1_000
+                        }
+                    ),
+                    #{?snk_kind := resource_worker_enter_blocked},
+                    5_000
+                ),
+
+            %% it shouldn't have anything enqueued, as it's a fresh resource
+            Queuing2 = emqx_resource_metrics:queuing_get(?ID),
+            ?assertEqual(0, Queuing2),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
