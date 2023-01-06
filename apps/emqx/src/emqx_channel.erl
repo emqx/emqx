@@ -641,6 +641,13 @@ process_connect(
 %%--------------------------------------------------------------------
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
+    ?SLOG(
+        warning,
+        #{
+            packet => Packet,
+            packet_id => PacketId
+        }
+    ),
     case
         pipeline(
             [
