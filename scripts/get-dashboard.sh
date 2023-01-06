@@ -13,7 +13,7 @@ case "${PKG_VSN}" in
         ;;
     4.4*)
         # keep the above 4.3 untouched, otherwise conflicts!
-        EMQX_CE_DASHBOARD_VERSION='v4.4.7'
+        EMQX_CE_DASHBOARD_VERSION='v4.4.8'
         EMQX_EE_DASHBOARD_VERSION='v4.4.18'
         ;;
     *)
