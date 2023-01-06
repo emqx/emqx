@@ -242,6 +242,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_psk: :permanent,
         emqx_slow_subs: :permanent,
         emqx_plugins: :permanent,
+        emqx_ft: :permanent,
         emqx_mix: :none
       ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
