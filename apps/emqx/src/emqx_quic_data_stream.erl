@@ -25,14 +25,12 @@
 -include_lib("quicer/include/quicer.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
--behaviour(quicer_stream).
+-behaviour(quicer_remote_stream).
 
 %% Connection Callbacks
 -export([
     init_handoff/4,
     post_handoff/3,
-    new_stream/3,
-    start_completed/3,
     send_complete/3,
     peer_send_shutdown/3,
     peer_send_aborted/3,
@@ -79,16 +77,14 @@ init_handoff(
 %%
 %% @TODO -spec
 %%
+post_handoff(_Stream, {undefined = _PS, undefined = _Serialize, undefined = _Channel}, S) ->
+    %% Channel isn't ready yet.
+    %% Data stream should wait for activate call with ?MODULE:activate_data/2
+    {ok, S};
 post_handoff(Stream, {PS, Serialize, Channel}, S) ->
     ?tp(debug, ?FUNCTION_NAME, #{channel => Channel, serialize => Serialize}),
     quicer:setopt(Stream, active, true),
     {ok, S#{channel := Channel, serialize := Serialize, parse_state := PS}}.
-
-%%
-%% @doc when this proc is assigned to the owner of new stream
-%%
-new_stream(Stream, #{flags := Flags}, Connection) ->
-    {ok, init_state(Stream, Connection, Flags)}.
 
 %%
 %% @doc for local initiated stream
@@ -124,12 +120,6 @@ send_complete(_Stream, true = _IsCanceled, S) ->
 
 send_shutdown_complete(_Stream, _Flags, S) ->
     {ok, S}.
-
-start_completed(_Stream, #{status := success, stream_id := StreamId}, S) ->
-    {ok, S#{stream_id => StreamId}};
-start_completed(_Stream, #{status := Other}, S) ->
-    %% or we could retry
-    {stop, {start_fail, Other}, S}.
 
 handle_stream_data(
     Stream,
@@ -208,7 +198,18 @@ stream_closed(
     {stop, normal, S}.
 
 handle_call(Call, _From, S) ->
-    do_handle_call(Call, S).
+    case do_handle_call(Call, S) of
+        {ok, NewS} ->
+            {reply, ok, NewS};
+        {error, Reason, NewS} ->
+            {reply, {error, Reason}, NewS};
+        {{continue, _} = Cont, NewS} ->
+            {reply, ok, NewS, Cont};
+        {hibernate, NewS} ->
+            {reply, ok, NewS, hibernate};
+        {stop, Reason, NewS} ->
+            {stop, Reason, {stopped, Reason}, NewS}
+    end.
 
 handle_continue(handle_appl_msg, #{task_queue := Q} = S) ->
     case queue:out(Q) of
@@ -390,8 +391,8 @@ do_handle_call(
             ?SLOG(error, #{msg => "set stream active failed", error => E}),
             {stop, E, NewS}
     end;
-do_handle_call(_Call, S) ->
-    {reply, {error, unimpl}, S}.
+do_handle_call(_Call, _S) ->
+    {error, unimpl}.
 
 %% @doc return reserved order of Packets
 parse_incoming(Data, PS) ->

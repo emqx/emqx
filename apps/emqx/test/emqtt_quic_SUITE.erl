@@ -77,12 +77,12 @@ groups() ->
             t_multi_streams_unsub,
             t_multi_streams_corr_topic,
             t_multi_streams_unsub_via_other,
-            t_multi_streams_shutdown_data_stream_abortive,
             t_multi_streams_dup_sub,
             t_multi_streams_packet_boundary,
             t_multi_streams_packet_malform,
             t_multi_streams_kill_sub_stream,
             t_multi_streams_packet_too_large,
+            t_multi_streams_sub_0_rtt,
             t_conn_change_client_addr
         ]},
 
@@ -93,10 +93,22 @@ groups() ->
             {group, abort_send_recv_shutdown}
         ]},
 
-        {graceful_shutdown, [{group, ctrl_stream_shutdown}]},
-        {abort_recv_shutdown, [{group, ctrl_stream_shutdown}]},
-        {abort_send_shutdown, [{group, ctrl_stream_shutdown}]},
-        {abort_send_recv_shutdown, [{group, ctrl_stream_shutdown}]},
+        {graceful_shutdown, [
+            {group, ctrl_stream_shutdown},
+            {group, data_stream_shutdown}
+        ]},
+        {abort_recv_shutdown, [
+            {group, ctrl_stream_shutdown},
+            {group, data_stream_shutdown}
+        ]},
+        {abort_send_shutdown, [
+            {group, ctrl_stream_shutdown},
+            {group, data_stream_shutdown}
+        ]},
+        {abort_send_recv_shutdown, [
+            {group, ctrl_stream_shutdown},
+            {group, data_stream_shutdown}
+        ]},
 
         {ctrl_stream_shutdown, [
             t_multi_streams_shutdown_ctrl_stream,
@@ -104,6 +116,8 @@ groups() ->
             t_multi_streams_remote_shutdown,
             t_multi_streams_remote_shutdown_with_reconnect
         ]},
+
+        {data_stream_shutdown, [t_multi_streams_shutdown_data_stream]},
         {misc, [
             t_conn_silent_close,
             t_client_conn_bump_streams,
@@ -1004,7 +1018,7 @@ t_multi_streams_unsub_via_other(Config) ->
     ),
     ok = emqtt:disconnect(C).
 
-t_multi_streams_shutdown_data_stream_abortive(Config) ->
+t_multi_streams_shutdown_data_stream(Config) ->
     PubQos = ?config(pub_qos, Config),
     SubQos = ?config(sub_qos, Config),
     RecQos = calc_qos(PubQos, SubQos),
@@ -1045,7 +1059,7 @@ t_multi_streams_shutdown_data_stream_abortive(Config) ->
 
     #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
     {quic, _Conn, DataStream} = PubVia,
-    quicer:shutdown_stream(DataStream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND, 500, 100),
+    quicer:shutdown_stream(DataStream, ?config(stream_shutdown_flag, Config), 500, 100),
     timer:sleep(500),
     %% Still alive
     ?assert(is_list(emqtt:info(C))).
@@ -1350,6 +1364,66 @@ t_conn_without_ctrl_stream(Config) ->
     receive
         {quic, transport_shutdown, Conn, _} -> ok
     end.
+
+t_data_stream_race_ctrl_stream(Config) ->
+    erlang:process_flag(trap_exit, true),
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C0),
+    #{nst := NST} = proplists:get_value(extra, emqtt:info(C0)),
+    emqtt:disconnect(C0),
+    {ok, C} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {nst, NST}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C),
+    Cid = proplists:get_value(clientid, emqtt:info(C)),
+    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+
+t_multi_streams_sub_0_rtt(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C0),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    ok = emqtt:open_quic_connection(C),
+    ok = emqtt:quic_mqtt_connect(C),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        #{},
+        <<"qos 2 1">>,
+        [{qos, PubQos}],
+        infinity,
+        fun(_) -> ok end
+    ),
+    {ok, _} = emqtt:quic_connect(C),
+    receive
+        {publish, #{
+            client_pid := C0,
+            payload := <<"qos 2 1">>,
+            qos := RecQos,
+            topic := Topic
+        }} ->
+            ok;
+        Other ->
+            ct:fail("unexpected recv ~p", [Other])
+    after 100 ->
+        ct:fail("not received")
+    end,
+    ok = emqtt:disconnect(C),
+    ok = emqtt:disconnect(C0).
 
 %%--------------------------------------------------------------------
 %% Helper functions

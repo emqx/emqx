@@ -174,7 +174,8 @@ new_stream(
         limiter => Limiter,
         parse_state => PS,
         channel => Channel,
-        serialize => Serialize
+        serialize => Serialize,
+        quic_event_mask => ?QUICER_STREAM_EVENT_MASK_START_COMPLETE
     },
     {ok, NewStreamOwner} = quicer_stream:start_link(
         emqx_quic_data_stream,
