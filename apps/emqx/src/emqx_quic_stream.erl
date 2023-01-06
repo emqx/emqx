@@ -17,7 +17,7 @@
 %% MQTT/QUIC Stream
 -module(emqx_quic_stream).
 
--behaviour(quicer_stream).
+-behaviour(quicer_remote_stream).
 
 %% emqx transport Callbacks
 -export([
@@ -57,18 +57,14 @@
 -type stream_handle() :: quicer:stream_handle().
 
 -export([
-    init_handoff/4,
     new_stream/3,
-    start_completed/3,
     send_complete/3,
     peer_send_shutdown/3,
     peer_send_aborted/3,
     peer_receive_aborted/3,
     send_shutdown_complete/3,
     stream_closed/3,
-    peer_accepted/3,
-    passive/3,
-    handle_call/4
+    passive/3
 ]).
 
 -export_type([socket/0]).
@@ -195,20 +191,9 @@ async_send({quic, _Conn, Stream, _Info}, Data, _Options) ->
 %%%
 %%% quicer stream callbacks
 %%%
-
--spec init_handoff(stream_handle(), #{}, quicer:connection_handle(), #{}) -> cb_ret().
-init_handoff(_Stream, _StreamOpts, _Conn, _Flags) ->
-    %% stream owner already set while starts.
-    {stop, unimpl}.
-
 -spec new_stream(stream_handle(), quicer:new_stream_props(), cb_data()) -> cb_ret().
 new_stream(_Stream, #{flags := _Flags, is_orphan := _IsOrphan}, _Conn) ->
     {stop, unimpl}.
-
--spec peer_accepted(stream_handle(), undefined, cb_data()) -> cb_ret().
-peer_accepted(_Stream, undefined, S) ->
-    %% We just ignore it
-    {ok, S}.
 
 -spec peer_receive_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
 peer_receive_aborted(Stream, ErrorCode, S) ->
@@ -236,19 +221,6 @@ send_complete(_Stream, true = _IsCancelled, S) ->
 -spec send_shutdown_complete(stream_handle(), boolean(), cb_data()) -> cb_ret().
 send_shutdown_complete(_Stream, _IsGraceful, S) ->
     {ok, S}.
-
--spec start_completed(stream_handle(), quicer:stream_start_completed_props(), cb_data()) ->
-    cb_ret().
-start_completed(_Stream, #{status := success, stream_id := StreamId} = Prop, S) ->
-    ?SLOG(debug, Prop),
-    {ok, S#{stream_id => StreamId}};
-start_completed(_Stream, #{status := stream_limit_reached, stream_id := _StreamId} = Prop, _S) ->
-    ?SLOG(error, #{message => start_completed}, Prop),
-    {stop, stream_limit_reached};
-start_completed(_Stream, #{status := Other} = Prop, S) ->
-    ?SLOG(error, Prop),
-    %% or we could retry?
-    {stop, {start_fail, Other}, S}.
 
 %% Local stream, Unidir
 %% -spec handle_stream_data(stream_handle(), binary(), quicer:recv_data_props(), cb_data())
@@ -298,9 +270,6 @@ stream_closed(
     %% emqx_connection:process_msg to append
     %% a msg to be processed
     {ok, {sock_closed, Status}, S}.
-
-handle_call(_Stream, _Request, _Opts, S) ->
-    {error, unimpl, S}.
 
 %%%
 %%%  Internals
