@@ -293,7 +293,7 @@ messages(Topic) ->
         Ts,
         list(Topic),
         interleaved(
-            ?LET(Messages, vector(length(Ts), list(message())), lists:zip(Ts, Messages))
+            ?LET(Messages, vector(length(Ts), scaled(4, list(message()))), lists:zip(Ts, Messages))
         )
     ).
 
