@@ -70,6 +70,50 @@ prop_next_seek_eq_initial_seek() ->
             emqx_replay_message_storage:compute_next_seek(0, Filter)
     ).
 
+prop_iterate_messages() ->
+    TBPL = [4, 8, 12],
+    Options = #{
+        timestamp_bits => 32,
+        topic_bits_per_level => TBPL,
+        epoch => 200
+    },
+    % TODO
+    % Shrinking is too unpredictable and leaves a LOT of garbage in the scratch dit.
+    ?FORALL(Stream, noshrink(non_empty(messages(topic(TBPL)))), begin
+        Filepath = make_filepath(?FUNCTION_NAME, erlang:system_time(microsecond)),
+        {DB, Handle} = open_db(Filepath, Options),
+        Shim = emqx_replay_message_storage_shim:open(),
+        ok = store_db(DB, Stream),
+        ok = store_shim(Shim, Stream),
+        ?FORALL(
+            {
+                {Topic, _},
+                Pattern,
+                StartTime
+            },
+            {
+                nth(Stream),
+                topic_filter_pattern(),
+                start_time()
+            },
+            begin
+                TopicFilter = make_topic_filter(Pattern, Topic),
+                Messages = iterate_db(DB, TopicFilter, StartTime),
+                Reference = iterate_shim(Shim, TopicFilter, StartTime),
+                ok = close_db(Handle),
+                ok = emqx_replay_message_storage_shim:close(Shim),
+                ?WHENFAIL(
+                    begin
+                        io:format(user, " *** Filepath = ~s~n", [Filepath]),
+                        io:format(user, " *** TopicFilter = ~p~n", [TopicFilter]),
+                        io:format(user, " *** StartTime = ~p~n", [StartTime])
+                    end,
+                    is_list(Messages) andalso equals(Messages -- Reference, Reference -- Messages)
+                )
+            end
+        )
+    end).
+
 prop_iterate_eq_iterate_with_preserve_restore() ->
     TBPL = [4, 8, 16, 12],
     Options = #{
@@ -153,6 +197,21 @@ run_iterator_commands([{preserve, restore} | Rest], It, DB) ->
     run_iterator_commands(Rest, ItNext, DB);
 run_iterator_commands([], It, _DB) ->
     iterate_db(It).
+
+store_shim(Shim, Messages) ->
+    lists:foreach(
+        fun({Topic, Payload = {MessageID, Timestamp, _}}) ->
+            Bin = term_to_binary(Payload),
+            emqx_replay_message_storage_shim:store(Shim, MessageID, Timestamp, Topic, Bin)
+        end,
+        Messages
+    ).
+
+iterate_shim(Shim, TopicFilter, StartTime) ->
+    lists:map(
+        fun binary_to_term/1,
+        emqx_replay_message_storage_shim:iterate(Shim, TopicFilter, StartTime)
+    ).
 
 %%--------------------------------------------------------------------
 %% Setup / teardown
