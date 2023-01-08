@@ -83,7 +83,7 @@ post_handoff(_Stream, {undefined = _PS, undefined = _Serialize, undefined = _Cha
     {ok, S};
 post_handoff(Stream, {PS, Serialize, Channel}, S) ->
     ?tp(debug, ?FUNCTION_NAME, #{channel => Channel, serialize => Serialize}),
-    quicer:setopt(Stream, active, true),
+    quicer:setopt(Stream, active, 10),
     {ok, S#{channel := Channel, serialize := Serialize, parse_state := PS}}.
 
 %%
@@ -301,8 +301,8 @@ handle_outgoing(Packets, #{serialize := Serialize, stream := Stream, is_unidir :
     is_list(Packets)
 ->
     OutBin = [serialize_packet(P, Serialize) || P <- filter_disallowed_out(Packets)],
-    %% @TODO in which case shall we use sync send?
-    Res = quicer:async_send(Stream, OutBin),
+    %% Send data async but still want send feedback via {quic, send_complete, ...}
+    Res = quicer:async_send(Stream, OutBin, ?QUICER_SEND_FLAG_SYNC),
     ?TRACE("MQTT", "mqtt_packet_sent", #{packets => Packets}),
     [ok = inc_outgoing_stats(P) || P <- Packets],
     Res.

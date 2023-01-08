@@ -183,7 +183,7 @@ ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->
     end.
 
 async_send({quic, _Conn, Stream, _Info}, Data, _Options) ->
-    case quicer:send(Stream, Data) of
+    case quicer:async_send(Stream, Data, ?QUICER_SEND_FLAG_SYNC) of
         {ok, _Len} -> ok;
         Other -> Other
     end.
