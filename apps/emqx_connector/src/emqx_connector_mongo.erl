@@ -67,7 +67,7 @@ fields(single) ->
     [
         {mongo_type, #{
             type => single,
-            required => true,
+            default => single,
             desc => ?DESC("single_mongo_type")
         }},
         {server, server()},
@@ -77,7 +77,7 @@ fields(rs) ->
     [
         {mongo_type, #{
             type => rs,
-            required => true,
+            default => rs,
             desc => ?DESC("rs_mongo_type")
         }},
         {servers, servers()},
@@ -89,7 +89,7 @@ fields(sharded) ->
     [
         {mongo_type, #{
             type => sharded,
-            required => true,
+            default => sharded,
             desc => ?DESC("sharded_mongo_type")
         }},
         {servers, servers()},
