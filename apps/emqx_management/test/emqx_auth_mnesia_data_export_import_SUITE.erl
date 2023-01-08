@@ -66,6 +66,70 @@ t_importee430(_) ->
     {ok, _} = emqx_mgmt_data_backup:export(),
     remove_all_users_and_acl().
 
+t_import_test(_) ->
+    SimpleAdmin = <<"simpleAdmin">>,
+    SimplePassword = <<"simplepassword">>,
+    SimplePasswordHash = emqx_dashboard_admin:hash(SimplePassword),
+
+    Admins = [<<"Admin1">>, <<"Admin2">>, <<"Admin3">>, <<"Admin4">>, <<"Admin5">>],
+    Passwords = [<<"password1">>, <<"PAssword2">>,<<"3&*)dkdKlkd">>,<<"&*qwl4kd>">>,<<"PASSWORD5D">>],
+
+    %% add some users
+    add_admins(Admins, Passwords),
+    %% Allow force import simple password.
+    ok = emqx_dashboard_admin:force_add_user(SimpleAdmin, SimplePasswordHash, <<"test">>),
+
+    ct:pal("1111~p~n", [ets:info(mqtt_admin)]),
+    ct:pal("~p~n", [ets:tab2list(mqtt_admin)]),
+    check_admins_ok(Admins, Passwords),
+
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+
+    remove_admins(Admins),
+    ok = emqx_dashboard_admin:remove_user(SimpleAdmin),
+    ct:pal("0000~n"),
+    check_admins_failed(Admins, Passwords),
+    {error, _} = emqx_dashboard_admin:check(SimpleAdmin, SimplePassword),
+
+    ok = emqx_mgmt_data_backup:import(FileName, <<"{}">>),
+    ct:pal("2222~n"),
+    check_admins_ok(Admins, Passwords),
+    ok = emqx_dashboard_admin:check(SimpleAdmin, SimplePassword),
+
+    remove_admins(Admins),
+    ok = emqx_dashboard_admin:remove_user(SimpleAdmin),
+
+    remove_all_users_and_acl(),
+    ok.
+
+add_admins(Admins, Passwords) ->
+    lists:foreach(
+        fun({Admin, Password}) ->
+            ok = emqx_dashboard_admin:add_user(Admin, Password, <<"test">>)
+        end, lists:zip(Admins, Passwords)),
+    ok.
+
+check_admins_ok(Admins, Passwords) ->
+    lists:foreach(
+        fun({Admin, Password}) ->
+            ?assertMatch(ok, emqx_dashboard_admin:check(Admin, Password), {Admin, Password})
+        end, lists:zip(Admins, Passwords)),
+    ok.
+
+check_admins_failed(Admins, Passwords) ->
+    lists:foreach(
+        fun({Admin, Password}) ->
+            ?assertMatch({error, _}, emqx_dashboard_admin:check(Admin, Password), {Admin, Password})
+        end, lists:zip(Admins, Passwords)),
+    ok.
+
+remove_admins(Admins) ->
+    lists:foreach(
+        fun(Admin) ->
+            ok = emqx_dashboard_admin:remove_user(Admin)
+        end, Admins),
+    ok.
+
 remove_all_users_and_acl() ->
     mnesia:delete_table(emqx_user),
     mnesia:delete_table(emqx_acl).

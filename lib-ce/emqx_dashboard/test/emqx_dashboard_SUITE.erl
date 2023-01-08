@@ -71,7 +71,7 @@ init_per_testcase(Case, Config) ->
 
 end_per_testcase(Case, Config) ->
     %% revert to default password
-    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>),
+    emqx_dashboard_admin:force_change_password(<<"admin">>, <<"public">>),
     ?MODULE:Case({'end', Config}).
 
 t_overview({init, Config}) -> Config;
@@ -85,35 +85,36 @@ t_admins_add_delete(_) ->
     ?assertEqual({error,<<"0 < Length =< 256">>},
         emqx_dashboard_admin:add_user(<<"">>, <<"password">>, <<"tag1">>)),
 
-    ?assertEqual({error,<<"2 < Length =< 32">>},
+    ?assertEqual({error,<<"The password length: 8-64">>},
         emqx_dashboard_admin:add_user(<<"badusername">>, <<"">>, <<"tag1">>)),
-    ?assertEqual({error,<<"2 < Length =< 32">>},
+    ?assertEqual({error,<<"The password length: 8-64">>},
         emqx_dashboard_admin:add_user(<<"badusername">>, <<"p">>, <<"tag1">>)),
-    P33 = iolist_to_binary(lists:duplicate(33, <<"p">>)),
-    ?assertEqual({error,<<"2 < Length =< 32">>},
-        emqx_dashboard_admin:add_user(<<"badusername">>, P33, <<"tag1">>)),
-    P32 = iolist_to_binary(lists:duplicate(32, <<"p">>)),
-    ?assertEqual(ok, emqx_dashboard_admin:add_user(<<"goodusername">>, P32, <<"tag1">>)),
+    P65 = iolist_to_binary(lists:duplicate(65, <<"p">>)),
+    ?assertEqual({error,<<"The password length: 8-64">>},
+        emqx_dashboard_admin:add_user(<<"badusername">>, P65, <<"tag1">>)),
+    P64 = iolist_to_binary([<<"1">> | lists:duplicate(63, <<"p">>)]),
+    ?assertEqual(ok, emqx_dashboard_admin:add_user(<<"goodusername">>, P64, <<"tag1">>)),
     ok = emqx_dashboard_admin:remove_user(<<"goodusername">>),
 
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
+    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag">>),
+    ok = emqx_dashboard_admin:add_user(<<"username2">>, <<"password2">>, <<"tag1">>),
     ok = emqx_dashboard_admin:add_user(<<"1username1">>, <<"password1">>, <<"tag1">>),
     {error, _} = emqx_dashboard_admin:add_user(<<"u/sername1">>, <<"password1">>, <<"tag1">>),
     {error, _} = emqx_dashboard_admin:add_user(<<"/username1">>, <<"password1">>, <<"tag1">>),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(4, length(Admins)),
-    ok = emqx_dashboard_admin:remove_user(<<"username1">>),
+    ok = emqx_dashboard_admin:remove_user(<<"username2">>),
     ok = emqx_dashboard_admin:remove_user(<<"1username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Users)),
-    ok = emqx_dashboard_admin:change_password(<<"username">>, <<"password">>, <<"pwd">>),
+    {error, _} = emqx_dashboard_admin:change_password(<<"username1">>, <<"password1">>, <<"password">>),
+    ok = emqx_dashboard_admin:change_password(<<"username1">>, <<"password1">>, <<"password+">>),
     timer:sleep(10),
-    ?assert(request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))),
+    ?assert(request_dashboard(get, api_path("brokers"), auth_header_("username1", "password+"))),
 
-    ok = emqx_dashboard_admin:remove_user(<<"username">>),
+    ok = emqx_dashboard_admin:remove_user(<<"username1">>),
     ?assertNotEqual(true, request_dashboard(get, api_path("brokers"),
-        auth_header_("username", "pwd"))).
+        auth_header_("username1", "password+"))).
 
 t_admins_persist_default_password({init, Config}) -> Config;
 t_admins_persist_default_password({'end', _Config}) -> ok;
@@ -212,16 +213,19 @@ t_rest_api(_Config) ->
     ?assert(lists:member(#{<<"username">> => <<"admin">>, <<"tags">> => <<"administrator">>},
         Users)),
 
+    {ok, ErrorRes} = http_put("change_pwd/admin", [{<<"old_pwd">>, <<"public">>}, {<<"new_pwd">>, <<"simplepwd">>}]),
+    ?assertMatch(#{<<"message">> := _}, json(ErrorRes)),
+
     AssertSuccess = fun({ok, Res}) ->
                         ?assertEqual(#{<<"code">> => 0}, json(Res))
                     end,
     [AssertSuccess(R)
      || R <- [ http_put("users/admin", #{<<"tags">> => <<"a_new_tag">>})
-             , http_post("users", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
-             , http_post("auth", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
-             , http_delete("users/usera")
-             , http_put("change_pwd/admin", #{<<"old_pwd">> => <<"public">>, <<"new_pwd">> => <<"newpwd">>})
-             , http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"newpwd">>})
+             , http_post("users", #{<<"username">> => <<"username1">>, <<"password">> => <<"passwd+123">>})
+             , http_post("auth", #{<<"username">> => <<"username1">>, <<"password">> => <<"passwd+123">>})
+             , http_delete("users/username1")
+             , http_put("change_pwd/admin", #{<<"old_pwd">> => <<"public">>, <<"new_pwd">> => <<"newpwd+123">>})
+             , http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"newpwd+123">>})
              ]],
     ok.
 
@@ -236,18 +240,18 @@ t_cli({init, Config}) -> Config;
 t_cli({'end', _Config}) -> ok;
 t_cli(_Config) ->
     [mnesia:dirty_delete({mqtt_admin, Admin}) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
-    emqx_dashboard_cli:admins(["add", "username", "password"]),
+    emqx_dashboard_cli:admins(["add", "username", "password1"]),
     [{mqtt_admin, <<"username">>, <<Salt:4/binary, Hash/binary>>, _}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash, erlang:md5(<<Salt/binary, <<"password">>/binary>>)),
-    emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
+    ?assertEqual(Hash, erlang:md5(<<Salt/binary, <<"password1">>/binary>>)),
+    emqx_dashboard_cli:admins(["passwd", "username", "newpassword1"]),
     [{mqtt_admin, <<"username">>, <<Salt1:4/binary, Hash1/binary>>, _}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash1, erlang:md5(<<Salt1/binary, <<"newpassword">>/binary>>)),
+    ?assertEqual(Hash1, erlang:md5(<<Salt1/binary, <<"newpassword1">>/binary>>)),
     emqx_dashboard_cli:admins(["del", "username"]),
     [] = emqx_dashboard_admin:lookup_user(<<"username">>),
-    emqx_dashboard_cli:admins(["add", "admin1", "pass1"]),
-    emqx_dashboard_cli:admins(["add", "admin2", "passw2"]),
+    emqx_dashboard_cli:admins(["add", "admin1", "password+1"]),
+    emqx_dashboard_cli:admins(["add", "admin2", "password+2"]),
     AdminList = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(AdminList)).
 
