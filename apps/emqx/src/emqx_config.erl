@@ -366,13 +366,6 @@ schema_default(Schema) ->
     case hocon_schema:field_schema(Schema, type) of
         ?ARRAY(_) ->
             [];
-        ?LAZY(?ARRAY(_)) ->
-            [];
-        ?LAZY(?UNION(Members)) ->
-            case [A || ?ARRAY(A) <- hoconsc:union_members(Members)] of
-                [_ | _] -> [];
-                _ -> #{}
-            end;
         _ ->
             #{}
     end.
@@ -407,8 +400,7 @@ merge_envs(SchemaMod, RawConf) ->
     Opts = #{
         required => false,
         format => map,
-        apply_override_envs => true,
-        check_lazy => true
+        apply_override_envs => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
@@ -451,9 +443,7 @@ compact_errors(Schema, Errors) ->
 do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
-        format => map,
-        %% Don't check lazy types, such as authenticate
-        check_lazy => false
+        format => map
     },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
