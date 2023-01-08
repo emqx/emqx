@@ -71,7 +71,9 @@ groups() ->
         {sub_qos2, [{group, qos}]},
         {qos, [
             t_multi_streams_sub,
+            t_multi_streams_pub_5x100,
             t_multi_streams_pub_parallel,
+            t_multi_streams_pub_parallel_no_blocking,
             t_multi_streams_sub_pub_async,
             t_multi_streams_sub_pub_sync,
             t_multi_streams_unsub,
@@ -83,6 +85,8 @@ groups() ->
             t_multi_streams_kill_sub_stream,
             t_multi_streams_packet_too_large,
             t_multi_streams_sub_0_rtt,
+            t_multi_streams_sub_0_rtt_large_payload,
+            t_multi_streams_sub_0_rtt_stream_data_cont,
             t_conn_change_client_addr
         ]},
 
@@ -347,6 +351,36 @@ t_multi_streams_sub(Config) ->
     end,
     ok = emqtt:disconnect(C).
 
+t_multi_streams_pub_5x100(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+
+    PubVias = lists:map(
+        fun(_N) ->
+            {ok, Via} = emqtt:start_data_stream(C, []),
+            Via
+        end,
+        lists:seq(1, 5)
+    ),
+    [
+        begin
+            case emqtt:publish_via(C, PVia, Topic, #{}, <<"stream data ", N>>, [{qos, PubQos}]) of
+                ok when PubQos == 0 -> ok;
+                {ok, _} -> ok
+            end,
+            0 == (N rem 10) andalso timer:sleep(10)
+        end
+     || N <- lists:seq(1, 100), PVia <- PubVias
+    ],
+    ?assert(timeout =/= recv_pub(500)),
+    ok = emqtt:disconnect(C).
+
 t_multi_streams_pub_parallel(Config) ->
     PubQos = ?config(pub_qos, Config),
     SubQos = ?config(sub_qos, Config),
@@ -398,6 +432,60 @@ t_multi_streams_pub_parallel(Config) ->
         [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
             [<<"stream data 2">>, <<"stream data 1">>] == Payloads
     ),
+    ok = emqtt:disconnect(C).
+
+%% @doc test two pub streams, one send incomplete MQTT packet() can not block another.
+t_multi_streams_pub_parallel_no_blocking(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId2 = calc_pkt_id(RecQos, 1),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
+    Drop = <<"stream data 1">>,
+    meck:new(emqtt_quic, [passthrough, no_history]),
+    meck:expect(emqtt_quic, send, fun(Sock, IoList) ->
+        case lists:last(IoList) == Drop of
+            true ->
+                ct:pal("meck droping ~p", [Drop]),
+                meck:passthrough([Sock, IoList -- [Drop]]);
+            false ->
+                meck:passthrough([Sock, IoList])
+        end
+    end),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        Drop,
+        [{qos, PubQos}],
+        undefined
+    ),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        <<"stream data 2">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    PubRecvs = recv_pub(1),
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId2,
+                payload := <<"stream data 2">>,
+                qos := RecQos,
+                topic := Topic
+            }}
+        ],
+        PubRecvs
+    ),
+    meck:unload(emqtt_quic),
+    ?assertEqual(timeout, recv_pub(1)),
     ok = emqtt:disconnect(C).
 
 t_multi_streams_packet_boundary(Config) ->
@@ -1419,6 +1507,114 @@ t_multi_streams_sub_0_rtt(Config) ->
             ok;
         Other ->
             ct:fail("unexpected recv ~p", [Other])
+    after 100 ->
+        ct:fail("not received")
+    end,
+    ok = emqtt:disconnect(C),
+    ok = emqtt:disconnect(C0).
+
+t_multi_streams_sub_0_rtt_large_payload(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Payload = binary:copy(<<"qos 2 1">>, 1600),
+    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C0),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    ok = emqtt:open_quic_connection(C),
+    ok = emqtt:quic_mqtt_connect(C),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        #{},
+        Payload,
+        [{qos, PubQos}],
+        infinity,
+        fun(_) -> ok end
+    ),
+    {ok, _} = emqtt:quic_connect(C),
+    receive
+        {publish, #{
+            client_pid := C0,
+            payload := Payload,
+            qos := RecQos,
+            topic := Topic
+        }} ->
+            ok;
+        Other ->
+            ct:fail("unexpected recv ~p", [Other])
+    after 100 ->
+        ct:fail("not received")
+    end,
+    ok = emqtt:disconnect(C),
+    ok = emqtt:disconnect(C0).
+
+%% @doc verify data stream can continue after 0-RTT handshake
+t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Payload = binary:copy(<<"qos 2 1">>, 1600),
+    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:quic_connect(C0),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    ok = emqtt:open_quic_connection(C),
+    ok = emqtt:quic_mqtt_connect(C),
+    {ok, PubVia} = emqtt:start_data_stream(C, []),
+    ok = emqtt:publish_async(
+        C,
+        PubVia,
+        Topic,
+        #{},
+        Payload,
+        [{qos, PubQos}],
+        infinity,
+        fun(_) -> ok end
+    ),
+    {ok, _} = emqtt:quic_connect(C),
+    receive
+        {publish, #{
+            client_pid := C0,
+            payload := Payload,
+            qos := RecQos,
+            topic := Topic
+        }} ->
+            ok;
+        Other ->
+            ct:fail("unexpected recv ~p", [Other])
+    after 100 ->
+        ct:fail("not received")
+    end,
+    Payload2 = <<"2nd part", Payload/binary>>,
+    ok = emqtt:publish_async(
+        C,
+        PubVia,
+        Topic,
+        #{},
+        Payload2,
+        [{qos, PubQos}],
+        infinity,
+        fun(_) -> ok end
+    ),
+    receive
+        {publish, #{
+            client_pid := C0,
+            payload := Payload2,
+            qos := RecQos,
+            topic := Topic
+        }} ->
+            ok;
+        Other2 ->
+            ct:fail("unexpected recv ~p", [Other2])
     after 100 ->
         ct:fail("not received")
     end,
