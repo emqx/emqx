@@ -115,7 +115,7 @@ request_config() ->
             mk(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("config_body")
                 }
             )},
