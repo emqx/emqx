@@ -119,10 +119,7 @@
     limiter_timer :: undefined | reference(),
 
     %% QUIC conn pid if is a pid
-    quic_conn_pid :: maybe(pid()),
-
-    %% QUIC control stream callback state
-    quic_ctrl_state :: map()
+    quic_conn_pid :: maybe(pid())
 }).
 
 -record(retry, {
@@ -378,8 +375,7 @@ init_state(
         limiter_buffer = queue:new(),
         limiter_timer = undefined,
         %% for quic streams to inherit
-        quic_conn_pid = maps:get(conn_pid, Opts, undefined),
-        quic_ctrl_state = #{}
+        quic_conn_pid = maps:get(conn_pid, Opts, undefined)
     }.
 
 run_loop(
@@ -917,12 +913,6 @@ handle_info({sock_error, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 handle_info({quic, Event, Handle, Prop}, State) ->
     emqx_quic_stream:Event(Handle, Prop, State);
-%% handle_info({quic, peer_send_shutdown, _Stream}, State) ->
-%%     handle_info({sock_closed, force}, close_socket(State));
-%% handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
-%%     handle_info({sock_closed, ReasonFlag}, State);
-%% handle_info({quic, closed, _Stream}, State) ->
-%%     handle_info({sock_closed, force}, State);
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
 

@@ -17,13 +17,11 @@
 %% @doc impl. the quic connection owner process.
 -module(emqx_quic_connection).
 
--include("logger.hrl").
 -ifndef(BUILD_WITHOUT_QUIC).
+
+-include("logger.hrl").
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_quic.hrl").
--else.
--define(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0).
--endif.
 
 -behavior(quicer_connection).
 
@@ -55,10 +53,9 @@
     %% Pid of ctrl stream
     ctrl_pid := undefined | pid(),
     %% quic connecion handle
-    conn := undefined | quicer:conneciton_hanlder(),
-    %% streams that handoff from this process, excluding control stream
-    %% these streams could die/closed without effecting the connecion/session.
-
+    conn := undefined | quicer:conneciton_handle(),
+    %% Data streams that handoff from this process
+    %% these streams could die/close without effecting the connecion/session.
     %@TODO type?
     streams := [{pid(), quicer:stream_handle()}],
     %% New stream opts
@@ -82,22 +79,20 @@ activate_data_streams(ConnOwner, {PS, Serialize, Channel}) ->
     gen_server:call(ConnOwner, {activate_data_streams, {PS, Serialize, Channel}}, infinity).
 
 %% @doc conneciton owner init callback
--spec init(map() | list()) -> {ok, cb_state()}.
-init(ConnOpts) when is_list(ConnOpts) ->
-    init(maps:from_list(ConnOpts));
+-spec init(map()) -> {ok, cb_state()}.
 init(#{stream_opts := SOpts} = S) when is_list(SOpts) ->
     init(S#{stream_opts := maps:from_list(SOpts)});
 init(ConnOpts) when is_map(ConnOpts) ->
     {ok, init_cb_state(ConnOpts)}.
 
--spec closed(quicer:conneciton_hanlder(), quicer:conn_closed_props(), cb_state()) ->
+-spec closed(quicer:conneciton_handle(), quicer:conn_closed_props(), cb_state()) ->
     {stop, normal, cb_state()}.
 closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
     ?SLOG(debug, Prop),
     {stop, normal, S}.
 
 %% @doc handle the new incoming connecion as the connecion acceptor.
--spec new_conn(quicer:connection_handler(), quicer:new_conn_props(), cb_state()) ->
+-spec new_conn(quicer:connection_handle(), quicer:new_conn_props(), cb_state()) ->
     {ok, cb_state()} | {error, any()}.
 new_conn(
     Conn,
@@ -133,7 +128,7 @@ new_conn(
     end.
 
 %% @doc callback when connection is connected.
--spec connected(quicer:connection_handler(), quicer:connected_props(), cb_state()) ->
+-spec connected(quicer:connection_handle(), quicer:connected_props(), cb_state()) ->
     {ok, cb_state()} | {error, any()}.
 connected(_Conn, Props, S) ->
     ?SLOG(debug, Props),
@@ -185,21 +180,21 @@ new_stream(
         Props
     ),
     quicer:handoff_stream(Stream, NewStreamOwner, {PS, Serialize, Channel}),
-    %% @TODO keep them in ``inactive_streams'
+    %% @TODO maybe keep them in `inactive_streams'
     {ok, S#{streams := [{NewStreamOwner, Stream} | Streams]}}.
 
-%% @doc callback for handling for remote connecion shutdown.
+%% @doc callback for handling remote connecion shutdown.
 -spec shutdown(quicer:connection_handle(), quicer:error_code(), cb_state()) -> cb_ret().
-shutdown(Conn, _ErrorCode, S) ->
-    %% @TODO check spec what to set for the ErrorCode?
+shutdown(Conn, ErrorCode, S) ->
+    ErrorCode =/= 0 andalso ?SLOG(debug, #{error_code => ErrorCode, state => S}),
     quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     {ok, S}.
 
-%% @doc callback for handling for transport error, such as idle timeout
+%% @doc callback for handling transport error, such as idle timeout
 -spec transport_shutdown(quicer:connection_handle(), quicer:transport_shutdown_props(), cb_state()) ->
     cb_ret().
-transport_shutdown(_C, _DownInfo, S) ->
-    %% @TODO some counter
+transport_shutdown(_C, DownInfo, S) when is_map(DownInfo) ->
+    ?SLOG(debug, DownInfo),
     {ok, S}.
 
 %% @doc callback for handling for peer addr changed.
@@ -238,6 +233,7 @@ peer_needs_streams(_C, undefined, S) ->
     {ok, S}.
 
 %% @doc handle API calls
+-spec handle_call(Req :: term(), gen_server:from(), cb_state()) -> cb_ret().
 handle_call(
     {activate_data_streams, {PS, Serialize, Channel} = ActivateData},
     _From,
@@ -256,7 +252,6 @@ handle_call(_Req, _From, S) ->
     {reply, {error, unimpl}, S}.
 
 %% @doc handle DOWN messages from streams.
-%% @TODO handle DOWN from supervisor?
 handle_info({'EXIT', Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
     case Reason of
         normal ->
@@ -302,3 +297,7 @@ init_cb_state(#{zone := _Zone} = Map) ->
         serialize => undefined,
         is_resumed => false
     }.
+
+%% BUILD_WITHOUT_QUIC
+-else.
+-endif.
