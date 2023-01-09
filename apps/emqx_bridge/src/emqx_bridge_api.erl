@@ -504,7 +504,10 @@ do_probe(ConnType, Params) ->
     end.
 
 host_and_port(mqtt, #{<<"server">> := Server}) ->
-    Server;
+    case string:split(Server, ":") of
+        [Host, Port] -> {Host, list_to_integer(Port)};
+        _Other -> error(invalid_server, Server)
+    end;
 host_and_port(webhook, #{<<"url">> := Url}) ->
     {BaseUrl, _Path} = parse_url(Url),
     {ok, #{host := Host, port := Port}} = emqx_http_lib:uri_parse(BaseUrl),
