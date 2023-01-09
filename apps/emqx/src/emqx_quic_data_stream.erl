@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,11 +21,14 @@
 %%
 
 -module(emqx_quic_data_stream).
+
+-ifndef(BUILD_WITHOUT_QUIC).
+-behaviour(quicer_remote_stream).
+
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("quicer/include/quicer.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
--behaviour(quicer_remote_stream).
 
 %% Connection Callbacks
 -export([
@@ -37,12 +40,12 @@
     peer_receive_aborted/3,
     send_shutdown_complete/3,
     stream_closed/3,
-    peer_accepted/3,
     passive/3
 ]).
 
 -export([handle_stream_data/4]).
 
+%% gen_server API
 -export([activate_data/2]).
 
 -export([
@@ -51,9 +54,19 @@
     handle_continue/2
 ]).
 
+-type cb_ret() :: quicer_stream:cb_ret().
+-type cb_state() :: quicer_stream:cb_state().
+-type error_code() :: quicer:error_code().
+-type connection_handle() :: quicer:connection_handle().
+-type stream_handle() :: quicer:stream_handle().
+-type handoff_data() :: {
+    emqx_frame:parse_state() | undefined,
+    emqx_frame:serialize_opts() | undefined,
+    emqx_channel:channel() | undefined
+}.
 %%
 %% @doc Activate the data handling.
-%%      Data handling is disabled before control stream allows the data processing.
+%%      Note, data handling is disabled before finishing the validation over control stream.
 -spec activate_data(pid(), {
     emqx_frame:parse_state(), emqx_frame:serialize_opts(), emqx_channel:channel()
 }) -> ok.
@@ -61,9 +74,12 @@ activate_data(StreamPid, {PS, Serialize, Channel}) ->
     gen_server:call(StreamPid, {activate, {PS, Serialize, Channel}}, infinity).
 
 %%
-%% @doc Handoff from previous owner, mostly from the connection owner.
-%% @TODO parse_state doesn't look necessary since we have it in post_handoff
-%% @TODO -spec
+%% @doc Handoff from previous owner, from the connection owner.
+%%      Note, unlike control stream, there is no acceptor for data streams.
+%%            The connection owner get new stream, spawn new proc and then handover to it.
+%%
+-spec init_handoff(stream_handle(), map(), connection_handle(), quicer:new_stream_props()) ->
+    {ok, cb_state()}.
 init_handoff(
     Stream,
     _StreamOpts,
@@ -75,10 +91,9 @@ init_handoff(
 %%
 %% @doc Post handoff data stream
 %%
-%% @TODO -spec
-%%
+-spec post_handoff(stream_handle(), handoff_data(), cb_state()) -> cb_ret().
 post_handoff(_Stream, {undefined = _PS, undefined = _Serialize, undefined = _Channel}, S) ->
-    %% Channel isn't ready yet.
+    %% When the channel isn't ready yet.
     %% Data stream should wait for activate call with ?MODULE:activate_data/2
     {ok, S};
 post_handoff(Stream, {PS, Serialize, Channel}, S) ->
@@ -86,53 +101,35 @@ post_handoff(Stream, {PS, Serialize, Channel}, S) ->
     quicer:setopt(Stream, active, 10),
     {ok, S#{channel := Channel, serialize := Serialize, parse_state := PS}}.
 
-%%
-%% @doc for local initiated stream
-%%
-peer_accepted(_Stream, _Flags, S) ->
-    %% we just ignore it
-    {ok, S}.
-
-peer_receive_aborted(Stream, ErrorCode, #{is_unidir := false} = S) ->
+-spec peer_receive_aborted(stream_handle(), error_code(), cb_state()) -> cb_ret().
+peer_receive_aborted(Stream, ErrorCode, #{is_unidir := _} = S) ->
     %% we abort send with same reason
     quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
-    {ok, S};
-peer_receive_aborted(Stream, ErrorCode, #{is_unidir := true, is_local := true} = S) ->
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
-peer_send_aborted(Stream, ErrorCode, #{is_unidir := false} = S) ->
+-spec peer_send_aborted(stream_handle(), error_code(), cb_state()) -> cb_ret().
+peer_send_aborted(Stream, ErrorCode, #{is_unidir := _} = S) ->
     %% we abort receive with same reason
     quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
-    {ok, S};
-peer_send_aborted(Stream, ErrorCode, #{is_unidir := true, is_local := false} = S) ->
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
     {ok, S}.
 
-peer_send_shutdown(Stream, _Flags, S) ->
+-spec peer_send_shutdown(stream_handle(), undefined, cb_state()) -> cb_ret().
+peer_send_shutdown(Stream, undefined, S) ->
     ok = quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0),
     {ok, S}.
 
+-spec send_complete(stream_handle(), IsCanceled :: boolean(), cb_state()) -> cb_ret().
 send_complete(_Stream, false, S) ->
     {ok, S};
 send_complete(_Stream, true = _IsCanceled, S) ->
     {ok, S}.
 
+-spec send_shutdown_complete(stream_handle(), error_code(), cb_state()) -> cb_ret().
 send_shutdown_complete(_Stream, _Flags, S) ->
     {ok, S}.
 
-handle_stream_data(
-    Stream,
-    Bin,
-    _Flags,
-    #{
-        is_unidir := false,
-        channel := undefined,
-        data_queue := Queue,
-        stream := Stream
-    } = State
-) when is_binary(Bin) ->
-    {ok, State#{data_queue := [Bin | Queue]}};
+-spec handle_stream_data(stream_handle(), binary(), quicer:recv_data_props(), cb_state()) ->
+    cb_ret().
 handle_stream_data(
     _Stream,
     Bin,
@@ -145,6 +142,7 @@ handle_stream_data(
         task_queue := TQ
     } = State
 ) when
+    %% assert get stream data only after channel is created
     Channel =/= undefined
 ->
     {MQTTPackets, NewPS} = parse_incoming(list_to_binary(lists:reverse([Bin | QueuedData])), PS),
@@ -157,25 +155,12 @@ handle_stream_data(
     ),
     {{continue, handle_appl_msg}, State#{parse_state := NewPS, task_queue := NewTQ}}.
 
-%% Reserved for unidi streams
-%% handle_stream_data(Stream, Bin, _Flags, #{is_unidir := true, peer_stream := PeerStream, conn := Conn} = State) ->
-%%     case PeerStream of
-%%         undefined ->
-%%             {ok, StreamProc} = quicer_stream:start_link(?MODULE, Conn,
-%%                                                         [ {open_flag, ?QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL}
-%%                                                         , {is_local, true}
-%%                                                         ]),
-%%             {ok, _} = quicer_stream:send(StreamProc, Bin),
-%%             {ok, State#{peer_stream := StreamProc}};
-%%         StreamProc when is_pid(StreamProc) ->
-%%             {ok, _} = quicer_stream:send(StreamProc, Bin),
-%%             {ok, State}
-%%     end.
-
+-spec passive(stream_handle(), undefined, cb_state()) -> cb_ret().
 passive(Stream, undefined, S) ->
     quicer:setopt(Stream, active, 10),
     {ok, S}.
 
+-spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_state()) -> cb_ret().
 stream_closed(
     _Stream,
     #{
@@ -197,28 +182,20 @@ stream_closed(
 ->
     {stop, normal, S}.
 
+-spec handle_call(Request :: term(), From :: {pid(), term()}, cb_state()) -> cb_ret().
 handle_call(Call, _From, S) ->
-    case do_handle_call(Call, S) of
-        {ok, NewS} ->
-            {reply, ok, NewS};
-        {error, Reason, NewS} ->
-            {reply, {error, Reason}, NewS};
-        {{continue, _} = Cont, NewS} ->
-            {reply, ok, NewS, Cont};
-        {hibernate, NewS} ->
-            {reply, ok, NewS, hibernate};
-        {stop, Reason, NewS} ->
-            {stop, Reason, {stopped, Reason}, NewS}
-    end.
+    do_handle_call(Call, S).
 
+-spec handle_continue(Continue :: term(), cb_state()) -> cb_ret().
 handle_continue(handle_appl_msg, #{task_queue := Q} = S) ->
     case queue:out(Q) of
         {{value, Item}, Q2} ->
             do_handle_appl_msg(Item, S#{task_queue := Q2});
-        {empty, Q} ->
+        {empty, _Q} ->
             {ok, S}
     end.
 
+%%% Internals
 do_handle_appl_msg(
     {outgoing, Packets},
     #{
@@ -248,7 +225,7 @@ do_handle_appl_msg({incoming, {frame_error, _} = FE}, #{channel := Channel} = S)
 ->
     with_channel(handle_in, [FE], S);
 do_handle_appl_msg({close, Reason}, S) ->
-    %% @TODO shall we abort shutdown or graceful shutdown?
+    %% @TODO shall we abort shutdown or graceful shutdown here?
     with_channel(handle_info, [{sock_closed, Reason}], S);
 do_handle_appl_msg({event, updated}, S) ->
     %% Data stream don't care about connection state changes.
@@ -294,7 +271,6 @@ with_channel(Fun, Args, #{channel := Channel, task_queue := Q} = S) when
             }}
     end.
 
-%%% Internals
 handle_outgoing(#mqtt_packet{} = P, S) ->
     handle_outgoing([P], S);
 handle_outgoing(Packets, #{serialize := Serialize, stream := Stream, is_unidir := false}) when
@@ -373,7 +349,7 @@ init_state(Stream, Connection, OpenFlags, PS) ->
         task_queue => queue:new()
     }.
 
--spec do_handle_call(term(), quicer_stream:cb_state()) -> quicer_stream:cb_ret().
+-spec do_handle_call(term(), cb_state()) -> cb_ret().
 do_handle_call(
     {activate, {PS, Serialize, Channel}},
     #{
@@ -386,7 +362,7 @@ do_handle_call(
     %% We use quic protocol for flow control, and we don't check return val
     case quicer:setopt(Stream, active, true) of
         ok ->
-            {ok, NewS};
+            {reply, ok, NewS};
         {error, E} ->
             ?SLOG(error, #{msg => "set stream active failed", error => E}),
             {stop, E, NewS}
@@ -484,3 +460,6 @@ is_datastream_out_pkt(#mqtt_packet{header = #mqtt_packet_header{type = Type}}) w
     true;
 is_datastream_out_pkt(_) ->
     false.
+%% BUILD_WITHOUT_QUIC
+-else.
+-endif.

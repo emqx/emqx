@@ -17,7 +17,11 @@
 %% MQTT/QUIC Stream
 -module(emqx_quic_stream).
 
+-ifndef(BUILD_WITHOUT_QUIC).
+
 -behaviour(quicer_remote_stream).
+
+-include("logger.hrl").
 
 %% emqx transport Callbacks
 -export([
@@ -33,31 +37,14 @@
     sockname/1,
     peercert/1
 ]).
-
--include("logger.hrl").
--ifndef(BUILD_WITHOUT_QUIC).
 -include_lib("quicer/include/quicer.hrl").
--else.
-%% STREAM SHUTDOWN FLAGS
--define(QUIC_STREAM_SHUTDOWN_FLAG_NONE, 0).
-% Cleanly closes the send path.
--define(QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 1).
-% Abruptly closes the send path.
--define(QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND, 2).
-% Abruptly closes the receive path.
--define(QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, 4).
-% Abruptly closes both send and receive paths.
--define(QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 6).
--define(QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE, 8).
--endif.
 
--type cb_ret() :: gen_statem:event_handler_result().
--type cb_data() :: emqtt_quic:cb_data().
+-type cb_ret() :: quicer_stream:cb_ret().
+-type cb_data() :: quicer_stream:cb_state().
 -type connection_handle() :: quicer:connection_handle().
 -type stream_handle() :: quicer:stream_handle().
 
 -export([
-    new_stream/3,
     send_complete/3,
     peer_send_shutdown/3,
     peer_send_aborted/3,
@@ -79,13 +66,8 @@
 }.
 
 %% for accepting
--spec wait
-    ({pid(), connection_handle(), socket_info()}) ->
-        {ok, socket()} | {error, enotconn};
-    %% For handover
-    ({pid(), connection_handle(), stream_handle(), socket_info()}) ->
-        {ok, socket()} | {error, any()}.
-
+-spec wait({pid(), connection_handle(), socket_info()}) ->
+    {ok, socket()} | {error, enotconn}.
 %%% For Accepting New Remote Stream
 wait({ConnOwner, Conn, ConnInfo}) ->
     {ok, Conn} = quicer:async_accept_stream(Conn, []),
@@ -105,15 +87,8 @@ wait({ConnOwner, Conn, ConnInfo}) ->
         {'EXIT', ConnOwner, _Reason} ->
             {error, enotconn}
     end.
-%% UNUSED, for ownership handover,
-%% wait({PrevOwner, Conn, Stream, SocketInfo}) ->
-%%     case quicer:wait_for_handoff(PrevOwner, Stream) of
-%%         ok ->
-%%             {ok, socket(Conn, Stream, SocketInfo)};
-%%         owner_down ->
-%%             {error, owner_down}
-%%     end.
 
+-spec type(_) -> quic.
 type(_) ->
     quic.
 
@@ -155,7 +130,7 @@ getopts(_Socket, _Opts) ->
         {buffer, 80000}
     ]}.
 
-%% @TODO supply some App Error Code
+%% @TODO supply some App Error Code from caller
 fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
     %% handshake aborted.
     quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
@@ -185,15 +160,13 @@ ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->
 async_send({quic, _Conn, Stream, _Info}, Data, _Options) ->
     case quicer:async_send(Stream, Data, ?QUICER_SEND_FLAG_SYNC) of
         {ok, _Len} -> ok;
+        {error, X, Y} -> {error, {X, Y}};
         Other -> Other
     end.
 
 %%%
 %%% quicer stream callbacks
 %%%
--spec new_stream(stream_handle(), quicer:new_stream_props(), cb_data()) -> cb_ret().
-new_stream(_Stream, #{flags := _Flags, is_orphan := _IsOrphan}, _Conn) ->
-    {stop, unimpl}.
 
 -spec peer_receive_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
 peer_receive_aborted(Stream, ErrorCode, S) ->
@@ -222,28 +195,12 @@ send_complete(_Stream, true = _IsCancelled, S) ->
 send_shutdown_complete(_Stream, _IsGraceful, S) ->
     {ok, S}.
 
-%% Local stream, Unidir
-%% -spec handle_stream_data(stream_handle(), binary(), quicer:recv_data_props(), cb_data())
-%%                         -> cb_ret().
-%% handle_stream_data(Stream, Bin, Flags, #{ is_local := true
-%%                                         , parse_state := PS} = S) ->
-%%     ?SLOG(debug, #{data => Bin}, Flags),
-%%     case parse(Bin, PS, []) of
-%%         {keep_state, NewPS, Packets} ->
-%%             quicer:setopt(Stream, active, once),
-%%             {keep_state, S#{parse_state := NewPS},
-%%              [{next_event, cast, P } || P <- lists:reverse(Packets)]};
-%%         {stop, _} = Stop ->
-%%             Stop
-%%     end;
-%% %% Remote stream
-%% handle_stream_data(_Stream, _Bin, _Flags,
-%%                    #{is_local := false, is_unidir := true, conn := _Conn} = _S) ->
-%%     {stop, unimpl}.
-
 -spec passive(stream_handle(), undefined, cb_data()) -> cb_ret().
 passive(Stream, undefined, S) ->
-    quicer:setopt(Stream, active, 10),
+    case quicer:setopt(Stream, active, 10) of
+        ok -> ok;
+        Error -> ?SLOG(error, #{message => "set active error", error => Error})
+    end,
     {ok, S}.
 
 -spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_data()) -> cb_ret().
@@ -277,3 +234,7 @@ stream_closed(
 -spec socket(connection_handle(), stream_handle(), socket_info()) -> socket().
 socket(Conn, CtrlStream, Info) when is_map(Info) ->
     {quic, Conn, CtrlStream, Info}.
+
+%% BUILD_WITHOUT_QUIC
+-else.
+-endif.
