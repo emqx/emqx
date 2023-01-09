@@ -911,7 +911,7 @@ fi
 if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
     logwarn "Default (insecure) Erlang cookie is in use."
     logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
-    logwarn "Use the same config value for all nodes in the cluster."
+    logwarn "NOTE: Use the same cookie for all nodes in the cluster."
 fi
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
