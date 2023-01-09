@@ -26,7 +26,9 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2"),
         ref(emqx_ee_bridge_redis, Method ++ "_single"),
         ref(emqx_ee_bridge_redis, Method ++ "_sentinel"),
-        ref(emqx_ee_bridge_redis, Method ++ "_cluster")
+        ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
+        ref(emqx_ee_bridge_timescale, Method),
+        ref(emqx_ee_bridge_matrix, Method)
     ].
 
 schema_modules() ->
@@ -38,7 +40,9 @@ schema_modules() ->
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
         emqx_ee_bridge_redis,
-        emqx_ee_bridge_pgsql
+        emqx_ee_bridge_pgsql,
+        emqx_ee_bridge_timescale,
+        emqx_ee_bridge_matrix
     ].
 
 examples(Method) ->
@@ -66,7 +70,9 @@ resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb;
 resource_type(redis_single) -> emqx_ee_connector_redis;
 resource_type(redis_sentinel) -> emqx_ee_connector_redis;
 resource_type(redis_cluster) -> emqx_ee_connector_redis;
-resource_type(pgsql) -> emqx_connector_pgsql.
+resource_type(pgsql) -> emqx_connector_pgsql;
+resource_type(timescale) -> emqx_connector_pgsql;
+resource_type(matrix) -> emqx_connector_pgsql.
 
 fields(bridges) ->
     [
@@ -101,16 +107,8 @@ fields(bridges) ->
                     desc => <<"MySQL Bridge Config">>,
                     required => false
                 }
-            )},
-        {pgsql,
-            mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
-                #{
-                    desc => <<"PostgreSQL Bridge Config">>,
-                    required => false
-                }
             )}
-    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs().
+    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++ pgsql_structs().
 
 mongodb_structs() ->
     [
@@ -155,5 +153,22 @@ redis_structs() ->
             redis_single,
             redis_sentinel,
             redis_cluster
+        ]
+    ].
+
+pgsql_structs() ->
+    [
+        {Type,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
+                #{
+                    desc => <<Name/binary, " Bridge Config">>,
+                    required => false
+                }
+            )}
+     || {Type, Name} <- [
+            {pgsql, <<"PostgreSQL">>},
+            {timescale, <<"Timescale">>},
+            {matrix, <<"Matrix">>}
         ]
     ].
