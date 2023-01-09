@@ -64,7 +64,7 @@ fields(single) ->
         {redis_type, #{
             type => single,
             default => single,
-            required => true,
+            required => false,
             desc => ?DESC("single")
         }}
     ] ++
@@ -76,7 +76,7 @@ fields(cluster) ->
         {redis_type, #{
             type => cluster,
             default => cluster,
-            required => true,
+            required => false,
             desc => ?DESC("cluster")
         }}
     ] ++
@@ -88,7 +88,7 @@ fields(sentinel) ->
         {redis_type, #{
             type => sentinel,
             default => sentinel,
-            required => true,
+            required => false,
             desc => ?DESC("sentinel")
         }},
         {sentinel, #{
