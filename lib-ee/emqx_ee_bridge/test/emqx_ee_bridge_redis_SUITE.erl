@@ -96,6 +96,14 @@ init_per_suite(Config) ->
                 | Config
             ];
         false ->
+            assert_ci()
+    end.
+
+assert_ci() ->
+    case os:getenv("IS_CI") of
+        "yes" ->
+            throw(no_redis);
+        _ ->
             {skip, no_redis}
     end.
 

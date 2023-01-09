@@ -17,15 +17,18 @@ help() {
     echo "--stop:                 Stop running containers for the given app"
     echo "--only-up:              Only start the testbed but do not run CT"
     echo "--keep-up:              Keep the testbed running after CT"
+    echo "--ci:                   Set this flag in GitHub action to enforce no tests are skipped"
+    echo "--"                     If any, all args after '--' are passed to rebar3 ct
+    echo "                        otherwise it runs the entire app's CT"
 }
 
 WHICH_APP='novalue'
 CONSOLE='no'
 KEEP_UP='no'
 ONLY_UP='no'
-SUITES=''
 ATTACH='no'
 STOP='no'
+IS_CI='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -56,9 +59,14 @@ while [ "$#" -gt 0 ]; do
             CONSOLE='yes'
             shift 1
             ;;
-        --suites)
-            SUITES="$2"
-            shift 2
+        --ci)
+            IS_CI='yes'
+            shift 1
+            ;;
+        --)
+            shift 1
+            REBAR3CT="$*"
+            shift $#
             ;;
         *)
             echo "unknown option $1"
@@ -202,7 +210,11 @@ elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
     restore_ownership
 else
-    docker exec -e PROFILE="$PROFILE" -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+    if [ -z "${REBAR3CT:-}" ]; then
+        docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+    else
+        docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "./rebar3 ct $REBAR3CT"
+    fi
     RESULT=$?
     restore_ownership
     if [ $RESULT -ne 0 ]; then
