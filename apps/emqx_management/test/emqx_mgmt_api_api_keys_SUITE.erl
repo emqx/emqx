@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_app_SUITE).
+-module(emqx_mgmt_api_api_keys_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -69,7 +69,7 @@ t_create_failed(_Config) ->
     ?assertEqual(BadRequest, create_app(LongName)),
 
     {ok, List} = list_app(),
-    CreateNum = 30 - erlang:length(List),
+    CreateNum = 1024 - erlang:length(List),
     Names = lists:map(
         fun(Seq) ->
             <<"EMQX-API-FAILED-KEY-", (integer_to_binary(Seq))/binary>>

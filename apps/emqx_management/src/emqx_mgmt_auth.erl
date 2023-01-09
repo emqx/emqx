@@ -59,7 +59,7 @@ mnesia(boot) ->
     ]).
 
 create(Name, Enable, ExpiredAt, Desc) ->
-    case mnesia:table_info(?APP, size) < 30 of
+    case mnesia:table_info(?APP, size) < 1024 of
         true -> create_app(Name, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
