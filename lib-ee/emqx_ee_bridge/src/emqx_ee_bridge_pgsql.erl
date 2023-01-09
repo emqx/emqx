@@ -11,7 +11,9 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    values/2,
+    fields/2
 ]).
 
 -export([
@@ -34,17 +36,17 @@ conn_bridge_examples(Method) ->
         #{
             <<"pgsql">> => #{
                 summary => <<"PostgreSQL Bridge">>,
-                value => values(Method)
+                value => values(Method, pgsql)
             }
         }
     ].
 
-values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
-values(post) ->
+values(get, Type) ->
+    maps:merge(values(post, Type), ?METRICS_EXAMPLE);
+values(post, Type) ->
     #{
         enable => true,
-        type => pgsql,
+        type => Type,
         name => <<"foo">>,
         server => <<"127.0.0.1:5432">>,
         database => <<"mqtt">>,
@@ -64,8 +66,8 @@ values(post) ->
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
     };
-values(put) ->
-    values(post).
+values(put, Type) ->
+    values(post, Type).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -96,16 +98,19 @@ fields("config") ->
                 }
             )}
     ] ++
-        emqx_connector_mysql:fields(config) -- emqx_connector_schema_lib:prepare_statement_fields();
+        emqx_connector_pgsql:fields(config) -- emqx_connector_schema_lib:prepare_statement_fields();
 fields("creation_opts") ->
     Opts = emqx_resource_schema:fields("creation_opts"),
     [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
 fields("post") ->
-    [type_field(), name_field() | fields("config")];
+    fields("post", pgsql);
 fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post").
+
+fields("post", Type) ->
+    [type_field(Type), name_field() | fields("config")].
 
 desc("config") ->
     ?DESC("desc_config");
@@ -123,8 +128,8 @@ is_hidden_opts(Field) ->
         async_inflight_window
     ]).
 
-type_field() ->
-    {type, mk(enum([mysql]), #{required => true, desc => ?DESC("desc_type")})}.
+type_field(Type) ->
+    {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
