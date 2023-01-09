@@ -33,13 +33,21 @@
         )
     )
 ).
--define(HTTP_BRIDGE(URL, TYPE, NAME), #{
+-define(BRIDGE(NAME, TYPE), #{
+    <<"ssl">> => #{<<"enable">> => false},
     <<"type">> => TYPE,
-    <<"name">> => NAME,
+    <<"name">> => NAME
+}).
+-define(MQTT_BRIDGE(SERVER), ?BRIDGE(<<"mqtt_egress_test_bridge">>, <<"mqtt">>)#{
+    <<"server">> => SERVER,
+    <<"username">> => <<"user1">>,
+    <<"password">> => <<"">>,
+    <<"proto_ver">> => <<"v5">>
+}).
+-define(HTTP_BRIDGE(URL, TYPE, NAME), ?BRIDGE(NAME, TYPE)#{
     <<"url">> => URL,
     <<"local_topic">> => <<"emqx_webhook/#">>,
     <<"method">> => <<"post">>,
-    <<"ssl">> => #{<<"enable">> => false},
     <<"body">> => <<"${payload}">>,
     <<"headers">> => #{
         <<"content-type">> => <<"application/json">>
@@ -596,16 +604,6 @@ t_with_redact_update(_Config) ->
     ?assertEqual(Password, Value),
     ok.
 
--define(MQTT_BRIDGE(Server), #{
-    <<"server">> => Server,
-    <<"username">> => <<"user1">>,
-    <<"password">> => <<"">>,
-    <<"proto_ver">> => <<"v5">>,
-    <<"ssl">> => #{<<"enable">> => false},
-    <<"type">> => <<"mqtt">>,
-    <<"name">> => <<"mqtt_egress_test_bridge">>
-}).
-
 t_bridges_probe(Config) ->
     Port = ?config(port, Config),
     URL = ?URL(Port, "some_path"),
@@ -623,10 +621,17 @@ t_bridges_probe(Config) ->
         ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
     ),
 
-    {ok, 400, _} = request(
+    {ok, 400, NxDomain} = request(
         post,
         uri(["bridges_probe"]),
         ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := _
+        },
+        jsx:decode(NxDomain)
     ),
 
     {ok, 204, _} = request(
@@ -635,11 +640,25 @@ t_bridges_probe(Config) ->
         ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)
     ),
 
-    {ok, 400, _} = request(
+    {ok, 400, ConnRefused} = request(
         post,
         uri(["bridges_probe"]),
         ?MQTT_BRIDGE(<<"127.0.0.1:2883">>)
     ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"#{reason => econnrefused", _/binary>>
+        },
+        jsx:decode(ConnRefused)
+    ),
+
+    {ok, 400, BadReq} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?BRIDGE(<<"bad_bridge">>, <<"unknown_type">>)
+    ),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, jsx:decode(BadReq)),
     ok.
 
 request(Method, Url, Body) ->

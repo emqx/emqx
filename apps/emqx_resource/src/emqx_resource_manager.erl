@@ -174,6 +174,9 @@ create_dry_run(ResourceType, Config) ->
     case wait_for_ready(ResId, 15000) of
         ok ->
             remove(ResId);
+        {error, Reason} ->
+            _ = remove(ResId),
+            {error, Reason};
         timeout ->
             _ = remove(ResId),
             {error, timeout}
@@ -632,16 +635,18 @@ data_record_to_external_map_with_metrics(Data) ->
         metrics => get_metrics(Data#data.id)
     }.
 
--spec wait_for_ready(resource_id(), integer()) -> ok | timeout.
+-spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
 wait_for_ready(ResId, WaitTime) ->
     do_wait_for_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
 
 do_wait_for_ready(_ResId, 0) ->
     timeout;
 do_wait_for_ready(ResId, Retry) ->
-    case ets_lookup(ResId) of
-        {ok, _Group, #{status := connected}} ->
+    case read_cache(ResId) of
+        {_Group, #data{status = connected}} ->
             ok;
+        {_Group, #data{status = disconnected, error = Reason}} ->
+            {error, Reason};
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
             do_wait_for_ready(ResId, Retry - 1)
