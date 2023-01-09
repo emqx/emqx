@@ -303,6 +303,15 @@ t_http_crud_apis(Config) ->
         },
         jsx:decode(ErrMsg2)
     ),
+    %% Deleting a non-existing bridge should result in an error
+    {ok, 404, ErrMsg3} = request(delete, uri(["bridges", BridgeID]), []),
+    ?assertMatch(
+        #{
+            <<"code">> := _,
+            <<"message">> := <<"Bridge not found">>
+        },
+        jsx:decode(ErrMsg3)
+    ),
     ok.
 
 t_http_bridges_local_topic(Config) ->
