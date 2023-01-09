@@ -158,7 +158,7 @@ init({Id, Index, Opts}) ->
             max_total_bytes => TotalBytes,
             %% we don't want to retain the queue after
             %% resource restarts.
-            offload => true,
+            offload => {true, volatile},
             seg_bytes => SegBytes,
             sizer => fun ?MODULE:estimate_size/1
         },
