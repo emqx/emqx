@@ -21,7 +21,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
--behaviour(emqx_authentication).
 
 -export([
     namespace/0,
@@ -33,6 +32,7 @@
 
 -export([
     refs/0,
+    refs/1,
     create/2,
     update/2,
     authenticate/2,
@@ -168,6 +168,19 @@ refs() ->
         hoconsc:ref(?MODULE, 'public-key'),
         hoconsc:ref(?MODULE, 'jwks')
     ].
+
+refs(#{<<"mechanism">> := <<"jwt">>} = V) ->
+    UseJWKS = maps:get(<<"use_jwks">>, V, undefined),
+    select_ref(UseJWKS, V).
+
+select_ref(true, _) ->
+    {ok, hoconsc:ref(?MODULE, 'jwks')};
+select_ref(false, #{<<"public_key">> := _}) ->
+    {ok, hoconsc:ref(?MODULE, 'public-key')};
+select_ref(false, _) ->
+    {ok, hoconsc:ref(?MODULE, 'hmac-based')};
+select_ref(_, _) ->
+    {error, "use_jwks must be set"}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

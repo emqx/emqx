@@ -33,6 +33,7 @@
 
 -export([
     refs/0,
+    refs/1,
     create/2,
     update/2,
     authenticate/2,
@@ -96,6 +97,15 @@ refs() ->
         hoconsc:ref(?MODULE, cluster),
         hoconsc:ref(?MODULE, sentinel)
     ].
+
+refs(#{<<"redis_type">> := <<"single">>}) ->
+    {ok, hoconsc:ref(?MODULE, standalone)};
+refs(#{<<"redis_type">> := <<"cluster">>}) ->
+    {ok, hoconsc:ref(?MODULE, cluster)};
+refs(#{<<"redis_type">> := <<"sentinel">>}) ->
+    {ok, hoconsc:ref(?MODULE, sentinel)};
+refs(_) ->
+    {error, "unknown 'redis_type'"}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

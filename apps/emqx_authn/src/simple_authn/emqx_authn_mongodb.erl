@@ -33,6 +33,7 @@
 
 -export([
     refs/0,
+    refs/1,
     create/2,
     update/2,
     authenticate/2,
@@ -129,6 +130,15 @@ refs() ->
         hoconsc:ref(?MODULE, 'replica-set'),
         hoconsc:ref(?MODULE, 'sharded-cluster')
     ].
+
+refs(#{<<"mongo_type">> := <<"single">>}) ->
+    {ok, hoconsc:ref(?MODULE, standalone)};
+refs(#{<<"mongo_type">> := <<"rs">>}) ->
+    {ok, hoconsc:ref(?MODULE, 'replica-set')};
+refs(#{<<"mongo_type">> := <<"sharded">>}) ->
+    {ok, hoconsc:ref(?MODULE, 'sharded-cluster')};
+refs(_) ->
+    {error, "unknown 'mongo_type'"}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

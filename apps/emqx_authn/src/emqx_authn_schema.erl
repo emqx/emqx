@@ -45,24 +45,105 @@ enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 
 authenticator_type() ->
-    hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()])).
+    hoconsc:union(union_member_selector(emqx_authn:providers())).
 
 authenticator_type_without_scram() ->
     Providers = lists:filtermap(
         fun
-            ({{password_based, _Backend}, Mod}) ->
-                {true, Mod};
-            ({jwt, Mod}) ->
-                {true, Mod};
             ({{scram, _Backend}, _Mod}) ->
-                false
+                false;
+            (_) ->
+                true
         end,
         emqx_authn:providers()
     ),
-    hoconsc:union(config_refs(Providers)).
+    hoconsc:union(union_member_selector(Providers)).
 
-config_refs(Modules) ->
-    lists:append([Module:refs() || Module <- Modules]).
+config_refs(Providers) ->
+    lists:append([Module:refs() || {_, Module} <- Providers]).
+
+union_member_selector(Providers) ->
+    Types = config_refs(Providers),
+    fun
+        (all_union_members) -> Types;
+        ({value, Value}) -> select_union_member(Value, Providers)
+    end.
+
+select_union_member(#{<<"mechanism">> := _} = Value, Providers) ->
+    select_union_member(Value, Providers, #{});
+select_union_member(_Value, _) ->
+    throw(#{hint => "missing 'mechanism' field"}).
+
+select_union_member(Value, [], ReasonsMap) when ReasonsMap =:= #{} ->
+    BackendVal = maps:get(<<"backend">>, Value, undefined),
+    MechanismVal = maps:get(<<"mechanism">>, Value),
+    throw(#{
+        backend => BackendVal,
+        mechanism => MechanismVal,
+        hint => "unknown_mechanism_or_backend"
+    });
+select_union_member(_Value, [], ReasonsMap) ->
+    throw(ReasonsMap);
+select_union_member(Value, [Provider | Providers], ReasonsMap) ->
+    {Mechanism, Backend, Module} =
+        case Provider of
+            {{M, B}, Mod} -> {atom_to_binary(M), atom_to_binary(B), Mod};
+            {M, Mod} when is_atom(M) -> {atom_to_binary(M), undefined, Mod}
+        end,
+    case do_select_union_member(Mechanism, Backend, Module, Value) of
+        {ok, Type} ->
+            [Type];
+        {error, nomatch} ->
+            %% obvious mismatch, do not complain
+            %% e.g. when 'backend' is "http", but the value is "redis",
+            %% then there is no need to record the error like
+            %% "'http' is exepcted but got 'redis'"
+            select_union_member(Value, Providers, ReasonsMap);
+        {error, Reason} ->
+            %% more interesting error message
+            %% e.g. when 'backend' is "http", but there is no "method" field
+            %% found so there is no way to tell if it's the 'get' type or 'post' type.
+            %% hence the error message is like:
+            %% #{emqx_auth_http => "'http' auth backend must have get|post as 'method'"}
+            select_union_member(Value, Providers, ReasonsMap#{Module => Reason})
+    end.
+
+do_select_union_member(Mechanism, Backend, Module, Value) ->
+    BackendVal = maps:get(<<"backend">>, Value, undefined),
+    MechanismVal = maps:get(<<"mechanism">>, Value),
+    case MechanismVal =:= Mechanism of
+        true when Backend =:= undefined ->
+            case BackendVal =:= undefined of
+                true ->
+                    %% e.g. jwt has no 'backend'
+                    try_select_union_member(Module, Value);
+                false ->
+                    {error, "unexpected 'backend' for " ++ binary_to_list(Mechanism)}
+            end;
+        true ->
+            case Backend =:= BackendVal of
+                true ->
+                    try_select_union_member(Module, Value);
+                false ->
+                    %% 'backend' not matching
+                    {error, nomatch}
+            end;
+        false ->
+            %% 'mechanism' not matching
+            {error, nomatch}
+    end.
+
+try_select_union_member(Module, Value) ->
+    try
+        %% some modules have refs/1 exported to help selectin the sub-types
+        %% emqx_authn_http, emqx_authn_jwt, emqx_authn_mongodb and emqx_authn_redis
+        Module:refs(Value)
+    catch
+        error:undef ->
+            %% otherwise expect only one member from this module
+            [Type] = Module:refs(),
+            {ok, Type}
+    end.
 
 %% authn is a core functionality however implemented outside of emqx app
 %% in emqx_schema, 'authentication' is a map() type which is to allow

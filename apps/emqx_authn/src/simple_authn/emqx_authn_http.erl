@@ -40,6 +40,7 @@
 
 -export([
     refs/0,
+    refs/1,
     create/2,
     update/2,
     authenticate/2,
@@ -66,12 +67,12 @@ roots() ->
 
 fields(get) ->
     [
-        {method, #{type => get, required => true, default => get, desc => ?DESC(method)}},
+        {method, #{type => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->
     [
-        {method, #{type => post, required => true, default => post, desc => ?DESC(method)}},
+        {method, #{type => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
@@ -158,6 +159,13 @@ refs() ->
         hoconsc:ref(?MODULE, get),
         hoconsc:ref(?MODULE, post)
     ].
+
+refs(#{<<"method">> := <<"get">>}) ->
+    {ok, hoconsc:ref(?MODULE, get)};
+refs(#{<<"method">> := <<"post">>}) ->
+    {ok, hoconsc:ref(?MODULE, post)};
+refs(_) ->
+    {error, "'http' auth backend must have get|post as 'method'"}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).
