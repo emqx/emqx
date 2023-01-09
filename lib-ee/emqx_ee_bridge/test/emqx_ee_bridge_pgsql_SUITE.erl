@@ -45,14 +45,20 @@ groups() ->
     [
         {tcp, [
             {group, with_batch},
-            {group, without_batch}
+            {group, without_batch},
+            {group, matrix},
+            {group, timescale}
         ]},
         {tls, [
             {group, with_batch},
-            {group, without_batch}
+            {group, without_batch},
+            {group, matrix},
+            {group, timescale}
         ]},
         {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs}
+        {without_batch, TCs},
+        {matrix, [t_setup_via_config_and_publish, t_setup_via_http_api_and_publish]},
+        {timescale, [t_setup_via_config_and_publish, t_setup_via_http_api_and_publish]}
     ].
 
 init_per_group(tcp, Config) ->
@@ -82,6 +88,12 @@ init_per_group(with_batch, Config0) ->
     common_init(Config);
 init_per_group(without_batch, Config0) ->
     Config = [{enable_batch, false} | Config0],
+    common_init(Config);
+init_per_group(matrix, Config0) ->
+    Config = [{bridge_type, <<"matrix">>}, {enable_batch, true} | Config0],
+    common_init(Config);
+init_per_group(timescale, Config0) ->
+    Config = [{bridge_type, <<"timescale">>}, {enable_batch, true} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -122,7 +134,7 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 
 common_init(Config0) ->
-    BridgeType = <<"pgsql">>,
+    BridgeType = proplists:get_value(bridge_type, Config0, <<"pgsql">>),
     Host = ?config(pgsql_host, Config0),
     Port = ?config(pgsql_port, Config0),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
