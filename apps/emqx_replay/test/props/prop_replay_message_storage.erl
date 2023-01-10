@@ -150,6 +150,41 @@ prop_iterate_eq_iterate_with_preserve_restore() ->
         )
     end).
 
+prop_iterate_eq_iterate_with_refresh() ->
+    TBPL = [4, 8, 16, 12],
+    Options = #{
+        timestamp_bits => 32,
+        topic_bits_per_level => TBPL,
+        epoch => 500
+    },
+    {DB, _Handle} = open_db(make_filepath(?FUNCTION_NAME), Options),
+    ?FORALL(Stream, non_empty(messages(topic(TBPL))), begin
+        % TODO
+        % This proptest is also impure, see above.
+        ok = store_db(DB, Stream),
+        ?FORALL(
+            {
+                {Topic, _},
+                Pat,
+                StartTime,
+                RefreshEvery
+            },
+            {
+                nth(Stream),
+                topic_filter_pattern(),
+                start_time(),
+                pos_integer()
+            },
+            ?TIMEOUT(5000, begin
+                TopicFilter = make_topic_filter(Pat, Topic),
+                IterationOptions = #{iterator_refresh => {every, RefreshEvery}},
+                Iterator = make_iterator(DB, TopicFilter, StartTime, IterationOptions),
+                Messages = iterate_db(Iterator),
+                equals(Messages, iterate_db(DB, TopicFilter, StartTime))
+            end)
+        )
+    end).
+
 % store_message_stream(DB, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
 %     MessageID = emqx_guid:gen(),
 %     PublishedAt = ChunkNum,
@@ -182,6 +217,10 @@ iterate_db(It) ->
 
 make_iterator(DB, TopicFilter, StartTime) ->
     {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime),
+    It.
+
+make_iterator(DB, TopicFilter, StartTime, Options) ->
+    {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime, Options),
     It.
 
 run_iterator_commands([iterate | Rest], It, DB) ->
