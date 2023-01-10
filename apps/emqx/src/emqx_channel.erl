@@ -1136,7 +1136,6 @@ do_deliver(Publishes, Channel) when is_list(Publishes) ->
     {Packets, NChannel} =
         lists:foldl(
             fun(Publish, {Acc, Chann}) ->
-                %% @FIXME perf:  list append with copy left list
                 {Packets, NChann} = do_deliver(Publish, Chann),
                 {Packets ++ Acc, NChann}
             end,
