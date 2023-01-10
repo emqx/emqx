@@ -102,6 +102,10 @@ fields(message) ->
                 required => false,
                 default => 0
             })},
+        {clientid,
+            hoconsc:mk(binary(), #{
+                deprecated => {since, "v5.0.14"}
+            })},
         {payload,
             hoconsc:mk(binary(), #{
                 desc => ?DESC(payload),
