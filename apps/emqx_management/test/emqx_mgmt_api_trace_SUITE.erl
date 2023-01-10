@@ -168,7 +168,8 @@ t_create_failed(_Config) ->
     ),
     %% clear
     ?assertMatch({ok, _}, request_api(delete, api_path("trace"), [])),
-    {ok, Create} = request_api(post, api_path("trace"), [GoodName | Trace]),
+    {ok, Create1} = request_api(post, api_path("trace"), [GoodName | Trace]),
+    ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create1)),
     %% new name but same trace
     GoodName2 = {<<"name">>, <<"test-name-1">>},
     ?assertMatch(
@@ -312,6 +313,47 @@ t_stream_log(_Config) ->
             api_path("trace/test_stream_log_not_found/log")
         ),
     unload(),
+    ok.
+
+t_trace_files_are_deleted_after_download(_Config) ->
+    ClientId = <<"client-test-delete-after-download">>,
+    Now = erlang:system_time(second),
+    Name = <<"test_client_id">>,
+    load(),
+    create_trace(Name, ClientId, Now),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    [
+        begin
+            _ = emqtt:ping(Client)
+        end
+     || _ <- lists:seq(1, 5)
+    ],
+    ok = emqtt:disconnect(Client),
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+
+    %% Check that files have been removed after download and that zip
+    %% directories uses unique session ids
+    ?check_trace(
+        begin
+            %% Download two zip files
+            Path = api_path(["trace/", binary_to_list(Name), "/download"]),
+            {ok, Binary1} = request_api(get, Path),
+            {ok, Binary2} = request_api(get, Path),
+            ?assertMatch({ok, _}, zip:table(Binary1)),
+            ?assertMatch({ok, _}, zip:table(Binary2))
+        end,
+        fun(Trace) ->
+            [
+                #{session_id := SessionId1, zip_dir := ZipDir1},
+                #{session_id := SessionId2, zip_dir := ZipDir2}
+            ] = ?of_kind(trace_api_download_trace_log, Trace),
+            ?assertEqual({error, enoent}, file:list_dir(ZipDir1)),
+            ?assertEqual({error, enoent}, file:list_dir(ZipDir2)),
+            ?assertNotEqual(SessionId1, SessionId2),
+            ?assertNotEqual(ZipDir1, ZipDir2)
+        end
+    ),
     ok.
 
 to_rfc3339(Second) ->

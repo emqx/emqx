@@ -20,6 +20,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     api_spec/0,
@@ -461,16 +462,26 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
             case parse_node(Query, undefined) of
                 {ok, Node} ->
                     TraceFiles = collect_trace_file(Node, TraceLog),
-                    ZipDir = emqx_trace:zip_dir(),
+                    %% We generate a session ID so that we name files
+                    %% with unique names. Then we won't cause
+                    %% overwrites for concurrent requests.
+                    SessionId = emqx_misc:gen_id(),
+                    ZipDir = filename:join([emqx_trace:zip_dir(), SessionId]),
+                    ok = file:make_dir(ZipDir),
+                    %% Write files to ZipDir and create an in-memory zip file
                     Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-                    FileName = binary_to_list(Name) ++ ".zip",
-                    ZipFileName = filename:join([ZipDir, FileName]),
-                    {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
+                    ZipName = binary_to_list(Name) ++ ".zip",
+                    {ok, {ZipName, Binary}} = zip:zip(ZipName, Zips, [memory, {cwd, ZipDir}]),
                     %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
                     %% TODO use file replace file_binary.(delete file after send is not ready now).
-                    {ok, Binary} = file:read_file(ZipFile),
-                    ZipName = filename:basename(ZipFile),
-                    _ = file:delete(ZipFile),
+                    ok = file:del_dir_r(ZipDir),
+                    ?tp(trace_api_download_trace_log, #{
+                        files => Zips,
+                        name => Name,
+                        session_id => SessionId,
+                        zip_dir => ZipDir,
+                        zip_name => ZipName
+                    }),
                     Headers = #{
                         <<"content-type">> => <<"application/x-zip">>,
                         <<"content-disposition">> => iolist_to_binary(
