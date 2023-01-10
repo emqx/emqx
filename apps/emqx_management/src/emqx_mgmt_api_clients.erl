@@ -549,8 +549,8 @@ fields(keepalive) ->
     ];
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
+        {topic, hoconsc:mk(binary(), #{required => true, desc => <<"Topic">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
         {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
         {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
         {rh, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain Handling">>})}
