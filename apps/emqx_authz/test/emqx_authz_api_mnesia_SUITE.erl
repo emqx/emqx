@@ -70,21 +70,21 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "username"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             [?USERNAME_RULES_EXAMPLE]
         ),
 
     {ok, 409, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "username"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             [?USERNAME_RULES_EXAMPLE]
         ),
 
     {ok, 200, Request1} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "username"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             []
         ),
     #{
@@ -104,7 +104,8 @@ t_api(_) ->
                 "authorization",
                 "sources",
                 "built_in_database",
-                "username?page=1&limit=20&like_username=noexist"
+                "rules",
+                "users?page=1&limit=20&like_username=noexist"
             ]),
             []
         ),
@@ -120,7 +121,7 @@ t_api(_) ->
     {ok, 200, Request2} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
@@ -128,13 +129,13 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             put,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             ?USERNAME_RULES_EXAMPLE#{rules => []}
         ),
     {ok, 200, Request3} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = jsx:decode(Request3),
@@ -143,46 +144,46 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
     {ok, 404, _} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
     {ok, 404, _} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "username", "user1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
 
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "clientid"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
             [?CLIENTID_RULES_EXAMPLE]
         ),
 
     {ok, 409, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "clientid"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
             [?CLIENTID_RULES_EXAMPLE]
         ),
 
     {ok, 200, Request4} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "clientid"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
             []
         ),
     {ok, 200, Request5} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
     #{
@@ -196,13 +197,13 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             put,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             ?CLIENTID_RULES_EXAMPLE#{rules => []}
         ),
     {ok, 200, Request6} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
     #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = jsx:decode(Request6),
@@ -211,32 +212,32 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
     {ok, 404, _} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
     {ok, 404, _} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "clientid", "client1"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
 
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "all"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             ?ALL_RULES_EXAMPLE
         ),
     {ok, 200, Request7} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "all"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             []
         ),
     #{<<"rules">> := Rules5} = jsx:decode(Request7),
@@ -244,15 +245,14 @@ t_api(_) ->
 
     {ok, 204, _} =
         request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "all"]),
-
-            ?ALL_RULES_EXAMPLE#{rules => []}
+            delete,
+            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+            []
         ),
     {ok, 200, Request8} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "all"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             []
         ),
     #{<<"rules">> := Rules6} = jsx:decode(Request8),
@@ -261,7 +261,7 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "username"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             [
                 #{username => erlang:integer_to_binary(N), rules => []}
              || N <- lists:seq(1, 20)
@@ -270,7 +270,7 @@ t_api(_) ->
     {ok, 200, Request9} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "username?page=2&limit=5"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users?page=2&limit=5"]),
             []
         ),
     #{<<"data">> := Data1} = jsx:decode(Request9),
@@ -279,7 +279,7 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "clientid"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
             [
                 #{clientid => erlang:integer_to_binary(N), rules => []}
              || N <- lists:seq(1, 20)
@@ -288,7 +288,7 @@ t_api(_) ->
     {ok, 200, Request10} =
         request(
             get,
-            uri(["authorization", "sources", "built_in_database", "clientid?limit=5"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "clients?limit=5"]),
             []
         ),
     #{<<"data">> := Data2} = jsx:decode(Request10),
@@ -297,7 +297,7 @@ t_api(_) ->
     {ok, 400, Msg1} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "purge-all"]),
+            uri(["authorization", "sources", "built_in_database", "rules"]),
             []
         ),
     ?assertMatch({match, _}, re:run(Msg1, "must\sbe\sdisabled\sbefore")),
@@ -323,7 +323,7 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             delete,
-            uri(["authorization", "sources", "built_in_database", "purge-all"]),
+            uri(["authorization", "sources", "built_in_database", "rules"]),
             []
         ),
     ?assertEqual(0, emqx_authz_mnesia:record_count()),
