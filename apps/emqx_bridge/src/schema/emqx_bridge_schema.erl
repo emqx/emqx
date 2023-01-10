@@ -122,7 +122,9 @@ fields(bridges) ->
                 #{
                     desc => ?DESC("bridges_mqtt"),
                     required => false,
-                    converter => fun emqx_bridge_mqtt_config:upgrade_pre_ee/1
+                    converter => fun(X, _HoconOpts) ->
+                        emqx_bridge_mqtt_config:upgrade_pre_ee(X)
+                    end
                 }
             )}
     ] ++ ee_fields_bridges();
