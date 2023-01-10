@@ -274,7 +274,6 @@ parse_confs(
     #{
         url := Url,
         method := Method,
-        body := Body,
         headers := Headers,
         request_timeout := ReqTimeout,
         max_retries := Retry
@@ -288,7 +287,7 @@ parse_confs(
             #{
                 path => Path,
                 method => Method,
-                body => Body,
+                body => maps:get(body, Conf, undefined),
                 headers => Headers,
                 request_timeout => ReqTimeout,
                 max_retries => Retry
