@@ -34,7 +34,7 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     ["/mqtt/auto_subscribe"].
@@ -46,15 +46,15 @@ schema("/mqtt/auto_subscribe") ->
             description => ?DESC(list_auto_subscribe_api),
             tags => [<<"Auto Subscribe">>],
             responses => #{
-                200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe")
+                200 => topics()
             }
         },
         put => #{
             description => ?DESC(update_auto_subscribe_api),
             tags => [<<"Auto Subscribe">>],
-            'requestBody' => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
+            'requestBody' => topics(),
             responses => #{
-                200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
+                200 => topics(),
                 409 => emqx_dashboard_swagger:error_codes(
                     [?EXCEED_LIMIT],
                     ?DESC(update_auto_subscribe_api_response409)
@@ -63,14 +63,17 @@ schema("/mqtt/auto_subscribe") ->
         }
     }.
 
+topics() ->
+    Fields = emqx_auto_subscribe_schema:fields("auto_subscribe"),
+    {topics, Topics} = lists:keyfind(topics, 1, Fields),
+    Topics.
+
 %%%==============================================================================================
 %% api apply
 auto_subscribe(get, _) ->
     {200, emqx_auto_subscribe:list()};
-auto_subscribe(put, #{body := #{}}) ->
-    {400, #{code => ?BAD_REQUEST, message => <<"Request body required">>}};
-auto_subscribe(put, #{body := Params}) ->
-    case emqx_auto_subscribe:update(Params) of
+auto_subscribe(put, #{body := Topics}) when is_list(Topics) ->
+    case emqx_auto_subscribe:update(Topics) of
         {error, quota_exceeded} ->
             Message = list_to_binary(
                 io_lib:format(

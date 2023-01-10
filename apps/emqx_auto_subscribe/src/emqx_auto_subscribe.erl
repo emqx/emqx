@@ -51,8 +51,21 @@ max_limit() ->
 list() ->
     format(emqx_conf:get([auto_subscribe, topics], [])).
 
-update(Topics) ->
-    update_(Topics).
+update(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
+    case
+        emqx_conf:update(
+            [auto_subscribe, topics],
+            Topics,
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewTopics}} ->
+            {ok, NewTopics};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+update(_Topics) ->
+    {error, quota_exceeded}.
 
 post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
     Config = emqx_conf:get([auto_subscribe], #{}),
@@ -94,22 +107,6 @@ format(Rule = #{topic := Topic}) when is_map(Rule) ->
         rap => maps:get(rap, Rule, 0),
         nl => maps:get(nl, Rule, 0)
     }.
-
-update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
-    case
-        emqx_conf:update(
-            [auto_subscribe, topics],
-            Topics,
-            #{rawconf_with_defaults => true, override_to => cluster}
-        )
-    of
-        {ok, #{raw_config := NewTopics}} ->
-            {ok, NewTopics};
-        {error, Reason} ->
-            {error, Reason}
-    end;
-update_(_Topics) ->
-    {error, quota_exceeded}.
 
 update_hook() ->
     update_hook(emqx_conf:get([auto_subscribe], #{})).
