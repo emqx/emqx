@@ -16,6 +16,8 @@
 
 -module(emqx_packet).
 
+-elvis([{elvis_style, no_spec_with_records, disable}]).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
