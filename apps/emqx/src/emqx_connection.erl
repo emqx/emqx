@@ -118,7 +118,7 @@
     %% limiter timers
     limiter_timer :: undefined | reference(),
 
-    %% QUIC conn pid if is a pid
+    %% QUIC conn owner pid if in use.
     quic_conn_pid :: maybe(pid())
 }).
 
@@ -336,7 +336,6 @@ init_state(
     Limiter = emqx_limiter_container:get_limiter_by_types(Listener, LimiterTypes, LimiterCfg),
 
     FrameOpts = #{
-        %% @TODO:q what is strict_mode?
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
