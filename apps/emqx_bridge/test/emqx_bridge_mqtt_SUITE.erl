@@ -920,7 +920,8 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"matched">> := Matched,
             <<"success">> := 1,
             <<"failed">> := 0,
-            <<"queuing">> := 2
+            <<"queuing">> := 1,
+            <<"inflight">> := 1
         } when Matched >= 3,
         maps:get(<<"metrics">>, DecodedMetrics1)
     ),

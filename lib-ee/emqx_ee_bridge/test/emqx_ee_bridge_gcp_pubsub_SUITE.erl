@@ -508,14 +508,16 @@ install_telemetry_handler(TestCase) ->
 
 wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
     Events = receive_all_events(GaugeName, Timeout),
-    case lists:last(Events) of
+    case length(Events) > 0 andalso lists:last(Events) of
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
         #{measurements := #{gauge_set := Value}} ->
             ct:fail(
                 "gauge ~p didn't reach expected value ~p; last value: ~p",
                 [GaugeName, ExpectedValue, Value]
-            )
+            );
+        false ->
+            ct:pal("no ~p gauge events received!", [GaugeName])
     end.
 
 receive_all_events(EventName, Timeout) ->
@@ -605,6 +607,8 @@ t_publish_success(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -653,6 +657,8 @@ t_publish_success_local_topic(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -739,6 +745,8 @@ t_publish_templated(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -1120,19 +1128,17 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 ResourceId
             );
         {_, sync} ->
-            wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
-                timeout => 10_000, n_events => 2
-            }),
             %% even waiting, hard to avoid flakiness... simpler to just sleep
             %% a bit until stabilization.
-            ct:sleep(200),
+            wait_until_gauge_is(queuing, 0, 500),
+            wait_until_gauge_is(inflight, 1, 500),
             assert_metrics(
                 #{
                     dropped => 0,
                     failed => 0,
-                    inflight => 0,
+                    inflight => 1,
                     matched => 1,
-                    queuing => 1,
+                    queuing => 0,
                     retried => 0,
                     success => 0
                 },
