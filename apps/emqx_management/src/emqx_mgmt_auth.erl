@@ -48,7 +48,7 @@
     api_secret_hash = <<>> :: binary() | '_',
     enable = true :: boolean() | '_',
     desc = <<>> :: binary() | '_',
-    expired_at = 0 :: integer() | undefined | '_',
+    expired_at = 0 :: integer() | undefined | infinity | '_',
     created_at = 0 :: integer() | '_'
 }).
 
@@ -68,7 +68,7 @@ init_bootstrap_file() ->
     init_bootstrap_file(File).
 
 create(Name, Enable, ExpiredAt, Desc) ->
-    case mnesia:table_info(?APP, size) < 1024 of
+    case mnesia:table_info(?APP, size) < 100 of
         true -> create_app(Name, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
@@ -237,16 +237,17 @@ init_bootstrap_file(File) ->
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
-        {error, Reason} = Error ->
+        {error, Reason0} ->
+            Reason = emqx_misc:explain_posix(Reason0),
             ?SLOG(
                 error,
                 #{
                     msg => "failed_to_open_the_bootstrap_file",
                     file => File,
-                    reason => emqx_misc:explain_posix(Reason)
+                    reason => Reason
                 }
             ),
-            Error
+            {error, Reason}
     end.
 
 init_bootstrap_file(File, Dev, MP) ->
