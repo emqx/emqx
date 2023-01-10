@@ -492,7 +492,7 @@ format_variable(undefined, _, _) ->
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ",", format_payload(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{

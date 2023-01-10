@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_app).
+-module(emqx_mgmt_api_api_keys).
 
 -behaviour(minirest_api).
 

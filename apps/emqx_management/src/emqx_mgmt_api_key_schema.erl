@@ -13,30 +13,32 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_mgmt_api_key_schema).
 
--module(emqx_mgmt_app).
-
--behaviour(application).
-
--define(APP, emqx_management).
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
-    start/2,
-    stop/1
+    roots/0,
+    fields/1,
+    namespace/0,
+    desc/1
 ]).
 
--include("emqx_mgmt.hrl").
+namespace() -> api_key.
+roots() -> ["api_key"].
 
-start(_Type, _Args) ->
-    ok = mria_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
-    case emqx_mgmt_auth:init_bootstrap_file() of
-        ok ->
-            {ok, Sup} = emqx_mgmt_sup:start_link(),
-            ok = emqx_mgmt_cli:load(),
-            {ok, Sup};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+fields("api_key") ->
+    [
+        {bootstrap_file,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bootstrap_file),
+                    required => false,
+                    default => <<>>
+                }
+            )}
+    ].
 
-stop(_State) ->
-    ok.
+desc("api_key") ->
+    ?DESC(api_key).
