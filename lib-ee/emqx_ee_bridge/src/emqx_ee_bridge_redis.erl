@@ -79,7 +79,6 @@ values(common, RedisType, SpecificOpts) ->
         local_topic => <<"local/topic/#">>,
         pool_size => 8,
         password => <<"secret">>,
-        auto_reconnect => true,
         command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
         resource_opts => #{
             batch_size => 1,

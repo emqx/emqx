@@ -117,7 +117,6 @@ on_start(
     #{
         redis_type := Type,
         pool_size := PoolSize,
-        auto_reconnect := AutoReconn,
         ssl := SSL
     } = Config
 ) ->
@@ -142,7 +141,7 @@ on_start(
         [
             {pool_size, PoolSize},
             {password, maps:get(password, Config, "")},
-            {auto_reconnect, reconn_interval(AutoReconn)}
+            {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
         ] ++ Database ++ Servers,
     Options =
         case maps:get(enable, SSL) of
@@ -155,7 +154,7 @@ on_start(
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    State = #{poolname => PoolName, type => Type, auto_reconnect => AutoReconn},
+    State = #{poolname => PoolName, type => Type},
     case Type of
         cluster ->
             case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
@@ -229,18 +228,18 @@ eredis_cluster_workers_exist_and_are_connected(Workers) ->
             Workers
         ).
 
-on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect := AutoReconn}) ->
+on_get_status(_InstId, #{type := cluster, poolname := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
             Workers = extract_eredis_cluster_workers(PoolName),
             Health = eredis_cluster_workers_exist_and_are_connected(Workers),
-            status_result(Health, AutoReconn);
+            status_result(Health);
         false ->
             disconnected
     end;
-on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn}) ->
+on_get_status(_InstId, #{poolname := Pool}) ->
     Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
-    status_result(Health, AutoReconn).
+    status_result(Health).
 
 do_get_status(Conn) ->
     case eredis:q(Conn, ["PING"]) of
@@ -248,12 +247,8 @@ do_get_status(Conn) ->
         _ -> false
     end.
 
-status_result(_Status = true, _AutoReconn) -> connected;
-status_result(_Status = false, _AutoReconn = true) -> connecting;
-status_result(_Status = false, _AutoReconn = false) -> disconnected.
-
-reconn_interval(true) -> 15;
-reconn_interval(false) -> false.
+status_result(_Status = true) -> connected;
+status_result(_Status = false) -> connecting.
 
 do_cmd(PoolName, cluster, {cmd, Command}) ->
     eredis_cluster:q(PoolName, Command);

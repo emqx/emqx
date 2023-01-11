@@ -51,7 +51,6 @@ values(post) ->
         pool_size => 8,
         username => <<"root">>,
         password => <<"">>,
-        auto_reconnect => true,
         sql => ?DEFAULT_SQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
