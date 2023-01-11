@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_quic_multistreams_SUITE).
 
+-ifndef(BUILD_WITHOUT_QUIC).
+
 -compile(export_all).
 -compile(nowarn_export_all).
 
@@ -1951,3 +1953,7 @@ select_port() ->
     quicer:stream_handle().
 via_stream({quic, _Conn, Stream}) ->
     Stream.
+
+%% BUILD_WITHOUT_QUIC
+-else.
+-endif.
