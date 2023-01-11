@@ -88,20 +88,20 @@ parse_date(TimeUnit, Offset, FormatString, InputString) ->
     calendar:rfc3339_to_system_time(Str, [{unit, TimeUnit}]).
 
 mlist(R) ->
-    %% %H	Shows hour in 24-hour format [15]
+    %%    %H     Shows hour in 24-hour format [15]
     [
         {$H, R#result.hour},
-        %% %M	Displays minutes [00-59]
+        %%    %M    Displays minutes [00-59]
         {$M, R#result.minute},
-        %% %S	Displays seconds [00-59]
+        %%    %S    Displays seconds [00-59]
         {$S, R#result.second},
-        %% %y	Displays year YYYY [2021]
+        %%    %y    Displays year YYYY [2021]
         {$y, R#result.year},
-        %% %m	Displays the number of the month [01-12]
+        %%    %m    Displays the number of the month [01-12]
         {$m, R#result.month},
-        %% %d	Displays the number of the month [01-12]
+        %%    %d    Displays the number of the month [01-12]
         {$d, R#result.day},
-        %% %Z	Displays Time zone
+        %%    %Z    Displays Time zone
         {$Z, R#result.zone}
     ].
 
@@ -223,20 +223,20 @@ parse_zone(Input) ->
 
 mlist1() ->
     maps:from_list(
-        %% %H	Shows hour in 24-hour format [15]
+        %%    %H     Shows hour in 24-hour format [15]
         [
             {$H, fun(Input) -> parse_int_times(2, Input) end},
-            %% %M	Displays minutes [00-59]
+            %%    %M    Displays minutes [00-59]
             {$M, fun(Input) -> parse_int_times(2, Input) end},
-            %% %S	Displays seconds [00-59]
+            %%    %S    Displays seconds [00-59]
             {$S, fun(Input) -> parse_second(Input) end},
-            %% %y	Displays year YYYY [2021]
+            %%    %y    Displays year YYYY [2021]
             {$y, fun(Input) -> parse_int_times(4, Input) end},
-            %% %m	Displays the number of the month [01-12]
+            %%    %m    Displays the number of the month [01-12]
             {$m, fun(Input) -> parse_int_times(2, Input) end},
-            %% %d	Displays the number of the month [01-12]
+            %%    %d    Displays the number of the month [01-12]
             {$d, fun(Input) -> parse_int_times(2, Input) end},
-            %% %Z	Displays Time zone
+            %%    %Z    Displays Time zone
             {$Z, fun(Input) -> parse_zone(Input) end}
         ]
     ).
