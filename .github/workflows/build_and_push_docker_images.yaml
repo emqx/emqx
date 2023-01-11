@@ -186,8 +186,8 @@ jobs:
       if: matrix.registry == 'docker.io'
       uses: peter-evans/dockerhub-description@v3
       with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
         repository: "emqx/${{ needs.prepare.outputs.BUILD_PROFILE }}"
         readme-filepath: ./source/deploy/docker/README.md
         short-description: "The most scalable open-source MQTT broker for IoT, IIoT, connected vehicles, and more."
