@@ -66,9 +66,20 @@ roots() ->
 
 fields(config) ->
     [{server, server()}] ++
-        emqx_connector_schema_lib:relational_db_fields() ++
+        add_default_username(emqx_connector_schema_lib:relational_db_fields(), []) ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
+
+add_default_username([{username, OrigUsernameFn} | Tail], Head) ->
+    Head ++ [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Tail];
+add_default_username([Field | Tail], Head) ->
+    add_default_username(Tail, Head ++ [Field]).
+
+add_default_fn(OrigFn, Default) ->
+    fun
+        (default) -> Default;
+        (Field) -> OrigFn(Field)
+    end.
 
 server() ->
     Meta = #{desc => ?DESC("server")},
@@ -83,8 +94,7 @@ on_start(
     #{
         server := Server,
         database := DB,
-        username := User,
-        password := Password,
+        username := Username,
         auto_reconnect := AutoReconn,
         pool_size := PoolSize,
         ssl := SSL
@@ -104,13 +114,15 @@ on_start(
                 []
         end,
     Options = [
-        {host, Host},
-        {port, Port},
-        {user, User},
-        {password, Password},
-        {database, DB},
-        {auto_reconnect, reconn_interval(AutoReconn)},
-        {pool_size, PoolSize}
+        maybe_password_opt(maps:get(password, Config, undefined))
+        | [
+            {host, Host},
+            {port, Port},
+            {user, Username},
+            {database, DB},
+            {auto_reconnect, reconn_interval(AutoReconn)},
+            {pool_size, PoolSize}
+        ]
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = parse_prepare_sql(Config),
@@ -125,6 +137,11 @@ on_start(
             ),
             {error, Reason}
     end.
+
+maybe_password_opt(undefined) ->
+    [];
+maybe_password_opt(Password) ->
+    {password, Password}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{
