@@ -14,7 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT/QUIC control Stream
+%% MQTT over QUIC
+%% multistreams: This is the control stream.
+%% single stream: This is the only main stream.
+%%   callbacks are from emqx_connection process rather than quicer_stream
 -module(emqx_quic_stream).
 
 -ifndef(BUILD_WITHOUT_QUIC).
@@ -66,10 +69,9 @@
     _ => _
 }.
 
-%% for accepting
+%%% For Accepting New Remote Stream
 -spec wait({pid(), connection_handle(), socket_info()}) ->
     {ok, socket()} | {error, enotconn}.
-%%% For Accepting New Remote Stream
 wait({ConnOwner, Conn, ConnInfo}) ->
     {ok, Conn} = quicer:async_accept_stream(Conn, []),
     ConnOwner ! {self(), stream_acceptor_ready},

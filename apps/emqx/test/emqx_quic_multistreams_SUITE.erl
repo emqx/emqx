@@ -141,16 +141,6 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([]),
     UdpPort = 14567,
     start_emqx_quic(UdpPort),
-    %% dbg:tracer(process, {fun dbg:dhandler/2, group_leader()}),
-    %% dbg:p(all, c),
-    %% dbg:tpl(quicer_stream, handle_info, c),
-    %% dbg:tp(emqx_quic_connection, cx),
-    %% dbg:tp(emqx_quic_stream, cx),
-    %% dbg:tp(emqtt, cx),
-    %% dbg:tpl(emqtt_quic_stream, cx),
-    %% dbg:tpl(emqx_quic_stream, cx),
-    %% dbg:tpl(emqx_quic_data_stream, cx),
-    %% dbg:tpl(emqtt, cx),
     [{port, UdpPort}, {pub_qos, 0}, {sub_qos, 0} | Config].
 
 end_per_suite(_) ->
