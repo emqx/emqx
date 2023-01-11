@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% API
 -export([mnesia/1]).
@@ -25,7 +26,8 @@
     read/1,
     update/4,
     delete/1,
-    list/0
+    list/0,
+    init_bootstrap_file/0
 ]).
 
 -export([authorize/3]).
@@ -34,7 +36,8 @@
 -export([
     do_update/4,
     do_delete/1,
-    do_create_app/3
+    do_create_app/3,
+    do_force_create_app/3
 ]).
 
 -define(APP, emqx_app).
@@ -45,7 +48,7 @@
     api_secret_hash = <<>> :: binary() | '_',
     enable = true :: boolean() | '_',
     desc = <<>> :: binary() | '_',
-    expired_at = 0 :: integer() | undefined | '_',
+    expired_at = 0 :: integer() | undefined | infinity | '_',
     created_at = 0 :: integer() | '_'
 }).
 
@@ -58,8 +61,14 @@ mnesia(boot) ->
         {attributes, record_info(fields, ?APP)}
     ]).
 
+-spec init_bootstrap_file() -> ok | {error, _}.
+init_bootstrap_file() ->
+    File = bootstrap_file(),
+    ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file", file => File}),
+    init_bootstrap_file(File).
+
 create(Name, Enable, ExpiredAt, Desc) ->
-    case mnesia:table_info(?APP, size) < 30 of
+    case mnesia:table_info(?APP, size) < 100 of
         true -> create_app(Name, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
@@ -169,6 +178,9 @@ create_app(Name, Enable, ExpiredAt, Desc) ->
 create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
     trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]).
 
+force_create_app(NamePrefix, App = #?APP{api_key = ApiKey}) ->
+    trans(fun ?MODULE:do_force_create_app/3, [App, ApiKey, NamePrefix]).
+
 do_create_app(App, ApiKey, Name) ->
     case mnesia:read(?APP, Name) of
         [_] ->
@@ -183,6 +195,22 @@ do_create_app(App, ApiKey, Name) ->
             end
     end.
 
+do_force_create_app(App, ApiKey, NamePrefix) ->
+    case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, read) of
+        [] ->
+            NewName = generate_unique_name(NamePrefix),
+            ok = mnesia:write(App#?APP{name = NewName});
+        [#?APP{name = Name}] ->
+            ok = mnesia:write(App#?APP{name = Name})
+    end.
+
+generate_unique_name(NamePrefix) ->
+    New = list_to_binary(NamePrefix ++ emqx_misc:gen_id(16)),
+    case mnesia:read(?APP, New) of
+        [] -> New;
+        _ -> generate_unique_name(NamePrefix)
+    end.
+
 trans(Fun, Args) ->
     case mria:transaction(?COMMON_SHARD, Fun, Args) of
         {atomic, Res} -> {ok, Res};
@@ -192,3 +220,84 @@ trans(Fun, Args) ->
 generate_api_secret() ->
     Random = crypto:strong_rand_bytes(32),
     emqx_base62:encode(Random).
+
+bootstrap_file() ->
+    case emqx:get_config([api_key, bootstrap_file], <<>>) of
+        %% For compatible remove until 5.1.0
+        <<>> ->
+            emqx:get_config([dashboard, bootstrap_users_file], <<>>);
+        File ->
+            File
+    end.
+
+init_bootstrap_file(<<>>) ->
+    ok;
+init_bootstrap_file(File) ->
+    case file:open(File, [read, binary]) of
+        {ok, Dev} ->
+            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
+            init_bootstrap_file(File, Dev, MP);
+        {error, Reason0} ->
+            Reason = emqx_misc:explain_posix(Reason0),
+            ?SLOG(
+                error,
+                #{
+                    msg => "failed_to_open_the_bootstrap_file",
+                    file => File,
+                    reason => Reason
+                }
+            ),
+            {error, Reason}
+    end.
+
+init_bootstrap_file(File, Dev, MP) ->
+    try
+        add_bootstrap_file(File, Dev, MP, 1)
+    catch
+        throw:Error -> {error, Error};
+        Type:Reason:Stacktrace -> {error, {Type, Reason, Stacktrace}}
+    after
+        file:close(Dev)
+    end.
+
+-define(BOOTSTRAP_TAG, <<"Bootstrapped From File">>).
+
+add_bootstrap_file(File, Dev, MP, Line) ->
+    case file:read_line(Dev) of
+        {ok, Bin} ->
+            case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
+                {match, [[AppKey, ApiSecret]]} ->
+                    App =
+                        #?APP{
+                            enable = true,
+                            expired_at = infinity,
+                            desc = ?BOOTSTRAP_TAG,
+                            created_at = erlang:system_time(second),
+                            api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
+                            api_key = AppKey
+                        },
+                    case force_create_app("from_bootstrap_file_", App) of
+                        {ok, ok} ->
+                            add_bootstrap_file(File, Dev, MP, Line + 1);
+                        {error, Reason} ->
+                            throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                    end;
+                _ ->
+                    Reason = "invalid_format",
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "failed_to_load_bootstrap_file",
+                            file => File,
+                            line => Line,
+                            content => Bin,
+                            reason => Reason
+                        }
+                    ),
+                    throw(#{file => File, line => Line, content => Bin, reason => Reason})
+            end;
+        eof ->
+            ok;
+        {error, Reason} ->
+            throw(#{file => File, line => Line, reason => Reason})
+    end.

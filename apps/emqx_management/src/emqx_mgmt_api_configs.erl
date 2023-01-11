@@ -63,7 +63,8 @@
         <<"prometheus">>,
         <<"telemetry">>,
         <<"listeners">>,
-        <<"license">>
+        <<"license">>,
+        <<"api_key">>
     ] ++ global_zone_roots()
 ).
 
