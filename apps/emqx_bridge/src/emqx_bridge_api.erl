@@ -485,7 +485,7 @@ schema("/bridges_probe") ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
-            case do_probe(ConnType, maps:remove(<<"type">>, Params)) of
+            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
                 ok ->
                     {204};
                 {error, Error} ->
@@ -493,49 +493,6 @@ schema("/bridges_probe") ->
             end;
         BadRequest ->
             BadRequest
-    end.
-
-do_probe(ConnType, Params) ->
-    case test_connection(host_and_port(ConnType, Params)) of
-        ok ->
-            emqx_bridge_resource:create_dry_run(ConnType, Params);
-        Error ->
-            Error
-    end.
-
-host_and_port(mqtt, #{<<"server">> := Server}) ->
-    case string:split(Server, ":") of
-        [Host, Port] -> {Host, list_to_integer(Port)};
-        _Other -> error(invalid_server, Server)
-    end;
-host_and_port(webhook, #{<<"url">> := Url}) ->
-    {BaseUrl, _Path} = parse_url(Url),
-    {ok, #{host := Host, port := Port}} = emqx_http_lib:uri_parse(BaseUrl),
-    {Host, Port};
-host_and_port(_Unknown, _) ->
-    undefined.
-
-%% [TODO] remove in EMQX-8588 when resource manager handles things more elegantly
-test_connection(undefined) ->
-    %% be friendly, it might fail later on with a 'timeout' error.
-    ok;
-test_connection({Host, Port}) ->
-    case gen_tcp:connect(Host, Port, [], 5000) of
-        {ok, TestSocket} -> gen_tcp:close(TestSocket);
-        Error -> Error
-    end.
-
-parse_url(Url) ->
-    case string:split(Url, "//", leading) of
-        [Scheme, UrlRem] ->
-            case string:split(UrlRem, "/", leading) of
-                [HostPort, Path] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
-                [HostPort] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
-            end;
-        [Url] ->
-            error({invalid_url, Url})
     end.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
