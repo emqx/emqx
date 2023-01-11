@@ -35,6 +35,9 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
+    %% required by test cases, ensure the injection of
+    %% EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    _ = emqx_conf_schema:roots(),
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     case initialize() of
@@ -43,8 +46,7 @@ start(_StartType, _StartArgs) ->
     end.
 
 stop(_State) ->
-    ok = deinitialize(),
-    ok.
+    ok = deinitialize().
 
 %%------------------------------------------------------------------------------
 %% Internal functions
