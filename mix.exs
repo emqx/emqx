@@ -47,7 +47,7 @@ defmodule EMQXUmbrella.MixProject do
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
       {:redbug, "2.0.8"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.2", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.3", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
@@ -68,7 +68,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.33.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.35.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -132,10 +132,10 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.4", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.7.0"},
-      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.0", override: true},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.7.4"},
+      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
-      {:brod, github: "kafka4beam/brod", tag: "3.16.4"},
+      {:brod, github: "kafka4beam/brod", tag: "3.16.7"},
       {:snappyer, "1.2.8", override: true},
       {:supervisor3, "1.1.11", override: true}
     ]
@@ -640,7 +640,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.8", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.9", override: true}],
       else: []
   end
 

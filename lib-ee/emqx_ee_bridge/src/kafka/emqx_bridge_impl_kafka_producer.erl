@@ -1,7 +1,9 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_impl_kafka_producer).
+
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -33,7 +35,10 @@ on_start(InstId, Config) ->
         authentication := Auth,
         ssl := SSL
     } = Config,
-    _ = maybe_install_wolff_telemetry_handlers(InstId),
+    %% TODO: change this to `kafka_producer` after refactoring for kafka_consumer
+    BridgeType = kafka,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    _ = maybe_install_wolff_telemetry_handlers(ResourceID),
     %% it's a bug if producer config is not found
     %% the caller should not try to start a producer if
     %% there is no producer config
@@ -76,7 +81,8 @@ on_start(InstId, Config) ->
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
                 client_id => ClientId,
-                producers => Producers
+                producers => Producers,
+                resource_id => ResourceID
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -102,7 +108,7 @@ on_start(InstId, Config) ->
             throw(failed_to_start_kafka_producer)
     end.
 
-on_stop(InstanceID, #{client_id := ClientID, producers := Producers}) ->
+on_stop(_InstanceID, #{client_id := ClientID, producers := Producers, resource_id := ResourceID}) ->
     _ = with_log_at_error(
         fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
         #{
@@ -118,7 +124,7 @@ on_stop(InstanceID, #{client_id := ClientID, producers := Producers}) ->
         }
     ),
     with_log_at_error(
-        fun() -> uninstall_telemetry_handlers(InstanceID) end,
+        fun() -> uninstall_telemetry_handlers(ResourceID) end,
         #{
             msg => "failed_to_uninstall_telemetry_handlers",
             client_id => ClientID
@@ -137,7 +143,7 @@ on_query(_InstId, {send_message, Message}, #{message_template := Template, produ
     %% If the producer process is down when sending, this function would
     %% raise an error exception which is to be caught by the caller of this callback
     {_Partition, _Pid} = wolff:send(Producers, [KafkaMessage], {fun ?MODULE:on_kafka_ack/3, [#{}]}),
-    ok.
+    {async_return, ok}.
 
 compile_message_template(#{
     key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate
@@ -299,85 +305,100 @@ get_required(Field, Config, Throw) ->
     Value =:= none andalso throw(Throw),
     Value.
 
+%% we *must* match the bridge id in the event metadata with that in
+%% the handler config; otherwise, multiple kafka producer bridges will
+%% install multiple handlers to the same wolff events, multiplying the
 handle_telemetry_event(
     [wolff, dropped],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:dropped_inc(ID, Val);
 handle_telemetry_event(
     [wolff, dropped_queue_full],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
+    %% When wolff emits a `dropped_queue_full' event due to replayq
+    %% overflow, it also emits a `dropped' event (at the time of
+    %% writing, wolff is 1.7.4).  Since we already bump `dropped' when
+    %% `dropped.queue_full' occurs, we have to correct it here.  This
+    %% correction will have to be dropped if wolff stops also emitting
+    %% `dropped'.
+    emqx_resource_metrics:dropped_queue_full_inc(ID, Val),
+    emqx_resource_metrics:dropped_inc(ID, -Val);
 handle_telemetry_event(
     [wolff, queuing],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    _HandlerConfig
+    #{gauge_set := Val},
+    #{bridge_id := ID, partition_id := PartitionID},
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
-    emqx_resource_metrics:queuing_change(ID, Val);
+    emqx_resource_metrics:queuing_set(ID, PartitionID, Val);
 handle_telemetry_event(
     [wolff, retried],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:retried_inc(ID, Val);
 handle_telemetry_event(
     [wolff, failed],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:failed_inc(ID, Val);
 handle_telemetry_event(
     [wolff, inflight],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    _HandlerConfig
+    #{gauge_set := Val},
+    #{bridge_id := ID, partition_id := PartitionID},
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
-    emqx_resource_metrics:inflight_change(ID, Val);
+    emqx_resource_metrics:inflight_set(ID, PartitionID, Val);
 handle_telemetry_event(
     [wolff, retried_failed],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:retried_failed_inc(ID, Val);
 handle_telemetry_event(
     [wolff, retried_success],
     #{counter_inc := Val},
     #{bridge_id := ID},
-    _HandlerConfig
+    #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:retried_success_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, success],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    #{bridge_id := ID}
+) when is_integer(Val) ->
+    emqx_resource_metrics:success_inc(ID, Val);
 handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
     %% Event that we do not handle
     ok.
 
--spec telemetry_handler_id(emqx_resource:resource_id()) -> binary().
-telemetry_handler_id(InstanceID) ->
-    <<"emqx-bridge-kafka-producer-", InstanceID/binary>>.
+%% Note: don't use the instance/manager ID, as that changes everytime
+%% the bridge is recreated, and will lead to multiplication of
+%% metrics.
+-spec telemetry_handler_id(resource_id()) -> binary().
+telemetry_handler_id(ResourceID) ->
+    <<"emqx-bridge-kafka-producer-", ResourceID/binary>>.
 
-uninstall_telemetry_handlers(InstanceID) ->
-    HandlerID = telemetry_handler_id(InstanceID),
+uninstall_telemetry_handlers(ResourceID) ->
+    HandlerID = telemetry_handler_id(ResourceID),
     telemetry:detach(HandlerID).
 
-maybe_install_wolff_telemetry_handlers(InstanceID) ->
+maybe_install_wolff_telemetry_handlers(ResourceID) ->
     %% Attach event handlers for Kafka telemetry events. If a handler with the
     %% handler id already exists, the attach_many function does nothing
     telemetry:attach_many(
         %% unique handler id
-        telemetry_handler_id(InstanceID),
-        %% Note: we don't handle `[wolff, success]' because,
-        %% currently, we already increment the success counter for
-        %% this resource at `emqx_rule_runtime:handle_action' when
-        %% the response is `ok' and we would double increment it
-        %% here.
+        telemetry_handler_id(ResourceID),
         [
             [wolff, dropped],
             [wolff, dropped_queue_full],
@@ -386,8 +407,13 @@ maybe_install_wolff_telemetry_handlers(InstanceID) ->
             [wolff, failed],
             [wolff, inflight],
             [wolff, retried_failed],
-            [wolff, retried_success]
+            [wolff, retried_success],
+            [wolff, success]
         ],
         fun ?MODULE:handle_telemetry_event/4,
-        []
+        %% we *must* keep track of the same id that is handed down to
+        %% wolff producers; otherwise, multiple kafka producer bridges
+        %% will install multiple handlers to the same wolff events,
+        %% multiplying the metric counts...
+        #{bridge_id => ResourceID}
     ).

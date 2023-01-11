@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,11 +45,7 @@ set_prompt_func() ->
 prompt_func(PropList) ->
     Line = proplists:get_value(history, PropList, 1),
     Version = emqx_release:version(),
-    Prefix =
-        case emqx_release:edition() of
-            ce -> "v";
-            ee -> "e"
-        end,
+    Prefix = emqx_release:edition_vsn_prefix(),
     case is_alive() of
         true -> io_lib:format(<<"~ts~ts(~s)~w> ">>, [Prefix, Version, node(), Line]);
         false -> io_lib:format(<<"~ts~ts ~w> ">>, [Prefix, Version, Line])

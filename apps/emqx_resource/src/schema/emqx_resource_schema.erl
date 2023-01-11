@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -83,12 +83,14 @@ query_mode(_) -> undefined.
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;
 enable_batch(default) -> true;
+enable_batch(deprecated) -> {since, "v5.0.14"};
 enable_batch(desc) -> ?DESC("enable_batch");
 enable_batch(_) -> undefined.
 
 enable_queue(type) -> boolean();
 enable_queue(required) -> false;
 enable_queue(default) -> false;
+enable_queue(deprecated) -> {since, "v5.0.14"};
 enable_queue(desc) -> ?DESC("enable_queue");
 enable_queue(_) -> undefined.
 

@@ -162,7 +162,7 @@ jobs:
             INFLUXDB_TAG: 2.5.0
             PROFILE: ${{ matrix.profile }}
             CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-          run: ./scripts/ct/run.sh --app ${{ matrix.app }}
+          run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
         - uses: actions/upload-artifact@v3
           with:
             name: coverdata
@@ -170,7 +170,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}
+            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
             path: source/_build/test/logs
 
     ct:
@@ -213,7 +213,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}
+            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
             path: source/_build/test/logs
 
     make_cover:

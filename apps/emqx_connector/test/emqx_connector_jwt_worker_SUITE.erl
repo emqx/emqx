@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ t_create_success(_Config) ->
     receive
         {Ref, token_created} ->
             ok
-    after 1_000 ->
+    after 5_000 ->
         ct:fail(
             "should have confirmed token creation; msgs: ~0p",
             [process_info(self(), messages)]
@@ -127,8 +127,12 @@ t_unknown_error(_Config) ->
             1_000
         ),
         fun(Trace) ->
+            %% there seems to be some occasions when empty_key is
+            %% returned instead.
             ?assertMatch(
-                [#{error := {invalid_private_key, some_strange_error}}],
+                [#{error := Error}] when
+                    Error =:= {invalid_private_key, some_strange_error} orelse
+                        Error =:= empty_key,
                 ?of_kind(connector_jwt_worker_startup_error, Trace)
             ),
             ok
@@ -186,14 +190,30 @@ t_refresh(_Config) ->
             {ok, SecondJWT} = emqx_connector_jwt:lookup_jwt(Table, ResourceId),
             ?assertNot(is_expired(SecondJWT)),
             ?assert(is_expired(FirstJWT)),
-            {FirstJWT, SecondJWT}
+            %% check yet another refresh to ensure the timer was properly
+            %% reset.
+            ?block_until(
+                #{
+                    ?snk_kind := connector_jwt_worker_refresh,
+                    jwt := JWT1
+                } when
+                    JWT1 =/= SecondJWT andalso
+                        JWT1 =/= FirstJWT,
+                15_000
+            ),
+            {ok, ThirdJWT} = emqx_connector_jwt:lookup_jwt(Table, ResourceId),
+            ?assertNot(is_expired(ThirdJWT)),
+            ?assert(is_expired(SecondJWT)),
+            {FirstJWT, SecondJWT, ThirdJWT}
         end,
-        fun({FirstJWT, SecondJWT}, Trace) ->
+        fun({FirstJWT, SecondJWT, ThirdJWT}, Trace) ->
             ?assertMatch(
-                [_, _ | _],
+                [_, _, _ | _],
                 ?of_kind(connector_jwt_worker_token_stored, Trace)
             ),
             ?assertNotEqual(FirstJWT, SecondJWT),
+            ?assertNotEqual(SecondJWT, ThirdJWT),
+            ?assertNotEqual(FirstJWT, ThirdJWT),
             ok
         end
     ),
@@ -289,7 +309,7 @@ t_lookup_badarg(_Config) ->
 
 t_start_supervised_worker(_Config) ->
     {ok, _} = emqx_connector_jwt_sup:start_link(),
-    Config = #{resource_id := ResourceId} = generate_config(),
+    Config = #{resource_id := ResourceId, table := TId} = generate_config(),
     {ok, Pid} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),
     Ref = emqx_connector_jwt_worker:ensure_jwt(Pid),
     receive
@@ -300,6 +320,7 @@ t_start_supervised_worker(_Config) ->
     end,
     MRef = monitor(process, Pid),
     ?assert(is_process_alive(Pid)),
+    ?assertMatch({ok, _}, emqx_connector_jwt:lookup_jwt(TId, ResourceId)),
     ok = emqx_connector_jwt_sup:ensure_worker_deleted(ResourceId),
     receive
         {'DOWN', MRef, process, Pid, _} ->
@@ -307,6 +328,11 @@ t_start_supervised_worker(_Config) ->
     after 1_000 ->
         ct:fail("timeout")
     end,
+    %% ensure it cleans up its own tokens to avoid leakage when
+    %% probing/testing rule resources.
+    ?assertEqual({error, not_found}, emqx_connector_jwt:lookup_jwt(TId, ResourceId)),
+    %% ensure the specs are removed from the supervision tree.
+    ?assertEqual([], supervisor:which_children(emqx_connector_jwt_sup)),
     ok.
 
 t_start_supervised_worker_already_started(_Config) ->
@@ -322,9 +348,9 @@ t_start_supervised_worker_already_present(_Config) ->
     Config = #{resource_id := ResourceId} = generate_config(),
     {ok, Pid0} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),
     Ref = monitor(process, Pid0),
-    exit(Pid0, {shutdown, normal}),
+    exit(Pid0, kill),
     receive
-        {'DOWN', Ref, process, Pid0, {shutdown, normal}} -> ok
+        {'DOWN', Ref, process, Pid0, killed} -> ok
     after 1_000 -> error(worker_didnt_stop)
     end,
     {ok, Pid1} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),

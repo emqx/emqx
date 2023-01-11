@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -78,7 +78,7 @@ jwt_worker_child_spec(Id, Config) ->
         restart => transient,
         type => worker,
         significant => false,
-        shutdown => brutal_kill,
+        shutdown => 5_000,
         modules => [emqx_connector_jwt_worker]
     }.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -321,16 +321,23 @@ update_config(
     OldConf
 ) ->
     #{
-        backend := BackendCfg,
+        backend := #{
+            type := BackendType,
+            storage_type := StorageType
+        },
         msg_clear_interval := ClearInterval
     } = NewConf,
 
-    #{backend := OldBackendCfg} = OldConf,
-
-    StorageType = maps:get(type, BackendCfg),
-    OldStrorageType = maps:get(type, OldBackendCfg),
-    case OldStrorageType of
-        StorageType ->
+    #{
+        backend := #{
+            type := OldBackendType,
+            storage_type := OldStorageType
+        }
+    } = OldConf,
+    SameBackendType = BackendType =:= OldBackendType,
+    SameStorageType = StorageType =:= OldStorageType,
+    case SameBackendType andalso SameStorageType of
+        true ->
             State#{
                 clear_timer := check_timer(
                     ClearTimer,
@@ -338,7 +345,7 @@ update_config(
                     clear_expired
                 )
             };
-        _ ->
+        false ->
             State2 = disable_retainer(State),
             enable_retainer(State2, NewConf)
     end.

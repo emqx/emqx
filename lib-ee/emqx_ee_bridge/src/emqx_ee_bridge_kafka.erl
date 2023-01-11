@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_kafka).
 
@@ -26,7 +26,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    host_opts/0
 ]).
 
 %% -------------------------------------------------------------------------------------------------
@@ -54,6 +55,9 @@ values(put) ->
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 
+host_opts() ->
+    #{default_port => 9092}.
+
 namespace() -> "bridge_kafka".
 
 roots() -> ["config"].
@@ -67,7 +71,17 @@ fields("get") ->
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {bootstrap_hosts, mk(binary(), #{required => true, desc => ?DESC(bootstrap_hosts)})},
+        {bootstrap_hosts,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(bootstrap_hosts),
+                    validator => emqx_schema:servers_validator(
+                        host_opts(), _Required = true
+                    )
+                }
+            )},
         {connect_timeout,
             mk(emqx_schema:duration_ms(), #{
                 default => "5s",

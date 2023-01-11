@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -export([
     edition/0,
+    edition_vsn_prefix/0,
     edition_longstr/0,
     description/0,
     version/0
@@ -45,11 +46,11 @@ description() ->
 -spec edition() -> ce | ee.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.
-
+edition_vsn_prefix() -> "e".
 edition_longstr() -> <<"Enterprise">>.
 -else.
 edition() -> ce.
-
+edition_vsn_prefix() -> "v".
 edition_longstr() -> <<"Opensource">>.
 -endif.
 

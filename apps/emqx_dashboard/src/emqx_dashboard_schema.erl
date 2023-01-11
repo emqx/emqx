@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -56,7 +56,15 @@ fields("dashboard") ->
         {cors, fun cors/1},
         {i18n_lang, fun i18n_lang/1},
         {bootstrap_users_file,
-            ?HOCON(binary(), #{desc => ?DESC(bootstrap_users_file), required => false})}
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bootstrap_users_file),
+                    required => false,
+                    default => <<>>
+                    %% deprecated => {since, "5.1.0"}
+                }
+            )}
     ];
 fields("listeners") ->
     [

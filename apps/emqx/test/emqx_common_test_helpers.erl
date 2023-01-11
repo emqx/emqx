@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -65,7 +65,8 @@
 -export([clear_screen/0]).
 -export([with_mock/4]).
 -export([
-    on_exit/1
+    on_exit/1,
+    call_janitor/0
 ]).
 
 %% Toxiproxy API
@@ -446,8 +447,11 @@ is_all_tcp_servers_available(Servers) ->
             is_tcp_server_available(Host, Port)
         end,
     case lists:partition(Fun, Servers) of
-        {_, []} -> true;
-        {_, Unavail} -> ct:print("Unavailable servers: ~p", [Unavail])
+        {_, []} ->
+            true;
+        {_, Unavail} ->
+            ct:print("Unavailable servers: ~p", [Unavail]),
+            false
     end.
 
 -spec is_tcp_server_available(
@@ -932,6 +936,13 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %%-------------------------------------------------------------------------------
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------
+
+%% stop the janitor gracefully to ensure proper cleanup order and less
+%% noise in the logs.
+call_janitor() ->
+    Janitor = get_or_spawn_janitor(),
+    exit(Janitor, normal),
+    ok.
 
 get_or_spawn_janitor() ->
     case get({?MODULE, janitor_proc}) of

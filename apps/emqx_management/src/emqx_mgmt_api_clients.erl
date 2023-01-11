@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -65,7 +65,6 @@
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
-    {<<"proto_name">>, binary},
     {<<"proto_ver">>, integer},
     {<<"like_clientid">>, binary},
     {<<"like_username">>, binary},
@@ -144,14 +143,6 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         description => <<"Whether the client uses a new session">>
-                    })},
-                {proto_name,
-                    hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
-                        in => query,
-                        required => false,
-                        description =>
-                            <<"Client protocol name, ",
-                                "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>
                     })},
                 {proto_ver,
                     hoconsc:mk(binary(), #{
@@ -558,8 +549,8 @@ fields(keepalive) ->
     ];
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
+        {topic, hoconsc:mk(binary(), #{required => true, desc => <<"Topic">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
         {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
         {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
         {rh, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain Handling">>})}
@@ -727,15 +718,18 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    case lookup(#{clientid => ClientID}) of
-        {200, _} ->
+    %% We use emqx_channel instead of emqx_channel_info (used by the emqx_mgmt:lookup_client/2),
+    %% as the emqx_channel_info table will only be populated after the hook `client.connected`
+    %% has returned. So if one want to subscribe topics in this hook, it will fail.
+    case ets:lookup(emqx_channel, ClientID) of
+        [] ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
             ArgList = [
                 [ClientID, Topic, maps:with([qos, nl, rap, rh], Sub)]
              || #{topic := Topic} = Sub <- Topics
             ],
-            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
+            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)}
     end.
 
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->
@@ -830,8 +824,6 @@ ms(ip_address, X) ->
     #{conninfo => #{peername => {X, '_'}}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
 ms(proto_ver, X) ->
     #{conninfo => #{proto_ver => X}};
 ms(connected_at, X) ->
@@ -879,7 +871,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
-    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap5 = convert_expiry_interval_unit(ClientInfoMap4),
+    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap5),
 
     RemoveList =
         [
@@ -948,6 +941,9 @@ peername_dispart({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
     %% PortBinary = integer_to_binary(Port),
     {AddrBinary, Port}.
+
+convert_expiry_interval_unit(ClientInfoMap = #{expiry_interval := Interval}) ->
+    ClientInfoMap#{expiry_interval := Interval div 1000}.
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{

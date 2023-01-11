@@ -6,7 +6,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.4
+export EMQX_DASHBOARD_VERSION ?= v1.1.5
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.9
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -88,6 +88,7 @@ define gen-app-ct-target
 $1-ct: $(REBAR)
 	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+	        --readable=$(CT_READABLE) \
 		--name $(CT_NODE_NAME) \
 		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
 		--suite $(shell $(SCRIPTS)/find-suites.sh $1)

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,6 +35,11 @@
 -export([connect/1]).
 
 -export([search/4]).
+
+%% port is not expected from configuration because
+%% all servers expected to use the same port number
+-define(LDAP_HOST_OPTIONS, #{no_port => true}).
+
 %%=====================================================================
 roots() ->
     ldap_fields() ++ emqx_connector_schema_lib:ssl_fields().
@@ -63,12 +68,7 @@ on_start(
         connector => InstId,
         config => Config
     }),
-    Servers = [
-        begin
-            proplists:get_value(host, S)
-        end
-     || S <- Servers0
-    ],
+    Servers = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
     SslOpts =
         case maps:get(enable, SSL) of
             true ->
@@ -86,8 +86,7 @@ on_start(
         {bind_password, BindPassword},
         {timeout, Timeout},
         {pool_size, PoolSize},
-        {auto_reconnect, reconn_interval(AutoReconn)},
-        {servers, Servers}
+        {auto_reconnect, reconn_interval(AutoReconn)}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts) of
@@ -166,7 +165,7 @@ connect(Opts) ->
 
 ldap_fields() ->
     [
-        {servers, fun servers/1},
+        {servers, servers()},
         {port, fun port/1},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {bind_dn, fun bind_dn/1},
@@ -175,11 +174,8 @@ ldap_fields() ->
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 
-servers(type) -> list();
-servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
-servers(converter) -> fun to_servers_raw/1;
-servers(required) -> true;
-servers(_) -> undefined.
+servers() ->
+    emqx_schema:servers_sc(#{}, ?LDAP_HOST_OPTIONS).
 
 bind_dn(type) -> binary();
 bind_dn(default) -> 0;
@@ -191,24 +187,3 @@ port(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
 duration(_) -> undefined.
-
-to_servers_raw(Servers) ->
-    {ok,
-        lists:map(
-            fun(Server) ->
-                case string:tokens(Server, ": ") of
-                    [Ip] ->
-                        [{host, Ip}];
-                    [Ip, Port] ->
-                        [{host, Ip}, {port, list_to_integer(Port)}]
-                end
-            end,
-            string:tokens(str(Servers), ", ")
-        )}.
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.

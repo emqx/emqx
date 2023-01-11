@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -207,7 +207,6 @@ info_example_basic(webhook) ->
             auto_restart_interval => 15000,
             query_mode => async,
             async_inflight_window => 100,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         }
     };
@@ -233,7 +232,6 @@ mqtt_main_example() ->
             health_check_interval => <<"15s">>,
             auto_restart_interval => <<"60s">>,
             query_mode => sync,
-            enable_queue => false,
             max_queue_bytes => 100 * 1024 * 1024
         },
         ssl => #{
@@ -330,6 +328,7 @@ schema("/bridges/:id") ->
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(['INVALID_ID'], "Update bridge failed"),
+                404 => error_schema('NOT_FOUND', "Bridge not found"),
                 403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -409,11 +408,13 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
 '/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
-    Conf = filter_out_request_body(Conf0),
+    Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
+                RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+                Conf = deobfuscate(Conf1, RawConf),
                 case ensure_bridge_created(BridgeType, BridgeName, Conf) of
                     ok ->
                         lookup_from_all_nodes(BridgeType, BridgeName, 200);
@@ -433,19 +434,24 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         end,
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+        case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                204;
-            {error, {rules_deps_on_this_bridge, RuleIds}} ->
-                {403,
-                    error_msg(
-                        'FORBIDDEN_REQUEST',
-                        {<<"There're some rules dependent on this bridge">>, RuleIds}
-                    )};
-            {error, timeout} ->
-                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-            {error, Reason} ->
-                {500, error_msg('INTERNAL_ERROR', Reason)}
+                case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+                    {ok, _} ->
+                        204;
+                    {error, {rules_deps_on_this_bridge, RuleIds}} ->
+                        {403,
+                            error_msg(
+                                'FORBIDDEN_REQUEST',
+                                {<<"There're some rules dependent on this bridge">>, RuleIds}
+                            )};
+                    {error, timeout} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                    {error, Reason} ->
+                        {500, error_msg('INTERNAL_ERROR', Reason)}
+                end;
+            {error, not_found} ->
+                {404, error_msg('NOT_FOUND', <<"Bridge not found">>)}
         end
     ).
 
@@ -604,12 +610,12 @@ format_bridge_info([FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
     NodeStatus = collect_status(Bridges),
     NodeMetrics = collect_metrics(Bridges),
-    Res#{
+    redact(Res#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics
-    }.
+    }).
 
 collect_status(Bridges) ->
     [maps:with([node, status], B) || B <- Bridges].
@@ -632,11 +638,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15
             )
         ) ->
             ?METRICS(
@@ -654,9 +660,7 @@ aggregate_metrics(AllMetrics) ->
                 M12 + N12,
                 M13 + N13,
                 M14 + N14,
-                M15 + N15,
-                M16 + N16,
-                M17 + N17
+                M15 + N15
             )
         end,
         InitMetrics,
@@ -676,41 +680,38 @@ format_resp(
     Node
 ) ->
     RawConfFull = fill_defaults(Type, RawConf),
-    RawConfFull#{
+    redact(RawConfFull#{
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => Node,
         status => Status,
         metrics => format_metrics(Metrics)
-    }.
+    }).
 
 format_metrics(#{
     counters := #{
-        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
-        'queuing' := Queued,
         'retried' := Retried,
         'failed' := SentFailed,
-        'inflight' := SentInflight,
         'success' := SentSucc,
         'received' := Rcvd
     },
+    gauges := Gauges,
     rate := #{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
     }
 }) ->
+    Queued = maps:get('queuing', Gauges, 0),
+    SentInflight = maps:get('inflight', Gauges, 0),
     ?METRICS(
-        Batched,
         Dropped,
         DroppedOther,
         DroppedQueueFull,
-        DroppedQueueNotEnabled,
         DroppedResourceNotFound,
         DroppedResourceStopped,
         Matched,
@@ -805,3 +806,27 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
         {error, _} ->
             {400, error_msg('INVALID_NODE', <<"invalid node">>)}
     end.
+
+redact(Term) ->
+    emqx_misc:redact(Term).
+
+deobfuscate(NewConf, OldConf) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            case maps:find(K, OldConf) of
+                error ->
+                    Acc#{K => V};
+                {ok, OldV} when is_map(V), is_map(OldV) ->
+                    Acc#{K => deobfuscate(V, OldV)};
+                {ok, OldV} ->
+                    case emqx_misc:is_redacted(K, V) of
+                        true ->
+                            Acc#{K => OldV};
+                        _ ->
+                            Acc#{K => V}
+                    end
+            end
+        end,
+        #{},
+        NewConf
+    ).

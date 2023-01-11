@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_redis).
 
@@ -50,19 +50,22 @@ values(Protocol, get) ->
 values("single", post) ->
     SpecificOpts = #{
         server => <<"127.0.0.1:6379">>,
+        redis_type => single,
         database => 1
     },
     values(common, "single", SpecificOpts);
 values("sentinel", post) ->
     SpecificOpts = #{
         servers => [<<"127.0.0.1:26379">>],
+        redis_type => sentinel,
         sentinel => <<"mymaster">>,
         database => 1
     },
     values(common, "sentinel", SpecificOpts);
 values("cluster", post) ->
     SpecificOpts = #{
-        servers => [<<"127.0.0.1:6379">>]
+        servers => [<<"127.0.0.1:6379">>],
+        redis_type => cluster
     },
     values(common, "cluster", SpecificOpts);
 values(Protocol, put) ->
@@ -79,8 +82,7 @@ values(common, RedisType, SpecificOpts) ->
         auto_reconnect => true,
         command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
         resource_opts => #{
-            enable_batch => false,
-            batch_size => 100,
+            batch_size => 1,
             batch_time => <<"20ms">>
         },
         ssl => #{enable => false}

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -163,7 +163,7 @@ t_lookups(_Config) ->
 
 %% should still succeed to create even if the config will not work,
 %% because it's not a part of the schema check
-t_create_with_config_values_wont_works(_Config) ->
+t_create_with_config_values_wont_work(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
 
     InvalidConfigs =
@@ -182,11 +182,15 @@ t_create_with_config_values_wont_works(_Config) ->
     ).
 
 %% creating without a require filed should return error
-t_create_invalid_schema(_Config) ->
+t_create_invalid_config(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
     C = maps:without([<<"server">>], AuthzConfig),
     ?assertMatch(
-        {error, {emqx_conf_schema, _}},
+        {error, #{
+            kind := validation_error,
+            path := "authorization.sources.1",
+            discarded_errors_count := 0
+        }},
         emqx_authz:update(?CMD_REPLACE, [C])
     ).
 
@@ -255,11 +259,8 @@ raw_redis_authz_config() ->
         <<"cmd">> => <<"HGETALL mqtt_user:${username}">>,
         <<"database">> => <<"1">>,
         <<"password">> => <<"public">>,
-        <<"server">> => redis_server()
+        <<"server">> => <<?REDIS_HOST>>
     }.
-
-redis_server() ->
-    iolist_to_binary(io_lib:format("~s", [?REDIS_HOST])).
 
 q(Command) ->
     emqx_resource:query(
@@ -274,7 +275,7 @@ redis_config() ->
         pool_size => 8,
         redis_type => single,
         password => "public",
-        server => {?REDIS_HOST, ?REDIS_DEFAULT_PORT},
+        server => <<?REDIS_HOST>>,
         ssl => #{enable => false}
     }.
 

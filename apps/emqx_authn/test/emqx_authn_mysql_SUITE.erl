@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -100,7 +100,6 @@ t_create_invalid(_Config) ->
 
     InvalidConfigs =
         [
-            maps:without([<<"server">>], AuthConfig),
             AuthConfig#{<<"server">> => <<"unknownhost:3333">>},
             AuthConfig#{<<"password">> => <<"wrongpass">>},
             AuthConfig#{<<"database">> => <<"wrongdatabase">>}
@@ -541,7 +540,7 @@ mysql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?MYSQL_HOST, ?MYSQL_DEFAULT_PORT},
+        server => <<?MYSQL_HOST>>,
         ssl => #{enable => false}
     }.
 

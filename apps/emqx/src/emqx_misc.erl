@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@
     nolink_apply/2
 ]).
 
--export([clamp/3]).
+-export([clamp/3, redact/1, redact/2, is_redacted/2, is_redacted/3]).
 
 -dialyzer({nowarn_function, [nolink_apply/2]}).
 
@@ -556,6 +556,75 @@ try_to_existing_atom(Convert, Data, Encoding) ->
         _:Reason -> {error, Reason}
     end.
 
+is_sensitive_key(token) -> true;
+is_sensitive_key("token") -> true;
+is_sensitive_key(<<"token">>) -> true;
+is_sensitive_key(password) -> true;
+is_sensitive_key("password") -> true;
+is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key(secret) -> true;
+is_sensitive_key("secret") -> true;
+is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(_) -> false.
+
+redact(Term) ->
+    do_redact(Term, fun is_sensitive_key/1).
+
+redact(Term, Checker) ->
+    do_redact(Term, fun(V) ->
+        is_sensitive_key(V) orelse Checker(V)
+    end).
+
+do_redact(L, Checker) when is_list(L) ->
+    lists:map(fun(E) -> do_redact(E, Checker) end, L);
+do_redact(M, Checker) when is_map(M) ->
+    maps:map(
+        fun(K, V) ->
+            do_redact(K, V, Checker)
+        end,
+        M
+    );
+do_redact({Key, Value}, Checker) ->
+    case Checker(Key) of
+        true ->
+            {Key, redact_v(Value)};
+        false ->
+            {do_redact(Key, Checker), do_redact(Value, Checker)}
+    end;
+do_redact(T, Checker) when is_tuple(T) ->
+    Elements = erlang:tuple_to_list(T),
+    Redact = do_redact(Elements, Checker),
+    erlang:list_to_tuple(Redact);
+do_redact(Any, _Checker) ->
+    Any.
+
+do_redact(K, V, Checker) ->
+    case Checker(K) of
+        true ->
+            redact_v(V);
+        false ->
+            do_redact(V, Checker)
+    end.
+
+-define(REDACT_VAL, "******").
+redact_v(V) when is_binary(V) -> <<?REDACT_VAL>>;
+redact_v(_V) -> ?REDACT_VAL.
+
+is_redacted(K, V) ->
+    do_is_redacted(K, V, fun is_sensitive_key/1).
+
+is_redacted(K, V, Fun) ->
+    do_is_redacted(K, V, fun(E) ->
+        is_sensitive_key(E) orelse Fun(E)
+    end).
+
+do_is_redacted(K, ?REDACT_VAL, Fun) ->
+    Fun(K);
+do_is_redacted(K, <<?REDACT_VAL>>, Fun) ->
+    Fun(K);
+do_is_redacted(_K, _V, _Fun) ->
+    false.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -567,6 +636,62 @@ ipv6_probe_test() ->
         _:_ ->
             ok
     end.
+
+redact_test_() ->
+    Case = fun(Type, KeyT) ->
+        Key =
+            case Type of
+                atom -> KeyT;
+                string -> erlang:atom_to_list(KeyT);
+                binary -> erlang:atom_to_binary(KeyT)
+            end,
+
+        ?assert(is_sensitive_key(Key)),
+
+        %% direct
+        ?assertEqual({Key, ?REDACT_VAL}, redact({Key, foo})),
+        ?assertEqual(#{Key => ?REDACT_VAL}, redact(#{Key => foo})),
+        ?assertEqual({Key, Key, Key}, redact({Key, Key, Key})),
+        ?assertEqual({[{Key, ?REDACT_VAL}], bar}, redact({[{Key, foo}], bar})),
+
+        %% 1 level nested
+        ?assertEqual([{Key, ?REDACT_VAL}], redact([{Key, foo}])),
+        ?assertEqual([#{Key => ?REDACT_VAL}], redact([#{Key => foo}])),
+
+        %% 2 level nested
+        ?assertEqual(#{opts => [{Key, ?REDACT_VAL}]}, redact(#{opts => [{Key, foo}]})),
+        ?assertEqual(#{opts => #{Key => ?REDACT_VAL}}, redact(#{opts => #{Key => foo}})),
+        ?assertEqual({opts, [{Key, ?REDACT_VAL}]}, redact({opts, [{Key, foo}]})),
+
+        %% 3 level nested
+        ?assertEqual([#{opts => [{Key, ?REDACT_VAL}]}], redact([#{opts => [{Key, foo}]}])),
+        ?assertEqual([{opts, [{Key, ?REDACT_VAL}]}], redact([{opts, [{Key, foo}]}])),
+        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}]))
+    end,
+
+    Types = [atom, string, binary],
+    Keys = [
+        token,
+        password,
+        secret
+    ],
+    [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
+
+redact2_test_() ->
+    Case = fun(Key, Checker) ->
+        ?assertEqual({Key, ?REDACT_VAL}, redact({Key, foo}, Checker)),
+        ?assertEqual(#{Key => ?REDACT_VAL}, redact(#{Key => foo}, Checker)),
+        ?assertEqual({Key, Key, Key}, redact({Key, Key, Key}, Checker)),
+        ?assertEqual({[{Key, ?REDACT_VAL}], bar}, redact({[{Key, foo}], bar}, Checker))
+    end,
+
+    Checker = fun(E) -> E =:= passcode end,
+
+    Keys = [secret, passcode],
+    [{case_name(atom, Key), fun() -> Case(Key, Checker) end} || Key <- Keys].
+
+case_name(Type, Key) ->
+    lists:concat([Type, "-", Key]).
 
 -endif.
 

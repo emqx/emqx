@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -245,7 +245,7 @@ process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
             BinKeyPath = bin_path(ConfKeyPath),
             case check_permissions(update, BinKeyPath, NewRawConf, Opts) of
                 allow ->
-                    OverrideConf = update_override_config(NewRawConf, Opts),
+                    OverrideConf = merge_to_override_config(NewRawConf, Opts),
                     {ok, NewRawConf, OverrideConf, Opts};
                 {deny, Reason} ->
                     {error, {permission_denied, Reason}}
@@ -447,9 +447,10 @@ remove_from_override_config(BinKeyPath, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
     emqx_map_lib:deep_remove(BinKeyPath, OldConf).
 
-update_override_config(_RawConf, #{persistent := false}) ->
+%% apply new config on top of override config
+merge_to_override_config(_RawConf, #{persistent := false}) ->
     undefined;
-update_override_config(RawConf, Opts) ->
+merge_to_override_config(RawConf, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
     maps:merge(OldConf, RawConf).
 

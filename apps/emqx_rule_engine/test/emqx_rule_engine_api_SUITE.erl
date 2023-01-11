@@ -1,3 +1,19 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
 -module(emqx_rule_engine_api_SUITE).
 
 -compile(nowarn_export_all).
@@ -171,6 +187,38 @@ t_list_rule_api(_Config) ->
     QueryStr6 = #{query_string => #{<<"like_id">> => RuleID}},
     {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
+    ok.
+
+t_reset_metrics_on_disable(_Config) ->
+    Params = #{
+        <<"description">> => <<"A simple rule">>,
+        <<"enable">> => true,
+        <<"actions">> => [#{<<"function">> => <<"console">>}],
+        <<"sql">> => <<"SELECT * from \"t/1\"">>,
+        <<"name">> => atom_to_binary(?FUNCTION_NAME)
+    },
+    {201, #{id := RuleId}} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+
+    %% generate some fake metrics
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched', 10),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed', 10),
+    {200, #{metrics := Metrics0}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+        get,
+        #{bindings => #{id => RuleId}}
+    ),
+    ?assertMatch(#{passed := 10, matched := 10}, Metrics0),
+
+    %% disable the rule; metrics should be reset
+    {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+        bindings => #{id => RuleId},
+        body => Params#{<<"enable">> := false}
+    }),
+
+    {200, #{metrics := Metrics1}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+        get,
+        #{bindings => #{id => RuleId}}
+    ),
+    ?assertMatch(#{passed := 0, matched := 0}, Metrics1),
     ok.
 
 test_rule_params() ->

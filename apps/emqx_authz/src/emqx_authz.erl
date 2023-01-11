@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -358,6 +359,7 @@ authorize_non_superuser(
             emqx_metrics:inc(?METRIC_DENY),
             {stop, #{result => deny, from => AuthzSource}};
         nomatch ->
+            ?tp(authz_non_superuser, #{result => nomatch}),
             ?SLOG(info, #{
                 msg => "authorization_failed_nomatch",
                 username => Username,
@@ -388,6 +390,12 @@ do_authorize(
         nomatch ->
             emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
             do_authorize(Client, PubSub, Topic, Tail);
+        %% {matched, allow | deny | ignore}
+        {matched, ignore} ->
+            do_authorize(Client, PubSub, Topic, Tail);
+        ignore ->
+            do_authorize(Client, PubSub, Topic, Tail);
+        %% {matched, allow | deny}
         Matched ->
             {Matched, Type}
     catch

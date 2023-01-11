@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -362,8 +362,8 @@ schema_default(Schema) ->
             [];
         ?LAZY(?ARRAY(_)) ->
             [];
-        ?LAZY(?UNION(Unions)) ->
-            case [A || ?ARRAY(A) <- Unions] of
+        ?LAZY(?UNION(Members)) ->
+            case [A || ?ARRAY(A) <- hoconsc:union_members(Members)] of
                 [_ | _] -> [];
                 _ -> #{}
             end;
@@ -402,7 +402,6 @@ merge_envs(SchemaMod, RawConf) ->
         required => false,
         format => map,
         apply_override_envs => true,
-        remove_env_meta => true,
         check_lazy => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
@@ -413,6 +412,31 @@ check_config(SchemaMod, RawConf) ->
     check_config(SchemaMod, RawConf, #{}).
 
 check_config(SchemaMod, RawConf, Opts0) ->
+    try
+        do_check_config(SchemaMod, RawConf, Opts0)
+    catch
+        throw:{Schema, Errors} ->
+            compact_errors(Schema, Errors)
+    end.
+
+%% HOCON tries to be very informative about all the detailed errors
+%% it's maybe too much when reporting to the user
+-spec compact_errors(any(), any()) -> no_return().
+compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
+    Error1 = Error0#{discarded_errors_count => length(More)},
+    Error =
+        case is_atom(Schema) of
+            true ->
+                Error1#{schema_module => Schema};
+            false ->
+                Error1
+        end,
+    throw(Error);
+compact_errors(Schema, Errors) ->
+    %% unexpected, we need the stacktrace reported, hence error
+    error({Schema, Errors}).
+
+do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
         format => map,

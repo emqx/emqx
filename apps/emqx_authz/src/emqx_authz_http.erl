@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_authz).
 
@@ -104,6 +105,7 @@ authorize(
             log_nomtach_msg(Status, Headers, Body),
             nomatch;
         {error, Reason} ->
+            ?tp(authz_http_request_failure, #{error => Reason}),
             ?SLOG(error, #{
                 msg => "http_server_query_failed",
                 resource => ResourceID,

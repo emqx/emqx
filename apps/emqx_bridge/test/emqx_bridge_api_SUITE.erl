@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -303,6 +303,64 @@ t_http_crud_apis(Config) ->
         },
         jsx:decode(ErrMsg2)
     ),
+    %% Deleting a non-existing bridge should result in an error
+    {ok, 404, ErrMsg3} = request(delete, uri(["bridges", BridgeID]), []),
+    ?assertMatch(
+        #{
+            <<"code">> := _,
+            <<"message">> := <<"Bridge not found">>
+        },
+        jsx:decode(ErrMsg3)
+    ),
+    ok.
+
+t_http_bridges_local_topic(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name1 = <<"t_http_bridges_with_local_topic1">>,
+    Name2 = <<"t_http_bridges_without_local_topic1">>,
+    %% create one http bridge with local_topic
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name1)
+    ),
+    %% and we create another one without local_topic
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        maps:remove(<<"local_topic">>, ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name2))
+    ),
+    BridgeID1 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name1),
+    BridgeID2 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name2),
+    %% Send an message to emqx and the message should be forwarded to the HTTP server.
+    %% This is to verify we can have 2 bridges with and without local_topic fields
+    %% at the same time.
+    Body = <<"my msg">>,
+    emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
+    ?assert(
+        receive
+            {http_server, received, #{
+                method := <<"POST">>,
+                path := <<"/path1">>,
+                body := Body
+            }} ->
+                true;
+            Msg ->
+                ct:pal("error: http got unexpected request: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end
+    ),
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID1]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID2]), []),
     ok.
 
 t_check_dependent_actions_on_delete(Config) ->
@@ -513,6 +571,39 @@ t_reset_bridges(Config) ->
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
+
+t_with_redact_update(_Config) ->
+    Name = <<"redact_update">>,
+    Type = <<"mqtt">>,
+    Password = <<"123456">>,
+    Template = #{
+        <<"type">> => Type,
+        <<"name">> => Name,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"username">> => <<"test">>,
+        <<"password">> => Password,
+        <<"ingress">> =>
+            #{<<"remote">> => #{<<"topic">> => <<"t/#">>}}
+    },
+
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        Template
+    ),
+
+    %% update with redacted config
+    Conf = emqx_misc:redact(Template),
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
+    {ok, 200, _ResBin} = request(
+        put,
+        uri(["bridges", BridgeID]),
+        Conf
+    ),
+    RawConf = emqx:get_raw_config([bridges, Type, Name]),
+    Value = maps:get(<<"password">>, RawConf),
+    ?assertEqual(Password, Value),
+    ok.
 
 request(Method, Url, Body) ->
     request(<<"bridge_admin">>, Method, Url, Body).

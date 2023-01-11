@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -317,8 +317,7 @@ raw_mysql_authz_config() ->
             "SELECT permission, action, topic "
             "FROM acl WHERE username = ${username}"
         >>,
-
-        <<"server">> => mysql_server()
+        <<"server">> => <<?MYSQL_HOST>>
     }.
 
 q(Sql) ->
@@ -385,9 +384,6 @@ setup_config(SpecialParams) ->
         SpecialParams
     ).
 
-mysql_server() ->
-    iolist_to_binary(io_lib:format("~s", [?MYSQL_HOST])).
-
 mysql_config() ->
     #{
         auto_reconnect => true,
@@ -395,7 +391,7 @@ mysql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?MYSQL_HOST, ?MYSQL_DEFAULT_PORT},
+        server => <<?MYSQL_HOST>>,
         ssl => #{enable => false}
     }.
 

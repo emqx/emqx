@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,11 +24,9 @@
 ]).
 
 -export([
-    batching_change/2,
-    batching_get/1,
-    inflight_change/2,
+    inflight_set/3,
     inflight_get/1,
-    queuing_change/2,
+    queuing_set/3,
     queuing_get/1,
     dropped_inc/1,
     dropped_inc/2,
@@ -39,9 +37,6 @@
     dropped_queue_full_inc/1,
     dropped_queue_full_inc/2,
     dropped_queue_full_get/1,
-    dropped_queue_not_enabled_inc/1,
-    dropped_queue_not_enabled_inc/2,
-    dropped_queue_not_enabled_get/1,
     dropped_resource_not_found_inc/1,
     dropped_resource_not_found_inc/2,
     dropped_resource_not_found_get/1,
@@ -54,6 +49,9 @@
     matched_inc/1,
     matched_inc/2,
     matched_get/1,
+    received_inc/1,
+    received_inc/2,
+    received_get/1,
     retried_inc/1,
     retried_inc/2,
     retried_get/1,
@@ -76,16 +74,15 @@ events() ->
     [
         [?TELEMETRY_PREFIX, Event]
      || Event <- [
-            batching,
             dropped_other,
             dropped_queue_full,
-            dropped_queue_not_enabled,
             dropped_resource_not_found,
             dropped_resource_stopped,
             failed,
             inflight,
             matched,
             queuing,
+            received,
             retried_failed,
             retried_success,
             success
@@ -114,17 +111,12 @@ handle_telemetry_event(
     _HandlerConfig
 ) ->
     case Event of
-        batching ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'batching', Val);
         dropped_other ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.other', Val);
         dropped_queue_full ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.queue_full', Val);
-        dropped_queue_not_enabled ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.queue_not_enabled', Val);
         dropped_resource_not_found ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.resource_not_found', Val);
@@ -133,12 +125,10 @@ handle_telemetry_event(
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.resource_stopped', Val);
         failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
-        inflight ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'inflight', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
-        queuing ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'queuing', Val);
+        received ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
@@ -152,34 +142,49 @@ handle_telemetry_event(
         _ ->
             ok
     end;
+handle_telemetry_event(
+    [?TELEMETRY_PREFIX, Event],
+    _Measurements = #{gauge_set := Val},
+    _Metadata = #{resource_id := ID, worker_id := WorkerID},
+    _HandlerConfig
+) ->
+    case Event of
+        inflight ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'inflight', Val);
+        queuing ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing', Val);
+        _ ->
+            ok
+    end;
 handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
     ok.
 
 %% Gauges (value can go both up and down):
 %% --------------------------------------
 
-%% @doc Count of messages that are currently accumulated in memory waiting for
-%% being sent in one batch
-batching_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, batching], #{counter_inc => Val}, #{resource_id => ID}).
-
-batching_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'batching').
-
-%% @doc Count of messages that are currently queuing. [Gauge]
-queuing_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, queuing], #{counter_inc => Val}, #{resource_id => ID}).
+%% @doc Count of batches of messages that are currently
+%% queuing. [Gauge]
+queuing_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, queuing],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
 
 queuing_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'queuing').
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'queuing').
 
-%% @doc Count of messages that were sent asynchronously but ACKs are not
-%% received. [Gauge]
-inflight_change(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, inflight], #{counter_inc => Val}, #{resource_id => ID}).
+%% @doc Count of batches of messages that were sent asynchronously but
+%% ACKs are not yet received. [Gauge]
+inflight_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, inflight],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
 
 inflight_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'inflight').
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'inflight').
 
 %% Counters (value can only got up):
 %% --------------------------------------
@@ -218,18 +223,6 @@ dropped_queue_full_inc(ID, Val) ->
 dropped_queue_full_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'dropped.queue_full').
 
-%% @doc Count of messages dropped because the queue was not enabled
-dropped_queue_not_enabled_inc(ID) ->
-    dropped_queue_not_enabled_inc(ID, 1).
-
-dropped_queue_not_enabled_inc(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, dropped_queue_not_enabled], #{counter_inc => Val}, #{
-        resource_id => ID
-    }).
-
-dropped_queue_not_enabled_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'dropped.queue_not_enabled').
-
 %% @doc Count of messages dropped because the resource was not found
 dropped_resource_not_found_inc(ID) ->
     dropped_resource_not_found_inc(ID, 1).
@@ -263,6 +256,16 @@ matched_inc(ID, Val) ->
 
 matched_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'matched').
+
+%% @doc The number of messages that have been received from a bridge
+received_inc(ID) ->
+    received_inc(ID, 1).
+
+received_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, received], #{counter_inc => Val}, #{resource_id => ID}).
+
+received_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'received').
 
 %% @doc The number of times message sends have been retried
 retried_inc(ID) ->

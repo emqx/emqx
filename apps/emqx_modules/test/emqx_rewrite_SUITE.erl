@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -215,16 +215,16 @@ t_update_re_failed(_Config) ->
             <<"action">> => <<"publish">>
         }
     ],
-    ?assertError(
-        {badmatch,
-            {error,
-                {_, [
-                    #{
-                        kind := validation_error,
-                        reason := {Re, {"nothing to repeat", 0}},
-                        value := Re
-                    }
-                ]}}},
+    ?assertThrow(
+        #{
+            kind := validation_error,
+            path := "rewrite.1.re",
+            reason := #{
+                regexp := <<"*^test/*">>,
+                compile_error := {"nothing to repeat", 0}
+            },
+            value := <<"*^test/*">>
+        },
         emqx_rewrite:update(Rules)
     ),
     ok.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,11 +18,13 @@
 
 -include_lib("emqx_connector/include/emqx_connector_tables.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
     lookup_jwt/1,
-    lookup_jwt/2
+    lookup_jwt/2,
+    delete_jwt/2
 ]).
 
 -type jwt() :: binary().
@@ -43,4 +45,15 @@ lookup_jwt(TId, ResourceId) ->
     catch
         error:badarg ->
             {error, not_found}
+    end.
+
+-spec delete_jwt(ets:table(), resource_id()) -> ok.
+delete_jwt(TId, ResourceId) ->
+    try
+        ets:delete(TId, {ResourceId, jwt}),
+        ?tp(connector_jwt_deleted, #{}),
+        ok
+    catch
+        error:badarg ->
+            ok
     end.

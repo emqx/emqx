@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -133,6 +133,8 @@ t_start_stop_listeners(_) ->
 t_restart_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop(),
+    %% flakyness: eaddrinuse
+    timer:sleep(timer:seconds(2)),
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 

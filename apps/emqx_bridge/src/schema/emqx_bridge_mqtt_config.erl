@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -82,7 +82,6 @@ default_resource_opts() ->
     #{
         <<"async_inflight_window">> => 100,
         <<"auto_restart_interval">> => <<"60s">>,
-        <<"enable_queue">> => false,
         <<"health_check_interval">> => <<"15s">>,
         <<"max_queue_bytes">> => <<"1GB">>,
         <<"query_mode">> => <<"sync">>,

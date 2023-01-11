@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -132,13 +132,14 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 
-create(Type, Name, Conf, Opts) ->
+create(Type, Name, Conf, Opts0) ->
     ?SLOG(info, #{
         msg => "create bridge",
         type => Type,
         name => Name,
         config => Conf
     }),
+    Opts = override_start_after_created(Conf, Opts0),
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
         <<"emqx_bridge">>,
@@ -146,7 +147,7 @@ create(Type, Name, Conf, Opts) ->
         parse_confs(bin(Type), Name, Conf),
         Opts
     ),
-    maybe_disable_bridge(Type, Name, Conf).
+    ok.
 
 update(BridgeId, {OldConf, Conf}) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
@@ -155,7 +156,7 @@ update(BridgeId, {OldConf, Conf}) ->
 update(Type, Name, {OldConf, Conf}) ->
     update(Type, Name, {OldConf, Conf}, #{}).
 
-update(Type, Name, {OldConf, Conf}, Opts) ->
+update(Type, Name, {OldConf, Conf}, Opts0) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -164,6 +165,7 @@ update(Type, Name, {OldConf, Conf}, Opts) ->
     %% the `method` or `headers` of a WebHook is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
+    Opts = override_start_after_created(Conf, Opts0),
     case emqx_map_lib:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
@@ -174,10 +176,10 @@ update(Type, Name, {OldConf, Conf}, Opts) ->
             }),
             case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
-                    maybe_disable_bridge(Type, Name, Conf);
+                    ok;
                 {error, not_found} ->
                     ?SLOG(warning, #{
-                        msg => "updating_a_non-exist_bridge_need_create_a_new_one",
+                        msg => "updating_a_non_existing_bridge",
                         type => Type,
                         name => Name,
                         config => Conf
@@ -242,12 +244,6 @@ remove(Type, Name, _Conf, _Opts) ->
         {error, Reason} -> {error, Reason}
     end.
 
-maybe_disable_bridge(Type, Name, Conf) ->
-    case maps:get(enable, Conf, true) of
-        false -> stop(Type, Name);
-        true -> ok
-    end.
-
 maybe_clear_certs(TmpPath, #{ssl := SslConf} = Conf) ->
     %% don't remove the cert files if they are in use
     case is_tmp_path_conf(TmpPath, SslConf) of
@@ -274,7 +270,6 @@ parse_confs(
     #{
         url := Url,
         method := Method,
-        body := Body,
         headers := Headers,
         request_timeout := ReqTimeout,
         max_retries := Retry
@@ -288,7 +283,7 @@ parse_confs(
             #{
                 path => Path,
                 method => Method,
-                body => Body,
+                body => maps:get(body, Conf, undefined),
                 headers => Headers,
                 request_timeout => ReqTimeout,
                 max_retries => Retry
@@ -322,3 +317,8 @@ str(Str) when is_list(Str) -> Str.
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+override_start_after_created(Config, Opts) ->
+    Enabled = maps:get(enable, Config, true),
+    StartAfterCreated = Enabled andalso maps:get(start_after_created, Opts, Enabled),
+    Opts#{start_after_created => StartAfterCreated}.

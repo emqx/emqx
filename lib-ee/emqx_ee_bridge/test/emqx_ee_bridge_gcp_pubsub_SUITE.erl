@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_bridge_gcp_pubsub_SUITE).
@@ -38,18 +38,12 @@ groups() ->
         {group, sync_query},
         {group, async_query}
     ],
-    QueueGroups = [
-        {group, queue_enabled},
-        {group, queue_disabled}
-    ],
     ResourceGroups = [{group, gcp_pubsub}],
     [
         {with_batch, SynchronyGroups},
         {without_batch, SynchronyGroups},
-        {sync_query, QueueGroups},
-        {async_query, QueueGroups},
-        {queue_enabled, ResourceGroups},
-        {queue_disabled, ResourceGroups},
+        {sync_query, ResourceGroups},
+        {async_query, ResourceGroups},
         {gcp_pubsub, MatrixTCs}
     ].
 
@@ -99,13 +93,9 @@ init_per_group(sync_query, Config) ->
 init_per_group(async_query, Config) ->
     [{query_mode, async} | Config];
 init_per_group(with_batch, Config) ->
-    [{enable_batch, true} | Config];
+    [{batch_size, 100} | Config];
 init_per_group(without_batch, Config) ->
-    [{enable_batch, false} | Config];
-init_per_group(queue_enabled, Config) ->
-    [{enable_queue, true} | Config];
-init_per_group(queue_disabled, Config) ->
-    [{enable_queue, false} | Config];
+    [{batch_size, 1} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -118,27 +108,30 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(TestCase, Config0) when
     TestCase =:= t_publish_success_batch
 ->
-    case ?config(enable_batch, Config0) of
-        true ->
+    case ?config(batch_size, Config0) of
+        1 ->
+            [{skip_due_to_no_batching, true}];
+        _ ->
             {ok, _} = start_echo_http_server(),
             delete_all_bridges(),
             Tid = install_telemetry_handler(TestCase),
             Config = generate_config(Config0),
-            [{telemetry_table, Tid} | Config];
-        false ->
-            {skip, no_batching}
+            put(telemetry_table, Tid),
+            [{telemetry_table, Tid} | Config]
     end;
 init_per_testcase(TestCase, Config0) ->
     {ok, _} = start_echo_http_server(),
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
     Config = generate_config(Config0),
+    put(telemetry_table, Tid),
     [{telemetry_table, Tid} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     delete_all_bridges(),
     ok = emqx_connector_web_hook_server:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -268,9 +261,7 @@ certs() ->
     ].
 
 gcp_pubsub_config(Config) ->
-    EnableBatch = proplists:get_value(enable_batch, Config, true),
     QueryMode = proplists:get_value(query_mode, Config, sync),
-    EnableQueue = proplists:get_value(enable_queue, Config, false),
     BatchSize = proplists:get_value(batch_size, Config, 100),
     BatchTime = proplists:get_value(batch_time, Config, <<"20ms">>),
     PayloadTemplate = proplists:get_value(payload_template, Config, ""),
@@ -293,9 +284,7 @@ gcp_pubsub_config(Config) ->
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
             "    worker_pool_size = 1\n"
-            "    enable_batch = ~p\n"
             "    query_mode = ~s\n"
-            "    enable_queue = ~p\n"
             "    batch_size = ~b\n"
             "    batch_time = \"~s\"\n"
             "  }\n"
@@ -306,9 +295,7 @@ gcp_pubsub_config(Config) ->
                 PayloadTemplate,
                 PubSubTopic,
                 PipelineSize,
-                EnableBatch,
                 QueryMode,
-                EnableQueue,
                 BatchSize,
                 BatchTime
             ]
@@ -355,11 +342,9 @@ service_account_json(PrivateKeyPEM) ->
 
 metrics_mapping() ->
     #{
-        batching => fun emqx_resource_metrics:batching_get/1,
         dropped => fun emqx_resource_metrics:dropped_get/1,
         dropped_other => fun emqx_resource_metrics:dropped_other_get/1,
         dropped_queue_full => fun emqx_resource_metrics:dropped_queue_full_get/1,
-        dropped_queue_not_enabled => fun emqx_resource_metrics:dropped_queue_not_enabled_get/1,
         dropped_resource_not_found => fun emqx_resource_metrics:dropped_resource_not_found_get/1,
         dropped_resource_stopped => fun emqx_resource_metrics:dropped_resource_stopped_get/1,
         failed => fun emqx_resource_metrics:failed_get/1,
@@ -392,7 +377,11 @@ assert_metrics(ExpectedMetrics, ResourceId) ->
             maps:keys(ExpectedMetrics)
         ),
     CurrentMetrics = current_metrics(ResourceId),
-    ?assertEqual(ExpectedMetrics, Metrics, #{current_metrics => CurrentMetrics}),
+    TelemetryTable = get(telemetry_table),
+    RecordedEvents = ets:tab2list(TelemetryTable),
+    ?assertEqual(ExpectedMetrics, Metrics, #{
+        current_metrics => CurrentMetrics, recorded_events => RecordedEvents
+    }),
     ok.
 
 assert_empty_metrics(ResourceId) ->
@@ -517,6 +506,29 @@ install_telemetry_handler(TestCase) ->
     end),
     Tid.
 
+wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
+    Events = receive_all_events(GaugeName, Timeout),
+    case lists:last(Events) of
+        #{measurements := #{gauge_set := ExpectedValue}} ->
+            ok;
+        #{measurements := #{gauge_set := Value}} ->
+            ct:fail(
+                "gauge ~p didn't reach expected value ~p; last value: ~p",
+                [GaugeName, ExpectedValue, Value]
+            )
+    end.
+
+receive_all_events(EventName, Timeout) ->
+    receive_all_events(EventName, Timeout, []).
+
+receive_all_events(EventName, Timeout, Acc) ->
+    receive
+        {telemetry, #{name := [_, _, EventName]} = Event} ->
+            receive_all_events(EventName, Timeout, [Event | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
 wait_telemetry_event(TelemetryTable, EventName, ResourceId) ->
     wait_telemetry_event(TelemetryTable, EventName, ResourceId, #{timeout => 5_000, n_events => 1}).
 
@@ -553,6 +565,7 @@ t_publish_success(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     ?check_trace(
         create_bridge(Config),
@@ -581,9 +594,19 @@ t_publish_success(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -600,6 +623,7 @@ t_publish_success_local_topic(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     LocalTopic = <<"local/topic">>,
     {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
     assert_empty_metrics(ResourceId),
@@ -618,9 +642,19 @@ t_publish_success_local_topic(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -648,6 +682,7 @@ t_publish_templated(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
+    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     PayloadTemplate = <<
         "{\"payload\": \"${payload}\","
@@ -693,9 +728,19 @@ t_publish_templated(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
@@ -709,6 +754,15 @@ t_publish_templated(Config) ->
     ok.
 
 t_publish_success_batch(Config) ->
+    case proplists:get_bool(skip_due_to_no_batching, Config) of
+        true ->
+            ct:pal("this test case is skipped due to non-applicable config"),
+            ok;
+        false ->
+            test_publish_success_batch(Config)
+    end.
+
+test_publish_success_batch(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
@@ -760,13 +814,14 @@ t_publish_success_batch(Config) ->
         ResourceId,
         #{timeout => 15_000, n_events => NumMessages}
     ),
+    wait_until_gauge_is(queuing, 0, _Timeout = 400),
+    wait_until_gauge_is(inflight, 0, _Timeout = 400),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 0,
             inflight => 0,
-            matched => NumMessages div BatchSize,
+            matched => NumMessages,
             queuing => 0,
             retried => 0,
             success => NumMessages
@@ -777,15 +832,13 @@ t_publish_success_batch(Config) ->
 
 t_not_a_json(Config) ->
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason := #{exception := {error, {badmap, "not a json"}}},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason := #{exception := {error, {badmap, "not a json"}}},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge(
             Config,
             #{
@@ -797,15 +850,13 @@ t_not_a_json(Config) ->
 
 t_not_of_service_account_type(Config) ->
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason := {wrong_type, <<"not a service account">>},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason := {wrong_type, <<"not a service account">>},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge(
             Config,
             #{
@@ -818,22 +869,20 @@ t_not_of_service_account_type(Config) ->
 t_json_missing_fields(Config) ->
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     ?assertMatch(
-        {error,
-            {_, [
-                #{
-                    kind := validation_error,
-                    reason :=
-                        {missing_keys, [
-                            <<"client_email">>,
-                            <<"private_key">>,
-                            <<"private_key_id">>,
-                            <<"project_id">>,
-                            <<"type">>
-                        ]},
-                    %% should be censored as it contains secrets
-                    value := <<"******">>
-                }
-            ]}},
+        {error, #{
+            discarded_errors_count := 0,
+            kind := validation_error,
+            reason :=
+                {missing_keys, [
+                    <<"client_email">>,
+                    <<"private_key">>,
+                    <<"private_key_id">>,
+                    <<"project_id">>,
+                    <<"type">>
+                ]},
+            %% should be censored as it contains secrets
+            value := <<"******">>
+        }},
         create_bridge([
             {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
             | Config
@@ -951,7 +1000,6 @@ t_publish_timeout(Config) ->
     do_econnrefused_or_timeout_test(Config, timeout).
 
 do_econnrefused_or_timeout_test(Config, Error) ->
-    EnableQueue = ?config(enable_queue, Config),
     QueryMode = ?config(query_mode, Config),
     ResourceId = ?config(resource_id, Config),
     TelemetryTable = ?config(telemetry_table, Config),
@@ -1027,39 +1075,22 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         end
     ),
 
-    case {Error, QueryMode, EnableQueue} of
-        {_, sync, false} ->
-            wait_telemetry_event(TelemetryTable, dropped_queue_not_enabled, ResourceId, #{
-                timeout => 10_000,
-                n_events => 1
-            }),
-            assert_metrics(
-                #{
-                    batching => 0,
-                    dropped => 1,
-                    dropped_queue_not_enabled => 1,
-                    failed => 0,
-                    inflight => 0,
-                    matched => 1,
-                    queuing => 0,
-                    retried => 0,
-                    success => 0
-                },
-                ResourceId
-            );
+    case {Error, QueryMode} of
         %% apparently, async with disabled queue doesn't mark the
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
-        {econnrefused, async, _} ->
+        {econnrefused, async} ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
-                timeout => 10_000, n_events => 2
+                timeout => 10_000, n_events => 1
             }),
+            %% even waiting, hard to avoid flakiness... simpler to just sleep
+            %% a bit until stabilization.
+            ct:sleep(200),
             CurrentMetrics = current_metrics(ResourceId),
             RecordedEvents = ets:tab2list(TelemetryTable),
             ct:pal("telemetry events: ~p", [RecordedEvents]),
             ?assertMatch(
                 #{
-                    batching := 0,
                     dropped := Dropped,
                     failed := 0,
                     inflight := Inflight,
@@ -1070,13 +1101,14 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 } when Matched >= 1 andalso Inflight + Queueing + Dropped =< 2,
                 CurrentMetrics
             );
-        {timeout, async, _} ->
+        {timeout, async} ->
             wait_telemetry_event(TelemetryTable, success, ResourceId, #{
                 timeout => 10_000, n_events => 2
             }),
+            wait_until_gauge_is(inflight, 0, _Timeout = 400),
+            wait_until_gauge_is(queuing, 0, _Timeout = 400),
             assert_metrics(
                 #{
-                    batching => 0,
                     dropped => 0,
                     failed => 0,
                     inflight => 0,
@@ -1087,13 +1119,15 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 },
                 ResourceId
             );
-        {_, sync, true} ->
+        {_, sync} ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
                 timeout => 10_000, n_events => 2
             }),
+            %% even waiting, hard to avoid flakiness... simpler to just sleep
+            %% a bit until stabilization.
+            ct:sleep(200),
             assert_metrics(
                 #{
-                    batching => 0,
                     dropped => 0,
                     failed => 0,
                     inflight => 0,
@@ -1289,9 +1323,22 @@ t_unrecoverable_error(Config) ->
         end
     ),
     wait_telemetry_event(TelemetryTable, failed, ResourceId),
+    ExpectedInflightEvents =
+        case QueryMode of
+            sync -> 1;
+            async -> 3
+        end,
+    wait_telemetry_event(
+        TelemetryTable,
+        inflight,
+        ResourceId,
+        #{n_events => ExpectedInflightEvents, timeout => 5_000}
+    ),
+    %% even waiting, hard to avoid flakiness... simpler to just sleep
+    %% a bit until stabilization.
+    ct:sleep(200),
     assert_metrics(
         #{
-            batching => 0,
             dropped => 0,
             failed => 1,
             inflight => 0,
@@ -1336,6 +1383,7 @@ t_stop(Config) ->
         fun(Res, Trace) ->
             ?assertMatch({ok, {ok, _}}, Res),
             ?assertMatch([_], ?of_kind(gcp_pubsub_stop, Trace)),
+            ?assertMatch([_ | _], ?of_kind(connector_jwt_deleted, Trace)),
             ok
         end
     ),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,11 +48,14 @@ init_per_suite(Config) ->
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
+    meck:new(mria_mnesia, [non_strict, passthrough, no_link]),
+    meck:expect(mria_mnesia, running_nodes, 0, [?NODE1, {node(), ?NODE2}, {node(), ?NODE3}]),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
     mria:stop(),
+    meck:unload(mria_mnesia),
     mria_mnesia:delete_schema(),
     meck:unload(emqx_alarm),
     ok.

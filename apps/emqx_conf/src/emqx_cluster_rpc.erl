@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -512,7 +512,7 @@ do_alarm(Fun, Res, #{tnx_id := Id} = Meta) ->
 
 wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
     Lagging = lagging_nodes(TnxId),
-    Stopped = stopped_nodes(),
+    Stopped = Lagging -- mria_mnesia:running_nodes(),
     case Lagging -- Stopped of
         [] when Stopped =:= [] ->
             ok;
@@ -537,9 +537,10 @@ wait_for_nodes_commit(RequiredSyncs, TnxId, Delay, Remain) ->
                 [] ->
                     ok;
                 Lagging ->
-                    case stopped_nodes() of
+                    Stopped = Lagging -- mria_mnesia:running_nodes(),
+                    case Stopped of
                         [] -> {peers_lagging, Lagging};
-                        Stopped -> {stopped_nodes, Stopped}
+                        _ -> {stopped_nodes, Stopped}
                     end
             end
     end.
@@ -557,9 +558,6 @@ commit_status_trans(Operator, TnxId) ->
     Guard = {Operator, '$1', TnxId},
     Result = '$2',
     mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
-
-stopped_nodes() ->
-    ekka_cluster:info(stopped_nodes).
 
 get_retry_ms() ->
     emqx_conf:get([node, cluster_call, retry_interval], timer:minutes(1)).

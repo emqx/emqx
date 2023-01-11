@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,13 @@
 
 -behaviour(gen_server).
 
+-ifdef(TEST).
+%% make rebar3 ct happy when testing with --suite path/to/module_SUITE.erl
+-include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
+-else.
+%% make mix happy
 -include("src/mqttsn/include/emqx_sn.hrl").
+-endif.
 -include_lib("emqx/include/logger.hrl").
 
 -export([

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -363,10 +363,13 @@ get_matched_egress_bridges(Topic) ->
 
 get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
-get_matched_bridge_id(BType, #{local_topic := Filter}, Topic, BName, Acc) when
-    ?EGRESS_DIR_BRIDGES(BType)
-->
-    do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc);
+get_matched_bridge_id(BType, Conf, Topic, BName, Acc) when ?EGRESS_DIR_BRIDGES(BType) ->
+    case maps:get(local_topic, Conf, undefined) of
+        undefined ->
+            Acc;
+        Filter ->
+            do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc)
+    end;
 get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
     do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
 get_matched_bridge_id(kafka, #{producer := #{mqtt := #{topic := Filter}}}, Topic, BName, Acc) ->

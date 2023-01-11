@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -49,8 +49,7 @@ push_on_exit_callback(Server, Callback) when is_function(Callback, 0) ->
 
 init(Parent) ->
     process_flag(trap_exit, true),
-    Ref = monitor(process, Parent),
-    {ok, #{callbacks => [], owner => {Ref, Parent}}}.
+    {ok, #{callbacks => [], owner => Parent}}.
 
 terminate(_Reason, #{callbacks := Callbacks}) ->
     lists:foreach(fun(Fun) -> Fun() end, Callbacks).
@@ -63,7 +62,7 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Req, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', Ref, process, Parent, _Reason}, State = #{owner := {Ref, Parent}}) ->
+handle_info({'EXIT', Parent, _Reason}, State = #{owner := Parent}) ->
     {stop, normal, State};
 handle_info(_Msg, State) ->
     {noreply, State}.

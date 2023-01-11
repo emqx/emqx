@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -221,7 +221,7 @@ best_effort_json_obj(Map, Config) ->
     end.
 
 json([], _) ->
-    "[]";
+    "";
 json(<<"">>, _) ->
     "\"\"";
 json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
@@ -375,5 +375,20 @@ p_config() ->
             {single_line, proper_types:boolean()}
         ]
     ).
+
+best_effort_json_test() ->
+    ?assertEqual(
+        <<"{}">>,
+        emqx_logger_jsonfmt:best_effort_json([])
+    ),
+    ?assertEqual(
+        <<"{\n    \"key\": []\n}">>,
+        emqx_logger_jsonfmt:best_effort_json(#{key => []})
+    ),
+    ?assertEqual(
+        <<"[\n    {\n        \"key\": []\n    }\n]">>,
+        emqx_logger_jsonfmt:best_effort_json([#{key => []}])
+    ),
+    ok.
 
 -endif.

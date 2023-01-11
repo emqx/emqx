@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,7 +44,10 @@ t_clients(_) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
 
     {ok, C1} = emqtt:start_link(#{
-        username => Username1, clientid => ClientId1, proto_ver => v5
+        username => Username1,
+        clientid => ClientId1,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 120}
     }),
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
@@ -70,6 +73,7 @@ t_clients(_) ->
     Client1Response = emqx_json:decode(Client1, [return_maps]),
     ?assertEqual(Username1, maps:get(<<"username">>, Client1Response)),
     ?assertEqual(ClientId1, maps:get(<<"clientid">>, Client1Response)),
+    ?assertEqual(120, maps:get(<<"expiry_interval">>, Client1Response)),
 
     %% delete /clients/:clientid kickout
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),

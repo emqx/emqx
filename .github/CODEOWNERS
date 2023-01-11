@@ -1,42 +1,38 @@
-## MQTT
-/apps/emqx_connector/src/mqtt/ @qzhuyan
-/apps/emqx/*/*mqtt* @qzhuyan
+## Default
+* @emqx/emqx-review-board
 
 ## apps
-/apps/emqx/                @lafirest @thalesmg @HJianBo @ieQu1
-/apps/emqx_authn/          @savonarola @JimMoen @HJianBo
-/apps/emqx_authz/          @savonarola @JimMoen @HJianBo
-/apps/emqx_auto_subscribe/ @thalesmg @HJianBo
-/apps/emqx_bridge/         @terry-xiaoyu @thalesmg
-/apps/emqx_conf/           @ieQu1 @thalesmg
-/apps/emqx_connector/      @terry-xiaoyu @JimMoen
-/apps/emqx_dashboard/      @lafirest @JimMoen
-/apps/emqx_exhook/         @lafirest @HJianBo @JimMoen
-/apps/emqx_gateway/        @HJianBo @lafirest
-/apps/emqx_machine/        @thalesmg @terry-xiaoyu @ieQu1
-/apps/emqx_management/     @HJianBo @lafirest @sstrigler
-/apps/emqx_modules/        @thalesmg @terry-xiaoyu @HJianBo
-/apps/emqx_plugin_libs/    @terry-xiaoyu @lafirest
-/apps/emqx_plugins/        @thalesmg @JimMoen @ieQu1
-/apps/emqx_prometheus/     @JimMoen @ieQu1
-/apps/emqx_psk/            @lafirest @thalesmg @terry-xiaoyu
-/apps/emqx_resource/       @terry-xiaoyu @thalesmg
-/apps/emqx_retainer/       @lafirest @ieQu1 @thalesmg
-/apps/emqx_rule_engine/    @terry-xiaoyu @HJianBo @kjellwinblad
-/apps/emqx_slow_subs/      @lafirest @HJianBo
-/apps/emqx_statsd/         @JimMoen @HJianBo
+/apps/emqx/                @emqx/emqx-review-board @lafirest @thalesmg
+/apps/emqx_authn/          @emqx/emqx-review-board @JimMoen @savonarola
+/apps/emqx_authz/          @emqx/emqx-review-board @JimMoen @savonarola
+/apps/emqx_auto_subscribe/ @emqx/emqx-review-board @thalesmg
+/apps/emqx_bridge/         @emqx/emqx-review-board @thalesmg
+/apps/emqx_conf/           @emqx/emqx-review-board @thalesmg
+/apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
+/apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
+/apps/emqx_machine/        @emqx/emqx-review-board @thalesmg
+/apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
+/apps/emqx_modules/        @emqx/emqx-review-board @thalesmg
+/apps/emqx_plugin_libs/    @emqx/emqx-review-board @lafirest
+/apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen @thalesmg
+/apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
+/apps/emqx_psk/            @emqx/emqx-review-board @lafirest @thalesmg
+/apps/emqx_resource/       @emqx/emqx-review-board @thalesmg
+/apps/emqx_retainer/       @emqx/emqx-review-board @lafirest @thalesmg
+/apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
+/apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
+/apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
 
 ## other
-/lib-ee/                   @thalesmg
-/bin/                      @zmstone @thalesmg @terry-xiaoyu @id
-/rel/                      @zmstone @thalesmg @id
+/lib-ee/                   @emqx/emqx-review-board @thalesmg
+/bin/                      @emqx/emqx-review-board @thalesmg @id
+/rel/                      @emqx/emqx-review-board @thalesmg @id
 
 ## CI
-/.github/ @id
-/.ci/     @id
-/scripts/ @id
-/build    @id
-/deploy/  @id
-
-## Default
-* @zmstone
+/.github/ @emqx/emqx-review-board @id
+/.ci/     @emqx/emqx-review-board @id
+/scripts/ @emqx/emqx-review-board @id
+/build    @emqx/emqx-review-board @id
+/deploy/  @emqx/emqx-review-board @id

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -623,7 +623,7 @@ hocon_schema_to_spec(?UNION(Types), LocalModule) ->
             {[Schema | Acc], SubRefs ++ RefsAcc}
         end,
         {[], []},
-        Types
+        hoconsc:union_members(Types)
     ),
     {#{<<"oneOf">> => OneOf}, Refs};
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
@@ -675,8 +675,6 @@ typename_to_spec("file()", _Mod) ->
     #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
-typename_to_spec("host_port()", _Mod) ->
-    #{type => string, example => <<"example.host.domain:80">>};
 typename_to_spec("write_syntax()", _Mod) ->
     #{
         type => string,
@@ -707,7 +705,7 @@ typename_to_spec("service_account_json()", _Mod) ->
 typename_to_spec("#{" ++ _, Mod) ->
     typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
-    #{type => string, enum => [0, 1, 2]};
+    #{type => integer, minimum => 0, maximum => 2, example => 0};
 typename_to_spec("{binary(), binary()}", _Mod) ->
     #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->

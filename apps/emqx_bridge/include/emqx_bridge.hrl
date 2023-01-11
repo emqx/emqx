@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,16 +16,14 @@
 
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
 -define(METRICS(
-    Batched,
     Dropped,
     DroppedOther,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
@@ -40,11 +38,9 @@
     Rcvd
 ),
     #{
-        'batching' => Batched,
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
         'dropped.queue_full' => DroppedQueueFull,
-        'dropped.queue_not_enabled' => DroppedQueueNotEnabled,
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
@@ -61,11 +57,9 @@
 ).
 
 -define(metrics(
-    Batched,
     Dropped,
     DroppedOther,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
@@ -80,11 +74,9 @@
     Rcvd
 ),
     #{
-        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,

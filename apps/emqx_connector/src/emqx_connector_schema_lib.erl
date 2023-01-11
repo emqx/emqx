@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,10 +23,6 @@
     relational_db_fields/0,
     ssl_fields/0,
     prepare_statement_fields/0
-]).
-
--export([
-    parse_server/2
 ]).
 
 -export([
@@ -111,53 +107,3 @@ auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
-
-parse_server(Str, #{host_type := inet_addr, default_port := DefaultPort}) ->
-    case string:tokens(str(Str), ": ") of
-        [Ip, Port] ->
-            {parse_ip(Ip), parse_port(Port)};
-        [Ip] ->
-            {parse_ip(Ip), DefaultPort};
-        _ ->
-            throw("Bad server schema")
-    end;
-parse_server(Str, #{host_type := hostname, default_port := DefaultPort}) ->
-    case string:tokens(str(Str), ": ") of
-        [Hostname, Port] ->
-            {Hostname, parse_port(Port)};
-        [Hostname] ->
-            {Hostname, DefaultPort};
-        _ ->
-            throw("Bad server schema")
-    end;
-parse_server(_, _) ->
-    throw("Invalid Host").
-
-parse_ip(Str) ->
-    case inet:parse_address(Str) of
-        {ok, R} ->
-            R;
-        _ ->
-            %% check is a rfc1035's hostname
-            case inet_parse:domain(Str) of
-                true ->
-                    Str;
-                _ ->
-                    throw("Bad IP or Host")
-            end
-    end.
-
-parse_port(Port) ->
-    try
-        list_to_integer(Port)
-    catch
-        _:_ ->
-            throw("Bad port number")
-    end.
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.

@@ -29,5 +29,17 @@
     "listen": "0.0.0.0:6379",
     "upstream": "redis:6379",
     "enabled": true
+  },
+  {
+    "name": "pgsql_tcp",
+    "listen": "0.0.0.0:5432",
+    "upstream": "pgsql:5432",
+    "enabled": true
+  },
+  {
+    "name": "pgsql_tls",
+    "listen": "0.0.0.0:5433",
+    "upstream": "pgsql-tls:5432",
+    "enabled": true
   }
 ]

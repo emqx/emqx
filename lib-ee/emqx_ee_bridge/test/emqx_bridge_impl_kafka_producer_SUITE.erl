@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_impl_kafka_producer_SUITE).
@@ -287,11 +287,9 @@ kafka_bridge_rest_api_helper(Config) ->
     ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
@@ -314,11 +312,9 @@ kafka_bridge_rest_api_helper(Config) ->
     ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
@@ -390,7 +386,7 @@ t_failed_creation_then_fix(_Config) ->
     },
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
-    ?assertEqual(ok, ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State)),
+    ?assertEqual({async_return, ok}, ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State)),
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     %% TODO: refactor those into init/end per testcase
@@ -455,7 +451,7 @@ publish_helper(#{
     StartRes = ?PRODUCER:on_start(InstId, Conf),
     {ok, State} = StartRes,
     OnQueryRes = ?PRODUCER:on_query(InstId, {send_message, Msg}, State),
-    ok = OnQueryRes,
+    {async_return, ok} = OnQueryRes,
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     ok = ?PRODUCER:on_stop(InstId, State),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_statsd.hrl").
 
 -behaviour(hocon_schema).
 
@@ -40,11 +41,10 @@ fields("statsd") ->
                 boolean(),
                 #{
                     default => false,
-                    required => true,
                     desc => ?DESC(enable)
                 }
             )},
-        {server, fun server/1},
+        {server, server()},
         {sample_time_interval, fun sample_interval/1},
         {flush_time_interval, fun flush_interval/1},
         {tags, fun tags/1}
@@ -53,26 +53,24 @@ fields("statsd") ->
 desc("statsd") -> ?DESC(statsd);
 desc(_) -> undefined.
 
-server(type) -> emqx_schema:host_port();
-server(required) -> true;
-server(default) -> "127.0.0.1:8125";
-server(desc) -> ?DESC(?FUNCTION_NAME);
-server(_) -> undefined.
+server() ->
+    Meta = #{
+        default => <<"127.0.0.1:8125">>,
+        desc => ?DESC(?FUNCTION_NAME)
+    },
+    emqx_schema:servers_sc(Meta, ?SERVER_PARSE_OPTS).
 
 sample_interval(type) -> emqx_schema:duration_ms();
-sample_interval(required) -> true;
 sample_interval(default) -> "30s";
 sample_interval(desc) -> ?DESC(?FUNCTION_NAME);
 sample_interval(_) -> undefined.
 
 flush_interval(type) -> emqx_schema:duration_ms();
-flush_interval(required) -> true;
 flush_interval(default) -> "30s";
 flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
 
 tags(type) -> map();
-tags(required) -> false;
 tags(default) -> #{};
 tags(desc) -> ?DESC(?FUNCTION_NAME);
 tags(_) -> undefined.

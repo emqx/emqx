@@ -1,5 +1,5 @@
 % %%--------------------------------------------------------------------
-% %% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+% %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 % %%
 % %% Licensed under the Apache License, Version 2.0 (the "License");
 % %% you may not use this file except in compliance with the License.
@@ -36,22 +36,16 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_all_tcp_servers_available(
-            [
-                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
-                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
-            ]
-        )
-    of
-        true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            Config;
-        false ->
-            {skip, no_redis}
-    end.
+    Checks =
+        case os:getenv("IS_CI") of
+            "yes" -> 10;
+            _ -> 1
+        end,
+    ok = wait_for_redis(Checks),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    Config.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_resource]),
@@ -63,9 +57,27 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-% %%------------------------------------------------------------------------------
-% %% Testcases
-% %%------------------------------------------------------------------------------
+wait_for_redis(0) ->
+    throw(timeout);
+wait_for_redis(Checks) ->
+    case
+        emqx_common_test_helpers:is_all_tcp_servers_available(
+            [
+                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
+                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
+            ]
+        )
+    of
+        true ->
+            ok;
+        false ->
+            timer:sleep(1000),
+            wait_for_redis(Checks - 1)
+    end.
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 t_single_lifecycle(_Config) ->
     perform_lifecycle_check(

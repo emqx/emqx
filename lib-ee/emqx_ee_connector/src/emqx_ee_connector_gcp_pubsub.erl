@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_connector_gcp_pubsub).
@@ -83,9 +83,7 @@ on_start(
     %% emulating the emulator behavior
     %% https://cloud.google.com/pubsub/docs/emulator
     HostPort = os:getenv("PUBSUB_EMULATOR_HOST", "pubsub.googleapis.com:443"),
-    {Host, Port} = emqx_connector_schema_lib:parse_server(
-        HostPort, #{host_type => hostname, default_port => 443}
-    ),
+    {Host, Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
     Transport = tls,
     TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
@@ -154,6 +152,7 @@ on_stop(
         connector => InstanceId
     }),
     emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
+    emqx_connector_jwt:delete_jwt(?JWT_TABLE, InstanceId),
     ehttpc_sup:stop_pool(PoolName).
 
 -spec on_query(

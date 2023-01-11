@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -144,7 +144,7 @@ handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
     %% ignore
     {noreply, State};
 handle_info({mnesia_table_event, Event}, State) ->
-    ?SLOG(error, #{msg => "unexpected_mnesia_table_event", event => Event}),
+    ?SLOG(debug, #{msg => "unexpected_mnesia_table_event", event => Event}),
     {noreply, State};
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans(

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,7 +43,6 @@
 -export([do_get_status/1]).
 
 -define(MYSQL_HOST_OPTIONS, #{
-    host_type => inet_addr,
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
@@ -66,17 +65,14 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [{server, fun server/1}] ++
+    [{server, server()}] ++
         emqx_connector_schema_lib:relational_db_fields() ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
 
-server(type) -> emqx_schema:host_port();
-server(required) -> true;
-server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
-server(converter) -> fun to_server/1;
-server(desc) -> ?DESC("server");
-server(_) -> undefined.
+server() ->
+    Meta = #{desc => ?DESC("server")},
+    emqx_schema:servers_sc(Meta, ?MYSQL_HOST_OPTIONS).
 
 %% ===================================================================
 callback_mode() -> always_sync.
@@ -85,7 +81,7 @@ callback_mode() -> always_sync.
 on_start(
     InstId,
     #{
-        server := {Host, Port},
+        server := Server,
         database := DB,
         username := User,
         password := Password,
@@ -94,6 +90,7 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
+    {Host, Port} = emqx_schema:parse_server(Server, ?MYSQL_HOST_OPTIONS),
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,
@@ -238,11 +235,6 @@ reconn_interval(false) -> false.
 
 connect(Options) ->
     mysql:start_link(Options).
-
--spec to_server(string()) ->
-    {inet:ip_address() | inet:hostname(), pos_integer()}.
-to_server(Str) ->
-    emqx_connector_schema_lib:parse_server(Str, ?MYSQL_HOST_OPTIONS).
 
 init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
     case maps:size(Prepares) of
@@ -416,20 +408,34 @@ on_sql_query(
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     Worker = ecpool:get_client(PoolName),
-    {ok, Conn} = ecpool_worker:client(Worker),
-    ?tp(
-        mysql_connector_send_query,
-        #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Data}
-    ),
+    case ecpool_worker:client(Worker) of
+        {ok, Conn} ->
+            ?tp(
+                mysql_connector_send_query,
+                #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Data}
+            ),
+            do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta);
+        {error, disconnected} ->
+            ?SLOG(
+                error,
+                LogMeta#{
+                    msg => "mysql_connector_do_sql_query_failed",
+                    reason => worker_is_disconnected
+                }
+            ),
+            {error, {recoverable_error, disconnected}}
+    end.
+
+do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
     try mysql:SQLFunc(Conn, SQLOrKey, Data, Timeout) of
-        {error, disconnected} = Result ->
+        {error, disconnected} ->
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
             ),
             %% kill the poll worker to trigger reconnection
             _ = exit(Conn, restart),
-            Result;
+            {error, {recoverable_error, disconnected}};
         {error, not_prepared} = Error ->
             ?tp(
                 mysql_connector_prepare_query_failed,

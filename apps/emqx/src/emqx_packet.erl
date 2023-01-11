@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_packet).
+
+-elvis([{elvis_style, no_spec_with_records, disable}]).
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
@@ -492,7 +494,7 @@ format_variable(undefined, _, _) ->
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ",", format_payload(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -112,7 +112,7 @@ recreate(ResId, ResourceType, NewConfig, Opts) ->
     end.
 
 create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts) ->
-    create(MgrId, ResId, Group, ResourceType, Config, Opts),
+    _ = create(MgrId, ResId, Group, ResourceType, Config, Opts),
     {ok, _Group, Data} = lookup(ResId),
     {ok, Data}.
 
@@ -136,14 +136,10 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'success',
             'failed',
             'dropped',
-            'dropped.queue_not_enabled',
             'dropped.queue_full',
             'dropped.resource_not_found',
             'dropped.resource_stopped',
             'dropped.other',
-            'queuing',
-            'batching',
-            'inflight',
             'received'
         ],
         [matched]
@@ -308,7 +304,7 @@ init({Data, Opts}) ->
     process_flag(trap_exit, true),
     %% init the cache so that lookup/1 will always return something
     insert_cache(Data#data.id, Data#data.group, Data),
-    case maps:get(start_after_created, Opts, true) of
+    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
         true -> {ok, connecting, Data, {next_event, internal, start_resource}};
         false -> {ok, stopped, Data}
     end.

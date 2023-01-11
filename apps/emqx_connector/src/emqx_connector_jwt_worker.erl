@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,7 +21,8 @@
 %% API
 -export([
     start_link/1,
-    ensure_jwt/1
+    ensure_jwt/1,
+    force_refresh/1
 ]).
 
 %% gen_server API
@@ -32,7 +33,8 @@
     handle_cast/2,
     handle_info/2,
     format_status/1,
-    format_status/2
+    format_status/2,
+    terminate/2
 ]).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -52,7 +54,7 @@
 }.
 -type jwt() :: binary().
 -type state() :: #{
-    refresh_timer := undefined | timer:tref(),
+    refresh_timer := undefined | timer:tref() | reference(),
     resource_id := resource_id(),
     expiration := timer:time(),
     table := ets:table(),
@@ -94,6 +96,11 @@ ensure_jwt(Worker) ->
     gen_server:cast(Worker, {ensure_jwt, Ref}),
     Ref.
 
+-spec force_refresh(pid()) -> ok.
+force_refresh(Worker) ->
+    _ = erlang:send(Worker, {timeout, force_refresh, ?refresh_jwt}),
+    ok.
+
 %%-----------------------------------------------------------------------------------------
 %% gen_server API
 %%-----------------------------------------------------------------------------------------
@@ -102,6 +109,7 @@ ensure_jwt(Worker) ->
     {ok, state(), {continue, {make_key, binary()}}}
     | {stop, {error, term()}}.
 init(#{private_key := PrivateKeyPEM} = Config) ->
+    process_flag(trap_exit, true),
     State0 = maps:without([private_key], Config),
     State = State0#{
         jwk => undefined,
@@ -148,7 +156,7 @@ handle_cast({ensure_jwt, From}, State0 = #{jwt := JWT}) ->
 handle_cast(_Req, State) ->
     {noreply, State}.
 
-handle_info({timeout, TRef, ?refresh_jwt}, State0 = #{refresh_timer := TRef}) ->
+handle_info({timeout, _TRef, ?refresh_jwt}, State0) ->
     State = generate_and_store_jwt(State0),
     {noreply, State};
 handle_info(_Msg, State) ->
@@ -160,6 +168,11 @@ format_status(Status = #{state := State}) ->
 format_status(_Opt, [_PDict, State0]) ->
     State = censor_secrets(State0),
     [{data, [{"State", State}]}].
+
+terminate(_Reason, State) ->
+    #{resource_id := ResourceId, table := TId} = State,
+    emqx_connector_jwt:delete_jwt(TId, ResourceId),
+    ok.
 
 %%-----------------------------------------------------------------------------------------
 %% Helper fns
@@ -211,15 +224,14 @@ store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
 -spec ensure_timer(state()) -> state().
 ensure_timer(
     State = #{
-        refresh_timer := undefined,
+        refresh_timer := OldTimer,
         expiration := ExpirationMS0
     }
 ) ->
+    cancel_timer(OldTimer),
     ExpirationMS = max(5_000, ExpirationMS0 - 5_000),
     TRef = erlang:start_timer(ExpirationMS, self(), ?refresh_jwt),
-    State#{refresh_timer => TRef};
-ensure_timer(State) ->
-    State.
+    State#{refresh_timer => TRef}.
 
 -spec censor_secrets(state()) -> map().
 censor_secrets(State = #{jwt := JWT, jwk := JWK}) ->
@@ -232,3 +244,10 @@ censor_secret(undefined) ->
     undefined;
 censor_secret(_Secret) ->
     "******".
+
+-spec cancel_timer(undefined | timer:tref() | reference()) -> ok.
+cancel_timer(undefined) ->
+    ok;
+cancel_timer(TRef) ->
+    _ = erlang:cancel_timer(TRef),
+    ok.

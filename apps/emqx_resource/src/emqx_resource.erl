@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -111,7 +111,7 @@
     list_group_instances/1
 ]).
 
--export([inc_received/1, apply_reply_fun/2]).
+-export([apply_reply_fun/2]).
 
 -optional_callbacks([
     on_query/3,
@@ -466,9 +466,6 @@ apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
 
 %% =================================================================================
-
-inc_received(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, 'received').
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].

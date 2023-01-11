@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -268,7 +268,7 @@ load_hooks_for_rule(#{from := Topics}) ->
 maybe_add_metrics_for_rule(Id) ->
     case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
         true ->
-            ok;
+            ok = reset_metrics_for_rule(Id);
         false ->
             ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
     end.

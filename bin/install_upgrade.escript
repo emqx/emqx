@@ -18,22 +18,31 @@ main([Command0, DistInfoStr | CommandArgs]) ->
     Opts = parse_arguments(CommandArgs),
     %% invoke the command passed as argument
     F = case Command0 of
-        "install" -> fun(A, B) -> install(A, B) end;
-        "unpack" -> fun(A, B) -> unpack(A, B) end;
-        "upgrade" -> fun(A, B) -> upgrade(A, B) end;
-        "downgrade" -> fun(A, B) -> downgrade(A, B) end;
-        "uninstall" -> fun(A, B) -> uninstall(A, B) end;
-        "versions" -> fun(A, B) -> versions(A, B) end
+        %% "install" -> fun(A, B) -> install(A, B) end;
+        %% "unpack" -> fun(A, B) -> unpack(A, B) end;
+        %% "upgrade" -> fun(A, B) -> upgrade(A, B) end;
+        %% "downgrade" -> fun(A, B) -> downgrade(A, B) end;
+        %% "uninstall" -> fun(A, B) -> uninstall(A, B) end;
+        "versions" -> fun(A, B) -> versions(A, B) end;
+        _ -> fun fail_upgrade/2
     end,
     F(DistInfo, Opts);
 main(Args) ->
     ?INFO("unknown args: ~p", [Args]),
     erlang:halt(1).
 
+%% temporary block for hot-upgrades; next release will just remove
+%% this and the new script version shall be used instead of this
+%% current version.
+%% TODO: always deny relup for macos (unsupported)
+fail_upgrade(_DistInfo, _Opts) ->
+    ?ERROR("Unsupported upgrade path", []),
+    erlang:halt(1).
+
 unpack({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     Version = proplists:get_value(version, Opts),
-    case unpack_release(RelName, TargetNode, Version) of
+    case unpack_release(RelName, TargetNode, Version, Opts) of
         {ok, Vsn} ->
             ?INFO("Unpacked successfully: ~p", [Vsn]);
         old ->
@@ -57,7 +66,7 @@ install({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     Version = proplists:get_value(version, Opts),
     validate_target_version(Version, TargetNode),
-    case unpack_release(RelName, TargetNode, Version) of
+    case unpack_release(RelName, TargetNode, Version, Opts) of
         {ok, Vsn} ->
             ?INFO("Unpacked successfully: ~p.", [Vsn]),
             check_and_install(TargetNode, Vsn),
@@ -132,12 +141,13 @@ uninstall({_RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
 uninstall(_, Args) ->
     ?INFO("uninstall: unknown args ~p", [Args]).
 
-versions({_RelName, NameTypeArg, NodeName, Cookie}, []) ->
+versions({_RelName, NameTypeArg, NodeName, Cookie}, _Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     print_existing_versions(TargetNode).
 
 parse_arguments(Args) ->
-    parse_arguments(Args, []).
+    IsEnterprise = os:getenv("IS_ENTERPRISE") == "yes",
+    parse_arguments(Args, [{is_enterprise, IsEnterprise}]).
 
 parse_arguments([], Acc) -> Acc;
 parse_arguments(["--no-permanent"|Rest], Acc) ->
@@ -146,9 +156,10 @@ parse_arguments([VersionStr|Rest], Acc) ->
     Version = parse_version(VersionStr),
     parse_arguments(Rest, [{version, Version}] ++ Acc).
 
-unpack_release(RelName, TargetNode, Version) ->
-    StartScriptExists = filelib:is_dir(filename:join(["releases", Version, "start.boot"])),
+unpack_release(RelName, TargetNode, Version, Opts) ->
+    StartScriptExists = filelib:is_regular(filename:join(["releases", Version, "start.boot"])),
     WhichReleases = which_releases(TargetNode),
+    IsEnterprise = proplists:get_value(is_enterprise, Opts),
     case proplists:get_value(Version, WhichReleases) of
         Res when Res =:= undefined; (Res =:= unpacked andalso not StartScriptExists) ->
             %% not installed, so unpack tarball:
@@ -156,7 +167,7 @@ unpack_release(RelName, TargetNode, Version) ->
             %%      releases/<relname>-<version>.tar.gz
             %%      releases/<version>/<relname>-<version>.tar.gz
             %%      releases/<version>/<relname>.tar.gz
-            case find_and_link_release_package(Version, RelName) of
+            case find_and_link_release_package(Version, RelName, IsEnterprise) of
                 {_, undefined} ->
                     {error, release_package_not_found};
                 {ReleasePackage, ReleasePackageLink} ->
@@ -206,7 +217,7 @@ extract_tar(Cwd, Tar) ->
 %%    to the release package tarball found in 1.
 %% 3. return a tuple with the paths to the release package and
 %%    to the symlink that is to be provided to release handler
-find_and_link_release_package(Version, RelName) ->
+find_and_link_release_package(Version, RelName, IsEnterprise) ->
     RelNameStr = atom_to_list(RelName),
     %% regardless of the location of the release package, we'll
     %% always give release handler the same path which is the symlink
@@ -217,7 +228,13 @@ find_and_link_release_package(Version, RelName) ->
     %% we've found where the actual release package is located
     ReleaseLink = filename:join(["releases", Version,
                                  RelNameStr ++ ".tar.gz"]),
-    TarBalls = filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.tar.gz"]),
+    ReleaseNamePattern =
+        case IsEnterprise of
+            false -> RelNameStr;
+            true -> RelNameStr ++ "-enterprise"
+        end,
+    FilePattern = lists:flatten([ReleaseNamePattern, "-", Version, "*.tar.gz"]),
+    TarBalls = filename:join(["releases", FilePattern]),
     case filelib:wildcard(TarBalls) of
         [] ->
             {undefined, undefined};

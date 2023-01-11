@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -88,8 +88,13 @@ regular_expression(_) -> undefined.
 
 is_re(Bin) ->
     case re:compile(Bin) of
-        {ok, _} -> ok;
-        {error, Reason} -> {error, {Bin, Reason}}
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, #{
+                regexp => Bin,
+                compile_error => Reason
+            }}
     end.
 
 array(Name, Meta) -> {Name, ?HOCON(?ARRAY(?R_REF(Name)), Meta)}.

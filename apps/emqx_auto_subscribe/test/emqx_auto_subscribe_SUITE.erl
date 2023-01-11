@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -150,6 +150,32 @@ t_update(_) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Body),
     ResponseMap = emqx_json:decode(Response, [return_maps]),
     ?assertEqual(1, erlang:length(ResponseMap)),
+
+    BadBody1 = #{topic => ?TOPIC_S},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody1)
+    ),
+    BadBody2 = [#{topic => ?TOPIC_S, qos => 3}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody2)
+    ),
+    BadBody3 = [#{topic => ?TOPIC_S, rh => 10}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody3)
+    ),
+    BadBody4 = [#{topic => ?TOPIC_S, rap => -1}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody4)
+    ),
+    BadBody5 = [#{topic => ?TOPIC_S, nl => -1}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody5)
+    ),
 
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
     {ok, _} = emqtt:connect(Client),

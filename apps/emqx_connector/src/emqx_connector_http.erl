@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -431,14 +431,13 @@ preprocess_request(
     #{
         method := Method,
         path := Path,
-        body := Body,
         headers := Headers
     } = Req
 ) ->
     #{
         method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method)),
         path => emqx_plugin_libs_rule:preproc_tmpl(Path),
-        body => emqx_plugin_libs_rule:preproc_tmpl(Body),
+        body => maybe_preproc_tmpl(body, Req),
         headers => preproc_headers(Headers),
         request_timeout => maps:get(request_timeout, Req, 30000),
         max_retries => maps:get(max_retries, Req, 2)
@@ -469,6 +468,12 @@ preproc_headers(Headers) when is_list(Headers) ->
         Headers
     ).
 
+maybe_preproc_tmpl(Key, Conf) ->
+    case maps:get(Key, Conf, undefined) of
+        undefined -> undefined;
+        Val -> emqx_plugin_libs_rule:preproc_tmpl(Val)
+    end.
+
 process_request(
     #{
         method := MethodTks,
@@ -487,7 +492,7 @@ process_request(
         request_timeout => ReqTimeout
     }.
 
-process_request_body([], Msg) ->
+process_request_body(undefined, Msg) ->
     emqx_json:encode(Msg);
 process_request_body(BodyTks, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).

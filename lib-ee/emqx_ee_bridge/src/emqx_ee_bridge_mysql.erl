@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_mysql).
 
@@ -58,11 +58,9 @@ values(post) ->
             worker_pool_size => 1,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
-            enable_batch => true,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
             query_mode => async,
-            enable_queue => false,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
     };

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,8 +46,9 @@ end_per_testcase(_, _Config) ->
     ok.
 
 t_get_metrics(_) ->
-    Metrics = [a, b, c],
-    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, Metrics),
+    Metrics = [a, b, c, {slide, d}],
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
     ?assertMatch(
         #{
@@ -56,18 +57,24 @@ t_get_metrics(_) ->
                 b := #{current := 0.0, max := 0.0, last5m := 0.0},
                 c := #{current := 0.0, max := 0.0, last5m := 0.0}
             },
+            gauges := #{},
             counters := #{
                 a := 0,
                 b := 0,
                 c := 0
             }
         },
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:inc(?NAME, Id, b),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 10),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 30),
     ct:sleep(1500),
     ?LET(
         #{
@@ -76,27 +83,79 @@ t_get_metrics(_) ->
                 b := #{current := CurrB, max := MaxB, last5m := _},
                 c := #{current := CurrC, max := MaxC, last5m := _}
             },
+            gauges := #{
+                inflight := Inflight,
+                queuing := Queuing
+            },
             counters := #{
                 a := 1,
                 b := 1,
                 c := 2
+            } = Counters,
+            slides := #{
+                d := #{n_samples := 2, last5m := 20, current := _}
             }
         },
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>),
+        emqx_metrics_worker:get_metrics(?NAME, Id),
         {
             ?assert(CurrA > 0),
             ?assert(CurrB > 0),
             ?assert(CurrC > 0),
             ?assert(MaxA > 0),
             ?assert(MaxB > 0),
-            ?assert(MaxC > 0)
+            ?assert(MaxC > 0),
+            ?assert(Inflight == 12),
+            ?assert(Queuing == 9),
+            ?assertNot(maps:is_key(d, Counters))
         }
     ),
-    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
+
+t_clear_metrics(_Config) ->
+    Metrics = [a, b, c],
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
+    ?assertMatch(
+        #{
+            rate := #{
+                a := #{current := 0.0, max := 0.0, last5m := 0.0},
+                b := #{current := 0.0, max := 0.0, last5m := 0.0},
+                c := #{current := 0.0, max := 0.0, last5m := 0.0}
+            },
+            gauges := #{},
+            slides := #{},
+            counters := #{
+                a := 0,
+                b := 0,
+                c := 0
+            }
+        },
+        emqx_metrics_worker:get_metrics(?NAME, Id)
+    ),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:inc(?NAME, Id, b),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
+    ct:sleep(1500),
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id),
+    ?assertEqual(
+        #{
+            counters => #{},
+            gauges => #{},
+            rate => #{current => 0.0, last5m => 0.0, max => 0.0},
+            slides => #{}
+        },
+        emqx_metrics_worker:get_metrics(?NAME, Id)
+    ),
+    ok.
 
 t_reset_metrics(_) ->
-    Metrics = [a, b, c],
-    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, Metrics),
+    Metrics = [a, b, c, {slide, d}],
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
     ?assertMatch(
         #{
@@ -105,20 +164,32 @@ t_reset_metrics(_) ->
                 b := #{current := 0.0, max := 0.0, last5m := 0.0},
                 c := #{current := 0.0, max := 0.0, last5m := 0.0}
             },
+            gauges := #{},
             counters := #{
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            slides := #{
+                d := #{n_samples := 0, last5m := 0, current := 0}
             }
         },
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:inc(?NAME, Id, b),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 100),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 200),
     ct:sleep(1500),
-    ok = emqx_metrics_worker:reset_metrics(?NAME, <<"testid">>),
+    ?assertMatch(
+        #{d := #{n_samples := 2}}, emqx_metrics_worker:get_slide(?NAME, <<"testid">>)
+    ),
+    ok = emqx_metrics_worker:reset_metrics(?NAME, Id),
     ?LET(
         #{
             rate := #{
@@ -126,68 +197,86 @@ t_reset_metrics(_) ->
                 b := #{current := CurrB, max := MaxB, last5m := _},
                 c := #{current := CurrC, max := MaxC, last5m := _}
             },
+            gauges := Gauges,
             counters := #{
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            slides := #{
+                d := #{n_samples := 0, last5m := 0, current := 0}
             }
         },
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>),
+        emqx_metrics_worker:get_metrics(?NAME, Id),
         {
             ?assert(CurrA == 0),
             ?assert(CurrB == 0),
             ?assert(CurrC == 0),
             ?assert(MaxA == 0),
             ?assert(MaxB == 0),
-            ?assert(MaxC == 0)
+            ?assert(MaxC == 0),
+            ?assertEqual(#{}, Gauges)
         }
     ),
-    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
 t_get_metrics_2(_) ->
-    Metrics = [a, b, c],
+    Metrics = [a, b, c, {slide, d}],
+    Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(
         ?NAME,
-        <<"testid">>,
+        Id,
         Metrics,
         [a]
     ),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:inc(?NAME, Id, b),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
     ?assertMatch(
         #{
             rate := Rate = #{
                 a := #{current := _, max := _, last5m := _}
             },
+            gauges := #{},
             counters := #{
                 a := 1,
                 b := 1,
                 c := 1
             }
         } when map_size(Rate) =:= 1,
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
-    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
 t_recreate_metrics(_) ->
-    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, [a]),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a]),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
     ?assertMatch(
         #{
             rate := R = #{
                 a := #{current := _, max := _, last5m := _}
             },
+            gauges := #{
+                inflight := 12,
+                queuing := 9
+            },
             counters := C = #{
                 a := 1
             }
         } when map_size(R) == 1 andalso map_size(C) == 1,
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
     %% we create the metrics again, to add some counters
-    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, [a, b, c]),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
-    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a, b, c]),
+    ok = emqx_metrics_worker:inc(?NAME, Id, b),
+    ok = emqx_metrics_worker:inc(?NAME, Id, c),
     ?assertMatch(
         #{
             rate := R = #{
@@ -195,13 +284,17 @@ t_recreate_metrics(_) ->
                 b := #{current := _, max := _, last5m := _},
                 c := #{current := _, max := _, last5m := _}
             },
+            gauges := #{
+                inflight := 12,
+                queuing := 9
+            },
             counters := C = #{
                 a := 1, b := 1, c := 1
             }
         } when map_size(R) == 3 andalso map_size(C) == 3,
-        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
-    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
 t_inc_matched(_) ->
     Metrics = ['rules.matched'],
@@ -238,3 +331,102 @@ t_rate(_) ->
     ct:sleep(3000),
     ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule1">>),
     ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule:2">>).
+
+t_get_gauge(_Config) ->
+    Metric = 'queueing',
+    %% unknown handler name (inexistent table)
+    ?assertEqual(0, emqx_metrics_worker:get_gauge(unknown_name, unknown_id, Metric)),
+    %% unknown resource id
+    ?assertEqual(0, emqx_metrics_worker:get_gauge(?NAME, unknown_id, Metric)),
+
+    Id = <<"some id">>,
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, Metric, 2),
+
+    ?assertEqual(2, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+    ?assertEqual(0, emqx_metrics_worker:get_gauge(?NAME, unknown, Metric)),
+
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, Metric, 3),
+    ?assertEqual(5, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, Metric, 1),
+    ?assertEqual(4, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+
+    ?assertEqual(0, emqx_metrics_worker:get_gauge(?NAME, Id, another_metric)),
+
+    ok.
+
+t_get_gauges(_Config) ->
+    %% unknown handler name (inexistent table)
+    ?assertEqual(#{}, emqx_metrics_worker:get_gauges(unknown_name, unknown_id)),
+    %% unknown resource id
+    ?assertEqual(#{}, emqx_metrics_worker:get_gauges(?NAME, unknown_id)),
+
+    Metric = 'queuing',
+    Id = <<"some id">>,
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, Metric, 2),
+
+    ?assertEqual(#{queuing => 2}, emqx_metrics_worker:get_gauges(?NAME, Id)),
+    ?assertEqual(#{}, emqx_metrics_worker:get_gauges(?NAME, unknown)),
+
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, Metric, 3),
+    ?assertEqual(#{queuing => 5}, emqx_metrics_worker:get_gauges(?NAME, Id)),
+
+    AnotherMetric = 'inflight',
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, Metric, 1),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, AnotherMetric, 10),
+    ?assertEqual(#{queuing => 4, inflight => 10}, emqx_metrics_worker:get_gauges(?NAME, Id)),
+
+    ok.
+
+t_delete_gauge(_Config) ->
+    %% unknown handler name (inexistent table)
+    ?assertEqual(ok, emqx_metrics_worker:delete_gauges(unknown_name, unknown_id)),
+    %% unknown resource id
+    ?assertEqual(ok, emqx_metrics_worker:delete_gauges(?NAME, unknown_id)),
+
+    Metric = 'queuing',
+    AnotherMetric = 'inflight',
+    Id = <<"some id">>,
+    AnotherId = <<"another id">>,
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, Metric, 2),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, Metric, 3),
+    ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, AnotherMetric, 10),
+    ok = emqx_metrics_worker:set_gauge(?NAME, AnotherId, worker_id1, AnotherMetric, 10),
+    ?assertEqual(#{queuing => 5, inflight => 10}, emqx_metrics_worker:get_gauges(?NAME, Id)),
+
+    ?assertEqual(ok, emqx_metrics_worker:delete_gauges(?NAME, Id)),
+
+    ?assertEqual(#{}, emqx_metrics_worker:get_gauges(?NAME, Id)),
+    ?assertEqual(#{inflight => 10}, emqx_metrics_worker:get_gauges(?NAME, AnotherId)),
+
+    ok.
+
+t_shift_gauge(_Config) ->
+    Metric = 'queueing',
+    Id = <<"some id">>,
+    AnotherId = <<"another id">>,
+
+    %% unknown handler name (inexistent table)
+    ?assertEqual(
+        ok, emqx_metrics_worker:shift_gauge(unknown_name, unknown_id, worker_id0, Metric, 2)
+    ),
+    ?assertEqual(0, emqx_metrics_worker:get_gauge(unknown_name, unknown_id, Metric)),
+
+    %% empty resource id
+    ?assertEqual(ok, emqx_metrics_worker:shift_gauge(?NAME, Id, worker_id0, Metric, 2)),
+    ?assertEqual(ok, emqx_metrics_worker:shift_gauge(?NAME, AnotherId, worker_id0, Metric, 2)),
+    ?assertEqual(2, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+    ?assertEqual(2, emqx_metrics_worker:get_gauge(?NAME, AnotherId, Metric)),
+
+    ?assertEqual(ok, emqx_metrics_worker:shift_gauge(?NAME, Id, worker_id0, Metric, 3)),
+    ?assertEqual(5, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+
+    ?assertEqual(ok, emqx_metrics_worker:shift_gauge(?NAME, Id, worker_id1, Metric, 10)),
+    ?assertEqual(15, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+
+    ?assertEqual(ok, emqx_metrics_worker:shift_gauge(?NAME, Id, worker_id1, Metric, -4)),
+    ?assertEqual(11, emqx_metrics_worker:get_gauge(?NAME, Id, Metric)),
+
+    ?assertEqual(2, emqx_metrics_worker:get_gauge(?NAME, AnotherId, Metric)),
+
+    ok.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_mongodb).
 
@@ -46,11 +46,11 @@ fields(mongodb_sharded) ->
 fields(mongodb_single) ->
     emqx_connector_mongo:fields(single) ++ fields("config");
 fields("post_rs") ->
-    fields(mongodb_rs);
+    fields(mongodb_rs) ++ type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
-    fields(mongodb_sharded);
+    fields(mongodb_sharded) ++ type_and_name_fields(mongodb_sharded);
 fields("post_single") ->
-    fields(mongodb_single);
+    fields(mongodb_single) ++ type_and_name_fields(mongodb_single);
 fields("put_rs") ->
     fields(mongodb_rs);
 fields("put_sharded") ->
@@ -58,11 +58,17 @@ fields("put_sharded") ->
 fields("put_single") ->
     fields(mongodb_single);
 fields("get_rs") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_rs);
+    emqx_bridge_schema:metrics_status_fields() ++
+        fields(mongodb_rs) ++
+        type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_sharded);
+    emqx_bridge_schema:metrics_status_fields() ++
+        fields(mongodb_sharded) ++
+        type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_single).
+    emqx_bridge_schema:metrics_status_fields() ++
+        fields(mongodb_single) ++
+        type_and_name_fields(mongodb_single).
 
 conn_bridge_examples(Method) ->
     [
@@ -102,6 +108,12 @@ desc(_) ->
 %%=================================================================================================
 %% Internal fns
 %%=================================================================================================
+
+type_and_name_fields(MongoType) ->
+    [
+        {type, mk(MongoType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
 
 values(mongodb_rs = MongoType, Method) ->
     TypeOpts = #{

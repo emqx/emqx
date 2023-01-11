@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,151 +18,135 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEFAULT_MONGO_PORT, 27017).
+srv_record_test() ->
+    with_dns_mock(
+        fun normal_dns_resolution_mock/2,
+        fun() ->
+            Single = single_config(),
+            Rs = simple_rs_config(),
+            Hosts = [
+                <<"cluster0-shard-00-02.zkemc.mongodb.net:27017">>,
+                <<"cluster0-shard-00-01.zkemc.mongodb.net:27017">>,
+                <<"cluster0-shard-00-00.zkemc.mongodb.net:27017">>
+            ],
+            ?assertMatch(
+                #{
+                    hosts := Hosts,
+                    auth_source := <<"admin">>
+                },
+                resolve(Single)
+            ),
+            ?assertMatch(
+                #{
+                    hosts := Hosts,
+                    auth_source := <<"admin">>,
+                    replica_set_name := <<"atlas-wrnled-shard-0">>
+                },
+                resolve(Rs)
+            ),
+            ok
+        end
+    ).
 
-%%------------------------------------------------------------------------------
-%% Helper fns
-%%------------------------------------------------------------------------------
+empty_srv_record_test() ->
+    with_dns_mock(
+        bad_srv_record_mock(_DnsResolution = []),
+        fun() ->
+            ?assertThrow(#{reason := "failed_to_resolve_srv_record"}, resolve(simple_rs_config()))
+        end
+    ).
 
-%%------------------------------------------------------------------------------
-%% Test cases
-%%------------------------------------------------------------------------------
+empty_txt_record_test() ->
+    with_dns_mock(
+        bad_txt_record_mock(_DnsResolution = []),
+        fun() ->
+            Config = resolve(single_config()),
+            ?assertNot(maps:is_key(auth_source, Config)),
+            ?assertNot(maps:is_key(replica_set_name, Config)),
+            ok
+        end
+    ).
 
-to_servers_raw_test_() ->
+multiple_txt_records_test() ->
+    with_dns_mock(
+        bad_txt_record_mock(_DnsResolution = [1, 2]),
+        fun() ->
+            ?assertThrow(#{reason := "multiple_txt_records"}, resolve(simple_rs_config()))
+        end
+    ).
+
+bad_query_string_test() ->
+    with_dns_mock(
+        bad_txt_record_mock(_DnsResolution = [["%-111"]]),
+        fun() ->
+            ?assertThrow(#{reason := "bad_txt_record_resolution"}, resolve(simple_rs_config()))
+        end
+    ).
+
+resolve(Config) ->
+    emqx_connector_mongo:maybe_resolve_srv_and_txt_records(Config).
+
+checked_config(Hocon) ->
+    {ok, Config} = hocon:binary(Hocon),
+    hocon_tconf:check_plain(
+        emqx_connector_mongo,
+        #{<<"config">> => Config},
+        #{atom_key => true}
+    ).
+
+simple_rs_config() ->
+    #{config := Rs} = checked_config(
+        "mongo_type = rs\n"
+        "servers = \"cluster0.zkemc.mongodb.net:27017\"\n"
+        "srv_record = true\n"
+        "database = foobar\n"
+        "replica_set_name = configured_replicaset_name\n"
+    ),
+    Rs.
+
+single_config() ->
+    #{config := Single} = checked_config(
+        "mongo_type = single\n"
+        "server = \"cluster0.zkemc.mongodb.net:27017,cluster0.zkemc.mongodb.net:27017\"\n"
+        "srv_record = true\n"
+        "database = foobar\n"
+    ),
+    Single.
+
+normal_srv_resolution() ->
     [
-        {"single server, binary, no port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw(<<"localhost">>)
-                )
-            )},
-        {"single server, string, no port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw("localhost")
-                )
-            )},
-        {"single server, list(binary), no port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw([<<"localhost">>])
-                )
-            )},
-        {"single server, list(string), no port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw(["localhost"])
-                )
-            )},
-        %%%%%%%%%
-        {"single server, binary, with port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", 9999}], emqx_connector_mongo:to_servers_raw(<<"localhost:9999">>)
-                )
-            )},
-        {"single server, string, with port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", 9999}], emqx_connector_mongo:to_servers_raw("localhost:9999")
-                )
-            )},
-        {"single server, list(binary), with port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", 9999}],
-                    emqx_connector_mongo:to_servers_raw([<<"localhost:9999">>])
-                )
-            )},
-        {"single server, list(string), with port",
-            ?_test(
-                ?assertEqual(
-                    [{"localhost", 9999}], emqx_connector_mongo:to_servers_raw(["localhost:9999"])
-                )
-            )},
-        %%%%%%%%%
-        {"multiple servers, string, no port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", ?DEFAULT_MONGO_PORT}, {"host2", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw("host1, host2")
-                )
-            )},
-        {"multiple servers, binary, no port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", ?DEFAULT_MONGO_PORT}, {"host2", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw(<<"host1, host2">>)
-                )
-            )},
-        {"multiple servers, list(string), no port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", ?DEFAULT_MONGO_PORT}, {"host2", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw(["host1", "host2"])
-                )
-            )},
-        {"multiple servers, list(binary), no port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", ?DEFAULT_MONGO_PORT}, {"host2", ?DEFAULT_MONGO_PORT}],
-                    emqx_connector_mongo:to_servers_raw([<<"host1">>, <<"host2">>])
-                )
-            )},
-        %%%%%%%%%
-        {"multiple servers, string, with port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", 1234}, {"host2", 2345}],
-                    emqx_connector_mongo:to_servers_raw("host1:1234, host2:2345")
-                )
-            )},
-        {"multiple servers, binary, with port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", 1234}, {"host2", 2345}],
-                    emqx_connector_mongo:to_servers_raw(<<"host1:1234, host2:2345">>)
-                )
-            )},
-        {"multiple servers, list(string), with port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", 1234}, {"host2", 2345}],
-                    emqx_connector_mongo:to_servers_raw(["host1:1234", "host2:2345"])
-                )
-            )},
-        {"multiple servers, list(binary), with port",
-            ?_test(
-                ?assertEqual(
-                    [{"host1", 1234}, {"host2", 2345}],
-                    emqx_connector_mongo:to_servers_raw([<<"host1:1234">>, <<"host2:2345">>])
-                )
-            )},
-        %%%%%%%%
-        {"multiple servers, invalid list(string)",
-            ?_test(
-                ?assertThrow(
-                    _,
-                    emqx_connector_mongo:to_servers_raw(["host1, host2"])
-                )
-            )},
-        {"multiple servers, invalid list(binary)",
-            ?_test(
-                ?assertThrow(
-                    _,
-                    emqx_connector_mongo:to_servers_raw([<<"host1, host2">>])
-                )
-            )},
-        %% TODO: handle this case??
-        {"multiple servers, mixed list(binary|string)",
-            ?_test(
-                ?assertThrow(
-                    _,
-                    emqx_connector_mongo:to_servers_raw([<<"host1">>, "host2"])
-                )
-            )}
+        {0, 0, 27017, "cluster0-shard-00-02.zkemc.mongodb.net"},
+        {0, 0, 27017, "cluster0-shard-00-01.zkemc.mongodb.net"},
+        {0, 0, 27017, "cluster0-shard-00-00.zkemc.mongodb.net"}
     ].
+
+normal_txt_resolution() ->
+    [["authSource=admin&replicaSet=atlas-wrnled-shard-0"]].
+
+normal_dns_resolution_mock("_mongodb._tcp.cluster0.zkemc.mongodb.net", srv) ->
+    normal_srv_resolution();
+normal_dns_resolution_mock("cluster0.zkemc.mongodb.net", txt) ->
+    normal_txt_resolution().
+
+bad_srv_record_mock(DnsResolution) ->
+    fun("_mongodb._tcp.cluster0.zkemc.mongodb.net", srv) ->
+        DnsResolution
+    end.
+
+bad_txt_record_mock(DnsResolution) ->
+    fun
+        ("_mongodb._tcp.cluster0.zkemc.mongodb.net", srv) ->
+            normal_srv_resolution();
+        ("cluster0.zkemc.mongodb.net", txt) ->
+            DnsResolution
+    end.
+
+with_dns_mock(MockFn, TestFn) ->
+    meck:new(emqx_connector_lib, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_connector_lib, resolve_dns, MockFn),
+    try
+        TestFn()
+    after
+        meck:unload(emqx_connector_lib)
+    end,
+    ok.

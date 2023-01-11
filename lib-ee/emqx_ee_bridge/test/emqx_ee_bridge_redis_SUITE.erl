@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_redis_SUITE).
 
@@ -17,7 +17,8 @@
 %%------------------------------------------------------------------------------
 
 -define(REDIS_TOXYPROXY_CONNECT_CONFIG, #{
-    <<"server">> => <<"toxiproxy:6379">>
+    <<"server">> => <<"toxiproxy:6379">>,
+    <<"redis_type">> => <<"single">>
 }).
 
 -define(COMMON_REDIS_OPTS, #{
@@ -31,7 +32,7 @@
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, "8474").
 
-all() -> [{group, redis_types}, {group, rest}].
+all() -> [{group, transport_types}, {group, rest}].
 
 groups() ->
     ResourceSpecificTCs = [t_create_delete_bridge],
@@ -47,7 +48,7 @@ groups() ->
     ],
     [
         {rest, TCs},
-        {redis_types, [
+        {transport_types, [
             {group, tcp},
             {group, tls}
         ]},
@@ -63,7 +64,7 @@ groups() ->
 init_per_group(Group, Config) when
     Group =:= redis_single; Group =:= redis_sentinel; Group =:= redis_cluster
 ->
-    [{redis_type, Group} | Config];
+    [{transport_type, Group} | Config];
 init_per_group(Group, Config) when
     Group =:= tcp; Group =:= tls
 ->
@@ -79,6 +80,12 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    wait_for_ci_redis(redis_checks(), Config).
+
+wait_for_ci_redis(0, _Config) ->
+    throw(no_redis);
+wait_for_ci_redis(Checks, Config) ->
+    timer:sleep(1000),
     TestHosts = all_test_hosts(),
     case emqx_common_test_helpers:is_all_tcp_servers_available(TestHosts) of
         true ->
@@ -96,7 +103,15 @@ init_per_suite(Config) ->
                 | Config
             ];
         false ->
-            {skip, no_redis}
+            wait_for_ci_redis(Checks - 1, Config)
+    end.
+
+redis_checks() ->
+    case os:getenv("IS_CI") of
+        "yes" ->
+            10;
+        _ ->
+            1
     end.
 
 end_per_suite(_Config) ->
@@ -108,7 +123,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Testcase, Config) ->
     ok = delete_all_bridges(),
-    case ?config(redis_type, Config) of
+    case ?config(transport_type, Config) of
         undefined ->
             Config;
         RedisType ->
@@ -131,7 +146,7 @@ end_per_testcase(_Testcase, Config) ->
 
 t_create_delete_bridge(Config) ->
     Name = <<"mybridge">>,
-    Type = ?config(redis_type, Config),
+    Type = ?config(transport_type, Config),
     BridgeConfig = ?config(bridge_config, Config),
     IsBatch = ?config(is_batch, Config),
     ?assertMatch(
@@ -220,16 +235,24 @@ t_check_replay(Config) ->
         begin
             ?wait_async_action(
                 with_down_failure(Config, ProxyName, fun() ->
-                    ct:sleep(100),
-                    lists:foreach(
-                        fun(_) ->
-                            _ = publish_message(Topic, <<"test_payload">>)
-                        end,
-                        lists:seq(1, ?BATCH_SIZE)
-                    )
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            lists:foreach(
+                                fun(_) ->
+                                    _ = publish_message(Topic, <<"test_payload">>)
+                                end,
+                                lists:seq(1, ?BATCH_SIZE)
+                            ),
+                            #{
+                                ?snk_kind := redis_ee_connector_send_done,
+                                batch := true,
+                                result := {error, _}
+                            },
+                            10_000
+                        )
                 end),
                 #{?snk_kind := redis_ee_connector_send_done, batch := true, result := {ok, _}},
-                10000
+                10_000
             )
         end,
         fun(Trace) ->
@@ -374,21 +397,15 @@ all_test_hosts() ->
     lists:flatmap(
         fun
             (#{<<"servers">> := ServersRaw}) ->
-                lists:map(
-                    fun(Server) ->
-                        parse_server(Server)
-                    end,
-                    string:tokens(binary_to_list(ServersRaw), ", ")
-                );
+                parse_servers(ServersRaw);
             (#{<<"server">> := ServerRaw}) ->
-                [parse_server(ServerRaw)]
+                parse_servers(ServerRaw)
         end,
         Confs
     ).
 
-parse_server(Server) ->
-    emqx_connector_schema_lib:parse_server(Server, #{
-        host_type => hostname,
+parse_servers(Servers) ->
+    emqx_schema:parse_servers(Servers, #{
         default_port => 6379
     }).
 
@@ -415,31 +432,37 @@ redis_connect_configs() ->
     #{
         redis_single => #{
             tcp => #{
-                <<"server">> => <<"redis:6379">>
+                <<"server">> => <<"redis:6379">>,
+                <<"redis_type">> => <<"single">>
             },
             tls => #{
                 <<"server">> => <<"redis-tls:6380">>,
-                <<"ssl">> => redis_connect_ssl_opts(redis_single)
+                <<"ssl">> => redis_connect_ssl_opts(redis_single),
+                <<"redis_type">> => <<"single">>
             }
         },
         redis_sentinel => #{
             tcp => #{
                 <<"servers">> => <<"redis-sentinel:26379">>,
+                <<"redis_type">> => <<"sentinel">>,
                 <<"sentinel">> => <<"mymaster">>
             },
             tls => #{
                 <<"servers">> => <<"redis-sentinel-tls:26380">>,
+                <<"redis_type">> => <<"sentinel">>,
                 <<"sentinel">> => <<"mymaster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_sentinel)
             }
         },
         redis_cluster => #{
             tcp => #{
-                <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>
+                <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>,
+                <<"redis_type">> => <<"cluster">>
             },
             tls => #{
                 <<"servers">> =>
                     <<"redis-cluster-tls:8000,redis-cluster-tls:8001,redis-cluster-tls:8002">>,
+                <<"redis_type">> => <<"cluster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_cluster)
             }
         }
@@ -449,8 +472,6 @@ toxiproxy_redis_bridge_config() ->
     Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>
@@ -463,8 +484,7 @@ invalid_command_bridge_config() ->
     Conf1 = maps:merge(Conf0, ?COMMON_REDIS_OPTS),
     Conf1#{
         <<"resource_opts">> => #{
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>,
+            <<"batch_size">> => <<"1">>,
             <<"worker_pool_size">> => <<"1">>
         },
         <<"command_template">> => [<<"BAD">>, <<"COMMAND">>, <<"${payload}">>]
@@ -474,13 +494,10 @@ resource_configs() ->
     #{
         batch_off => #{
             <<"query_mode">> => <<"sync">>,
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>
+            <<"batch_size">> => <<"1">>
         },
         batch_on => #{
             <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE)
         }

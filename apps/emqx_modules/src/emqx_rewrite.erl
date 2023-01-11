@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -67,8 +67,12 @@ list() ->
     emqx_conf:get_raw([<<"rewrite">>], []).
 
 update(Rules0) ->
-    {ok, _} = emqx_conf:update([rewrite], Rules0, #{override_to => cluster}),
-    ok.
+    case emqx_conf:update([rewrite], Rules0, #{override_to => cluster}) of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 post_config_update(_KeyPath, _Config, Rules, _OldConf, _AppEnvs) ->
     register_hook(Rules).
