@@ -179,7 +179,13 @@ new_stream(
         SOpts1,
         Props
     ),
-    quicer:handoff_stream(Stream, NewStreamOwner, {PS, Serialize, Channel}),
+    case quicer:handoff_stream(Stream, NewStreamOwner, {PS, Serialize, Channel}) of
+        ok ->
+            ok;
+        E ->
+            %% Only log, keep connecion alive.
+            ?SLOG(error, #{message => "new stream handoff failed", stream => Stream, error => E})
+    end,
     %% @TODO maybe keep them in `inactive_streams'
     {ok, S#{streams := [{NewStreamOwner, Stream} | Streams]}}.
 
@@ -200,7 +206,7 @@ transport_shutdown(_C, DownInfo, S) when is_map(DownInfo) ->
 %% @doc callback for handling for peer addr changed.
 -spec peer_address_changed(quicer:connection_handle(), quicer:quicer_addr(), cb_state) -> cb_ret().
 peer_address_changed(_C, _NewAddr, S) ->
-    %% @TODO update session info?
+    %% @TODO update conn info in emqx_quic_stream
     {ok, S}.
 
 %% @doc callback for handling local addr change, currently unused
@@ -224,7 +230,7 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 %% @doc callback for handling request when remote wants for more streams
 %%      should cope with rate limiting
 %% @TODO this is not going to get triggered in current version
-%% for https://github.com/microsoft/msquic/issues/3120
+%% ref: https://github.com/microsoft/msquic/issues/3120
 -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
 peer_needs_streams(_C, undefined, S) ->
     ?SLOG(info, #{
@@ -240,6 +246,10 @@ handle_call(
     #{streams := Streams} = S
 ) ->
     [
+        %% Try to activate streams individually if failed, stream will shutdown on its own.
+        %% we dont care about the return val here.
+        %% note, this is only used after control stream pass the validation. The data streams
+        %%       that are called here are assured to be inactived (data processing hasn't been started).
         catch emqx_quic_data_stream:activate_data(OwnerPid, ActivateData)
      || {OwnerPid, _Stream} <- Streams
     ],
@@ -255,10 +265,15 @@ handle_call(_Req, _From, S) ->
 handle_info({'EXIT', Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
     case Reason of
         normal ->
-            quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+            quicer:async_shutdown_connection(
+                Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, ?MQTT_QUIC_CONN_NOERROR
+            );
         _ ->
-            %% @TODO have some reasons mappings here.
-            quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 1)
+            quicer:async_shutdown_connection(
+                Conn,
+                ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                ?MQTT_QUIC_CONN_ERROR_CTRL_STREAM_DOWN
+            )
     end,
     {ok, S};
 handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
