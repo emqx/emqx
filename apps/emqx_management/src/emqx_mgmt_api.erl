@@ -422,10 +422,11 @@ accumulate_query_rows(
         NCursor when NCursor < PageStart ->
             {more, ResultAcc#{cursor => NCursor}};
         NCursor when NCursor < PageEnd ->
+            SubRows = lists:nthtail(max(0, PageStart - Cursor - 1), Rows),
             {more, ResultAcc#{
                 cursor => NCursor,
-                count => Count + length(Rows),
-                rows => [{Node, Rows} | RowsAcc]
+                count => Count + length(SubRows),
+                rows => [{Node, SubRows} | RowsAcc]
             }};
         NCursor when NCursor >= PageEnd ->
             SubRows = lists:sublist(Rows, Limit - Count),
