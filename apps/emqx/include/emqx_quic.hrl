@@ -19,6 +19,7 @@
 
 %% MQTT Over QUIC Shutdown Error code.
 -define(MQTT_QUIC_CONN_NOERROR, 0).
+-define(MQTT_QUIC_CONN_ERROR_CTRL_STREAM_DOWN, 1).
 -define(MQTT_QUIC_CONN_ERROR_OVERLOADED, 2).
 
 -endif.

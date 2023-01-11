@@ -118,6 +118,8 @@ groups() ->
             t_multi_streams_shutdown_ctrl_stream,
             t_multi_streams_shutdown_ctrl_stream_then_reconnect,
             t_multi_streams_remote_shutdown,
+            t_multi_streams_emqx_ctrl_kill,
+            t_multi_streams_emqx_ctrl_exit_normal,
             t_multi_streams_remote_shutdown_with_reconnect
         ]},
 
@@ -1327,7 +1329,13 @@ t_multi_streams_shutdown_ctrl_stream(Config) ->
     ),
 
     {quic, _Conn, Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
-    quicer:shutdown_stream(Ctrlstream, ?config(stream_shutdown_flag, Config), 500, 1000),
+    Flag = ?config(stream_shutdown_flag, Config),
+    AppErrorCode =
+        case Flag of
+            ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL -> 0;
+            _ -> 500
+        end,
+    quicer:shutdown_stream(Ctrlstream, Flag, AppErrorCode, 1000),
     timer:sleep(500),
     %% Client should be closed
     ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
@@ -1383,6 +1391,114 @@ t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
     timer:sleep(200),
     %% Client should be closed
     ?assert(is_list(emqtt:info(C))).
+
+t_multi_streams_emqx_ctrl_kill(Config) ->
+    erlang:process_flag(trap_exit, true),
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId1 = calc_pkt_id(RecQos, 1),
+
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Topic2 = <<Topic/binary, "two">>,
+    {ok, C} = emqtt:start_link([
+        {proto_ver, v5},
+        {reconnect, false},
+        %% speedup test
+        {connect_timeout, 5}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic2, [{qos, SubQos}]}
+    ]),
+
+    ?assert(SVia2 =/= SVia),
+
+    case
+        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
+    of
+        ok when PubQos == 0 -> ok;
+        {ok, #{reason_code := 0, via := _PVia}} -> ok
+    end,
+
+    PubRecvs = recv_pub(1),
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<1, 2, 3, 4, 5>>,
+                qos := RecQos
+            }}
+        ],
+        PubRecvs
+    ),
+
+    ClientId = proplists:get_value(clientid, emqtt:info(C)),
+    [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
+    exit(TransPid, kill),
+
+    timer:sleep(200),
+    %% Client should be closed
+    ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
+
+t_multi_streams_emqx_ctrl_exit_normal(Config) ->
+    erlang:process_flag(trap_exit, true),
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId1 = calc_pkt_id(RecQos, 1),
+
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Topic2 = <<Topic/binary, "two">>,
+    {ok, C} = emqtt:start_link([
+        {proto_ver, v5},
+        {reconnect, false},
+        %% speedup test
+        {connect_timeout, 5}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic2, [{qos, SubQos}]}
+    ]),
+
+    ?assert(SVia2 =/= SVia),
+
+    case
+        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
+    of
+        ok when PubQos == 0 -> ok;
+        {ok, #{reason_code := 0, via := _PVia}} -> ok
+    end,
+
+    PubRecvs = recv_pub(1),
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<1, 2, 3, 4, 5>>,
+                qos := RecQos
+            }}
+        ],
+        PubRecvs
+    ),
+
+    ClientId = proplists:get_value(clientid, emqtt:info(C)),
+    [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
+
+    emqx_connection:stop(TransPid),
+    timer:sleep(200),
+    %% Client exit normal.
+    ?assertMatch({'EXIT', {normal, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
 
 t_multi_streams_remote_shutdown(Config) ->
     erlang:process_flag(trap_exit, true),

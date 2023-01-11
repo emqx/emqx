@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT/QUIC Stream
+%% MQTT/QUIC control Stream
 -module(emqx_quic_stream).
 
 -ifndef(BUILD_WITHOUT_QUIC).
@@ -38,6 +38,7 @@
     peercert/1
 ]).
 -include_lib("quicer/include/quicer.hrl").
+-include_lib("emqx/include/emqx_quic.hrl").
 
 -type cb_ret() :: quicer_stream:cb_ret().
 -type cb_data() :: quicer_stream:cb_state().
@@ -223,10 +224,17 @@ stream_closed(
         is_atom(Status) andalso
         is_integer(Code)
 ->
-    %% @TODO for now we fake a sock_closed for
+    %% For now we fake a sock_closed for
     %% emqx_connection:process_msg to append
     %% a msg to be processed
-    {ok, {sock_closed, Status}, S}.
+    Reason =
+        case Code of
+            ?MQTT_QUIC_CONN_NOERROR ->
+                normal;
+            _ ->
+                Status
+        end,
+    {ok, {sock_closed, Reason}, S}.
 
 %%%
 %%%  Internals
