@@ -674,6 +674,12 @@ maybe_raise_exception(#{
     stacktrace := Stacktrace
 }) ->
     erlang:raise(Exception, Context, Stacktrace);
+maybe_raise_exception({shutdown, normal}) ->
+    ok;
+maybe_raise_exception(normal) ->
+    ok;
+maybe_raise_exception(shutdown) ->
+    ok;
 maybe_raise_exception(Reason) ->
     exit(Reason).
 
