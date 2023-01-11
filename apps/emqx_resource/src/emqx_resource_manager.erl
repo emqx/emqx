@@ -54,7 +54,7 @@
 
 % State record
 -record(data, {
-    id, manager_id, group, mod, callback_mode, query_mode, config, opts, status, state, error
+    id, manager_id, group, mod, callback_mode, query_mode, config, opts, status, state, error, pid
 }).
 -type data() :: #data{}.
 
@@ -296,17 +296,16 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         state = undefined,
         error = undefined
     },
-    Module = atom_to_binary(?MODULE),
-    ProcName = binary_to_atom(<<Module/binary, "_", MgrId/binary>>, utf8),
-    gen_statem:start_link({local, ProcName}, ?MODULE, {Data, Opts}, []).
+    gen_statem:start_link(?MODULE, {Data, Opts}, []).
 
 init({Data, Opts}) ->
     process_flag(trap_exit, true),
     %% init the cache so that lookup/1 will always return something
-    insert_cache(Data#data.id, Data#data.group, Data),
+    DataWithPid = Data#data{pid = self()},
+    insert_cache(DataWithPid#data.id, DataWithPid#data.group, DataWithPid),
     case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
-        true -> {ok, connecting, Data, {next_event, internal, start_resource}};
-        false -> {ok, stopped, Data}
+        true -> {ok, connecting, DataWithPid, {next_event, internal, start_resource}};
+        false -> {ok, stopped, DataWithPid}
     end.
 
 terminate(_Reason, _State, Data) ->
@@ -427,6 +426,14 @@ read_cache(ResId) ->
     case ets:lookup(?ETS_TABLE, ResId) of
         [{_Id, Group, Data}] -> {Group, Data};
         [] -> not_found
+    end.
+
+read_manager_pid_from_cache(ResId) ->
+    case read_cache(ResId) of
+        not_found ->
+            erlang:error(badarg);
+        {_, #data{pid = ManagerPid}} ->
+            ManagerPid
     end.
 
 delete_cache(ResId, MgrId) ->
@@ -649,10 +656,8 @@ do_wait_for_ready(ResId, Retry) ->
 
 safe_call(ResId, Message, Timeout) ->
     try
-        Module = atom_to_binary(?MODULE),
-        MgrId = get_owner(ResId),
-        ProcName = binary_to_existing_atom(<<Module/binary, "_", MgrId/binary>>, utf8),
-        gen_statem:call(ProcName, Message, {clean_timeout, Timeout})
+        ManagerPid = read_manager_pid_from_cache(ResId),
+        gen_statem:call(ManagerPid, Message, {clean_timeout, Timeout})
     catch
         error:badarg ->
             {error, not_found};
