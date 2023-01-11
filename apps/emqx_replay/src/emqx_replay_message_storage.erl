@@ -121,7 +121,15 @@
 
 -export_type([db/0, iterator/0, schema/0]).
 
--compile({inline, [ones/1, bitwise_concat/3]}).
+-compile(
+    {inline, [
+        bitwise_concat/3,
+        ones/1,
+        successor/1,
+        topic_hash_matches/3,
+        time_matches/3
+    ]}
+).
 
 %%================================================================================
 %% Type declarations
@@ -343,14 +351,6 @@ restore_iterator(DB, #{
 %% Internal exports
 %%================================================================================
 
--define(topic_hash_matches(Bitstring, HashBitfilter, HashBitmask),
-    (Bitstring band HashBitmask) == HashBitfilter
-).
-
--define(time_matches(Bitstring, TimeBitfilter, TimeBitmask),
-    (Bitstring band TimeBitmask) >= TimeBitfilter
-).
-
 -spec bitsize(keymapper()) -> bits().
 bitsize(#keymapper{bitsize = Bitsize}) ->
     Bitsize.
@@ -424,8 +424,8 @@ compute_next_seek(
         time_bitmask = TimeBitmask
     }
 ) ->
-    HashMatches = ?topic_hash_matches(Bitstring, HashBitfilter, HashBitmask),
-    TimeMatches = ?time_matches(Bitstring, TimeBitfilter, TimeBitmask),
+    HashMatches = topic_hash_matches(Bitstring, HashBitfilter, HashBitmask),
+    TimeMatches = time_matches(Bitstring, TimeBitfilter, TimeBitmask),
     compute_next_seek(HashMatches, TimeMatches, Bitstring, Filter).
 
 %%================================================================================
@@ -508,8 +508,8 @@ match_next(
         time_bitmask = TimeBitmask
     }
 ) ->
-    HashMatches = ?topic_hash_matches(Bitstring, HashBitfilter, HashBitmask),
-    TimeMatches = ?time_matches(Bitstring, TimeBitfilter, TimeBitmask),
+    HashMatches = topic_hash_matches(Bitstring, HashBitfilter, HashBitmask),
+    TimeMatches = time_matches(Bitstring, TimeBitfilter, TimeBitmask),
     case HashMatches and TimeMatches of
         true ->
             Message = {Topic, _Payload} = unwrap_message_value(Value),
@@ -541,7 +541,7 @@ compute_next_seek(
         none ->
             none;
         _ ->
-            TimeMatches = ?time_matches(NextBitstring, TimeBitfilter, TimeBitmask),
+            TimeMatches = time_matches(NextBitstring, TimeBitfilter, TimeBitmask),
             compute_next_seek(true, TimeMatches, NextBitstring, Filter)
     end;
 %% `Bitstring` is out of the time range defined by `TimeBitfilter`.
@@ -557,6 +557,12 @@ compute_next_seek(
     compute_time_seek(Bitstring, TimeBitfilter, TimeBitmask);
 compute_next_seek(true, true, Bitstring, _It) ->
     Bitstring.
+
+topic_hash_matches(Bitstring, HashBitfilter, HashBitmask) ->
+    (Bitstring band HashBitmask) == HashBitfilter.
+
+time_matches(Bitstring, TimeBitfilter, TimeBitmask) ->
+    (Bitstring band TimeBitmask) >= TimeBitfilter.
 
 compute_time_seek(Bitstring, TimeBitfilter, TimeBitmask) ->
     % Replace the bits of the timestamp in `Bistring` with bits from `Timebitfilter`.
