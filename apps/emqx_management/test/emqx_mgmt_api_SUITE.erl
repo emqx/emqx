@@ -88,10 +88,9 @@ t_cluster_query(_Config) ->
 
         %% fuzzy searching can't return total
         {200, ClientsNode2} = query_clients(Node2, #{<<"like_username">> => <<"corenode2">>}),
-        ?assertMatch(
-            #{count := 0},
-            maps:get(meta, ClientsNode2)
-        ),
+        MetaNode2 = maps:get(meta, ClientsNode2),
+        ?assertNotMatch(#{count := _}, MetaNode2),
+        ?assertMatch(#{hasnext := false}, MetaNode2),
         ?assertMatch(10, length(maps:get(data, ClientsNode2))),
 
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
