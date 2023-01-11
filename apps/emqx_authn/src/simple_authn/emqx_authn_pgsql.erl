@@ -26,6 +26,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -49,6 +50,9 @@
 %%------------------------------------------------------------------------------
 
 namespace() -> "authn-postgresql".
+
+tags() ->
+    [<<"Authentication">>].
 
 roots() -> [?CONF_NS].
 

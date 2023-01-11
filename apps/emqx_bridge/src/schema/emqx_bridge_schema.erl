@@ -20,7 +20,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, desc/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
 -export([
     get_response/0,
@@ -103,6 +103,9 @@ metrics_status_fields() ->
 %% For config files
 
 namespace() -> "bridge".
+
+tags() ->
+    [<<"Bridge">>].
 
 roots() -> [bridges].
 

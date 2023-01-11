@@ -24,11 +24,18 @@ main(Args) ->
         ["hocon" | Rest] ->
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
-        ["check_license_key", Key] ->
-            check_license(#{key => list_to_binary(Key)});
+        ["check_license_key", Key0] ->
+            Key = cleanup_key(Key0),
+            check_license(#{key => Key});
         _ ->
             do(Args)
     end.
+
+%% the key is a string (list) representation of a binary, so we need
+%% to remove the leading and trailing angle brackets.
+cleanup_key(Str0) ->
+    Str1 = iolist_to_binary(string:replace(Str0, "<<", "", leading)),
+    iolist_to_binary(string:replace(Str1, ">>", "", trailing)).
 
 do(Args) ->
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
