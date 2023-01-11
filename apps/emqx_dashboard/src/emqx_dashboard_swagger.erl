@@ -705,7 +705,7 @@ typename_to_spec("service_account_json()", _Mod) ->
 typename_to_spec("#{" ++ _, Mod) ->
     typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
-    #{type => string, enum => [0, 1, 2]};
+    #{type => integer, minimum => 0, maximum => 2, example => 0};
 typename_to_spec("{binary(), binary()}", _Mod) ->
     #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
