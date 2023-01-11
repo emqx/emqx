@@ -23,7 +23,7 @@
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_quic.hrl").
 
--behavior(quicer_connection).
+-behaviour(quicer_connection).
 
 -export([
     init/1,

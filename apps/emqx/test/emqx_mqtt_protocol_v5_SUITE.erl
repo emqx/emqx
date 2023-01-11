@@ -65,7 +65,6 @@ init_per_group(quic, Config) ->
     UdpPort = 1884,
     emqx_common_test_helpers:start_apps([]),
     emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
-    emqx_logger:set_log_level(debug),
     [{port, UdpPort}, {conn_fun, quic_connect} | Config];
 init_per_group(_, Config) ->
     emqx_common_test_helpers:stop_apps([]),
