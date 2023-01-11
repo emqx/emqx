@@ -18,7 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1, multipart_formdata_request/3]).
+-import(emqx_dashboard_api_test_helpers, [multipart_formdata_request/3]).
+-import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -65,9 +66,8 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     emqx_config:erase(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY),
     _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_authn, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_authn]
     ),
 
     ?AUTHN:delete_chain(?GLOBAL),
@@ -76,12 +76,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authn]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_authn]),
     ok.
 
 %%------------------------------------------------------------------------------

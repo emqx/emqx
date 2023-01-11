@@ -29,6 +29,9 @@
     auth_header/2
 ]).
 
+-define(DEFAULT_APP_ID, <<"default_appid">>).
+-define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
+
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
 
@@ -74,12 +77,18 @@ auth_header(User, Pass) ->
     {"Authorization", "Basic " ++ Encoded}.
 
 default_auth_header() ->
-    AppId = <<"myappid">>,
-    AppSecret = emqx_mgmt_auth:get_appsecret(AppId),
-    auth_header(erlang:binary_to_list(AppId), erlang:binary_to_list(AppSecret)).
+    {ok, #{api_key := APIKey}} = emqx_mgmt_auth:read(?DEFAULT_APP_ID),
+    auth_header(
+        erlang:binary_to_list(APIKey), erlang:binary_to_list(?DEFAULT_APP_SECRET)
+    ).
 
 create_default_app() ->
-    emqx_mgmt_auth:add_app(<<"myappid">>, <<"test">>).
+    Now = erlang:system_time(second),
+    ExpiredAt = Now + timer:minutes(10),
+    emqx_mgmt_auth:create(
+        ?DEFAULT_APP_ID, ?DEFAULT_APP_SECRET, true, ExpiredAt, <<"default app key for test">>
+    ),
+    ok.
 
 delete_default_app() ->
-    emqx_mgmt_auth:del_app(<<"myappid">>).
+    emqx_mgmt_auth:delete(?DEFAULT_APP_ID).
