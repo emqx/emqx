@@ -93,9 +93,8 @@ init_per_suite(Config) ->
             "        }"
         >>
     ),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_dashboard, ?APP],
-        fun set_special_configs/1
+    emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, ?APP]
     ),
     Config.
 
@@ -109,12 +108,6 @@ end_per_testcase(t_get_basic_usage_info, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
     ok;
 end_per_testcase(_TestCase, _Config) ->
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
     ok.
 
 topic_config(T) ->
@@ -132,7 +125,7 @@ end_per_suite(_) ->
     application:unload(?APP),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_conf, ?APP]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, ?APP]).
 
 t_auto_subscribe(_) ->
     emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),

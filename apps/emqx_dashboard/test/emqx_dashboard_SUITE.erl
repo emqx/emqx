@@ -114,9 +114,9 @@ t_admin_delete_self_failed(_) ->
     ?assertEqual(1, length(Admins)),
     Header = auth_header_(<<"username1">>, <<"password">>),
     {error, {_, 400, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header),
-    Token = erlang:iolist_to_binary(["Basic ", base64:encode("username1:password")]),
+    Token = ["Basic ", base64:encode("username1:password")],
     Header2 = {"Authorization", Token},
-    {error, {_, 400, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header2),
+    {error, {_, 401, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header2),
     mnesia:clear_table(?ADMIN).
 
 t_rest_api(_Config) ->

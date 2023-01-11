@@ -225,21 +225,23 @@ t_create_unexpired_app(_Config) ->
     ok.
 
 list_app() ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Apps} -> {ok, emqx_json:decode(Apps, [return_maps])};
         Error -> Error
     end.
 
 read_app(Name) ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
 create_app(Name) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = #{
@@ -254,7 +256,7 @@ create_app(Name) ->
     end.
 
 create_unexpired_app(Name, Params) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
@@ -263,11 +265,12 @@ create_unexpired_app(Name, Params) ->
     end.
 
 delete_app(Name) ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     DeletePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+    emqx_mgmt_api_test_util:request_api(delete, DeletePath, AuthHeader).
 
 update_app(Name, Change) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
         {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};

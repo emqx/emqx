@@ -30,6 +30,8 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
+-import(emqx_dashboard_SUITE, [auth_header_/0]).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -329,13 +331,6 @@ t_stream_log(_Config) ->
 
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
-
-auth_header_() ->
-    auth_header_("admin", "public").
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
-    {"Authorization", "Basic " ++ Encoded}.
 
 request_api(Method, Url, Auth) -> do_request_api(Method, {Url, [Auth]}).
 
