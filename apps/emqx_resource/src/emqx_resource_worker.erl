@@ -293,6 +293,7 @@ pick_cast(Id, Key, Query) ->
     end).
 
 resume_from_blocked(Data) ->
+    #{inflight_tid := InflightTID} = Data,
     case inflight_get_first(InflightTID) of
         empty ->
             retry_queue(Data);
@@ -389,9 +390,13 @@ retry_queue(
     end.
 
 retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
-    #{id := Id, inflight_tid := InflightTID, index := Index, resume_interval := ResumeT} =
-        Data0
-        QueryOpts = #{},
+    #{
+        id := Id,
+        inflight_tid := InflightTID,
+        index := Index,
+        resume_interval := ResumeT
+    } = Data0,
+    QueryOpts = #{},
     %% if we are retrying an inflight query, it has been sent
     HasBeenSent = true,
     Result = call_query(sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
