@@ -105,7 +105,7 @@
 %% Debug/troubleshooting:
 %% Keymappers
 -export([
-    bitsize/1,
+    keymapper_info/1,
     compute_bitstring/3,
     compute_topic_bitmask/2,
     compute_time_bitmask/1,
@@ -390,9 +390,9 @@ refresh_iterator(It = #it{handle = Handle, cursor = Cursor, next_action = Action
 %% Internal exports
 %%================================================================================
 
--spec bitsize(keymapper()) -> bits().
-bitsize(#keymapper{bitsize = Bitsize}) ->
-    Bitsize.
+-spec keymapper_info(keymapper()) -> [bitsource()].
+keymapper_info(#keymapper{source = Source, bitsize = Bitsize, epoch = Epoch}) ->
+    #{source => Source, bitsize => Bitsize, epoch => Epoch}.
 
 make_message_key(Topic, PublishedAt, MessageID, Keymapper) ->
     combine(compute_bitstring(Topic, PublishedAt, Keymapper), MessageID, Keymapper).
