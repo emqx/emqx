@@ -204,6 +204,7 @@ jobs:
     - name: Get Token
       timeout-minutes: 10
       run: |
+        kubectl port-forward service/${{ matrix.profile }} 18083:18083 > /dev/null &
         while
           [ "$(curl --silent -X 'GET' 'http://127.0.0.1:18083/api/v5/status' | tail -n1)" != "emqx is running" ]
         do
@@ -217,7 +218,6 @@ jobs:
     - name: Check cluster
       timeout-minutes: 10
       run: |
-        kubectl port-forward service/${{ matrix.profile }} 18083:18083 > /dev/null &
         while
           [ "$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')" != "3" ];
         do
