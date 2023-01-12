@@ -20,7 +20,6 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("proper/include/proper.hrl").
 
 -define(ZONE, zone(?FUNCTION_NAME)).
 
@@ -116,6 +115,19 @@ t_iterate_wildcard(_Config) ->
     ),
     ok.
 
+t_iterate_long_tail_wildcard(_Config) ->
+    Topic = "b/c/d/e/f/g",
+    TopicFilter = "b/c/d/e/+/+",
+    Timestamps = lists:seq(1, 100),
+    _ = [
+        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+     || PublishedAt <- Timestamps
+    ],
+    ?assertEqual(
+        lists:sort([{"b/c/d/e/f/g", PublishedAt} || PublishedAt <- lists:seq(50, 100)]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, TopicFilter, 50)])
+    ).
+
 store(Zone, PublishedAt, Topic, Payload) ->
     ID = emqx_guid:gen(),
     emqx_replay_local_store:store(Zone, ID, PublishedAt, parse_topic(Topic), Payload).
@@ -137,127 +149,33 @@ parse_topic(Topic = [L | _]) when is_binary(L); is_atom(L) ->
 parse_topic(Topic) ->
     emqx_topic:words(iolist_to_binary(Topic)).
 
-%%
-
-t_prop_topic_hash_computes(_) ->
-    Keymapper = emqx_replay_message_storage:make_keymapper(#{
-        timestamp_bits => 32,
-        topic_bits_per_level => [8, 12, 16, 24],
-        epoch => 10000
-    }),
-    ?assert(
-        proper:quickcheck(
-            ?FORALL({Topic, Timestamp}, {topic(), integer()}, begin
-                BS = emqx_replay_message_storage:compute_bitstring(Topic, Timestamp, Keymapper),
-                is_integer(BS) andalso (BS < (1 bsl 92))
-            end)
-        )
-    ).
-
-t_prop_topic_bitmask_computes(_) ->
-    Keymapper = emqx_replay_message_storage:make_keymapper(#{
-        timestamp_bits => 16,
-        topic_bits_per_level => [8, 12, 16],
-        epoch => 100
-    }),
-    ?assert(
-        proper:quickcheck(
-            ?FORALL(TopicFilter, topic_filter(), begin
-                Mask = emqx_replay_message_storage:compute_topic_bitmask(TopicFilter, Keymapper),
-                is_integer(Mask) andalso (Mask < (1 bsl (36 + 6)))
-            end)
-        )
-    ).
-
-t_prop_iterate_stored_messages(_) ->
-    ?assertEqual(
-        true,
-        proper:quickcheck(
-            ?FORALL(
-                Streams,
-                messages(),
-                begin
-                    Stream = payload_gen:interleave_streams(Streams),
-                    ok = store_message_stream(?ZONE, Stream),
-                    % TODO actually verify some property
-                    true
-                end
-            )
-        )
-    ).
-
-store_message_stream(Zone, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
-    MessageID = <<ChunkNum:32>>,
-    PublishedAt = rand:uniform(ChunkNum),
-    ok = emqx_replay_local_store:store(Zone, MessageID, PublishedAt, Topic, Payload),
-    store_message_stream(Zone, payload_gen:next(Rest));
-store_message_stream(_Zone, []) ->
-    ok.
-
-messages() ->
-    ?LET(Topics, list(topic()), begin
-        [{Topic, payload_gen:binary_stream_gen(64)} || Topic <- Topics]
-    end).
-
-topic() ->
-    % TODO
-    % Somehow generate topic levels with variance according to the entropy distribution?
-    non_empty(list(topic_level())).
-
-topic(EntropyWeights) ->
-    ?LET(
-        L,
-        list(1),
-        ?SIZED(S, [topic_level(S * EW) || EW <- lists:sublist(EntropyWeights ++ L, length(L))])
-    ).
-
-topic_filter() ->
-    ?SUCHTHAT(
-        L,
-        non_empty(
-            list(
-                frequency([
-                    {5, topic_level()},
-                    {2, '+'},
-                    {1, '#'}
-                ])
-            )
-        ),
-        not lists:member('#', L) orelse lists:last(L) == '#'
-    ).
-
-% topic() ->
-%     ?LAZY(?SIZED(S, frequency([
-%         {S, [topic_level() | topic()]},
-%         {1, []}
-%     ]))).
-
-% topic_filter() ->
-%     ?LAZY(?SIZED(S, frequency([
-%         {round(S / 3 * 2), [topic_level() | topic_filter()]},
-%         {round(S / 3 * 1), ['+' | topic_filter()]},
-%         {1, []},
-%         {1, ['#']}
-%     ]))).
-
-topic_level() ->
-    ?LET(L, list(oneof([range($a, $z), range($0, $9)])), iolist_to_binary(L)).
-
-topic_level(Entropy) ->
-    S = floor(1 + math:log2(Entropy) / 4),
-    ?LET(I, range(1, Entropy), iolist_to_binary(io_lib:format("~*.16.0B", [S, I]))).
-
 %% CT callbacks
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(TC, Config) ->
+init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(emqx_replay),
+    Config.
+
+end_per_suite(_Config) ->
+    ok = application:stop(emqx_replay).
+
+init_per_testcase(TC, Config) ->
+    ok = set_zone_config(zone(TC), #{
+        timestamp_bits => 64,
+        topic_bits_per_level => [8, 8, 32, 16],
+        epoch => 5
+    }),
     {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
     Config.
 
-end_per_testcase(_TC, _Config) ->
-    ok = application:stop(emqx_replay).
+end_per_testcase(TC, _Config) ->
+    ok = emqx_replay_local_store_sup:stop_zone(zone(TC)).
 
 zone(TC) ->
     list_to_atom(?MODULE_STRING ++ atom_to_list(TC)).
+
+set_zone_config(Zone, Options) ->
+    ok = application:set_env(emqx_replay, zone_config, #{
+        Zone => {emqx_replay_message_storage, Options}
+    }).
