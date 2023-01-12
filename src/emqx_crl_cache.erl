@@ -147,6 +147,7 @@ handle_info({timeout, TRef, {refresh, URL}},
                     {noreply, ensure_timer(URL, State, ?RETRY_TIMEOUT)};
                 {ok, _CRLs} ->
                     ?LOG(debug, "fetched crl response for ~p", [URL]),
+                    ?tp(crl_refresh_timer_done, #{url => URL}),
                     {noreply, ensure_timer(URL, State)}
             end;
         _ ->
