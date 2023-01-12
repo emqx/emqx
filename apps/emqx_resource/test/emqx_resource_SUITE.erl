@@ -1219,6 +1219,44 @@ t_delete_and_re_create_with_same_name(_Config) ->
     ),
     ok.
 
+%% check that, if we configure a max queue size too small, then we
+%% never send requests and always overflow.
+t_always_overflow(_Config) ->
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            worker_pool_size => 1,
+            max_queue_bytes => 1,
+            resume_interval => 1_000
+        }
+    ),
+    ?check_trace(
+        begin
+            Payload = binary:copy(<<"a">>, 100),
+            %% since it's sync and it should never send a request, this
+            %% errors with `timeout'.
+            ?assertError(
+                timeout,
+                emqx_resource:query(
+                    ?ID,
+                    {big_payload, Payload},
+                    #{timeout => 500}
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(call_query_enter, Trace)),
+            ok
+        end
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

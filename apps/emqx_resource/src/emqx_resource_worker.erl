@@ -871,23 +871,23 @@ estimate_size(QItem) ->
 append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
     %% we must not append a raw binary because the marshaller will get
     %% lost.
+    Q0 = replayq:append(Q, Queries),
     Q2 =
-        case replayq:overflow(Q) of
+        case replayq:overflow(Q0) of
             Overflow when Overflow =< 0 ->
-                Q;
+                Q0;
             Overflow ->
                 PopOpts = #{bytes_limit => Overflow, count_limit => 999999999},
-                {Q1, QAckRef, Items2} = replayq:pop(Q, PopOpts),
+                {Q1, QAckRef, Items2} = replayq:pop(Q0, PopOpts),
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
                 emqx_resource_metrics:dropped_queue_full_inc(Id),
                 ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
                 Q1
         end,
-    Q3 = replayq:append(Q2, Queries),
-    emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q3)),
+    emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q2)),
     ?tp(resource_worker_appended_to_queue, #{id => Id, items => Queries}),
-    Q3.
+    Q2.
 
 -spec get_first_n_from_queue(replayq:q(), pos_integer()) ->
     empty | {replayq:q(), replayq:ack_ref(), [?QUERY(_From, _Request, _HasBeenSent)]}.
