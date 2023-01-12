@@ -387,11 +387,6 @@ on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = St
         ok ->
             {connected, State};
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "http_connector_get_status_failed",
-                reason => Reason,
-                state => State
-            }),
             {disconnected, State, Reason}
     end.
 
@@ -404,7 +399,7 @@ do_get_status(PoolName, Timeout) ->
                     ok;
                 {error, Reason} = Error ->
                     ?SLOG(error, #{
-                        msg => "ehttpc_health_check_failed",
+                        msg => "http_connector_get_status_failed",
                         reason => Reason,
                         worker => Worker
                     }),
