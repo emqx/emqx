@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_mqtt).
 
+-include("emqx_connector.hrl").
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -198,12 +200,10 @@ on_query_async(
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplyFun, Args}).
 
-on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
-    AutoReconn = maps:get(auto_reconnect, Conf, true),
+on_get_status(_InstId, #{name := InstanceId}) ->
     case emqx_connector_mqtt_worker:status(InstanceId) of
         connected -> connected;
-        _ when AutoReconn == true -> connecting;
-        _ when AutoReconn == false -> disconnected
+        _ -> connecting
     end.
 
 ensure_mqtt_worker_started(InstanceId, BridgeConf) ->
@@ -236,7 +236,6 @@ make_forward_confs(FrowardConf) ->
 basic_config(
     #{
         server := Server,
-        reconnect_interval := ReconnIntv,
         proto_ver := ProtoVer,
         bridge_mode := BridgeMode,
         clean_start := CleanStart,
@@ -252,7 +251,7 @@ basic_config(
         %% 30s
         connect_timeout => 30,
         auto_reconnect => true,
-        reconnect_interval => ReconnIntv,
+        reconnect_interval => ?AUTO_RECONNECT_INTERVAL,
         proto_ver => ProtoVer,
         %% Opening bridge_mode will form a non-standard mqtt connection message.
         %% A load balancing server (such as haproxy) is often set up before the emqx broker server.
