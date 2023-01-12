@@ -152,6 +152,9 @@ mongo_config(MongoHost, MongoPort0, rs = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Servers]
         ),
@@ -168,6 +171,9 @@ mongo_config(MongoHost, MongoPort0, sharded = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Servers]
         ),
@@ -184,6 +190,9 @@ mongo_config(MongoHost, MongoPort0, single = Type) ->
             "  server = ~p\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Server]
         ),
