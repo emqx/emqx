@@ -498,19 +498,19 @@ t_enable_disable_bridges(Config) ->
     } = jsx:decode(Bridge),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     %% disable it
-    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"stopped">>}, jsx:decode(Bridge2)),
     %% enable again
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge3)),
     %% enable an already started bridge
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge3)),
     %% disable it again
-    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
 
     {ok, 403, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
     ?assertEqual(
@@ -519,7 +519,7 @@ t_enable_disable_bridges(Config) ->
     ),
 
     %% enable a stopped bridge
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge4)),
     %% delete the bridge
@@ -673,6 +673,9 @@ operation_path(node, Oper, BridgeID) ->
     uri(["nodes", node(), "bridges", BridgeID, Oper]);
 operation_path(cluster, Oper, BridgeID) ->
     uri(["bridges", BridgeID, Oper]).
+
+enable_path(Enable, BridgeID) ->
+    uri(["bridges", BridgeID, "enable", Enable]).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).

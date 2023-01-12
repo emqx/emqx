@@ -36,6 +36,7 @@
 -export([
     '/bridges'/2,
     '/bridges/:id'/2,
+    '/bridges/:id/enable/:enable'/2,
     '/bridges/:id/:operation'/2,
     '/nodes/:node/bridges/:id/:operation'/2,
     '/bridges/:id/metrics'/2,
@@ -67,6 +68,7 @@ paths() ->
     [
         "/bridges",
         "/bridges/:id",
+        "/bridges/:id/enable/:enable",
         "/bridges/:id/:operation",
         "/nodes/:node/bridges/:id/:operation",
         "/bridges/:id/metrics",
@@ -89,7 +91,7 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([enable, disable, stop, restart]),
+            enum([stop, restart]),
             #{
                 in => path,
                 required => true,
@@ -131,6 +133,17 @@ param_path_id() ->
                 required => true,
                 example => <<"webhook:webhook_example">>,
                 desc => ?DESC("desc_param_path_id")
+            }
+        )}.
+
+param_path_enable() ->
+    {enable,
+        mk(
+            boolean(),
+            #{
+                in => path,
+                desc => ?DESC("desc_param_path_enable"),
+                example => true
             }
         )}.
 
@@ -367,12 +380,29 @@ schema("/bridges/:id/metrics/reset") ->
             }
         }
     };
+schema("/bridges/:id/enable/:enable") ->
+    #{
+        'operationId' => '/bridges/:id/enable/:enable',
+        put =>
+            #{
+                tags => [<<"bridges">>],
+                summary => <<"Enable or Disable Bridge">>,
+                desc => ?DESC("desc_enable_bridge"),
+                parameters => [param_path_id(), param_path_enable()],
+                responses =>
+                    #{
+                        204 => <<"Success">>,
+                        400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                    }
+            }
+    };
 schema("/bridges/:id/:operation") ->
     #{
         'operationId' => '/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Enable/Disable/Stop/Restart Bridge">>,
+            summary => <<"Stop or Restart Bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -515,6 +545,28 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Error -> Error
     end.
 
+'/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+    ?TRY_PARSE_ID(
+        Id,
+        case enable_func(Enable) of
+            invalid ->
+                {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
+            OperFunc ->
+                case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
+                    {ok, _} ->
+                        {204};
+                    {error, {pre_config_update, _, bridge_not_found}} ->
+                        {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                    {error, {_, _, timeout}} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                    {error, timeout} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                    {error, Reason} ->
+                        {500, error_msg('INTERNAL_ERROR', Reason)}
+                end
+        end
+    ).
+
 '/bridges/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op}
@@ -524,19 +576,6 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         case operation_func(Op) of
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
-            OperFunc when OperFunc == enable; OperFunc == disable ->
-                case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
-                    {ok, _} ->
-                        {200};
-                    {error, {pre_config_update, _, bridge_not_found}} ->
-                        {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
-                    {error, {_, _, timeout}} ->
-                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-                    {error, timeout} ->
-                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-                    {error, Reason} ->
-                        {500, error_msg('INTERNAL_ERROR', Reason)}
-                end;
             OperFunc ->
                 Nodes = mria_mnesia:running_nodes(),
                 operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName)
@@ -573,9 +612,11 @@ node_operation_func(_) -> invalid.
 
 operation_func(<<"stop">>) -> stop;
 operation_func(<<"restart">>) -> restart;
-operation_func(<<"enable">>) -> enable;
-operation_func(<<"disable">>) -> disable;
 operation_func(_) -> invalid.
+
+enable_func(<<"true">>) -> enable;
+enable_func(<<"false">>) -> disable;
+enable_func(_) -> invalid.
 
 operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
     RpcFunc =
