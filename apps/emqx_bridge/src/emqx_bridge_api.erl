@@ -36,8 +36,8 @@
 -export([
     '/bridges'/2,
     '/bridges/:id'/2,
-    '/bridges/:id/operation/:operation'/2,
-    '/nodes/:node/bridges/:id/operation/:operation'/2,
+    '/bridges/:id/:operation'/2,
+    '/nodes/:node/bridges/:id/:operation'/2,
     '/bridges/:id/reset_metrics'/2
 ]).
 
@@ -66,8 +66,8 @@ paths() ->
     [
         "/bridges",
         "/bridges/:id",
-        "/bridges/:id/operation/:operation",
-        "/nodes/:node/bridges/:id/operation/:operation",
+        "/bridges/:id/:operation",
+        "/nodes/:node/bridges/:id/:operation",
         "/bridges/:id/reset_metrics"
     ].
 
@@ -348,9 +348,9 @@ schema("/bridges/:id/reset_metrics") ->
             }
         }
     };
-schema("/bridges/:id/operation/:operation") ->
+schema("/bridges/:id/:operation") ->
     #{
-        'operationId' => '/bridges/:id/operation/:operation',
+        'operationId' => '/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Enable/Disable/Stop/Restart Bridge">>,
@@ -366,9 +366,9 @@ schema("/bridges/:id/operation/:operation") ->
             }
         }
     };
-schema("/nodes/:node/bridges/:id/operation/:operation") ->
+schema("/nodes/:node/bridges/:id/:operation") ->
     #{
-        'operationId' => '/nodes/:node/bridges/:id/operation/:operation',
+        'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Stop/Restart Bridge">>,
@@ -485,7 +485,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Error -> Error
     end.
 
-'/bridges/:id/operation/:operation'(post, #{
+'/bridges/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op}
 }) ->
@@ -513,7 +513,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         end
     ).
 
-'/nodes/:node/bridges/:id/operation/:operation'(post, #{
+'/nodes/:node/bridges/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op, node := Node}
 }) ->

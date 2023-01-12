@@ -600,9 +600,9 @@ t_with_redact_update(_Config) ->
     ok.
 
 operation_path(node, Oper, BridgeID) ->
-    uri(["nodes", node(), "bridges", BridgeID, "operation", Oper]);
+    uri(["nodes", node(), "bridges", BridgeID, Oper]);
 operation_path(cluster, Oper, BridgeID) ->
-    uri(["bridges", BridgeID, "operation", Oper]).
+    uri(["bridges", BridgeID, Oper]).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
