@@ -160,10 +160,12 @@ t_create_invalid_config(_Config) ->
     Config0 = raw_redis_auth_config(),
     Config = maps:without([<<"server">>], Config0),
     ?assertMatch(
-        {error,
-            {bad_authenticator_config, #{
-                reason := {emqx_authn_redis, [#{kind := validation_error}]}
-            }}},
+        {error, #{
+            kind := validation_error,
+            matched_type := "authn-redis:standalone",
+            path := "authentication.1.server",
+            reason := required_field
+        }},
         emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, Config})
     ),
     ?assertMatch([], emqx_config:get_raw([authentication])),

@@ -171,7 +171,14 @@ refs() ->
 
 refs(#{<<"mechanism">> := <<"jwt">>} = V) ->
     UseJWKS = maps:get(<<"use_jwks">>, V, undefined),
-    select_ref(UseJWKS, V).
+    select_ref(boolean(UseJWKS), V).
+
+%% this field is technically a boolean type,
+%% but union member selection is done before type casting (by typrefl),
+%% so we have to allow strings too
+boolean(<<"true">>) -> true;
+boolean(<<"false">>) -> false;
+boolean(Other) -> Other.
 
 select_ref(true, _) ->
     {ok, hoconsc:ref(?MODULE, 'jwks')};
@@ -180,7 +187,7 @@ select_ref(false, #{<<"public_key">> := _}) ->
 select_ref(false, _) ->
     {ok, hoconsc:ref(?MODULE, 'hmac-based')};
 select_ref(_, _) ->
-    {error, "use_jwks must be set"}.
+    {error, "use_jwks must be set to true or false"}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

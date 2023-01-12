@@ -52,6 +52,7 @@ end_per_testcase(_Case, Config) ->
 -define(CONF(Conf), #{?CONF_NS_BINARY => Conf}).
 
 t_check_schema(_Config) ->
+    Check = fun(C) -> emqx_config:check_config(emqx_schema, ?CONF(C)) end,
     ConfigOk = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
@@ -61,8 +62,7 @@ t_check_schema(_Config) ->
             <<"salt_rounds">> => <<"6">>
         }
     },
-
-    hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
+    _ = Check(ConfigOk),
 
     ConfigNotOk = #{
         <<"mechanism">> => <<"password_based">>,
@@ -72,11 +72,31 @@ t_check_schema(_Config) ->
             <<"name">> => <<"md6">>
         }
     },
+    ?assertThrow(
+        #{
+            path := "authentication.1.password_hash_algorithm.name",
+            matched_type := "authn-builtin_db:authentication/authn-hash:simple",
+            reason := unable_to_convert_to_enum_symbol
+        },
+        Check(ConfigNotOk)
+    ),
 
-    ?assertException(
-        throw,
-        {emqx_authn_mnesia, _},
-        hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))
+    ConfigMissingAlgoName = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"foo">> => <<"bar">>
+        }
+    },
+
+    ?assertThrow(
+        #{
+            path := "authentication.1.password_hash_algorithm",
+            reason := "algorithm_name_missing",
+            matched_type := "authn-builtin_db:authentication"
+        },
+        Check(ConfigMissingAlgoName)
     ).
 
 t_create(_) ->
