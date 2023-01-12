@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_replay_storage_SUITE).
+-module(emqx_replay_local_store_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
