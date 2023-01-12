@@ -65,8 +65,12 @@ start_listeners(Listeners) ->
         components => #{
             schemas => #{},
             'securitySchemes' => #{
-                'basicAuth' => #{type => http, scheme => basic},
-                'bearerAuth' => #{type => http, scheme => bearer}
+                'basicAuth' => #{
+                    type => http,
+                    scheme => basic,
+                    description =>
+                        <<"Authorize with [API Keys](https://www.emqx.io/docs/en/v5.0/admin/api.html#api-keys)">>
+                }
             }
         }
     },
@@ -215,28 +219,7 @@ listener_name(Protocol) ->
 authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(Username, Password) of
-                ok ->
-                    ok;
-                {error, <<"username_not_found">>} ->
-                    Path = cowboy_req:path(Req),
-                    case emqx_mgmt_auth:authorize(Path, Username, Password) of
-                        ok ->
-                            ok;
-                        {error, <<"not_allowed">>} ->
-                            return_unauthorized(
-                                ?WRONG_USERNAME_OR_PWD,
-                                <<"Check username/password">>
-                            );
-                        {error, _} ->
-                            return_unauthorized(
-                                ?WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
-                                <<"Check username/password or api_key/api_secret">>
-                            )
-                    end;
-                {error, _} ->
-                    return_unauthorized(?WRONG_USERNAME_OR_PWD, <<"Check username/password">>)
-            end;
+            api_key_authorize(Req, Username, Password);
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
@@ -269,3 +252,20 @@ i18n_file() ->
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], []).
+
+api_key_authorize(Req, Key, Secret) ->
+    Path = cowboy_req:path(Req),
+    case emqx_mgmt_auth:authorize(Path, Key, Secret) of
+        ok ->
+            ok;
+        {error, <<"not_allowed">>} ->
+            return_unauthorized(
+                ?BAD_API_KEY_OR_SECRET,
+                <<"Not allowed, Check api_key/api_secret">>
+            );
+        {error, _} ->
+            return_unauthorized(
+                ?BAD_API_KEY_OR_SECRET,
+                <<"Check api_key/api_secret">>
+            )
+    end.

@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -37,20 +37,14 @@ init_per_suite(Config) ->
         raw_with_default => true
     }),
 
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_modules, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_modules]
     ),
 
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_dashboard, emqx_modules]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_modules]),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -81,7 +75,7 @@ t_mqtt_topic_rewrite(_) ->
 
     ?assertEqual(
         Rules,
-        jsx:decode(Result)
+        emqx_json:decode(Result, [return_maps])
     ).
 
 t_mqtt_topic_rewrite_limit(_) ->

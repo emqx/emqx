@@ -47,7 +47,7 @@
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
--define(WRONG_USERNAME_OR_PWD, 'WRONG_USERNAME_OR_PWD').
+-define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(WRONG_TOKEN_OR_USERNAME, 'WRONG_TOKEN_OR_USERNAME').
 -define(USER_NOT_FOUND, 'USER_NOT_FOUND').
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
@@ -164,7 +164,7 @@ schema("/users/:username/change_pwd") ->
     }.
 
 response_schema(401) ->
-    emqx_dashboard_swagger:error_codes([?WRONG_USERNAME_OR_PWD], ?DESC(login_failed401));
+    emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
 response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
@@ -223,7 +223,7 @@ login(post, #{body := Params}) ->
             }};
         {error, R} ->
             ?SLOG(info, #{msg => "Dashboard login failed", username => Username, reason => R}),
-            {401, ?WRONG_USERNAME_OR_PWD, <<"Auth failed">>}
+            {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
     end.
 
 logout(_, #{

@@ -19,6 +19,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-import(emqx_dashboard_SUITE, [auth_header_/0]).
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -152,10 +154,6 @@ do_request_api(Method, Request) ->
         {error, Reason} ->
             {error, Reason}
     end.
-
-auth_header_() ->
-    Basic = binary_to_list(base64:encode(<<"admin:public">>)),
-    {"Authorization", "Basic " ++ Basic}.
 
 restart_monitor() ->
     OldMonitor = erlang:whereis(emqx_dashboard_monitor),
