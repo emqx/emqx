@@ -548,17 +548,20 @@ dialyzer(Config) ->
 
     AppsToExclude = AppNames -- KnownApps,
 
-    case length(AppsToAnalyse) > 0 of
-        true ->
-            lists:keystore(
-                dialyzer,
-                1,
-                Config,
-                {dialyzer, OldDialyzerConfig ++ [{exclude_apps, AppsToExclude}]}
-            );
-        false ->
-            Config
-    end.
+    Extra =
+        [bcrypt || provide_bcrypt_dep()] ++
+            [jq || is_jq_supported()] ++
+            [quicer || is_quicer_supported()],
+    NewDialyzerConfig =
+        OldDialyzerConfig ++
+            [{exclude_apps, AppsToExclude} || length(AppsToAnalyse) > 0] ++
+            [{plt_extra_apps, Extra} || length(Extra) > 0],
+    lists:keystore(
+        dialyzer,
+        1,
+        Config,
+        {dialyzer, NewDialyzerConfig}
+    ).
 
 coveralls() ->
     case {os:getenv("GITHUB_ACTIONS"), os:getenv("GITHUB_TOKEN")} of
