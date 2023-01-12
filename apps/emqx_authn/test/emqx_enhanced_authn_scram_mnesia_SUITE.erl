@@ -300,14 +300,14 @@ t_list_users(_) ->
 
     #{
         data := [?USER_MAP, ?USER_MAP],
-        meta := #{page := 1, limit := 2, count := 3}
+        meta := #{page := 1, limit := 2, count := 3, hasnext := true}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
         #{<<"page">> => 1, <<"limit">> => 2},
         State
     ),
     #{
         data := [?USER_MAP],
-        meta := #{page := 2, limit := 2, count := 3}
+        meta := #{page := 2, limit := 2, count := 3, hasnext := false}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
         #{<<"page">> => 2, <<"limit">> => 2},
         State
@@ -319,7 +319,7 @@ t_list_users(_) ->
                 is_superuser := _
             }
         ],
-        meta := #{page := 1, limit := 3, count := 0}
+        meta := #{page := 1, limit := 3, hasnext := false}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
         #{
             <<"page">> => 1,

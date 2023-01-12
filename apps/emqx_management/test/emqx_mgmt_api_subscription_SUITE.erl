@@ -44,9 +44,8 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
-t_subscription_api(_) ->
-    {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5}),
-    {ok, _} = emqtt:connect(Client),
+t_subscription_api(Config) ->
+    Client = proplists:get_value(client, Config),
     {ok, _, _} = emqtt:subscribe(
         Client, [
             {?TOPIC1, [{rh, ?TOPIC1RH}, {rap, ?TOPIC1RAP}, {nl, ?TOPIC1NL}, {qos, ?TOPIC1QOS}]}
@@ -84,40 +83,78 @@ t_subscription_api(_) ->
     ?assertEqual(maps:get(<<"topic">>, Subscriptions2), ?TOPIC2),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions2), ?CLIENTID),
 
-    QS = uri_string:compose_query([
+    QS = [
         {"clientid", ?CLIENTID},
         {"topic", ?TOPIC2_TOPIC_ONLY},
         {"node", atom_to_list(node())},
         {"qos", "0"},
         {"share_group", "test_group"},
         {"match_topic", "t/#"}
-    ]),
+    ],
     Headers = emqx_mgmt_api_test_util:auth_header_(),
 
-    {ok, ResponseTopic2} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
-    DataTopic2 = emqx_json:decode(ResponseTopic2, [return_maps]),
-    Meta2 = maps:get(<<"meta">>, DataTopic2),
+    DataTopic2 = #{<<"meta">> := Meta2} = request_json(get, QS, Headers),
     ?assertEqual(1, maps:get(<<"page">>, Meta2)),
     ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta2)),
     ?assertEqual(1, maps:get(<<"count">>, Meta2)),
     SubscriptionsList2 = maps:get(<<"data">>, DataTopic2),
-    ?assertEqual(length(SubscriptionsList2), 1),
+    ?assertEqual(length(SubscriptionsList2), 1).
 
-    MatchQs = uri_string:compose_query([
+t_subscription_fuzzy_search(Config) ->
+    Client = proplists:get_value(client, Config),
+    Topics = [
+        <<"t/foo">>,
+        <<"t/foo/bar">>,
+        <<"t/foo/baz">>,
+        <<"topic/foo/bar">>,
+        <<"topic/foo/baz">>
+    ],
+    _ = [{ok, _, _} = emqtt:subscribe(Client, T) || T <- Topics],
+
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    MatchQs = [
         {"clientid", ?CLIENTID},
         {"node", atom_to_list(node())},
-        {"qos", "0"},
         {"match_topic", "t/#"}
-    ]),
+    ],
 
-    {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(get, Path, MatchQs, Headers),
-    MatchData = emqx_json:decode(MatchRes, [return_maps]),
-    MatchMeta = maps:get(<<"meta">>, MatchData),
-    ?assertEqual(1, maps:get(<<"page">>, MatchMeta)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta)),
-    %% count equals 0 in fuzzy searching
-    ?assertEqual(0, maps:get(<<"count">>, MatchMeta)),
-    MatchSubs = maps:get(<<"data">>, MatchData),
-    ?assertEqual(1, length(MatchSubs)),
+    MatchData1 = #{<<"meta">> := MatchMeta1} = request_json(get, MatchQs, Headers),
+    ?assertEqual(1, maps:get(<<"page">>, MatchMeta1)),
+    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta1)),
+    %% count is undefined in fuzzy searching
+    ?assertNot(maps:is_key(<<"count">>, MatchMeta1)),
+    ?assertMatch(3, length(maps:get(<<"data">>, MatchData1))),
+    ?assertEqual(false, maps:get(<<"hasnext">>, MatchMeta1)),
 
+    LimitMatchQuery = [
+        {"clientid", ?CLIENTID},
+        {"match_topic", "+/+/+"},
+        {"limit", "3"}
+    ],
+
+    MatchData2 = #{<<"meta">> := MatchMeta2} = request_json(get, LimitMatchQuery, Headers),
+    ?assertEqual(#{<<"page">> => 1, <<"limit">> => 3, <<"hasnext">> => true}, MatchMeta2),
+    ?assertEqual(3, length(maps:get(<<"data">>, MatchData2))),
+
+    MatchData2P2 =
+        #{<<"meta">> := MatchMeta2P2} =
+        request_json(get, [{"page", "2"} | LimitMatchQuery], Headers),
+    ?assertEqual(#{<<"page">> => 2, <<"limit">> => 3, <<"hasnext">> => false}, MatchMeta2P2),
+    ?assertEqual(1, length(maps:get(<<"data">>, MatchData2P2))).
+
+request_json(Method, Query, Headers) when is_list(Query) ->
+    Qs = uri_string:compose_query(Query),
+    {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),
+    emqx_json:decode(MatchRes, [return_maps]).
+
+path() ->
+    emqx_mgmt_api_test_util:api_path(["subscriptions"]).
+
+init_per_testcase(_TC, Config) ->
+    {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5}),
+    {ok, _} = emqtt:connect(Client),
+    [{client, Client} | Config].
+
+end_per_testcase(_TC, Config) ->
+    Client = proplists:get_value(client, Config),
     emqtt:disconnect(Client).

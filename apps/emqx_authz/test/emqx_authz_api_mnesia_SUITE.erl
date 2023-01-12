@@ -92,7 +92,8 @@ t_api(_) ->
         <<"meta">> := #{
             <<"count">> := 1,
             <<"limit">> := 100,
-            <<"page">> := 1
+            <<"page">> := 1,
+            <<"hasnext">> := false
         }
     } = jsx:decode(Request1),
     ?assertEqual(3, length(Rules1)),
@@ -111,9 +112,9 @@ t_api(_) ->
     #{
         <<"data">> := [],
         <<"meta">> := #{
-            <<"count">> := 0,
             <<"limit">> := 20,
-            <<"page">> := 1
+            <<"page">> := 1,
+            <<"hasnext">> := false
         }
     } = jsx:decode(Request1_1),
 
