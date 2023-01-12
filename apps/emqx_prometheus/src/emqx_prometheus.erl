@@ -112,7 +112,7 @@ handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Uri, Headers0, JobName) when is_map(Headers0) ->
+push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     JobName1 = emqx_placeholder:preproc_tmpl(JobName),
     JobName2 = binary_to_list(
@@ -124,21 +124,15 @@ push_to_push_gateway(Uri, Headers0, JobName) when is_map(Headers0) ->
 
     Url = lists:concat([Uri, "/metrics/job/", JobName2]),
     Data = prometheus_text_format:format(),
-    Headers = maps:fold(
-        fun(K, V, Acc) ->
-            [{atom_to_list(K), binary_to_list(V)} | Acc]
-        end,
-        [],
-        Headers0
-    ),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
-        {ok, {{"HTTP/1.1", 200, _}, _Headers, _Body}} ->
+        {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
         Error ->
             ?SLOG(error, #{
                 msg => "post_to_push_gateway_failed",
                 error => Error,
-                url => Url
+                url => Url,
+                headers => Headers
             }),
             failed
     end.

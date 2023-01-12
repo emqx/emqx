@@ -708,6 +708,8 @@ typename_to_spec("qos()", _Mod) ->
     #{type => integer, minimum => 0, maximum => 2, example => 0};
 typename_to_spec("{binary(), binary()}", _Mod) ->
     #{type => object, example => #{}};
+typename_to_spec("{string(), string()}", _Mod) ->
+    #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_binary()", _Mod) ->

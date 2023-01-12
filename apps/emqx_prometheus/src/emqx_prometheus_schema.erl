@@ -25,7 +25,8 @@
     roots/0,
     fields/1,
     desc/1,
-    translation/1
+    translation/1,
+    convert_headers/1
 ]).
 
 namespace() -> "prometheus".
@@ -54,10 +55,11 @@ fields("prometheus") ->
             )},
         {headers,
             ?HOCON(
-                map(),
+                list({string(), string()}),
                 #{
                     default => #{},
                     required => false,
+                    converter => fun ?MODULE:convert_headers/1,
                     desc => ?DESC(headers)
                 }
             )},
@@ -144,6 +146,17 @@ fields("prometheus") ->
 
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
+
+convert_headers(Headers) when is_map(Headers) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            [{binary_to_list(K), binary_to_list(V)} | Acc]
+        end,
+        [],
+        Headers
+    );
+convert_headers(Headers) when is_list(Headers) ->
+    Headers.
 
 %% for CI test, CI don't load the whole emqx_conf_schema.
 translation(Name) ->
