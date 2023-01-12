@@ -91,7 +91,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,
-        config => Config
+        config => emqx_misc:redact(Config)
     }),
     SslOpts =
         case maps:get(enable, SSL) of
