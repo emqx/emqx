@@ -28,13 +28,14 @@
 %%--------------------------------------------------------------------
 
 prop_bitstring_computes() ->
-    ?FORALL(Keymapper, keymapper(), begin
-        Bitsize = emqx_replay_message_storage:bitsize(Keymapper),
+    ?FORALL(
+        Keymapper,
+        keymapper(),
         ?FORALL({Topic, Timestamp}, {topic(), integer()}, begin
             BS = emqx_replay_message_storage:compute_bitstring(Topic, Timestamp, Keymapper),
-            is_integer(BS) andalso (BS < (1 bsl Bitsize))
+            is_integer(BS) andalso (BS < (1 bsl get_keymapper_bitsize(Keymapper)))
         end)
-    end).
+    ).
 
 prop_topic_bitmask_computes() ->
     Keymapper = make_keymapper(16, [8, 12, 16], 100),
@@ -56,7 +57,7 @@ prop_next_seek_monotonic() ->
             ),
             ?FORALL(
                 Bitstring,
-                bitstr(emqx_replay_message_storage:bitsize(Keymapper)),
+                bitstr(get_keymapper_bitsize(Keymapper)),
                 emqx_replay_message_storage:compute_next_seek(Bitstring, Filter) >= Bitstring
             )
         end
@@ -435,6 +436,9 @@ make_keymapper(TimestampBits, TopicBits, MaxEpoch) ->
         topic_bits_per_level => TopicBits,
         epoch => MaxEpoch
     }).
+
+get_keymapper_bitsize(Keymapper) ->
+    maps:get(bitsize, emqx_replay_message_storage:keymapper_info(Keymapper)).
 
 -spec interleave(list({Tag, list(E)}), rand:state()) -> list({Tag, E}).
 interleave(Seqs, Rng) ->
