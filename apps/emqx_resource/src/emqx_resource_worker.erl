@@ -1020,10 +1020,10 @@ queue_count(Q) ->
 
 disk_queue_dir(Id, Index) ->
     QDir0 = binary_to_list(Id) ++ "_" ++ integer_to_list(Index),
-    QDir = sanitizy_file_path(QDir0),
+    QDir = sanitize_file_path(QDir0),
     filename:join([emqx:data_dir(), "bufs", node(), QDir]).
 
-sanitizy_file_path(Filepath) ->
+sanitize_file_path(Filepath) ->
     iolist_to_binary(string:replace(Filepath, ":", "_", all)).
 
 clear_disk_queue_dir(Id, Index) ->
