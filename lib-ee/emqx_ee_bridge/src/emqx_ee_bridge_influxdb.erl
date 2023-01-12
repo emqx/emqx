@@ -196,32 +196,24 @@ to_influx_lines(RawLines) ->
 converter_influx_line(Line, AccIn) ->
     case string:tokens(str(Line), " ") of
         [MeasurementAndTags, Fields, Timestamp] ->
-            {Measurement, Tags} = split_measurement_and_tags(MeasurementAndTags),
-            [
-                #{
-                    measurement => Measurement,
-                    tags => kv_pairs(Tags),
-                    fields => kv_pairs(string:tokens(Fields, ",")),
-                    timestamp => Timestamp
-                }
-                | AccIn
-            ];
+            append_influx_item(MeasurementAndTags, Fields, Timestamp, AccIn);
         [MeasurementAndTags, Fields] ->
-            {Measurement, Tags} = split_measurement_and_tags(MeasurementAndTags),
-            %% TODO: fix here both here and influxdb driver.
-            %% Default value should evaluated by InfluxDB.
-            [
-                #{
-                    measurement => Measurement,
-                    tags => kv_pairs(Tags),
-                    fields => kv_pairs(string:tokens(Fields, ",")),
-                    timestamp => "${timestamp}"
-                }
-                | AccIn
-            ];
+            append_influx_item(MeasurementAndTags, Fields, undefined, AccIn);
         _ ->
             throw("Bad InfluxDB Line Protocol schema")
     end.
+
+append_influx_item(MeasurementAndTags, Fields, Timestamp, Acc) ->
+    {Measurement, Tags} = split_measurement_and_tags(MeasurementAndTags),
+    [
+        #{
+            measurement => Measurement,
+            tags => kv_pairs(Tags),
+            fields => kv_pairs(string:tokens(Fields, ",")),
+            timestamp => Timestamp
+        }
+        | Acc
+    ].
 
 split_measurement_and_tags(Subject) ->
     case string:tokens(Subject, ",") of

@@ -525,7 +525,6 @@ t_start_ok(Config) ->
     SentData = #{
         <<"clientid">> => ClientId,
         <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"timestamp">> => erlang:system_time(nanosecond),
         <<"payload">> => Payload
     },
     ?check_trace(
