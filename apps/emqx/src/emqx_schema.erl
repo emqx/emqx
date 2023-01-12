@@ -328,7 +328,7 @@ fields("stats") ->
     ];
 fields("authorization") ->
     authz_fields();
-fields("cache") ->
+fields("authz_cache") ->
     [
         {"enable",
             sc(
@@ -1684,7 +1684,7 @@ desc("mqtt") ->
     "Global MQTT configuration.<br/>"
     "The configs here work as default values which can be overridden\n"
     "in <code>zone</code> configs";
-desc("cache") ->
+desc("authz_cache") ->
     "Settings for the authorization cache.";
 desc("zone") ->
     "A `Zone` defines a set of configuration items (such as the maximum number of connections)"
@@ -2090,7 +2090,7 @@ authz_fields() ->
             )},
         {"cache",
             sc(
-                ref(?MODULE, "cache"),
+                ref(?MODULE, "authz_cache"),
                 #{}
             )}
     ].
