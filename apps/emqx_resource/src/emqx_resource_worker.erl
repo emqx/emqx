@@ -238,10 +238,12 @@ blocked(info, Info, _Data) ->
     keep_state_and_data.
 
 terminate(_Reason, #{id := Id, index := Index, queue := Q}) ->
-    emqx_resource_metrics:inflight_set(Id, Index, 0),
-    emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q)),
-    gproc_pool:disconnect_worker(Id, {Id, Index}),
     replayq:close(Q),
+    emqx_resource_metrics:inflight_set(Id, Index, 0),
+    %% since we want volatile queues, this will be 0 after
+    %% termination.
+    emqx_resource_metrics:queuing_set(Id, Index, 0),
+    gproc_pool:disconnect_worker(Id, {Id, Index}),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
