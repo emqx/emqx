@@ -449,7 +449,7 @@ is_ok(ResL) ->
 
 get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
-    Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
+    Schema = emqx_hocon:make_schema(emqx_authz_schema:authz_fields()),
     Conf = #{<<"sources">> => RawSources},
     #{<<"sources">> := Sources} = hocon_tconf:make_serializable(Schema, Conf, #{}),
     merge_default_headers(Sources).

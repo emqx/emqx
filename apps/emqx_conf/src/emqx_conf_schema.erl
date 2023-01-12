@@ -947,8 +947,8 @@ fields("log_burst_limit") ->
             )}
     ];
 fields("authorization") ->
-    emqx_schema:fields("authorization") ++
-        emqx_authz_schema:fields("authorization").
+    emqx_schema:authz_fields() ++
+        emqx_authz_schema:authz_fields().
 
 desc("cluster") ->
     ?DESC("desc_cluster");
