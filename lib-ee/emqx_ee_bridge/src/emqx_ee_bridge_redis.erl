@@ -126,7 +126,7 @@ method_fileds(get, ConnectorType) ->
     redis_bridge_common_fields() ++
         connector_fields(ConnectorType) ++
         type_name_fields(ConnectorType) ++
-        emqx_bridge_schema:metrics_status_fields();
+        emqx_bridge_schema:status_fields();
 method_fileds(put, ConnectorType) ->
     redis_bridge_common_fields() ++
         connector_fields(ConnectorType).
