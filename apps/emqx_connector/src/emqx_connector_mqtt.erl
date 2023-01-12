@@ -149,7 +149,7 @@ on_start(InstId, Conf) ->
     ?SLOG(info, #{
         msg => "starting_mqtt_connector",
         connector => InstanceId,
-        config => Conf
+        config => emqx_misc:redact(Conf)
     }),
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
