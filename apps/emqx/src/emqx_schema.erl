@@ -114,6 +114,7 @@
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
+-export([authz_fields/0]).
 -export([sc/2, map/2]).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -326,31 +327,7 @@ fields("stats") ->
             )}
     ];
 fields("authorization") ->
-    [
-        {"no_match",
-            sc(
-                hoconsc:enum([allow, deny]),
-                #{
-                    default => allow,
-                    required => true,
-                    desc => ?DESC(fields_authorization_no_match)
-                }
-            )},
-        {"deny_action",
-            sc(
-                hoconsc:enum([ignore, disconnect]),
-                #{
-                    default => ignore,
-                    required => true,
-                    desc => ?DESC(fields_authorization_deny_action)
-                }
-            )},
-        {"cache",
-            sc(
-                ref(?MODULE, "cache"),
-                #{}
-            )}
-    ];
+    authz_fields();
 fields("cache") ->
     [
         {"enable",
@@ -2090,6 +2067,33 @@ do_default_ciphers(quic) ->
 do_default_ciphers(_) ->
     %% otherwise resolve default ciphers list at runtime
     [].
+
+authz_fields() ->
+    [
+        {"no_match",
+            sc(
+                hoconsc:enum([allow, deny]),
+                #{
+                    default => allow,
+                    required => true,
+                    desc => ?DESC(fields_authorization_no_match)
+                }
+            )},
+        {"deny_action",
+            sc(
+                hoconsc:enum([ignore, disconnect]),
+                #{
+                    default => ignore,
+                    required => true,
+                    desc => ?DESC(fields_authorization_deny_action)
+                }
+            )},
+        {"cache",
+            sc(
+                ref(?MODULE, "cache"),
+                #{}
+            )}
+    ].
 
 %% @private return a list of keys in a parent field
 -spec keys(string(), hocon:config()) -> [string()].

@@ -36,7 +36,8 @@
     tags/0,
     fields/1,
     validations/0,
-    desc/1
+    desc/1,
+    authz_fields/0
 ]).
 
 -export([
@@ -74,23 +75,7 @@ tags() ->
 roots() -> [].
 
 fields("authorization") ->
-    Types = [?R_REF(Type) || Type <- type_names()],
-    UnionMemberSelector =
-        fun
-            (all_union_members) -> Types;
-            %% must return list
-            ({value, Value}) -> [select_union_member(Value)]
-        end,
-    [
-        {sources,
-            ?HOCON(
-                ?ARRAY(?UNION(UnionMemberSelector)),
-                #{
-                    default => [],
-                    desc => ?DESC(sources)
-                }
-            )}
-    ];
+    authz_fields();
 fields(file) ->
     authz_common_fields(file) ++
         [{path, ?HOCON(string(), #{required => true, desc => ?DESC(path)})}];
@@ -492,3 +477,22 @@ select_union_member_loop(TypeValue, [Type | Types]) ->
         false ->
             select_union_member_loop(TypeValue, Types)
     end.
+
+authz_fields() ->
+    Types = [?R_REF(Type) || Type <- type_names()],
+    UnionMemberSelector =
+        fun
+            (all_union_members) -> Types;
+            %% must return list
+            ({value, Value}) -> [select_union_member(Value)]
+        end,
+    [
+        {sources,
+            ?HOCON(
+                ?ARRAY(?UNION(UnionMemberSelector)),
+                #{
+                    default => [],
+                    desc => ?DESC(sources)
+                }
+            )}
+    ].
