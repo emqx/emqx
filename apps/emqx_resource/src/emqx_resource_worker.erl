@@ -206,12 +206,12 @@ running(info, Info, _St) ->
 
 blocked(enter, _, #{resume_interval := ResumeT} = _St) ->
     ?tp(resource_worker_enter_blocked, #{}),
-    {keep_state_and_data, {state_timeout, ResumeT, resume}};
+    {keep_state_and_data, {state_timeout, ResumeT, unblock}};
 blocked(cast, block, _St) ->
     keep_state_and_data;
 blocked(cast, resume, St) ->
     resume_from_blocked(St);
-blocked(state_timeout, resume, St) ->
+blocked(state_timeout, unblock, St) ->
     resume_from_blocked(St);
 blocked(info, ?SEND_REQ(_ReqFrom, {query, _Request, _Opts}) = Request0, Data0) ->
     #{id := Id} = Data0,
@@ -310,7 +310,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         {true, PostFn} ->
             PostFn(),
             ?tp(resource_worker_retry_inflight_failed, #{query_or_batch => QueryOrBatch}),
-            {keep_state, Data0, {state_timeout, ResumeT, resume}};
+            {keep_state, Data0, {state_timeout, ResumeT, unblock}};
         %% Send ok or failed but the resource is working
         {false, PostFn} ->
             IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
