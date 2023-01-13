@@ -145,14 +145,18 @@ on_query(_InstId, {send_message, Message}, #{message_template := Template, produ
     {_Partition, _Pid} = wolff:send(Producers, [KafkaMessage], {fun ?MODULE:on_kafka_ack/3, [#{}]}),
     {async_return, ok}.
 
-compile_message_template(#{
-    key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate
-}) ->
+compile_message_template(T) ->
+    KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
+    ValueTemplate = maps:get(value, T, <<"${.}">>),
+    TimestampTemplate = maps:get(value, T, <<"${.timestamp}">>),
     #{
-        key => emqx_plugin_libs_rule:preproc_tmpl(KeyTemplate),
-        value => emqx_plugin_libs_rule:preproc_tmpl(ValueTemplate),
-        timestamp => emqx_plugin_libs_rule:preproc_tmpl(TimestampTemplate)
+        key => preproc_tmpl(KeyTemplate),
+        value => preproc_tmpl(ValueTemplate),
+        timestamp => preproc_tmpl(TimestampTemplate)
     }.
+
+preproc_tmpl(Tmpl) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Tmpl).
 
 render_message(
     #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate}, Message
@@ -164,7 +168,14 @@ render_message(
     }.
 
 render(Template, Message) ->
-    emqx_plugin_libs_rule:proc_tmpl(Template, Message).
+    Opts = #{
+        var_trans => fun
+            (undefined) -> <<"">>;
+            (X) -> emqx_plugin_libs_rule:bin(X)
+        end,
+        return => full_binary
+    },
+    emqx_plugin_libs_rule:proc_tmpl(Template, Message, Opts).
 
 render_timestamp(Template, Message) ->
     try

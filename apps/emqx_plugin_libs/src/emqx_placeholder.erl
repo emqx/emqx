@@ -298,7 +298,7 @@ replace_with(Tmpl, RE, '$n') ->
         ),
     Res.
 parse_nested(<<".", R/binary>>) ->
-    %% ignroe the root .
+    %% ignore the root .
     parse_nested(R);
 parse_nested(Attr) ->
     case string:split(Attr, <<".">>, all) of

@@ -260,7 +260,11 @@ kafka_bridge_rest_api_helper(Config) ->
                 topic => <<"t/#">>
             },
             <<"kafka">> => #{
-                <<"topic">> => erlang:list_to_binary(KafkaTopic)
+                <<"topic">> => erlang:list_to_binary(KafkaTopic),
+                <<"message">> => #{
+                    <<"key">> => <<"${clientid}">>,
+                    <<"value">> => <<"${.payload}">>
+                }
             }
         }
     },
@@ -501,6 +505,7 @@ producer = {
     }
     kafka = {
         topic = \"{{ kafka_topic }}\"
+        message = {key = \"${clientid}\", value = \"${.payload}\"}
     }
 }
 """.
