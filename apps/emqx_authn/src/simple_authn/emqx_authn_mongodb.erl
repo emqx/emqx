@@ -138,7 +138,10 @@ refs(#{<<"mongo_type">> := <<"rs">>}) ->
 refs(#{<<"mongo_type">> := <<"sharded">>}) ->
     {ok, hoconsc:ref(?MODULE, 'sharded-cluster')};
 refs(_) ->
-    {error, "unknown 'mongo_type'"}.
+    {error, #{
+        field_name => mongo_type,
+        expected => "single | rs | sharded"
+    }}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

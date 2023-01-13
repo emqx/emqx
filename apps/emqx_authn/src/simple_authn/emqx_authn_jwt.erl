@@ -187,7 +187,10 @@ select_ref(false, #{<<"public_key">> := _}) ->
 select_ref(false, _) ->
     {ok, hoconsc:ref(?MODULE, 'hmac-based')};
 select_ref(_, _) ->
-    {error, "use_jwks must be set to true or false"}.
+    {error, #{
+        field_name => use_jwks,
+        expected => "true | false"
+    }}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

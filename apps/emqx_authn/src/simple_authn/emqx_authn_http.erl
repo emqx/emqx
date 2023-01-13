@@ -165,7 +165,10 @@ refs(#{<<"method">> := <<"get">>}) ->
 refs(#{<<"method">> := <<"post">>}) ->
     {ok, hoconsc:ref(?MODULE, post)};
 refs(_) ->
-    {error, "'http' auth backend must have get|post as 'method'"}.
+    {error, #{
+        field_name => method,
+        expected => "get | post"
+    }}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

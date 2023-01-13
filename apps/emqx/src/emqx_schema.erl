@@ -2363,12 +2363,12 @@ authentication(Which) ->
             Module ->
                 Module:root_type()
         end,
-    hoconsc:mk(Type, #{desc => Desc, converter => fun ensure_array/1}).
+    hoconsc:mk(Type, #{desc => Desc, converter => fun ensure_array/2}).
 
 %% the older version schema allows individual element (instead of a chain) in config
-ensure_array(undefined) -> undefined;
-ensure_array(L) when is_list(L) -> L;
-ensure_array(M) when is_map(M) -> [M].
+ensure_array(undefined, _) -> undefined;
+ensure_array(L, _) when is_list(L) -> L;
+ensure_array(M, _) -> [M].
 
 -spec qos() -> typerefl:type().
 qos() ->

@@ -69,80 +69,53 @@ union_member_selector(Providers) ->
         ({value, Value}) -> select_union_member(Value, Providers)
     end.
 
-select_union_member(#{<<"mechanism">> := _} = Value, Providers) ->
-    select_union_member(Value, Providers, #{});
-select_union_member(_Value, _) ->
-    throw(#{hint => "missing 'mechanism' field"}).
-
-select_union_member(Value, [], ReasonsMap) when ReasonsMap =:= #{} ->
+select_union_member(#{<<"mechanism">> := _} = Value, Providers0) ->
     BackendVal = maps:get(<<"backend">>, Value, undefined),
     MechanismVal = maps:get(<<"mechanism">>, Value),
-    throw(#{
-        backend => BackendVal,
-        mechanism => MechanismVal,
-        hint => "unknown_mechanism_or_backend"
-    });
-select_union_member(_Value, [], ReasonsMap) ->
-    throw(ReasonsMap);
-select_union_member(Value, [Provider | Providers], ReasonsMap) ->
-    {Mechanism, Backend, Module} =
-        case Provider of
-            {{M, B}, Mod} -> {atom_to_binary(M), atom_to_binary(B), Mod};
-            {M, Mod} when is_atom(M) -> {atom_to_binary(M), undefined, Mod}
-        end,
-    case do_select_union_member(Mechanism, Backend, Module, Value) of
-        {ok, Type} ->
-            [Type];
-        {error, nomatch} ->
-            %% obvious mismatch, do not complain
-            %% e.g. when 'backend' is "http", but the value is "redis",
-            %% then there is no need to record the error like
-            %% "'http' is exepcted but got 'redis'"
-            select_union_member(Value, Providers, ReasonsMap);
-        {error, Reason} ->
-            %% more interesting error message
-            %% e.g. when 'backend' is "http", but there is no "method" field
-            %% found so there is no way to tell if it's the 'get' type or 'post' type.
-            %% hence the error message is like:
-            %% #{emqx_auth_http => "'http' auth backend must have get|post as 'method'"}
-            select_union_member(Value, Providers, ReasonsMap#{Module => Reason})
-    end.
-
-do_select_union_member(Mechanism, Backend, Module, Value) ->
-    BackendVal = maps:get(<<"backend">>, Value, undefined),
-    MechanismVal = maps:get(<<"mechanism">>, Value),
-    case MechanismVal =:= Mechanism of
-        true when Backend =:= undefined ->
-            case BackendVal =:= undefined of
-                true ->
-                    %% e.g. jwt has no 'backend'
-                    try_select_union_member(Module, Value);
-                false ->
-                    {error, "unexpected 'backend' for " ++ binary_to_list(Mechanism)}
-            end;
-        true ->
-            case Backend =:= BackendVal of
-                true ->
-                    try_select_union_member(Module, Value);
-                false ->
-                    %% 'backend' not matching
-                    {error, nomatch}
-            end;
-        false ->
-            %% 'mechanism' not matching
-            {error, nomatch}
-    end.
+    BackendFilterFn = fun
+        ({{_Mec, Backend}, _Mod}) ->
+            BackendVal =:= atom_to_binary(Backend);
+        (_) ->
+            BackendVal =:= undefined
+    end,
+    MechanismFilterFn = fun
+        ({{Mechanism, _Backend}, _Mod}) ->
+            MechanismVal =:= atom_to_binary(Mechanism);
+        ({Mechanism, _Mod}) ->
+            MechanismVal =:= atom_to_binary(Mechanism)
+    end,
+    case lists:filter(BackendFilterFn, Providers0) of
+        [] ->
+            throw(#{reason => "unknown_backend", backend => BackendVal});
+        Providers1 ->
+            case lists:filter(MechanismFilterFn, Providers1) of
+                [] ->
+                    throw(#{
+                        reason => "unsupported_mechanism",
+                        mechanism => MechanismVal,
+                        backend => BackendVal
+                    });
+                [{_, Module}] ->
+                    try_select_union_member(Module, Value)
+            end
+    end;
+select_union_member(Value, _Providers) when is_map(Value) ->
+    throw(#{reason => "missing_mechanism_field"});
+select_union_member(Value, _Providers) ->
+    throw(#{reason => "not_a_struct", value => Value}).
 
 try_select_union_member(Module, Value) ->
-    try
-        %% some modules have refs/1 exported to help selectin the sub-types
-        %% emqx_authn_http, emqx_authn_jwt, emqx_authn_mongodb and emqx_authn_redis
-        Module:refs(Value)
+    %% some modules have refs/1 exported to help selectin the sub-types
+    %% emqx_authn_http, emqx_authn_jwt, emqx_authn_mongodb and emqx_authn_redis
+    try Module:refs(Value) of
+        {ok, Type} ->
+            [Type];
+        {error, Reason} ->
+            throw(Reason)
     catch
         error:undef ->
             %% otherwise expect only one member from this module
-            [Type] = Module:refs(),
-            {ok, Type}
+            Module:refs()
     end.
 
 %% authn is a core functionality however implemented outside of emqx app

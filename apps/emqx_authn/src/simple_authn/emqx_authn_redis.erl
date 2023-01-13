@@ -105,7 +105,10 @@ refs(#{<<"redis_type">> := <<"cluster">>}) ->
 refs(#{<<"redis_type">> := <<"sentinel">>}) ->
     {ok, hoconsc:ref(?MODULE, sentinel)};
 refs(_) ->
-    {error, "unknown 'redis_type'"}.
+    {error, #{
+        field_name => redis_type,
+        expected => "single | cluster | sentinel"
+    }}.
 
 create(_AuthenticatorID, Config) ->
     create(Config).

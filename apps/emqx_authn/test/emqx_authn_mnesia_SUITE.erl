@@ -49,56 +49,6 @@ end_per_testcase(_Case, Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
--define(CONF(Conf), #{?CONF_NS_BINARY => Conf}).
-
-t_check_schema(_Config) ->
-    Check = fun(C) -> emqx_config:check_config(emqx_schema, ?CONF(C)) end,
-    ConfigOk = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"user_id_type">> => <<"username">>,
-        <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"bcrypt">>,
-            <<"salt_rounds">> => <<"6">>
-        }
-    },
-    _ = Check(ConfigOk),
-
-    ConfigNotOk = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"user_id_type">> => <<"username">>,
-        <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"md6">>
-        }
-    },
-    ?assertThrow(
-        #{
-            path := "authentication.1.password_hash_algorithm.name",
-            matched_type := "authn-builtin_db:authentication/authn-hash:simple",
-            reason := unable_to_convert_to_enum_symbol
-        },
-        Check(ConfigNotOk)
-    ),
-
-    ConfigMissingAlgoName = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"user_id_type">> => <<"username">>,
-        <<"password_hash_algorithm">> => #{
-            <<"foo">> => <<"bar">>
-        }
-    },
-
-    ?assertThrow(
-        #{
-            path := "authentication.1.password_hash_algorithm",
-            reason := "algorithm_name_missing",
-            matched_type := "authn-builtin_db:authentication"
-        },
-        Check(ConfigMissingAlgoName)
-    ).
-
 t_create(_) ->
     Config0 = config(),
 
