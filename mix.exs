@@ -69,7 +69,7 @@ defmodule EMQXUmbrella.MixProject do
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.35.0", override: true},
-      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.1", override: true},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
@@ -131,7 +131,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.4", override: true},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.6", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.4"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},

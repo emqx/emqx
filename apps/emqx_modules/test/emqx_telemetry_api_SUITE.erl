@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/2, request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -33,8 +33,8 @@ init_per_suite(Config) ->
         raw_with_default => true
     }),
 
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_modules, emqx_dashboard],
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
         fun set_special_configs/1
     ),
 
@@ -49,8 +49,8 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    emqx_common_test_helpers:stop_apps([
-        emqx_dashboard, emqx_conf, emqx_authn, emqx_authz, emqx_modules
+    emqx_mgmt_api_test_util:end_suite([
+        emqx_conf, emqx_authn, emqx_authz, emqx_modules
     ]),
     ok.
 

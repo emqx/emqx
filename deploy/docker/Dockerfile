@@ -1,6 +1,7 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-debian11
 ARG RUN_FROM=debian:11-slim
-FROM ${BUILD_FROM} AS builder
+ARG BUILDPLATFORM=linux/amd64
+FROM --platform=$BUILDPLATFORM ${BUILD_FROM} AS builder
 
 COPY . /emqx
 

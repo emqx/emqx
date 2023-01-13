@@ -24,14 +24,19 @@ init_suite() ->
     init_suite([]).
 
 init_suite(Apps) ->
+    init_suite(Apps, fun set_special_configs/1).
+
+init_suite(Apps, SetConfigs) ->
     mria:start(),
     application:load(emqx_management),
-    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
+    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], SetConfigs),
+    emqx_common_test_http:create_default_app().
 
 end_suite() ->
     end_suite([]).
 
 end_suite(Apps) ->
+    emqx_common_test_http:delete_default_app(),
     application:unload(emqx_management),
     emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]),
     emqx_config:delete_override_conf_files(),
@@ -43,8 +48,23 @@ set_special_configs(emqx_dashboard) ->
 set_special_configs(_App) ->
     ok.
 
+%% there is no difference between the 'request' and 'request_api'
+%% the 'request' is only to be compatible with the 'emqx_dashboard_api_test_helpers:request'
+request(Method, Url) ->
+    request(Method, Url, []).
+
+request(Method, Url, Body) ->
+    request_api_with_body(Method, Url, Body).
+
+uri(Parts) ->
+    emqx_dashboard_api_test_helpers:uri(Parts).
+
+%% compatible_mode will return as same as 'emqx_dashboard_api_test_helpers:request'
+request_api_with_body(Method, Url, Body) ->
+    request_api(Method, Url, [], auth_header_(), Body, #{compatible_mode => true}).
+
 request_api(Method, Url) ->
-    request_api(Method, Url, [], [], [], #{}).
+    request_api(Method, Url, auth_header_()).
 
 request_api(Method, Url, AuthOrHeaders) ->
     request_api(Method, Url, [], AuthOrHeaders, [], #{}).
@@ -90,10 +110,20 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
 
 do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
+    CompatibleMode = maps:get(compatible_mode, Opts, false),
+    ReqOpts =
+        case CompatibleMode of
+            true ->
+                [{body_format, binary}];
+            _ ->
+                []
+        end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], []) of
+    case httpc:request(Method, Request, [], ReqOpts) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
+        {ok, {{_, Code, _}, _Headers, Body}} when CompatibleMode ->
+            {ok, Code, Body};
         {ok, {{"HTTP/1.1", Code, _} = Reason, Headers, Body}} when
             Code >= 200 andalso Code =< 299 andalso ReturnAll
         ->
@@ -109,10 +139,7 @@ do_request_api(Method, Request, Opts) ->
     end.
 
 auth_header_() ->
-    Username = <<"admin">>,
-    Password = <<"public">>,
-    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+    emqx_common_test_http:default_auth_header().
 
 build_http_header(X) when is_list(X) ->
     X;

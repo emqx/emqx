@@ -64,7 +64,7 @@ schema("/authorization/settings") ->
     }.
 
 ref_authz_schema() ->
-    proplists:delete(sources, emqx_conf_schema:fields("authorization")).
+    emqx_schema:authz_fields().
 
 settings(get, _Params) ->
     {200, authorization_settings()};
@@ -83,4 +83,6 @@ settings(put, #{
     {200, authorization_settings()}.
 
 authorization_settings() ->
-    maps:remove(<<"sources">>, emqx:get_raw_config([authorization], #{})).
+    C = maps:remove(<<"sources">>, emqx:get_raw_config([authorization], #{})),
+    Schema = emqx_hocon:make_schema(emqx_schema:authz_fields()),
+    hocon_tconf:make_serializable(Schema, C, #{}).

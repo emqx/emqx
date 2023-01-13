@@ -40,6 +40,10 @@
     do_force_create_app/3
 ]).
 
+-ifdef(TEST).
+-export([create/5]).
+-endif.
+
 -define(APP, emqx_app).
 
 -record(?APP, {
@@ -68,8 +72,12 @@ init_bootstrap_file() ->
     init_bootstrap_file(File).
 
 create(Name, Enable, ExpiredAt, Desc) ->
+    ApiSecret = generate_api_secret(),
+    create(Name, ApiSecret, Enable, ExpiredAt, Desc).
+
+create(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
     case mnesia:table_info(?APP, size) < 100 of
-        true -> create_app(Name, Enable, ExpiredAt, Desc);
+        true -> create_app(Name, ApiSecret, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
 
@@ -157,8 +165,7 @@ to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, Enable, ExpiredAt, Desc) ->
-    ApiSecret = generate_api_secret(),
+create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
     App =
         #?APP{
             name = Name,
@@ -170,9 +177,10 @@ create_app(Name, Enable, ExpiredAt, Desc) ->
             api_key = list_to_binary(emqx_misc:gen_id(16))
         },
     case create_app(App) of
-        {error, api_key_already_existed} -> create_app(Name, Enable, ExpiredAt, Desc);
-        {ok, Res} -> {ok, Res#{api_secret => ApiSecret}};
-        Error -> Error
+        {ok, Res} ->
+            {ok, Res#{api_secret => ApiSecret}};
+        Error ->
+            Error
     end.
 
 create_app(App = #?APP{api_key = ApiKey, name = Name}) ->

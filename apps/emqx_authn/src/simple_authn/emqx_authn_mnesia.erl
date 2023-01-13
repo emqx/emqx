@@ -26,6 +26,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -106,6 +107,9 @@ mnesia(boot) ->
 %%------------------------------------------------------------------------------
 
 namespace() -> "authn-builtin_db".
+
+tags() ->
+    [<<"Authentication">>].
 
 roots() -> [?CONF_NS].
 

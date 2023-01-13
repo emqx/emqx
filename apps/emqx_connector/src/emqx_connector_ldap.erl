@@ -59,14 +59,13 @@ on_start(
         bind_password := BindPassword,
         timeout := Timeout,
         pool_size := PoolSize,
-        auto_reconnect := AutoReconn,
         ssl := SSL
     } = Config
 ) ->
     ?SLOG(info, #{
         msg => "starting_ldap_connector",
         connector => InstId,
-        config => Config
+        config => emqx_misc:redact(Config)
     }),
     Servers = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
     SslOpts =
@@ -86,11 +85,11 @@ on_start(
         {bind_password, BindPassword},
         {timeout, Timeout},
         {pool_size, PoolSize},
-        {auto_reconnect, reconn_interval(AutoReconn)}
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts) of
-        ok -> {ok, #{poolname => PoolName, auto_reconnect => AutoReconn}};
+        ok -> {ok, #{poolname => PoolName}};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -128,9 +127,6 @@ on_query(InstId, {search, Base, Filter, Attributes}, #{poolname := PoolName} = S
     Result.
 
 on_get_status(_InstId, _State) -> connected.
-
-reconn_interval(true) -> 15;
-reconn_interval(false) -> false.
 
 search(Conn, Base, Filter, Attributes) ->
     eldap2:search(Conn, [

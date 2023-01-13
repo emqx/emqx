@@ -38,7 +38,9 @@
     cipher/0
 ]).
 
--export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1]).
+-export([
+    namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1, tags/0
+]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
 %% Static apps which merge their configs into the merged emqx.conf
@@ -66,6 +68,9 @@
 
 %% root config should not have a namespace
 namespace() -> undefined.
+
+tags() ->
+    [<<"EMQX">>].
 
 roots() ->
     PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
@@ -942,8 +947,8 @@ fields("log_burst_limit") ->
             )}
     ];
 fields("authorization") ->
-    emqx_schema:fields("authorization") ++
-        emqx_authz_schema:fields("authorization").
+    emqx_schema:authz_fields() ++
+        emqx_authz_schema:authz_fields().
 
 desc("cluster") ->
     ?DESC("desc_cluster");

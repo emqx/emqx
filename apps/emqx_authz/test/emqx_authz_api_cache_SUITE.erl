@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/2, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -32,8 +32,8 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authz, emqx_dashboard, emqx_management],
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_authz],
         fun set_special_configs/1
     ),
     Config.
@@ -47,7 +47,7 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf, emqx_management]),
+    emqx_mgmt_api_test_util:end_suite([emqx_authz, emqx_conf]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -67,12 +67,12 @@ t_clean_cahce(_) ->
     ok = emqtt:publish(C, <<"a/b/c">>, <<"{\"x\":1,\"y\":1}">>, 0),
 
     {ok, 200, Result3} = request(get, uri(["clients", "emqx0", "authorization", "cache"])),
-    ?assertEqual(2, length(jsx:decode(Result3))),
+    ?assertEqual(2, length(emqx_json:decode(Result3))),
 
     request(delete, uri(["authorization", "cache"])),
 
     {ok, 200, Result4} = request(get, uri(["clients", "emqx0", "authorization", "cache"])),
-    ?assertEqual(0, length(jsx:decode(Result4))),
+    ?assertEqual(0, length(emqx_json:decode(Result4))),
 
     ok.
 

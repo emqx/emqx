@@ -49,11 +49,14 @@
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
--export([namespace/0, roots/0, fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
 -export([proxy_protocol_opts/0]).
 
 namespace() -> gateway.
+
+tags() ->
+    [<<"Gateway">>].
 
 roots() -> [gateway].
 

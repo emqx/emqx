@@ -61,9 +61,9 @@ resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, u
 resource_type(kafka) -> emqx_bridge_impl_kafka;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_ee_connector_gcp_pubsub;
-resource_type(mongodb_rs) -> emqx_connector_mongo;
-resource_type(mongodb_sharded) -> emqx_connector_mongo;
-resource_type(mongodb_single) -> emqx_connector_mongo;
+resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
+resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
+resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
 resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb;

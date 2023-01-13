@@ -22,6 +22,7 @@
 -export([
     common_fields/0,
     roots/0,
+    tags/0,
     fields/1,
     authenticator_type/0,
     authenticator_type_without_scram/0,
@@ -31,6 +32,9 @@
 ]).
 
 roots() -> [].
+
+tags() ->
+    [<<"Authentication">>].
 
 common_fields() ->
     [{enable, fun enable/1}].
