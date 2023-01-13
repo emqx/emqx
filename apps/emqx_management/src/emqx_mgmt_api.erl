@@ -384,8 +384,6 @@ apply_total_query(QueryState = #{table := Tab}) ->
             Fun(Tab)
     end.
 
-counting_total_fun(_QueryState = #{qs := {[], []}}) ->
-    fun(Tab) -> ets:info(Tab, size) end;
 counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->
     %% XXX: Calculating the total number of data that match a certain
     %% condition under a large table is very expensive because the
@@ -400,7 +398,9 @@ counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->
 counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when FuzzyFun =/= undefined ->
     %% XXX: Calculating the total number for a fuzzy searching is very very expensive
     %% so it is not supported now
-    false.
+    false;
+counting_total_fun(_QueryState = #{qs := {[], []}}) ->
+    fun(Tab) -> ets:info(Tab, size) end.
 
 %% ResultAcc :: #{count := integer(),
 %%                cursor := integer(),
