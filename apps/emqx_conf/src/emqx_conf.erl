@@ -110,9 +110,7 @@ update(KeyPath, UpdateReq, Opts) ->
         init_result := {ok, emqx_config:update_result()}
     }}.
 strict_update(KeyPath, UpdateReq, Opts) ->
-    X = emqx_conf_proto_v3:strict_update(KeyPath, UpdateReq, Opts),
-    io:format("strict:~p~n", [{X, mria_mnesia:cluster_info()}]),
-    X.
+    emqx_conf_proto_v3:strict_update(KeyPath, UpdateReq, Opts).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(
