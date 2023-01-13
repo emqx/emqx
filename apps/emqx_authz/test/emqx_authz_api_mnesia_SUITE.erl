@@ -168,7 +168,7 @@ t_api(_) ->
     {ok, 204, _} =
         request(
             post,
-            uri(["authorization", "sources", "built_in_database", "username"]),
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             [?USERNAME_RULES_EXAMPLE]
         ),
 
