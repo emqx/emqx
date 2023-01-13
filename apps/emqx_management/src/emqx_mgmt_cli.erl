@@ -213,7 +213,7 @@ subscriptions(["show", ClientId]) ->
         [] ->
             emqx_ctl:print("Not Found.~n");
         [{_, Pid}] ->
-            case ets:match_object(emqx_suboption, {{Pid, '_'}, '_'}) of
+            case ets:match_object(emqx_suboption, {{'_', Pid}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
                 Suboption -> [print({emqx_suboption, Sub}) || Sub <- Suboption]
             end
@@ -829,7 +829,7 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
+print({emqx_suboption, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
     SubId = maps:get(subid, Options),
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),

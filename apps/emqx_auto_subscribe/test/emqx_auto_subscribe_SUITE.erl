@@ -204,7 +204,7 @@ check_subs(Count) ->
 
 check_subs([], []) ->
     ok;
-check_subs([{{_, Topic}, #{subid := ?CLIENT_ID}} | Subs], List) ->
+check_subs([{{Topic, _}, #{subid := ?CLIENT_ID}} | Subs], List) ->
     check_subs(Subs, lists:delete(Topic, List));
 check_subs([_ | Subs], List) ->
     check_subs(Subs, List).
