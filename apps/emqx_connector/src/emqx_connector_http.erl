@@ -417,6 +417,10 @@ do_get_status(PoolName, Timeout) ->
             end
     catch
         exit:timeout ->
+            ?SLOG(error, #{
+                msg => "http_connector_pmap_failed",
+                reason => timeout
+            }),
             {error, timeout}
     end.
 
