@@ -28,10 +28,15 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_mgmt_sup:start_link(),
     ok = mria_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
-    emqx_mgmt_cli:load(),
-    {ok, Sup}.
+    case emqx_mgmt_auth:init_bootstrap_file() of
+        ok ->
+            {ok, Sup} = emqx_mgmt_sup:start_link(),
+            ok = emqx_mgmt_cli:load(),
+            {ok, Sup};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 stop(_State) ->
     ok.

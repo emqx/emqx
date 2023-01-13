@@ -21,7 +21,8 @@
     format_path/1,
     check/2,
     format_error/1,
-    format_error/2
+    format_error/2,
+    make_schema/1
 ]).
 
 %% @doc Format hocon config field path to dot-separated string in iolist format.
@@ -78,6 +79,9 @@ format_error({_Schema, [#{kind := K} = First | Rest] = All}, Opts) when
     end;
 format_error(_Other, _) ->
     false.
+
+make_schema(Fields) ->
+    #{roots => Fields, fields => #{}}.
 
 %% Ensure iolist()
 iol(B) when is_binary(B) -> B;

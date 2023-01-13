@@ -51,8 +51,7 @@
 
 -export([
     add_default_user/0,
-    default_username/0,
-    add_bootstrap_users/0
+    default_username/0
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
@@ -84,21 +83,6 @@ mnesia(boot) ->
 -spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
-
--spec add_bootstrap_users() -> ok | {error, _}.
-add_bootstrap_users() ->
-    case emqx:get_config([dashboard, bootstrap_users_file], undefined) of
-        undefined ->
-            ok;
-        File ->
-            case mnesia:table_info(?ADMIN, size) of
-                0 ->
-                    ?SLOG(debug, #{msg => "Add dashboard bootstrap users", file => File}),
-                    add_bootstrap_users(File);
-                _ ->
-                    ok
-            end
-    end.
 
 %%--------------------------------------------------------------------
 %% API
@@ -310,45 +294,4 @@ add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
         _ -> {ok, default_user_exists}
-    end.
-
-add_bootstrap_users(File) ->
-    case file:open(File, [read]) of
-        {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
-            try
-                load_bootstrap_user(Dev, MP)
-            catch
-                Type:Reason ->
-                    {error, {Type, Reason}}
-            after
-                file:close(Dev)
-            end;
-        {error, Reason} = Error ->
-            ?SLOG(error, #{
-                msg => "failed to open the dashboard bootstrap users file",
-                file => File,
-                reason => Reason
-            }),
-            Error
-    end.
-
-load_bootstrap_user(Dev, MP) ->
-    case file:read_line(Dev) of
-        {ok, Line} ->
-            case re:run(Line, MP, [global, {capture, all_but_first, binary}]) of
-                {match, [[Username, Password]]} ->
-                    case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
-                        {ok, _} ->
-                            load_bootstrap_user(Dev, MP);
-                        Error ->
-                            Error
-                    end;
-                _ ->
-                    load_bootstrap_user(Dev, MP)
-            end;
-        eof ->
-            ok;
-        Error ->
-            Error
     end.

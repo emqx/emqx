@@ -112,7 +112,7 @@ t_in_query(_Config) ->
                 description => <<"QOS">>,
                 in => query,
                 name => qos,
-                schema => #{enum => [0, 1, 2], type => string}
+                schema => #{minimum => 0, maximum => 2, type => integer, example => 0}
             }
         ],
     validate("/test/in/query", Expect),

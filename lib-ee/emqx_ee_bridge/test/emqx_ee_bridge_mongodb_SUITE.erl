@@ -25,7 +25,8 @@ all() ->
 group_tests() ->
     [
         t_setup_via_config_and_publish,
-        t_setup_via_http_api_and_publish
+        t_setup_via_http_api_and_publish,
+        t_payload_template
     ].
 
 groups() ->
@@ -151,6 +152,9 @@ mongo_config(MongoHost, MongoPort0, rs = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Servers]
         ),
@@ -167,6 +171,9 @@ mongo_config(MongoHost, MongoPort0, sharded = Type) ->
             "  servers = [~p]\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Servers]
         ),
@@ -183,6 +190,9 @@ mongo_config(MongoHost, MongoPort0, single = Type) ->
             "  server = ~p\n"
             "  w_mode = safe\n"
             "  database = mqtt\n"
+            "  resource_opts = {\n"
+            "    worker_pool_size = 1\n"
+            "  }\n"
             "}",
             [Name, Server]
         ),
@@ -196,9 +206,14 @@ parse_and_check(ConfigString, Type, Name) ->
     Config.
 
 create_bridge(Config) ->
+    create_bridge(Config, _Overrides = #{}).
+
+create_bridge(Config, Overrides) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
-    MongoConfig = ?config(mongo_config, Config),
+    MongoConfig0 = ?config(mongo_config, Config),
+    MongoConfig = emqx_map_lib:deep_merge(MongoConfig0, Overrides),
+    ct:pal("creating ~p bridge with config:\n ~p", [Type, MongoConfig]),
     emqx_bridge:create(Type, Name, MongoConfig).
 
 delete_bridge(Config) ->
@@ -219,7 +234,8 @@ clear_db(Config) ->
     Name = ?config(mongo_name, Config),
     #{<<"collection">> := Collection} = ?config(mongo_config, Config),
     ResourceID = emqx_bridge_resource:resource_id(Type, Name),
-    {ok, _, #{state := #{poolname := PoolName}}} = emqx_resource:get_instance(ResourceID),
+    {ok, _, #{state := #{connector_state := #{poolname := PoolName}}}} =
+        emqx_resource:get_instance(ResourceID),
     Selector = #{},
     {true, _} = ecpool:pick_and_do(
         PoolName, {mongo_api, delete, [Collection, Selector]}, no_handover
@@ -272,6 +288,17 @@ t_setup_via_http_api_and_publish(Config) ->
     ok = send_message(Config, #{key => Val}),
     ?assertMatch(
         {ok, [#{<<"key">> := Val}]},
+        find_all(Config)
+    ),
+    ok.
+
+t_payload_template(Config) ->
+    {ok, _} = create_bridge(Config, #{<<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>}),
+    Val = erlang:unique_integer(),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ok = send_message(Config, #{key => Val, clientid => ClientId}),
+    ?assertMatch(
+        {ok, [#{<<"foo">> := ClientId}]},
         find_all(Config)
     ),
     ok.

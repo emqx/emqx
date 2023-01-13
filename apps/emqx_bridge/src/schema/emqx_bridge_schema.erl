@@ -20,7 +20,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, desc/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
 -export([
     get_response/0,
@@ -104,6 +104,9 @@ metrics_status_fields() ->
 
 namespace() -> "bridge".
 
+tags() ->
+    [<<"Bridge">>].
+
 roots() -> [bridges].
 
 fields(bridges) ->
@@ -122,7 +125,9 @@ fields(bridges) ->
                 #{
                     desc => ?DESC("bridges_mqtt"),
                     required => false,
-                    converter => fun emqx_bridge_mqtt_config:upgrade_pre_ee/1
+                    converter => fun(X, _HoconOpts) ->
+                        emqx_bridge_mqtt_config:upgrade_pre_ee(X)
+                    end
                 }
             )}
     ] ++ ee_fields_bridges();

@@ -362,8 +362,8 @@ schema_default(Schema) ->
             [];
         ?LAZY(?ARRAY(_)) ->
             [];
-        ?LAZY(?UNION(Unions)) ->
-            case [A || ?ARRAY(A) <- Unions] of
+        ?LAZY(?UNION(Members)) ->
+            case [A || ?ARRAY(A) <- hoconsc:union_members(Members)] of
                 [_ | _] -> [];
                 _ -> #{}
             end;
@@ -402,7 +402,6 @@ merge_envs(SchemaMod, RawConf) ->
         required => false,
         format => map,
         apply_override_envs => true,
-        remove_env_meta => true,
         check_lazy => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).

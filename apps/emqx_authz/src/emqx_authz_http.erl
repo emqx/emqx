@@ -20,6 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_authz).
 
@@ -104,6 +105,7 @@ authorize(
             log_nomtach_msg(Status, Headers, Body),
             nomatch;
         {error, Reason} ->
+            ?tp(authz_http_request_failure, #{error => Reason}),
             ?SLOG(error, #{
                 msg => "http_server_query_failed",
                 resource => ResourceID,

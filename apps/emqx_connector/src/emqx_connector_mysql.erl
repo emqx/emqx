@@ -52,7 +52,6 @@
 -type state() ::
     #{
         poolname := atom(),
-        auto_reconnect := boolean(),
         prepare_statement := prepares(),
         params_tokens := params_tokens(),
         batch_inserts := sqls(),
@@ -95,7 +94,6 @@ on_start(
         server := Server,
         database := DB,
         username := Username,
-        auto_reconnect := AutoReconn,
         pool_size := PoolSize,
         ssl := SSL
     } = Config
@@ -104,7 +102,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,
-        config => Config
+        config => emqx_misc:redact(Config)
     }),
     SslOpts =
         case maps:get(enable, SSL) of
@@ -120,13 +118,13 @@ on_start(
             {port, Port},
             {user, Username},
             {database, DB},
-            {auto_reconnect, reconn_interval(AutoReconn)},
+            {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
             {pool_size, PoolSize}
         ]
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = parse_prepare_sql(Config),
-    State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
+    State = maps:merge(#{poolname => PoolName}, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok ->
             {ok, init_prepare(State)};
@@ -211,7 +209,7 @@ mysql_function(prepared_query) ->
 mysql_function(_) ->
     mysql_function(prepared_query).
 
-on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn} = State) ->
+on_get_status(_InstId, #{poolname := Pool} = State) ->
     case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
         true ->
             case do_check_prepares(State) of
@@ -222,10 +220,10 @@ on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn} = State
                     {connected, NState};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
-                    conn_status(AutoReconn)
+                    connecting
             end;
         false ->
-            conn_status(AutoReconn)
+            connecting
     end.
 
 do_get_status(Conn) ->
@@ -244,11 +242,6 @@ do_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, P
     end.
 
 %% ===================================================================
-conn_status(_AutoReconn = true) -> connecting;
-conn_status(_AutoReconn = false) -> disconnected.
-
-reconn_interval(true) -> 15;
-reconn_interval(false) -> false.
 
 connect(Options) ->
     mysql:start_link(Options).

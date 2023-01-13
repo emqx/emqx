@@ -68,7 +68,6 @@ fields(single) ->
         {mongo_type, #{
             type => single,
             default => single,
-            required => true,
             desc => ?DESC("single_mongo_type")
         }},
         {server, server()},
@@ -79,7 +78,6 @@ fields(rs) ->
         {mongo_type, #{
             type => rs,
             default => rs,
-            required => true,
             desc => ?DESC("rs_mongo_type")
         }},
         {servers, servers()},
@@ -92,7 +90,6 @@ fields(sharded) ->
         {mongo_type, #{
             type => sharded,
             default => sharded,
-            required => true,
             desc => ?DESC("sharded_mongo_type")
         }},
         {servers, servers()},
@@ -158,7 +155,7 @@ on_start(
             rs -> "starting_mongodb_replica_set_connector";
             sharded -> "starting_mongodb_sharded_connector"
         end,
-    ?SLOG(info, #{msg => Msg, connector => InstId, config => Config}),
+    ?SLOG(info, #{msg => Msg, connector => InstId, config => emqx_misc:redact(Config)}),
     NConfig = #{hosts := Hosts} = maybe_resolve_srv_and_txt_records(Config),
     SslOpts =
         case maps:get(enable, SSL) of

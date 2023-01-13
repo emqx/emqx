@@ -197,7 +197,7 @@ t_list_users(_) ->
             #{is_superuser := false, user_id := _},
             #{is_superuser := false, user_id := _}
         ],
-        meta := #{page := 1, limit := 2, count := 3}
+        meta := #{page := 1, limit := 2, count := 3, hasnext := true}
     } = emqx_authn_mnesia:list_users(
         #{<<"page">> => 1, <<"limit">> => 2},
         State
@@ -205,7 +205,7 @@ t_list_users(_) ->
 
     #{
         data := [#{is_superuser := false, user_id := _}],
-        meta := #{page := 2, limit := 2, count := 3}
+        meta := #{page := 2, limit := 2, count := 3, hasnext := false}
     } = emqx_authn_mnesia:list_users(
         #{<<"page">> => 2, <<"limit">> => 2},
         State
@@ -213,7 +213,7 @@ t_list_users(_) ->
 
     #{
         data := [#{is_superuser := false, user_id := <<"u3">>}],
-        meta := #{page := 1, limit := 20, count := 0}
+        meta := #{page := 1, limit := 20, hasnext := false}
     } = emqx_authn_mnesia:list_users(
         #{
             <<"page">> => 1,

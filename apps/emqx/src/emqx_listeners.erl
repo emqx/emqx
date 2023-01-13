@@ -57,6 +57,10 @@
 
 -export([format_bind/1]).
 
+-ifdef(TEST).
+-export([certs_dir/2]).
+-endif.
+
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 
@@ -415,6 +419,7 @@ pre_config_update(_Path, _Request, RawConf) ->
 post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
     start_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+    try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
     case NewConf of
         #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
         _ -> ok
@@ -670,7 +675,7 @@ certs_dir(Type, Name) ->
     iolist_to_binary(filename:join(["listeners", Type, Name])).
 
 convert_certs(CertsDir, Conf) ->
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl_options">>, Conf, undefined)) of
+    case emqx_tls_lib:ensure_ssl_files(CertsDir, get_ssl_options(Conf)) of
         {ok, undefined} ->
             Conf;
         {ok, SSL} ->
@@ -681,7 +686,7 @@ convert_certs(CertsDir, Conf) ->
     end.
 
 clear_certs(CertsDir, Conf) ->
-    OldSSL = maps:get(<<"ssl_options">>, Conf, undefined),
+    OldSSL = get_ssl_options(Conf),
     emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
@@ -692,3 +697,16 @@ ensure_override_limiter_conf(Conf, #{<<"limiter">> := Limiter}) ->
     Conf#{<<"limiter">> => Limiter};
 ensure_override_limiter_conf(Conf, _) ->
     Conf.
+
+try_clear_ssl_files(CertsDir, NewConf, OldConf) ->
+    NewSSL = get_ssl_options(NewConf),
+    OldSSL = get_ssl_options(OldConf),
+    emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL, OldSSL).
+
+get_ssl_options(Conf) ->
+    case maps:find(ssl_options, Conf) of
+        {ok, SSL} ->
+            SSL;
+        error ->
+            maps:get(<<"ssl_options">>, Conf, undefined)
+    end.

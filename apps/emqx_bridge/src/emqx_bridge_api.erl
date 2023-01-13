@@ -330,6 +330,7 @@ schema("/bridges/:id") ->
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(['INVALID_ID'], "Update bridge failed"),
+                404 => error_schema('NOT_FOUND', "Bridge not found"),
                 403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -452,19 +453,24 @@ schema("/bridges_probe") ->
         end,
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+        case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                204;
-            {error, {rules_deps_on_this_bridge, RuleIds}} ->
-                {403,
-                    error_msg(
-                        'FORBIDDEN_REQUEST',
-                        {<<"There're some rules dependent on this bridge">>, RuleIds}
-                    )};
-            {error, timeout} ->
-                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-            {error, Reason} ->
-                {500, error_msg('INTERNAL_ERROR', Reason)}
+                case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+                    {ok, _} ->
+                        204;
+                    {error, {rules_deps_on_this_bridge, RuleIds}} ->
+                        {403,
+                            error_msg(
+                                'FORBIDDEN_REQUEST',
+                                {<<"There're some rules dependent on this bridge">>, RuleIds}
+                            )};
+                    {error, timeout} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                    {error, Reason} ->
+                        {500, error_msg('INTERNAL_ERROR', Reason)}
+                end;
+            {error, not_found} ->
+                {404, error_msg('NOT_FOUND', <<"Bridge not found">>)}
         end
     ).
 

@@ -63,6 +63,8 @@
     can_topic_match_oneof/2
 ]).
 
+-export_type([tmpl_token/0]).
+
 -compile({no_auto_import, [float/1]}).
 
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").

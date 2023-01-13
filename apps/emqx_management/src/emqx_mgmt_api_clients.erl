@@ -549,8 +549,8 @@ fields(keepalive) ->
     ];
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
+        {topic, hoconsc:mk(binary(), #{required => true, desc => <<"Topic">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
         {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
         {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
         {rh, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain Handling">>})}
@@ -718,15 +718,18 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    case lookup(#{clientid => ClientID}) of
-        {200, _} ->
+    %% We use emqx_channel instead of emqx_channel_info (used by the emqx_mgmt:lookup_client/2),
+    %% as the emqx_channel_info table will only be populated after the hook `client.connected`
+    %% has returned. So if one want to subscribe topics in this hook, it will fail.
+    case ets:lookup(emqx_channel, ClientID) of
+        [] ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
             ArgList = [
                 [ClientID, Topic, maps:with([qos, nl, rap, rh], Sub)]
              || #{topic := Topic} = Sub <- Topics
             ],
-            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
+            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)}
     end.
 
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->

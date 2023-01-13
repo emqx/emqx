@@ -139,14 +139,20 @@ fields(limit) ->
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(count) ->
     Desc = <<
-        "Total number of records counted.<br/>"
-        "Note: this field is <code>0</code> when the queryed table is empty, "
-        "or if the query can not be optimized and requires a full table scan."
+        "Total number of records matching the query.<br/>"
+        "Note: this field is present only if the query can be optimized and does "
+        "not require a full table scan."
+    >>,
+    Meta = #{desc => Desc, required => false},
+    [{count, hoconsc:mk(non_neg_integer(), Meta)}];
+fields(hasnext) ->
+    Desc = <<
+        "Flag indicating whether there are more results available on next pages."
     >>,
     Meta = #{desc => Desc, required => true},
-    [{count, hoconsc:mk(non_neg_integer(), Meta)}];
+    [{hasnext, hoconsc:mk(boolean(), Meta)}];
 fields(meta) ->
-    fields(page) ++ fields(limit) ++ fields(count).
+    fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext).
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map().
 schema_with_example(Type, Example) ->
@@ -623,7 +629,7 @@ hocon_schema_to_spec(?UNION(Types), LocalModule) ->
             {[Schema | Acc], SubRefs ++ RefsAcc}
         end,
         {[], []},
-        Types
+        hoconsc:union_members(Types)
     ),
     {#{<<"oneOf">> => OneOf}, Refs};
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
@@ -705,8 +711,10 @@ typename_to_spec("service_account_json()", _Mod) ->
 typename_to_spec("#{" ++ _, Mod) ->
     typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
-    #{type => string, enum => [0, 1, 2]};
+    #{type => integer, minimum => 0, maximum => 2, example => 0};
 typename_to_spec("{binary(), binary()}", _Mod) ->
+    #{type => object, example => #{}};
+typename_to_spec("{string(), string()}", _Mod) ->
     #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};

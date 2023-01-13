@@ -32,6 +32,25 @@ end_per_suite(_) ->
     emqx_conf:remove([listeners, tcp, new1], #{override_to => local}),
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
+t_max_connection_default(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
+    Etc = filename:join(["etc", "emqx.conf.all"]),
+    ConfFile = emqx_common_test_helpers:app_path(emqx_conf, Etc),
+    Bin = <<"listeners.tcp.max_connection_test {bind = \"0.0.0.0:3883\"}">>,
+    ok = file:write_file(ConfFile, Bin, [append]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    %% Check infinity is binary not atom.
+    #{<<"listeners">> := Listeners} = emqx_mgmt_api_listeners:do_list_listeners(),
+    Target = lists:filter(
+        fun(#{<<"id">> := Id}) -> Id =:= 'tcp:max_connection_test' end,
+        Listeners
+    ),
+    ?assertMatch([#{<<"max_connections">> := <<"infinity">>}], Target),
+    NewPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:max_connection_test"]),
+    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, request(get, NewPath, [], [])),
+    emqx_conf:remove([listeners, tcp, max_connection_test], #{override_to => cluster}),
+    ok.
+
 t_list_listeners(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
     Res = request(get, Path, [], []),
@@ -54,12 +73,14 @@ t_list_listeners(_) ->
     OriginListener2 = maps:remove(<<"id">>, OriginListener),
     NewConf = OriginListener2#{
         <<"name">> => <<"new">>,
-        <<"bind">> => <<"0.0.0.0:2883">>
+        <<"bind">> => <<"0.0.0.0:2883">>,
+        <<"max_connections">> := <<"infinity">>
     },
     Create = request(post, Path, [], NewConf),
     ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
+    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, Create),
     ?assert(is_running(NewListenerId)),
 
     %% delete
@@ -129,6 +150,60 @@ t_api_listeners_list_not_ready(_Config) ->
         emqx_common_test_helpers:stop_slave(Node1),
         emqx_common_test_helpers:stop_slave(Node2)
     end.
+
+t_clear_certs(_) ->
+    ListenerId = <<"ssl:default">>,
+    NewListenerId = <<"ssl:clear">>,
+
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
+    ConfTempT = request(get, OriginPath, [], []),
+    ConfTemp = ConfTempT#{
+        <<"id">> => NewListenerId,
+        <<"bind">> => <<"0.0.0.0:2883">>
+    },
+
+    %% create, make sure the cert files are created
+    NewConf = emqx_map_lib:deep_put(
+        [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("certfile")
+    ),
+    NewConf2 = emqx_map_lib:deep_put(
+        [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
+    ),
+
+    _ = request(post, NewPath, [], NewConf2),
+    ListResult1 = list_pem_dir("ssl", "clear"),
+    ?assertMatch({ok, [_, _]}, ListResult1),
+
+    %% update
+    UpdateConf = emqx_map_lib:deep_put(
+        [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
+    ),
+    _ = request(put, NewPath, [], UpdateConf),
+    ListResult2 = list_pem_dir("ssl", "clear"),
+
+    %% make sure the old cret file is deleted
+    ?assertMatch({ok, [_, _]}, ListResult2),
+
+    {ok, ResultList1} = ListResult1,
+    {ok, ResultList2} = ListResult2,
+
+    FindKeyFile = fun(List) ->
+        case lists:search(fun(E) -> lists:prefix("key", E) end, List) of
+            {value, Value} ->
+                Value;
+            _ ->
+                ?assert(false, "Can't find keyfile")
+        end
+    end,
+
+    %% check the keyfile has changed
+    ?assertNotEqual(FindKeyFile(ResultList1), FindKeyFile(ResultList2)),
+
+    %% remove, check all cert files are deleted
+    _ = delete(NewPath),
+    ?assertMatch({error, not_dir}, list_pem_dir("ssl", "clear")),
+    ok.
 
 get_tcp_listeners(Node) ->
     Query = #{query_string => #{<<"type">> => tcp}},
@@ -293,3 +368,21 @@ listener_stats(Listener, ExpectedStats) ->
 
 is_running(Id) ->
     emqx_listeners:is_running(binary_to_atom(Id)).
+
+list_pem_dir(Type, Name) ->
+    ListenerDir = emqx_listeners:certs_dir(Type, Name),
+    Dir = filename:join([emqx:mutable_certs_dir(), ListenerDir]),
+    case filelib:is_dir(Dir) of
+        true ->
+            file:list_dir(Dir);
+        _ ->
+            {error, not_dir}
+    end.
+
+data_file(Name) ->
+    Dir = code:lib_dir(emqx, test),
+    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Bin.
+
+cert_file(Name) ->
+    data_file(filename:join(["certs", Name])).

@@ -347,13 +347,7 @@ do_request_api(Method, Request) ->
     end.
 
 auth_header_() ->
-    AppId = <<"admin">>,
-    AppSecret = <<"public">>,
-    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
-    {"Authorization", "Basic " ++ Encoded}.
+    emqx_mgmt_api_test_util:auth_header_().
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).

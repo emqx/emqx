@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_app_SUITE).
+-module(emqx_mgmt_api_api_keys_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -25,15 +25,62 @@ suite() -> [{timetrap, {minutes, 1}}].
 groups() ->
     [
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
-        {sequence, [], [t_create_failed]}
+        {sequence, [], [t_bootstrap_file, t_create_failed]}
     ].
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite().
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+
+t_bootstrap_file(_) ->
+    TestPath = <<"/api/v5/status">>,
+    Bin = <<"test-1:secret-1\ntest-2:secret-2">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, Bin),
+    emqx:update_config([api_key, bootstrap_file], File),
+    ok = emqx_mgmt_auth:init_bootstrap_file(),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-2">>)),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-1">>)),
+
+    %% relaunch to check if the table is changed.
+    Bin1 = <<"test-1:new-secret-1\ntest-2:new-secret-2">>,
+    ok = file:write_file(File, Bin1),
+    ok = emqx_mgmt_auth:init_bootstrap_file(),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-2">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"new-secret-1">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"new-secret-2">>)),
+
+    %% Compatibility
+    Bin2 = <<"test-3:new-secret-3\ntest-4:new-secret-4">>,
+    ok = file:write_file(File, Bin2),
+    emqx:update_config([api_key, bootstrap_file], <<>>),
+    emqx:update_config([dashboard, bootstrap_users_file], File),
+    ok = emqx_mgmt_auth:init_bootstrap_file(),
+    ?assertMatch(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"new-secret-1">>)),
+    ?assertMatch(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"new-secret-2">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-3">>, <<"new-secret-3">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-4">>, <<"new-secret-4">>)),
+
+    %% not found
+    NotFoundFile = "./bootstrap_apps_not_exist.txt",
+    emqx:update_config([api_key, bootstrap_file], NotFoundFile),
+    ?assertMatch({error, "No such file or directory"}, emqx_mgmt_auth:init_bootstrap_file()),
+
+    %% bad format
+    BadBin = <<"test-1:secret-11\ntest-2 secret-12">>,
+    ok = file:write_file(File, BadBin),
+    emqx:update_config([api_key, bootstrap_file], File),
+    ?assertMatch({error, #{reason := "invalid_format"}}, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-11">>)),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
+    emqx:update_config([api_key, bootstrap_file], <<>>),
+    emqx:update_config([dashboard, bootstrap_users_file], <<>>),
+    ok.
 
 t_create(_Config) ->
     Name = <<"EMQX-API-KEY-1">>,
@@ -69,7 +116,7 @@ t_create_failed(_Config) ->
     ?assertEqual(BadRequest, create_app(LongName)),
 
     {ok, List} = list_app(),
-    CreateNum = 30 - erlang:length(List),
+    CreateNum = 100 - erlang:length(List),
     Names = lists:map(
         fun(Seq) ->
             <<"EMQX-API-FAILED-KEY-", (integer_to_binary(Seq))/binary>>
@@ -178,21 +225,23 @@ t_create_unexpired_app(_Config) ->
     ok.
 
 list_app() ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Apps} -> {ok, emqx_json:decode(Apps, [return_maps])};
         Error -> Error
     end.
 
 read_app(Name) ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
 create_app(Name) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = #{
@@ -207,7 +256,7 @@ create_app(Name) ->
     end.
 
 create_unexpired_app(Name, Params) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
@@ -216,11 +265,12 @@ create_unexpired_app(Name, Params) ->
     end.
 
 delete_app(Name) ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     DeletePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+    emqx_mgmt_api_test_util:request_api(delete, DeletePath, AuthHeader).
 
 update_app(Name, Change) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
         {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};

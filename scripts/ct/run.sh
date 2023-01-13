@@ -11,7 +11,6 @@ help() {
     echo
     echo "-h|--help:              To display this usage info"
     echo "--app lib_dir/app_name: For which app to run start docker-compose, and run common tests"
-    echo "--suites SUITE1,SUITE2: Comma separated SUITE names to run. e.g. apps/emqx/test/emqx_SUITE.erl"
     echo "--console:              Start EMQX in console mode but do not run test cases"
     echo "--attach:               Attach to the Erlang docker container without running any test case"
     echo "--stop:                 Stop running containers for the given app"

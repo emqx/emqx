@@ -153,7 +153,7 @@ ssl_opts_gc_after_handshake_test_rancher_listener_test() ->
             #{
                 kind := validation_error,
                 reason := unknown_fields,
-                unknown := <<"gc_after_handshake">>
+                unknown := "gc_after_handshake"
             }
         ]},
         validate(Sc, #{<<"gc_after_handshake">> => true})

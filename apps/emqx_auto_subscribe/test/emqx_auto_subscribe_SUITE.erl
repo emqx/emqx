@@ -93,9 +93,8 @@ init_per_suite(Config) ->
             "        }"
         >>
     ),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_dashboard, ?APP],
-        fun set_special_configs/1
+    emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, ?APP]
     ),
     Config.
 
@@ -109,12 +108,6 @@ end_per_testcase(t_get_basic_usage_info, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
     ok;
 end_per_testcase(_TestCase, _Config) ->
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
     ok.
 
 topic_config(T) ->
@@ -132,7 +125,7 @@ end_per_suite(_) ->
     application:unload(?APP),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_conf, ?APP]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, ?APP]).
 
 t_auto_subscribe(_) ->
     emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),
@@ -150,6 +143,32 @@ t_update(_) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Body),
     ResponseMap = emqx_json:decode(Response, [return_maps]),
     ?assertEqual(1, erlang:length(ResponseMap)),
+
+    BadBody1 = #{topic => ?TOPIC_S},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody1)
+    ),
+    BadBody2 = [#{topic => ?TOPIC_S, qos => 3}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody2)
+    ),
+    BadBody3 = [#{topic => ?TOPIC_S, rh => 10}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody3)
+    ),
+    BadBody4 = [#{topic => ?TOPIC_S, rap => -1}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody4)
+    ),
+    BadBody5 = [#{topic => ?TOPIC_S, nl => -1}],
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, BadBody5)
+    ),
 
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
     {ok, _} = emqtt:connect(Client),

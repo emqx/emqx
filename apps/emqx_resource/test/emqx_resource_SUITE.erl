@@ -944,7 +944,15 @@ t_create_dry_run_local(_) ->
         end,
         lists:seq(1, 10)
     ),
-    [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}).
+    case [] =:= ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}) of
+        false ->
+            %% Sleep to remove flakyness in test case. It take some time for
+            %% the ETS table to be cleared.
+            timer:sleep(2000),
+            [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'});
+        true ->
+            ok
+    end.
 
 create_dry_run_local_succ() ->
     case whereis(test_resource) of

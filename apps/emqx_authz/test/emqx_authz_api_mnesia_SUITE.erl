@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -31,8 +31,8 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authz, emqx_dashboard],
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_authz],
         fun set_special_configs/1
     ),
     Config.
@@ -46,7 +46,7 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_authz, emqx_conf]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -92,7 +92,8 @@ t_api(_) ->
         <<"meta">> := #{
             <<"count">> := 1,
             <<"limit">> := 100,
-            <<"page">> := 1
+            <<"page">> := 1,
+            <<"hasnext">> := false
         }
     } = jsx:decode(Request1),
     ?assertEqual(3, length(Rules1)),
@@ -109,14 +110,17 @@ t_api(_) ->
             ]),
             []
         ),
-    #{
-        <<"data">> := [],
-        <<"meta">> := #{
-            <<"count">> := 0,
-            <<"limit">> := 20,
-            <<"page">> := 1
-        }
-    } = jsx:decode(Request1_1),
+    ?assertEqual(
+        #{
+            <<"data">> => [],
+            <<"meta">> => #{
+                <<"limit">> => 20,
+                <<"page">> => 1,
+                <<"hasnext">> => false
+            }
+        },
+        jsx:decode(Request1_1)
+    ),
 
     {ok, 200, Request2} =
         request(
@@ -158,6 +162,14 @@ t_api(_) ->
             delete,
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
+        ),
+
+    % ensure that db contain a mix of records
+    {ok, 204, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "username"]),
+            [?USERNAME_RULES_EXAMPLE]
         ),
 
     {ok, 204, _} =

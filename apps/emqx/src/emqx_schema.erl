@@ -111,14 +111,18 @@
     comma_separated_atoms/0
 ]).
 
--export([namespace/0, roots/0, roots/1, fields/1, desc/1]).
+-export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
+-export([authz_fields/0]).
 -export([sc/2, map/2]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
 namespace() -> broker.
+
+tags() ->
+    [<<"EMQX">>].
 
 roots() ->
     %% TODO change config importance to a field metadata
@@ -323,31 +327,7 @@ fields("stats") ->
             )}
     ];
 fields("authorization") ->
-    [
-        {"no_match",
-            sc(
-                hoconsc:enum([allow, deny]),
-                #{
-                    default => allow,
-                    required => true,
-                    desc => ?DESC(fields_authorization_no_match)
-                }
-            )},
-        {"deny_action",
-            sc(
-                hoconsc:enum([ignore, disconnect]),
-                #{
-                    default => ignore,
-                    required => true,
-                    desc => ?DESC(fields_authorization_deny_action)
-                }
-            )},
-        {"cache",
-            sc(
-                ref(?MODULE, "cache"),
-                #{}
-            )}
-    ];
+    authz_fields();
 fields("cache") ->
     [
         {"enable",
@@ -1644,7 +1624,7 @@ base_listener(Bind) ->
             sc(
                 hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => infinity,
+                    default => <<"infinity">>,
                     desc => ?DESC(base_listener_max_connections)
                 }
             )},
@@ -2088,6 +2068,33 @@ do_default_ciphers(_) ->
     %% otherwise resolve default ciphers list at runtime
     [].
 
+authz_fields() ->
+    [
+        {"no_match",
+            sc(
+                hoconsc:enum([allow, deny]),
+                #{
+                    default => allow,
+                    required => true,
+                    desc => ?DESC(fields_authorization_no_match)
+                }
+            )},
+        {"deny_action",
+            sc(
+                hoconsc:enum([ignore, disconnect]),
+                #{
+                    default => ignore,
+                    required => true,
+                    desc => ?DESC(fields_authorization_deny_action)
+                }
+            )},
+        {"cache",
+            sc(
+                ref(?MODULE, "cache"),
+                #{}
+            )}
+    ].
+
 %% @private return a list of keys in a parent field
 -spec keys(string(), hocon:config()) -> [string()].
 keys(Parent, Conf) ->
@@ -2342,7 +2349,7 @@ authentication(Which) ->
             undefined -> hoconsc:array(typerefl:map());
             Module -> Module:root_type()
         end,
-    %% It is a lazy type because when handing runtime update requests
+    %% It is a lazy type because when handling runtime update requests
     %% the config is not checked by emqx_schema, but by the injected schema
     Type = hoconsc:lazy(Type0),
     #{

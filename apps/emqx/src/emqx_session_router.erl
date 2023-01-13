@@ -71,24 +71,15 @@
 %%--------------------------------------------------------------------
 
 create_router_tab(disc) ->
-    ok = mria:create_table(?ROUTE_DISC_TAB, [
-        {type, bag},
-        {rlog_shard, ?ROUTE_SHARD},
-        {storage, disc_copies},
-        {record_name, route},
-        {attributes, record_info(fields, route)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]);
+    create_table(?ROUTE_DISC_TAB, disc_copies);
 create_router_tab(ram) ->
-    ok = mria:create_table(?ROUTE_RAM_TAB, [
+    create_table(?ROUTE_RAM_TAB, ram_copies).
+
+create_table(Tab, Storage) ->
+    ok = mria:create_table(Tab, [
         {type, bag},
         {rlog_shard, ?ROUTE_SHARD},
-        {storage, ram_copies},
+        {storage, Storage},
         {record_name, route},
         {attributes, record_info(fields, route)},
         {storage_properties, [

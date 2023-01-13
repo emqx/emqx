@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -68,9 +68,8 @@ init_per_suite(Config) ->
     %% some testcases (may from other app) already get emqx_connector started
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_rule_engine, emqx_bridge, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_rule_engine, emqx_bridge]
     ),
     ok = emqx_common_test_helpers:load_config(
         emqx_rule_engine_schema,
@@ -80,12 +79,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_bridge, emqx_dashboard]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(<<"bridge_admin">>);
-set_special_configs(_) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge]),
     ok.
 
 init_per_testcase(_, Config) ->
@@ -310,6 +304,15 @@ t_http_crud_apis(Config) ->
             <<"message">> := <<"bridge not found">>
         },
         jsx:decode(ErrMsg2)
+    ),
+    %% Deleting a non-existing bridge should result in an error
+    {ok, 404, ErrMsg3} = request(delete, uri(["bridges", BridgeID]), []),
+    ?assertMatch(
+        #{
+            <<"code">> := _,
+            <<"message">> := <<"Bridge not found">>
+        },
+        jsx:decode(ErrMsg3)
     ),
     ok.
 

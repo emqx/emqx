@@ -24,6 +24,8 @@
 -define(REDIS_DEFAULT_PORT, 6379).
 -define(PGSQL_DEFAULT_PORT, 5432).
 
+-define(AUTO_RECONNECT_INTERVAL, 2).
+
 -define(SERVERS_DESC,
     "A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`<br/>"
     "For each Node should be: "
