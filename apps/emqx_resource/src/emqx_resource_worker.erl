@@ -370,13 +370,18 @@ maybe_flush(Data0) ->
 flush(Data0) ->
     #{
         batch_size := BatchSize,
+        inflight_tid := InflightTID,
         queue := Q0
     } = Data0,
     Data1 = cancel_flush_timer(Data0),
-    case queue_count(Q0) of
-        0 ->
+    case {queue_count(Q0), is_inflight_full(InflightTID)} of
+        {0, _} ->
             {keep_state, Data1};
-        _ ->
+        {_, true} ->
+            ?tp(resource_worker_flush_but_inflight_full, #{}),
+            Data2 = ensure_flush_timer(Data1),
+            {keep_state, Data2};
+        {_, false} ->
             {Q1, QAckRef, Batch} = replayq:pop(Q0, #{count_limit => BatchSize}),
             IsBatch = BatchSize =/= 1,
             %% We *must* use the new queue, because we currently can't

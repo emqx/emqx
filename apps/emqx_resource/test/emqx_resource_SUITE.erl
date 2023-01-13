@@ -436,8 +436,8 @@ t_query_counter_async_inflight(_) ->
     %% this will block the resource_worker as the inflight window is full now
     {ok, {ok, _}} =
         ?wait_async_action(
-            emqx_resource:query(?ID, {inc_counter, 2}),
-            #{?snk_kind := resource_worker_enter_blocked},
+            emqx_resource:query(?ID, {inc_counter, 199}),
+            #{?snk_kind := resource_worker_flush_but_inflight_full},
             1_000
         ),
     ?assertMatch(0, ets:info(Tab0, size)),
@@ -449,25 +449,24 @@ t_query_counter_async_inflight(_) ->
         ets:insert(Tab, {Ref, Result}),
         ?tp(tmp_query_inserted, #{})
     end,
-    {ok, {ok, _}} =
-        ?wait_async_action(
-            emqx_resource:query(?ID, {inc_counter, 3}, #{
-                async_reply_fun => {Insert, [Tab0, tmp_query]}
-            }),
-            #{?snk_kind := tmp_query_inserted},
-            1_000
-        ),
     %% since this counts as a failure, it'll be enqueued and retried
     %% later, when the resource is unblocked.
-    ?assertMatch([{_, {error, {resource_error, #{reason := blocked}}}}], ets:take(Tab0, tmp_query)),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqx_resource:query(?ID, {inc_counter, 99}, #{
+                async_reply_fun => {Insert, [Tab0, tmp_query]}
+            }),
+            #{?snk_kind := resource_worker_appended_to_queue},
+            1_000
+        ),
     tap_metrics(?LINE),
 
     %% all responses should be received after the resource is resumed.
     {ok, SRef0} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
-        %% +1 because the tmp_query above will be retried and succeed
-        %% this time.
-        WindowSize + 1,
+        %% +2 because the tmp_query above will be retried and succeed
+        %% this time, and there was the inc 199 request as well.
+        WindowSize + 2,
         _Timeout0 = 10_000
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
@@ -478,8 +477,6 @@ t_query_counter_async_inflight(_) ->
     %% take it again from the table; this time, it should have
     %% succeeded.
     ?assertMatch([{tmp_query, ok}], ets:take(Tab0, tmp_query)),
-    ?assertEqual(WindowSize, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
-    tap_metrics(?LINE),
 
     %% send async query, this time everything should be ok.
     Num = 10,
@@ -496,11 +493,12 @@ t_query_counter_async_inflight(_) ->
         end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, _}, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, _}, _}} | _], QueryTrace),
+            ?assertEqual(WindowSize + Num, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
+            tap_metrics(?LINE),
+            ok
         end
     ),
-    ?assertEqual(WindowSize + Num, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
-    tap_metrics(?LINE),
 
     %% block the resource
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
@@ -525,7 +523,7 @@ t_query_counter_async_inflight(_) ->
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
     {ok, _} = snabbkaffe:receive_events(SRef1),
-    ?assertEqual(Sent, ets:info(Tab0, size)),
+    ?assertEqual(Sent, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
     tap_metrics(?LINE),
 
     {ok, Counter} = emqx_resource:simple_sync_query(?ID, get_counter),
@@ -642,7 +640,7 @@ t_query_counter_async_inflight_batch(_) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {inc_counter, 2}),
-                    #{?snk_kind := resource_worker_enter_blocked},
+                    #{?snk_kind := resource_worker_flush_but_inflight_full},
                     5_000
                 ),
             ?assertMatch(0, ets:info(Tab0, size)),
@@ -658,17 +656,16 @@ t_query_counter_async_inflight_batch(_) ->
         ets:insert(Tab, {Ref, Result}),
         ?tp(tmp_query_inserted, #{})
     end,
+    %% since this counts as a failure, it'll be enqueued and retried
+    %% later, when the resource is unblocked.
     {ok, {ok, _}} =
         ?wait_async_action(
             emqx_resource:query(?ID, {inc_counter, 3}, #{
                 async_reply_fun => {Insert, [Tab0, tmp_query]}
             }),
-            #{?snk_kind := tmp_query_inserted},
+            #{?snk_kind := resource_worker_appended_to_queue},
             1_000
         ),
-    %% since this counts as a failure, it'll be enqueued and retried
-    %% later, when the resource is unblocked.
-    ?assertMatch([{_, {error, {resource_error, #{reason := blocked}}}}], ets:take(Tab0, tmp_query)),
     tap_metrics(?LINE),
 
     %% all responses should be received after the resource is resumed.
@@ -745,7 +742,7 @@ t_query_counter_async_inflight_batch(_) ->
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
     {ok, _} = snabbkaffe:receive_events(SRef1),
-    ?assertEqual(Sent, ets:info(Tab0, size)),
+    ?assertEqual(Sent, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
 
     {ok, Counter} = emqx_resource:simple_sync_query(?ID, get_counter),
     ct:pal("get_counter: ~p, sent: ~p", [Counter, Sent]),
