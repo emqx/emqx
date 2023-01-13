@@ -98,19 +98,19 @@ post_handoff(_Stream, {undefined = _PS, undefined = _Serialize, undefined = _Cha
     {ok, S};
 post_handoff(Stream, {PS, Serialize, Channel}, S) ->
     ?tp(debug, ?FUNCTION_NAME, #{channel => Channel, serialize => Serialize}),
-    quicer:setopt(Stream, active, 10),
+    _ = quicer:setopt(Stream, active, 10),
     {ok, S#{channel := Channel, serialize := Serialize, parse_state := PS}}.
 
 -spec peer_receive_aborted(stream_handle(), error_code(), cb_state()) -> cb_ret().
 peer_receive_aborted(Stream, ErrorCode, #{is_unidir := _} = S) ->
     %% we abort send with same reason
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
+    _ = quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
 -spec peer_send_aborted(stream_handle(), error_code(), cb_state()) -> cb_ret().
 peer_send_aborted(Stream, ErrorCode, #{is_unidir := _} = S) ->
     %% we abort receive with same reason
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
+    _ = quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, ErrorCode),
     {ok, S}.
 
 -spec peer_send_shutdown(stream_handle(), undefined, cb_state()) -> cb_ret().
@@ -157,7 +157,7 @@ handle_stream_data(
 
 -spec passive(stream_handle(), undefined, cb_state()) -> cb_ret().
 passive(Stream, undefined, S) ->
-    quicer:setopt(Stream, active, 10),
+    _ = quicer:setopt(Stream, active, 10),
     {ok, S}.
 
 -spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_state()) -> cb_ret().
