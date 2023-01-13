@@ -1624,7 +1624,7 @@ base_listener(Bind) ->
             sc(
                 hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => infinity,
+                    default => <<"infinity">>,
                     desc => ?DESC(base_listener_max_connections)
                 }
             )},
