@@ -69,8 +69,10 @@ fields(config) ->
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
 
-add_default_username([{username, OrigUsernameFn} | Tail], Head) ->
-    Head ++ [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Tail];
+add_default_username([{username, UsernameFn} | Tail], Head) when is_function(UsernameFn) ->
+    Head ++ [{username, add_default_fn(UsernameFn, <<"root">>)} | Tail];
+add_default_username([{username, Username} | Tail], Head) ->
+    Head ++ [{username, Username#{default => <<"root">>}} | Tail];
 add_default_username([Field | Tail], Head) ->
     add_default_username(Tail, Head ++ [Field]).
 
