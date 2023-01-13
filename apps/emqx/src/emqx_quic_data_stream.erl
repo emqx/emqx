@@ -233,7 +233,11 @@ do_handle_appl_msg({event, updated}, S) ->
 
 handle_info(Deliver = {deliver, _, _}, S) ->
     Delivers = [Deliver],
-    with_channel(handle_deliver, [Delivers], S).
+    with_channel(handle_deliver, [Delivers], S);
+handle_info({timeout, Ref, Msg}, S) ->
+    with_channel(handle_timeout, [Ref, Msg], S);
+handle_info(Info, State) ->
+    with_channel(handle_info, [Info], State).
 
 with_channel(Fun, Args, #{channel := Channel, task_queue := Q} = S) when
     Channel =/= undefined

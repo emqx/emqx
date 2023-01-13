@@ -280,6 +280,9 @@ handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
                 Reason =:= killed
         ->
             {ok, S};
+        true ->
+            ?SLOG(info, #{message => "Data stream unexpected exit", reason => Reason}),
+            {ok, S};
         false ->
             {stop, unknown_pid_down, S}
     end.
