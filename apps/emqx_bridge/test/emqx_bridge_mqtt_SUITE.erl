@@ -187,7 +187,7 @@ t_mqtt_conn_bridge_ingress(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 200, BridgeMetricsStr} = request(get, uri(["bridges", BridgeIDIngress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
@@ -200,7 +200,7 @@ t_mqtt_conn_bridge_ingress(_) ->
                     }
                 ]
         },
-        jsx:decode(BridgeStr)
+        jsx:decode(BridgeMetricsStr)
     ),
 
     %% delete the bridge
@@ -255,7 +255,7 @@ t_mqtt_conn_bridge_egress(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
@@ -268,7 +268,7 @@ t_mqtt_conn_bridge_egress(_) ->
                     }
                 ]
         },
-        jsx:decode(BridgeStr)
+        jsx:decode(BridgeMetricsStr)
     ),
 
     %% delete the bridge
@@ -354,7 +354,7 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
     Payload = <<"hello">>,
     emqx:subscribe(RemoteTopic),
 
-    {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr1} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     #{
         <<"metrics">> := #{
             <<"matched">> := CntMatched1, <<"success">> := CntSuccess1, <<"failed">> := 0
@@ -371,7 +371,7 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
                         }
                 }
             ]
-    } = jsx:decode(BridgeStr1),
+    } = jsx:decode(BridgeMetricsStr1),
     timer:sleep(100),
     %% PUBLISH a message to the 'local' broker, as we have only one broker,
     %% the remote broker is also the local one.
@@ -393,7 +393,7 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
 
     %% verify the metrics of the bridge
     timer:sleep(1000),
-    {ok, 200, BridgeStr2} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr2} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     #{
         <<"metrics">> := #{
             <<"matched">> := CntMatched2, <<"success">> := CntSuccess2, <<"failed">> := 0
@@ -410,7 +410,7 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
                         }
                 }
             ]
-    } = jsx:decode(BridgeStr2),
+    } = jsx:decode(BridgeMetricsStr2),
     ?assertEqual(CntMatched2, CntMatched1 + 1),
     ?assertEqual(CntSuccess2, CntSuccess1 + 1),
     ?assertEqual(NodeCntMatched2, NodeCntMatched1 + 1),
@@ -513,7 +513,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 200, BridgeMetricsStr} = request(get, uri(["bridges", BridgeIDIngress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
@@ -526,7 +526,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
                     }
                 ]
         },
-        jsx:decode(BridgeStr)
+        jsx:decode(BridgeMetricsStr)
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
@@ -627,7 +627,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0},
@@ -641,7 +641,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
                     }
                 ]
         },
-        jsx:decode(BridgeStr)
+        jsx:decode(BridgeMetricsStr)
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
@@ -693,7 +693,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     assert_mqtt_msg_received(RemoteTopic, Payload0),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
@@ -706,7 +706,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
                     }
                 ]
         },
-        jsx:decode(BridgeStr)
+        jsx:decode(BridgeMetricsStr)
     ),
 
     %% stop the listener 1883 to make the bridge disconnected
@@ -740,7 +740,9 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
 
     %% verify the metrics of the bridge, the message should be queued
     {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr1} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     Decoded1 = jsx:decode(BridgeStr1),
+    DecodedMetrics1 = jsx:decode(BridgeMetricsStr1),
     ?assertMatch(
         Status when (Status == <<"connected">> orelse Status == <<"connecting">>),
         maps:get(<<"status">>, Decoded1)
@@ -753,7 +755,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"failed">> := 0,
             <<"queuing">> := 2
         } when Matched >= 3,
-        maps:get(<<"metrics">>, Decoded1)
+        maps:get(<<"metrics">>, DecodedMetrics1)
     ),
 
     %% start the listener 1883 to make the bridge reconnected
@@ -761,10 +763,12 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     timer:sleep(1500),
     %% verify the metrics of the bridge, the 2 queued messages should have been sent
     {ok, 200, BridgeStr2} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeMetricsStr2} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
+    Decoded2 = jsx:decode(BridgeStr2),
+    ?assertEqual(<<"connected">>, maps:get(<<"status">>, Decoded2)),
     %% matched >= 3 because of possible retries.
     ?assertMatch(
         #{
-            <<"status">> := <<"connected">>,
             <<"metrics">> := #{
                 <<"matched">> := Matched,
                 <<"success">> := 3,
@@ -773,7 +777,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
                 <<"retried">> := _
             }
         } when Matched >= 3,
-        jsx:decode(BridgeStr2)
+        jsx:decode(BridgeMetricsStr2)
     ),
     %% also verify the 2 messages have been sent to the remote broker
     assert_mqtt_msg_received(RemoteTopic, Payload1),
