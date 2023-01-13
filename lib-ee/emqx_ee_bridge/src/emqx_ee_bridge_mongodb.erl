@@ -59,15 +59,15 @@ fields("put_sharded") ->
 fields("put_single") ->
     fields(mongodb_single);
 fields("get_rs") ->
-    emqx_bridge_schema:metrics_status_fields() ++
+    emqx_bridge_schema:status_fields() ++
         fields(mongodb_rs) ++
         type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
-    emqx_bridge_schema:metrics_status_fields() ++
+    emqx_bridge_schema:status_fields() ++
         fields(mongodb_sharded) ++
         type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
-    emqx_bridge_schema:metrics_status_fields() ++
+    emqx_bridge_schema:status_fields() ++
         fields(mongodb_single) ++
         type_and_name_fields(mongodb_single);
 fields("creation_opts") ->

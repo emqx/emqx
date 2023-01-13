@@ -124,7 +124,7 @@ fields(bridge_config) ->
             )}
     ];
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("post");
+    emqx_bridge_schema:status_fields() ++ fields("post");
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
