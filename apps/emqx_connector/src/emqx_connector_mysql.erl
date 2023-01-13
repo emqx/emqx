@@ -111,17 +111,19 @@ on_start(
             false ->
                 []
         end,
-    Options = [
-        maybe_password_opt(maps:get(password, Config, undefined))
-        | [
-            {host, Host},
-            {port, Port},
-            {user, Username},
-            {database, DB},
-            {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
-            {pool_size, PoolSize}
-        ]
-    ],
+    Options =
+        maybe_add_password_opt(
+            maps:get(password, Config, undefined),
+            [
+                {host, Host},
+                {port, Port},
+                {user, Username},
+                {database, DB},
+                {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+                {pool_size, PoolSize}
+            ]
+        ),
+
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = parse_prepare_sql(Config),
     State = maps:merge(#{poolname => PoolName}, Prepares),
@@ -136,10 +138,10 @@ on_start(
             {error, Reason}
     end.
 
-maybe_password_opt(undefined) ->
-    [];
-maybe_password_opt(Password) ->
-    {password, Password}.
+maybe_add_password_opt(undefined, Options) ->
+    Options;
+maybe_add_password_opt(Password, Options) ->
+    [{password, Password} | Options].
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{
