@@ -929,7 +929,12 @@ handle_info({sock_error, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 %% handle QUIC control stream events
 handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
-    emqx_quic_stream:Event(Handle, Prop, State);
+    case emqx_quic_stream:Event(Handle, Prop, State) of
+        {{continue, Msgs}, NewState} ->
+            {ok, Msgs, NewState};
+        Other ->
+            Other
+    end;
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
 
