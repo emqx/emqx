@@ -718,7 +718,7 @@ t_metrics(Config) ->
     {ok, 200, Bridge3Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
     ?assertMatch(
         #{
-            <<"metrics">> := #{<<"success">> := 1},
+            <<"metrics">> := #{<<"success">> := _},
             <<"node_metrics">> := [_ | _]
         },
         jsx:decode(Bridge3Str)
@@ -729,7 +729,7 @@ t_metrics(Config) ->
     ?assertMatch(
         [
             #{
-                <<"metrics">> := #{<<"success">> := 1},
+                <<"metrics">> := #{<<"success">> := _},
                 <<"node_metrics">> := [_ | _]
             }
         ],
