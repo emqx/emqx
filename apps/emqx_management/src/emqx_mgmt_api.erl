@@ -405,11 +405,11 @@ counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when FuzzyFun =/= und
 %% ResultAcc :: #{count := integer(),
 %%                cursor := integer(),
 %%                rows  := [{node(), Rows :: list()}],
-%%                partial := boolean(),
+%%                overflow := boolean(),
 %%                hasnext => boolean()
 %%               }
 init_query_result() ->
-    #{cursor => 0, count => 0, rows => [], partial => false}.
+    #{cursor => 0, count => 0, rows => [], overflow => false}.
 
 accumulate_query_rows(
     Node,
@@ -436,12 +436,13 @@ accumulate_query_rows(
                 cursor => NCursor,
                 count => Count + length(SubRows),
                 rows => [{Node, SubRows} | RowsAcc],
-                partial => (Limit - Count) < Len
+                % there are more rows than can fit in the page
+                overflow => (Limit - Count) < Len
             }}
     end.
 
-finalize_query(Result = #{partial := Partial}, QueryState = #{complete := Complete}) ->
-    HasNext = Partial orelse not Complete,
+finalize_query(Result = #{overflow := Overflow}, QueryState = #{complete := Complete}) ->
+    HasNext = Overflow orelse not Complete,
     maybe_accumulate_totals(Result#{hasnext => HasNext}, QueryState).
 
 maybe_accumulate_totals(Result, #{total := TotalAcc}) ->
