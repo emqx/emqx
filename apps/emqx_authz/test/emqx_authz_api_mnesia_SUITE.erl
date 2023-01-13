@@ -109,14 +109,17 @@ t_api(_) ->
             ]),
             []
         ),
-    #{
-        <<"data">> := [],
-        <<"meta">> := #{
-            <<"limit">> := 20,
-            <<"page">> := 1,
-            <<"hasnext">> := false
-        }
-    } = jsx:decode(Request1_1),
+    ?assertEqual(
+        #{
+            <<"data">> => [],
+            <<"meta">> => #{
+                <<"limit">> => 20,
+                <<"page">> => 1,
+                <<"hasnext">> => false
+            }
+        },
+        jsx:decode(Request1_1)
+    ),
 
     {ok, 200, Request2} =
         request(
@@ -158,6 +161,14 @@ t_api(_) ->
             delete,
             uri(["authorization", "sources", "built_in_database", "username", "user1"]),
             []
+        ),
+
+    % ensure that db contain a mix of records
+    {ok, 204, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "username"]),
+            [?USERNAME_RULES_EXAMPLE]
         ),
 
     {ok, 204, _} =
