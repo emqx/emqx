@@ -409,7 +409,7 @@ catch_call(F) ->
             {crashed, {C, E, S}}
     end.
 force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
-    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]", [Path])),
+    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [Path])),
     ok = file:write_file(Path, Bin, [append]),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(emqx, Paths) ->

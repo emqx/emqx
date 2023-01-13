@@ -67,6 +67,7 @@ mix.lock
 apps/emqx/test/emqx_static_checks_data/master.bpapi
 # rendered configurations
 *.conf.rendered
+*.conf.rendered.*
 lux_logs/
 /.prepare
 bom.json
