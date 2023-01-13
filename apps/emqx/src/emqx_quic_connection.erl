@@ -93,7 +93,7 @@ closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
 
 %% @doc handle the new incoming connecion as the connecion acceptor.
 -spec new_conn(quicer:connection_handle(), quicer:new_conn_props(), cb_state()) ->
-    {ok, cb_state()} | {error, any()}.
+    {ok, cb_state()} | {error, any(), cb_state()}.
 new_conn(
     Conn,
     #{version := _Vsn} = ConnInfo,
@@ -119,7 +119,7 @@ new_conn(
             end;
         true ->
             emqx_metrics:inc('olp.new_conn'),
-            quicer:async_shutdown_connection(
+            _ = quicer:async_shutdown_connection(
                 Conn,
                 ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
                 ?MQTT_QUIC_CONN_ERROR_OVERLOADED
@@ -129,7 +129,7 @@ new_conn(
 
 %% @doc callback when connection is connected.
 -spec connected(quicer:connection_handle(), quicer:connected_props(), cb_state()) ->
-    {ok, cb_state()} | {error, any()}.
+    {ok, cb_state()} | {error, any(), cb_state()}.
 connected(_Conn, Props, S) ->
     ?SLOG(debug, Props),
     {ok, S}.
@@ -193,7 +193,7 @@ new_stream(
 -spec shutdown(quicer:connection_handle(), quicer:error_code(), cb_state()) -> cb_ret().
 shutdown(Conn, ErrorCode, S) ->
     ErrorCode =/= 0 andalso ?SLOG(debug, #{error_code => ErrorCode, state => S}),
-    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
+    _ = quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     {ok, S}.
 
 %% @doc callback for handling transport error, such as idle timeout
@@ -245,7 +245,7 @@ handle_call(
     _From,
     #{streams := Streams} = S
 ) ->
-    [
+    _ = [
         %% Try to activate streams individually if failed, stream will shutdown on its own.
         %% we dont care about the return val here.
         %% note, this is only used after control stream pass the validation. The data streams
@@ -263,18 +263,14 @@ handle_call(_Req, _From, S) ->
 
 %% @doc handle DOWN messages from streams.
 handle_info({'EXIT', Pid, Reason}, #{ctrl_pid := Pid, conn := Conn} = S) ->
-    case Reason of
-        normal ->
-            quicer:async_shutdown_connection(
-                Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, ?MQTT_QUIC_CONN_NOERROR
-            );
-        _ ->
-            quicer:async_shutdown_connection(
-                Conn,
-                ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+    Code =
+        case Reason of
+            normal ->
+                ?MQTT_QUIC_CONN_NOERROR;
+            _ ->
                 ?MQTT_QUIC_CONN_ERROR_CTRL_STREAM_DOWN
-            )
-    end,
+        end,
+    _ = quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, Code),
     {ok, S};
 handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
     case proplists:is_defined(Pid, Streams) of

@@ -386,13 +386,16 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                 listener => {quic, ListenerName},
                 limiter => limiter(Opts)
             },
-            StreamOpts = [{stream_callback, emqx_quic_stream}],
+            StreamOpts = #{
+                stream_callback => emqx_quic_stream,
+                active => 1
+            },
             Id = listener_id(quic, ListenerName),
             add_limiter_bucket(Id, Opts),
             quicer:start_listener(
                 Id,
                 ListenOn,
-                {ListenOpts, ConnectionOpts, StreamOpts}
+                {maps:from_list(ListenOpts), ConnectionOpts, StreamOpts}
             );
         [] ->
             {ok, {skipped, quic_app_missing}}

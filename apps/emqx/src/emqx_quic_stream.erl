@@ -136,11 +136,11 @@ getopts(_Socket, _Opts) ->
 %% @TODO supply some App Error Code from caller
 fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
     %% handshake aborted.
-    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
+    _ = quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok;
 fast_close({quic, _Conn, Stream, _Info}) ->
     %% Force flush
-    quicer:async_shutdown_stream(Stream),
+    _ = quicer:async_shutdown_stream(Stream),
     %% @FIXME Since we shutdown the control stream, we shutdown the connection as well
     %% *BUT* Msquic does not flush the send buffer if we shutdown the connection after
     %% gracefully shutdown the stream.
@@ -173,13 +173,13 @@ async_send({quic, _Conn, Stream, _Info}, Data, _Options) ->
 
 -spec peer_receive_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
 peer_receive_aborted(Stream, ErrorCode, S) ->
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
+    _ = quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
 -spec peer_send_aborted(stream_handle(), non_neg_integer(), cb_data()) -> cb_ret().
 peer_send_aborted(Stream, ErrorCode, S) ->
     %% we abort receive with same reason
-    quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
+    _ = quicer:async_shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT, ErrorCode),
     {ok, S}.
 
 -spec peer_send_shutdown(stream_handle(), undefined, cb_data()) -> cb_ret().
@@ -206,7 +206,8 @@ passive(Stream, undefined, S) ->
     end,
     {ok, S}.
 
--spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_data()) -> cb_ret().
+-spec stream_closed(stream_handle(), quicer:stream_closed_props(), cb_data()) ->
+    {{continue, term()}, cb_data()}.
 stream_closed(
     _Stream,
     #{
@@ -236,7 +237,7 @@ stream_closed(
             _ ->
                 Status
         end,
-    {ok, {sock_closed, Reason}, S}.
+    {{continue, {sock_closed, Reason}}, S}.
 
 %%%
 %%%  Internals
