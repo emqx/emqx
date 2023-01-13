@@ -953,18 +953,17 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     ok.
 
 assert_mqtt_msg_received(Topic, Payload) ->
-    ?assert(
-        receive
-            {deliver, Topic, #message{payload = Payload}} ->
-                ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
-                true;
-            Msg ->
-                ct:pal("Unexpected Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ).
+    ct:pal("checking if ~p has been received on ~p", [Payload, Topic]),
+    receive
+        {deliver, Topic, #message{payload = Payload}} ->
+            ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
+            ok;
+        Msg ->
+            ct:pal("Unexpected Msg: ~p", [Msg]),
+            assert_mqtt_msg_received(Topic, Payload)
+    after 100 ->
+        ct:fail("timeout waiting for ~p on topic ~p", [Payload, Topic])
+    end.
 
 request(Method, Url, Body) ->
     request(<<"connector_admin">>, Method, Url, Body).
