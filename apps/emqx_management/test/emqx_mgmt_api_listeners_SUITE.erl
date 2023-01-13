@@ -32,6 +32,25 @@ end_per_suite(_) ->
     emqx_conf:remove([listeners, tcp, new1], #{override_to => local}),
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
+t_max_connection_default(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
+    Etc = filename:join(["etc", "emqx.conf.all"]),
+    ConfFile = emqx_common_test_helpers:app_path(emqx_conf, Etc),
+    Bin = <<"listeners.tcp.max_connection_test {bind = \"0.0.0.0:3883\"}">>,
+    ok = file:write_file(ConfFile, Bin, [append]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    %% Check infinity is binary not atom.
+    #{<<"listeners">> := Listeners} = emqx_mgmt_api_listeners:do_list_listeners(),
+    Target = lists:filter(
+        fun(#{<<"id">> := Id}) -> Id =:= 'tcp:max_connection_test' end,
+        Listeners
+    ),
+    ?assertMatch([#{<<"max_connections">> := <<"infinity">>}], Target),
+    NewPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:max_connection_test"]),
+    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, request(get, NewPath, [], [])),
+    emqx_conf:remove([listeners, tcp, max_connection_test], #{override_to => cluster}),
+    ok.
+
 t_list_listeners(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
     Res = request(get, Path, [], []),
@@ -54,12 +73,14 @@ t_list_listeners(_) ->
     OriginListener2 = maps:remove(<<"id">>, OriginListener),
     NewConf = OriginListener2#{
         <<"name">> => <<"new">>,
-        <<"bind">> => <<"0.0.0.0:2883">>
+        <<"bind">> => <<"0.0.0.0:2883">>,
+        <<"max_connections">> := <<"infinity">>
     },
     Create = request(post, Path, [], NewConf),
     ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
+    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, Create),
     ?assert(is_running(NewListenerId)),
 
     %% delete
