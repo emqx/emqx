@@ -333,7 +333,8 @@ init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     RootNames = get_root_names(),
     RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
     %% check configs against the schema
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+    save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConfAll).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
@@ -534,23 +535,19 @@ get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) -> ok.
-save_configs(_AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
+save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     %% We first try to save to override.conf, because saving to files is more error prone
     %% than saving into memory.
     ok = save_to_override_conf(OverrideConf, Opts),
-    %% We may need also support hot config update for the apps that use application envs.
-    %% If that is the case uncomment the following line to update the configs to app env
-    %save_to_app_env(_AppEnvs),
+    save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
+-define(IGNORE_APPS, [kernel]).
+
 -spec save_to_app_env([tuple()]) -> ok.
-save_to_app_env(AppEnvs) ->
-    lists:foreach(
-        fun({AppName, Envs}) ->
-            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
-        end,
-        AppEnvs
-    ).
+save_to_app_env(AppEnvs0) ->
+    AppEnvs = lists:filter(fun({App, _}) -> not lists:member(App, ?IGNORE_APPS) end, AppEnvs0),
+    application:set_env(AppEnvs).
 
 -spec save_to_config_map(config(), raw_config()) -> ok.
 save_to_config_map(Conf, RawConf) ->
