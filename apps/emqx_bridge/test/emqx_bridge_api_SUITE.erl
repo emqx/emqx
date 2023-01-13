@@ -616,7 +616,6 @@ t_metrics(Config) ->
 
     %% check for empty bridge metrics
     {ok, 200, Bridge1Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
-    ct:pal("HERE ~p", [jsx:decode(Bridge1Str)]),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"success">> := 0},
@@ -624,6 +623,12 @@ t_metrics(Config) ->
         },
         jsx:decode(Bridge1Str)
     ),
+
+    %% check that the bridge doesn't contain metrics anymore
+    {ok, 200, Bridge2Str} = request(get, uri(["bridges", BridgeID]), []),
+    Decoded = jsx:decode(Bridge2Str),
+    ?assertNot(maps:is_key(<<"metrics">>, Decoded)),
+    ?assertNot(maps:is_key(<<"node_metrics">>, Decoded)),
 
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
@@ -645,19 +650,17 @@ t_metrics(Config) ->
     ),
 
     %% check for non-empty bridge metrics
-    {ok, 200, Bridge2Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
-    ct:pal("HERE ~p", [jsx:decode(Bridge2Str)]),
+    {ok, 200, Bridge3Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"success">> := 1},
             <<"node_metrics">> := [_ | _]
         },
-        jsx:decode(Bridge2Str)
+        jsx:decode(Bridge3Str)
     ),
 
     %% check for non-empty metrics when listing all bridges
     {ok, 200, BridgesStr} = request(get, uri(["bridges"]), []),
-    ct:pal("HERE ~p", [jsx:decode(BridgesStr)]),
     ?assertMatch(
         [
             #{

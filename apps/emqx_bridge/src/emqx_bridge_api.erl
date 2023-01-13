@@ -107,7 +107,7 @@ param_path_operation_on_node() ->
             #{
                 in => path,
                 required => true,
-                example => <<"start">>,
+                example => <<"stop">>,
                 desc => ?DESC("desc_param_path_operation_on_node")
             }
         )}.
@@ -142,6 +142,7 @@ param_path_enable() ->
             boolean(),
             #{
                 in => path,
+                required => true,
                 desc => ?DESC("desc_param_path_enable"),
                 example => true
             }
