@@ -761,16 +761,6 @@ batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, Result) ->
             ok
     end.
 
-ack_inflight_and_resume(Pid, InflightTID, Ref, Id, Index) ->
-    IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
-    case is_inflight_full(InflightTID) of
-        true ->
-            ok;
-        false ->
-            ?MODULE:resume(Pid)
-    end,
-    IsAcked.
-
 %%==============================================================================
 %% operations for queue
 queue_item_marshaller(Bin) when is_binary(Bin) ->
