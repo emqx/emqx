@@ -652,9 +652,6 @@ t_bridges_probe(Config) ->
     ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, jsx:decode(BadReq)),
     ok.
 
-request(Method, Url, Body) ->
-    request(<<"bridge_admin">>, Method, Url, Body).
-
 t_metrics(Config) ->
     Port = ?config(port, Config),
     %% assert we there's no bridges at first
