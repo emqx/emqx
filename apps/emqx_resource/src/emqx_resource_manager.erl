@@ -428,14 +428,6 @@ read_cache(ResId) ->
         [] -> not_found
     end.
 
-read_manager_pid_from_cache(ResId) ->
-    case read_cache(ResId) of
-        not_found ->
-            erlang:error(badarg);
-        {_, #data{pid = ManagerPid}} ->
-            ManagerPid
-    end.
-
 delete_cache(ResId, MgrId) ->
     case get_owner(ResId) of
         MgrIdNow when MgrIdNow == not_found; MgrIdNow == MgrId ->
@@ -656,8 +648,12 @@ do_wait_for_ready(ResId, Retry) ->
 
 safe_call(ResId, Message, Timeout) ->
     try
-        ManagerPid = read_manager_pid_from_cache(ResId),
-        gen_statem:call(ManagerPid, Message, {clean_timeout, Timeout})
+        case read_cache(ResId) of
+            not_found ->
+                {error, not_found};
+            {_, #data{pid = ManagerPid}} ->
+                gen_statem:call(ManagerPid, Message, {clean_timeout, Timeout})
+        end
     catch
         error:badarg ->
             {error, not_found};
