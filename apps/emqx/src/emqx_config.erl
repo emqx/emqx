@@ -542,6 +542,8 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
+%% we ignore kernel app env,
+%% because the old app env will be used in emqx_config_logger:post_config_update/5
 -define(IGNORE_APPS, [kernel]).
 
 -spec save_to_app_env([tuple()]) -> ok.
