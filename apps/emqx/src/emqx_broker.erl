@@ -107,7 +107,7 @@ create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
     %% SubOption: {SubPid, Topic} -> SubOption
-    ok = emqx_tables:new(?SUBOPTION, [set | TabOpts]),
+    ok = emqx_tables:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> Topic1, Topic2, Topic3, ...
     %% duplicate_bag: o(1) insert

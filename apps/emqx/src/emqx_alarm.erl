@@ -89,7 +89,7 @@ mnesia(boot) ->
     ok = mria:create_table(
         ?ACTIVATED_ALARM,
         [
-            {type, set},
+            {type, ordered_set},
             {storage, disc_copies},
             {local_content, true},
             {record_name, activated_alarm},
