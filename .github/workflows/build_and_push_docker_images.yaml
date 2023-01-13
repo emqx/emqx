@@ -166,6 +166,7 @@ jobs:
         username: ${{ secrets.AWS_ACCESS_KEY_ID }}
         password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         ecr: true
+
     - name: prepare for docker/metadata-action
       id: pre-meta
       shell: bash
