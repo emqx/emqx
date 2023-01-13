@@ -142,7 +142,11 @@ fields(common) ->
     [
         {server, server()},
         {precision,
-            mk(enum([ns, us, ms, s, m, h]), #{
+            %% The influxdb only supports these 4 precision:
+            %% See "https://github.com/influxdata/influxdb/blob/
+            %% 6b607288439a991261307518913eb6d4e280e0a7/models/points.go#L487" for
+            %% more information.
+            mk(enum([ns, us, ms, s]), #{
                 required => false, default => ms, desc => ?DESC("precision")
             })}
     ];
@@ -210,9 +214,7 @@ start_client(InstId, Config) ->
 do_start_client(
     InstId,
     ClientConfig,
-    Config = #{
-        write_syntax := Lines
-    }
+    Config = #{write_syntax := Lines}
 ) ->
     case influxdb:start_client(ClientConfig) of
         {ok, Client} ->
@@ -220,7 +222,9 @@ do_start_client(
                 true ->
                     State = #{
                         client => Client,
-                        write_syntax => to_config(Lines)
+                        write_syntax => to_config(
+                            Lines, proplists:get_value(precision, ClientConfig)
+                        )
                     },
                     ?SLOG(info, #{
                         msg => "starting influxdb connector success",
@@ -348,30 +352,33 @@ do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
 
-to_config(Lines) ->
-    to_config(Lines, []).
+to_config(Lines, Precision) ->
+    to_config(Lines, [], Precision).
 
-to_config([], Acc) ->
+to_config([], Acc, _Precision) ->
     lists:reverse(Acc);
-to_config(
-    [
-        #{
-            measurement := Measurement,
-            timestamp := Timestamp,
-            tags := Tags,
-            fields := Fields
-        }
-        | Rest
-    ],
-    Acc
-) ->
-    Res = #{
-        measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
-        timestamp => emqx_plugin_libs_rule:preproc_tmpl(Timestamp),
-        tags => to_kv_config(Tags),
-        fields => to_kv_config(Fields)
+to_config([Item0 | Rest], Acc, Precision) ->
+    Ts = maps:get(timestamp, Item0, undefined),
+    Item = #{
+        measurement => emqx_plugin_libs_rule:preproc_tmpl(maps:get(measurement, Item0)),
+        timestamp => preproc_tmpl_timestamp(Ts, Precision),
+        tags => to_kv_config(maps:get(tags, Item0)),
+        fields => to_kv_config(maps:get(fields, Item0))
     },
-    to_config(Rest, [Res | Acc]).
+    to_config(Rest, [Item | Acc], Precision).
+
+preproc_tmpl_timestamp(undefined, <<"ns">>) ->
+    erlang:system_time(nanosecond);
+preproc_tmpl_timestamp(undefined, <<"us">>) ->
+    erlang:system_time(microsecond);
+preproc_tmpl_timestamp(undefined, <<"ms">>) ->
+    erlang:system_time(millisecond);
+preproc_tmpl_timestamp(undefined, <<"s">>) ->
+    erlang:system_time(second);
+preproc_tmpl_timestamp(Ts, _) when is_integer(Ts) ->
+    Ts;
+preproc_tmpl_timestamp(Ts, _) when is_binary(Ts); is_list(Ts) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Ts).
 
 to_kv_config(KVfields) ->
     maps:fold(fun to_maps_config/3, #{}, proplists:to_map(KVfields)).
@@ -414,7 +421,7 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
         fields := [{binary(), binary()}],
         measurement := binary(),
         tags := [{binary(), binary()}],
-        timestamp := binary()
+        timestamp := emqx_plugin_libs_rule:tmpl_token() | integer()
     }
 ]) -> {ok, [map()]} | {error, term()}.
 data_to_points(Data, SyntaxLines) ->
@@ -430,45 +437,49 @@ lines_to_points(_, [], Points, ErrorPoints) ->
             %% ignore trans succeeded points
             {error, ErrorPoints}
     end;
-lines_to_points(
-    Data,
-    [
-        #{
-            measurement := Measurement,
-            timestamp := Timestamp,
-            tags := Tags,
-            fields := Fields
-        }
-        | Rest
-    ],
-    ResultPointsAcc,
-    ErrorPointsAcc
-) ->
+lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc) when
+    is_list(Ts)
+->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case emqx_plugin_libs_rule:proc_tmpl(Timestamp, Data, TransOptions) of
-        [TimestampInt] when is_integer(TimestampInt) ->
-            {_, EncodedTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
-            {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
-            Point = #{
-                measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Data),
-                timestamp => TimestampInt,
-                tags => EncodedTags,
-                fields => EncodedFields
-            },
-            case map_size(EncodedFields) =:= 0 of
-                true ->
-                    %% influxdb client doesn't like empty field maps...
-                    lines_to_points(Data, Rest, ResultPointsAcc, [
-                        {error, no_fields} | ErrorPointsAcc
-                    ]);
-                false ->
-                    lines_to_points(Data, Rest, [Point | ResultPointsAcc], ErrorPointsAcc)
-            end;
-        BadTimestamp ->
+    case emqx_plugin_libs_rule:proc_tmpl(Ts, Data, TransOptions) of
+        [TsInt] when is_integer(TsInt) ->
+            Item1 = Item#{timestamp => TsInt},
+            continue_lines_to_points(Data, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
+        BadTs ->
             lines_to_points(Data, Rest, ResultPointsAcc, [
-                {error, {bad_timestamp, BadTimestamp}} | ErrorPointsAcc
+                {error, {bad_timestamp, BadTs}} | ErrorPointsAcc
             ])
+    end;
+lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc) when
+    is_integer(Ts)
+->
+    continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
+
+continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
+    case line_to_point(Data, Item) of
+        #{fields := Fields} when map_size(Fields) =:= 0 ->
+            %% influxdb client doesn't like empty field maps...
+            ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
+            lines_to_points(Data, Rest, ResultPointsAcc, ErrorPointsAcc1);
+        Point ->
+            lines_to_points(Data, Rest, [Point | ResultPointsAcc], ErrorPointsAcc)
     end.
+
+line_to_point(
+    Data,
+    #{
+        measurement := Measurement,
+        tags := Tags,
+        fields := Fields
+    } = Item
+) ->
+    {_, EncodedTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
+    {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
+    Item#{
+        measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Data),
+        tags => EncodedTags,
+        fields => EncodedFields
+    }.
 
 maps_config_to_data(K, V, {Data, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
