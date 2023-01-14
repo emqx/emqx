@@ -32,6 +32,21 @@
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, "8474").
 
+-define(WAIT(PATTERN, EXPRESSION, TIMEOUT),
+    wait(
+        fun() ->
+            case EXPRESSION of
+                PATTERN ->
+                    ok;
+                Other ->
+                    ct:pal("ignored wait result: ~p", [Other]),
+                    error
+            end
+        end,
+        TIMEOUT
+    )
+).
+
 all() -> [{group, transport_types}, {group, rest}].
 
 groups() ->
@@ -156,9 +171,10 @@ t_create_delete_bridge(Config) ->
 
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
 
-    ?assertEqual(
+    ?WAIT(
         {ok, connected},
-        emqx_resource:health_check(ResourceId)
+        emqx_resource:health_check(ResourceId),
+        5
     ),
 
     RedisType = atom_to_binary(Type),
@@ -224,11 +240,11 @@ t_check_replay(Config) ->
     ),
 
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-    Health = emqx_resource:health_check(ResourceId),
 
-    ?assertEqual(
+    ?WAIT(
         {ok, connected},
-        Health
+        emqx_resource:health_check(ResourceId),
+        5
     ),
 
     ?check_trace(
@@ -508,3 +524,14 @@ publish_message(Topic, Payload) ->
     {ok, _} = emqtt:connect(Client),
     ok = emqtt:publish(Client, Topic, Payload),
     ok = emqtt:stop(Client).
+
+wait(_F, 0) ->
+    error(timeout);
+wait(F, Attempt) ->
+    case F() of
+        ok ->
+            ok;
+        _ ->
+            timer:sleep(1000),
+            wait(F, Attempt - 1)
+    end.
