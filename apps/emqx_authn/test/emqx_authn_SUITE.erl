@@ -97,21 +97,76 @@ t_will_message_connection_denied(Config) when is_list(Config) ->
         {will_topic, <<"lwt">>},
         {will_payload, <<"should not be published">>}
     ]),
-    snabbkaffe:start_trace(),
-    ?wait_async_action(
-        {error, _} = emqtt:connect(Publisher),
-        #{?snk_kind := channel_terminated}
-    ),
-    snabbkaffe:stop(),
-
+    Ref = monitor(process, Publisher),
+    {error, _} = emqtt:connect(Publisher),
+    receive
+        {'DOWN', Ref, process, Publisher, Reason} ->
+            ?assertEqual({shutdown, unauthorized_client}, Reason)
+    after 2000 ->
+        error(timeout)
+    end,
     receive
         {publish, #{
             topic := <<"lwt">>,
             payload := <<"should not be published">>
         }} ->
             ct:fail("should not publish will message")
-    after 0 ->
+    after 1000 ->
         ok
     end,
-
     ok.
+
+%% With auth enabled, send CONNECT without password field,
+%% expect CONNACK with reason_code=5 and socket close
+t_password_undefined({init, Config}) ->
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn]),
+    AuthnConfig = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"clientid">>
+    },
+    Chain = 'mqtt:global',
+    emqx:update_config(
+        [authentication],
+        {create_authenticator, Chain, AuthnConfig}
+    ),
+    Config;
+t_password_undefined({'end', _Config}) ->
+    emqx:update_config(
+        [authentication],
+        {delete_authenticator, 'mqtt:global', <<"password_based:built_in_database">>}
+    ),
+    emqx_common_test_helpers:stop_apps([emqx_authn, emqx_conf]),
+    ok;
+t_password_undefined(Config) when is_list(Config) ->
+    Payload = <<16, 19, 0, 4, 77, 81, 84, 84, 4, 130, 0, 60, 0, 2, 97, 49, 0, 3, 97, 97, 97>>,
+    {ok, Sock} = gen_tcp:connect("localhost", 1883, [binary, {active, true}]),
+    gen_tcp:send(Sock, Payload),
+    receive
+        {tcp, Sock, Bytes} ->
+            Resp = parse(iolist_to_binary(Bytes)),
+            ?assertMatch(
+                #mqtt_packet{
+                    header = #mqtt_packet_header{type = ?CONNACK},
+                    variable = #mqtt_packet_connack{
+                        ack_flags = 0,
+                        reason_code = ?CONNACK_AUTH
+                    },
+                    payload = undefined
+                },
+                Resp
+            )
+    after 2000 ->
+        error(timeout)
+    end,
+    receive
+        {tcp_closed, Sock} ->
+            ok
+    after 2000 ->
+        error(timeout)
+    end,
+    ok.
+
+parse(Bytes) ->
+    {ok, Frame, <<>>, {none, _}} = emqx_frame:parse(Bytes),
+    Frame.

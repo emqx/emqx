@@ -1427,7 +1427,6 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 
 -spec terminate(any(), channel()) -> ok.
 terminate(_, #channel{conn_state = idle} = _Channel) ->
-    ?tp(channel_terminated, #{channel => _Channel}),
     ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
@@ -1460,10 +1459,8 @@ persist_if_session(#channel{session = Session} = Channel) ->
     end.
 
 run_terminate_hook(_Reason, #channel{session = undefined} = _Channel) ->
-    ?tp(channel_terminated, #{channel => _Channel}),
     ok;
 run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session} = _Channel) ->
-    ?tp(channel_terminated, #{channel => _Channel}),
     emqx_session:terminate(ClientInfo, Reason, Session).
 
 %%--------------------------------------------------------------------
