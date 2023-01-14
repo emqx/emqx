@@ -465,10 +465,15 @@ fields("node") ->
             sc(
                 hoconsc:array(string()),
                 #{
+                    %% EMQX node boots from ${EMQX_ETC_DIR}/emqx.conf (the chicken),
+                    %% but not from this config value (the egg).
+                    %% The mapped app env is then used at emqx app's emqx_config:init_load,
+                    %% the app env is also used in test cases.
                     mapping => "emqx.config_files",
-                    default => undefined,
-                    'readOnly' => true,
-                    desc => ?DESC(node_config_files)
+                    %% This is hidden because users can not change $EMQX_ETC_DIR
+                    hidden => true,
+                    requiredk => false,
+                    'readOnly' => true
                 }
             )},
         {"global_gc_interval",
@@ -1037,17 +1042,17 @@ metrics_enabled(disabled) -> [].
 tr_default_config_driver(Conf) ->
     conf_get("rpc.driver", Conf).
 
-tr_config_files(Conf) ->
-    case conf_get("emqx.config_files", Conf) of
-        [_ | _] = Files ->
-            Files;
-        _ ->
-            case os:getenv("EMQX_ETC_DIR") of
-                false ->
-                    [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
-                Dir ->
-                    [filename:join([Dir, "emqx.conf"])]
-            end
+%% Translate EMQX_ETC_DIR env var to emqx.config_files app env
+%% the result list might be extended in the future for emqx_config:init_load
+%% but the bootstraping config file has to be $EMQX_ETC_DIR/emqx.conf
+tr_config_files(_Conf) ->
+    case os:getenv("EMQX_ETC_DIR") of
+        false ->
+            %% testing
+            %% or running emqx app standalone
+            [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
+        Dir ->
+            [filename:join([Dir, "emqx.conf"])]
     end.
 
 tr_cluster_override_conf_file(Conf) ->
