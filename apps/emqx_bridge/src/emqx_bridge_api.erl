@@ -36,9 +36,12 @@
 -export([
     '/bridges'/2,
     '/bridges/:id'/2,
-    '/bridges/:id/operation/:operation'/2,
-    '/nodes/:node/bridges/:id/operation/:operation'/2,
-    '/bridges/:id/reset_metrics'/2
+    '/bridges/:id/enable/:enable'/2,
+    '/bridges/:id/:operation'/2,
+    '/nodes/:node/bridges/:id/:operation'/2,
+    '/bridges/:id/metrics'/2,
+    '/bridges/:id/metrics/reset'/2,
+    '/bridges_probe'/2
 ]).
 
 -export([lookup_from_local_node/2]).
@@ -66,9 +69,12 @@ paths() ->
     [
         "/bridges",
         "/bridges/:id",
-        "/bridges/:id/operation/:operation",
-        "/nodes/:node/bridges/:id/operation/:operation",
-        "/bridges/:id/reset_metrics"
+        "/bridges/:id/enable/:enable",
+        "/bridges/:id/:operation",
+        "/nodes/:node/bridges/:id/:operation",
+        "/bridges/:id/metrics",
+        "/bridges/:id/metrics/reset",
+        "/bridges_probe"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -87,7 +93,7 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([enable, disable, stop, restart]),
+            enum([stop, restart]),
             #{
                 in => path,
                 required => true,
@@ -103,7 +109,7 @@ param_path_operation_on_node() ->
             #{
                 in => path,
                 required => true,
-                example => <<"start">>,
+                example => <<"stop">>,
                 desc => ?DESC("desc_param_path_operation_on_node")
             }
         )}.
@@ -132,19 +138,34 @@ param_path_id() ->
             }
         )}.
 
-bridge_info_array_example(Method) ->
-    [Config || #{value := Config} <- maps:values(bridge_info_examples(Method))].
+param_path_enable() ->
+    {enable,
+        mk(
+            boolean(),
+            #{
+                in => path,
+                required => true,
+                desc => ?DESC("desc_param_path_enable"),
+                example => true
+            }
+        )}.
+
+bridge_info_array_example(Method, WithMetrics) ->
+    [Config || #{value := Config} <- maps:values(bridge_info_examples(Method, WithMetrics))].
 
 bridge_info_examples(Method) ->
+    bridge_info_examples(Method, false).
+
+bridge_info_examples(Method, WithMetrics) ->
     maps:merge(
         #{
             <<"webhook_example">> => #{
                 summary => <<"WebHook">>,
-                value => info_example(webhook, Method)
+                value => info_example(webhook, Method, WithMetrics)
             },
             <<"mqtt_example">> => #{
                 summary => <<"MQTT Bridge">>,
-                value => info_example(mqtt, Method)
+                value => info_example(mqtt, Method, WithMetrics)
             }
         },
         ee_bridge_examples(Method)
@@ -157,24 +178,24 @@ ee_bridge_examples(Method) ->
         _:_ -> #{}
     end.
 
-info_example(Type, Method) ->
+info_example(Type, Method, WithMetrics) ->
     maps:merge(
         info_example_basic(Type),
-        method_example(Type, Method)
+        method_example(Type, Method, WithMetrics)
     ).
 
-method_example(Type, Method) when Method == get; Method == post ->
+method_example(Type, Method, WithMetrics) when Method == get; Method == post ->
     SType = atom_to_list(Type),
     SName = SType ++ "_example",
     TypeNameExam = #{
         type => bin(SType),
         name => bin(SName)
     },
-    maybe_with_metrics_example(TypeNameExam, Method);
-method_example(_Type, put) ->
+    maybe_with_metrics_example(TypeNameExam, Method, WithMetrics);
+method_example(_Type, put, _WithMetrics) ->
     #{}.
 
-maybe_with_metrics_example(TypeNameExam, get) ->
+maybe_with_metrics_example(TypeNameExam, get, true) ->
     TypeNameExam#{
         metrics => ?EMPTY_METRICS,
         node_metrics => [
@@ -184,7 +205,7 @@ maybe_with_metrics_example(TypeNameExam, get) ->
             }
         ]
     };
-maybe_with_metrics_example(TypeNameExam, _) ->
+maybe_with_metrics_example(TypeNameExam, _, _) ->
     TypeNameExam.
 
 info_example_basic(webhook) ->
@@ -274,7 +295,7 @@ schema("/bridges") ->
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_schema:get_response()),
-                    bridge_info_array_example(get)
+                    bridge_info_array_example(get, true)
                 )
             }
         },
@@ -334,9 +355,23 @@ schema("/bridges/:id") ->
             }
         }
     };
-schema("/bridges/:id/reset_metrics") ->
+schema("/bridges/:id/metrics") ->
     #{
-        'operationId' => '/bridges/:id/reset_metrics',
+        'operationId' => '/bridges/:id/metrics',
+        get => #{
+            tags => [<<"bridges">>],
+            summary => <<"Get Bridge Metrics">>,
+            description => ?DESC("desc_bridge_metrics"),
+            parameters => [param_path_id()],
+            responses => #{
+                200 => emqx_bridge_schema:metrics_fields(),
+                404 => error_schema('NOT_FOUND', "Bridge not found")
+            }
+        }
+    };
+schema("/bridges/:id/metrics/reset") ->
+    #{
+        'operationId' => '/bridges/:id/metrics/reset',
         put => #{
             tags => [<<"bridges">>],
             summary => <<"Reset Bridge Metrics">>,
@@ -348,12 +383,29 @@ schema("/bridges/:id/reset_metrics") ->
             }
         }
     };
-schema("/bridges/:id/operation/:operation") ->
+schema("/bridges/:id/enable/:enable") ->
     #{
-        'operationId' => '/bridges/:id/operation/:operation',
+        'operationId' => '/bridges/:id/enable/:enable',
+        put =>
+            #{
+                tags => [<<"bridges">>],
+                summary => <<"Enable or Disable Bridge">>,
+                desc => ?DESC("desc_enable_bridge"),
+                parameters => [param_path_id(), param_path_enable()],
+                responses =>
+                    #{
+                        204 => <<"Success">>,
+                        400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                    }
+            }
+    };
+schema("/bridges/:id/:operation") ->
+    #{
+        'operationId' => '/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Enable/Disable/Stop/Restart Bridge">>,
+            summary => <<"Stop or Restart Bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -366,9 +418,9 @@ schema("/bridges/:id/operation/:operation") ->
             }
         }
     };
-schema("/nodes/:node/bridges/:id/operation/:operation") ->
+schema("/nodes/:node/bridges/:id/:operation") ->
     #{
-        'operationId' => '/nodes/:node/bridges/:id/operation/:operation',
+        'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Stop/Restart Bridge">>,
@@ -383,6 +435,23 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
                 400 => error_schema('INVALID_ID', "Bad bridge ID"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+            }
+        }
+    };
+schema("/bridges_probe") ->
+    #{
+        'operationId' => '/bridges_probe',
+        post => #{
+            tags => [<<"bridges">>],
+            desc => ?DESC("desc_api9"),
+            summary => <<"Test creating bridge">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_schema:post_request(),
+                bridge_info_examples(post)
+            ),
+            responses => #{
+                204 => <<"Test bridge OK">>,
+                400 => error_schema(['TEST_FAILED'], "bridge test failed")
             }
         }
     }.
@@ -455,7 +524,10 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         end
     ).
 
-'/bridges/:id/reset_metrics'(put, #{bindings := #{id := Id}}) ->
+'/bridges/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, lookup_from_all_nodes_metrics(BridgeType, BridgeName, 200)).
+
+'/bridges/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
         case
@@ -468,11 +540,33 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         end
     ).
 
+'/bridges_probe'(post, Request) ->
+    RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
+    case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
+        {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
+            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
+                ok ->
+                    {204};
+                {error, Error} ->
+                    {400, error_msg('TEST_FAILED', Error)}
+            end;
+        BadRequest ->
+            BadRequest
+    end.
+
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
+    FormatFun = fun format_bridge_info_without_metrics/1,
+    do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun).
+
+lookup_from_all_nodes_metrics(BridgeType, BridgeName, SuccCode) ->
+    FormatFun = fun format_bridge_metrics/1,
+    do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun).
+
+do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
     Nodes = mria_mnesia:running_nodes(),
     case is_ok(emqx_bridge_proto_v1:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
-            {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
+            {SuccCode, FormatFun([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
             {404, error_msg('NOT_FOUND', <<"not_found">>)};
         {error, ErrL} ->
@@ -485,19 +579,16 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Error -> Error
     end.
 
-'/bridges/:id/operation/:operation'(post, #{
-    bindings :=
-        #{id := Id, operation := Op}
-}) ->
+'/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case operation_func(Op) of
+        case enable_func(Enable) of
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
-            OperFunc when OperFunc == enable; OperFunc == disable ->
+            OperFunc ->
                 case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
                     {ok, _} ->
-                        {200};
+                        {204};
                     {error, {pre_config_update, _, bridge_not_found}} ->
                         {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
                     {error, {_, _, timeout}} ->
@@ -506,14 +597,26 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                         {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                     {error, Reason} ->
                         {500, error_msg('INTERNAL_ERROR', Reason)}
-                end;
+                end
+        end
+    ).
+
+'/bridges/:id/:operation'(post, #{
+    bindings :=
+        #{id := Id, operation := Op}
+}) ->
+    ?TRY_PARSE_ID(
+        Id,
+        case operation_func(Op) of
+            invalid ->
+                {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
             OperFunc ->
                 Nodes = mria_mnesia:running_nodes(),
                 operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName)
         end
     ).
 
-'/nodes/:node/bridges/:id/operation/:operation'(post, #{
+'/nodes/:node/bridges/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op, node := Node}
 }) ->
@@ -543,9 +646,11 @@ node_operation_func(_) -> invalid.
 
 operation_func(<<"stop">>) -> stop;
 operation_func(<<"restart">>) -> restart;
-operation_func(<<"enable">>) -> enable;
-operation_func(<<"disable">>) -> disable;
 operation_func(_) -> invalid.
+
+enable_func(<<"true">>) -> enable;
+enable_func(<<"false">>) -> disable;
+enable_func(_) -> invalid.
 
 operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
     RpcFunc =
@@ -572,7 +677,7 @@ zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info(Bridges) | Acc]
+            [format_bridge_info_with_metrics(Bridges) | Acc]
         end,
         [],
         BridgesFirstNode
@@ -606,7 +711,7 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
         BridgesAllNodes
     ).
 
-format_bridge_info([FirstBridge | _] = Bridges) ->
+format_bridge_info_with_metrics([FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
     NodeStatus = collect_status(Bridges),
     NodeMetrics = collect_metrics(Bridges),
@@ -616,6 +721,14 @@ format_bridge_info([FirstBridge | _] = Bridges) ->
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics
     }).
+
+format_bridge_info_without_metrics(Bridges) ->
+    Res = format_bridge_info_with_metrics(Bridges),
+    maps:without([metrics, node_metrics], Res).
+
+format_bridge_metrics(Bridges) ->
+    Res = format_bridge_info_with_metrics(Bridges),
+    maps:with([metrics, node_metrics], Res).
 
 collect_status(Bridges) ->
     [maps:with([node, status], B) || B <- Bridges].

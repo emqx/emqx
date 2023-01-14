@@ -33,13 +33,21 @@
         )
     )
 ).
--define(HTTP_BRIDGE(URL, TYPE, NAME), #{
+-define(BRIDGE(NAME, TYPE), #{
+    <<"ssl">> => #{<<"enable">> => false},
     <<"type">> => TYPE,
-    <<"name">> => NAME,
+    <<"name">> => NAME
+}).
+-define(MQTT_BRIDGE(SERVER), ?BRIDGE(<<"mqtt_egress_test_bridge">>, <<"mqtt">>)#{
+    <<"server">> => SERVER,
+    <<"username">> => <<"user1">>,
+    <<"password">> => <<"">>,
+    <<"proto_ver">> => <<"v5">>
+}).
+-define(HTTP_BRIDGE(URL, TYPE, NAME), ?BRIDGE(NAME, TYPE)#{
     <<"url">> => URL,
     <<"local_topic">> => <<"emqx_webhook/#">>,
     <<"method">> => <<"post">>,
-    <<"ssl">> => #{<<"enable">> => false},
     <<"body">> => <<"${payload}">>,
     <<"headers">> => #{
         <<"content-type">> => <<"application/json">>
@@ -187,8 +195,6 @@ t_http_crud_apis(Config) ->
         <<"enable">> := true,
         <<"status">> := _,
         <<"node_status">> := [_ | _],
-        <<"metrics">> := _,
-        <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
 
@@ -225,8 +231,6 @@ t_http_crud_apis(Config) ->
             <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
-            <<"metrics">> := _,
-            <<"node_metrics">> := [_ | _],
             <<"url">> := URL2
         },
         jsx:decode(Bridge2)
@@ -259,8 +263,6 @@ t_http_crud_apis(Config) ->
             <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
-            <<"metrics">> := _,
-            <<"node_metrics">> := [_ | _],
             <<"url">> := URL2
         },
         jsx:decode(Bridge3Str)
@@ -456,8 +458,6 @@ do_start_stop_bridges(Type, Config) ->
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
-        <<"metrics">> := _,
-        <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
@@ -502,25 +502,23 @@ t_enable_disable_bridges(Config) ->
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
-        <<"metrics">> := _,
-        <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     %% disable it
-    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"stopped">>}, jsx:decode(Bridge2)),
     %% enable again
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge3)),
     %% enable an already started bridge
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge3)),
     %% disable it again
-    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
 
     {ok, 403, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
     ?assertEqual(
@@ -529,7 +527,7 @@ t_enable_disable_bridges(Config) ->
     ),
 
     %% enable a stopped bridge
-    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge4)),
     %% delete the bridge
@@ -555,12 +553,10 @@ t_reset_bridges(Config) ->
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
-        <<"metrics">> := _,
-        <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
-    {ok, 200, <<"Reset success">>} = request(put, uri(["bridges", BridgeID, "reset_metrics"]), []),
+    {ok, 200, <<"Reset success">>} = request(put, uri(["bridges", BridgeID, "metrics/reset"]), []),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
@@ -599,10 +595,155 @@ t_with_redact_update(_Config) ->
     ?assertEqual(Password, Value),
     ok.
 
+t_bridges_probe(Config) ->
+    Port = ?config(port, Config),
+    URL = ?URL(Port, "some_path"),
+
+    {ok, 204, <<>>} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+
+    %% second time with same name is ok since no real bridge created
+    {ok, 204, <<>>} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+
+    {ok, 400, NxDomain} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := _
+        },
+        jsx:decode(NxDomain)
+    ),
+
+    {ok, 204, _} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)
+    ),
+
+    {ok, 400, ConnRefused} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:2883">>)
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"#{reason => econnrefused", _/binary>>
+        },
+        jsx:decode(ConnRefused)
+    ),
+
+    {ok, 400, BadReq} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?BRIDGE(<<"bad_bridge">>, <<"unknown_type">>)
+    ),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, jsx:decode(BadReq)),
+    ok.
+
+t_metrics(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name = ?BRIDGE_NAME,
+    {ok, 201, Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+
+    %ct:pal("---bridge: ~p", [Bridge]),
+    #{
+        <<"type">> := ?BRIDGE_TYPE,
+        <<"name">> := Name,
+        <<"enable">> := true,
+        <<"status">> := _,
+        <<"node_status">> := [_ | _],
+        <<"url">> := URL1
+    } = jsx:decode(Bridge),
+
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+
+    %% check for empty bridge metrics
+    {ok, 200, Bridge1Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
+    ?assertMatch(
+        #{
+            <<"metrics">> := #{<<"success">> := 0},
+            <<"node_metrics">> := [_ | _]
+        },
+        jsx:decode(Bridge1Str)
+    ),
+
+    %% check that the bridge doesn't contain metrics anymore
+    {ok, 200, Bridge2Str} = request(get, uri(["bridges", BridgeID]), []),
+    Decoded = jsx:decode(Bridge2Str),
+    ?assertNot(maps:is_key(<<"metrics">>, Decoded)),
+    ?assertNot(maps:is_key(<<"node_metrics">>, Decoded)),
+
+    %% send an message to emqx and the message should be forwarded to the HTTP server
+    Body = <<"my msg">>,
+    emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
+    ?assert(
+        receive
+            {http_server, received, #{
+                method := <<"POST">>,
+                path := <<"/path1">>,
+                body := Body
+            }} ->
+                true;
+            Msg ->
+                ct:pal("error: http got unexpected request: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end
+    ),
+
+    %% check for non-empty bridge metrics
+    {ok, 200, Bridge3Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
+    ?assertMatch(
+        #{
+            <<"metrics">> := #{<<"success">> := 1},
+            <<"node_metrics">> := [_ | _]
+        },
+        jsx:decode(Bridge3Str)
+    ),
+
+    %% check for non-empty metrics when listing all bridges
+    {ok, 200, BridgesStr} = request(get, uri(["bridges"]), []),
+    ?assertMatch(
+        [
+            #{
+                <<"metrics">> := #{<<"success">> := 1},
+                <<"node_metrics">> := [_ | _]
+            }
+        ],
+        jsx:decode(BridgesStr)
+    ),
+    ok.
+
 operation_path(node, Oper, BridgeID) ->
-    uri(["nodes", node(), "bridges", BridgeID, "operation", Oper]);
+    uri(["nodes", node(), "bridges", BridgeID, Oper]);
 operation_path(cluster, Oper, BridgeID) ->
-    uri(["bridges", BridgeID, "operation", Oper]).
+    uri(["bridges", BridgeID, Oper]).
+
+enable_path(Enable, BridgeID) ->
+    uri(["bridges", BridgeID, "enable", Enable]).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).

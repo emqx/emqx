@@ -30,7 +30,8 @@
 
 -export([
     common_bridge_fields/0,
-    metrics_status_fields/0
+    status_fields/0,
+    metrics_fields/0
 ]).
 
 %%======================================================================================
@@ -83,19 +84,23 @@ common_bridge_fields() ->
             )}
     ].
 
-metrics_status_fields() ->
+status_fields() ->
+    [
+        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("desc_node_status")}
+            )}
+    ].
+
+metrics_fields() ->
     [
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("desc_metrics")})},
         {"node_metrics",
             mk(
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("desc_node_metrics")}
-            )},
-        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
-        {"node_status",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => ?DESC("desc_node_status")}
             )}
     ].
 

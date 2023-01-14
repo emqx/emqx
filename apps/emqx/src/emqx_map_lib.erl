@@ -152,7 +152,7 @@ deep_convert(Val, _, _Args) ->
 
 -spec unsafe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 unsafe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
+    convert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
 
 -spec binary_key_map(map()) -> map().
 binary_key_map(Map) ->
@@ -167,7 +167,7 @@ binary_key_map(Map) ->
 
 -spec safe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 safe_atom_key_map(Map) ->
-    covert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
+    convert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
 
 -spec jsonable_map(map() | list()) -> map() | list().
 jsonable_map(Map) ->
@@ -221,7 +221,7 @@ binary_string(Val) ->
     Val.
 
 %%---------------------------------------------------------------------------
-covert_keys_to_atom(BinKeyMap, Conv) ->
+convert_keys_to_atom(BinKeyMap, Conv) ->
     deep_convert(
         BinKeyMap,
         fun

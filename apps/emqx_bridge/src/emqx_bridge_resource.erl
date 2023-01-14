@@ -215,14 +215,16 @@ recreate(Type, Name, Conf, Opts) ->
         Opts
     ).
 
-create_dry_run(Type, Conf) ->
+create_dry_run(Type, Conf0) ->
     TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+    Conf = emqx_map_lib:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->
             {error, Reason};
         {ok, ConfNew} ->
+            ParseConf = parse_confs(bin(Type), TmpPath, ConfNew),
             Res = emqx_resource:create_dry_run_local(
-                bridge_to_resource_type(Type), ConfNew
+                bridge_to_resource_type(Type), ParseConf
             ),
             _ = maybe_clear_certs(TmpPath, ConfNew),
             Res

@@ -384,14 +384,10 @@ on_query_async(
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
-        true ->
-            connected;
-        false ->
-            ?SLOG(error, #{
-                msg => "http_connector_get_status_failed",
-                state => State
-            }),
-            disconnected
+        ok ->
+            {connected, State};
+        {error, Reason} ->
+            {disconnected, State, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->
@@ -400,24 +396,28 @@ do_get_status(PoolName, Timeout) ->
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
-                    true;
-                {error, Reason} ->
+                    ok;
+                {error, Reason} = Error ->
                     ?SLOG(error, #{
-                        msg => "ehttpc_health_check_failed",
+                        msg => "http_connector_get_status_failed",
                         reason => Reason,
                         worker => Worker
                     }),
-                    false
+                    Error
             end
         end,
     try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
-        [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
-        [] ->
-            false
+        % we crash in case of non-empty lists since we don't know what to do in that case
+        [_ | _] = Results ->
+            case [E || {error, _} = E <- Results] of
+                [] ->
+                    ok;
+                Errors ->
+                    hd(Errors)
+            end
     catch
         exit:timeout ->
-            false
+            {error, timeout}
     end.
 
 %%--------------------------------------------------------------------
