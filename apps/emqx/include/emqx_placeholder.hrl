@@ -17,6 +17,8 @@
 -ifndef(EMQX_PLACEHOLDER_HRL).
 -define(EMQX_PLACEHOLDER_HRL, true).
 
+-define(PH_VAR_THIS, <<"$_THIS_">>).
+
 -define(PH(Type), <<"${", Type/binary, "}">>).
 
 %% action: publish/subscribe/all
