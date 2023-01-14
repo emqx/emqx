@@ -601,7 +601,8 @@ format_variable(#mqtt_packet_auth{reason_code = ReasonCode}, _) ->
 format_variable(PacketId, _) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]).
 
-format_password(undefined) -> "undefined";
+format_password(undefined) -> "";
+format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
 format_payload(Payload, text) -> ["Payload=", io_lib:format("~ts", [Payload])];
