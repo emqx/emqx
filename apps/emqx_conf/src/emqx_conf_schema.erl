@@ -463,7 +463,7 @@ fields("node") ->
             )},
         {"config_files",
             sc(
-                list(string()),
+                hoconsc:array(string()),
                 #{
                     mapping => "emqx.config_files",
                     default => undefined,

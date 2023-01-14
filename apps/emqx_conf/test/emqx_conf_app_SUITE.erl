@@ -92,6 +92,14 @@ set_data_dir_env() ->
     Node = atom_to_list(node()),
     %% will create certs and authz dir
     ok = filelib:ensure_dir(Node ++ "/configs/"),
+    {ok, [ConfigFile]} = application:get_env(emqx, config_files),
+    NewConfigFile = ConfigFile ++ "." ++ Node,
+    {ok, _} = file:copy(ConfigFile, NewConfigFile),
+    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [NewConfigFile])),
+    ok = file:write_file(NewConfigFile, Bin, [append]),
+    DataDir = iolist_to_binary(io_lib:format("node.data_dir = ~p~n", [Node])),
+    ok = file:write_file(NewConfigFile, DataDir, [append]),
+    application:set_env(emqx, config_files, [NewConfigFile]),
     application:set_env(emqx, data_dir, Node),
     application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
     ok.
