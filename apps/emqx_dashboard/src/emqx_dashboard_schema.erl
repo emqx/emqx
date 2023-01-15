@@ -209,6 +209,7 @@ default_password(default) -> "public";
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;
+default_password(converter) -> fun emqx_schema:password_converter/2;
 default_password(desc) -> ?DESC(default_password);
 default_password(_) -> undefined.
 

@@ -380,7 +380,13 @@ fields(ssl_server_opts) ->
 fields(clientinfo_override) ->
     [
         {username, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_username)})},
-        {password, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_password)})},
+        {password,
+            sc(binary(), #{
+                desc => ?DESC(gateway_common_clientinfo_override_password),
+                sensitive => true,
+                format => <<"password">>,
+                converter => fun emqx_schema:password_converter/2
+            })},
         {clientid, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_clientid)})}
     ];
 fields(lwm2m_translators) ->
