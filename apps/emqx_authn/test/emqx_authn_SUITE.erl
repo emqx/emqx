@@ -98,6 +98,7 @@ t_will_message_connection_denied(Config) when is_list(Config) ->
         {will_payload, <<"should not be published">>}
     ]),
     Ref = monitor(process, Publisher),
+    _ = unlink(Publisher),
     {error, _} = emqtt:connect(Publisher),
     receive
         {'DOWN', Ref, process, Publisher, Reason} ->
