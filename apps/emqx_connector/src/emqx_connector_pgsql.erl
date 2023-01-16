@@ -228,6 +228,10 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
     Result = ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover),
     case Result of
         {error, Reason} ->
+            ?tp(
+                pgsql_connector_query_error,
+                #{error => Reason}
+            ),
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
                 connector => InstId,

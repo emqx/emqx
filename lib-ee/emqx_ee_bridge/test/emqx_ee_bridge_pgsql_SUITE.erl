@@ -427,8 +427,10 @@ t_write_failure(Config) ->
                 ok;
             ({error, {recoverable_error, disconnected}}, _Trace) ->
                 ok;
-            (_, _Trace) ->
-                ?assert(false)
+            (Res, Trace) ->
+                ct:pal("unexpected result: ~p", [Res]),
+                ct:pal("trace: ~p", [Trace]),
+                ct:fail("unexpected result")
         end
     ),
     ok.
