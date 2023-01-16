@@ -90,7 +90,7 @@
 %%================================================================================
 
 %% API:
--export([create_new/3, open/4]).
+-export([create_new/3, open/5]).
 -export([make_keymapper/1]).
 
 -export([store/5]).
@@ -122,6 +122,9 @@
 ]).
 
 -export_type([db/0, iterator/0, schema/0]).
+
+-export_type([options/0]).
+-export_type([iteration_options/0]).
 
 -compile(
     {inline, [
@@ -162,6 +165,8 @@
     %% Maximum granularity of iteration over time.
     epoch := time(),
 
+    iteration => iteration_options(),
+
     cf_options => emqx_replay_local_store:db_cf_options()
 }.
 
@@ -180,12 +185,12 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
+    zone :: emqx_types:zone(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
     write_options = [{sync, true}] :: emqx_replay_local_store:db_write_options(),
-    read_options = [] :: emqx_replay_local_store:db_write_options(),
-    iteration_options = #{} :: iteration_options()
+    read_options = [] :: emqx_replay_local_store:db_write_options()
 }).
 
 -record(it, {
@@ -233,7 +238,6 @@
 %% Create a new column family for the generation and a serializable representation of the schema
 -spec create_new(rocksdb:db_handle(), emqx_replay_local_store:gen_id(), options()) ->
     {schema(), emqx_replay_local_store:cf_refs()}.
-%{schema(), emqx_replay_local_store:cf_refs()}.
 create_new(DBHandle, GenId, Options) ->
     CFName = data_cf(GenId),
     CFOptions = maps:get(cf_options, Options, []),
@@ -243,15 +247,17 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
+    emqx_types:zone(),
     rocksdb:db_handle(),
     emqx_replay_local_store:gen_id(),
     emqx_replay_local_store:cf_refs(),
     schema()
 ) ->
     db().
-open(DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+open(Zone, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
     {value, {_, CFHandle}} = lists:keysearch(data_cf(GenId), 1, CFs),
     #db{
+        zone = Zone,
         handle = DBHandle,
         cf = CFHandle,
         keymapper = Keymapper
@@ -289,8 +295,8 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
 -spec make_iterator(db(), emqx_topic:words(), time() | earliest) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(DB, TopicFilter, StartTime) ->
-    % TODO wire it up somehow to the upper level
-    make_iterator(DB, TopicFilter, StartTime, DB#db.iteration_options).
+    Options = emqx_replay_conf:zone_iteration_options(DB#db.zone),
+    make_iterator(DB, TopicFilter, StartTime, Options).
 
 -spec make_iterator(db(), emqx_topic:words(), time() | earliest, iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time
