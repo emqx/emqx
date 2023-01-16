@@ -122,8 +122,8 @@ legal_username(UserName) ->
 -define(NUMBER, "0123456789").
 -define(SPECIAL_CHARS, "!@#$%^&*()_+-=[]{}\"|;':,./<>?`~ ").
 -define(INVALID_PASSWORD_MSG, <<
-    "Bad username."
-    "At least two different kind of characters from groups of letters, numbers, and special characters."
+    "Bad password. "
+    "At least two different kind of characters from groups of letters, numbers, and special characters. "
     "For example, if password is composed from letters, it must contain at least one number or a special character."
 >>).
 -define(BAD_PASSWORD_LEN, <<"The range of password length is 8~64">>).
