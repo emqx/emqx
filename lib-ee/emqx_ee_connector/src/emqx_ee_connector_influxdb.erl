@@ -278,19 +278,18 @@ client_config(
     ] ++ protocol_config(Config).
 
 %% api v1 config
-protocol_config(#{
-    username := Username,
-    password := Password,
-    database := DB,
-    ssl := SSL
-}) ->
+protocol_config(
+    #{
+        database := DB,
+        ssl := SSL
+    } = Config
+) ->
     [
         {protocol, http},
         {version, v1},
-        {username, str(Username)},
-        {password, str(Password)},
         {database, str(DB)}
-    ] ++ ssl_config(SSL);
+    ] ++ username(Config) ++
+        password(Config) ++ ssl_config(SSL);
 %% api v2 config
 protocol_config(#{
     bucket := Bucket,
@@ -320,6 +319,16 @@ ssl_config(SSL = #{enable := true}) ->
         {https_enabled, true},
         {transport, ssl}
     ] ++ maps:to_list(maps:remove(enable, SSL)).
+
+username(#{username := Username}) ->
+    [{username, str(Username)}];
+username(_) ->
+    [].
+
+password(#{password := Password}) ->
+    [{password, str(Password)}];
+password(_) ->
+    [].
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
