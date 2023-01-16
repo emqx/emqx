@@ -50,7 +50,7 @@ end_per_suite(Config) ->
 
 todo_t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
-    PackagePath = build_demo_plugin_package(DemoShDir),
+    PackagePath = get_demo_plugin_package(DemoShDir),
     ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:delete_package(NameVsn),
@@ -135,8 +135,8 @@ uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
 
-build_demo_plugin_package(Dir) ->
-    #{package := Pkg} = emqx_plugins_SUITE:build_demo_plugin_package(),
+get_demo_plugin_package(Dir) ->
+    #{package := Pkg} = emqx_plugins_SUITE:get_demo_plugin_package(),
     FileName = "emqx_plugin_template-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
     PluginPath = "./" ++ FileName,
     Pkg = filename:join([Dir, FileName]),
