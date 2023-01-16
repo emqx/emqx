@@ -138,10 +138,10 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
 
 on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
     Pid ! {inc, N, ReplyFun},
-    ok;
+    {ok, Pid};
 on_query_async(_InstId, get_counter, ReplyFun, #{pid := Pid}) ->
     Pid ! {get, ReplyFun},
-    ok;
+    {ok, Pid};
 on_query_async(_InstId, block_now, ReplyFun, #{pid := Pid}) ->
     Pid ! {block_now, ReplyFun},
     {ok, Pid};

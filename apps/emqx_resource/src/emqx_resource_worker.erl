@@ -66,10 +66,11 @@
     ?REPLY(FROM, REQUEST, SENT, RESULT)
  || ?QUERY(FROM, REQUEST, SENT) <- BATCH
 ]).
--define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, WorkerPid),
-    {Ref, BatchOrQuery, IsRetriable, WorkerPid}
+-define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, WorkerMRef),
+    {Ref, BatchOrQuery, IsRetriable, WorkerMRef}
 ).
 -define(RETRY_IDX, 3).
+-define(WORKER_MREF_IDX, 4).
 
 -type id() :: binary().
 -type index() :: pos_integer().
@@ -79,14 +80,15 @@
 -type request_from() :: undefined | gen_statem:from().
 -type state() :: blocked | running.
 -type data() :: #{
-    id => id(),
-    index => index(),
-    inflight_tid => ets:tid(),
-    batch_size => pos_integer(),
-    batch_time => timer:time(),
-    queue => replayq:q(),
-    resume_interval => timer:time(),
-    tref => undefined | timer:tref()
+    id := id(),
+    index := index(),
+    inflight_tid := ets:tid(),
+    async_workers := #{pid() => reference()},
+    batch_size := pos_integer(),
+    batch_time := timer:time(),
+    queue := replayq:q(),
+    resume_interval := timer:time(),
+    tref := undefined | timer:tref()
 }.
 
 callback_mode() -> [state_functions, state_enter].
@@ -172,21 +174,22 @@ init({Id, Index, Opts}) ->
     Queue = replayq:open(QueueOpts),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Queue)),
     emqx_resource_metrics:inflight_set(Id, Index, 0),
-    InfltWinSZ = maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
-    InflightTID = inflight_new(InfltWinSZ, Id, Index),
-    HCItvl = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
-    St = #{
+    InflightWinSize = maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
+    InflightTID = inflight_new(InflightWinSize, Id, Index),
+    HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
+    Data = #{
         id => Id,
         index => Index,
         inflight_tid => InflightTID,
+        async_workers => #{},
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
-        resume_interval => maps:get(resume_interval, Opts, HCItvl),
+        resume_interval => maps:get(resume_interval, Opts, HealthCheckInterval),
         tref => undefined
     },
     ?tp(resource_worker_init, #{id => Id, index => Index}),
-    {ok, blocked, St, {next_event, cast, resume}}.
+    {ok, blocked, Data, {next_event, cast, resume}}.
 
 running(enter, _, St) ->
     ?tp(resource_worker_enter_running, #{}),
@@ -203,6 +206,11 @@ running(internal, flush, St) ->
     flush(St);
 running(info, {flush, _Ref}, _St) ->
     keep_state_and_data;
+running(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
+    is_map_key(Pid, AsyncWorkers0)
+->
+    ?SLOG(info, #{msg => async_worker_died, state => running, reason => Reason}),
+    handle_async_worker_down(Data0, Pid);
 running(info, Info, _St) ->
     ?SLOG(error, #{msg => unexpected_msg, state => running, info => Info}),
     keep_state_and_data.
@@ -224,6 +232,11 @@ blocked(info, ?SEND_REQ(_ReqFrom, {query, _Request, _Opts}) = Request0, Data0) -
     {keep_state, Data};
 blocked(info, {flush, _Ref}, _Data) ->
     keep_state_and_data;
+blocked(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
+    is_map_key(Pid, AsyncWorkers0)
+->
+    ?SLOG(info, #{msg => async_worker_died, state => blocked, reason => Reason}),
+    handle_async_worker_down(Data0, Pid);
 blocked(info, Info, _Data) ->
     ?SLOG(error, #{msg => unexpected_msg, state => blocked, info => Info}),
     keep_state_and_data.
@@ -458,11 +471,15 @@ do_flush(
                 is_recoverable_error_result(Result) orelse
                     is_not_connected_result(Result),
             ShouldPreserveInInflight = is_not_connected_result(Result),
-            WorkerPid = undefined,
-            InflightItem = ?INFLIGHT_ITEM(Ref, Request, IsRetriable, WorkerPid),
+            %% we set it atomically just below; a limitation of having
+            %% to use tuples for atomic ets updates
+            WorkerMRef0 = undefined,
+            InflightItem = ?INFLIGHT_ITEM(Ref, Request, IsRetriable, WorkerMRef0),
             ShouldPreserveInInflight andalso
                 inflight_append(InflightTID, InflightItem, Id, Index),
             IsRetriable andalso mark_inflight_as_retriable(InflightTID, Ref),
+            {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
+            store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
                 resource_worker_flush_nack,
@@ -473,18 +490,20 @@ do_flush(
                     result => Result
                 }
             ),
-            {next_state, blocked, Data0};
+            {next_state, blocked, Data1};
         %% Success; just ack.
         ack ->
             ok = replayq:ack(Q1, QAckRef),
             is_async(Id) orelse ack_inflight(InflightTID, Ref, Id, Index),
+            {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
+            store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(resource_worker_flush_ack, #{batch_or_query => Request}),
             case queue_count(Q1) > 0 of
                 true ->
-                    {keep_state, Data0, [{next_event, internal, flush}]};
+                    {keep_state, Data1, [{next_event, internal, flush}]};
                 false ->
-                    {keep_state, Data0}
+                    {keep_state, Data1}
             end
     end;
 do_flush(Data0, #{
@@ -518,11 +537,15 @@ do_flush(Data0, #{
                 is_recoverable_error_result(Result) orelse
                     is_not_connected_result(Result),
             ShouldPreserveInInflight = is_not_connected_result(Result),
-            WorkerPid = undefined,
-            InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerPid),
+            %% we set it atomically just below; a limitation of having
+            %% to use tuples for atomic ets updates
+            WorkerMRef0 = undefined,
+            InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef0),
             ShouldPreserveInInflight andalso
                 inflight_append(InflightTID, InflightItem, Id, Index),
             IsRetriable andalso mark_inflight_as_retriable(InflightTID, Ref),
+            {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
+            store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
                 resource_worker_flush_nack,
@@ -533,22 +556,24 @@ do_flush(Data0, #{
                     result => Result
                 }
             ),
-            {next_state, blocked, Data0};
+            {next_state, blocked, Data1};
         %% Success; just ack.
         ack ->
             ok = replayq:ack(Q1, QAckRef),
             is_async(Id) orelse ack_inflight(InflightTID, Ref, Id, Index),
+            {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
+            store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(resource_worker_flush_ack, #{batch_or_query => Batch}),
             CurrentCount = queue_count(Q1),
             case {CurrentCount > 0, CurrentCount >= BatchSize} of
                 {false, _} ->
-                    {keep_state, Data0};
+                    {keep_state, Data1};
                 {true, true} ->
-                    {keep_state, Data0, [{next_event, internal, flush}]};
+                    {keep_state, Data1, [{next_event, internal, flush}]};
                 {true, false} ->
-                    Data1 = ensure_flush_timer(Data0),
-                    {keep_state, Data1}
+                    Data2 = ensure_flush_timer(Data1),
+                    {keep_state, Data2}
             end
     end.
 
@@ -653,6 +678,8 @@ handle_query_result_pure(Id, {async_return, {error, Msg}}, HasBeenSent) ->
     {ack, PostFn};
 handle_query_result_pure(_Id, {async_return, ok}, _HasBeenSent) ->
     {ack, fun() -> ok end};
+handle_query_result_pure(_Id, {async_return, {ok, Pid}}, _HasBeenSent) when is_pid(Pid) ->
+    {ack, fun() -> ok end};
 handle_query_result_pure(Id, Result, HasBeenSent) ->
     PostFn = fun() ->
         assert_ok_result(Result),
@@ -660,6 +687,13 @@ handle_query_result_pure(Id, Result, HasBeenSent) ->
         ok
     end,
     {ack, PostFn}.
+
+handle_async_worker_down(Data0, Pid) ->
+    #{async_workers := AsyncWorkers0} = Data0,
+    {WorkerMRef, AsyncWorkers} = maps:take(Pid, AsyncWorkers0),
+    Data = Data0#{async_workers := AsyncWorkers},
+    cancel_inflight_items(Data, WorkerMRef),
+    {keep_state, Data}.
 
 is_not_connected_result(?RESOURCE_ERROR_M(Error, _)) when
     Error =:= not_connected; Error =:= blocked
@@ -723,8 +757,8 @@ apply_query_fun(sync, Mod, Id, Index, Ref, ?QUERY(_, Request, _) = Query, ResSt,
                 {async_return, inflight_full};
             false ->
                 IsRetriable = false,
-                WorkerPid = undefined,
-                InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerPid),
+                WorkerMRef = undefined,
+                InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
                 ok = inflight_append(InflightTID, InflightItem, Id, Index),
                 Mod:on_query(Id, Request, ResSt)
         end,
@@ -745,8 +779,8 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _) = Query, ResSt
                 ReplyFun = fun ?MODULE:reply_after_query/7,
                 Args = [self(), Id, Index, InflightTID, Ref, Query],
                 IsRetriable = false,
-                WorkerPid = undefined,
-                InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerPid),
+                WorkerMRef = undefined,
+                InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
                 ok = inflight_append(InflightTID, InflightItem, Id, Index),
                 Result = Mod:on_query_async(Id, Request, {ReplyFun, Args}, ResSt),
                 {async_return, Result}
@@ -769,8 +803,8 @@ apply_query_fun(sync, Mod, Id, Index, Ref, [?QUERY(_, _, _) | _] = Batch, ResSt,
                 {async_return, inflight_full};
             false ->
                 IsRetriable = false,
-                WorkerPid = undefined,
-                InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerPid),
+                WorkerMRef = undefined,
+                InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef),
                 ok = inflight_append(InflightTID, InflightItem, Id, Index),
                 Mod:on_batch_query(Id, Requests, ResSt)
         end,
@@ -792,8 +826,8 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _) | _] = Batch, ResSt
                 ReplyFunAndArgs = {ReplyFun, [self(), Id, Index, InflightTID, Ref, Batch]},
                 Requests = [Request || ?QUERY(_From, Request, _) <- Batch],
                 IsRetriable = false,
-                WorkerPid = undefined,
-                InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerPid),
+                WorkerMRef = undefined,
+                InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef),
                 ok = inflight_append(InflightTID, InflightItem, Id, Index),
                 Result = Mod:on_batch_query_async(Id, Requests, ReplyFunAndArgs, ResSt),
                 {async_return, Result}
@@ -905,7 +939,7 @@ inflight_new(InfltWinSZ, Id, Index) ->
 inflight_get_first_retriable(InflightTID) ->
     MatchSpec =
         ets:fun2ms(
-            fun(?INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, _WorkerPid)) when
+            fun(?INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, _WorkerMRef)) when
                 IsRetriable =:= true
             ->
                 {Ref, BatchOrQuery}
@@ -944,12 +978,12 @@ inflight_append(undefined, _InflightItem, _Id, _Index) ->
     ok;
 inflight_append(
     InflightTID,
-    ?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch0, IsRetriable, WorkerPid),
+    ?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch0, IsRetriable, WorkerMRef),
     Id,
     Index
 ) ->
     Batch = mark_as_sent(Batch0),
-    InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerPid),
+    InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef),
     IsNew = ets:insert_new(InflightTID, InflightItem),
     BatchSize = length(Batch),
     IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, BatchSize}),
@@ -958,12 +992,12 @@ inflight_append(
     ok;
 inflight_append(
     InflightTID,
-    ?INFLIGHT_ITEM(Ref, ?QUERY(_From, _Req, _HasBeenSent) = Query0, IsRetriable, WorkerPid),
+    ?INFLIGHT_ITEM(Ref, ?QUERY(_From, _Req, _HasBeenSent) = Query0, IsRetriable, WorkerMRef),
     Id,
     Index
 ) ->
     Query = mark_as_sent(Query0),
-    InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerPid),
+    InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
     IsNew = ets:insert_new(InflightTID, InflightItem),
     IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, 1}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
@@ -983,14 +1017,46 @@ mark_inflight_as_retriable(InflightTID, Ref) ->
     _ = ets:update_element(InflightTID, Ref, {?RETRY_IDX, true}),
     ok.
 
+%% Track each worker pid only once.
+ensure_async_worker_monitored(
+    Data0 = #{async_workers := AsyncWorkers}, {async_return, {ok, WorkerPid}} = _Result
+) when
+    is_pid(WorkerPid), is_map_key(WorkerPid, AsyncWorkers)
+->
+    WorkerMRef = maps:get(WorkerPid, AsyncWorkers),
+    {Data0, WorkerMRef};
+ensure_async_worker_monitored(
+    Data0 = #{async_workers := AsyncWorkers0}, {async_return, {ok, WorkerPid}}
+) when
+    is_pid(WorkerPid)
+->
+    WorkerMRef = monitor(process, WorkerPid),
+    AsyncWorkers = AsyncWorkers0#{WorkerPid => WorkerMRef},
+    Data = Data0#{async_workers := AsyncWorkers},
+    {Data, WorkerMRef};
+ensure_async_worker_monitored(Data0, _Result) ->
+    {Data0, undefined}.
+
+store_async_worker_reference(undefined = _InflightTID, _Ref, _WorkerMRef) ->
+    ok;
+store_async_worker_reference(_InflightTID, _Ref, undefined = _WorkerRef) ->
+    ok;
+store_async_worker_reference(InflightTID, Ref, WorkerMRef) when
+    is_reference(WorkerMRef)
+->
+    _ = ets:update_element(
+        InflightTID, Ref, {?WORKER_MREF_IDX, WorkerMRef}
+    ),
+    ok.
+
 ack_inflight(undefined, _Ref, _Id, _Index) ->
     false;
 ack_inflight(InflightTID, Ref, Id, Index) ->
     Count =
         case ets:take(InflightTID, Ref) of
-            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _), _IsRetriable, _WorkerPid)] ->
+            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _), _IsRetriable, _WorkerMRef)] ->
                 1;
-            [?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch, _IsRetriable, _WorkerPid)] ->
+            [?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch, _IsRetriable, _WorkerMRef)] ->
                 length(Batch);
             _ ->
                 0
@@ -999,6 +1065,38 @@ ack_inflight(InflightTID, Ref, Id, Index) ->
     IsAcked andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     IsAcked.
+
+cancel_inflight_items(Data, WorkerMRef) ->
+    #{inflight_tid := InflightTID} = Data,
+    MatchSpec =
+        ets:fun2ms(
+            fun(?INFLIGHT_ITEM(Ref, _BatchOrQuery, _IsRetriable, WorkerMRef0)) when
+                WorkerMRef =:= WorkerMRef0
+            ->
+                Ref
+            end
+        ),
+    Refs = ets:select(InflightTID, MatchSpec),
+    lists:foreach(fun(Ref) -> do_cancel_inflight_item(Data, Ref) end, Refs).
+
+do_cancel_inflight_item(Data, Ref) ->
+    #{id := Id, index := Index, inflight_tid := InflightTID} = Data,
+    {Count, Batch} =
+        case ets:take(InflightTID, Ref) of
+            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _) = Query, _IsRetriable, _WorkerMRef)] ->
+                {1, [Query]};
+            [?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch0, _IsRetriable, _WorkerMRef)] ->
+                {length(Batch0), Batch0};
+            _ ->
+                {0, []}
+        end,
+    IsAcked = Count > 0,
+    IsAcked andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
+    emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
+    Result = {error, interrupted},
+    _ = batch_reply_caller(Id, Result, Batch),
+    ?tp(resource_worker_cancelled_inflight, #{ref => Ref}),
+    ok.
 
 %%==============================================================================
 

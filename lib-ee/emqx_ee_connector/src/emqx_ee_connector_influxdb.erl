@@ -356,7 +356,7 @@ do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
         connector => InstId,
         points => Points
     }),
-    ok = influxdb:write_async(Client, Points, ReplyFunAndArgs).
+    {ok, _WorkerPid} = influxdb:write_async(Client, Points, ReplyFunAndArgs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans

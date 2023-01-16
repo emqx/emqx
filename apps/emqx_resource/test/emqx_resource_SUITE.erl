@@ -1422,6 +1422,86 @@ t_dont_retry_async_inflight_batch(_Config) ->
     ),
     ok.
 
+%% check that we monitor async worker pids and abort their inflight
+%% requests if they die.
+t_async_pool_worker_death(_Config) ->
+    ResumeInterval = 1_000,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            worker_pool_size => 2,
+            resume_interval => ResumeInterval
+        }
+    ),
+    Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
+    Insert0 = fun(Tab, Ref, Result) ->
+        ct:pal("inserting ~p", [{Ref, Result}]),
+        ets:insert(Tab, {Ref, Result})
+    end,
+    ReqOpts = fun() -> #{async_reply_fun => {Insert0, [Tab0, make_ref()]}} end,
+    ?check_trace(
+        begin
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            NumReqs = 10,
+            {ok, SRef0} =
+                snabbkaffe:subscribe(
+                    ?match_event(#{?snk_kind := resource_worker_appended_to_inflight}),
+                    NumReqs,
+                    1_000
+                ),
+            inc_counter_in_parallel_increasing(NumReqs, 1, ReqOpts),
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+
+            Inflight0 = emqx_resource_metrics:inflight_get(?ID),
+            ?assertEqual(NumReqs, Inflight0),
+
+            %% grab one of the worker pids and kill it
+            {ok, SRef1} =
+                snabbkaffe:subscribe(
+                    ?match_event(#{?snk_kind := resource_worker_cancelled_inflight}),
+                    NumReqs,
+                    1_000
+                ),
+            {ok, #{pid := Pid0}} = emqx_resource:simple_sync_query(?ID, get_state),
+            MRef = monitor(process, Pid0),
+            ct:pal("will kill ~p", [Pid0]),
+            exit(Pid0, kill),
+            receive
+                {'DOWN', MRef, process, Pid0, killed} ->
+                    ct:pal("~p killed", [Pid0]),
+                    ok
+            after 200 ->
+                ct:fail("worker should have died")
+            end,
+
+            %% inflight requests should have been cancelled
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+            Inflight1 = emqx_resource_metrics:inflight_get(?ID),
+            ?assertEqual(0, Inflight1),
+
+            ?assert(
+                lists:all(
+                    fun
+                        ({_, {error, interrupted}}) -> true;
+                        (_) -> false
+                    end,
+                    ets:tab2list(Tab0)
+                ),
+                #{tab => ets:tab2list(Tab0)}
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
