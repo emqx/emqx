@@ -164,7 +164,10 @@ init_per_testcase(TC, Config) ->
     ok = set_zone_config(zone(TC), #{
         timestamp_bits => 64,
         topic_bits_per_level => [8, 8, 32, 16],
-        epoch => 5
+        epoch => 5,
+        iteration => #{
+            iterator_refresh => {every, 5}
+        }
     }),
     {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
     Config.
