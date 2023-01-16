@@ -51,7 +51,7 @@ end_suite() ->
 
 t_check_user(_) ->
     Username = <<"admin1">>,
-    Password = <<"public">>,
+    Password = <<"public_1">>,
     BadUsername = <<"admin_bad">>,
     BadPassword = <<"public_bad">>,
     EmptyUsername = <<>>,
@@ -108,7 +108,7 @@ t_lookup_user(_) ->
 
 t_all_users(_) ->
     Username = <<"admin_all">>,
-    Password = <<"public">>,
+    Password = <<"public_2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, <<"desc">>),
     All = emqx_dashboard_admin:all_users(),
     ?assert(erlang:length(All) >= 1),
@@ -153,6 +153,7 @@ t_change_password(_) ->
     Description = <<"change_description">>,
 
     NewPassword = <<"new_password">>,
+    NewBadPassword = <<"public">>,
 
     BadChangeUser = <<"change_user_bad">>,
 
@@ -163,14 +164,17 @@ t_change_password(_) ->
     {error, <<"password_error">>} =
         emqx_dashboard_admin:change_password(User, OldPassword, NewPassword),
 
+    {error, <<"The range of password length is 8~64">>} =
+        emqx_dashboard_admin:change_password(User, NewPassword, NewBadPassword),
+
     {error, <<"username_not_found">>} =
         emqx_dashboard_admin:change_password(BadChangeUser, OldPassword, NewPassword),
     ok.
 
 t_clean_token(_) ->
     Username = <<"admin_token">>,
-    Password = <<"public">>,
-    NewPassword = <<"public1">>,
+    Password = <<"public_www1">>,
+    NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, <<"desc">>),
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     ok = emqx_dashboard_admin:verify_token(Token),
