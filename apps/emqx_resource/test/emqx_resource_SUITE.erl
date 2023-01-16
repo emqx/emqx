@@ -1200,7 +1200,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
                             resume_interval => 1_000
                         }
                     ),
-                    #{?snk_kind := resource_worker_enter_blocked},
+                    #{?snk_kind := resource_worker_enter_running},
                     5_000
                 ),
 

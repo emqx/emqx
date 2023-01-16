@@ -189,7 +189,7 @@ init({Id, Index, Opts}) ->
         tref => undefined
     },
     ?tp(resource_worker_init, #{id => Id, index => Index}),
-    {ok, blocked, Data, {next_event, cast, resume}}.
+    {ok, running, Data}.
 
 running(enter, _, St) ->
     ?tp(resource_worker_enter_running, #{}),
