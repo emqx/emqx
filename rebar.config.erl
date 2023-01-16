@@ -205,7 +205,12 @@ prod_overrides() ->
     [{add, [{erl_opts, [deterministic]}]}].
 
 profiles() ->
-    profiles_ce() ++ profiles_ee() ++ profiles_dev().
+    case get_edition_from_profile_env() of
+        ee ->
+            profiles_ee();
+        ce ->
+            profiles_ce()
+    end ++ profiles_dev().
 
 profiles_ce() ->
     Vsn = get_vsn(emqx),

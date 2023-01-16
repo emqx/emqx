@@ -9,7 +9,6 @@ on:
     branches:
       - '**'
     tags:
-      - v*
       - e*
   pull_request:
 
@@ -43,7 +42,7 @@ jobs:
       run: |
         set -x
         cd emqx
-        make emqx-tgz
+        export PROFILE='emqx-enterprise'
         make emqx-enterprise-tgz
     - uses: actions/upload-artifact@v3
       name: Upload built emqx and test scenario
