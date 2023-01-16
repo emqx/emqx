@@ -74,8 +74,8 @@ defmodule EMQXUmbrella.MixProject do
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
-      # in conflict by emqx_connectior and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7-emqx.2", override: true},
+      # in conflict by emqx_connector and system_monitor
+      {:epgsql, github: "emqx/epgsql", tag: "4.7.0.1", override: true},
       # in conflict by mongodb and eredis_cluster
       {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       # in conflict by emqx and observer_cli
