@@ -396,7 +396,8 @@ refresh_iterator(It = #it{handle = Handle, cursor = Cursor, next_action = Action
 %% Internal exports
 %%================================================================================
 
--spec keymapper_info(keymapper()) -> [bitsource()].
+-spec keymapper_info(keymapper()) ->
+    #{source := [bitsource()], bitsize := bits(), epoch := time()}.
 keymapper_info(#keymapper{source = Source, bitsize = Bitsize, epoch = Epoch}) ->
     #{source => Source, bitsize => Bitsize, epoch => Epoch}.
 
