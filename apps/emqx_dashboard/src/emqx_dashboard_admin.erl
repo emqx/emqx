@@ -104,7 +104,7 @@ do_add_user(Username, Password, Desc) ->
 
 %% 0-9 or A-Z or a-z or $_
 legal_username(<<>>) ->
-    {error, <<"Username can not be empty">>};
+    {error, <<"Username cannot be empty">>};
 legal_username(UserName) ->
     case re:run(UserName, "^[_a-zA-Z0-9]*$", [{capture, none}]) of
         nomatch ->
