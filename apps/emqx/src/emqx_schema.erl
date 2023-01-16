@@ -114,7 +114,7 @@
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
--export([password_converter/2]).
+-export([password_converter/2, bin_str_converter/2]).
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
@@ -2072,11 +2072,14 @@ do_default_ciphers(_) ->
     %% otherwise resolve default ciphers list at runtime
     [].
 
-password_converter(undefined, _) ->
+password_converter(X, Opts) ->
+    bin_str_converter(X, Opts).
+
+bin_str_converter(undefined, _) ->
     undefined;
-password_converter(I, _) when is_integer(I) ->
+bin_str_converter(I, _) when is_integer(I) ->
     integer_to_binary(I);
-password_converter(X, _) ->
+bin_str_converter(X, _) ->
     try
         iolist_to_binary(X)
     catch
