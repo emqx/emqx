@@ -39,6 +39,8 @@
     sql_data/1
 ]).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
 
 -define(EX_PLACE_HOLDER_DOUBLE_QUOTE, "(\\$\\{[a-zA-Z0-9\\._]+\\}|\"\\$\\{[a-zA-Z0-9\\._]+\\}\")").
@@ -233,9 +235,6 @@ proc_param_str(Tokens, Data, Quote) ->
         proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})
     ).
 
-%% backward compatibility for hot upgrading from =< e4.2.1
-get_phld_var(Fun, Data) when is_function(Fun) ->
-    Fun(Data);
 get_phld_var(Phld, Data) ->
     emqx_rule_maps:nested_get(Phld, Data).
 
@@ -298,9 +297,12 @@ replace_with(Tmpl, RE, '$n') ->
             Parts
         ),
     Res.
-
+parse_nested(<<".", R/binary>>) ->
+    %% ignore the root .
+    parse_nested(R);
 parse_nested(Attr) ->
     case string:split(Attr, <<".">>, all) of
+        [<<>>] -> {var, ?PH_VAR_THIS};
         [Attr] -> {var, Attr};
         Nested -> {path, [{key, P} || P <- Nested]}
     end.

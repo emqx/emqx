@@ -207,11 +207,11 @@ fields(producer_kafka_opts) ->
     ];
 fields(kafka_message) ->
     [
-        {key, mk(string(), #{default => "${clientid}", desc => ?DESC(kafka_message_key)})},
-        {value, mk(string(), #{default => "${payload}", desc => ?DESC(kafka_message_value)})},
+        {key, mk(string(), #{default => "${.clientid}", desc => ?DESC(kafka_message_key)})},
+        {value, mk(string(), #{default => "${.}", desc => ?DESC(kafka_message_value)})},
         {timestamp,
             mk(string(), #{
-                default => "${timestamp}", desc => ?DESC(kafka_message_timestamp)
+                default => "${.timestamp}", desc => ?DESC(kafka_message_timestamp)
             })}
     ];
 fields(producer_buffer) ->
