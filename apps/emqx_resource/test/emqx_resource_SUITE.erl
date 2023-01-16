@@ -1254,6 +1254,174 @@ t_always_overflow(_Config) ->
     ),
     ok.
 
+t_retry_sync_inflight(_Config) ->
+    ResumeInterval = 1_000,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    QueryOpts = #{},
+    ?check_trace(
+        begin
+            %% now really make the resource go into `blocked' state.
+            %% this results in a retriable error when sync.
+            ok = emqx_resource:simple_sync_query(?ID, block),
+            {{error, {recoverable_error, incorrect_status}}, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    ResumeInterval * 2
+                ),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    ok = emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    ResumeInterval * 3
+                ),
+            ok
+        end,
+        [fun ?MODULE:assert_retry_fail_then_succeed_inflight/1]
+    ),
+    ok.
+
+t_retry_sync_inflight_batch(_Config) ->
+    ResumeInterval = 1_000,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 2,
+            batch_time => 200,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    QueryOpts = #{},
+    ?check_trace(
+        begin
+            %% now really make the resource go into `blocked' state.
+            %% this results in a retriable error when sync.
+            ok = emqx_resource:simple_sync_query(?ID, block),
+            {{error, {recoverable_error, incorrect_status}}, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    ResumeInterval * 2
+                ),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    ok = emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    ResumeInterval * 3
+                ),
+            ok
+        end,
+        [fun ?MODULE:assert_retry_fail_then_succeed_inflight/1]
+    ),
+    ok.
+
+t_dont_retry_async_inflight(_Config) ->
+    ResumeInterval = 1_000,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    QueryOpts = #{},
+    ?check_trace(
+        begin
+            %% block,
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, block_now),
+                    #{?snk_kind := resource_worker_enter_blocked},
+                    ResumeInterval * 2
+                ),
+
+            %% then send an async request; that shouldn't be retriable.
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
+                    #{?snk_kind := resource_worker_flush_ack},
+                    ResumeInterval * 2
+                ),
+
+            %% will re-enter running because the single request is not retriable
+            {ok, _} = ?block_until(
+                #{?snk_kind := resource_worker_enter_running}, ResumeInterval * 2
+            ),
+            ok
+        end,
+        [fun ?MODULE:assert_no_retry_inflight/1]
+    ),
+    ok.
+
+t_dont_retry_async_inflight_batch(_Config) ->
+    ResumeInterval = 1_000,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 2,
+            batch_time => 200,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    QueryOpts = #{},
+    ?check_trace(
+        begin
+            %% block,
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, block_now),
+                    #{?snk_kind := resource_worker_enter_blocked},
+                    ResumeInterval * 2
+                ),
+
+            %% then send an async request; that shouldn't be retriable.
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
+                    #{?snk_kind := resource_worker_flush_ack},
+                    ResumeInterval * 2
+                ),
+
+            %% will re-enter running because the single request is not retriable
+            {ok, _} = ?block_until(
+                #{?snk_kind := resource_worker_enter_running}, ResumeInterval * 2
+            ),
+            ok
+        end,
+        [fun ?MODULE:assert_no_retry_inflight/1]
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -1317,3 +1485,27 @@ tap_metrics(Line) ->
     {ok, _, #{metrics := #{counters := C, gauges := G}}} = emqx_resource:get_instance(?ID),
     ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
     #{counters => C, gauges => G}.
+
+assert_no_retry_inflight(Trace) ->
+    ?assertEqual([], ?of_kind(resource_worker_retry_inflight_failed, Trace)),
+    ?assertEqual([], ?of_kind(resource_worker_retry_inflight_succeeded, Trace)),
+    ok.
+
+assert_retry_fail_then_succeed_inflight(Trace) ->
+    ?assert(
+        ?strict_causality(
+            #{?snk_kind := resource_worker_flush_nack, ref := _Ref},
+            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            Trace
+        )
+    ),
+    %% not strict causality because it might retry more than once
+    %% before restoring the resource health.
+    ?assert(
+        ?causality(
+            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            Trace
+        )
+    ),
+    ok.
