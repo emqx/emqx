@@ -1,3 +1,6 @@
+## Default
+* @emqx/emqx-review-board
+
 ## MQTT & Core
 /src/ @qzhuyan
 /include/ @qzhuyan
@@ -5,13 +8,13 @@
 /test/ @qzhuyan
 
 ## CI
-/.github/ @id
-/.ci/ @id
-/scripts/ @id
-/build @id
-/deploy/ @id
+/.github/ @emqx/emqx-review-board @id
+/.ci/ @emqx/emqx-review-board @id
+/scripts/ @emqx/emqx-review-board @id
+/build @emqx/emqx-review-board @id
+/deploy/ @emqx/emqx-review-board @id
 
-## Authenticatio & ACL
+## Authentication & ACL
 /apps/emqx_auth_*/ @savonarola
 /apps/emqx_psk_file/ @savonarola
 /apps/emqx_retainer/ @savonarola
@@ -31,13 +34,6 @@
 /apps/emqx_prometheus/ @zhongwencool
 /apps/emqx_recon/ @zhongwencool
 
-
 ## Data integration
 /apps/emqx_rule_engine/ @thalesmg
 /apps/emqx_web_hook/ @thalesmg
-
-## External Plugins
-/lib-extra/ @zmstone
-
-## Default
-* @zmstone
