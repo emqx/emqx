@@ -280,7 +280,7 @@ t_mqtt_conn_bridge_ingress_no_payload_template(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
@@ -421,7 +421,7 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress, "metrics"]), []),
     ?assertMatch(
         #{
             <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
