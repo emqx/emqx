@@ -104,7 +104,7 @@ endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
 .PHONY: ct-suite
-ct-suite: $(REBAR)
+ct-suite: $(REBAR) merge-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
