@@ -35,6 +35,7 @@ jobs:
         run: ./scripts/check-elixir-applications.exs
         env:
           MIX_ENV: ${{ matrix.profile }}
+          PROFILE: ${{ matrix.profile }}
 #      - name: check applications started with emqx_machine
 #        run: ./scripts/check-elixir-emqx-machine-boot-discrepancies.exs
 #        env:
