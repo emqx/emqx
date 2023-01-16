@@ -128,6 +128,7 @@ all() ->
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
+    emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
 
