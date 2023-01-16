@@ -456,6 +456,7 @@ if [ "$IS_ENTERPRISE" = 'yes' ]; then
 fi
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
         ## export here so the 'console' command recursively called from
