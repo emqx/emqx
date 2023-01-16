@@ -661,7 +661,7 @@ do_authenticate(
                 _ ->
                     ok
             end,
-            {ok, Result}
+            {stop, Result}
     catch
         Class:Reason:Stacktrace ->
             ?TRACE_AUTHN(warning, "authenticator_error", #{
