@@ -31,9 +31,19 @@
     ce => "EMQX"
 }).
 
+-define(EMQX_REL_NAME, #{
+    ee => <<"Enterprise">>,
+    ce => <<"Opensource">>
+}).
+
 -define(EMQX_REL_VSNS, #{
     ee => ?EMQX_RELEASE_EE,
     ce => ?EMQX_RELEASE_CE
+}).
+
+-define(EMQX_REL_VSN_PREFIX, #{
+    ee => "e",
+    ce => "v"
 }).
 
 %% @doc Return EMQX description.
@@ -46,13 +56,17 @@ description() ->
 -spec edition() -> ce | ee.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.
-edition_vsn_prefix() -> "e".
-edition_longstr() -> <<"Enterprise">>.
 -else.
 edition() -> ce.
-edition_vsn_prefix() -> "v".
-edition_longstr() -> <<"Opensource">>.
 -endif.
+
+%% @doc Return EMQX version prefix string.
+edition_vsn_prefix() ->
+    maps:get(edition(), ?EMQX_REL_VSN_PREFIX).
+
+%% @doc Return EMQX edition name, ee => Enterprise ce => Opensource.
+edition_longstr() ->
+    maps:get(edition(), ?EMQX_REL_NAME).
 
 %% @doc Return the release version.
 version() ->
