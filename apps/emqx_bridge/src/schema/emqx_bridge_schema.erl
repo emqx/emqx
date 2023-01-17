@@ -121,7 +121,12 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
                 #{
                     desc => ?DESC("bridges_webhook"),
-                    required => false
+                    required => false,
+                    converter => fun(X, _HoconOpts) ->
+                        emqx_bridge_compatible_config:upgrade_pre_ee(
+                            X, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+                        )
+                    end
                 }
             )},
         {mqtt,
@@ -131,7 +136,9 @@ fields(bridges) ->
                     desc => ?DESC("bridges_mqtt"),
                     required => false,
                     converter => fun(X, _HoconOpts) ->
-                        emqx_bridge_mqtt_config:upgrade_pre_ee(X)
+                        emqx_bridge_compatible_config:upgrade_pre_ee(
+                            X, fun emqx_bridge_compatible_config:maybe_upgrade/1
+                        )
                     end
                 }
             )}
