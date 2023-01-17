@@ -172,7 +172,7 @@ t_response_handling(_Config) ->
                 [
                     #{
                         ?snk_kind := authz_http_request_failure,
-                        error := timeout
+                        error := {recoverable_error, econnrefused}
                     }
                 ],
                 ?of_kind(authz_http_request_failure, Trace)

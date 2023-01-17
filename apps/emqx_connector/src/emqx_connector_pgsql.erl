@@ -153,7 +153,8 @@ on_query(
     }),
     Type = pgsql_query_type(TypeOrKey),
     {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
-    on_sql_query(InstId, PoolName, Type, NameOrSQL2, Data).
+    Res = on_sql_query(InstId, PoolName, Type, NameOrSQL2, Data),
+    handle_result(Res).
 
 pgsql_query_type(sql) ->
     query;
@@ -182,23 +183,17 @@ on_batch_query(
                         msg => "batch prepare not implemented"
                     },
                     ?SLOG(error, Log),
-                    {error, batch_prepare_not_implemented};
+                    {error, {unrecoverable_error, batch_prepare_not_implemented}};
                 TokenList ->
                     {_, Datas} = lists:unzip(BatchReq),
                     Datas2 = [emqx_plugin_libs_rule:proc_sql(TokenList, Data) || Data <- Datas],
                     St = maps:get(BinKey, Sts),
-                    {_Column, Results} = on_sql_query(InstId, PoolName, execute_batch, St, Datas2),
-                    %% this local function only suits for the result of batch insert
-                    TransResult = fun
-                        Trans([{ok, Count} | T], Acc) ->
-                            Trans(T, Acc + Count);
-                        Trans([{error, _} = Error | _], _Acc) ->
-                            Error;
-                        Trans([], Acc) ->
-                            {ok, Acc}
-                    end,
-
-                    TransResult(Results, 0)
+                    case on_sql_query(InstId, PoolName, execute_batch, St, Datas2) of
+                        {error, Error} ->
+                            {error, Error};
+                        {_Column, Results} ->
+                            handle_batch_result(Results, 0)
+                    end
             end;
         _ ->
             Log = #{
@@ -208,7 +203,7 @@ on_batch_query(
                 msg => "invalid request"
             },
             ?SLOG(error, Log),
-            {error, invalid_request}
+            {error, {unrecoverable_error, invalid_request}}
     end.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
@@ -225,24 +220,38 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
     end.
 
 on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
-    Result = ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover),
-    case Result of
-        {error, Reason} ->
+    try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
+        {error, Reason} = Result ->
+            ?tp(
+                pgsql_connector_query_return,
+                #{error => Reason}
+            ),
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
                 connector => InstId,
                 type => Type,
                 sql => NameOrSQL,
                 reason => Reason
-            });
-        _ ->
+            }),
+            Result;
+        Result ->
             ?tp(
                 pgsql_connector_query_return,
                 #{result => Result}
             ),
-            ok
-    end,
-    Result.
+            Result
+    catch
+        error:function_clause:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "postgresql connector do sql query failed",
+                connector => InstId,
+                type => Type,
+                sql => NameOrSQL,
+                reason => function_clause,
+                stacktrace => Stacktrace
+            }),
+            {error, {unrecoverable_error, invalid_request}}
+    end.
 
 on_get_status(_InstId, #{poolname := Pool} = State) ->
     case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
@@ -407,3 +416,15 @@ to_bin(Bin) when is_binary(Bin) ->
     Bin;
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom).
+
+handle_result({error, Error}) ->
+    {error, {unrecoverable_error, Error}};
+handle_result(Res) ->
+    Res.
+
+handle_batch_result([{ok, Count} | Rest], Acc) ->
+    handle_batch_result(Rest, Acc + Count);
+handle_batch_result([{error, Error} | _Rest], _Acc) ->
+    {error, {unrecoverable_error, Error}};
+handle_batch_result([], Acc) ->
+    {ok, Acc}.

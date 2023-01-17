@@ -38,8 +38,7 @@
 ]).
 
 -export([
-    simple_sync_query/2,
-    simple_async_query/3
+    simple_sync_query/2
 ]).
 
 -export([
@@ -53,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([reply_after_query/7, batch_reply_after_query/7]).
+-export([reply_after_query/8, batch_reply_after_query/8]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -121,27 +120,10 @@ simple_sync_query(Id, Request) ->
     %% would mess up the metrics anyway.  `undefined' is ignored by
     %% `emqx_resource_metrics:*_shift/3'.
     Index = undefined,
-    QueryOpts = #{perform_inflight_capacity_check => false},
+    QueryOpts = #{simple_query => true},
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_message_ref(),
     Result = call_query(sync, Id, Index, Ref, ?QUERY(self(), Request, false), QueryOpts),
-    HasBeenSent = false,
-    _ = handle_query_result(Id, Result, HasBeenSent),
-    Result.
-
--spec simple_async_query(id(), request(), reply_fun()) -> Result :: term().
-simple_async_query(Id, Request, ReplyFun) ->
-    %% Note: since calling this function implies in bypassing the
-    %% buffer workers, and each buffer worker index is used when
-    %% collecting gauge metrics, we use this dummy index.  If this
-    %% call ends up calling buffering functions, that's a bug and
-    %% would mess up the metrics anyway.  `undefined' is ignored by
-    %% `emqx_resource_metrics:*_shift/3'.
-    Index = undefined,
-    QueryOpts = #{perform_inflight_capacity_check => false},
-    emqx_resource_metrics:matched_inc(Id),
-    Ref = make_message_ref(),
-    Result = call_query(async, Id, Index, Ref, ?QUERY(ReplyFun, Request, false), QueryOpts),
     HasBeenSent = false,
     _ = handle_query_result(Id, Result, HasBeenSent),
     Result.
@@ -334,15 +316,15 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         resume_interval := ResumeT
     } = Data0,
     ?tp(resource_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
-    QueryOpts = #{},
+    QueryOpts = #{simple_query => false},
     Result = call_query(sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     ReplyResult =
         case QueryOrBatch of
             ?QUERY(From, CoreReq, HasBeenSent) ->
                 Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
-                reply_caller_defer_metrics(Id, Reply);
+                reply_caller_defer_metrics(Id, Reply, QueryOpts);
             [?QUERY(_, _, _) | _] = Batch ->
-                batch_reply_caller_defer_metrics(Id, Result, Batch)
+                batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts)
         end,
     case ReplyResult of
         %% Send failed because resource is down
@@ -478,10 +460,10 @@ do_flush(
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
     [?QUERY(From, CoreReq, HasBeenSent) = Request] = Batch,
-    QueryOpts = #{inflight_tid => InflightTID},
+    QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(configured, Id, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
-    case reply_caller(Id, Reply) of
+    case reply_caller(Id, Reply, QueryOpts) of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
         nack ->
@@ -517,7 +499,15 @@ do_flush(
             %% calls the corresponding callback function.  Also, we
             %% must ensure the async worker is being monitored for
             %% such requests.
-            is_async(Id) orelse ack_inflight(InflightTID, Ref, Id, Index),
+            IsUnrecoverableError = is_unrecoverable_error(Result),
+            case is_async_return(Result) of
+                true when IsUnrecoverableError ->
+                    ack_inflight(InflightTID, Ref, Id, Index);
+                true ->
+                    ok;
+                false ->
+                    ack_inflight(InflightTID, Ref, Id, Index)
+            end,
             {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
@@ -548,9 +538,9 @@ do_flush(Data0, #{
         batch_size := BatchSize,
         inflight_tid := InflightTID
     } = Data0,
-    QueryOpts = #{inflight_tid => InflightTID},
+    QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(configured, Id, Index, Ref, Batch, QueryOpts),
-    case batch_reply_caller(Id, Result, Batch) of
+    case batch_reply_caller(Id, Result, Batch, QueryOpts) of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
         nack ->
@@ -586,7 +576,15 @@ do_flush(Data0, #{
             %% calls the corresponding callback function.  Also, we
             %% must ensure the async worker is being monitored for
             %% such requests.
-            is_async(Id) orelse ack_inflight(InflightTID, Ref, Id, Index),
+            IsUnrecoverableError = is_unrecoverable_error(Result),
+            case is_async_return(Result) of
+                true when IsUnrecoverableError ->
+                    ack_inflight(InflightTID, Ref, Id, Index);
+                true ->
+                    ok;
+                false ->
+                    ack_inflight(InflightTID, Ref, Id, Index)
+            end,
             {Data1, WorkerMRef} = ensure_async_worker_monitored(Data0, Result),
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
@@ -609,16 +607,16 @@ do_flush(Data0, #{
             end
     end.
 
-batch_reply_caller(Id, BatchResult, Batch) ->
-    {ShouldBlock, PostFn} = batch_reply_caller_defer_metrics(Id, BatchResult, Batch),
+batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
+    {ShouldBlock, PostFn} = batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts),
     PostFn(),
     ShouldBlock.
 
-batch_reply_caller_defer_metrics(Id, BatchResult, Batch) ->
+batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
     {ShouldAck, PostFns} =
         lists:foldl(
             fun(Reply, {_ShouldAck, PostFns}) ->
-                {ShouldAck, PostFn} = reply_caller_defer_metrics(Id, Reply),
+                {ShouldAck, PostFn} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
                 {ShouldAck, [PostFn | PostFns]}
             end,
             {ack, []},
@@ -629,37 +627,53 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch) ->
     PostFn = fun() -> lists:foreach(fun(F) -> F() end, PostFns) end,
     {ShouldAck, PostFn}.
 
-reply_caller(Id, Reply) ->
-    {ShouldAck, PostFn} = reply_caller_defer_metrics(Id, Reply),
+reply_caller(Id, Reply, QueryOpts) ->
+    {ShouldAck, PostFn} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
     PostFn(),
     ShouldAck.
 
 %% Should only reply to the caller when the decision is final (not
 %% retriable).  See comment on `handle_query_result_pure'.
-reply_caller_defer_metrics(Id, ?REPLY(undefined, _, HasBeenSent, Result)) ->
+reply_caller_defer_metrics(Id, ?REPLY(undefined, _, HasBeenSent, Result), _QueryOpts) ->
     handle_query_result_pure(Id, Result, HasBeenSent);
-reply_caller_defer_metrics(Id, ?REPLY({ReplyFun, Args}, _, HasBeenSent, Result)) when
+reply_caller_defer_metrics(Id, ?REPLY({ReplyFun, Args}, _, HasBeenSent, Result), QueryOpts) when
     is_function(ReplyFun)
 ->
+    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
+    IsUnrecoverableError = is_unrecoverable_error(Result),
     {ShouldAck, PostFn} = handle_query_result_pure(Id, Result, HasBeenSent),
-    case {ShouldAck, Result} of
-        {nack, _} ->
+    case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
+        {ack, {async_return, _}, true, _} ->
+            apply(ReplyFun, Args ++ [Result]),
             ok;
-        {ack, {async_return, _}} ->
+        {ack, {async_return, _}, false, _} ->
             ok;
-        {ack, _} ->
+        {_, _, _, true} ->
+            apply(ReplyFun, Args ++ [Result]),
+            ok;
+        {nack, _, _, _} ->
+            ok;
+        {ack, _, _, _} ->
             apply(ReplyFun, Args ++ [Result]),
             ok
     end,
     {ShouldAck, PostFn};
-reply_caller_defer_metrics(Id, ?REPLY(From, _, HasBeenSent, Result)) ->
+reply_caller_defer_metrics(Id, ?REPLY(From, _, HasBeenSent, Result), QueryOpts) ->
+    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
+    IsUnrecoverableError = is_unrecoverable_error(Result),
     {ShouldAck, PostFn} = handle_query_result_pure(Id, Result, HasBeenSent),
-    case {ShouldAck, Result} of
-        {nack, _} ->
+    case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
+        {ack, {async_return, _}, true, _} ->
+            gen_statem:reply(From, Result),
             ok;
-        {ack, {async_return, _}} ->
+        {ack, {async_return, _}, false, _} ->
             ok;
-        {ack, _} ->
+        {_, _, _, true} ->
+            gen_statem:reply(From, Result),
+            ok;
+        {nack, _, _, _} ->
+            ok;
+        {ack, _, _, _} ->
             gen_statem:reply(From, Result),
             ok
     end,
@@ -679,7 +693,6 @@ handle_query_result(Id, Result, HasBeenSent) ->
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent) ->
     PostFn = fun() ->
         ?SLOG(error, #{msg => resource_exception, info => Msg}),
-        %% inc_sent_failed(Id, HasBeenSent),
         ok
     end,
     {nack, PostFn};
@@ -704,12 +717,16 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent) ->
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent) ->
     PostFn = fun() ->
         ?SLOG(error, #{id => Id, msg => other_resource_error, reason => Reason}),
-        %% emqx_resource_metrics:dropped_other_inc(Id),
         ok
     end,
     {nack, PostFn};
-%% TODO: invert this logic: we should differentiate errors that are
-%% irrecoverable; all others are deemed recoverable.
+handle_query_result_pure(Id, {error, {unrecoverable_error, Reason}}, HasBeenSent) ->
+    PostFn = fun() ->
+        ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+        inc_sent_failed(Id, HasBeenSent),
+        ok
+    end,
+    {ack, PostFn};
 handle_query_result_pure(Id, {error, {recoverable_error, Reason}}, _HasBeenSent) ->
     %% the message will be queued in replayq or inflight window,
     %% i.e. the counter 'queuing' or 'dropped' will increase, so we pretend that we have not
@@ -725,6 +742,13 @@ handle_query_result_pure(Id, {error, Reason}, _HasBeenSent) ->
         ok
     end,
     {nack, PostFn};
+handle_query_result_pure(Id, {async_return, {error, {unrecoverable_error, Reason}}}, HasBeenSent) ->
+    PostFn = fun() ->
+        ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+        inc_sent_failed(Id, HasBeenSent),
+        ok
+    end,
+    {ack, PostFn};
 handle_query_result_pure(Id, {async_return, {error, Msg}}, _HasBeenSent) ->
     PostFn = fun() ->
         ?SLOG(error, #{id => Id, msg => async_send_error, info => Msg}),
@@ -799,8 +823,8 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _) = Query, ResSt
     ?APPLY_RESOURCE(
         call_query_async,
         begin
-            ReplyFun = fun ?MODULE:reply_after_query/7,
-            Args = [self(), Id, Index, InflightTID, Ref, Query],
+            ReplyFun = fun ?MODULE:reply_after_query/8,
+            Args = [self(), Id, Index, InflightTID, Ref, Query, QueryOpts],
             IsRetriable = false,
             WorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
@@ -824,8 +848,8 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _) | _] = Batch, ResSt
     ?APPLY_RESOURCE(
         call_batch_query_async,
         begin
-            ReplyFun = fun ?MODULE:batch_reply_after_query/7,
-            ReplyFunAndArgs = {ReplyFun, [self(), Id, Index, InflightTID, Ref, Batch]},
+            ReplyFun = fun ?MODULE:batch_reply_after_query/8,
+            ReplyFunAndArgs = {ReplyFun, [self(), Id, Index, InflightTID, Ref, Batch, QueryOpts]},
             Requests = [Request || ?QUERY(_From, Request, _) <- Batch],
             IsRetriable = false,
             WorkerMRef = undefined,
@@ -837,11 +861,15 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _) | _] = Batch, ResSt
         Batch
     ).
 
-reply_after_query(Pid, Id, Index, InflightTID, Ref, ?QUERY(From, Request, HasBeenSent), Result) ->
+reply_after_query(
+    Pid, Id, Index, InflightTID, Ref, ?QUERY(From, Request, HasBeenSent), QueryOpts, Result
+) ->
     %% NOTE: 'inflight' is the count of messages that were sent async
     %% but received no ACK, NOT the number of messages queued in the
     %% inflight window.
-    {Action, PostFn} = reply_caller_defer_metrics(Id, ?REPLY(From, Request, HasBeenSent, Result)),
+    {Action, PostFn} = reply_caller_defer_metrics(
+        Id, ?REPLY(From, Request, HasBeenSent, Result), QueryOpts
+    ),
     case Action of
         nack ->
             %% Keep retrying.
@@ -867,11 +895,11 @@ reply_after_query(Pid, Id, Index, InflightTID, Ref, ?QUERY(From, Request, HasBee
             ok
     end.
 
-batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, Result) ->
+batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
     %% NOTE: 'inflight' is the count of messages that were sent async
     %% but received no ACK, NOT the number of messages queued in the
     %% inflight window.
-    {Action, PostFn} = batch_reply_caller_defer_metrics(Id, Result, Batch),
+    {Action, PostFn} = batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts),
     case Action of
         nack ->
             %% Keep retrying.
@@ -1118,11 +1146,17 @@ do_cancel_inflight_item(Data, Ref) ->
     IsAcked andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     Result = {error, interrupted},
-    _ = batch_reply_caller(Id, Result, Batch),
+    QueryOpts = #{simple_query => false},
+    _ = batch_reply_caller(Id, Result, Batch, QueryOpts),
     ?tp(resource_worker_cancelled_inflight, #{ref => Ref}),
     ok.
 
 %%==============================================================================
+
+inc_sent_failed(Id, _HasBeenSent = true) ->
+    emqx_resource_metrics:retried_failed_inc(Id);
+inc_sent_failed(Id, _HasBeenSent) ->
+    emqx_resource_metrics:failed_inc(Id).
 
 inc_sent_success(Id, _HasBeenSent = true) ->
     emqx_resource_metrics:retried_success_inc(Id);
@@ -1204,10 +1238,14 @@ mark_as_sent(?QUERY(From, Req, _)) ->
     HasBeenSent = true,
     ?QUERY(From, Req, HasBeenSent).
 
-is_async(ResourceId) ->
-    case emqx_resource_manager:ets_lookup(ResourceId) of
-        {ok, _Group, #{query_mode := QM, callback_mode := CM}} ->
-            call_mode(QM, CM) =:= async;
-        _ ->
-            false
-    end.
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_error({async_return, Result}) ->
+    is_unrecoverable_error(Result);
+is_unrecoverable_error(_) ->
+    false.
+
+is_async_return({async_return, _}) ->
+    true;
+is_async_return(_) ->
+    false.

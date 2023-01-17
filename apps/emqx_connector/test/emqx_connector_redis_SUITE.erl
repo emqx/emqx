@@ -128,8 +128,12 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
         emqx_resource:query(PoolName, {cmds, [RedisCommand, RedisCommand]})
     ),
     ?assertMatch(
-        {error, [{ok, <<"PONG">>}, {error, _}]},
-        emqx_resource:query(PoolName, {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]})
+        {error, {unrecoverable_error, [{ok, <<"PONG">>}, {error, _}]}},
+        emqx_resource:query(
+            PoolName,
+            {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]},
+            #{timeout => 500}
+        )
     ),
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Resource will be listed still, but state will be changed and healthcheck will fail

@@ -56,13 +56,13 @@ on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, c
                 #{points => Points, batch => false, mode => sync}
             ),
             do_query(InstId, Client, Points);
-        {error, ErrorPoints} = Err ->
+        {error, ErrorPoints} ->
             ?tp(
                 influxdb_connector_send_query_error,
                 #{batch => false, mode => sync, error => ErrorPoints}
             ),
             log_error_points(InstId, ErrorPoints),
-            Err
+            {error, {unrecoverable_error, ErrorPoints}}
     end.
 
 %% Once a Batched Data trans to points failed.
@@ -80,7 +80,7 @@ on_batch_query(InstId, BatchData, _State = #{write_syntax := SyntaxLines, client
                 influxdb_connector_send_query_error,
                 #{batch => true, mode => sync, error => Reason}
             ),
-            {error, Reason}
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_query_async(
@@ -123,7 +123,7 @@ on_batch_query_async(
                 influxdb_connector_send_query_error,
                 #{batch => true, mode => async, error => Reason}
             ),
-            {error, Reason}
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_get_status(_InstId, #{client := Client}) ->

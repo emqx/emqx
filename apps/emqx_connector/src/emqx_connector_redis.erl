@@ -207,11 +207,23 @@ do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
                 connector => InstId,
                 query => Query,
                 reason => Reason
-            });
+            }),
+            case is_unrecoverable_error(Reason) of
+                true ->
+                    {error, {unrecoverable_error, Reason}};
+                false ->
+                    Result
+            end;
         _ ->
-            ok
-    end,
-    Result.
+            Result
+    end.
+
+is_unrecoverable_error(Results) when is_list(Results) ->
+    lists:any(fun is_unrecoverable_error/1, Results);
+is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
+    true;
+is_unrecoverable_error(_) ->
+    false.
 
 extract_eredis_cluster_workers(PoolName) ->
     lists:flatten([

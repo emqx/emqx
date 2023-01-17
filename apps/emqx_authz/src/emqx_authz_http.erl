@@ -82,7 +82,7 @@ authorize(
     } = Config
 ) ->
     Request = generate_request(PubSub, Topic, Client, Config),
-    try emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
+    case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} ->
             {matched, allow};
         {ok, 200, Headers, Body} ->
@@ -105,16 +105,6 @@ authorize(
             log_nomtach_msg(Status, Headers, Body),
             nomatch;
         {error, Reason} ->
-            ?tp(authz_http_request_failure, #{error => Reason}),
-            ?SLOG(error, #{
-                msg => "http_server_query_failed",
-                resource => ResourceID,
-                reason => Reason
-            }),
-            ignore
-    catch
-        error:timeout ->
-            Reason = timeout,
             ?tp(authz_http_request_failure, #{error => Reason}),
             ?SLOG(error, #{
                 msg => "http_server_query_failed",

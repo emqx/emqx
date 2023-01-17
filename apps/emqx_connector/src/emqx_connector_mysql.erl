@@ -192,7 +192,7 @@ on_batch_query(
         {Key, _} ->
             case maps:get(Key, Inserts, undefined) of
                 undefined ->
-                    {error, batch_select_not_implemented};
+                    {error, {unrecoverable_error, batch_select_not_implemented}};
                 InsertSQL ->
                     Tokens = maps:get(Key, ParamsTokens),
                     on_batch_insert(InstId, BatchReq, InsertSQL, Tokens, State)
@@ -200,7 +200,7 @@ on_batch_query(
         Request ->
             LogMeta = #{connector => InstId, first_request => Request, state => State},
             ?SLOG(error, LogMeta#{msg => "invalid request"}),
-            {error, invalid_request}
+            {error, {unrecoverable_error, invalid_request}}
     end.
 
 mysql_function(sql) ->
@@ -267,7 +267,7 @@ init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
 maybe_prepare_sql(SQLOrKey, Prepares, PoolName) ->
     case maps:is_key(SQLOrKey, Prepares) of
         true -> prepare_sql(Prepares, PoolName);
-        false -> {error, prepared_statement_invalid}
+        false -> {error, {unrecoverable_error, prepared_statement_invalid}}
     end.
 
 prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
@@ -465,12 +465,12 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
             {error, {recoverable_error, Reason}};
-        {error, Reason} = Result ->
+        {error, Reason} ->
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
-            Result;
+            {error, {unrecoverable_error, Reason}};
         Result ->
             ?tp(
                 mysql_connector_query_return,
@@ -483,5 +483,5 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
                 error,
                 LogMeta#{msg => "mysql_connector_invalid_params", params => Data}
             ),
-            {error, {invalid_params, Data}}
+            {error, {unrecoverable_error, {invalid_params, Data}}}
     end.
