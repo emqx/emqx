@@ -196,13 +196,17 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
     Params = GCPPubSubConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    ProbePath = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    ProbeResult = emqx_mgmt_api_test_util:request_api(post, ProbePath, "", AuthHeader, Params),
     ct:pal("creating bridge (via http): ~p", [Params]),
+    ct:pal("probe result: ~p", [ProbeResult]),
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
             {ok, Res0} -> {ok, emqx_json:decode(Res0, [return_maps])};
             Error -> Error
         end,
     ct:pal("bridge creation result: ~p", [Res]),
+    ?assertEqual(element(1, ProbeResult), element(1, Res)),
     Res.
 
 create_rule_and_action_http(Config) ->
@@ -672,7 +676,7 @@ t_create_via_http(Config) ->
         create_bridge_http(Config),
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
-            ?assertMatch([_], ?of_kind(gcp_pubsub_bridge_jwt_created, Trace)),
+            ?assertMatch([_, _], ?of_kind(gcp_pubsub_bridge_jwt_created, Trace)),
             ok
         end
     ),
