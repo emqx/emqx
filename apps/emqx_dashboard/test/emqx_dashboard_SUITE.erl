@@ -61,6 +61,7 @@ end_suite() ->
 
 end_suite(Apps) ->
     application:unload(emqx_management),
+    mnesia:clear_table(?ADMIN),
     emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 init_per_suite(Config) ->
@@ -83,8 +84,9 @@ set_special_configs(_) ->
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public_www1">>, <<"simple_description">>),
+    Headers = auth_header_(<<"admin">>, <<"public_www1">>),
     [
-        {ok, _} = request_dashboard(get, api_path([Overview]), auth_header_())
+        {ok, _} = request_dashboard(get, api_path([Overview]), Headers)
      || Overview <- ?OVERVIEWS
     ].
 
@@ -209,16 +211,16 @@ random_num() ->
     erlang:system_time(nanosecond).
 
 http_get(Parts) ->
-    request_api(get, api_path(Parts), auth_header_()).
+    request_api(get, api_path(Parts), auth_header_(<<"admin">>, <<"public_www1">>)).
 
 http_delete(Parts) ->
-    request_api(delete, api_path(Parts), auth_header_()).
+    request_api(delete, api_path(Parts), auth_header_(<<"admin">>, <<"public_www1">>)).
 
 http_post(Parts, Body) ->
-    request_api(post, api_path(Parts), [], auth_header_(), Body).
+    request_api(post, api_path(Parts), [], auth_header_(<<"admin">>, <<"public_www1">>), Body).
 
 http_put(Parts, Body) ->
-    request_api(put, api_path(Parts), [], auth_header_(), Body).
+    request_api(put, api_path(Parts), [], auth_header_(<<"admin">>, <<"public_www1">>), Body).
 
 request_dashboard(Method, Url, Auth) ->
     Request = {Url, [Auth]},
@@ -240,7 +242,7 @@ do_request_dashboard(Method, Request) ->
     end.
 
 auth_header_() ->
-    auth_header_(<<"admin">>, <<"public_www1">>).
+    auth_header_(<<"admin">>, <<"public">>).
 
 auth_header_(Username, Password) ->
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
