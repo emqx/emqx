@@ -487,7 +487,7 @@ fields("node") ->
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
-                    default => "log/erl_crash.dump",
+                    default => crash_dump_file_default(),
                     'readOnly' => true
                 }
             )},
@@ -1295,6 +1295,15 @@ sort_log_levels(Levels) ->
         end,
         Levels
     ).
+
+crash_dump_file_default() ->
+    case os:getenv("RUNNER_LOG_DIR") of
+        false ->
+            %% testing, or running emqx app as deps
+            "log/erl_crash.dump";
+        Dir ->
+            [filename:join([Dir, "erl_crash.dump"])]
+    end.
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
