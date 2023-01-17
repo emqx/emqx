@@ -23,6 +23,12 @@
 -export([zone_iteration_options/1]).
 -export([default_iteration_options/0]).
 
+-type backend_config() ::
+    {emqx_replay_message_storage, emqx_replay_message_storage:options()}
+    | {module(), _Options}.
+
+-export_type([backend_config/0]).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -30,11 +36,8 @@
 -define(APP, emqx_replay).
 
 -type zone() :: emqx_types:zone().
--type config() ::
-    {emqx_replay_message_storage, emqx_replay_message_storage:options()}
-    | {module(), _Options}.
 
--spec zone_config(zone()) -> config().
+-spec zone_config(zone()) -> backend_config().
 zone_config(Zone) ->
     DefaultZoneConfig = application:get_env(?APP, default_zone_config, default_zone_config()),
     Zones = application:get_env(?APP, zone_config, #{}),
@@ -54,7 +57,7 @@ default_iteration_options() ->
     {emqx_replay_message_storage, Config} = default_zone_config(),
     maps:get(iteration, Config).
 
--spec default_zone_config() -> config().
+-spec default_zone_config() -> backend_config().
 default_zone_config() ->
     {emqx_replay_message_storage, #{
         timestamp_bits => 64,
