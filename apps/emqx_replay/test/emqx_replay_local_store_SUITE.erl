@@ -176,7 +176,7 @@ end_per_testcase(TC, _Config) ->
     ok = emqx_replay_local_store_sup:stop_zone(zone(TC)).
 
 zone(TC) ->
-    list_to_atom(?MODULE_STRING ++ atom_to_list(TC)).
+    list_to_atom(lists:concat([?MODULE, "_", TC])).
 
 set_zone_config(Zone, Options) ->
     ok = application:set_env(emqx_replay, zone_config, #{
