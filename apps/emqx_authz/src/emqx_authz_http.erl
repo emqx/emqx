@@ -82,7 +82,7 @@ authorize(
     } = Config
 ) ->
     Request = generate_request(PubSub, Topic, Client, Config),
-    case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
+    case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} ->
             {matched, allow};
         {ok, 200, Headers, Body} ->

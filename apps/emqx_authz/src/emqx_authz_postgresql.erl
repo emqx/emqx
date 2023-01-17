@@ -87,7 +87,9 @@ authorize(
     }
 ) ->
     RenderedParams = emqx_authz_utils:render_sql_params(Placeholders, Client),
-    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, RenderedParams}) of
+    case
+        emqx_resource:simple_sync_query(ResourceID, {prepared_query, ResourceID, RenderedParams})
+    of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->

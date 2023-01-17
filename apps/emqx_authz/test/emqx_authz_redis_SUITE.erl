@@ -263,7 +263,7 @@ raw_redis_authz_config() ->
     }.
 
 q(Command) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?REDIS_RESOURCE,
         {cmd, Command}
     ).
