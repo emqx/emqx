@@ -192,7 +192,7 @@ authenticate(
     } = State
 ) ->
     Request = generate_request(Credential, State),
-    Response = emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}),
+    Response = emqx_resource:simple_sync_query(ResourceId, {Method, Request, RequestTimeout}),
     ?TRACE_AUTHN_PROVIDER("http_response", #{
         request => request_for_log(Credential, State),
         response => response_for_log(Response),

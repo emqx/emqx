@@ -187,7 +187,7 @@ update(
     #{use_jwks := true} = Config,
     #{jwk_resource := ResourceId} = State
 ) ->
-    case emqx_resource:query(ResourceId, {update, connector_opts(Config)}) of
+    case emqx_resource:simple_sync_query(ResourceId, {update, connector_opts(Config)}) of
         ok ->
             case maps:get(verify_claims, Config, undefined) of
                 undefined ->
@@ -229,7 +229,7 @@ authenticate(
         from := From
     }
 ) ->
-    case emqx_resource:query(ResourceId, get_jwks) of
+    case emqx_resource:simple_sync_query(ResourceId, get_jwks) of
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "get_jwks_failed", #{
                 resource => ResourceId,
