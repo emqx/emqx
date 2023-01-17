@@ -161,6 +161,9 @@ for dep in ${CT_DEPS}; do
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
+            ;; 
+        clickhouse)
+            FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"
