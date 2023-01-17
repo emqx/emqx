@@ -465,3 +465,10 @@ converter_invalid_input_test() ->
     ?assertEqual(undefined, emqx_schema:convert_servers(undefined)),
     %% 'foo: bar' is a valid HOCON value, but 'bar' is not a port number
     ?assertThrow("bad_host_port", emqx_schema:convert_servers(#{foo => bar})).
+
+password_converter_test() ->
+    ?assertEqual(undefined, emqx_schema:password_converter(undefined, #{})),
+    ?assertEqual(<<"123">>, emqx_schema:password_converter(123, #{})),
+    ?assertEqual(<<"123">>, emqx_schema:password_converter(<<"123">>, #{})),
+    ?assertThrow("must_quote", emqx_schema:password_converter(foobar, #{})),
+    ok.
