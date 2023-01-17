@@ -67,7 +67,7 @@ stop_workers(ResId, Opts) ->
     WorkerPoolSize = worker_pool_size(Opts),
     lists:foreach(
         fun(Idx) ->
-            ensure_worker_removed(ResId, Idx),
+            _ = ensure_worker_removed(ResId, Idx),
             ensure_disk_queue_dir_absent(ResId, Idx)
         end,
         lists:seq(1, WorkerPoolSize)
