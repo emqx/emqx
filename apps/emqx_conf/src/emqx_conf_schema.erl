@@ -466,9 +466,9 @@ fields("node") ->
                 hoconsc:array(string()),
                 #{
                     mapping => "emqx.config_files",
-                    default => undefined,
-                    'readOnly' => true,
-                    desc => ?DESC(node_config_files)
+                    hidden => true,
+                    required => false,
+                    'readOnly' => true
                 }
             )},
         {"global_gc_interval",
@@ -1037,17 +1037,13 @@ metrics_enabled(disabled) -> [].
 tr_default_config_driver(Conf) ->
     conf_get("rpc.driver", Conf).
 
-tr_config_files(Conf) ->
-    case conf_get("emqx.config_files", Conf) of
-        [_ | _] = Files ->
-            Files;
-        _ ->
-            case os:getenv("EMQX_ETC_DIR") of
-                false ->
-                    [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
-                Dir ->
-                    [filename:join([Dir, "emqx.conf"])]
-            end
+tr_config_files(_Conf) ->
+    case os:getenv("EMQX_ETC_DIR") of
+        false ->
+            %% testing, or running emqx app as deps
+            [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
+        Dir ->
+            [filename:join([Dir, "emqx.conf"])]
     end.
 
 tr_cluster_override_conf_file(Conf) ->
