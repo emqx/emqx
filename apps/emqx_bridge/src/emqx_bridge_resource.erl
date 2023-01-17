@@ -251,7 +251,9 @@ maybe_clear_certs(TmpPath, #{ssl := SslConf} = Conf) ->
     case is_tmp_path_conf(TmpPath, SslConf) of
         true -> emqx_connector_ssl:clear_certs(TmpPath, Conf);
         false -> ok
-    end.
+    end;
+maybe_clear_certs(_TmpPath, _ConfWithoutSsl) ->
+    ok.
 
 is_tmp_path_conf(TmpPath, #{certfile := Certfile}) ->
     is_tmp_path(TmpPath, Certfile);

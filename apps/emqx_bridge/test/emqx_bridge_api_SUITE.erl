@@ -86,6 +86,7 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
     [{port, Port}, {sock, Sock}, {acceptor, Acceptor} | Config].
+
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),
     Acceptor = ?config(acceptor, Config),
