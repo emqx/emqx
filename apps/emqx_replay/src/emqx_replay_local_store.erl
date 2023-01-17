@@ -98,7 +98,7 @@ store(Zone, GUID, Time, Topic, Msg) ->
     #{module := Mod, data := Data} = meta_lookup_gen(Zone, Time),
     Mod:store(Data, GUID, Time, Topic, Msg).
 
--spec make_iterator(emqx_types:zone(), emqx_topic:words(), emqx_replay_message_storage:time()) ->
+-spec make_iterator(emqx_types:zone(), emqx_topic:words(), emqx_replay:time()) ->
     {ok, _TODO} | {error, _TODO}.
 make_iterator(Zone, TopicFilter, StartTime) ->
     %% TODO: this is not supposed to work like this. Just a mock-up
