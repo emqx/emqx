@@ -139,7 +139,7 @@ authenticate(
 ) ->
     NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
-    case emqx_resource:query(ResourceId, {cmd, Command}) of
+    case emqx_resource:simple_sync_query(ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
         {ok, Values} ->

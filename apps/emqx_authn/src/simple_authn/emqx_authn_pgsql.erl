@@ -120,7 +120,7 @@ authenticate(
     }
 ) ->
     Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
+    case emqx_resource:simple_sync_query(ResourceId, {prepared_query, ResourceId, Params}) of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->

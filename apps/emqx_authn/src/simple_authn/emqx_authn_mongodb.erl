@@ -167,7 +167,7 @@ authenticate(
     } = State
 ) ->
     Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
-    case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
+    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
         {ok, undefined} ->
             ignore;
         {error, Reason} ->

@@ -594,13 +594,13 @@ create_user(Values) ->
     ok.
 
 q(Sql) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql}
     ).
 
 q(Sql, Params) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql, Params}
     ).

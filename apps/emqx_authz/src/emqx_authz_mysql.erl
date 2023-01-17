@@ -82,7 +82,9 @@ authorize(
     }
 ) ->
     RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Client),
-    case emqx_resource:query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}) of
+    case
+        emqx_resource:simple_sync_query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams})
+    of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->

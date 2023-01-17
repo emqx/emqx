@@ -78,7 +78,7 @@ authorize(
     }
 ) ->
     Cmd = emqx_authz_utils:render_deep(CmdTemplate, Client),
-    case emqx_resource:query(ResourceID, {cmd, Cmd}) of
+    case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
         {ok, []} ->
             nomatch;
         {ok, Rows} ->

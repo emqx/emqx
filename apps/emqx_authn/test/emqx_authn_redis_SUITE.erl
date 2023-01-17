@@ -588,7 +588,7 @@ init_seeds() ->
     ).
 
 q(Command) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?REDIS_RESOURCE,
         {cmd, Command}
     ).

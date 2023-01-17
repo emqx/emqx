@@ -326,13 +326,13 @@ raw_pgsql_authz_config() ->
     }.
 
 q(Sql) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql}
     ).
 
 insert(Sql, Params) ->
-    {ok, _} = emqx_resource:query(
+    {ok, _} = emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql, Params}
     ),
