@@ -81,6 +81,15 @@ request_config() ->
                     desc => ?DESC("config_url")
                 }
             )},
+        {direction,
+            mk(
+                egress,
+                #{
+                    desc => ?DESC("config_direction"),
+                    required => {false, recursively},
+                    deprecated => {since, "5.0.12"}
+                }
+            )},
         {local_topic,
             mk(
                 binary(),

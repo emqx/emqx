@@ -15,28 +15,35 @@
 %%--------------------------------------------------------------------
 
 %% @doc This module was created to convert old version (from v5.0.0 to v5.0.11)
-%% mqtt connector configs to newer version (developed for enterprise edition).
--module(emqx_bridge_mqtt_config).
+%% mqtt/webhook connector configs to newer version (developed for enterprise edition).
+-module(emqx_bridge_compatible_config).
 
 -export([
-    upgrade_pre_ee/1,
-    maybe_upgrade/1
+    upgrade_pre_ee/2,
+    maybe_upgrade/1,
+    webhook_maybe_upgrade/1
 ]).
 
-upgrade_pre_ee(undefined) ->
+upgrade_pre_ee(undefined, _UpgradeFunc) ->
     undefined;
-upgrade_pre_ee(Conf0) when is_map(Conf0) ->
-    maps:from_list(upgrade_pre_ee(maps:to_list(Conf0)));
-upgrade_pre_ee([]) ->
+upgrade_pre_ee(Conf0, UpgradeFunc) when is_map(Conf0) ->
+    maps:from_list(upgrade_pre_ee(maps:to_list(Conf0), UpgradeFunc));
+upgrade_pre_ee([], _UpgradeFunc) ->
     [];
-upgrade_pre_ee([{Name, Config} | Bridges]) ->
-    [{Name, maybe_upgrade(Config)} | upgrade_pre_ee(Bridges)].
+upgrade_pre_ee([{Name, Config} | Bridges], UpgradeFunc) ->
+    [{Name, UpgradeFunc(Config)} | upgrade_pre_ee(Bridges, UpgradeFunc)].
 
 maybe_upgrade(#{<<"connector">> := _} = Config0) ->
     Config1 = up(Config0),
     Config = lists:map(fun binary_key/1, Config1),
     maps:from_list(Config);
 maybe_upgrade(NewVersion) ->
+    NewVersion.
+
+webhook_maybe_upgrade(#{<<"direction">> := _} = Config0) ->
+    Config1 = maps:remove(<<"direction">>, Config0),
+    Config1#{<<"resource_opts">> => default_resource_opts()};
+webhook_maybe_upgrade(NewVersion) ->
     NewVersion.
 
 binary_key({K, V}) ->
