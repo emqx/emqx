@@ -1432,6 +1432,7 @@ t_retry_async_inflight_batch(_Config) ->
 %% requests if they die.
 t_async_pool_worker_death(_Config) ->
     ResumeInterval = 1_000,
+    NumBufferWorkers = 2,
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = emqx_resource:create(
         ?ID,
@@ -1441,7 +1442,7 @@ t_async_pool_worker_death(_Config) ->
         #{
             query_mode => async,
             batch_size => 1,
-            worker_pool_size => 2,
+            worker_pool_size => NumBufferWorkers,
             resume_interval => ResumeInterval
         }
     ),
@@ -1471,9 +1472,9 @@ t_async_pool_worker_death(_Config) ->
             %% grab one of the worker pids and kill it
             {ok, SRef1} =
                 snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := resource_worker_cancelled_inflight}),
-                    NumReqs,
-                    1_000
+                    ?match_event(#{?snk_kind := resource_worker_worker_down_update}),
+                    NumBufferWorkers,
+                    10_000
                 ),
             {ok, #{pid := Pid0}} = emqx_resource:simple_sync_query(?ID, get_state),
             MRef = monitor(process, Pid0),
@@ -1487,21 +1488,11 @@ t_async_pool_worker_death(_Config) ->
                 ct:fail("worker should have died")
             end,
 
-            %% inflight requests should have been cancelled
+            %% inflight requests should have been marked as retriable
             {ok, _} = snabbkaffe:receive_events(SRef1),
             Inflight1 = emqx_resource_metrics:inflight_get(?ID),
-            ?assertEqual(0, Inflight1),
+            ?assertEqual(NumReqs, Inflight1),
 
-            ?assert(
-                lists:all(
-                    fun
-                        ({_, {error, interrupted}}) -> true;
-                        (_) -> false
-                    end,
-                    ets:tab2list(Tab0)
-                ),
-                #{tab => ets:tab2list(Tab0)}
-            ),
             ok
         end,
         []

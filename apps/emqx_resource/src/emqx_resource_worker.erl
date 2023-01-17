@@ -771,7 +771,7 @@ handle_async_worker_down(Data0, Pid) ->
     #{async_workers := AsyncWorkers0} = Data0,
     {WorkerMRef, AsyncWorkers} = maps:take(Pid, AsyncWorkers0),
     Data = Data0#{async_workers := AsyncWorkers},
-    cancel_inflight_items(Data, WorkerMRef),
+    mark_inflight_items_as_retriable(Data, WorkerMRef),
     {keep_state, Data}.
 
 call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
@@ -1118,37 +1118,19 @@ ack_inflight(InflightTID, Ref, Id, Index) ->
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     IsAcked.
 
-cancel_inflight_items(Data, WorkerMRef) ->
+mark_inflight_items_as_retriable(Data, WorkerMRef) ->
     #{inflight_tid := InflightTID} = Data,
+    IsRetriable = true,
     MatchSpec =
         ets:fun2ms(
-            fun(?INFLIGHT_ITEM(Ref, _BatchOrQuery, _IsRetriable, WorkerMRef0)) when
+            fun(?INFLIGHT_ITEM(Ref, BatchOrQuery, _IsRetriable, WorkerMRef0)) when
                 WorkerMRef =:= WorkerMRef0
             ->
-                Ref
+                ?INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, WorkerMRef0)
             end
         ),
-    Refs = ets:select(InflightTID, MatchSpec),
-    lists:foreach(fun(Ref) -> do_cancel_inflight_item(Data, Ref) end, Refs).
-
-do_cancel_inflight_item(Data, Ref) ->
-    #{id := Id, index := Index, inflight_tid := InflightTID} = Data,
-    {Count, Batch} =
-        case ets:take(InflightTID, Ref) of
-            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _) = Query, _IsRetriable, _WorkerMRef)] ->
-                {1, [Query]};
-            [?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _) | _] = Batch0, _IsRetriable, _WorkerMRef)] ->
-                {length(Batch0), Batch0};
-            _ ->
-                {0, []}
-        end,
-    IsAcked = Count > 0,
-    IsAcked andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
-    emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
-    Result = {error, interrupted},
-    QueryOpts = #{simple_query => false},
-    _ = batch_reply_caller(Id, Result, Batch, QueryOpts),
-    ?tp(resource_worker_cancelled_inflight, #{ref => Ref}),
+    _NumAffected = ets:select_replace(InflightTID, MatchSpec),
+    ?tp(resource_worker_worker_down_update, #{num_affected => _NumAffected}),
     ok.
 
 %%==============================================================================
