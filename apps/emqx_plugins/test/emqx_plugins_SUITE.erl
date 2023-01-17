@@ -19,11 +19,20 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, "emqx_plugin_template").
+-define(EMQX_PLUGIN_TEMPLATE_URL,
+    "https://github.com/emqx/emqx-plugin-template/releases/download/"
+).
 -define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0").
+-define(EMQX_PLUGIN_TEMPLATE_TAG, "5.0.0").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME, "elixir_plugin_template").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
+    "https://github.com/emqx/emqx-elixir-plugin/releases/download/"
+).
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.0-2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -60,63 +69,42 @@ end_per_testcase(TestCase, Config) ->
     emqx_plugins:put_configured([]),
     ?MODULE:TestCase({'end', Config}).
 
-build_demo_plugin_package() ->
-    build_demo_plugin_package(
+get_demo_plugin_package() ->
+    get_demo_plugin_package(
         #{
-            target_path => "_build/default/emqx_plugrel",
-            release_name => "emqx_plugin_template",
-            git_url => "https://github.com/emqx/emqx-plugin-template.git",
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
             vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
-            workdir => "demo_src",
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG,
             shdir => emqx_plugins:install_dir()
         }
     ).
 
-build_demo_plugin_package(
+get_demo_plugin_package(
     #{
-        target_path := TargetPath,
         release_name := ReleaseName,
         git_url := GitUrl,
         vsn := PluginVsn,
-        workdir := DemoWorkDir,
+        tag := ReleaseTag,
         shdir := WorkDir
     } = Opts
 ) ->
-    BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
-    Cmd = string:join(
-        [
-            BuildSh,
-            PluginVsn,
-            TargetPath,
-            ReleaseName,
-            GitUrl,
-            DemoWorkDir
-        ],
-        " "
-    ),
-    case emqx_run_sh:do(Cmd, [{cd, WorkDir}]) of
-        {ok, _} ->
-            Pkg = filename:join([
-                WorkDir,
-                ReleaseName ++ "-" ++
-                    PluginVsn ++
-                    ?PACKAGE_SUFFIX
-            ]),
-            case filelib:is_regular(Pkg) of
-                true -> Opts#{package => Pkg};
-                false -> error(#{reason => unexpected_build_result, not_found => Pkg})
-            end;
-        {error, {Rc, Output}} ->
-            io:format(user, "failed_to_build_demo_plugin, Exit = ~p, Output:~n~ts\n", [Rc, Output]),
-            error(failed_to_build_demo_plugin)
-    end.
+    TargetName = lists:flatten([ReleaseName, "-", PluginVsn, ?PACKAGE_SUFFIX]),
+    FileURI = lists:flatten(lists:join("/", [GitUrl, ReleaseTag, TargetName])),
+    {ok, {_, _, PluginBin}} = httpc:request(FileURI),
+    Pkg = filename:join([
+        WorkDir,
+        TargetName
+    ]),
+    ok = file:write_file(Pkg, PluginBin),
+    Opts#{package => Pkg}.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
 t_demo_install_start_stop_uninstall({init, Config}) ->
-    Opts = #{package := Package} = build_demo_plugin_package(),
+    Opts = #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [
         {name_vsn, NameVsn},
@@ -186,7 +174,7 @@ write_info_file(Config, NameVsn, Content) ->
     ok = file:write_file(InfoFile, Content).
 
 t_position({init, Config}) ->
-    #{package := Package} = build_demo_plugin_package(),
+    #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_position({'end', _Config}) ->
@@ -225,7 +213,7 @@ t_position(Config) ->
     ok.
 
 t_start_restart_and_stop({init, Config}) ->
-    #{package := Package} = build_demo_plugin_package(),
+    #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_start_restart_and_stop({'end', _Config}) ->
@@ -275,7 +263,7 @@ t_start_restart_and_stop(Config) ->
     ok.
 
 t_enable_disable({init, Config}) ->
-    #{package := Package} = build_demo_plugin_package(),
+    #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_enable_disable({'end', Config}) ->
@@ -388,14 +376,13 @@ t_bad_info_json(Config) ->
 t_elixir_plugin({init, Config}) ->
     Opts0 =
         #{
-            target_path => "_build/prod/plugrelex/elixir_plugin_template",
-            release_name => "elixir_plugin_template",
-            git_url => "https://github.com/emqx/emqx-elixir-plugin.git",
+            release_name => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
             vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN,
-            workdir => "demo_src_elixir",
+            tag => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG,
             shdir => emqx_plugins:install_dir()
         },
-    Opts = #{package := Package} = build_demo_plugin_package(Opts0),
+    Opts = #{package := Package} = get_demo_plugin_package(Opts0),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [
         {name_vsn, NameVsn},
