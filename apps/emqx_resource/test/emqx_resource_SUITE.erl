@@ -411,35 +411,18 @@ t_query_counter_async_inflight(_) ->
 
     %% send async query to make the inflight window full
     ?check_trace(
-        begin
-            {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(
-                    #{
-                        ?snk_kind := resource_worker_appended_to_inflight,
-                        is_new := true
-                    }
-                ),
-                WindowSize,
-                _Timeout = 5_000
+        {_, {ok, _}} =
+            ?wait_async_action(
+                inc_counter_in_parallel(WindowSize, ReqOpts),
+                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                1_000
             ),
-            inc_counter_in_parallel(WindowSize, ReqOpts),
-            {ok, _} = snabbkaffe:receive_events(SRef),
-            ok
-        end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
     tap_metrics(?LINE),
-
-    %% this will block the resource_worker as the inflight window is full now
-    {ok, {ok, _}} =
-        ?wait_async_action(
-            emqx_resource:query(?ID, {inc_counter, 199}),
-            #{?snk_kind := resource_worker_flush_but_inflight_full},
-            1_000
-        ),
     ?assertMatch(0, ets:info(Tab0, size)),
 
     tap_metrics(?LINE),
@@ -464,9 +447,9 @@ t_query_counter_async_inflight(_) ->
     %% all responses should be received after the resource is resumed.
     {ok, SRef0} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
-        %% +2 because the tmp_query above will be retried and succeed
-        %% this time, and there was the inc 199 request as well.
-        WindowSize + 2,
+        %% +1 because the tmp_query above will be retried and succeed
+        %% this time.
+        WindowSize + 1,
         _Timeout0 = 10_000
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
@@ -504,8 +487,12 @@ t_query_counter_async_inflight(_) ->
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
     %% again, send async query to make the inflight window full
     ?check_trace(
-        ?TRACE_OPTS,
-        inc_counter_in_parallel(WindowSize, ReqOpts),
+        {_, {ok, _}} =
+            ?wait_async_action(
+                inc_counter_in_parallel(WindowSize, ReqOpts),
+                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                1_000
+            ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
@@ -584,7 +571,7 @@ t_query_counter_async_inflight_batch(_) ->
     end,
     ReqOpts = fun() -> #{async_reply_fun => {Insert0, [Tab0, make_ref()]}} end,
     BatchSize = 2,
-    WindowSize = 3,
+    WindowSize = 15,
     {ok, _} = emqx_resource:create_local(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
@@ -606,16 +593,12 @@ t_query_counter_async_inflight_batch(_) ->
     %% send async query to make the inflight window full
     NumMsgs = BatchSize * WindowSize,
     ?check_trace(
-        begin
-            {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := call_batch_query_async}),
-                WindowSize,
-                _Timeout = 60_000
+        {_, {ok, _}} =
+            ?wait_async_action(
+                inc_counter_in_parallel(NumMsgs, ReqOpts),
+                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                5_000
             ),
-            inc_counter_in_parallel(NumMsgs, ReqOpts),
-            {ok, _} = snabbkaffe:receive_events(SRef),
-            ok
-        end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
@@ -674,7 +657,7 @@ t_query_counter_async_inflight_batch(_) ->
         %% +1 because the tmp_query above will be retried and succeed
         %% this time.
         WindowSize + 1,
-        _Timeout = 60_000
+        10_000
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
     tap_metrics(?LINE),
@@ -695,7 +678,7 @@ t_query_counter_async_inflight_batch(_) ->
             {ok, SRef} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
                 NumBatches1,
-                _Timeout = 60_000
+                10_000
             ),
             inc_counter_in_parallel(NumMsgs1, ReqOpts),
             {ok, _} = snabbkaffe:receive_events(SRef),
@@ -720,8 +703,12 @@ t_query_counter_async_inflight_batch(_) ->
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
     %% again, send async query to make the inflight window full
     ?check_trace(
-        ?TRACE_OPTS,
-        inc_counter_in_parallel(WindowSize, ReqOpts),
+        {_, {ok, _}} =
+            ?wait_async_action(
+                inc_counter_in_parallel(NumMsgs, ReqOpts),
+                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                5_000
+            ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
@@ -734,11 +721,11 @@ t_query_counter_async_inflight_batch(_) ->
     %% this will block the resource_worker
     ok = emqx_resource:query(?ID, {inc_counter, 1}),
 
-    Sent = NumMsgs + NumMsgs1 + WindowSize,
+    Sent = NumMsgs + NumMsgs1 + NumMsgs,
     {ok, SRef1} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := connector_demo_inc_counter_async}),
         WindowSize,
-        _Timeout = 60_000
+        10_000
     ),
     ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
     {ok, _} = snabbkaffe:receive_events(SRef1),
@@ -785,10 +772,8 @@ t_healthy_timeout(_) ->
         %% the ?TEST_RESOURCE always returns the `Mod:on_get_status/2` 300ms later.
         #{health_check_interval => 200}
     ),
-    ?assertMatch(
-        ?RESOURCE_ERROR(not_connected),
-        emqx_resource:query(?ID, get_state)
-    ),
+    ?assertError(timeout, emqx_resource:query(?ID, get_state, #{timeout => 1_000})),
+    ?assertMatch({ok, _Group, #{status := disconnected}}, emqx_resource_manager:ets_lookup(?ID)),
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy(_) ->
@@ -1131,6 +1116,7 @@ t_retry_batch(_Config) ->
     ok.
 
 t_delete_and_re_create_with_same_name(_Config) ->
+    NumBufferWorkers = 2,
     {ok, _} = emqx_resource:create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
@@ -1139,7 +1125,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
         #{
             query_mode => sync,
             batch_size => 1,
-            worker_pool_size => 2,
+            worker_pool_size => NumBufferWorkers,
             queue_seg_bytes => 100,
             resume_interval => 1_000
         }
@@ -1154,19 +1140,21 @@ t_delete_and_re_create_with_same_name(_Config) ->
             ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
             NumRequests = 10,
             {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := resource_worker_appended_to_queue}),
-                NumRequests,
+                ?match_event(#{?snk_kind := resource_worker_enter_blocked}),
+                NumBufferWorkers,
                 _Timeout = 5_000
             ),
             %% ensure replayq offloads to disk
             Payload = binary:copy(<<"a">>, 119),
             lists:foreach(
                 fun(N) ->
-                    {error, _} =
-                        emqx_resource:query(
-                            ?ID,
-                            {big_payload, <<(integer_to_binary(N))/binary, Payload/binary>>}
-                        )
+                    spawn_link(fun() ->
+                        {error, _} =
+                            emqx_resource:query(
+                                ?ID,
+                                {big_payload, <<(integer_to_binary(N))/binary, Payload/binary>>}
+                            )
+                    end)
                 end,
                 lists:seq(1, NumRequests)
             ),
@@ -1177,10 +1165,11 @@ t_delete_and_re_create_with_same_name(_Config) ->
             tap_metrics(?LINE),
             Queuing1 = emqx_resource_metrics:queuing_get(?ID),
             Inflight1 = emqx_resource_metrics:inflight_get(?ID),
-            ?assertEqual(NumRequests - 1, Queuing1),
-            ?assertEqual(1, Inflight1),
+            ?assert(Queuing1 > 0),
+            ?assertEqual(2, Inflight1),
 
             %% now, we delete the resource
+            process_flag(trap_exit, true),
             ok = emqx_resource:remove_local(?ID),
             ?assertEqual({error, not_found}, emqx_resource_manager:lookup(?ID)),
 
@@ -1275,9 +1264,13 @@ t_retry_sync_inflight(_Config) ->
             %% now really make the resource go into `blocked' state.
             %% this results in a retriable error when sync.
             ok = emqx_resource:simple_sync_query(?ID, block),
-            {{error, {recoverable_error, incorrect_status}}, {ok, _}} =
+            TestPid = self(),
+            {_, {ok, _}} =
                 ?wait_async_action(
-                    emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                    spawn_link(fun() ->
+                        Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                        TestPid ! {res, Res}
+                    end),
                     #{?snk_kind := resource_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
@@ -1287,9 +1280,15 @@ t_retry_sync_inflight(_Config) ->
                     #{?snk_kind := resource_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
+            receive
+                {res, Res} ->
+                    ?assertEqual(ok, Res)
+            after 5_000 ->
+                ct:fail("no response")
+            end,
             ok
         end,
-        [fun ?MODULE:assert_retry_fail_then_succeed_inflight/1]
+        [fun ?MODULE:assert_sync_retry_fail_then_succeed_inflight/1]
     ),
     ok.
 
@@ -1312,12 +1311,17 @@ t_retry_sync_inflight_batch(_Config) ->
     QueryOpts = #{},
     ?check_trace(
         begin
-            %% now really make the resource go into `blocked' state.
-            %% this results in a retriable error when sync.
+            %% make the resource go into `blocked' state.  this
+            %% results in a retriable error when sync.
             ok = emqx_resource:simple_sync_query(?ID, block),
-            {{error, {recoverable_error, incorrect_status}}, {ok, _}} =
+            process_flag(trap_exit, true),
+            TestPid = self(),
+            {_, {ok, _}} =
                 ?wait_async_action(
-                    emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                    spawn_link(fun() ->
+                        Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
+                        TestPid ! {res, Res}
+                    end),
                     #{?snk_kind := resource_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
@@ -1327,13 +1331,19 @@ t_retry_sync_inflight_batch(_Config) ->
                     #{?snk_kind := resource_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
+            receive
+                {res, Res} ->
+                    ?assertEqual(ok, Res)
+            after 5_000 ->
+                ct:fail("no response")
+            end,
             ok
         end,
-        [fun ?MODULE:assert_retry_fail_then_succeed_inflight/1]
+        [fun ?MODULE:assert_sync_retry_fail_then_succeed_inflight/1]
     ),
     ok.
 
-t_dont_retry_async_inflight(_Config) ->
+t_retry_async_inflight(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = emqx_resource:create(
@@ -1351,33 +1361,31 @@ t_dont_retry_async_inflight(_Config) ->
     QueryOpts = #{},
     ?check_trace(
         begin
-            %% block,
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_resource:query(?ID, block_now),
-                    #{?snk_kind := resource_worker_enter_blocked},
-                    ResumeInterval * 2
-                ),
+            %% block
+            ok = emqx_resource:simple_sync_query(?ID, block),
 
-            %% then send an async request; that shouldn't be retriable.
+            %% then send an async request; that should be retriable.
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_flush_ack},
+                    #{?snk_kind := resource_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
-            %% will re-enter running because the single request is not retriable
-            {ok, _} = ?block_until(
-                #{?snk_kind := resource_worker_enter_running}, ResumeInterval * 2
-            ),
+            %% will reply with success after the resource is healed
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := resource_worker_enter_running},
+                    ResumeInterval * 2
+                ),
             ok
         end,
-        [fun ?MODULE:assert_no_retry_inflight/1]
+        [fun ?MODULE:assert_async_retry_fail_then_succeed_inflight/1]
     ),
     ok.
 
-t_dont_retry_async_inflight_batch(_Config) ->
+t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = emqx_resource:create(
@@ -1396,29 +1404,27 @@ t_dont_retry_async_inflight_batch(_Config) ->
     QueryOpts = #{},
     ?check_trace(
         begin
-            %% block,
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_resource:query(?ID, block_now),
-                    #{?snk_kind := resource_worker_enter_blocked},
-                    ResumeInterval * 2
-                ),
+            %% block
+            ok = emqx_resource:simple_sync_query(?ID, block),
 
-            %% then send an async request; that shouldn't be retriable.
+            %% then send an async request; that should be retriable.
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_flush_ack},
+                    #{?snk_kind := resource_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
-            %% will re-enter running because the single request is not retriable
-            {ok, _} = ?block_until(
-                #{?snk_kind := resource_worker_enter_running}, ResumeInterval * 2
-            ),
+            %% will reply with success after the resource is healed
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := resource_worker_enter_running},
+                    ResumeInterval * 2
+                ),
             ok
         end,
-        [fun ?MODULE:assert_no_retry_inflight/1]
+        [fun ?MODULE:assert_async_retry_fail_then_succeed_inflight/1]
     ),
     ok.
 
@@ -1529,7 +1535,8 @@ inc_counter_in_parallel(N, Opts0) ->
             ct:fail({wait_for_query_timeout, Pid})
         end
      || Pid <- Pids
-    ].
+    ],
+    ok.
 
 inc_counter_in_parallel_increasing(N, StartN, Opts0) ->
     Parent = self(),
@@ -1566,15 +1573,31 @@ tap_metrics(Line) ->
     ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
     #{counters => C, gauges => G}.
 
-assert_no_retry_inflight(Trace) ->
-    ?assertEqual([], ?of_kind(resource_worker_retry_inflight_failed, Trace)),
-    ?assertEqual([], ?of_kind(resource_worker_retry_inflight_succeeded, Trace)),
-    ok.
-
-assert_retry_fail_then_succeed_inflight(Trace) ->
+assert_sync_retry_fail_then_succeed_inflight(Trace) ->
+    ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
             #{?snk_kind := resource_worker_flush_nack, ref := _Ref},
+            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            Trace
+        )
+    ),
+    %% not strict causality because it might retry more than once
+    %% before restoring the resource health.
+    ?assert(
+        ?causality(
+            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            Trace
+        )
+    ),
+    ok.
+
+assert_async_retry_fail_then_succeed_inflight(Trace) ->
+    ct:pal("  ~p", [Trace]),
+    ?assert(
+        ?strict_causality(
+            #{?snk_kind := resource_worker_reply_after_query, action := nack, ref := _Ref},
             #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )

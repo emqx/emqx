@@ -48,6 +48,7 @@ fields("creation_opts") ->
         {health_check_interval, fun health_check_interval/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
+        {request_timeout, fun request_timeout/1},
         {async_inflight_window, fun async_inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
@@ -79,6 +80,11 @@ query_mode(desc) -> ?DESC("query_mode");
 query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
+
+request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
+request_timeout(desc) -> ?DESC("request_timeout");
+request_timeout(default) -> <<"15s">>;
+request_timeout(_) -> undefined.
 
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;

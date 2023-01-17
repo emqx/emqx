@@ -259,6 +259,9 @@ counter_loop(
                 apply_reply(ReplyFun, ok),
                 ?tp(connector_demo_inc_counter_async, #{n => N}),
                 State#{counter => Num + N};
+            {big_payload, _Payload, ReplyFun} when Status == blocked ->
+                apply_reply(ReplyFun, {error, blocked}),
+                State;
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
                 %ct:pal("sync counter recv: ~p", [{inc, N}]),
                 FromPid ! {ReqRef, ok},
@@ -269,6 +272,9 @@ counter_loop(
             {{FromPid, ReqRef}, {big_payload, _Payload}} when Status == blocked ->
                 FromPid ! {ReqRef, incorrect_status},
                 State#{incorrect_status_count := IncorrectCount + 1};
+            {{FromPid, ReqRef}, {big_payload, _Payload}} when Status == running ->
+                FromPid ! {ReqRef, ok},
+                State;
             {get, ReplyFun} ->
                 apply_reply(ReplyFun, Num),
                 State;

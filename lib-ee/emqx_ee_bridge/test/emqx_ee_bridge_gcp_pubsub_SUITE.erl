@@ -108,6 +108,7 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(TestCase, Config0) when
     TestCase =:= t_publish_success_batch
 ->
+    ct:timetrap({seconds, 30}),
     case ?config(batch_size, Config0) of
         1 ->
             [{skip_due_to_no_batching, true}];
@@ -120,6 +121,7 @@ init_per_testcase(TestCase, Config0) when
             [{telemetry_table, Tid} | Config]
     end;
 init_per_testcase(TestCase, Config0) ->
+    ct:timetrap({seconds, 30}),
     {ok, _} = start_echo_http_server(),
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
@@ -283,6 +285,7 @@ gcp_pubsub_config(Config) ->
             "  pool_size = 1\n"
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
+            "    request_timeout = 500ms\n"
             "    worker_pool_size = 1\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
@@ -1266,7 +1269,6 @@ t_failure_no_body(Config) ->
 
 t_unrecoverable_error(Config) ->
     ResourceId = ?config(resource_id, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
     QueryMode = ?config(query_mode, Config),
     TestPid = self(),
     FailureNoBodyHandler =
@@ -1328,26 +1330,14 @@ t_unrecoverable_error(Config) ->
             ok
         end
     ),
-    wait_telemetry_event(TelemetryTable, failed, ResourceId),
-    ExpectedInflightEvents =
-        case QueryMode of
-            sync -> 1;
-            async -> 3
-        end,
-    wait_telemetry_event(
-        TelemetryTable,
-        inflight,
-        ResourceId,
-        #{n_events => ExpectedInflightEvents, timeout => 5_000}
-    ),
-    %% even waiting, hard to avoid flakiness... simpler to just sleep
-    %% a bit until stabilization.
-    ct:sleep(200),
+
+    wait_until_gauge_is(queuing, 0, _Timeout = 400),
+    wait_until_gauge_is(inflight, 1, _Timeout = 400),
     assert_metrics(
         #{
             dropped => 0,
-            failed => 1,
-            inflight => 0,
+            failed => 0,
+            inflight => 1,
             matched => 1,
             queuing => 0,
             retried => 0,
