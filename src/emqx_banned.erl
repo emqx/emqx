@@ -36,6 +36,7 @@
         , create/1
         , delete/1
         , info/1
+        , look_up/1
         ]).
 
 %% gen_server callbacks
@@ -111,6 +112,9 @@ delete(Who) ->
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
 
+look_up(Who) ->
+    mnesia:dirty_read(?BANNED_TAB, Who).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -158,4 +162,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?BANNED_TAB).
-
