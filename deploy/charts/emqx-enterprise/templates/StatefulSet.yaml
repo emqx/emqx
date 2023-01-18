@@ -98,15 +98,15 @@ spec:
           {{- end }}
           ports:
           - name: mqtt
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT | default 1883 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND | default 1883 }}
           - name: mqttssl
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SSL__DEFAULT | default 8883 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SSL__DEFAULT__BIND | default 8883 }}
           - name: ws
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WS__DEFAULT | default 8083 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WS__DEFAULT__BIND | default 8083 }}
           - name: wss
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT | default 8084 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default 8084 }}
           - name: dashboard
-            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP__BIND | default 18083 }}
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
           - name: internalmqtt
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT }}
@@ -143,14 +143,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP__BIND | default 18083 }}
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP__BIND | default 18083 }}
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 10
