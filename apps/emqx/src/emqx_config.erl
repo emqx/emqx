@@ -413,8 +413,8 @@ check_config(SchemaMod, RawConf, Opts0) ->
     try
         do_check_config(SchemaMod, RawConf, Opts0)
     catch
-        throw:{Schema, Errors} ->
-            compact_errors(Schema, Errors)
+        throw:Errors:Stacktrace ->
+            throw(emqx_hocon:compact_errors(Errors, Stacktrace))
     end.
 
 %% HOCON tries to be very informative about all the detailed errors
@@ -425,8 +425,8 @@ compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
         case length(More) of
             0 ->
                 Error0;
-            _ ->
-                Error0#{unshown_errors => length(More)}
+            N ->
+                Error0#{unshown_errors => N}
         end,
     Error =
         case is_atom(Schema) of

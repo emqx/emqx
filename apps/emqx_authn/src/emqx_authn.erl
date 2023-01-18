@@ -69,7 +69,7 @@ do_check_config(#{<<"mechanism">> := Mec0} = Config, Opts) ->
         false ->
             throw(#{error => unknown_authn_provider, which => Key});
         {_, ProviderModule} ->
-            hocon_tconf:check_plain(
+            emqx_hocon:check(
                 ProviderModule,
                 #{?CONF_NS_BINARY => Config},
                 Opts#{atom_key => true}

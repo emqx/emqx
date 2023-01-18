@@ -32,7 +32,7 @@
 
 -export([
     refs/0,
-    refs/1,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -52,7 +52,7 @@ roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun union_member_selector/1),
                 #{}
             )}
     ].
@@ -169,7 +169,9 @@ refs() ->
         hoconsc:ref(?MODULE, 'jwks')
     ].
 
-refs(#{<<"mechanism">> := <<"jwt">>} = V) ->
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, V}) ->
     UseJWKS = maps:get(<<"use_jwks">>, V, undefined),
     select_ref(boolean(UseJWKS), V).
 
@@ -181,16 +183,16 @@ boolean(<<"false">>) -> false;
 boolean(Other) -> Other.
 
 select_ref(true, _) ->
-    {ok, hoconsc:ref(?MODULE, 'jwks')};
+    [hoconsc:ref(?MODULE, 'jwks')];
 select_ref(false, #{<<"public_key">> := _}) ->
-    {ok, hoconsc:ref(?MODULE, 'public-key')};
+    [hoconsc:ref(?MODULE, 'public-key')];
 select_ref(false, _) ->
-    {ok, hoconsc:ref(?MODULE, 'hmac-based')};
+    [hoconsc:ref(?MODULE, 'hmac-based')];
 select_ref(_, _) ->
-    {error, #{
+    throw(#{
         field_name => use_jwks,
         expected => "true | false"
-    }}.
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).
