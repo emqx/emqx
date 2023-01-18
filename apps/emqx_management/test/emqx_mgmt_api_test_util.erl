@@ -61,7 +61,8 @@ uri(Parts) ->
 
 %% compatible_mode will return as same as 'emqx_dashboard_api_test_helpers:request'
 request_api_with_body(Method, Url, Body) ->
-    request_api(Method, Url, [], auth_header_(), Body, #{compatible_mode => true}).
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    request_api(Method, Url, [], auth_header_(), Body, Opts).
 
 request_api(Method, Url) ->
     request_api(Method, Url, auth_header_()).
@@ -111,15 +112,9 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
 do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
     CompatibleMode = maps:get(compatible_mode, Opts, false),
-    ReqOpts =
-        case CompatibleMode of
-            true ->
-                [{body_format, binary}];
-            _ ->
-                []
-        end,
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], ReqOpts) of
+    HttpcReqOpts = maps:get(httpc_req_opts, Opts, []),
+    ct:pal("Method: ~p, Request: ~p, Opts: ~p", [Method, Request, Opts]),
+    case httpc:request(Method, Request, [], HttpcReqOpts) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
         {ok, {{_, Code, _}, _Headers, Body}} when CompatibleMode ->
