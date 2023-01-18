@@ -1541,10 +1541,8 @@ t_multi_streams_remote_shutdown(Config) ->
     {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
 
     ok = stop_emqx(),
-
-    timer:sleep(200),
     start_emqx_quic(?config(port, Config)),
-
+    timer:sleep(200),
     %% Client should be closed
     ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
 
