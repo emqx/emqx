@@ -471,10 +471,15 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     %% Write files to ZipDir and create an in-memory zip file
                     Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
                     ZipName = binary_to_list(Name) ++ ".zip",
-                    {ok, {ZipName, Binary}} = zip:zip(ZipName, Zips, [memory, {cwd, ZipDir}]),
-                    %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
-                    %% TODO use file replace file_binary.(delete file after send is not ready now).
-                    ok = file:del_dir_r(ZipDir),
+                    Binary =
+                        try
+                            {ok, {ZipName, Bin}} = zip:zip(ZipName, Zips, [memory, {cwd, ZipDir}]),
+                            Bin
+                        after
+                            %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
+                            %% TODO use file replace file_binary.(delete file after send is not ready now).
+                            ok = file:del_dir_r(ZipDir)
+                        end,
                     ?tp(trace_api_download_trace_log, #{
                         files => Zips,
                         name => Name,
