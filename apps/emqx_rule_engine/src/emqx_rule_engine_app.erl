@@ -25,7 +25,7 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-    _ = ets:new(?RULE_TAB, [named_table, public, set, {read_concurrency, true}]),
+    _ = ets:new(?RULE_TAB, [named_table, public, ordered_set, {read_concurrency, true}]),
     ok = emqx_rule_events:reload(),
     SupRet = emqx_rule_engine_sup:start_link(),
     ok = emqx_rule_engine:load_rules(),

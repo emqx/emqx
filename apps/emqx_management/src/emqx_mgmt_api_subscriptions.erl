@@ -173,7 +173,7 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(WhichNode, {{_Subscriber, Topic}, Options}) ->
+format(WhichNode, {{Topic, _Subscriber}, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
@@ -205,14 +205,14 @@ gen_match_spec([], MtchHead) ->
 gen_match_spec([{Key, '=:=', Value} | More], MtchHead) ->
     gen_match_spec(More, update_ms(Key, Value, MtchHead)).
 
-update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{subid => X}};
-update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
-    {{Pid, X}, Opts};
-update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{share => X}};
-update_ms(qos, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{qos => X}}.
+update_ms(clientid, X, {{Topic, Pid}, Opts}) ->
+    {{Topic, Pid}, Opts#{subid => X}};
+update_ms(topic, X, {{_Topic, Pid}, Opts}) ->
+    {{X, Pid}, Opts};
+update_ms(share_group, X, {{Topic, Pid}, Opts}) ->
+    {{Topic, Pid}, Opts#{share => X}};
+update_ms(qos, X, {{Topic, Pid}, Opts}) ->
+    {{Topic, Pid}, Opts#{qos => X}}.
 
 fuzzy_filter_fun([]) ->
     undefined;
@@ -221,5 +221,5 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
+run_fuzzy_filter(E = {{Topic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
     emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).

@@ -96,6 +96,7 @@
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTH_SHARD},
+        {type, ordered_set},
         {storage, disc_copies},
         {record_name, user_info},
         {attributes, record_info(fields, user_info)},
