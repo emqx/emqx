@@ -408,7 +408,8 @@ fields("node") ->
                     required => true,
                     'readOnly' => true,
                     sensitive => true,
-                    desc => ?DESC(node_cookie)
+                    desc => ?DESC(node_cookie),
+                    converter => fun emqx_schema:password_converter/2
                 }
             )},
         {"process_limit",

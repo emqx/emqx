@@ -107,7 +107,8 @@ fields("server_configs") ->
                 #{
                     format => <<"password">>,
                     sensitive => true,
-                    desc => ?DESC("password")
+                    desc => ?DESC("password"),
+                    converter => fun emqx_schema:password_converter/2
                 }
             )},
         {clean_start,

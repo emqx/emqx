@@ -157,7 +157,13 @@ fields(influxdb_api_v1) ->
         [
             {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
             {username, mk(binary(), #{desc => ?DESC("username")})},
-            {password, mk(binary(), #{desc => ?DESC("password"), format => <<"password">>})}
+            {password,
+                mk(binary(), #{
+                    desc => ?DESC("password"),
+                    format => <<"password">>,
+                    sensitive => true,
+                    converter => fun emqx_schema:password_converter/2
+                })}
         ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(influxdb_api_v2) ->
     fields(common) ++
