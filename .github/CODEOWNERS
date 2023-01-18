@@ -35,4 +35,4 @@
 /.ci/     @emqx/emqx-review-board @id
 /scripts/ @emqx/emqx-review-board @id
 /build    @emqx/emqx-review-board @id
-/deploy/  @emqx/emqx-review-board @id
+/deploy/  @emqx/emqx-review-board @id @Rory-Z
