@@ -94,7 +94,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1.12.0
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
