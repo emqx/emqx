@@ -871,8 +871,9 @@ queue_count(Q) ->
     replayq:count(Q).
 
 disk_queue_dir(Id, Index) ->
-    QDir = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
-    filename:join([emqx:data_dir(), "resource_worker", node(), QDir]).
+    QDir0 = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
+    QDir = filename:join([emqx:data_dir(), "resource_worker", node(), QDir0]),
+    emqx_misc:safe_filename(QDir).
 
 ensure_flush_timer(Data = #{tref := undefined, batch_time := T}) ->
     Ref = make_ref(),

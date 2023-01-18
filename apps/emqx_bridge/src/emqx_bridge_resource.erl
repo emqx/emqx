@@ -216,7 +216,8 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+    TmpPath0 = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+    TmpPath = emqx_misc:safe_filename(TmpPath0),
     Conf = emqx_map_lib:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->

@@ -55,7 +55,8 @@
     readable_error_msg/1,
     safe_to_existing_atom/1,
     safe_to_existing_atom/2,
-    pub_props_to_packet/1
+    pub_props_to_packet/1,
+    safe_filename/1
 ]).
 
 -export([
@@ -708,3 +709,11 @@ pub_props_to_packet(Properties) ->
             true
     end,
     maps:filtermap(F, Properties).
+
+%% fix filename by replacing characters which could be invalid on some filesystems
+%% with safe ones
+-spec safe_filename(binary() | unicode:chardata()) -> binary() | [unicode:chardata()].
+safe_filename(Filename) when is_binary(Filename) ->
+    binary:replace(Filename, <<":">>, <<"-">>, [global]);
+safe_filename(Filename) when is_list(Filename) ->
+    string:replace(Filename, ":", "-", all).

@@ -126,7 +126,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -235,7 +235,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.pgsql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -341,7 +341,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -439,7 +439,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -531,7 +531,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
