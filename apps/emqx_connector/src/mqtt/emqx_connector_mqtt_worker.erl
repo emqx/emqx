@@ -277,7 +277,7 @@ idle({call, From}, ensure_started, State) ->
             {keep_state_and_data, [{reply, From, {error, Reason}}]}
     end;
 idle({call, From}, {send_to_remote, _}, _State) ->
-    {keep_state_and_data, [{reply, From, {error, {recoverable_error, not_connected}}}]};
+    {keep_state_and_data, [{reply, From, {error, not_connected}}]};
 %% @doc Standing by for manual start.
 idle(info, idle, #{start_type := manual}) ->
     keep_state_and_data;

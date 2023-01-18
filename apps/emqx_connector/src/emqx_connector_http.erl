@@ -306,7 +306,7 @@ on_query(
                 reason => Reason,
                 connector => InstId
             }),
-            {error, {recoverable_error, Reason}};
+            {error, Reason};
         {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
@@ -549,7 +549,7 @@ bin(Atom) when is_atom(Atom) ->
 reply_delegator(ReplyFunAndArgs, Result) ->
     case Result of
         {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
-            Result1 = {error, {recoverable_error, Reason}},
+            Result1 = {error, Reason},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
         _ ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)

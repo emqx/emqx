@@ -417,14 +417,33 @@ to_bin(Bin) when is_binary(Bin) ->
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom).
 
-handle_result({error, Error}) ->
-    {error, {unrecoverable_error, Error}};
+handle_result({error, Reason} = Error) ->
+    case is_unrecoverable_error(Error) of
+        true ->
+            {error, {unrecoverable_error, Reason}};
+        false ->
+            Error
+    end;
 handle_result(Res) ->
     Res.
 
 handle_batch_result([{ok, Count} | Rest], Acc) ->
     handle_batch_result(Rest, Acc + Count);
-handle_batch_result([{error, Error} | _Rest], _Acc) ->
-    {error, {unrecoverable_error, Error}};
+handle_batch_result([{error, Error} | _Rest] = BatchResp, _Acc) ->
+    case emqx_misc:list_find(fun is_unrecoverable_error/1, BatchResp) of
+        {ok, {error, UnrecoverableError}} ->
+            {error, {unrecoverable_error, UnrecoverableError}};
+        {ok, UnrecoverableError} ->
+            {error, {unrecoverable_error, UnrecoverableError}};
+        error ->
+            {error, Error}
+    end;
 handle_batch_result([], Acc) ->
     {ok, Acc}.
+
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_error({error, {error, _, <<"23502">>, not_null_violation, _, _}}) ->
+    true;
+is_unrecoverable_error(_) ->
+    false.

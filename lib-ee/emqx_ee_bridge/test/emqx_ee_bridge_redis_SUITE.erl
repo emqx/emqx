@@ -278,7 +278,15 @@ t_check_replay(Config) ->
                     #{?snk_kind := redis_ee_connector_send_done, result := {ok, _}},
                     Trace
                 )
-            )
+            ),
+            ?assert(
+                ?causality(
+                    #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
+                    #{?snk_kind := buffer_worker_flush_ack, ref := _Ref},
+                    Trace
+                )
+            ),
+            ok
         end
     ),
     {ok, _} = emqx_bridge:remove(Type, Name).
@@ -298,15 +306,20 @@ t_permanent_error(_Config) ->
         begin
             ?wait_async_action(
                 publish_message(Topic, Payload),
-                #{?snk_kind := redis_ee_connector_send_done},
-                10000
+                #{?snk_kind := buffer_worker_flush_ack},
+                10_000
             )
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{result := {error, _}} | _],
+                [#{result := {error, {unrecoverable_error, _}}} | _],
                 ?of_kind(redis_ee_connector_send_done, Trace)
-            )
+            ),
+            ?assertMatch(
+                [#{result := {error, {unrecoverable_error, _}}} | _],
+                ?of_kind(buffer_worker_flush_ack, Trace)
+            ),
+            ok
         end
     ),
     {ok, _} = emqx_bridge:remove(Type, Name).

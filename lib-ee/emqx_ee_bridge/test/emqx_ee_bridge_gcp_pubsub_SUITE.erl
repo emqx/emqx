@@ -1028,7 +1028,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     {_, {ok, _}} =
                         ?wait_async_action(
                             emqx:publish(Message),
-                            #{?snk_kind := gcp_pubsub_request_failed, recoverable_error := true},
+                            #{?snk_kind := gcp_pubsub_request_failed, unrecoverable_error := false},
                             15_000
                         );
                 {async, econnrefused} ->
@@ -1047,7 +1047,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                             #{
                                 ?snk_kind := gcp_pubsub_request_failed,
                                 query_mode := async,
-                                recoverable_error := true
+                                unrecoverable_error := false
                             },
                             15_000
                         );
@@ -1271,6 +1271,7 @@ t_failure_no_body(Config) ->
     ),
     ok.
 
+%% even if we kill the worker, the request should be retried later
 t_unrecoverable_error(Config) ->
     ResourceId = ?config(resource_id, Config),
     QueryMode = ?config(query_mode, Config),

@@ -56,7 +56,8 @@
     safe_to_existing_atom/1,
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
-    safe_filename/1
+    safe_filename/1,
+    list_find/2
 ]).
 
 -export([
@@ -717,3 +718,14 @@ safe_filename(Filename) when is_binary(Filename) ->
     binary:replace(Filename, <<":">>, <<"-">>, [global]);
 safe_filename(Filename) when is_list(Filename) ->
     string:replace(Filename, ":", "-", all).
+
+-spec list_find(function(), list()) -> {ok, term()} | error.
+list_find(_Predicate, []) ->
+    error;
+list_find(Predicate, [X | Xs]) ->
+    case Predicate(X) of
+        true ->
+            {ok, X};
+        false ->
+            list_find(Predicate, Xs)
+    end.

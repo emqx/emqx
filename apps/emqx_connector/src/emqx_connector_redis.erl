@@ -208,7 +208,7 @@ do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
                 query => Query,
                 reason => Reason
             }),
-            case is_unrecoverable_error(Reason) of
+            case is_unrecoverable_error(Result) of
                 true ->
                     {error, {unrecoverable_error, Reason}};
                 false ->

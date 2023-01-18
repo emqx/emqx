@@ -249,7 +249,7 @@ query_resource(Config, Request) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request).
+    emqx_resource:query(ResourceID, Request, #{timeout => 500}).
 
 connect_direct_pgsql(Config) ->
     Opts = #{
@@ -422,11 +422,11 @@ t_write_failure(Config) ->
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            case QueryMode of
-                sync ->
-                    ?assertError(timeout, send_message(Config, SentData));
-                async ->
-                    send_message(Config, SentData)
+            try
+                send_message(Config, SentData)
+            catch
+                error:timeout ->
+                    {error, timeout}
             end
         end),
         fun(Trace0) ->
@@ -434,14 +434,20 @@ t_write_failure(Config) ->
             Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
             ?assertMatch([#{result := {error, _}} | _], Trace),
             [#{result := {error, Error}} | _] = Trace,
-            case Error of
-                {resource_error, _} ->
-                    ok;
-                disconnected ->
-                    ok;
-                _ ->
-                    ct:fail("unexpected error: ~p", [Error])
-            end
+            case QueryMode of
+                sync ->
+                    case Error of
+                        {resource_error, _} ->
+                            ok;
+                        disconnected ->
+                            ok;
+                        _ ->
+                            ct:fail("unexpected error: ~p", [Error])
+                    end;
+                async ->
+                    ok
+            end,
+            ok
         end
     ),
     ok.

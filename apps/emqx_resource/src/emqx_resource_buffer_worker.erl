@@ -727,15 +727,6 @@ handle_query_result_pure(Id, {error, {unrecoverable_error, Reason}}, HasBeenSent
         ok
     end,
     {ack, PostFn};
-handle_query_result_pure(Id, {error, {recoverable_error, Reason}}, _HasBeenSent) ->
-    %% the message will be queued in replayq or inflight window,
-    %% i.e. the counter 'queuing' or 'dropped' will increase, so we pretend that we have not
-    %% sent this message.
-    PostFn = fun() ->
-        ?SLOG(warning, #{id => Id, msg => recoverable_error, reason => Reason}),
-        ok
-    end,
-    {nack, PostFn};
 handle_query_result_pure(Id, {error, Reason}, _HasBeenSent) ->
     PostFn = fun() ->
         ?SLOG(error, #{id => Id, msg => send_error, reason => Reason}),
@@ -796,9 +787,11 @@ call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
     try
-        %% if the callback module (connector) wants to return an error that
-        %% makes the current resource goes into the `blocked` state, it should
-        %% return `{error, {recoverable_error, Reason}}`
+        %% if the callback module (connector) wants to return an error
+        %% that makes the current resource goes into the `blocked`
+        %% state, it should return `{error, Error}`, or `{error,
+        %% {unrecoverable_error, Error}}` if there's nothing that can
+        %% ever be done.
         EXPR
     catch
         ERR:REASON:STACKTRACE ->
@@ -1219,15 +1212,8 @@ mark_as_sent(?QUERY(From, Req, _)) ->
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
-is_unrecoverable_error({error, {recoverable_error, _}}) ->
-    false;
 is_unrecoverable_error({async_return, Result}) ->
     is_unrecoverable_error(Result);
-is_unrecoverable_error({error, _}) ->
-    %% TODO: delete this clause.
-    %% Ideally all errors except for 'unrecoverable_error' should be
-    %% retried, including DB schema errors.
-    true;
 is_unrecoverable_error(_) ->
     false.
 

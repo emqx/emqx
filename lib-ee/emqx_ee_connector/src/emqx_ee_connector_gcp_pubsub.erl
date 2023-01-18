@@ -51,6 +51,11 @@
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
 -type status_code() :: 100..599.
+-type sync_query_result() ::
+    {ok, status_code(), headers()}
+    | {ok, status_code(), headers(), body()}
+    | {error, {unrecoverable_error, term()}}
+    | {error, term()}.
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
@@ -159,11 +164,7 @@ on_stop(
     bridge_id(),
     {send_message, map()},
     state()
-) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+) -> sync_query_result().
 on_query(BridgeId, {send_message, Selected}, State) ->
     Requests = [{send_message, Selected}],
     ?TRACE(
@@ -192,11 +193,7 @@ on_query_async(BridgeId, {send_message, Selected}, ReplyFunAndArgs, State) ->
     bridge_id(),
     [{send_message, map()}],
     state()
-) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+) -> sync_query_result().
 on_batch_query(BridgeId, Requests, State) ->
     ?TRACE(
         "QUERY_SYNC",
@@ -366,11 +363,7 @@ get_jwt_authorization_header(InstanceId) ->
     state(),
     [{send_message, map()}],
     resource_id()
-) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+) -> sync_query_result().
 do_send_requests_sync(State, Requests, ResourceId) ->
     #{
         pool_name := PoolName,
@@ -420,11 +413,11 @@ do_send_requests_sync(State, Requests, ResourceId) ->
                 #{
                     reason => Reason,
                     query_mode => sync,
-                    recoverable_error => true,
+                    unrecoverable_error => false,
                     connector => ResourceId
                 }
             ),
-            {error, {recoverable_error, Reason}};
+            {error, Reason};
         {error, Reason} = Result ->
             ?tp(
                 error,
@@ -432,7 +425,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
                 #{
                     reason => Reason,
                     query_mode => sync,
-                    recoverable_error => false,
+                    unrecoverable_error => false,
                     connector => ResourceId
                 }
             ),
@@ -552,11 +545,11 @@ reply_delegator(_ResourceId, ReplyFunAndArgs, Result) ->
                 #{
                     reason => Reason,
                     query_mode => async,
-                    recoverable_error => true,
+                    unrecoverable_error => false,
                     connector => _ResourceId
                 }
             ),
-            Result1 = {error, {recoverable_error, Reason}},
+            Result1 = {error, Reason},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
         _ ->
             ?tp(

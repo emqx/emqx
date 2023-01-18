@@ -228,7 +228,7 @@ query_resource(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request).
+    emqx_resource:query(ResourceID, Request, #{timeout => 500}).
 
 unprepare(Config, Key) ->
     Name = ?config(mysql_name, Config),
@@ -419,7 +419,7 @@ t_write_failure(Config) ->
             case Error of
                 {resource_error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                disconnected ->
                     ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
@@ -535,7 +535,7 @@ t_uninitialized_prepared_statement(Config) ->
         fun(Trace) ->
             ?assert(
                 ?strict_causality(
-                    #{?snk_kind := mysql_connector_prepare_query_failed, error := not_prepared},
+                    #{?snk_kind := mysql_connector_query_failed, error := not_prepared},
                     #{
                         ?snk_kind := mysql_connector_on_query_prepared_sql,
                         type_or_key := send_message

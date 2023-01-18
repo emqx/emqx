@@ -111,7 +111,7 @@ on_batch_query(
 query(InstId, Query, RedisConnSt) ->
     case emqx_connector_redis:on_query(InstId, Query, RedisConnSt) of
         {ok, _} = Ok -> Ok;
-        {error, no_connection} -> {error, {recoverable_error, no_connection}};
+        {error, no_connection} -> {error, no_connection};
         {error, _} = Error -> Error
     end.
 

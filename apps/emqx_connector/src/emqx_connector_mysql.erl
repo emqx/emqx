@@ -435,7 +435,7 @@ on_sql_query(
                     reason => worker_is_disconnected
                 }
             ),
-            {error, {recoverable_error, disconnected}}
+            {error, disconnected}
     end.
 
 do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
@@ -447,30 +447,19 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
             ),
             %% kill the poll worker to trigger reconnection
             _ = exit(Conn, restart),
-            {error, {recoverable_error, disconnected}};
-        {error, not_prepared} = Error ->
-            ?tp(
-                mysql_connector_prepare_query_failed,
-                #{error => not_prepared}
-            ),
-            ?SLOG(
-                warning,
-                LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}
-            ),
-            Error;
-        {error, {1053, <<"08S01">>, Reason}} ->
-            %% mysql sql server shutdown in progress
+            {error, disconnected};
+        {error, Reason} = Error ->
+            ?tp(mysql_connector_query_failed, #{error => Reason}),
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
-            {error, {recoverable_error, Reason}};
-        {error, Reason} ->
-            ?SLOG(
-                error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
-            ),
-            {error, {unrecoverable_error, Reason}};
+            case is_unrecoverable_error(Error) of
+                true ->
+                    {error, {unrecoverable_error, Reason}};
+                false ->
+                    {error, Reason}
+            end;
         Result ->
             ?tp(
                 mysql_connector_query_return,
@@ -485,3 +474,16 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
             ),
             {error, {unrecoverable_error, {invalid_params, Data}}}
     end.
+
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_error({error, {1048, _SQLState, _ColumnCannotBeNull}}) ->
+    true;
+is_unrecoverable_error({error, {1053, _SQLState, _ServerShutdownInProgress}}) ->
+    false;
+is_unrecoverable_error({error, {1292, _SQLState, _TruncatedWrongValue}}) ->
+    true;
+is_unrecoverable_error({error, not_prepared}) ->
+    false;
+is_unrecoverable_error(_) ->
+    false.
