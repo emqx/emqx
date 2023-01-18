@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_mqtt_config_tests).
+-module(emqx_bridge_compatible_config_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -26,30 +26,54 @@ empty_config_test() ->
 
 %% ensure webhook config can be checked
 webhook_config_test() ->
-    Conf = parse(webhook_v5011_hocon()),
+    Conf1 = parse(webhook_v5011_hocon()),
+    Conf2 = parse(full_webhook_v5011_hocon()),
+
     ?assertMatch(
         #{
-            <<"bridges">> :=
-                #{
-                    <<"webhook">> := #{
-                        <<"the_name">> :=
-                            #{
-                                <<"method">> := get,
-                                <<"body">> := <<"${payload}">>
-                            }
-                    }
+            <<"bridges">> := #{
+                <<"webhook">> := #{
+                    <<"the_name">> :=
+                        #{
+                            <<"method">> := get,
+                            <<"body">> := <<"${payload}">>
+                        }
                 }
+            }
         },
-        check(Conf)
+        check(Conf1)
     ),
+
+    ?assertMatch(
+        #{
+            <<"bridges">> := #{
+                <<"webhook">> := #{
+                    <<"the_name">> :=
+                        #{
+                            <<"method">> := get,
+                            <<"body">> := <<"${payload}">>
+                        }
+                }
+            }
+        },
+        check(Conf2)
+    ),
+
     ok.
 
 up(#{<<"bridges">> := Bridges0} = Conf0) ->
     Bridges = up(Bridges0),
     Conf0#{<<"bridges">> := Bridges};
 up(#{<<"mqtt">> := MqttBridges0} = Bridges) ->
-    MqttBridges = emqx_bridge_mqtt_config:upgrade_pre_ee(MqttBridges0),
-    Bridges#{<<"mqtt">> := MqttBridges}.
+    MqttBridges = emqx_bridge_compatible_config:upgrade_pre_ee(
+        MqttBridges0, fun emqx_bridge_compatible_config:maybe_upgrade/1
+    ),
+    Bridges#{<<"mqtt">> := MqttBridges};
+up(#{<<"webhook">> := WebhookBridges0} = Bridges) ->
+    WebhookBridges = emqx_bridge_compatible_config:upgrade_pre_ee(
+        WebhookBridges0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+    ),
+    Bridges#{<<"webhook">> := WebhookBridges}.
 
 parse(HOCON) ->
     {ok, Conf} = hocon:binary(HOCON),
@@ -107,6 +131,38 @@ bridges{
   }
 }
 """.
+
+full_webhook_v5011_hocon() ->
+    ""
+    "\n"
+    "bridges{\n"
+    "  webhook {\n"
+    "    the_name{\n"
+    "      body = \"${payload}\"\n"
+    "      connect_timeout = \"5s\"\n"
+    "      direction = \"egress\"\n"
+    "      enable_pipelining = 100\n"
+    "      headers {\"content-type\" = \"application/json\"}\n"
+    "      max_retries = 3\n"
+    "      method = \"get\"\n"
+    "      pool_size = 4\n"
+    "      pool_type = \"random\"\n"
+    "      request_timeout = \"5s\"\n"
+    "      ssl {\n"
+    "        ciphers = \"\"\n"
+    "        depth = 10\n"
+    "        enable = false\n"
+    "        reuse_sessions = true\n"
+    "        secure_renegotiate = true\n"
+    "        user_lookup_fun = \"emqx_tls_psk:lookup\"\n"
+    "        verify = \"verify_peer\"\n"
+    "        versions = [\"tlsv1.3\", \"tlsv1.2\", \"tlsv1.1\", \"tlsv1\"]\n"
+    "      }\n"
+    "      url = \"http://localhost:8080\"\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
+    "".
 
 %% erlfmt-ignore
 %% this is a generated from v5.0.11

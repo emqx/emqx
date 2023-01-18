@@ -1167,12 +1167,9 @@ queue_count(Q) ->
     replayq:count(Q).
 
 disk_queue_dir(Id, Index) ->
-    QDir0 = binary_to_list(Id) ++ "_" ++ integer_to_list(Index),
-    QDir = sanitize_file_path(QDir0),
-    filename:join([emqx:data_dir(), "bufs", node(), QDir]).
-
-sanitize_file_path(Filepath) ->
-    iolist_to_binary(string:replace(Filepath, ":", "_", all)).
+    QDir0 = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
+    QDir = filename:join([emqx:data_dir(), "bufs", node(), QDir0]),
+    emqx_misc:safe_filename(QDir).
 
 clear_disk_queue_dir(Id, Index) ->
     ReplayQDir = disk_queue_dir(Id, Index),

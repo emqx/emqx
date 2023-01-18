@@ -171,7 +171,7 @@ create_dry_run(ResourceType, Config) ->
     ok = emqx_resource_manager_sup:ensure_child(
         MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
     ),
-    case wait_for_ready(ResId, 15000) of
+    case wait_for_ready(ResId, 5000) of
         ok ->
             remove(ResId);
         {error, Reason} ->

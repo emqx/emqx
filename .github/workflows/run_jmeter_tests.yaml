@@ -14,7 +14,7 @@ jobs:
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - name: download jmeter
@@ -57,7 +57,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -126,7 +126,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -153,7 +153,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -235,7 +235,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.pgsql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -259,7 +259,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -341,7 +341,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -361,7 +361,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -439,7 +439,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -460,7 +460,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -531,7 +531,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3

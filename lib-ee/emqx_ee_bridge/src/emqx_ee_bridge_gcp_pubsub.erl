@@ -149,31 +149,31 @@ values(get) ->
     maps:merge(values(post), ?METRICS_EXAMPLE);
 values(post) ->
     #{
-        <<"pubsub_topic">> => <<"mytopic">>,
-        <<"service_account_json">> =>
+        pubsub_topic => <<"mytopic">>,
+        service_account_json =>
             #{
-                <<"auth_provider_x509_cert_url">> =>
+                auth_provider_x509_cert_url =>
                     <<"https://www.googleapis.com/oauth2/v1/certs">>,
-                <<"auth_uri">> =>
+                auth_uri =>
                     <<"https://accounts.google.com/o/oauth2/auth">>,
-                <<"client_email">> =>
+                client_email =>
                     <<"test@myproject.iam.gserviceaccount.com">>,
-                <<"client_id">> => <<"123812831923812319190">>,
-                <<"client_x509_cert_url">> =>
+                client_id => <<"123812831923812319190">>,
+                client_x509_cert_url =>
                     <<
                         "https://www.googleapis.com/robot/v1/"
                         "metadata/x509/test%40myproject.iam.gserviceaccount.com"
                     >>,
-                <<"private_key">> =>
+                private_key =>
                     <<
                         "-----BEGIN PRIVATE KEY-----\n"
                         "MIIEvQI..."
                     >>,
-                <<"private_key_id">> => <<"kid">>,
-                <<"project_id">> => <<"myproject">>,
-                <<"token_uri">> =>
+                private_key_id => <<"kid">>,
+                project_id => <<"myproject">>,
+                token_uri =>
                     <<"https://oauth2.googleapis.com/token">>,
-                <<"type">> => <<"service_account">>
+                type => <<"service_account">>
             }
     };
 values(put) ->
