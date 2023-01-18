@@ -169,11 +169,6 @@ else
     export UID_GID="$ORIG_UID_GID"
 fi
 
-if [ "$STOP" = 'no' ]; then
-    # shellcheck disable=2086 # no quotes for F_OPTIONS
-    docker-compose $F_OPTIONS up -d --build --remove-orphans
-fi
-
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
 TTY=''
@@ -181,17 +176,28 @@ if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
+function restore_ownership {
+    if ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
+        docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx" >/dev/null 2>&1 || true
+    fi
+}
+
+restore_ownership
+trap restore_ownership EXIT
+
+
+if [ "$STOP" = 'no' ]; then
+    # some left-over log file has to be deleted before a new docker-compose up
+    rm -f '.ci/docker-compose-file/redis/*.log'
+    # shellcheck disable=2086 # no quotes for F_OPTIONS
+    docker-compose $F_OPTIONS up -d --build --remove-orphans
+fi
+
 echo "Fixing file owners and permissions for $UID_GID"
 # rebar and hex cache directory need to be writable by $UID
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $UID_GID /.cache && chown -R $UID_GID /emqx"
 # need to initialize .erlang.cookie manually here because / is not writable by $UID
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID_GID /.erlang.cookie && chmod 0400 /.erlang.cookie"
-
-restore_ownership() {
-    if [[ "$ORIG_UID_GID" != "$UID_GID" ]]; then
-        docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx"
-    fi
-}
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
@@ -204,10 +210,8 @@ if [ "$STOP" = 'yes' ]; then
     docker-compose $F_OPTIONS down --remove-orphans
 elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
-    restore_ownership
 elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
-    restore_ownership
 else
     if [ -z "${REBAR3CT:-}" ]; then
         docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
