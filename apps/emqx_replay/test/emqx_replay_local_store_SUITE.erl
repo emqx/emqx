@@ -23,6 +23,25 @@
 
 -define(ZONE, zone(?FUNCTION_NAME)).
 
+-define(DEFAULT_CONFIG,
+    {emqx_replay_message_storage, #{
+        timestamp_bits => 64,
+        topic_bits_per_level => [8, 8, 32, 16],
+        epoch => 5,
+        iteration => #{
+            iterator_refresh => {every, 5}
+        }
+    }}
+).
+
+-define(COMPACT_CONFIG,
+    {emqx_replay_message_storage, #{
+        timestamp_bits => 16,
+        topic_bits_per_level => [16, 16],
+        epoch => 10
+    }}
+).
+
 %% Smoke test for opening and reopening the database
 t_open(_Config) ->
     ok = emqx_replay_local_store_sup:stop_zone(?ZONE),
@@ -128,6 +147,49 @@ t_iterate_long_tail_wildcard(_Config) ->
         lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, TopicFilter, 50)])
     ).
 
+t_create_gen(_Config) ->
+    {ok, 1} = emqx_replay_local_store:create_generation(?ZONE, 5, ?DEFAULT_CONFIG),
+    ?assertEqual(
+        {error, nonmonotonic},
+        emqx_replay_local_store:create_generation(?ZONE, 1, ?DEFAULT_CONFIG)
+    ),
+    ?assertEqual(
+        {error, nonmonotonic},
+        emqx_replay_local_store:create_generation(?ZONE, 5, ?DEFAULT_CONFIG)
+    ),
+    {ok, 2} = emqx_replay_local_store:create_generation(?ZONE, 10, ?COMPACT_CONFIG),
+    Topics = ["foo/bar", "foo/bar/baz"],
+    Timestamps = lists:seq(1, 100),
+    [
+        ?assertEqual(ok, store(?ZONE, PublishedAt, Topic, <<>>))
+     || Topic <- Topics, PublishedAt <- Timestamps
+    ].
+
+t_iterate_multigen(_Config) ->
+    {ok, 1} = emqx_replay_local_store:create_generation(?ZONE, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_replay_local_store:create_generation(?ZONE, 50, ?DEFAULT_CONFIG),
+    {ok, 3} = emqx_replay_local_store:create_generation(?ZONE, 1000, ?DEFAULT_CONFIG),
+    Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
+    Timestamps = lists:seq(1, 100),
+    _ = [
+        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+     || Topic <- Topics, PublishedAt <- Timestamps
+    ],
+    ?assertEqual(
+        lists:sort([
+            {Topic, PublishedAt}
+         || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
+        ]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/#", 0)])
+    ),
+    ?assertEqual(
+        lists:sort([
+            {Topic, PublishedAt}
+         || Topic <- ["a", "a/bar"], PublishedAt <- lists:seq(60, 100)
+        ]),
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/#", 60)])
+    ).
+
 store(Zone, PublishedAt, Topic, Payload) ->
     ID = emqx_guid:gen(),
     emqx_replay_local_store:store(Zone, ID, PublishedAt, parse_topic(Topic), Payload).
@@ -161,14 +223,7 @@ end_per_suite(_Config) ->
     ok = application:stop(emqx_replay).
 
 init_per_testcase(TC, Config) ->
-    ok = set_zone_config(zone(TC), #{
-        timestamp_bits => 64,
-        topic_bits_per_level => [8, 8, 32, 16],
-        epoch => 5,
-        iteration => #{
-            iterator_refresh => {every, 5}
-        }
-    }),
+    ok = set_zone_config(zone(TC), ?DEFAULT_CONFIG),
     {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
     Config.
 
@@ -176,9 +231,7 @@ end_per_testcase(TC, _Config) ->
     ok = emqx_replay_local_store_sup:stop_zone(zone(TC)).
 
 zone(TC) ->
-    list_to_atom(?MODULE_STRING ++ atom_to_list(TC)).
+    list_to_atom(lists:concat([?MODULE, "_", TC])).
 
-set_zone_config(Zone, Options) ->
-    ok = application:set_env(emqx_replay, zone_config, #{
-        Zone => {emqx_replay_message_storage, Options}
-    }).
+set_zone_config(Zone, Config) ->
+    ok = application:set_env(emqx_replay, zone_config, #{Zone => Config}).

@@ -27,8 +27,10 @@
 %% parsed
 -type topic() :: list(binary()).
 
+%% Timestamp
+%% Earliest possible timestamp is 0.
 %% TODO granularity?
--type time() :: integer().
+-type time() :: non_neg_integer().
 
 %%================================================================================
 %% API funcions
