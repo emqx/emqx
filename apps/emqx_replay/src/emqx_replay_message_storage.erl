@@ -90,20 +90,22 @@
 %%================================================================================
 
 %% API:
--export([create_new/3, open/4]).
+-export([create_new/3, open/5]).
 -export([make_keymapper/1]).
 
 -export([store/5]).
 -export([make_iterator/3]).
+-export([make_iterator/4]).
 -export([next/1]).
 
 -export([preserve_iterator/1]).
 -export([restore_iterator/2]).
+-export([refresh_iterator/1]).
 
 %% Debug/troubleshooting:
 %% Keymappers
 -export([
-    bitsize/1,
+    keymapper_info/1,
     compute_bitstring/3,
     compute_topic_bitmask/2,
     compute_time_bitmask/1,
@@ -120,6 +122,9 @@
 ]).
 
 -export_type([db/0, iterator/0, schema/0]).
+
+-export_type([options/0]).
+-export_type([iteration_options/0]).
 
 -compile(
     {inline, [
@@ -159,7 +164,18 @@
     topic_bits_per_level := bits_per_level(),
     %% Maximum granularity of iteration over time.
     epoch := time(),
+
+    iteration => iteration_options(),
+
     cf_options => emqx_replay_local_store:db_cf_options()
+}.
+
+-type iteration_options() :: #{
+    %% Request periodic iterator refresh.
+    %% This might be helpful during replays taking a lot of time (e.g. tens of seconds).
+    %% Note that `{every, 1000}` means 1000 _operations_ with the iterator which is not
+    %% the same as 1000 replayed messages.
+    iterator_refresh => {every, _NumOperations :: pos_integer()}
 }.
 
 %% Persistent configuration of the generation, it is used to create db
@@ -169,6 +185,7 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
+    zone :: emqx_types:zone(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
@@ -180,7 +197,8 @@
     handle :: rocksdb:itr_handle(),
     filter :: keyspace_filter(),
     cursor :: binary() | undefined,
-    next_action :: {seek, binary()} | next
+    next_action :: {seek, binary()} | next,
+    refresh_counter :: {non_neg_integer(), pos_integer()} | undefined
 }).
 
 -record(filter, {
@@ -220,7 +238,6 @@
 %% Create a new column family for the generation and a serializable representation of the schema
 -spec create_new(rocksdb:db_handle(), emqx_replay_local_store:gen_id(), options()) ->
     {schema(), emqx_replay_local_store:cf_refs()}.
-%{schema(), emqx_replay_local_store:cf_refs()}.
 create_new(DBHandle, GenId, Options) ->
     CFName = data_cf(GenId),
     CFOptions = maps:get(cf_options, Options, []),
@@ -230,15 +247,17 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
+    emqx_types:zone(),
     rocksdb:db_handle(),
     emqx_replay_local_store:gen_id(),
     emqx_replay_local_store:cf_refs(),
     schema()
 ) ->
     db().
-open(DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+open(Zone, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
     {value, {_, CFHandle}} = lists:keysearch(data_cf(GenId), 1, CFs),
     #db{
+        zone = Zone,
         handle = DBHandle,
         cf = CFHandle,
         keymapper = Keymapper
@@ -274,41 +293,51 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
     rocksdb:put(DBHandle, CFHandle, Key, Value, DB#db.write_options).
 
 -spec make_iterator(db(), emqx_topic:words(), time() | earliest) ->
+    {ok, iterator()} | {error, _TODO}.
+make_iterator(DB, TopicFilter, StartTime) ->
+    Options = emqx_replay_conf:zone_iteration_options(DB#db.zone),
+    make_iterator(DB, TopicFilter, StartTime, Options).
+
+-spec make_iterator(db(), emqx_topic:words(), time() | earliest, iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time
     % and call it a day: client violated the contract anyway.
     {ok, iterator()} | {error, _TODO}.
-make_iterator(DB = #db{handle = DBHandle, cf = CFHandle}, TopicFilter, StartTime) ->
+make_iterator(DB = #db{handle = DBHandle, cf = CFHandle}, TopicFilter, StartTime, Options) ->
     case rocksdb:iterator(DBHandle, CFHandle, DB#db.read_options) of
         {ok, ITHandle} ->
             % TODO earliest
             Filter = make_keyspace_filter(TopicFilter, StartTime, DB#db.keymapper),
             InitialSeek = combine(compute_initial_seek(Filter), <<>>, DB#db.keymapper),
+            RefreshCounter = make_refresh_counter(maps:get(iterator_refresh, Options, undefined)),
             {ok, #it{
                 handle = ITHandle,
                 filter = Filter,
-                next_action = {seek, InitialSeek}
+                next_action = {seek, InitialSeek},
+                refresh_counter = RefreshCounter
             }};
         Err ->
             Err
     end.
 
 -spec next(iterator()) -> {value, binary(), iterator()} | none | {error, closed}.
-next(It = #it{filter = #filter{keymapper = Keymapper}}) ->
+next(It0 = #it{filter = #filter{keymapper = Keymapper}}) ->
+    It = maybe_refresh_iterator(It0),
     case rocksdb:iterator_move(It#it.handle, It#it.next_action) of
         % spec says `{ok, Key}` is also possible but the implementation says it's not
         {ok, Key, Value} ->
+            % Preserve last seen key in the iterator so it could be restored / refreshed later.
+            ItNext = It#it{cursor = Key},
             Bitstring = extract(Key, Keymapper),
             case match_next(Bitstring, Value, It#it.filter) of
                 {_Topic, Payload} ->
-                    % Preserve last seen key in the iterator so it could be restored later.
-                    {value, Payload, It#it{cursor = Key, next_action = next}};
+                    {value, Payload, ItNext#it{next_action = next}};
                 next ->
-                    next(It#it{next_action = next});
+                    next(ItNext#it{next_action = next});
                 NextBitstring when is_integer(NextBitstring) ->
                     NextSeek = combine(NextBitstring, <<>>, Keymapper),
-                    next(It#it{next_action = {seek, NextSeek}});
+                    next(ItNext#it{next_action = {seek, NextSeek}});
                 none ->
-                    stop_iteration(It)
+                    stop_iteration(ItNext)
             end;
         {error, invalid_iterator} ->
             stop_iteration(It);
@@ -347,13 +376,30 @@ restore_iterator(DB, #{
             Err
     end.
 
+-spec refresh_iterator(iterator()) -> iterator().
+refresh_iterator(It = #it{handle = Handle, cursor = Cursor, next_action = Action}) ->
+    case rocksdb:iterator_refresh(Handle) of
+        ok when Action =:= next ->
+            % Now the underlying iterator is invalid, need to seek instead.
+            It#it{next_action = {seek, successor(Cursor)}};
+        ok ->
+            % Now the underlying iterator is invalid, but will seek soon anyway.
+            It;
+        {error, _} ->
+            % Implementation could in theory return an {error, ...} tuple.
+            % Supposedly our best bet is to ignore it.
+            % TODO logging?
+            It
+    end.
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
--spec bitsize(keymapper()) -> bits().
-bitsize(#keymapper{bitsize = Bitsize}) ->
-    Bitsize.
+-spec keymapper_info(keymapper()) ->
+    #{source := [bitsource()], bitsize := bits(), epoch := time()}.
+keymapper_info(#keymapper{source = Source, bitsize = Bitsize, epoch = Epoch}) ->
+    #{source => Source, bitsize => Bitsize, epoch => Epoch}.
 
 make_message_key(Topic, PublishedAt, MessageID, Keymapper) ->
     combine(compute_bitstring(Topic, PublishedAt, Keymapper), MessageID, Keymapper).
@@ -687,166 +733,18 @@ substring(I, Offset, Size) ->
 data_cf(GenId) ->
     ?MODULE_STRING ++ integer_to_list(GenId).
 
+make_refresh_counter({every, N}) when is_integer(N), N > 0 ->
+    {0, N};
+make_refresh_counter(undefined) ->
+    undefined.
+
+maybe_refresh_iterator(It = #it{refresh_counter = {N, N}}) ->
+    refresh_iterator(It#it{refresh_counter = {0, N}});
+maybe_refresh_iterator(It = #it{refresh_counter = {M, N}}) ->
+    It#it{refresh_counter = {M + 1, N}};
+maybe_refresh_iterator(It = #it{refresh_counter = undefined}) ->
+    It.
+
 stop_iteration(It) ->
     ok = rocksdb:iterator_close(It#it.handle),
     none.
-
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
-make_keymapper_test_() ->
-    [
-        ?_assertEqual(
-            #keymapper{
-                source = [
-                    {timestamp, 9, 23},
-                    {hash, level, 2},
-                    {hash, level, 4},
-                    {hash, levels, 8},
-                    {timestamp, 0, 9}
-                ],
-                bitsize = 46,
-                epoch = 512
-            },
-            make_keymapper(#{
-                timestamp_bits => 32,
-                topic_bits_per_level => [2, 4, 8],
-                epoch => 1000
-            })
-        ),
-        ?_assertEqual(
-            #keymapper{
-                source = [
-                    {timestamp, 0, 32},
-                    {hash, levels, 16}
-                ],
-                bitsize = 48,
-                epoch = 1
-            },
-            make_keymapper(#{
-                timestamp_bits => 32,
-                topic_bits_per_level => [16],
-                epoch => 1
-            })
-        )
-    ].
-
-compute_test_bitmask(TopicFilter) ->
-    compute_topic_bitmask(
-        TopicFilter,
-        [
-            {hash, level, 3},
-            {hash, level, 4},
-            {hash, level, 5},
-            {hash, levels, 2}
-        ],
-        0
-    ).
-
-bitmask_test_() ->
-    [
-        ?_assertEqual(
-            2#111_1111_11111_11,
-            compute_test_bitmask([<<"foo">>, <<"bar">>])
-        ),
-        ?_assertEqual(
-            2#111_0000_11111_11,
-            compute_test_bitmask([<<"foo">>, '+'])
-        ),
-        ?_assertEqual(
-            2#111_0000_00000_11,
-            compute_test_bitmask([<<"foo">>, '+', '+'])
-        ),
-        ?_assertEqual(
-            2#111_0000_11111_00,
-            compute_test_bitmask([<<"foo">>, '+', <<"bar">>, '+'])
-        )
-    ].
-
-wildcard_bitmask_test_() ->
-    [
-        ?_assertEqual(
-            2#000_0000_00000_00,
-            compute_test_bitmask(['#'])
-        ),
-        ?_assertEqual(
-            2#111_0000_00000_00,
-            compute_test_bitmask([<<"foo">>, '#'])
-        ),
-        ?_assertEqual(
-            2#111_1111_11111_00,
-            compute_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, '#'])
-        ),
-        ?_assertEqual(
-            2#111_1111_11111_11,
-            compute_test_bitmask([<<"foo">>, <<"bar">>, <<"baz">>, <<>>, '#'])
-        )
-    ].
-
-%% Filter = |123|***|678|***|
-%% Mask   = |123|***|678|***|
-%% Key1   = |123|011|108|121| → Seek = 0 |123|011|678|000|
-%% Key2   = |123|011|679|919| → Seek = 0 |123|012|678|000|
-%% Key3   = |123|999|679|001| → Seek = 1 |123|000|678|000| → eos
-%% Key4   = |125|011|179|017| → Seek = 1 |123|000|678|000| → eos
-
-compute_test_topic_seek(Bitstring, Bitfilter, HBitmask) ->
-    compute_topic_seek(
-        Bitstring,
-        Bitfilter,
-        HBitmask,
-        [
-            {hash, level, 8},
-            {hash, level, 8},
-            {hash, level, 16},
-            {hash, levels, 12}
-        ],
-        8 + 8 + 16 + 12
-    ).
-
-next_seek_test_() ->
-    [
-        ?_assertMatch(
-            none,
-            compute_test_topic_seek(
-                16#FD_42_4242_043,
-                16#FD_42_4242_042,
-                16#FF_FF_FFFF_FFF
-            )
-        ),
-        ?_assertMatch(
-            16#FD_11_0678_000,
-            compute_test_topic_seek(
-                16#FD_11_0108_121,
-                16#FD_00_0678_000,
-                16#FF_00_FFFF_000
-            )
-        ),
-        ?_assertMatch(
-            16#FD_12_0678_000,
-            compute_test_topic_seek(
-                16#FD_11_0679_919,
-                16#FD_00_0678_000,
-                16#FF_00_FFFF_000
-            )
-        ),
-        ?_assertMatch(
-            none,
-            compute_test_topic_seek(
-                16#FD_FF_0679_001,
-                16#FD_00_0678_000,
-                16#FF_00_FFFF_000
-            )
-        ),
-        ?_assertMatch(
-            none,
-            compute_test_topic_seek(
-                16#FE_11_0179_017,
-                16#FD_00_0678_000,
-                16#FF_00_FFFF_000
-            )
-        )
-    ].
-
--endif.

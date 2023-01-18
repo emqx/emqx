@@ -28,13 +28,14 @@
 %%--------------------------------------------------------------------
 
 prop_bitstring_computes() ->
-    ?FORALL(Keymapper, keymapper(), begin
-        Bitsize = emqx_replay_message_storage:bitsize(Keymapper),
+    ?FORALL(
+        Keymapper,
+        keymapper(),
         ?FORALL({Topic, Timestamp}, {topic(), integer()}, begin
             BS = emqx_replay_message_storage:compute_bitstring(Topic, Timestamp, Keymapper),
-            is_integer(BS) andalso (BS < (1 bsl Bitsize))
+            is_integer(BS) andalso (BS < (1 bsl get_keymapper_bitsize(Keymapper)))
         end)
-    end).
+    ).
 
 prop_topic_bitmask_computes() ->
     Keymapper = make_keymapper(16, [8, 12, 16], 100),
@@ -56,7 +57,7 @@ prop_next_seek_monotonic() ->
             ),
             ?FORALL(
                 Bitstring,
-                bitstr(emqx_replay_message_storage:bitsize(Keymapper)),
+                bitstr(get_keymapper_bitsize(Keymapper)),
                 emqx_replay_message_storage:compute_next_seek(Bitstring, Filter) >= Bitstring
             )
         end
@@ -150,6 +151,41 @@ prop_iterate_eq_iterate_with_preserve_restore() ->
         )
     end).
 
+prop_iterate_eq_iterate_with_refresh() ->
+    TBPL = [4, 8, 16, 12],
+    Options = #{
+        timestamp_bits => 32,
+        topic_bits_per_level => TBPL,
+        epoch => 500
+    },
+    {DB, _Handle} = open_db(make_filepath(?FUNCTION_NAME), Options),
+    ?FORALL(Stream, non_empty(messages(topic(TBPL))), begin
+        % TODO
+        % This proptest is also impure, see above.
+        ok = store_db(DB, Stream),
+        ?FORALL(
+            {
+                {Topic, _},
+                Pat,
+                StartTime,
+                RefreshEvery
+            },
+            {
+                nth(Stream),
+                topic_filter_pattern(),
+                start_time(),
+                pos_integer()
+            },
+            ?TIMEOUT(5000, begin
+                TopicFilter = make_topic_filter(Pat, Topic),
+                IterationOptions = #{iterator_refresh => {every, RefreshEvery}},
+                Iterator = make_iterator(DB, TopicFilter, StartTime, IterationOptions),
+                Messages = iterate_db(Iterator),
+                equals(Messages, iterate_db(DB, TopicFilter, StartTime))
+            end)
+        )
+    end).
+
 % store_message_stream(DB, [{Topic, {Payload, ChunkNum, _ChunkCount}} | Rest]) ->
 %     MessageID = emqx_guid:gen(),
 %     PublishedAt = ChunkNum,
@@ -182,6 +218,10 @@ iterate_db(It) ->
 
 make_iterator(DB, TopicFilter, StartTime) ->
     {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime),
+    It.
+
+make_iterator(DB, TopicFilter, StartTime, Options) ->
+    {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime, Options),
     It.
 
 run_iterator_commands([iterate | Rest], It, DB) ->
@@ -396,6 +436,9 @@ make_keymapper(TimestampBits, TopicBits, MaxEpoch) ->
         topic_bits_per_level => TopicBits,
         epoch => MaxEpoch
     }).
+
+get_keymapper_bitsize(Keymapper) ->
+    maps:get(bitsize, emqx_replay_message_storage:keymapper_info(Keymapper)).
 
 -spec interleave(list({Tag, list(E)}), rand:state()) -> list({Tag, E}).
 interleave(Seqs, Rng) ->

@@ -150,7 +150,7 @@ read_metadata(S) ->
 -spec read_metadata(gen_id(), #s{}) -> ok.
 read_metadata(GenId, S = #s{zone = Zone, db = DBHandle, column_families = CFs}) ->
     Gen = #generation{module = Mod, data = Data} = schema_get_gen(DBHandle, GenId),
-    DB = Mod:open(DBHandle, GenId, CFs, Data),
+    DB = Mod:open(Zone, DBHandle, GenId, CFs, Data),
     meta_put(Zone, GenId, Gen#generation{data = DB}).
 
 -spec ensure_current_generation(#s{}) -> #s{}.
