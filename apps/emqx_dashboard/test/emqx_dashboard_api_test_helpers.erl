@@ -19,6 +19,7 @@
 -export([
     set_default_config/0,
     set_default_config/1,
+    set_default_config/2,
     request/2,
     request/3,
     request/4,
@@ -36,6 +37,9 @@ set_default_config() ->
     set_default_config(<<"admin">>).
 
 set_default_config(DefaultUsername) ->
+    set_default_config(DefaultUsername, false).
+
+set_default_config(DefaultUsername, HAProxyEnabled) ->
     Config = #{
         listeners => #{
             http => #{
@@ -46,7 +50,8 @@ set_default_config(DefaultUsername) ->
                 max_connections => 512,
                 num_acceptors => 4,
                 send_timeout => 5000,
-                backlog => 512
+                backlog => 512,
+                proxy_header => HAProxyEnabled
             }
         },
         default_username => DefaultUsername,
