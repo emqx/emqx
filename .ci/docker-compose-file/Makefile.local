@@ -52,7 +52,7 @@ down:
 		down --remove-orphans
 
 ct:
-	docker exec -i "$(CONTAINER)" bash -c "rebar3 ct --name 'test@127.0.0.1' -v --suite $(SUITE)"
+	docker exec -i "$(CONTAINER)" bash -c "rebar3 ct --name 'test@127.0.0.1' --readable true -v --suite $(SUITE)"
 
 ct-all:
 	docker exec -i "$(CONTAINER)" bash -c "make ct"
