@@ -191,6 +191,7 @@ pgsql_config(BridgeType, Config) ->
             "  password = ~p\n"
             "  sql = ~p\n"
             "  resource_opts = {\n"
+            "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"
@@ -415,20 +416,32 @@ t_write_failure(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
+    QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            send_message(Config, SentData)
+            case QueryMode of
+                sync ->
+                    ?assertError(timeout, send_message(Config, SentData));
+                async ->
+                    send_message(Config, SentData)
+            end
         end),
-        fun
-            ({error, {resource_error, _}}, _Trace) ->
-                ok;
-            ({error, {recoverable_error, disconnected}}, _Trace) ->
-                ok;
-            (_, _Trace) ->
-                ?assert(false)
+        fun(Trace0) ->
+            ct:pal("trace: ~p", [Trace0]),
+            Trace = ?of_kind(resource_worker_flush_nack, Trace0),
+            ?assertMatch([#{result := {error, _}} | _], Trace),
+            [#{result := {error, Error}} | _] = Trace,
+            case Error of
+                {resource_error, _} ->
+                    ok;
+                disconnected ->
+                    ok;
+                _ ->
+                    ct:fail("unexpected error: ~p", [Error])
+            end
         end
     ),
     ok.
@@ -442,12 +455,9 @@ t_write_timeout(Config) ->
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
-    Timeout = 10,
+    Timeout = 1000,
     emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, _}},
-            query_resource(Config, {send_message, SentData, [], Timeout})
-        )
+        ?assertError(timeout, query_resource(Config, {send_message, SentData, [], Timeout}))
     end),
     ok.
 
@@ -459,7 +469,7 @@ t_simple_sql_query(Config) ->
     Request = {sql, <<"SELECT count(1) AS T">>},
     Result = query_resource(Config, Request),
     case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, batch_prepare_not_implemented}, Result);
+        true -> ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
         false -> ?assertMatch({ok, _, [{1}]}, Result)
     end,
     ok.
@@ -471,7 +481,8 @@ t_missing_data(Config) ->
     ),
     Result = send_message(Config, #{}),
     ?assertMatch(
-        {error, {error, error, <<"23502">>, not_null_violation, _, _}}, Result
+        {error, {unrecoverable_error, {error, error, <<"23502">>, not_null_violation, _, _}}},
+        Result
     ),
     ok.
 
@@ -484,10 +495,10 @@ t_bad_sql_parameter(Config) ->
     Result = query_resource(Config, Request),
     case ?config(enable_batch, Config) of
         true ->
-            ?assertEqual({error, invalid_request}, Result);
+            ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
         false ->
             ?assertMatch(
-                {error, {resource_error, _}}, Result
+                {error, {unrecoverable_error, _}}, Result
             )
     end,
     ok.

@@ -170,8 +170,11 @@ send_message(BridgeId, Message) ->
     case emqx:get_config([bridges, BridgeType, BridgeName], not_found) of
         not_found ->
             {error, {bridge_not_found, BridgeId}};
-        #{enable := true} ->
-            emqx_resource:query(ResId, {send_message, Message});
+        #{enable := true} = Config ->
+            Timeout = emqx_map_lib:deep_get(
+                [resource_opts, request_timeout], Config, timer:seconds(15)
+            ),
+            emqx_resource:query(ResId, {send_message, Message}, #{timeout => Timeout});
         #{enable := false} ->
             {error, {bridge_stopped, BridgeId}}
     end.

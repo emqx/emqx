@@ -85,9 +85,25 @@ on_query(_InstId, get_state_failed, State) ->
 on_query(_InstId, block, #{pid := Pid}) ->
     Pid ! block,
     ok;
+on_query(_InstId, block_now, #{pid := Pid}) ->
+    Pid ! block,
+    {error, {resource_error, #{reason => blocked, msg => blocked}}};
 on_query(_InstId, resume, #{pid := Pid}) ->
     Pid ! resume,
     ok;
+on_query(_InstId, {big_payload, Payload}, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, {big_payload, Payload}},
+    receive
+        {ReqRef, ok} ->
+            ?tp(connector_demo_big_payload, #{payload => Payload}),
+            ok;
+        {ReqRef, incorrect_status} ->
+            {error, {recoverable_error, incorrect_status}}
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     ReqRef = make_ref(),
     From = {self(), ReqRef},
@@ -122,10 +138,16 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
 
 on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
     Pid ! {inc, N, ReplyFun},
-    ok;
+    {ok, Pid};
 on_query_async(_InstId, get_counter, ReplyFun, #{pid := Pid}) ->
     Pid ! {get, ReplyFun},
-    ok.
+    {ok, Pid};
+on_query_async(_InstId, block_now, ReplyFun, #{pid := Pid}) ->
+    Pid ! {block_now, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, {big_payload, Payload}, ReplyFun, #{pid := Pid}) ->
+    Pid ! {big_payload, Payload, ReplyFun},
+    {ok, Pid}.
 
 on_batch_query(InstId, BatchReq, State) ->
     %% Requests can be either 'get_counter' or 'inc_counter', but
@@ -134,17 +156,22 @@ on_batch_query(InstId, BatchReq, State) ->
         {inc_counter, _} ->
             batch_inc_counter(sync, InstId, BatchReq, State);
         get_counter ->
-            batch_get_counter(sync, InstId, State)
+            batch_get_counter(sync, InstId, State);
+        {big_payload, _Payload} ->
+            batch_big_payload(sync, InstId, BatchReq, State)
     end.
 
 on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, State) ->
-    %% Requests can be either 'get_counter' or 'inc_counter', but
-    %% cannot be mixed.
+    %% Requests can be of multiple types, but cannot be mixed.
     case hd(BatchReq) of
         {inc_counter, _} ->
             batch_inc_counter({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         get_counter ->
-            batch_get_counter({async, ReplyFunAndArgs}, InstId, State)
+            batch_get_counter({async, ReplyFunAndArgs}, InstId, State);
+        block_now ->
+            on_query_async(InstId, block_now, ReplyFunAndArgs, State);
+        {big_payload, _Payload} ->
+            batch_big_payload({async, ReplyFunAndArgs}, InstId, BatchReq, State)
     end.
 
 batch_inc_counter(CallMode, InstId, BatchReq, State) ->
@@ -171,6 +198,19 @@ batch_get_counter(sync, InstId, State) ->
 batch_get_counter({async, ReplyFunAndArgs}, InstId, State) ->
     on_query_async(InstId, get_counter, ReplyFunAndArgs, State).
 
+batch_big_payload(sync, InstId, Batch, State) ->
+    [Res | _] = lists:map(
+        fun(Req = {big_payload, _}) -> on_query(InstId, Req, State) end,
+        Batch
+    ),
+    Res;
+batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}) ->
+    lists:foreach(
+        fun(Req = {big_payload, _}) -> on_query_async(InstId, Req, ReplyFunAndArgs, State) end,
+        Batch
+    ),
+    {ok, Pid}.
+
 on_get_status(_InstId, #{health_check_error := true}) ->
     disconnected;
 on_get_status(_InstId, #{pid := Pid}) ->
@@ -186,7 +226,11 @@ spawn_counter_process(Name, Register) ->
     Pid.
 
 counter_loop() ->
-    counter_loop(#{counter => 0, status => running, incorrect_status_count => 0}).
+    counter_loop(#{
+        counter => 0,
+        status => running,
+        incorrect_status_count => 0
+    }).
 
 counter_loop(
     #{
@@ -200,6 +244,12 @@ counter_loop(
             block ->
                 ct:pal("counter recv: ~p", [block]),
                 State#{status => blocked};
+            {block_now, ReplyFun} ->
+                ct:pal("counter recv: ~p", [block_now]),
+                apply_reply(
+                    ReplyFun, {error, {resource_error, #{reason => blocked, msg => blocked}}}
+                ),
+                State#{status => blocked};
             resume ->
                 {messages, Msgs} = erlang:process_info(self(), messages),
                 ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
@@ -209,6 +259,9 @@ counter_loop(
                 apply_reply(ReplyFun, ok),
                 ?tp(connector_demo_inc_counter_async, #{n => N}),
                 State#{counter => Num + N};
+            {big_payload, _Payload, ReplyFun} when Status == blocked ->
+                apply_reply(ReplyFun, {error, blocked}),
+                State;
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
                 %ct:pal("sync counter recv: ~p", [{inc, N}]),
                 FromPid ! {ReqRef, ok},
@@ -216,6 +269,12 @@ counter_loop(
             {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->
                 FromPid ! {ReqRef, incorrect_status},
                 State#{incorrect_status_count := IncorrectCount + 1};
+            {{FromPid, ReqRef}, {big_payload, _Payload}} when Status == blocked ->
+                FromPid ! {ReqRef, incorrect_status},
+                State#{incorrect_status_count := IncorrectCount + 1};
+            {{FromPid, ReqRef}, {big_payload, _Payload}} when Status == running ->
+                FromPid ! {ReqRef, ok},
+                State;
             {get, ReplyFun} ->
                 apply_reply(ReplyFun, Num),
                 State;

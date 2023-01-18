@@ -92,7 +92,6 @@ values(common, Protocol, SupportUint, TypeOpts) ->
                 "bool=${payload.bool}">>,
         precision => ms,
         resource_opts => #{
-            enable_batch => false,
             batch_size => 100,
             batch_time => <<"20ms">>
         },

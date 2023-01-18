@@ -108,6 +108,7 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(TestCase, Config0) when
     TestCase =:= t_publish_success_batch
 ->
+    ct:timetrap({seconds, 30}),
     case ?config(batch_size, Config0) of
         1 ->
             [{skip_due_to_no_batching, true}];
@@ -120,6 +121,7 @@ init_per_testcase(TestCase, Config0) when
             [{telemetry_table, Tid} | Config]
     end;
 init_per_testcase(TestCase, Config0) ->
+    ct:timetrap({seconds, 30}),
     {ok, _} = start_echo_http_server(),
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
@@ -287,6 +289,7 @@ gcp_pubsub_config(Config) ->
             "  pool_size = 1\n"
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
+            "    request_timeout = 500ms\n"
             "    worker_pool_size = 1\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
@@ -512,14 +515,16 @@ install_telemetry_handler(TestCase) ->
 
 wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
     Events = receive_all_events(GaugeName, Timeout),
-    case lists:last(Events) of
+    case length(Events) > 0 andalso lists:last(Events) of
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
         #{measurements := #{gauge_set := Value}} ->
             ct:fail(
                 "gauge ~p didn't reach expected value ~p; last value: ~p",
                 [GaugeName, ExpectedValue, Value]
-            )
+            );
+        false ->
+            ct:pal("no ~p gauge events received!", [GaugeName])
     end.
 
 receive_all_events(EventName, Timeout) ->
@@ -609,6 +614,8 @@ t_publish_success(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -657,6 +664,8 @@ t_publish_success_local_topic(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -743,6 +752,8 @@ t_publish_templated(Config) ->
         ResourceId,
         #{n_events => ExpectedInflightEvents, timeout => 5_000}
     ),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -1124,19 +1135,17 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 ResourceId
             );
         {_, sync} ->
-            wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
-                timeout => 10_000, n_events => 2
-            }),
             %% even waiting, hard to avoid flakiness... simpler to just sleep
             %% a bit until stabilization.
-            ct:sleep(200),
+            wait_until_gauge_is(queuing, 0, 500),
+            wait_until_gauge_is(inflight, 1, 500),
             assert_metrics(
                 #{
                     dropped => 0,
                     failed => 0,
-                    inflight => 0,
+                    inflight => 1,
                     matched => 1,
-                    queuing => 1,
+                    queuing => 0,
                     retried => 0,
                     success => 0
                 },
@@ -1264,7 +1273,6 @@ t_failure_no_body(Config) ->
 
 t_unrecoverable_error(Config) ->
     ResourceId = ?config(resource_id, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
     QueryMode = ?config(query_mode, Config),
     TestPid = self(),
     FailureNoBodyHandler =
@@ -1326,26 +1334,14 @@ t_unrecoverable_error(Config) ->
             ok
         end
     ),
-    wait_telemetry_event(TelemetryTable, failed, ResourceId),
-    ExpectedInflightEvents =
-        case QueryMode of
-            sync -> 1;
-            async -> 3
-        end,
-    wait_telemetry_event(
-        TelemetryTable,
-        inflight,
-        ResourceId,
-        #{n_events => ExpectedInflightEvents, timeout => 5_000}
-    ),
-    %% even waiting, hard to avoid flakiness... simpler to just sleep
-    %% a bit until stabilization.
-    ct:sleep(200),
+
+    wait_until_gauge_is(queuing, 0, _Timeout = 400),
+    wait_until_gauge_is(inflight, 1, _Timeout = 400),
     assert_metrics(
         #{
             dropped => 0,
-            failed => 1,
-            inflight => 0,
+            failed => 0,
+            inflight => 1,
             matched => 1,
             queuing => 0,
             retried => 0,

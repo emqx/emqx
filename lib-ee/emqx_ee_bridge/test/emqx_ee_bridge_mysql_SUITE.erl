@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_bridge_mysql_SUITE).
@@ -170,6 +170,7 @@ mysql_config(BridgeType, Config) ->
             "  password = ~p\n"
             "  sql = ~p\n"
             "  resource_opts = {\n"
+            "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"
@@ -397,20 +398,32 @@ t_write_failure(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
+    QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            send_message(Config, SentData)
+            case QueryMode of
+                sync ->
+                    ?assertError(timeout, send_message(Config, SentData));
+                async ->
+                    send_message(Config, SentData)
+            end
         end),
-        fun
-            ({error, {resource_error, _}}, _Trace) ->
-                ok;
-            ({error, {recoverable_error, disconnected}}, _Trace) ->
-                ok;
-            (_, _Trace) ->
-                ?assert(false)
+        fun(Trace0) ->
+            ct:pal("trace: ~p", [Trace0]),
+            Trace = ?of_kind(resource_worker_flush_nack, Trace0),
+            ?assertMatch([#{result := {error, _}} | _], Trace),
+            [#{result := {error, Error}} | _] = Trace,
+            case Error of
+                {resource_error, _} ->
+                    ok;
+                {recoverable_error, disconnected} ->
+                    ok;
+                _ ->
+                    ct:fail("unexpected error: ~p", [Error])
+            end
         end
     ),
     ok.
@@ -424,10 +437,10 @@ t_write_timeout(Config) ->
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
-    Timeout = 10,
+    Timeout = 1000,
     emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, _}},
+        ?assertError(
+            timeout,
             query_resource(Config, {send_message, SentData, [], Timeout})
         )
     end),
@@ -443,7 +456,7 @@ t_simple_sql_query(Config) ->
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
     case IsBatch of
-        true -> ?assertEqual({error, batch_select_not_implemented}, Result);
+        true -> ?assertEqual({error, {unrecoverable_error, batch_select_not_implemented}}, Result);
         false -> ?assertEqual({ok, [<<"T">>], [[1]]}, Result)
     end,
     ok.
@@ -459,10 +472,16 @@ t_missing_data(Config) ->
     case IsBatch of
         true ->
             ?assertMatch(
-                {error, {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}, Result
+                {error,
+                    {unrecoverable_error,
+                        {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}},
+                Result
             );
         false ->
-            ?assertMatch({error, {1048, _, <<"Column 'arrived' cannot be null">>}}, Result)
+            ?assertMatch(
+                {error, {unrecoverable_error, {1048, _, <<"Column 'arrived' cannot be null">>}}},
+                Result
+            )
     end,
     ok.
 
@@ -476,8 +495,10 @@ t_bad_sql_parameter(Config) ->
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
     case IsBatch of
-        true -> ?assertEqual({error, invalid_request}, Result);
-        false -> ?assertEqual({error, {invalid_params, [bad_parameter]}}, Result)
+        true ->
+            ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
+        false ->
+            ?assertEqual({error, {unrecoverable_error, {invalid_params, [bad_parameter]}}}, Result)
     end,
     ok.
 
@@ -491,8 +512,8 @@ t_unprepared_statement_query(Config) ->
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
     case IsBatch of
-        true -> ?assertEqual({error, invalid_request}, Result);
-        false -> ?assertEqual({error, prepared_statement_invalid}, Result)
+        true -> ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
+        false -> ?assertEqual({error, {unrecoverable_error, prepared_statement_invalid}}, Result)
     end,
     ok.
 

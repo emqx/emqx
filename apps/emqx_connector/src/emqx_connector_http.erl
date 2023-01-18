@@ -380,7 +380,8 @@ on_query_async(
         NRequest,
         Timeout,
         {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
-    ).
+    ),
+    {ok, Worker}.
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of

@@ -178,7 +178,7 @@ on_query(BridgeId, {send_message, Selected}, State) ->
     {send_message, map()},
     {ReplyFun :: function(), Args :: list()},
     state()
-) -> ok.
+) -> {ok, pid()}.
 on_query_async(BridgeId, {send_message, Selected}, ReplyFunAndArgs, State) ->
     Requests = [{send_message, Selected}],
     ?TRACE(
@@ -210,7 +210,7 @@ on_batch_query(BridgeId, Requests, State) ->
     [{send_message, map()}],
     {ReplyFun :: function(), Args :: list()},
     state()
-) -> ok.
+) -> {ok, pid()}.
 on_batch_query_async(BridgeId, Requests, ReplyFunAndArgs, State) ->
     ?TRACE(
         "QUERY_ASYNC",
@@ -496,7 +496,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
     [{send_message, map()}],
     {ReplyFun :: function(), Args :: list()},
     resource_id()
-) -> ok.
+) -> {ok, pid()}.
 do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
     #{
         pool_name := PoolName,
@@ -531,7 +531,8 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
         Request,
         RequestTimeout,
         {fun ?MODULE:reply_delegator/3, [ResourceId, ReplyFunAndArgs]}
-    ).
+    ),
+    {ok, Worker}.
 
 -spec reply_delegator(
     resource_id(),

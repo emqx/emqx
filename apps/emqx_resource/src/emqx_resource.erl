@@ -79,8 +79,7 @@
     query/2,
     query/3,
     %% query the instance without batching and queuing messages.
-    simple_sync_query/2,
-    simple_async_query/3
+    simple_sync_query/2
 ]).
 
 %% Direct calls to the callback module
@@ -277,10 +276,6 @@ query(ResId, Request, Opts) ->
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
 simple_sync_query(ResId, Request) ->
     emqx_resource_worker:simple_sync_query(ResId, Request).
-
--spec simple_async_query(resource_id(), Request :: term(), reply_fun()) -> Result :: term().
-simple_async_query(ResId, Request, ReplyFun) ->
-    emqx_resource_worker:simple_async_query(ResId, Request, ReplyFun).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->

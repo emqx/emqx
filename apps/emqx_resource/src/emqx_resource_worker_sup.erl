@@ -67,7 +67,8 @@ stop_workers(ResId, Opts) ->
     WorkerPoolSize = worker_pool_size(Opts),
     lists:foreach(
         fun(Idx) ->
-            ensure_worker_removed(ResId, Idx)
+            _ = ensure_worker_removed(ResId, Idx),
+            ensure_disk_queue_dir_absent(ResId, Idx)
         end,
         lists:seq(1, WorkerPoolSize)
     ),
@@ -126,6 +127,10 @@ ensure_worker_removed(ResId, Idx) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+ensure_disk_queue_dir_absent(ResourceId, Index) ->
+    ok = emqx_resource_worker:clear_disk_queue_dir(ResourceId, Index),
+    ok.
 
 ensure_worker_pool_removed(ResId) ->
     try

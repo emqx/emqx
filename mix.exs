@@ -58,7 +58,7 @@ defmodule EMQXUmbrella.MixProject do
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.7", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
-      {:replayq, github: "emqx/replayq", tag: "0.3.5", override: true},
+      {:replayq, github: "emqx/replayq", tag: "0.3.6", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.7.0-rc.2", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
@@ -131,7 +131,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.6", override: true},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.7", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.4"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},

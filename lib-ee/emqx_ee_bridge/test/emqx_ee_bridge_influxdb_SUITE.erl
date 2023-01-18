@@ -778,15 +778,25 @@ t_bad_timestamp(Config) ->
                 {async, false} ->
                     ?assertEqual(ok, Return),
                     ?assertMatch(
-                        [#{error := [{error, {bad_timestamp, [<<"bad_timestamp">>]}}]}],
+                        [
+                            #{
+                                error := [
+                                    {error, {bad_timestamp, [<<"bad_timestamp">>]}}
+                                ]
+                            }
+                        ],
                         ?of_kind(influxdb_connector_send_query_error, Trace)
                     );
                 {sync, false} ->
                     ?assertEqual(
-                        {error, [{error, {bad_timestamp, [<<"bad_timestamp">>]}}]}, Return
+                        {error,
+                            {unrecoverable_error, [
+                                {error, {bad_timestamp, [<<"bad_timestamp">>]}}
+                            ]}},
+                        Return
                     );
                 {sync, true} ->
-                    ?assertEqual({error, points_trans_failed}, Return)
+                    ?assertEqual({error, {unrecoverable_error, points_trans_failed}}, Return)
             end,
             ok
         end
@@ -894,11 +904,19 @@ t_write_failure(Config) ->
     },
     ?check_trace(
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            send_message(Config, SentData)
-        end),
-        fun(Result, _Trace) ->
             case QueryMode of
                 sync ->
+                    ?assertError(timeout, send_message(Config, SentData));
+                async ->
+                    ?assertEqual(ok, send_message(Config, SentData))
+            end
+        end),
+        fun(Trace0) ->
+            case QueryMode of
+                sync ->
+                    Trace = ?of_kind(resource_worker_flush_nack, Trace0),
+                    ?assertMatch([_ | _], Trace),
+                    [#{result := Result} | _] = Trace,
                     ?assert(
                         {error, {error, {closed, "The connection was lost."}}} =:= Result orelse
                             {error, {error, closed}} =:= Result orelse
@@ -906,7 +924,7 @@ t_write_failure(Config) ->
                         #{got => Result}
                     );
                 async ->
-                    ?assertEqual(ok, Result)
+                    ok
             end,
             ok
         end
@@ -938,11 +956,7 @@ t_missing_field(Config) ->
         begin
             emqx:publish(Msg0),
             emqx:publish(Msg1),
-            NEvents =
-                case IsBatch of
-                    true -> 1;
-                    false -> 2
-                end,
+            NEvents = 1,
             {ok, _} =
                 snabbkaffe:block_until(
                     ?match_n_events(NEvents, #{
@@ -964,7 +978,7 @@ t_missing_field(Config) ->
                     );
                 false ->
                     ?assertMatch(
-                        [#{error := [{error, no_fields}]}, #{error := [{error, no_fields}]} | _],
+                        [#{error := [{error, no_fields}]} | _],
                         ?of_kind(influxdb_connector_send_query_error, Trace)
                     )
             end,

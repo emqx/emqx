@@ -198,7 +198,10 @@ on_query_async(
     #{name := InstanceId}
 ) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplyFun, Args}).
+    %% this is a cast, currently.
+    ok = emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplyFun, Args}),
+    WorkerPid = get_worker_pid(InstanceId),
+    {ok, WorkerPid}.
 
 on_get_status(_InstId, #{name := InstanceId}) ->
     case emqx_connector_mqtt_worker:status(InstanceId) of
@@ -211,6 +214,12 @@ ensure_mqtt_worker_started(InstanceId, BridgeConf) ->
         ok -> {ok, #{name => InstanceId, bridge_conf => BridgeConf}};
         {error, Reason} -> {error, Reason}
     end.
+
+%% mqtt workers, when created and called via bridge callbacks, are
+%% registered.
+-spec get_worker_pid(atom()) -> pid().
+get_worker_pid(InstanceId) ->
+    whereis(InstanceId).
 
 make_sub_confs(EmptyMap, _Conf, _) when map_size(EmptyMap) == 0 ->
     undefined;

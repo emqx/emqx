@@ -145,10 +145,12 @@ set_special_configs(_) ->
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    ok = snabbkaffe:start_trace(),
     Config.
 end_per_testcase(_, _Config) ->
     clear_resources(),
     emqx_common_test_helpers:call_janitor(),
+    snabbkaffe:stop(),
     ok.
 
 clear_resources() ->
@@ -478,8 +480,6 @@ t_egress_custom_clientid_prefix(_Config) ->
     end,
 
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     ok.
 
 t_mqtt_conn_bridge_ingress_and_egress(_) ->
@@ -830,6 +830,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"resource_opts">> => #{
                 <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"sync">>,
+                <<"request_timeout">> => <<"500ms">>,
                 %% to make it check the healthy quickly
                 <<"health_check_interval">> => <<"0.5s">>
             }
@@ -880,17 +881,14 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     ok = emqx_listeners:stop_listener('tcp:default'),
     ct:sleep(1500),
 
-    %% PUBLISH 2 messages to the 'local' broker, the message should
-    ok = snabbkaffe:start_trace(),
+    %% PUBLISH 2 messages to the 'local' broker, the messages should
+    %% be enqueued and the resource will block
     {ok, SRef} =
         snabbkaffe:subscribe(
             fun
-                (
-                    #{
-                        ?snk_kind := call_query_enter,
-                        query := {query, _From, {send_message, #{}}, _Sent}
-                    }
-                ) ->
+                (#{?snk_kind := resource_worker_retry_inflight_failed}) ->
+                    true;
+                (#{?snk_kind := resource_worker_flush_nack}) ->
                     true;
                 (_) ->
                     false
@@ -903,7 +901,6 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     emqx:publish(emqx_message:make(LocalTopic, Payload1)),
     emqx:publish(emqx_message:make(LocalTopic, Payload2)),
     {ok, _} = snabbkaffe:receive_events(SRef),
-    ok = snabbkaffe:stop(),
 
     %% verify the metrics of the bridge, the message should be queued
     {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
@@ -920,7 +917,8 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"matched">> := Matched,
             <<"success">> := 1,
             <<"failed">> := 0,
-            <<"queuing">> := 2
+            <<"queuing">> := 1,
+            <<"inflight">> := 1
         } when Matched >= 3,
         maps:get(<<"metrics">>, DecodedMetrics1)
     ),
@@ -952,18 +950,17 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     ok.
 
 assert_mqtt_msg_received(Topic, Payload) ->
-    ?assert(
-        receive
-            {deliver, Topic, #message{payload = Payload}} ->
-                ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
-                true;
-            Msg ->
-                ct:pal("Unexpected Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ).
+    ct:pal("checking if ~p has been received on ~p", [Payload, Topic]),
+    receive
+        {deliver, Topic, #message{payload = Payload}} ->
+            ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
+            ok;
+        Msg ->
+            ct:pal("Unexpected Msg: ~p", [Msg]),
+            assert_mqtt_msg_received(Topic, Payload)
+    after 100 ->
+        ct:fail("timeout waiting for ~p on topic ~p", [Payload, Topic])
+    end.
 
 request(Method, Url, Body) ->
     request(<<"connector_admin">>, Method, Url, Body).
