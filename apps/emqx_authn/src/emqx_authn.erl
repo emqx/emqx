@@ -69,11 +69,7 @@ do_check_config(#{<<"mechanism">> := Mec0} = Config, Opts) ->
         false ->
             throw(#{error => unknown_authn_provider, which => Key});
         {_, ProviderModule} ->
-            emqx_hocon:check(
-                ProviderModule,
-                #{?CONF_NS_BINARY => Config},
-                Opts#{atom_key => true}
-            )
+            do_check_config_maybe_throw(ProviderModule, Config, Opts)
     end;
 do_check_config(Config, Opts) when is_map(Config) ->
     throw(#{
@@ -81,6 +77,15 @@ do_check_config(Config, Opts) when is_map(Config) ->
         which => maps:get(id_for_log, Opts, unknown),
         reason => "mechanism_field_required"
     }).
+
+do_check_config_maybe_throw(ProviderModule, Config0, Opts) ->
+    Config = #{?CONF_NS_BINARY => Config0},
+    case emqx_hocon:check(ProviderModule, Config, Opts#{atom_key => true}) of
+        {ok, Checked} ->
+            Checked;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 %% The atoms have to be loaded already,
 %% which might be an issue for plugins which are loaded after node boot

@@ -53,26 +53,17 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 initialize() ->
-    try
-        ok = ?AUTHN:register_providers(emqx_authn:providers()),
-
-        lists:foreach(
-            fun({ChainName, RawAuthConfigs}) ->
-                AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
-                ?AUTHN:initialize_authentication(
-                    ChainName,
-                    AuthConfig
-                )
-            end,
-            chain_configs()
-        )
-    of
-        ok -> ok
-    catch
-        throw:Reason ->
-            ?SLOG(error, #{msg => "failed_to_initialize_authentication", reason => Reason}),
-            {error, {failed_to_initialize_authentication, Reason}}
-    end.
+    ok = ?AUTHN:register_providers(emqx_authn:providers()),
+    lists:foreach(
+        fun({ChainName, RawAuthConfigs}) ->
+            AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
+            ?AUTHN:initialize_authentication(
+                ChainName,
+                AuthConfig
+            )
+        end,
+        chain_configs()
+    ).
 
 deinitialize() ->
     ok = ?AUTHN:deregister_providers(provider_types()),

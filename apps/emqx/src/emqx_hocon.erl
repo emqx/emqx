@@ -20,6 +20,7 @@
 -export([
     format_path/1,
     check/2,
+    check/3,
     compact_errors/2,
     format_error/1,
     format_error/2,
@@ -37,20 +38,23 @@ format_path([Name | Rest]) -> [iol(Name), "." | format_path(Rest)].
 %% Always return plain map with atom keys.
 -spec check(module(), hocon:config() | iodata()) ->
     {ok, hocon:config()} | {error, any()}.
-check(SchemaModule, Conf) when is_map(Conf) ->
+check(SchemaModule, Conf) ->
     %% TODO: remove required
     %% fields should state required or not in their schema
     Opts = #{atom_key => true, required => false},
+    check(SchemaModule, Conf, Opts).
+
+check(SchemaModule, Conf, Opts) when is_map(Conf) ->
     try
         {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
     catch
         throw:Errors:Stacktrace ->
             compact_errors(Errors, Stacktrace)
     end;
-check(SchemaModule, HoconText) ->
+check(SchemaModule, HoconText, Opts) ->
     case hocon:binary(HoconText, #{format => map}) of
         {ok, MapConfig} ->
-            check(SchemaModule, MapConfig);
+            check(SchemaModule, MapConfig, Opts);
         {error, Reason} ->
             {error, Reason}
     end.

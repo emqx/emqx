@@ -414,31 +414,9 @@ check_config(SchemaMod, RawConf, Opts0) ->
         do_check_config(SchemaMod, RawConf, Opts0)
     catch
         throw:Errors:Stacktrace ->
-            throw(emqx_hocon:compact_errors(Errors, Stacktrace))
+            {error, Reason} = emqx_hocon:compact_errors(Errors, Stacktrace),
+            erlang:raise(throw, Reason, Stacktrace)
     end.
-
-%% HOCON tries to be very informative about all the detailed errors
-%% it's maybe too much when reporting to the user
--spec compact_errors(any(), any()) -> no_return().
-compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
-    Error1 =
-        case length(More) of
-            0 ->
-                Error0;
-            N ->
-                Error0#{unshown_errors => N}
-        end,
-    Error =
-        case is_atom(Schema) of
-            true ->
-                Error1#{schema_module => Schema};
-            false ->
-                Error1
-        end,
-    throw(Error);
-compact_errors(Schema, Errors) ->
-    %% unexpected, we need the stacktrace reported, hence error
-    error({Schema, Errors}).
 
 do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
