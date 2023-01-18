@@ -23,6 +23,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -187,6 +188,53 @@ t_stop_publish_clear_msg(_) ->
     emqtt:publish(C1, <<"retained/0">>, <<"">>, [{qos, 0}, {retain, true}]),
     ?assertEqual(0, length(receive_messages(1))),
 
+    ok = emqtt:disconnect(C1).
+
+t_deliver_when_banned(_) ->
+    Client1 = <<"c1">>,
+    Client2 = <<"c2">>,
+
+    {ok, C1} = emqtt:start_link([{clientid, Client1}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    lists:foreach(
+        fun(I) ->
+            Topic = erlang:list_to_binary(io_lib:format("retained/~p", [I])),
+            Msg = emqx_message:make(Client2, 0, Topic, <<"this is a retained message">>),
+            Msg2 = emqx_message:set_flag(retain, Msg),
+            emqx:publish(Msg2)
+        end,
+        lists:seq(1, 3)
+    ),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, Client2},
+
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+    timer:sleep(100),
+
+    snabbkaffe:start_trace(),
+
+    {ok, SubRef} =
+        snabbkaffe_collector:subscribe(?match_event(#{?snk_kind := ignore_retained_message_deliver}),
+                                       _NEvents    = 3,
+                                       _Timeout    = 10000,
+                                       0),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
+    {ok, Trace} = snabbkaffe_collector:receive_events(SubRef),
+    ?assertEqual(3, length(?of_kind(ignore_retained_message_deliver, Trace))),
+
+    snabbkaffe:stop(),
+
+    emqx_banned:delete(Who),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/+">>),
     ok = emqtt:disconnect(C1).
 
 %%--------------------------------------------------------------------
