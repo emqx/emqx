@@ -218,7 +218,24 @@ generate_changelog () {
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else
-    generate_changelog
+    case "$TAG" in
+        *rc*)
+            true
+            ;;
+        *alpha*)
+            true
+            ;;
+        *beta*)
+            true
+            ;;
+        e5.0.0*)
+            # the first release has no change log
+            true
+            ;;
+        *)
+            generate_changelog
+            ;;
+    esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
 fi
