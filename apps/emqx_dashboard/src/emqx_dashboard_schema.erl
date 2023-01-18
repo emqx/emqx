@@ -117,7 +117,7 @@ common_listener_fields() ->
             ?HOCON(
                 integer(),
                 #{
-                    default => 4,
+                    default => erlang:system_info(schedulers_online),
                     desc => ?DESC(num_acceptors)
                 }
             )},
@@ -141,7 +141,7 @@ common_listener_fields() ->
             ?HOCON(
                 emqx_schema:duration(),
                 #{
-                    default => "5s",
+                    default => "10s",
                     desc => ?DESC(send_timeout)
                 }
             )},
