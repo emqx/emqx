@@ -1,7 +1,6 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-alpine3.15.1
 ARG RUN_FROM=alpine:3.15.1
-ARG BUILDPLATFORM=linux/amd64
-FROM --platform=$BUILDPLATFORM ${BUILD_FROM} AS builder
+FROM ${BUILD_FROM} AS builder
 
 RUN apk add --no-cache \
     autoconf \

@@ -102,10 +102,9 @@ The following table lists the configurable [EMQX](https://www.emqx.io/)-specific
 default values.
 Parameter | Description | Default Value
 --- | --- | ---
-`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/latest/configuration/configuration.html) items
-expressed as [environment variables](https://www.emqx.io/docs/en/v4.3/configuration/environment-variable.html) (prefix
-can be omitted) or using the configuration
-files [namespaced dotted notation](https://www.emqx.io/docs/en/latest/configuration/configuration.html) | `nil`
+`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/v5.0/admin/cfg.html) items
+expressed as [environment variables](https://www.emqx.io/docs/en/v5.0/admin/cfg.html#environment-variables) (prefix `EMQX_` can be omitted) or using the configuration
+files [namespaced dotted notation](https://www.emqx.io/docs/en/v5.0/admin/cfg.html#syntax) | `nil`
 `emqxLicenseSecretName` | Name of the secret that holds the license information | `nil`
 
 ## SSL settings
