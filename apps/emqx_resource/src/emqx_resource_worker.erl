@@ -1222,8 +1222,15 @@ mark_as_sent(?QUERY(From, Req, _)) ->
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
+is_unrecoverable_error({error, {recoverable_error, _}}) ->
+    false;
 is_unrecoverable_error({async_return, Result}) ->
     is_unrecoverable_error(Result);
+is_unrecoverable_error({error, _}) ->
+    %% TODO: delete this clause.
+    %% Ideally all errors except for 'unrecoverable_error' should be
+    %% retried, including DB schema errors.
+    true;
 is_unrecoverable_error(_) ->
     false.
 
