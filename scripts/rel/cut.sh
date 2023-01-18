@@ -53,7 +53,8 @@ case "$TAG" in
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
-        SKIP_APPUP='no'
+        #TODO change to no when we are ready to support hot-upgrade
+        SKIP_APPUP='yes'
         ;;
     -h|--help)
         usage
