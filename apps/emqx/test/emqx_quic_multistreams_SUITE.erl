@@ -527,7 +527,7 @@ t_multi_streams_packet_boundary(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    LargePart3 = binary:copy(<<"stream data3">>, 2000),
+    LargePart3 = binary:copy(atom_to_binary(?FUNCTION_NAME), 20000),
     ok = emqtt:publish_async(
         C,
         PubVia,
@@ -603,7 +603,7 @@ t_multi_streams_packet_malform(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    LargePart3 = binary:copy(<<"stream data3">>, 2000),
+    LargePart3 = binary:copy(atom_to_binary(?FUNCTION_NAME), 2000),
     ok = emqtt:publish_async(
         C,
         PubVia,
@@ -1221,6 +1221,12 @@ t_multi_streams_shutdown_pub_data_stream(Config) ->
     end,
 
     PubRecvs = recv_pub(1),
+    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
+    {quic, _Conn, DataStream} = PubVia,
+    quicer:shutdown_stream(DataStream, ?config(stream_shutdown_flag, Config), 500, 100),
+    timer:sleep(500),
+    %% Still alive
+    ?assert(is_list(emqtt:info(C))),
     ?assertMatch(
         [
             {publish, #{
@@ -1231,14 +1237,7 @@ t_multi_streams_shutdown_pub_data_stream(Config) ->
             }}
         ],
         PubRecvs
-    ),
-
-    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-    {quic, _Conn, DataStream} = PubVia,
-    quicer:shutdown_stream(DataStream, ?config(stream_shutdown_flag, Config), 500, 100),
-    timer:sleep(500),
-    %% Still alive
-    ?assert(is_list(emqtt:info(C))).
+    ).
 
 t_multi_streams_shutdown_sub_data_stream(Config) ->
     PubQos = ?config(pub_qos, Config),
