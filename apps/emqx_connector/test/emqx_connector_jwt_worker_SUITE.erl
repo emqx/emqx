@@ -364,3 +364,23 @@ t_unknown_requests(_Config) ->
     gen_server:cast(Worker, unknown_cast),
     ?assertEqual({error, bad_call}, gen_server:call(Worker, unknown_call)),
     ok.
+
+t_truncated_private_key(_Config) ->
+    Config0 = generate_config(),
+    Config = Config0#{private_key := <<"-----BEGIN PRIVATE KEY-----\nMIIEvQI...">>},
+    process_flag(trap_exit, true),
+    ?check_trace(
+        ?wait_async_action(
+            ?assertMatch({ok, _}, emqx_connector_jwt_worker:start_link(Config)),
+            #{?snk_kind := connector_jwt_worker_startup_error},
+            1_000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := function_clause}],
+                ?of_kind(connector_jwt_worker_startup_error, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
