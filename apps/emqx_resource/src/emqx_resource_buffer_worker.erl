@@ -17,7 +17,7 @@
 %% This module implements async message sending, disk message queuing,
 %%  and message batching using ReplayQ.
 
--module(emqx_resource_worker).
+-module(emqx_resource_buffer_worker).
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
@@ -176,11 +176,11 @@ init({Id, Index, Opts}) ->
         resume_interval => maps:get(resume_interval, Opts, HealthCheckInterval),
         tref => undefined
     },
-    ?tp(resource_worker_init, #{id => Id, index => Index}),
+    ?tp(buffer_worker_init, #{id => Id, index => Index}),
     {ok, running, Data}.
 
 running(enter, _, St) ->
-    ?tp(resource_worker_enter_running, #{}),
+    ?tp(buffer_worker_enter_running, #{}),
     maybe_flush(St);
 running(cast, resume, _St) ->
     keep_state_and_data;
@@ -206,7 +206,7 @@ running(info, Info, _St) ->
     keep_state_and_data.
 
 blocked(enter, _, #{resume_interval := ResumeT} = _St) ->
-    ?tp(resource_worker_enter_blocked, #{}),
+    ?tp(buffer_worker_enter_blocked, #{}),
     {keep_state_and_data, {state_timeout, ResumeT, unblock}};
 blocked(cast, block, _St) ->
     keep_state_and_data;
@@ -315,7 +315,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         index := Index,
         resume_interval := ResumeT
     } = Data0,
-    ?tp(resource_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
+    ?tp(buffer_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
     QueryOpts = #{simple_query => false},
     Result = call_query(sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     ReplyResult =
@@ -331,7 +331,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         {nack, PostFn} ->
             PostFn(),
             ?tp(
-                resource_worker_retry_inflight_failed,
+                buffer_worker_retry_inflight_failed,
                 #{
                     ref => Ref,
                     query_or_batch => QueryOrBatch
@@ -349,7 +349,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             %% we bump the counter when removing it from the table.
             IsAcked andalso PostFn(),
             ?tp(
-                resource_worker_retry_inflight_succeeded,
+                buffer_worker_retry_inflight_succeeded,
                 #{
                     ref => Ref,
                     query_or_batch => QueryOrBatch
@@ -415,7 +415,7 @@ flush(Data0) ->
         {0, _} ->
             {keep_state, Data1};
         {_, true} ->
-            ?tp(resource_worker_flush_but_inflight_full, #{}),
+            ?tp(buffer_worker_flush_but_inflight_full, #{}),
             Data2 = ensure_flush_timer(Data1),
             {keep_state, Data2};
         {_, false} ->
@@ -483,7 +483,7 @@ do_flush(
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
-                resource_worker_flush_nack,
+                buffer_worker_flush_nack,
                 #{
                     ref => Ref,
                     is_retriable => IsRetriable,
@@ -512,7 +512,7 @@ do_flush(
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
-                resource_worker_flush_ack,
+                buffer_worker_flush_ack,
                 #{
                     batch_or_query => Request,
                     result => Result
@@ -560,7 +560,7 @@ do_flush(Data0, #{
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
-                resource_worker_flush_nack,
+                buffer_worker_flush_nack,
                 #{
                     ref => Ref,
                     is_retriable => IsRetriable,
@@ -589,7 +589,7 @@ do_flush(Data0, #{
             store_async_worker_reference(InflightTID, Ref, WorkerMRef),
             emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q1)),
             ?tp(
-                resource_worker_flush_ack,
+                buffer_worker_flush_ack,
                 #{
                     batch_or_query => Batch,
                     result => Result
@@ -873,7 +873,7 @@ reply_after_query(
     case Action of
         nack ->
             %% Keep retrying.
-            ?tp(resource_worker_reply_after_query, #{
+            ?tp(buffer_worker_reply_after_query, #{
                 action => Action,
                 batch_or_query => ?QUERY(From, Request, HasBeenSent),
                 ref => Ref,
@@ -882,7 +882,7 @@ reply_after_query(
             mark_inflight_as_retriable(InflightTID, Ref),
             ?MODULE:block(Pid);
         ack ->
-            ?tp(resource_worker_reply_after_query, #{
+            ?tp(buffer_worker_reply_after_query, #{
                 action => Action,
                 batch_or_query => ?QUERY(From, Request, HasBeenSent),
                 ref => Ref,
@@ -903,7 +903,7 @@ batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Resu
     case Action of
         nack ->
             %% Keep retrying.
-            ?tp(resource_worker_reply_after_query, #{
+            ?tp(buffer_worker_reply_after_query, #{
                 action => nack,
                 batch_or_query => Batch,
                 ref => Ref,
@@ -912,7 +912,7 @@ batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Resu
             mark_inflight_as_retriable(InflightTID, Ref),
             ?MODULE:block(Pid);
         ack ->
-            ?tp(resource_worker_reply_after_query, #{
+            ?tp(buffer_worker_reply_after_query, #{
                 action => ack,
                 batch_or_query => Batch,
                 ref => Ref,
@@ -955,7 +955,7 @@ append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
         end,
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q2)),
     ?tp(
-        resource_worker_appended_to_queue,
+        buffer_worker_appended_to_queue,
         #{
             id => Id,
             items => Queries,
@@ -973,7 +973,7 @@ append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
 
 inflight_new(InfltWinSZ, Id, Index) ->
     TableId = ets:new(
-        emqx_resource_worker_inflight_tab,
+        emqx_resource_buffer_worker_inflight_tab,
         [ordered_set, public, {write_concurrency, true}]
     ),
     inflight_append(TableId, {?MAX_SIZE_REF, InfltWinSZ}, Id, Index),
@@ -1040,7 +1040,7 @@ inflight_append(
     BatchSize = length(Batch),
     IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, BatchSize}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
-    ?tp(resource_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
+    ?tp(buffer_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
     ok;
 inflight_append(
     InflightTID,
@@ -1053,7 +1053,7 @@ inflight_append(
     IsNew = ets:insert_new(InflightTID, InflightItem),
     IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, 1}),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
-    ?tp(resource_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
+    ?tp(buffer_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
     ok;
 inflight_append(InflightTID, {Ref, Data}, _Id, _Index) ->
     ets:insert(InflightTID, {Ref, Data}),
@@ -1130,7 +1130,7 @@ mark_inflight_items_as_retriable(Data, WorkerMRef) ->
             end
         ),
     _NumAffected = ets:select_replace(InflightTID, MatchSpec),
-    ?tp(resource_worker_worker_down_update, #{num_affected => _NumAffected}),
+    ?tp(buffer_worker_worker_down_update, #{num_affected => _NumAffected}),
     ok.
 
 %%==============================================================================

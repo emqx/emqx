@@ -39,8 +39,8 @@ init([]) ->
             modules => [emqx_resource_manager_sup]
         },
     WorkerSup = #{
-        id => emqx_resource_worker_sup,
-        start => {emqx_resource_worker_sup, start_link, []},
+        id => emqx_resource_buffer_worker_sup,
+        start => {emqx_resource_buffer_worker_sup, start_link, []},
         restart => permanent,
         shutdown => infinity,
         type => supervisor

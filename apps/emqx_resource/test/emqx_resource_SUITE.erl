@@ -414,7 +414,7 @@ t_query_counter_async_inflight(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(WindowSize, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 1_000
             ),
         fun(Trace) ->
@@ -439,7 +439,7 @@ t_query_counter_async_inflight(_) ->
             emqx_resource:query(?ID, {inc_counter, 99}, #{
                 async_reply_fun => {Insert, [Tab0, tmp_query]}
             }),
-            #{?snk_kind := resource_worker_appended_to_queue},
+            #{?snk_kind := buffer_worker_appended_to_queue},
             1_000
         ),
     tap_metrics(?LINE),
@@ -490,7 +490,7 @@ t_query_counter_async_inflight(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(WindowSize, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 1_000
             ),
         fun(Trace) ->
@@ -596,7 +596,7 @@ t_query_counter_async_inflight_batch(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(NumMsgs, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 5_000
             ),
         fun(Trace) ->
@@ -623,7 +623,7 @@ t_query_counter_async_inflight_batch(_) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {inc_counter, 2}),
-                    #{?snk_kind := resource_worker_flush_but_inflight_full},
+                    #{?snk_kind := buffer_worker_flush_but_inflight_full},
                     5_000
                 ),
             ?assertMatch(0, ets:info(Tab0, size)),
@@ -646,7 +646,7 @@ t_query_counter_async_inflight_batch(_) ->
             emqx_resource:query(?ID, {inc_counter, 3}, #{
                 async_reply_fun => {Insert, [Tab0, tmp_query]}
             }),
-            #{?snk_kind := resource_worker_appended_to_queue},
+            #{?snk_kind := buffer_worker_appended_to_queue},
             1_000
         ),
     tap_metrics(?LINE),
@@ -706,7 +706,7 @@ t_query_counter_async_inflight_batch(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(NumMsgs, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 5_000
             ),
         fun(Trace) ->
@@ -1055,7 +1055,7 @@ t_retry_batch(_Config) ->
                         end,
                         Payloads
                     ),
-                    #{?snk_kind := resource_worker_enter_blocked},
+                    #{?snk_kind := buffer_worker_enter_blocked},
                     5_000
                 ),
             %% now the individual messages should have been counted
@@ -1066,7 +1066,7 @@ t_retry_batch(_Config) ->
             %% batch shall remain enqueued.
             {ok, _} =
                 snabbkaffe:block_until(
-                    ?match_n_events(2, #{?snk_kind := resource_worker_retry_inflight_failed}),
+                    ?match_n_events(2, #{?snk_kind := buffer_worker_retry_inflight_failed}),
                     5_000
                 ),
             %% should not have increased the matched count with the retries
@@ -1078,7 +1078,7 @@ t_retry_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     5_000
                 ),
             %% 1 more because of the `resume' call
@@ -1140,7 +1140,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
             ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
             NumRequests = 10,
             {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := resource_worker_enter_blocked}),
+                ?match_event(#{?snk_kind := buffer_worker_enter_blocked}),
                 NumBufferWorkers,
                 _Timeout = 5_000
             ),
@@ -1189,7 +1189,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
                             resume_interval => 1_000
                         }
                     ),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     5_000
                 ),
 
@@ -1271,13 +1271,13 @@ t_retry_sync_inflight(_Config) ->
                         Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
                         TestPid ! {res, Res}
                     end),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
             receive
@@ -1322,13 +1322,13 @@ t_retry_sync_inflight_batch(_Config) ->
                         Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
                         TestPid ! {res, Res}
                     end),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
             receive
@@ -1368,7 +1368,7 @@ t_retry_async_inflight(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
@@ -1376,7 +1376,7 @@ t_retry_async_inflight(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     ResumeInterval * 2
                 ),
             ok
@@ -1411,7 +1411,7 @@ t_retry_async_inflight_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
@@ -1419,7 +1419,7 @@ t_retry_async_inflight_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     ResumeInterval * 2
                 ),
             ok
@@ -1459,7 +1459,7 @@ t_async_pool_worker_death(_Config) ->
             NumReqs = 10,
             {ok, SRef0} =
                 snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := resource_worker_appended_to_inflight}),
+                    ?match_event(#{?snk_kind := buffer_worker_appended_to_inflight}),
                     NumReqs,
                     1_000
                 ),
@@ -1472,7 +1472,7 @@ t_async_pool_worker_death(_Config) ->
             %% grab one of the worker pids and kill it
             {ok, SRef1} =
                 snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := resource_worker_worker_down_update}),
+                    ?match_event(#{?snk_kind := buffer_worker_worker_down_update}),
                     NumBufferWorkers,
                     10_000
                 ),
@@ -1568,8 +1568,8 @@ assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := resource_worker_flush_nack, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
     ),
@@ -1577,8 +1577,8 @@ assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     %% before restoring the resource health.
     ?assert(
         ?causality(
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
             Trace
         )
     ),
@@ -1588,8 +1588,8 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := resource_worker_reply_after_query, action := nack, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_reply_after_query, action := nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
     ),
@@ -1597,8 +1597,8 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     %% before restoring the resource health.
     ?assert(
         ?causality(
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
             Trace
         )
     ),

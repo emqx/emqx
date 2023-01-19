@@ -255,7 +255,7 @@ reset_metrics(ResId) ->
 query(ResId, Request) ->
     query(ResId, Request, #{}).
 
--spec query(resource_id(), Request :: term(), emqx_resource_worker:query_opts()) ->
+-spec query(resource_id(), Request :: term(), emqx_resource_buffer_worker:query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:ets_lookup(ResId) of
@@ -263,11 +263,11 @@ query(ResId, Request, Opts) ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
                 {true, _} ->
-                    emqx_resource_worker:simple_sync_query(ResId, Request);
+                    emqx_resource_buffer_worker:simple_sync_query(ResId, Request);
                 {false, sync} ->
-                    emqx_resource_worker:sync_query(ResId, Request, Opts);
+                    emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
                 {false, async} ->
-                    emqx_resource_worker:async_query(ResId, Request, Opts)
+                    emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
             end;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
@@ -275,7 +275,7 @@ query(ResId, Request, Opts) ->
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
 simple_sync_query(ResId, Request) ->
-    emqx_resource_worker:simple_sync_query(ResId, Request).
+    emqx_resource_buffer_worker:simple_sync_query(ResId, Request).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->
