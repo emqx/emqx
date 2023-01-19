@@ -850,7 +850,6 @@ test_publish_success_batch(Config) ->
 t_not_a_json(Config) ->
     ?assertMatch(
         {error, #{
-            discarded_errors_count := 0,
             kind := validation_error,
             reason := #{exception := {error, {badmap, "not a json"}}},
             %% should be censored as it contains secrets
@@ -868,7 +867,6 @@ t_not_a_json(Config) ->
 t_not_of_service_account_type(Config) ->
     ?assertMatch(
         {error, #{
-            discarded_errors_count := 0,
             kind := validation_error,
             reason := {wrong_type, <<"not a service account">>},
             %% should be censored as it contains secrets
@@ -887,7 +885,6 @@ t_json_missing_fields(Config) ->
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     ?assertMatch(
         {error, #{
-            discarded_errors_count := 0,
             kind := validation_error,
             reason :=
                 {missing_keys, [
