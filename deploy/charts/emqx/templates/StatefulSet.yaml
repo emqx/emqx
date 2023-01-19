@@ -107,13 +107,13 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default 8084 }}
           - name: dashboard
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP__BIND | default 18083 }}
-          {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
+          {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
           - name: internalmqtt
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND }}
           {{- end }}
-          {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS) }}
+          {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS__BIND) }}
           - name: dashboardtls
-            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS }}
+            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS__BIND }}
           {{- end }}
           - name: ekka
             containerPort: 4370
