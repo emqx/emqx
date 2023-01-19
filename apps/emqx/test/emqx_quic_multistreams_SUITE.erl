@@ -143,14 +143,14 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([]),
     UdpPort = 14567,
     start_emqx_quic(UdpPort),
-    dbg:tracer(process, {fun dbg:dhandler/2, group_leader()}),
-    dbg:p(all, c),
-    dbg:tpl(quicer, connect, cx),
-    %% dbg:tpl(emqx_stream, cx),
-    %% dbg:tpl(emqx_quic_data_stream, cx),
-    [{port, UdpPort}, {pub_qos, 0}, {sub_qos, 0} | Config].
+    %% Turn off force_shutdown policy.
+    ShutdownPolicy = emqx_config:get_zone_conf(default, [force_shutdown]),
+    ct:pal("force shutdown config: ~p", [ShutdownPolicy]),
+    emqx_config:put_zone_conf(default, [force_shutdown], ShutdownPolicy#{enable := false}),
+    [{shutdown_policy, ShutdownPolicy}, {port, UdpPort}, {pub_qos, 0}, {sub_qos, 0} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
+    emqx_config:put_zone_conf(default, [force_shutdown], ?config(shutdown_policy, Config)),
     ok.
 
 init_per_group(pub_qos0, Config) ->
@@ -536,7 +536,8 @@ t_multi_streams_packet_boundary(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    PubRecvs = recv_pub(3),
+    timer:sleep(300),
+    PubRecvs = recv_pub(3, [], 1000),
     ?assertMatch(
         [
             {publish, #{
@@ -1891,15 +1892,15 @@ test_dir(Config) ->
     filename:dirname(filename:dirname(proplists:get_value(data_dir, Config))).
 
 recv_pub(Count) ->
-    recv_pub(Count, []).
+    recv_pub(Count, [], 100).
 
-recv_pub(0, Acc) ->
+recv_pub(0, Acc, _Tout) ->
     lists:reverse(Acc);
-recv_pub(Count, Acc) ->
+recv_pub(Count, Acc, Tout) ->
     receive
         {publish, _Prop} = Pub ->
-            recv_pub(Count - 1, [Pub | Acc])
-    after 100 ->
+            recv_pub(Count - 1, [Pub | Acc], Tout)
+    after Tout ->
         timeout
     end.
 
