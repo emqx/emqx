@@ -14,14 +14,14 @@ To install the chart with the release name `my-emqx`:
 + From github
   ```
   $ git clone https://github.com/emqx/emqx.git
-  $ cd emqx/deploy/charts/emqx
+  $ cd emqx/deploy/charts/emqx-enterprise
   $ helm install my-emqx .
   ```
 
 + From chart repos
   ```
   helm repo add emqx https://repos.emqx.io/charts
-  helm install my-emqx emqx/emqx
+  helm install my-emqx emqx/emqx-enterprise
   ```
   > If you want to install an unstable version, you need to add `--devel` when you execute the `helm install` command.
 
@@ -43,6 +43,9 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `image.repository` | EMQX Image name | `emqx/emqx-enterprise` |
 | `image.pullPolicy` | The image pull policy | IfNotPresent |
 | `image.pullSecrets ` | The image pull secrets | `[]` (does not add image pull secrets to deployed pods) |
+| `serviceAccount.create` | If `true`, create a new service account | `true` |
+| `serviceAccount.name` | Service account to be used. If not set and `serviceAccount.create` is `true`, a name is generated using the fullname template |  |
+| `serviceAccount.annotations` | Annotations to add to the service account |  |
 | `envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | nil |
 | `recreatePods` | Forces the recreation of pods during upgrades, which can be useful to always apply the most recent configuration. | false |
 | `podAnnotations ` | Annotations for pod | `{}` |
@@ -102,10 +105,9 @@ The following table lists the configurable [EMQX](https://www.emqx.io/)-specific
 default values.
 Parameter | Description | Default Value
 --- | --- | ---
-`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/latest/configuration/configuration.html) items
-expressed as [environment variables](https://www.emqx.io/docs/en/v4.3/configuration/environment-variable.html) (prefix
-can be omitted) or using the configuration
-files [namespaced dotted notation](https://www.emqx.io/docs/en/latest/configuration/configuration.html) | `nil`
+`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/v5.0/admin/cfg.html) items
+expressed as [environment variables](https://www.emqx.io/docs/en/v5.0/admin/cfg.html#environment-variables) (prefix `EMQX_` can be omitted) or using the configuration
+files [namespaced dotted notation](https://www.emqx.io/docs/en/v5.0/admin/cfg.html#syntax) | `nil`
 `emqxLicenseSecretName` | Name of the secret that holds the license information | `nil`
 
 ## SSL settings
