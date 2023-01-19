@@ -830,7 +830,8 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"resource_opts">> => #{
                 <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"sync">>,
-                <<"request_timeout">> => <<"500ms">>,
+                %% using a long time so we can test recovery
+                <<"request_timeout">> => <<"15s">>,
                 %% to make it check the healthy quickly
                 <<"health_check_interval">> => <<"0.5s">>
             }
@@ -898,8 +899,10 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         ),
     Payload1 = <<"hello2">>,
     Payload2 = <<"hello3">>,
-    emqx:publish(emqx_message:make(LocalTopic, Payload1)),
-    emqx:publish(emqx_message:make(LocalTopic, Payload2)),
+    %% we need to to it in other processes because it'll block due to
+    %% the long timeout
+    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload1)) end),
+    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload2)) end),
     {ok, _} = snabbkaffe:receive_events(SRef),
 
     %% verify the metrics of the bridge, the message should be queued
@@ -917,9 +920,9 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"matched">> := Matched,
             <<"success">> := 1,
             <<"failed">> := 0,
-            <<"queuing">> := 1,
-            <<"inflight">> := 1
-        } when Matched >= 3,
+            <<"queuing">> := Queuing,
+            <<"inflight">> := Inflight
+        } when Matched >= 3 andalso Inflight + Queuing == 2,
         maps:get(<<"metrics">>, DecodedMetrics1)
     ),
 
