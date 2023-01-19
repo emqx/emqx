@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-define(APP, emqx_management).
+
 -define(MANAGEMENT_SHARD, emqx_management_shard).
 
 -define(MAX_ROW_LIMIT, 100).
