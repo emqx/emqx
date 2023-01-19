@@ -1101,7 +1101,7 @@ case "${COMMAND}" in
         # set before generate_config
         if [ "${_EMQX_START_DAEMON_MODE:-}" = 1 ]; then
             tr_log_to_env
-            # Ensure console log default is enabled, file log default is disabled when daemon mode.
+            # Ensure logging to console is disabled and logging to file is enabled when in daemon mode.
             # This default is opposite to the default in emqx_conf_schema
             export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-false}"
             export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-true}"
