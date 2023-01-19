@@ -64,6 +64,7 @@ spec:
         checksum/config: {{ $configData | sha256sum | quote }}
       {{- end }}
     spec:
+      serviceAccountName:  {{ include "emqx.serviceAccountName" . }}
       volumes:
       {{- if .Values.emqxLoadedPlugins }}
       - name: emqx-loaded-plugins
@@ -106,9 +107,6 @@ spec:
       - name: emqx-license
         secret:
           secretName: {{ $licenseSecretName }}
-      {{- end }}
-      {{- if eq (.Values.emqxConfig.EMQX_CLUSTER__DISCOVERY | default "k8s") "k8s"  }}
-      serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- end }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
