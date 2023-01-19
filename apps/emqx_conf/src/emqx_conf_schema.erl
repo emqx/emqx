@@ -1109,7 +1109,8 @@ tr_logger(Conf) ->
     FileHandlers =
         [
             begin
-                {handler, to_atom(HandlerName), logger_disk_log_h, #{
+                HandlerName = to_atom(<<"file_for_", HandlerNameBin/binary>>),
+                {handler, HandlerName, logger_disk_log_h, #{
                     level => conf_get("level", SubConf),
                     config => (log_handler_conf(SubConf))#{
                         type =>
@@ -1126,9 +1127,9 @@ tr_logger(Conf) ->
                     filesync_repeat_interval => no_repeat
                 }}
             end
-         || {HandlerName, SubConf} <- logger_file_handlers(Conf)
+         || {HandlerNameBin, SubConf} <- logger_file_handlers(Conf)
         ],
-    [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
+    ConsoleHandler ++ FileHandlers.
 
 log_handler_common_confs(Enable) ->
     [

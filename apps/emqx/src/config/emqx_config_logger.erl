@@ -20,6 +20,7 @@
 %% API
 -export([add_handler/0, remove_handler/0, refresh_config/0]).
 -export([post_config_update/5]).
+-include("logger.hrl").
 
 -define(LOG, [log]).
 
@@ -67,7 +68,18 @@ update_log_handlers(NewHandlers) ->
     ),
     lists:foreach(
         fun({handler, HandlerId, Mod, Conf}) ->
-            logger:add_handler(HandlerId, Mod, Conf)
+            case logger:add_handler(HandlerId, Mod, Conf) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "add_logger_handler_failed",
+                        handler_id => HandlerId,
+                        module => Mod,
+                        config => Conf,
+                        reason => Reason
+                    })
+            end
         end,
         NewHandlers -- OldHandlers
     ),

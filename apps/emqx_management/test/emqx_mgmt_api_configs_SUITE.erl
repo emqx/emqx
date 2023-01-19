@@ -97,7 +97,7 @@ t_log(_Config) ->
     Log1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
     Log2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
     {ok, #{}} = update_config(<<"log">>, Log2),
-    {ok, Log3} = logger:get_handler_config(default),
+    {ok, Log3} = logger:get_handler_config(file_for_default),
     ?assertMatch(#{config := #{file := File}}, Log3),
     ErrLog1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, 1),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog1)),
@@ -110,13 +110,13 @@ t_log(_Config) ->
     NewLog1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>], Log2, Handler),
     NewLog2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>, <<"file">>], NewLog1, File1),
     {ok, #{}} = update_config(<<"log">>, NewLog2),
-    {ok, Log4} = logger:get_handler_config(new),
+    {ok, Log4} = logger:get_handler_config(file_for_new),
     ?assertMatch(#{config := #{file := File1}}, Log4),
 
     %% disable new handler
     Disable = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>, <<"enable">>], NewLog2, false),
     {ok, #{}} = update_config(<<"log">>, Disable),
-    ?assertEqual({error, {not_found, new}}, logger:get_handler_config(new)),
+    ?assertEqual({error, {not_found, file_for_new}}, logger:get_handler_config(file_for_new)),
     ok.
 
 t_global_zone(_Config) ->
