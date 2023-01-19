@@ -38,7 +38,8 @@
 ]).
 
 -export([
-    simple_sync_query/2
+    simple_sync_query/2,
+    simple_async_query/2
 ]).
 
 -export([
@@ -61,6 +62,7 @@
 -define(COLLECT_REQ_LIMIT, 1000).
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
 -define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT), {query, FROM, REQUEST, SENT, EXPIRE_AT}).
+-define(SIMPLE_QUERY(REQUEST), ?QUERY(undefined, REQUEST, false, infinity)).
 -define(REPLY(FROM, REQUEST, SENT, RESULT), {reply, FROM, REQUEST, SENT, RESULT}).
 -define(EXPAND(RESULT, BATCH), [
     ?REPLY(FROM, REQUEST, SENT, RESULT)
@@ -116,8 +118,8 @@ async_query(Id, Request, Opts0) ->
     emqx_resource_metrics:matched_inc(Id),
     pick_cast(Id, PickKey, {query, Request, Opts}).
 
-%% simple query the resource without batching and queuing messages.
--spec simple_sync_query(id(), request()) -> Result :: term().
+%% simple query the resource without batching and queuing.
+-spec simple_sync_query(id(), request()) -> term().
 simple_sync_query(Id, Request) ->
     %% Note: since calling this function implies in bypassing the
     %% buffer workers, and each buffer worker index is used when
@@ -126,17 +128,26 @@ simple_sync_query(Id, Request) ->
     %% would mess up the metrics anyway.  `undefined' is ignored by
     %% `emqx_resource_metrics:*_shift/3'.
     Index = undefined,
-    QueryOpts0 = #{simple_query => true, timeout => infinity},
-    QueryOpts = #{expire_at := ExpireAt} = ensure_expire_at(QueryOpts0),
+    QueryOpts = simple_query_opts(),
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_message_ref(),
-    HasBeenSent = false,
-    From = self(),
-    Result = call_query(
-        sync, Id, Index, Ref, ?QUERY(From, Request, HasBeenSent, ExpireAt), QueryOpts
-    ),
-    _ = handle_query_result(Id, Result, HasBeenSent),
+    Result = call_query(sync, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
+
+%% simple async-query the resource without batching and queuing.
+-spec simple_async_query(id(), request()) -> term().
+simple_async_query(Id, Request) ->
+    Index = undefined,
+    QueryOpts = simple_query_opts(),
+    emqx_resource_metrics:matched_inc(Id),
+    Ref = make_message_ref(),
+    Result = call_query(async, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    _ = handle_query_result(Id, Result, _HasBeenSent = false),
+    Result.
+
+simple_query_opts() ->
+    ensure_expire_at(#{simple_query => true, timeout => infinity}).
 
 -spec block(pid()) -> ok.
 block(ServerRef) ->
@@ -848,9 +859,9 @@ call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
     case emqx_resource_manager:ets_lookup(Id) of
         {ok, _Group, #{mod := Mod, state := ResSt, status := connected} = Data} ->
             QM =
-                case QM0 of
-                    configured -> maps:get(query_mode, Data);
-                    _ -> QM0
+                case QM0 =:= configured of
+                    true -> maps:get(query_mode, Data);
+                    false -> QM0
                 end,
             CBM = maps:get(callback_mode, Data),
             CallMode = call_mode(QM, CBM),
@@ -991,11 +1002,7 @@ do_reply_after_query(
                 ref => Ref,
                 result => Result
             }),
-            IsFullBefore = is_inflight_full(InflightTID),
-            IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
-            IsAcked andalso PostFn(),
-            IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ok
+            do_ack(InflightTID, Ref, Id, Index, PostFn, Pid, QueryOpts)
     end.
 
 batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
@@ -1049,12 +1056,22 @@ do_batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, R
                 ref => Ref,
                 result => Result
             }),
-            IsFullBefore = is_inflight_full(InflightTID),
-            IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
-            IsAcked andalso PostFn(),
-            IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ok
+            do_ack(InflightTID, Ref, Id, Index, PostFn, Pid, QueryOpts)
     end.
+
+do_ack(InflightTID, Ref, Id, Index, PostFn, WorkerPid, QueryOpts) ->
+    IsFullBefore = is_inflight_full(InflightTID),
+    IsKnownRef = ack_inflight(InflightTID, Ref, Id, Index),
+    case maps:get(simple_query, QueryOpts, false) of
+        true ->
+            PostFn();
+        false when IsKnownRef ->
+            PostFn();
+        false ->
+            ok
+    end,
+    IsFullBefore andalso ?MODULE:flush_worker(WorkerPid),
+    ok.
 
 %%==============================================================================
 %% operations for queue
@@ -1113,7 +1130,7 @@ inflight_new(InfltWinSZ, Id, Index) ->
     inflight_append(TableId, {?SIZE_REF, 0}, Id, Index),
     inflight_append(TableId, {?INITIAL_TIME_REF, erlang:system_time()}, Id, Index),
     inflight_append(
-        TableId, {?INITIAL_MONOTONIC_TIME_REF, erlang:monotonic_time(nanosecond)}, Id, Index
+        TableId, {?INITIAL_MONOTONIC_TIME_REF, make_message_ref()}, Id, Index
     ),
     TableId.
 
@@ -1426,8 +1443,7 @@ now_() ->
 ensure_timeout_query_opts(#{timeout := _} = Opts, _SyncOrAsync) ->
     Opts;
 ensure_timeout_query_opts(#{} = Opts0, sync) ->
-    TimeoutMS = timer:seconds(15),
-    Opts0#{timeout => TimeoutMS};
+    Opts0#{timeout => ?DEFAULT_REQUEST_TIMEOUT};
 ensure_timeout_query_opts(#{} = Opts0, async) ->
     Opts0#{timeout => infinity}.
 
