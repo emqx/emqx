@@ -72,8 +72,18 @@ t_nodes_api(_) ->
     ),
 
     %% get topics/:topic
+    %% We add another route here to ensure that the response handles
+    %% multiple routes for a single topic
+    DummyNode = 'dummy-node-name',
+    ok = emqx_router:add_route(Topic, DummyNode),
     RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
-    RouteData = emqx_json:decode(RouteResponse, [return_maps]),
-    ?assertEqual(Topic, maps:get(<<"topic">>, RouteData)),
-    ?assertEqual(Node, maps:get(<<"node">>, RouteData)).
+    ok = emqx_router:delete_route(Topic, DummyNode),
+
+    [
+        #{<<"topic">> := Topic, <<"node">> := Node1},
+        #{<<"topic">> := Topic, <<"node">> := Node2}
+    ] = emqx_json:decode(RouteResponse, [return_maps]),
+
+    DummyNodeBin = atom_to_binary(DummyNode),
+    ?assertEqual(lists:usort([Node, DummyNodeBin]), lists:usort([Node1, Node2])).
