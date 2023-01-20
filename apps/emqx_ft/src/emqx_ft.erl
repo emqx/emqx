@@ -30,6 +30,20 @@
     on_channel_takeovered/3
 ]).
 
+-export_type([clientid/0]).
+-export_type([transfer/0]).
+-export_type([offset/0]).
+
+%% Number of bytes
+-type bytes() :: non_neg_integer().
+
+%% MQTT Client ID
+-type clientid() :: emqx_types:clientid().
+
+-type fileid() :: binary().
+-type transfer() :: {clientid(), fileid()}.
+-type offset() :: bytes().
+
 -type ft_data() :: #{
     nodes := list(node())
 }.
