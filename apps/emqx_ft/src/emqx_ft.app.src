@@ -5,7 +5,8 @@
     {mod, {emqx_ft_app, []}},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        gproc
     ]},
     {env, []},
     {modules, []}
