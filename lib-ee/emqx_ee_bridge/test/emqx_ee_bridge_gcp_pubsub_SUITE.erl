@@ -1135,8 +1135,6 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 ResourceId
             );
         {_, sync} ->
-            %% even waiting, hard to avoid flakiness... simpler to just sleep
-            %% a bit until stabilization.
             wait_until_gauge_is(queuing, 0, 500),
             wait_until_gauge_is(inflight, 1, 500),
             assert_metrics(
@@ -1336,12 +1334,19 @@ t_unrecoverable_error(Config) ->
     ),
 
     wait_until_gauge_is(queuing, 0, _Timeout = 400),
-    wait_until_gauge_is(inflight, 1, _Timeout = 400),
+    %% TODO: once temporary clause in
+    %% `emqx_resource_buffer_worker:is_unrecoverable_error'
+    %% that marks all unknown errors as unrecoverable is
+    %% removed, this inflight should be 1, because we retry if
+    %% the worker is killed.
+    wait_until_gauge_is(inflight, 0, _Timeout = 400),
     assert_metrics(
         #{
             dropped => 0,
-            failed => 0,
-            inflight => 1,
+            %% FIXME: see comment above; failed should be 0
+            %% and inflight should be 1.
+            failed => 1,
+            inflight => 0,
             matched => 1,
             queuing => 0,
             retried => 0,

@@ -783,45 +783,26 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent) ->
         ok
     end,
     {nack, PostFn};
-handle_query_result_pure(Id, {error, {unrecoverable_error, Reason}}, HasBeenSent) ->
-    PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
-        inc_sent_failed(Id, HasBeenSent),
-        ok
-    end,
-    {ack, PostFn};
-handle_query_result_pure(Id, {error, {recoverable_error, Reason}}, _HasBeenSent) ->
-    %% the message will be queued in replayq or inflight window,
-    %% i.e. the counter 'queuing' or 'dropped' will increase, so we pretend that we have not
-    %% sent this message.
-    PostFn = fun() ->
-        ?SLOG(warning, #{id => Id, msg => recoverable_error, reason => Reason}),
-        ok
-    end,
-    {nack, PostFn};
-handle_query_result_pure(Id, {error, Reason}, _HasBeenSent) ->
-    PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => send_error, reason => Reason}),
-        ok
-    end,
-    {nack, PostFn};
-handle_query_result_pure(Id, {async_return, {error, {unrecoverable_error, Reason}}}, HasBeenSent) ->
-    PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
-        inc_sent_failed(Id, HasBeenSent),
-        ok
-    end,
-    {ack, PostFn};
-handle_query_result_pure(Id, {async_return, {error, Msg}}, _HasBeenSent) ->
-    PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => async_send_error, info => Msg}),
-        ok
-    end,
-    {nack, PostFn};
-handle_query_result_pure(_Id, {async_return, ok}, _HasBeenSent) ->
-    {ack, fun() -> ok end};
-handle_query_result_pure(_Id, {async_return, {ok, Pid}}, _HasBeenSent) when is_pid(Pid) ->
-    {ack, fun() -> ok end};
+handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
+    case is_unrecoverable_error(Error) of
+        true ->
+            PostFn =
+                fun() ->
+                    ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+                    inc_sent_failed(Id, HasBeenSent),
+                    ok
+                end,
+            {ack, PostFn};
+        false ->
+            PostFn =
+                fun() ->
+                    ?SLOG(error, #{id => Id, msg => send_error, reason => Reason}),
+                    ok
+                end,
+            {nack, PostFn}
+    end;
+handle_query_result_pure(Id, {async_return, Result}, HasBeenSent) ->
+    handle_query_async_result_pure(Id, Result, HasBeenSent);
 handle_query_result_pure(Id, Result, HasBeenSent) ->
     PostFn = fun() ->
         assert_ok_result(Result),
@@ -829,6 +810,28 @@ handle_query_result_pure(Id, Result, HasBeenSent) ->
         ok
     end,
     {ack, PostFn}.
+
+handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
+    case is_unrecoverable_error(Error) of
+        true ->
+            PostFn =
+                fun() ->
+                    ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+                    inc_sent_failed(Id, HasBeenSent),
+                    ok
+                end,
+            {ack, PostFn};
+        false ->
+            PostFn = fun() ->
+                ?SLOG(error, #{id => Id, msg => async_send_error, reason => Reason}),
+                ok
+            end,
+            {nack, PostFn}
+    end;
+handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent) when is_pid(Pid) ->
+    {ack, fun() -> ok end};
+handle_query_async_result_pure(_Id, ok, _HasBeenSent) ->
+    {ack, fun() -> ok end}.
 
 handle_async_worker_down(Data0, Pid) ->
     #{async_workers := AsyncWorkers0} = Data0,

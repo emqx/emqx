@@ -957,12 +957,11 @@ assert_mqtt_msg_received(Topic, Payload) ->
     receive
         {deliver, Topic, #message{payload = Payload}} ->
             ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
-            ok;
-        Msg ->
-            ct:pal("Unexpected Msg: ~p", [Msg]),
-            assert_mqtt_msg_received(Topic, Payload)
-    after 100 ->
-        ct:fail("timeout waiting for ~p on topic ~p", [Payload, Topic])
+            ok
+    after 300 ->
+        {messages, Messages} = process_info(self(), messages),
+        Msg = io_lib:format("timeout waiting for ~p on topic ~p", [Payload, Topic]),
+        error({Msg, #{messages => Messages}})
     end.
 
 request(Method, Url, Body) ->
