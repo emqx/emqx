@@ -46,6 +46,8 @@ fields("creation_opts") ->
     [
         {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
+        {start_after_created, fun start_after_created/1},
+        {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
         {request_timeout, fun request_timeout/1},
@@ -68,6 +70,18 @@ health_check_interval(desc) -> ?DESC("health_check_interval");
 health_check_interval(default) -> ?HEALTHCHECK_INTERVAL_RAW;
 health_check_interval(required) -> false;
 health_check_interval(_) -> undefined.
+
+start_after_created(type) -> boolean();
+start_after_created(desc) -> ?DESC("start_after_created");
+start_after_created(default) -> ?START_AFTER_CREATED_RAW;
+start_after_created(required) -> false;
+start_after_created(_) -> undefined.
+
+start_timeout(type) -> emqx_schema:duration_ms();
+start_timeout(desc) -> ?DESC("start_timeout");
+start_timeout(default) -> ?START_TIMEOUT_RAW;
+start_timeout(required) -> false;
+start_timeout(_) -> undefined.
 
 auto_restart_interval(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
 auto_restart_interval(desc) -> ?DESC("auto_restart_interval");
