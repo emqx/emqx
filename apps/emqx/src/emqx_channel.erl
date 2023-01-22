@@ -740,9 +740,13 @@ do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
     {ok, NChannel};
 do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
     PubRes = emqx_broker:publish(Msg),
-    RC = puback_reason_code(PubRes),
-    NChannel = ensure_quota(PubRes, Channel),
-    handle_out(puback, {PacketId, RC}, NChannel);
+    RC = puback_reason_code(PacketId, Msg, PubRes),
+    case RC of
+        undefined ->
+            {ok, Channel};
+        _Value ->
+            do_finish_publish(PacketId, PubRes, RC, Channel)
+    end;
 do_publish(
     PacketId,
     Msg = #message{qos = ?QOS_2},
@@ -750,7 +754,7 @@ do_publish(
 ) ->
     case emqx_session:publish(ClientInfo, PacketId, Msg, Session) of
         {ok, PubRes, NSession} ->
-            RC = puback_reason_code(PubRes),
+            RC = pubrec_reason_code(PubRes),
             NChannel0 = set_session(NSession, Channel),
             NChannel1 = ensure_timer(await_timer, NChannel0),
             NChannel2 = ensure_quota(PubRes, NChannel1),
@@ -762,6 +766,10 @@ do_publish(
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(disconnect, RC, Channel)
     end.
+
+do_finish_publish(PacketId, PubRes, RC, Channel) ->
+    NChannel = ensure_quota(PubRes, Channel),
+    handle_out(puback, {PacketId, RC}, NChannel).
 
 ensure_quota(_, Channel = #channel{quota = undefined}) ->
     Channel;
@@ -782,9 +790,14 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
             ensure_timer(quota_timer, Intv, Channel#channel{quota = NLimiter})
     end.
 
--compile({inline, [puback_reason_code/1]}).
-puback_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code([_ | _]) -> ?RC_SUCCESS.
+-compile({inline, [pubrec_reason_code/1]}).
+pubrec_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
+pubrec_reason_code([_ | _]) -> ?RC_SUCCESS.
+
+puback_reason_code(PacketId, Msg, [] = PubRes) ->
+    emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_NO_MATCHING_SUBSCRIBERS);
+puback_reason_code(PacketId, Msg, [_ | _] = PubRes) ->
+    emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_SUCCESS).
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(ClientInfo, Msg, PubAckProps) ->
@@ -1279,6 +1292,8 @@ handle_info(die_if_test = Info, Channel) ->
     die_if_test_compiled(),
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel};
+handle_info({puback, PacketId, PubRes, RC}, Channel) ->
+    do_finish_publish(PacketId, PubRes, RC, Channel);
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.

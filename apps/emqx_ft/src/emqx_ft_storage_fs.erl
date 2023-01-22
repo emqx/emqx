@@ -24,7 +24,7 @@
 -export([store_filemeta/3]).
 -export([store_segment/3]).
 -export([list/2]).
--export([assemble/2]).
+-export([assemble/3]).
 
 -export([open_file/3]).
 -export([complete/4]).
@@ -101,12 +101,12 @@
 
 %%
 
--define(PROCREF(Root), {via, gproc, {n, l, {?MODULE, Root}}}).
+% -define(PROCREF(Root), {via, gproc, {n, l, {?MODULE, Root}}}).
 
--spec start_link(root()) ->
-    {ok, pid()} | {error, already_started}.
-start_link(Root) ->
-    gen_server:start_link(?PROCREF(Root), ?MODULE, [], []).
+% -spec start_link(root()) ->
+%     {ok, pid()} | {error, already_started}.
+% start_link(Root) ->
+%     gen_server:start_link(?PROCREF(Root), ?MODULE, [], []).
 
 %% Store manifest in the backing filesystem.
 %% Atomic operation.
@@ -119,13 +119,13 @@ store_filemeta(Storage, Transfer, Meta) ->
         {ok, Meta} ->
             _ = touch_file(Filepath),
             ok;
-        {ok, Conflict} ->
+        {ok, _Conflict} ->
             % TODO
             % We won't see conflicts in case of concurrent `store_filemeta`
             % requests. It's rather odd scenario so it's fine not to worry
             % about it too much now.
             {error, conflict};
-        {error, Reason} when Reason =:= notfound; Reason =:= corrupted ->
+        {error, Reason} when Reason =:= notfound; Reason =:= corrupted; Reason =:= enoent ->
             write_file_atomic(Filepath, encode_filemeta(Meta))
     end.
 
@@ -154,15 +154,15 @@ list(Storage, Transfer) ->
             Error
     end.
 
--spec assemble(storage(), transfer()) ->
+-spec assemble(storage(), transfer(), fun((ok | {error, term()}) -> any())) ->
     % {ok, _Assembler :: pid()} | {error, incomplete} | {error, badrpc} | {error, _TODO}.
     {ok, _Assembler :: pid()} | {error, _TODO}.
-assemble(Storage, Transfer) ->
-    emqx_ft_assembler_sup:start_child(Storage, Storage, Transfer).
+assemble(Storage, Transfer, Callback) ->
+    emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
 
 %%
 
--opaque handle() :: {file:name(), io:device(), crypto:hash_state()}.
+-type handle() :: {file:name(), io:device(), crypto:hash_state()}.
 
 -spec open_file(storage(), transfer(), filemeta()) ->
     {ok, handle()} | {error, _TODO}.
@@ -229,12 +229,12 @@ verify_checksum(undefined, _) ->
 
 %%
 
--spec init(root()) -> {ok, storage()}.
-init(Root) ->
-    % TODO: garbage_collect(...)
-    {ok, Root}.
+% -spec init(root()) -> {ok, storage()}.
+% init(Root) ->
+%     % TODO: garbage_collect(...)
+%     {ok, Root}.
 
-%%
+% %%
 
 -define(PRELUDE(Vsn, Meta), [<<"filemeta">>, Vsn, Meta]).
 
@@ -243,7 +243,7 @@ schema() ->
         roots => [
             {name, hoconsc:mk(string(), #{required => true})},
             {size, hoconsc:mk(non_neg_integer())},
-            {expire_at, hoconsc:mk(non_neg_integer(), #{required => true})},
+            {expire_at, hoconsc:mk(non_neg_integer())},
             {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
             {segments_ttl, hoconsc:mk(pos_integer())},
             {user_data, hoconsc:mk(json_value())}
@@ -353,7 +353,7 @@ safe_decode(Content, DecodeFun) ->
     try
         {ok, DecodeFun(Content)}
     catch
-        C:R:Stacktrace ->
+        _C:_R:_Stacktrace ->
             % TODO: Log?
             {error, corrupted}
     end.
@@ -414,7 +414,7 @@ mk_filefrag(Dirname, Filename, Fun) ->
                 timestamp => Fileinfo#file_info.mtime,
                 fragment => Frag
             }};
-        {error, Reason} ->
+        {error, _Reason} ->
             false
     end.
 
