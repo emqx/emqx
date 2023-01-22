@@ -43,7 +43,17 @@ init([]) ->
         intensity => 100,
         period => 10
     },
-    ChildSpecs = [],
+
+    AssemblerSup = #{
+        id => emqx_ft_assembler_sup,
+        start => {emqx_ft_assembler_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [emqx_ft_assembler_sup]
+    },
+
+    ChildSpecs = [AssemblerSup],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions

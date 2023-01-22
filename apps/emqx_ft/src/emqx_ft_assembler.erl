@@ -16,7 +16,7 @@
 
 -module(emqx_ft_assembler).
 
--export([start_link/2]).
+-export([start_link/3]).
 
 -behaviour(gen_statem).
 -export([callback_mode/0]).
@@ -35,7 +35,8 @@
     transfer :: emqx_ft:transfer(),
     assembly :: _TODO,
     file :: io:device(),
-    hash
+    hash,
+    callback :: fun((ok | {error, term()}) -> any())
 }).
 
 -define(RPC_LIST_TIMEOUT, 1000).
@@ -43,8 +44,8 @@
 
 %%
 
-start_link(Storage, Transfer) ->
-    gen_server:start_link(?MODULE, {Storage, Transfer}, []).
+start_link(Storage, Transfer, Callback) ->
+    gen_server:start_link(?MODULE, {Storage, Transfer, Callback}, []).
 
 %%
 
@@ -53,12 +54,13 @@ start_link(Storage, Transfer) ->
 callback_mode() ->
     handle_event_function.
 
-init({Storage, Transfer}) ->
+init({Storage, Transfer, Callback}) ->
     St = #st{
         storage = Storage,
         transfer = Transfer,
         assembly = emqx_ft_assembly:new(),
-        hash = crypto:hash_init(sha256)
+        hash = crypto:hash_init(sha256),
+        callback = Callback
     },
     {ok, list_local_fragments, St, ?internal([])}.
 
@@ -91,7 +93,7 @@ handle_event({list_remote_fragments, Nodes}, internal, _, St) ->
             fun
                 ({Node, {ok, {ok, Fragments}}}, Asm) ->
                     emqx_ft_assembly:append(Asm, Node, Fragments);
-                ({Node, Result}, Asm) ->
+                ({_Node, _Result}, Asm) ->
                     % TODO: log?
                     Asm
             end,
@@ -128,9 +130,11 @@ handle_event({assemble, [{Node, Segment} | Rest]}, internal, _, St = #st{}) ->
     end;
 handle_event({assemble, []}, internal, _, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
-handle_event(complete, internal, _, St = #st{assembly = Asm, file = Handle}) ->
+handle_event(complete, internal, _, St = #st{assembly = Asm, file = Handle, callback = Callback}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
-    ok = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
+    Result = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
+    %% TODO: safe apply
+    _ = Callback(Result),
     {stop, shutdown}.
 
 % handle_continue(list_local, St = #st{storage = Storage, transfer = Transfer, assembly = Asm}) ->
