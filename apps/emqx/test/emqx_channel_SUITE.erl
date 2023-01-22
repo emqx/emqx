@@ -1133,7 +1133,7 @@ t_ws_cookie_init(_) ->
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
-%% Test cases for other mechnisms
+%% Test cases for other mechanisms
 %%--------------------------------------------------------------------
 
 t_flapping_detect(_) ->

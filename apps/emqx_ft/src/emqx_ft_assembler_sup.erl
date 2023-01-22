@@ -16,24 +16,22 @@
 
 -module(emqx_ft_assembler_sup).
 
--export([start_link/1]).
+-export([start_link/0]).
 -export([start_child/3]).
 
 -behaviour(supervisor).
 -export([init/1]).
 
--define(REF(ID), {via, gproc, {n, l, {?MODULE, ID}}}).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_link(ID) ->
-    supervisor:start_link(?REF(ID), ?MODULE, []).
-
-start_child(ID, Storage, Transfer) ->
+start_child(Storage, Transfer, Callback) ->
     Childspec = #{
         id => {Storage, Transfer},
-        start => {emqx_ft_assembler, start_link, [Storage, Transfer]},
+        start => {emqx_ft_assembler, start_link, [Storage, Transfer, Callback]},
         restart => transient
     },
-    supervisor:start_child(?REF(ID), Childspec).
+    supervisor:start_child(?MODULE, Childspec).
 
 init(_) ->
     SupFlags = #{
@@ -41,4 +39,4 @@ init(_) ->
         intensity => 100,
         period => 1000
     },
-    {ok, SupFlags, []}.
+    {ok, {SupFlags, []}}.

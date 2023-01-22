@@ -311,7 +311,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, #{conn_mod := NewConnM
                         Session1 = emqx_persistent_session:persist(
                             ClientInfo, ConnInfo, Session
                         ),
-                        ok = emqx_hooks:run('channel.takeovered', [NewConnMod, Self, TakoverData]),
+                        ok = emqx_hooks:run('channel.takenover', [NewConnMod, Self, TakoverData]),
                         {ok, #{
                             session => Session1,
                             present => true,
