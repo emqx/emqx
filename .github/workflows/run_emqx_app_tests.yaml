@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         builder:
-          - 5.0-26
+          - 5.0-27
         otp:
           - 24.3.4.2-1
           - 25.1.2-2
