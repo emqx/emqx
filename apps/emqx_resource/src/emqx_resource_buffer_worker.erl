@@ -20,7 +20,6 @@
 -module(emqx_resource_buffer_worker).
 
 -include("emqx_resource.hrl").
--include("emqx_resource_utils.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -276,7 +275,7 @@ code_change(_OldVsn, State, _Extra) ->
     catch
         error:badarg ->
             ?RESOURCE_ERROR(worker_not_created, "resource not created");
-        exit:{timeout, _} ->
+        error:timeout ->
             ?RESOURCE_ERROR(timeout, "call resource timeout")
     end
 ).
