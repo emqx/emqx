@@ -19,8 +19,6 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
--include("emqx_resource.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -772,7 +770,10 @@ t_healthy_timeout(_) ->
         %% the ?TEST_RESOURCE always returns the `Mod:on_get_status/2` 300ms later.
         #{health_check_interval => 200}
     ),
-    ?assertError(timeout, emqx_resource:query(?ID, get_state, #{timeout => 1_000})),
+    ?assertMatch(
+        {error, {resource_error, #{reason := timeout}}},
+        emqx_resource:query(?ID, get_state, #{timeout => 1_000})
+    ),
     ?assertMatch({ok, _Group, #{status := disconnected}}, emqx_resource_manager:ets_lookup(?ID)),
     ok = emqx_resource:remove_local(?ID).
 
@@ -1583,8 +1584,8 @@ do_t_expiration_before_sending(QueryMode) ->
             spawn_link(fun() ->
                 case QueryMode of
                     sync ->
-                        ?assertError(
-                            timeout,
+                        ?assertMatch(
+                            {error, {resource_error, #{reason := timeout}}},
                             emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => TimeoutMS})
                         );
                     async ->
@@ -1690,8 +1691,8 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
                 spawn_link(fun() ->
                     case QueryMode of
                         sync ->
-                            ?assertError(
-                                timeout,
+                            ?assertMatch(
+                                {error, {resource_error, #{reason := timeout}}},
                                 emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
                             );
                         async ->
@@ -2043,8 +2044,8 @@ do_t_expiration_retry(IsBatch) ->
                 ResumeInterval * 2
             ),
             spawn_link(fun() ->
-                ?assertError(
-                    timeout,
+                ?assertMatch(
+                    {error, {resource_error, #{reason := timeout}}},
                     emqx_resource:query(
                         ?ID,
                         {inc_counter, 1},
@@ -2127,8 +2128,8 @@ t_expiration_retry_batch_multiple_times(_Config) ->
             ),
             TimeoutMS = 100,
             spawn_link(fun() ->
-                ?assertError(
-                    timeout,
+                ?assertMatch(
+                    {error, {resource_error, #{reason := timeout}}},
                     emqx_resource:query(
                         ?ID,
                         {inc_counter, 1},
@@ -2137,8 +2138,8 @@ t_expiration_retry_batch_multiple_times(_Config) ->
                 )
             end),
             spawn_link(fun() ->
-                ?assertError(
-                    timeout,
+                ?assertMatch(
+                    {error, {resource_error, #{reason := timeout}}},
                     emqx_resource:query(
                         ?ID,
                         {inc_counter, 2},
