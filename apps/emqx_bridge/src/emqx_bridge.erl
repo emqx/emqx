@@ -65,7 +65,7 @@ load() ->
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    %% fetch opts for `emqx_resource_worker`
+                    %% fetch opts for `emqx_resource_buffer_worker`
                     ResOpts = emqx_resource:fetch_creation_opts(Conf),
                     safe_load_bridge(Type, Name, Conf, ResOpts)
                 end,

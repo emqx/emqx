@@ -914,7 +914,7 @@ t_write_failure(Config) ->
         fun(Trace0) ->
             case QueryMode of
                 sync ->
-                    Trace = ?of_kind(resource_worker_flush_nack, Trace0),
+                    Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(

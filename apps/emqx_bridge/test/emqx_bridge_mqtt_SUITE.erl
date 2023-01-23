@@ -886,9 +886,9 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     {ok, SRef} =
         snabbkaffe:subscribe(
             fun
-                (#{?snk_kind := resource_worker_retry_inflight_failed}) ->
+                (#{?snk_kind := buffer_worker_retry_inflight_failed}) ->
                     true;
-                (#{?snk_kind := resource_worker_flush_nack}) ->
+                (#{?snk_kind := buffer_worker_flush_nack}) ->
                     true;
                 (_) ->
                     false
