@@ -43,6 +43,8 @@
     <<"TopicA/#">>
 ]).
 
+-define(WAIT(EXPR, ATTEMPTS), wait(fun() -> EXPR end, ATTEMPTS)).
+
 all() ->
     [
         {group, mqttv3},
@@ -85,6 +87,12 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
+init_per_testcase(_Case, Config) ->
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
+
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
 %%--------------------------------------------------------------------
@@ -101,16 +109,35 @@ t_basic_v4(_Config) ->
 
 t_cm(_) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
-    ClientId = <<"myclient">>,
+    ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
-    ct:sleep(500),
-    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId),
+    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
     emqtt:subscribe(C, <<"mytopic">>, 0),
-    ct:sleep(1200),
-    Stats = emqx_cm:get_chan_stats(ClientId),
-    ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats)),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
+    ?WAIT(
+        begin
+            Stats = emqx_cm:get_chan_stats(ClientId),
+            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
+        end,
+        2
+    ),
+    ok.
+
+t_idle_timeout_infinity(_) ->
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], infinity),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
+    emqtt:subscribe(C, <<"mytopic">>, 0),
+    ?WAIT(
+        begin
+            Stats = emqx_cm:get_chan_stats(ClientId),
+            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
+        end,
+        2
+    ),
+    ok.
 
 t_cm_registry(_) ->
     Children = supervisor:which_children(emqx_cm_sup),
@@ -363,3 +390,14 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).
+
+wait(F, 1) ->
+    F();
+wait(F, Attempts) when Attempts > 0 ->
+    try
+        F()
+    catch
+        _:_ ->
+            timer:sleep(1000),
+            wait(F, Attempts - 1)
+    end.

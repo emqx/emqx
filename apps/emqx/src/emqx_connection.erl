@@ -403,14 +403,19 @@ exit_on_sock_error(Reason) ->
 recvloop(
     Parent,
     State = #state{
-        idle_timeout = IdleTimeout,
+        idle_timeout = IdleTimeout0,
         zone = Zone
     }
 ) ->
+    IdleTimeout =
+        case IdleTimeout0 of
+            infinity -> infinity;
+            _ -> IdleTimeout0 + 100
+        end,
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
-    after IdleTimeout + 100 ->
+    after IdleTimeout ->
         case emqx_olp:backoff_hibernation(Zone) of
             true ->
                 recvloop(Parent, State);
