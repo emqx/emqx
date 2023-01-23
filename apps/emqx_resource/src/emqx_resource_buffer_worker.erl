@@ -266,11 +266,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%==============================================================================
 -define(PICK(ID, KEY, PID, EXPR),
-    try gproc_pool:pick_worker(ID, KEY) of
-        PID when is_pid(PID) ->
-            EXPR;
-        _ ->
-            ?RESOURCE_ERROR(worker_not_created, "resource not created")
+    try
+        case gproc_pool:pick_worker(ID, KEY) of
+            PID when is_pid(PID) ->
+                EXPR;
+            _ ->
+                ?RESOURCE_ERROR(worker_not_created, "resource not created")
+        end
     catch
         error:badarg ->
             ?RESOURCE_ERROR(worker_not_created, "resource not created");
