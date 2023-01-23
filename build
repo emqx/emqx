@@ -332,13 +332,15 @@ make_docker() {
     if [[ "$PROFILE" = *-elixir ]]; then
       PKG_VSN="$PKG_VSN-elixir"
     fi
+    local default_tag="emqx/${PROFILE%%-elixir}:${PKG_VSN}"
+    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
 
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
        --build-arg EMQX_NAME="$PROFILE" \
-       --tag "emqx/${PROFILE%%-elixir}:${PKG_VSN}" \
+       --tag "${EMQX_IMAGE_TAG}" \
        -f "${EMQX_DOCKERFILE}" .
 }
 
