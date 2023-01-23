@@ -5,7 +5,7 @@ on: workflow_dispatch
 jobs:
     test:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
         strategy:
             fail-fast: true
         env:

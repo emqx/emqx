@@ -19,6 +19,7 @@ jobs:
         otp:
           - 24.3.4.2-1
         os:
+          - ubuntu22.04
           - ubuntu20.04
           - el7
         runs-on:
@@ -32,7 +33,7 @@ jobs:
           - runs-on: aws-amd64
             use-self-hosted: false
 
-    container: ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-24:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
     - uses: AutoModality/action-clean@v1
