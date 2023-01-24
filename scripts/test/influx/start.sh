@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
 NET='emqx.influx.io'
-NODE1="emqx@emqx_1.$NET"
-NODE2="emqx@emqx_2.$NET"
+NODE2_FQDN="emqx@emqx_2.$NET"
+NODE1_CONTAINER_NAME="emqx_1"
+NODE2_CONTAINER_NAME="emqx_2"
+INFLUXDB_CONTAINER_NAME="influxdb_server"
 export EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-latest}"
 
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit
 
-docker rm -f emqx_1 emqx_2 influxdb_server
+docker rm -f "$NODE1_CONTAINER_NAME" "$NODE2_CONTAINER_NAME" "$INFLUXDB_CONTAINER_NAME"
 docker-compose up -d
 
 wait_limit=60
@@ -26,9 +28,9 @@ wait_for_emqx() {
     done
 }
 
-wait_for_emqx emqx_1 30
-wait_for_emqx emqx_2 30
+wait_for_emqx "$NODE1_CONTAINER_NAME" 30
+wait_for_emqx "$NODE2_CONTAINER_NAME" 30
 
 echo
 
-docker exec emqx_1 emqx_ctl cluster join "$NODE2"
+docker exec "$NODE1_CONTAINER_NAME" emqx_ctl cluster join "$NODE2_FQDN"
