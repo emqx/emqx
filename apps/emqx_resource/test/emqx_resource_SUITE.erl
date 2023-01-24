@@ -232,7 +232,7 @@ t_batch_query_counter(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 0}, Result),
             QueryTrace = ?of_kind(call_batch_query, Trace),
-            ?assertMatch([#{batch := [{query, _, get_counter, _}]}], QueryTrace)
+            ?assertMatch([#{batch := [{query, _, get_counter, _, _}]}], QueryTrace)
         end
     ),
 
@@ -284,7 +284,7 @@ t_query_counter_async_query(_) ->
         fun(Trace) ->
             %% the callback_mode of 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
         end
     ),
     %% simple query ignores the query_mode and batching settings in the resource_worker
@@ -295,7 +295,7 @@ t_query_counter_async_query(_) ->
             ?assertMatch({ok, 1000}, Result),
             %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter, _}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
@@ -337,7 +337,7 @@ t_query_counter_async_callback(_) ->
         end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
         end
     ),
 
@@ -348,7 +348,7 @@ t_query_counter_async_callback(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 1000}, Result),
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter, _}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
@@ -414,12 +414,12 @@ t_query_counter_async_inflight(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(WindowSize, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 1_000
             ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
         end
     ),
     tap_metrics(?LINE),
@@ -439,7 +439,7 @@ t_query_counter_async_inflight(_) ->
             emqx_resource:query(?ID, {inc_counter, 99}, #{
                 async_reply_fun => {Insert, [Tab0, tmp_query]}
             }),
-            #{?snk_kind := resource_worker_appended_to_queue},
+            #{?snk_kind := buffer_worker_appended_to_queue},
             1_000
         ),
     tap_metrics(?LINE),
@@ -476,7 +476,7 @@ t_query_counter_async_inflight(_) ->
         end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, _}, _}} | _], QueryTrace),
+            ?assertMatch([#{query := {query, _, {inc_counter, _}, _, _}} | _], QueryTrace),
             ?assertEqual(WindowSize + Num, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
             tap_metrics(?LINE),
             ok
@@ -490,12 +490,12 @@ t_query_counter_async_inflight(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(WindowSize, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 1_000
             ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
         end
     ),
 
@@ -596,7 +596,7 @@ t_query_counter_async_inflight_batch(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(NumMsgs, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 5_000
             ),
         fun(Trace) ->
@@ -605,8 +605,8 @@ t_query_counter_async_inflight_batch(_) ->
                 [
                     #{
                         batch := [
-                            {query, _, {inc_counter, 1}, _},
-                            {query, _, {inc_counter, 1}, _}
+                            {query, _, {inc_counter, 1}, _, _},
+                            {query, _, {inc_counter, 1}, _, _}
                         ]
                     }
                     | _
@@ -623,7 +623,7 @@ t_query_counter_async_inflight_batch(_) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {inc_counter, 2}),
-                    #{?snk_kind := resource_worker_flush_but_inflight_full},
+                    #{?snk_kind := buffer_worker_flush_but_inflight_full},
                     5_000
                 ),
             ?assertMatch(0, ets:info(Tab0, size)),
@@ -646,7 +646,7 @@ t_query_counter_async_inflight_batch(_) ->
             emqx_resource:query(?ID, {inc_counter, 3}, #{
                 async_reply_fun => {Insert, [Tab0, tmp_query]}
             }),
-            #{?snk_kind := resource_worker_appended_to_queue},
+            #{?snk_kind := buffer_worker_appended_to_queue},
             1_000
         ),
     tap_metrics(?LINE),
@@ -687,7 +687,7 @@ t_query_counter_async_inflight_batch(_) ->
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
-                [#{batch := [{query, _, {inc_counter, _}, _} | _]} | _],
+                [#{batch := [{query, _, {inc_counter, _}, _, _} | _]} | _],
                 QueryTrace
             )
         end
@@ -706,13 +706,13 @@ t_query_counter_async_inflight_batch(_) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 inc_counter_in_parallel(NumMsgs, ReqOpts),
-                #{?snk_kind := resource_worker_flush_but_inflight_full},
+                #{?snk_kind := buffer_worker_flush_but_inflight_full},
                 5_000
             ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
-                [#{batch := [{query, _, {inc_counter, _}, _} | _]} | _],
+                [#{batch := [{query, _, {inc_counter, _}, _, _} | _]} | _],
                 QueryTrace
             )
         end
@@ -1055,7 +1055,7 @@ t_retry_batch(_Config) ->
                         end,
                         Payloads
                     ),
-                    #{?snk_kind := resource_worker_enter_blocked},
+                    #{?snk_kind := buffer_worker_enter_blocked},
                     5_000
                 ),
             %% now the individual messages should have been counted
@@ -1066,7 +1066,7 @@ t_retry_batch(_Config) ->
             %% batch shall remain enqueued.
             {ok, _} =
                 snabbkaffe:block_until(
-                    ?match_n_events(2, #{?snk_kind := resource_worker_retry_inflight_failed}),
+                    ?match_n_events(2, #{?snk_kind := buffer_worker_retry_inflight_failed}),
                     5_000
                 ),
             %% should not have increased the matched count with the retries
@@ -1078,7 +1078,7 @@ t_retry_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     5_000
                 ),
             %% 1 more because of the `resume' call
@@ -1140,7 +1140,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
             ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
             NumRequests = 10,
             {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := resource_worker_enter_blocked}),
+                ?match_event(#{?snk_kind := buffer_worker_enter_blocked}),
                 NumBufferWorkers,
                 _Timeout = 5_000
             ),
@@ -1189,7 +1189,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
                             resume_interval => 1_000
                         }
                     ),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     5_000
                 ),
 
@@ -1271,13 +1271,13 @@ t_retry_sync_inflight(_Config) ->
                         Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
                         TestPid ! {res, Res}
                     end),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
             receive
@@ -1322,13 +1322,13 @@ t_retry_sync_inflight_batch(_Config) ->
                         Res = emqx_resource:query(?ID, {big_payload, <<"a">>}, QueryOpts),
                         TestPid ! {res, Res}
                     end),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ok = emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_retry_inflight_succeeded},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     ResumeInterval * 3
                 ),
             receive
@@ -1368,7 +1368,7 @@ t_retry_async_inflight(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
@@ -1376,7 +1376,7 @@ t_retry_async_inflight(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     ResumeInterval * 2
                 ),
             ok
@@ -1411,7 +1411,7 @@ t_retry_async_inflight_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:query(?ID, {big_payload, <<"b">>}, QueryOpts),
-                    #{?snk_kind := resource_worker_retry_inflight_failed},
+                    #{?snk_kind := buffer_worker_retry_inflight_failed},
                     ResumeInterval * 2
                 ),
 
@@ -1419,7 +1419,7 @@ t_retry_async_inflight_batch(_Config) ->
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := resource_worker_enter_running},
+                    #{?snk_kind := buffer_worker_enter_running},
                     ResumeInterval * 2
                 ),
             ok
@@ -1459,7 +1459,7 @@ t_async_pool_worker_death(_Config) ->
             NumReqs = 10,
             {ok, SRef0} =
                 snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := resource_worker_appended_to_inflight}),
+                    ?match_event(#{?snk_kind := buffer_worker_appended_to_inflight}),
                     NumReqs,
                     1_000
                 ),
@@ -1472,7 +1472,7 @@ t_async_pool_worker_death(_Config) ->
             %% grab one of the worker pids and kill it
             {ok, SRef1} =
                 snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := resource_worker_worker_down_update}),
+                    ?match_event(#{?snk_kind := buffer_worker_worker_down_update}),
                     NumBufferWorkers,
                     10_000
                 ),
@@ -1499,9 +1499,680 @@ t_async_pool_worker_death(_Config) ->
     ),
     ok.
 
+t_expiration_sync_before_sending(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    do_t_expiration_before_sending(sync).
+
+t_expiration_sync_batch_before_sending(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    do_t_expiration_before_sending(sync).
+
+t_expiration_async_before_sending(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    do_t_expiration_before_sending(async).
+
+t_expiration_async_batch_before_sending(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    do_t_expiration_before_sending(async).
+
+do_t_expiration_before_sending(QueryMode) ->
+    ?check_trace(
+        begin
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            ?force_ordering(
+                #{?snk_kind := buffer_worker_flush_before_pop},
+                #{?snk_kind := delay_enter}
+            ),
+            ?force_ordering(
+                #{?snk_kind := delay},
+                #{?snk_kind := buffer_worker_flush_before_sieve_expired}
+            ),
+
+            TimeoutMS = 100,
+            spawn_link(fun() ->
+                case QueryMode of
+                    sync ->
+                        ?assertError(
+                            timeout,
+                            emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => TimeoutMS})
+                        );
+                    async ->
+                        ?assertEqual(
+                            ok, emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => TimeoutMS})
+                        )
+                end
+            end),
+            spawn_link(fun() ->
+                ?tp(delay_enter, #{}),
+                ct:sleep(2 * TimeoutMS),
+                ?tp(delay, #{}),
+                ok
+            end),
+
+            {ok, _} = ?block_until(#{?snk_kind := buffer_worker_flush_all_expired}, 4 * TimeoutMS),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{batch := [{query, _, {inc_counter, 99}, _, _}]}],
+                ?of_kind(buffer_worker_flush_all_expired, Trace)
+            ),
+            Metrics = tap_metrics(?LINE),
+            ?assertMatch(
+                #{
+                    counters := #{
+                        matched := 2,
+                        %% the block call
+                        success := 1,
+                        dropped := 1,
+                        'dropped.expired' := 1,
+                        retried := 0,
+                        failed := 0
+                    }
+                },
+                Metrics
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_expiration_sync_before_sending_partial_batch(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    install_telemetry_handler(?FUNCTION_NAME),
+    do_t_expiration_before_sending_partial_batch(sync).
+
+t_expiration_async_before_sending_partial_batch(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    install_telemetry_handler(?FUNCTION_NAME),
+    do_t_expiration_before_sending_partial_batch(async).
+
+do_t_expiration_before_sending_partial_batch(QueryMode) ->
+    ?check_trace(
+        begin
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            ?force_ordering(
+                #{?snk_kind := buffer_worker_flush_before_pop},
+                #{?snk_kind := delay_enter}
+            ),
+            ?force_ordering(
+                #{?snk_kind := delay},
+                #{?snk_kind := buffer_worker_flush_before_sieve_expired}
+            ),
+
+            Pid0 =
+                spawn_link(fun() ->
+                    ?assertEqual(
+                        ok, emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => infinity})
+                    ),
+                    ?tp(infinity_query_returned, #{})
+                end),
+            TimeoutMS = 100,
+            Pid1 =
+                spawn_link(fun() ->
+                    case QueryMode of
+                        sync ->
+                            ?assertError(
+                                timeout,
+                                emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
+                            );
+                        async ->
+                            ?assertEqual(
+                                ok,
+                                emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
+                            )
+                    end
+                end),
+            Pid2 =
+                spawn_link(fun() ->
+                    ?tp(delay_enter, #{}),
+                    ct:sleep(2 * TimeoutMS),
+                    ?tp(delay, #{}),
+                    ok
+                end),
+
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_flush_potentially_partial}, 4 * TimeoutMS
+            ),
+            ok = emqx_resource:simple_sync_query(?ID, resume),
+            case QueryMode of
+                async ->
+                    {ok, _} = ?block_until(
+                        #{
+                            ?snk_kind := buffer_worker_reply_after_query,
+                            action := ack,
+                            batch_or_query := [{query, _, {inc_counter, 99}, _, _}]
+                        },
+                        10 * TimeoutMS
+                    );
+                sync ->
+                    %% more time because it needs to retry if sync
+                    {ok, _} = ?block_until(#{?snk_kind := infinity_query_returned}, 20 * TimeoutMS)
+            end,
+
+            lists:foreach(
+                fun(Pid) ->
+                    unlink(Pid),
+                    exit(Pid, kill)
+                end,
+                [Pid0, Pid1, Pid2]
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        expired := [{query, _, {inc_counter, 199}, _, _}],
+                        not_expired := [{query, _, {inc_counter, 99}, _, _}]
+                    }
+                ],
+                ?of_kind(buffer_worker_flush_potentially_partial, Trace)
+            ),
+            wait_until_gauge_is(inflight, 0, 500),
+            Metrics = tap_metrics(?LINE),
+            case QueryMode of
+                async ->
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                matched := 4,
+                                %% the block call, the request with
+                                %% infinity timeout, and the resume
+                                %% call.
+                                success := 3,
+                                dropped := 1,
+                                'dropped.expired' := 1,
+                                %% was sent successfully and held by
+                                %% the test connector.
+                                retried := 0,
+                                failed := 0
+                            }
+                        },
+                        Metrics
+                    );
+                sync ->
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                matched := 4,
+                                %% the block call, the request with
+                                %% infinity timeout, and the resume
+                                %% call.
+                                success := 3,
+                                dropped := 1,
+                                'dropped.expired' := 1,
+                                %% currently, the test connector
+                                %% replies with an error that may make
+                                %% the buffer worker retry.
+                                retried := Retried,
+                                failed := 0
+                            }
+                        } when Retried =< 1,
+                        Metrics
+                    )
+            end,
+            ok
+        end
+    ),
+    ok.
+
+t_expiration_async_after_reply(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 1_000
+        }
+    ),
+    install_telemetry_handler(?FUNCTION_NAME),
+    do_t_expiration_async_after_reply(single).
+
+t_expiration_async_batch_after_reply(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 2_000
+        }
+    ),
+    install_telemetry_handler(?FUNCTION_NAME),
+    do_t_expiration_async_after_reply(batch).
+
+do_t_expiration_async_after_reply(IsBatch) ->
+    ?check_trace(
+        begin
+            NAcks =
+                case IsBatch of
+                    batch -> 1;
+                    single -> 2
+                end,
+            ?force_ordering(
+                #{?snk_kind := buffer_worker_flush_ack},
+                NAcks,
+                #{?snk_kind := delay_enter},
+                _Guard = true
+            ),
+            ?force_ordering(
+                #{?snk_kind := delay},
+                #{
+                    ?snk_kind := buffer_worker_reply_after_query_enter,
+                    batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
+                }
+            ),
+
+            TimeoutMS = 100,
+            ?assertEqual(
+                ok,
+                emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
+            ),
+            ?assertEqual(
+                ok, emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => infinity})
+            ),
+            Pid0 =
+                spawn_link(fun() ->
+                    ?tp(delay_enter, #{}),
+                    ct:sleep(2 * TimeoutMS),
+                    ?tp(delay, #{}),
+                    ok
+                end),
+
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_flush_potentially_partial}, 4 * TimeoutMS
+            ),
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_reply_after_query_expired}, 10 * TimeoutMS
+            ),
+
+            unlink(Pid0),
+            exit(Pid0, kill),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        expired := [{query, _, {inc_counter, 199}, _, _}]
+                    }
+                ],
+                ?of_kind(buffer_worker_reply_after_query_expired, Trace)
+            ),
+            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
+            Metrics = tap_metrics(?LINE),
+            ?assertMatch(
+                #{
+                    counters := #{
+                        matched := 2,
+                        %% the request with infinity timeout.
+                        success := 1,
+                        dropped := 0,
+                        late_reply := 1,
+                        retried := 0,
+                        failed := 0
+                    }
+                },
+                Metrics
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_expiration_batch_all_expired_after_reply(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := buffer_worker_flush_ack},
+                #{?snk_kind := delay_enter}
+            ),
+            ?force_ordering(
+                #{?snk_kind := delay},
+                #{
+                    ?snk_kind := buffer_worker_reply_after_query_enter,
+                    batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
+                }
+            ),
+
+            TimeoutMS = 200,
+            ?assertEqual(
+                ok,
+                emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
+            ),
+            Pid0 =
+                spawn_link(fun() ->
+                    ?tp(delay_enter, #{}),
+                    ct:sleep(2 * TimeoutMS),
+                    ?tp(delay, #{}),
+                    ok
+                end),
+
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_reply_after_query_expired}, 10 * TimeoutMS
+            ),
+
+            unlink(Pid0),
+            exit(Pid0, kill),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        expired := [{query, _, {inc_counter, 199}, _, _}]
+                    }
+                ],
+                ?of_kind(buffer_worker_reply_after_query_expired, Trace)
+            ),
+            Metrics = tap_metrics(?LINE),
+            ?assertMatch(
+                #{
+                    counters := #{
+                        matched := 1,
+                        success := 0,
+                        dropped := 0,
+                        late_reply := 1,
+                        retried := 0,
+                        failed := 0
+                    }
+                },
+                Metrics
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_expiration_retry(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 300
+        }
+    ),
+    do_t_expiration_retry(single).
+
+t_expiration_retry_batch(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => 300
+        }
+    ),
+    do_t_expiration_retry(batch).
+
+do_t_expiration_retry(IsBatch) ->
+    ResumeInterval = 300,
+    ?check_trace(
+        begin
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            {ok, SRef0} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := buffer_worker_flush_nack}),
+                1,
+                200
+            ),
+            TimeoutMS = 100,
+            %% the request that expires must be first, so it's the
+            %% head of the inflight table (and retriable).
+            {ok, SRef1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := buffer_worker_appended_to_queue}),
+                1,
+                ResumeInterval * 2
+            ),
+            spawn_link(fun() ->
+                ?assertError(
+                    timeout,
+                    emqx_resource:query(
+                        ?ID,
+                        {inc_counter, 1},
+                        #{timeout => TimeoutMS}
+                    )
+                )
+            end),
+            Pid1 =
+                spawn_link(fun() ->
+                    receive
+                        go -> ok
+                    end,
+                    ?assertEqual(
+                        ok,
+                        emqx_resource:query(
+                            ?ID,
+                            {inc_counter, 2},
+                            #{timeout => infinity}
+                        )
+                    )
+                end),
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+            Pid1 ! go,
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+
+            {ok, _} =
+                ?block_until(
+                    #{?snk_kind := buffer_worker_retry_expired},
+                    ResumeInterval * 10
+                ),
+
+            SuccessEventKind =
+                case IsBatch of
+                    batch -> buffer_worker_retry_inflight_succeeded;
+                    single -> buffer_worker_flush_ack
+                end,
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := SuccessEventKind},
+                    ResumeInterval * 5
+                ),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{expired := [{query, _, {inc_counter, 1}, _, _}]}],
+                ?of_kind(buffer_worker_retry_expired, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_expiration_retry_batch_multiple_times(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    ?check_trace(
+        begin
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := buffer_worker_flush_nack}),
+                1,
+                200
+            ),
+            TimeoutMS = 100,
+            spawn_link(fun() ->
+                ?assertError(
+                    timeout,
+                    emqx_resource:query(
+                        ?ID,
+                        {inc_counter, 1},
+                        #{timeout => TimeoutMS}
+                    )
+                )
+            end),
+            spawn_link(fun() ->
+                ?assertError(
+                    timeout,
+                    emqx_resource:query(
+                        ?ID,
+                        {inc_counter, 2},
+                        #{timeout => ResumeInterval + TimeoutMS}
+                    )
+                )
+            end),
+            {ok, _} = snabbkaffe:receive_events(SRef),
+
+            {ok, _} =
+                snabbkaffe:block_until(
+                    ?match_n_events(2, #{?snk_kind := buffer_worker_retry_expired}),
+                    ResumeInterval * 10
+                ),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{expired := [{query, _, {inc_counter, 1}, _, _}]},
+                    #{expired := [{query, _, {inc_counter, 2}, _, _}]}
+                ],
+                ?of_kind(buffer_worker_retry_expired, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+
 inc_counter_in_parallel(N) ->
     inc_counter_in_parallel(N, #{}).
 
@@ -1564,12 +2235,87 @@ tap_metrics(Line) ->
     ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
     #{counters => C, gauges => G}.
 
+install_telemetry_handler(TestCase) ->
+    Tid = ets:new(TestCase, [ordered_set, public]),
+    HandlerId = TestCase,
+    TestPid = self(),
+    _ = telemetry:attach_many(
+        HandlerId,
+        emqx_resource_metrics:events(),
+        fun(EventName, Measurements, Metadata, _Config) ->
+            Data = #{
+                name => EventName,
+                measurements => Measurements,
+                metadata => Metadata
+            },
+            ets:insert(Tid, {erlang:monotonic_time(), Data}),
+            TestPid ! {telemetry, Data},
+            ok
+        end,
+        unused_config
+    ),
+    on_exit(fun() ->
+        telemetry:detach(HandlerId),
+        ets:delete(Tid)
+    end),
+    put({?MODULE, telemetry_table}, Tid),
+    Tid.
+
+wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
+    Events = receive_all_events(GaugeName, Timeout),
+    case length(Events) > 0 andalso lists:last(Events) of
+        #{measurements := #{gauge_set := ExpectedValue}} ->
+            ok;
+        #{measurements := #{gauge_set := Value}} ->
+            ct:fail(
+                "gauge ~p didn't reach expected value ~p; last value: ~p",
+                [GaugeName, ExpectedValue, Value]
+            );
+        false ->
+            ct:pal("no ~p gauge events received!", [GaugeName])
+    end.
+
+receive_all_events(EventName, Timeout) ->
+    receive_all_events(EventName, Timeout, []).
+
+receive_all_events(EventName, Timeout, Acc) ->
+    receive
+        {telemetry, #{name := [_, _, EventName]} = Event} ->
+            receive_all_events(EventName, Timeout, [Event | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
+wait_telemetry_event(EventName) ->
+    wait_telemetry_event(EventName, #{timeout => 5_000, n_events => 1}).
+
+wait_telemetry_event(
+    EventName,
+    Opts0
+) ->
+    DefaultOpts = #{timeout => 5_000, n_events => 1},
+    #{timeout := Timeout, n_events := NEvents} = maps:merge(DefaultOpts, Opts0),
+    wait_n_events(NEvents, Timeout, EventName).
+
+wait_n_events(NEvents, _Timeout, _EventName) when NEvents =< 0 ->
+    ok;
+wait_n_events(NEvents, Timeout, EventName) ->
+    TelemetryTable = get({?MODULE, telemetry_table}),
+    receive
+        {telemetry, #{name := [_, _, EventName]}} ->
+            wait_n_events(NEvents - 1, Timeout, EventName)
+    after Timeout ->
+        RecordedEvents = ets:tab2list(TelemetryTable),
+        ct:pal("recorded events: ~p", [RecordedEvents]),
+        error({timeout_waiting_for_telemetry, EventName})
+    end.
+
 assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := resource_worker_flush_nack, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
     ),
@@ -1577,8 +2323,8 @@ assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     %% before restoring the resource health.
     ?assert(
         ?causality(
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
             Trace
         )
     ),
@@ -1588,8 +2334,8 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := resource_worker_reply_after_query, action := nack, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_reply_after_query, action := nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
     ),
@@ -1597,8 +2343,8 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     %% before restoring the resource health.
     ?assert(
         ?causality(
-            #{?snk_kind := resource_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := resource_worker_retry_inflight_succeeded, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
             Trace
         )
     ),

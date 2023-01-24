@@ -189,8 +189,8 @@ on_batch_query(
                     Datas2 = [emqx_plugin_libs_rule:proc_sql(TokenList, Data) || Data <- Datas],
                     St = maps:get(BinKey, Sts),
                     case on_sql_query(InstId, PoolName, execute_batch, St, Datas2) of
-                        {error, Error} ->
-                            {error, Error};
+                        {error, _Error} = Result ->
+                            handle_result(Result);
                         {_Column, Results} ->
                             handle_batch_result(Results, 0)
                     end
@@ -417,6 +417,8 @@ to_bin(Bin) when is_binary(Bin) ->
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom).
 
+handle_result({error, disconnected}) ->
+    {error, {recoverable_error, disconnected}};
 handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result(Res) ->

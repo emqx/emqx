@@ -29,6 +29,8 @@
 -type query_opts() :: #{
     %% The key used for picking a resource worker
     pick_key => term(),
+    timeout => timeout(),
+    expire_at => infinity | integer(),
     async_reply_fun => reply_fun()
 }.
 -type resource_data() :: #{

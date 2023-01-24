@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_resource_worker_sup).
+-module(emqx_resource_buffer_worker_sup).
 -behaviour(supervisor).
 
 %%%=============================================================================
@@ -99,7 +99,7 @@ ensure_worker_added(ResId, Idx) ->
 
 -define(CHILD_ID(MOD, RESID, INDEX), {MOD, RESID, INDEX}).
 ensure_worker_started(ResId, Idx, Opts) ->
-    Mod = emqx_resource_worker,
+    Mod = emqx_resource_buffer_worker,
     Spec = #{
         id => ?CHILD_ID(Mod, ResId, Idx),
         start => {Mod, start_link, [ResId, Idx, Opts]},
@@ -116,7 +116,7 @@ ensure_worker_started(ResId, Idx, Opts) ->
     end.
 
 ensure_worker_removed(ResId, Idx) ->
-    ChildId = ?CHILD_ID(emqx_resource_worker, ResId, Idx),
+    ChildId = ?CHILD_ID(emqx_resource_buffer_worker, ResId, Idx),
     case supervisor:terminate_child(?SERVER, ChildId) of
         ok ->
             Res = supervisor:delete_child(?SERVER, ChildId),
@@ -129,7 +129,7 @@ ensure_worker_removed(ResId, Idx) ->
     end.
 
 ensure_disk_queue_dir_absent(ResourceId, Index) ->
-    ok = emqx_resource_worker:clear_disk_queue_dir(ResourceId, Index),
+    ok = emqx_resource_buffer_worker:clear_disk_queue_dir(ResourceId, Index),
     ok.
 
 ensure_worker_pool_removed(ResId) ->

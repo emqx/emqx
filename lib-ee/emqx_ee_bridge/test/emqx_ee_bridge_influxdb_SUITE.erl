@@ -277,6 +277,7 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
+            "    request_timeout = 1s\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
             "  }\n"
@@ -313,6 +314,7 @@ influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
+            "    request_timeout = 1s\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
             "  }\n"
@@ -906,25 +908,48 @@ t_write_failure(Config) ->
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
             case QueryMode of
                 sync ->
-                    ?assertError(timeout, send_message(Config, SentData));
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            try
+                                send_message(Config, SentData)
+                            catch
+                                error:timeout ->
+                                    {error, timeout}
+                            end,
+                            #{?snk_kind := buffer_worker_flush_nack},
+                            1_000
+                        );
                 async ->
-                    ?assertEqual(ok, send_message(Config, SentData))
+                    ?wait_async_action(
+                        ?assertEqual(ok, send_message(Config, SentData)),
+                        #{?snk_kind := buffer_worker_reply_after_query},
+                        1_000
+                    )
             end
         end),
         fun(Trace0) ->
             case QueryMode of
                 sync ->
-                    Trace = ?of_kind(resource_worker_flush_nack, Trace0),
+                    Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
                         {error, {error, {closed, "The connection was lost."}}} =:= Result orelse
                             {error, {error, closed}} =:= Result orelse
-                            {error, {error, econnrefused}} =:= Result,
+                            {error, {recoverable_error, {error, econnrefused}}} =:= Result,
                         #{got => Result}
                     );
                 async ->
-                    ok
+                    Trace = ?of_kind(buffer_worker_reply_after_query, Trace0),
+                    ?assertMatch([#{action := nack} | _], Trace),
+                    [#{result := Result} | _] = Trace,
+                    ?assert(
+                        {error, {recoverable_error, {closed, "The connection was lost."}}} =:=
+                            Result orelse
+                            {error, {error, closed}} =:= Result orelse
+                            {error, {recoverable_error, econnrefused}} =:= Result,
+                        #{got => Result}
+                    )
             end,
             ok
         end

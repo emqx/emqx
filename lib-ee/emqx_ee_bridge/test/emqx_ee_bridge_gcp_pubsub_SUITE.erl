@@ -350,10 +350,12 @@ service_account_json(PrivateKeyPEM) ->
 metrics_mapping() ->
     #{
         dropped => fun emqx_resource_metrics:dropped_get/1,
+        dropped_expired => fun emqx_resource_metrics:dropped_expired_get/1,
         dropped_other => fun emqx_resource_metrics:dropped_other_get/1,
         dropped_queue_full => fun emqx_resource_metrics:dropped_queue_full_get/1,
         dropped_resource_not_found => fun emqx_resource_metrics:dropped_resource_not_found_get/1,
         dropped_resource_stopped => fun emqx_resource_metrics:dropped_resource_stopped_get/1,
+        late_reply => fun emqx_resource_metrics:late_reply_get/1,
         failed => fun emqx_resource_metrics:failed_get/1,
         inflight => fun emqx_resource_metrics:inflight_get/1,
         matched => fun emqx_resource_metrics:matched_get/1,
@@ -1117,9 +1119,6 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 CurrentMetrics
             );
         {timeout, async} ->
-            wait_telemetry_event(TelemetryTable, success, ResourceId, #{
-                timeout => 10_000, n_events => 2
-            }),
             wait_until_gauge_is(inflight, 0, _Timeout = 400),
             wait_until_gauge_is(queuing, 0, _Timeout = 400),
             assert_metrics(
@@ -1130,13 +1129,12 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     matched => 2,
                     queuing => 0,
                     retried => 0,
-                    success => 2
+                    success => 0,
+                    late_reply => 2
                 },
                 ResourceId
             );
         {_, sync} ->
-            %% even waiting, hard to avoid flakiness... simpler to just sleep
-            %% a bit until stabilization.
             wait_until_gauge_is(queuing, 0, 500),
             wait_until_gauge_is(inflight, 1, 500),
             assert_metrics(
@@ -1336,12 +1334,19 @@ t_unrecoverable_error(Config) ->
     ),
 
     wait_until_gauge_is(queuing, 0, _Timeout = 400),
-    wait_until_gauge_is(inflight, 1, _Timeout = 400),
+    %% TODO: once temporary clause in
+    %% `emqx_resource_buffer_worker:is_unrecoverable_error'
+    %% that marks all unknown errors as unrecoverable is
+    %% removed, this inflight should be 1, because we retry if
+    %% the worker is killed.
+    wait_until_gauge_is(inflight, 0, _Timeout = 400),
     assert_metrics(
         #{
             dropped => 0,
-            failed => 0,
-            inflight => 1,
+            %% FIXME: see comment above; failed should be 0
+            %% and inflight should be 1.
+            failed => 1,
+            inflight => 0,
             matched => 1,
             queuing => 0,
             retried => 0,

@@ -129,8 +129,10 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'retried.success',
             'retried.failed',
             'success',
+            'late_reply',
             'failed',
             'dropped',
+            'dropped.expired',
             'dropped.queue_full',
             'dropped.resource_not_found',
             'dropped.resource_stopped',
@@ -145,7 +147,7 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             %% buffer, so there is no need for resource workers
             ok;
         false ->
-            ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
+            ok = emqx_resource_buffer_worker_sup:start_workers(ResId, Opts),
             case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
                 true ->
                     wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
@@ -468,7 +470,7 @@ retry_actions(Data) ->
 
 handle_remove_event(From, ClearMetrics, Data) ->
     stop_resource(Data),
-    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
+    ok = emqx_resource_buffer_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     case ClearMetrics of
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
@@ -582,9 +584,9 @@ maybe_alarm(_Status, ResId) ->
 maybe_resume_resource_workers(connected) ->
     lists:foreach(
         fun({_, Pid, _, _}) ->
-            emqx_resource_worker:resume(Pid)
+            emqx_resource_buffer_worker:resume(Pid)
         end,
-        supervisor:which_children(emqx_resource_worker_sup)
+        supervisor:which_children(emqx_resource_buffer_worker_sup)
     );
 maybe_resume_resource_workers(_) ->
     ok.

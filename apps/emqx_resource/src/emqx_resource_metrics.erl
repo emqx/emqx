@@ -34,6 +34,9 @@
     dropped_other_inc/1,
     dropped_other_inc/2,
     dropped_other_get/1,
+    dropped_expired_inc/1,
+    dropped_expired_inc/2,
+    dropped_expired_get/1,
     dropped_queue_full_inc/1,
     dropped_queue_full_inc/2,
     dropped_queue_full_get/1,
@@ -46,6 +49,9 @@
     failed_inc/1,
     failed_inc/2,
     failed_get/1,
+    late_reply_inc/1,
+    late_reply_inc/2,
+    late_reply_get/1,
     matched_inc/1,
     matched_inc/2,
     matched_get/1,
@@ -75,9 +81,11 @@ events() ->
         [?TELEMETRY_PREFIX, Event]
      || Event <- [
             dropped_other,
+            dropped_expired,
             dropped_queue_full,
             dropped_resource_not_found,
             dropped_resource_stopped,
+            late_reply,
             failed,
             inflight,
             matched,
@@ -114,6 +122,9 @@ handle_telemetry_event(
         dropped_other ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.other', Val);
+        dropped_expired ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.expired', Val);
         dropped_queue_full ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.queue_full', Val);
@@ -123,6 +134,8 @@ handle_telemetry_event(
         dropped_resource_stopped ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped.resource_stopped', Val);
+        late_reply ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
@@ -210,6 +223,30 @@ dropped_other_inc(ID, Val) ->
 
 dropped_other_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'dropped.other').
+
+%% @doc Count of messages dropped due to being expired before being sent.
+dropped_expired_inc(ID) ->
+    dropped_expired_inc(ID, 1).
+
+dropped_expired_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, dropped_expired], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
+
+dropped_expired_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'dropped.expired').
+
+%% @doc Count of messages that were sent but received a late reply.
+late_reply_inc(ID) ->
+    late_reply_inc(ID, 1).
+
+late_reply_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, late_reply], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
+
+late_reply_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'late_reply').
 
 %% @doc Count of messages dropped because the queue was full
 dropped_queue_full_inc(ID) ->
