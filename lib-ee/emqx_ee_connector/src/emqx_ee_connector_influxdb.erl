@@ -324,8 +324,9 @@ ssl_config(#{enable := false}) ->
 ssl_config(SSL = #{enable := true}) ->
     [
         {https_enabled, true},
-        {transport, ssl}
-    ] ++ maps:to_list(maps:remove(enable, SSL)).
+        {transport, ssl},
+        {transport_opts, maps:to_list(maps:remove(enable, SSL))}
+    ].
 
 username(#{username := Username}) ->
     [{username, str(Username)}];

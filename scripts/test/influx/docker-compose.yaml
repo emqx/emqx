@@ -1,0 +1,77 @@
+version: '3.9'
+
+services:
+  influxdb_server:
+    container_name: influxdb_server
+    image: influxdb:2.5.0
+    hostname: influxdb.emqx.influx.io
+    expose:
+      - "8086"
+      - "8083"
+    ports:
+      - "8086:8086"
+      - "8083:8083"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: root
+      DOCKER_INFLUXDB_INIT_PASSWORD: emqx@123
+      DOCKER_INFLUXDB_INIT_ORG: emqx
+      DOCKER_INFLUXDB_INIT_BUCKET: mqtt
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: abcdefg
+    volumes:
+      - "${PWD}/certs/server_combined.pem:/etc/influxdb/cert.pem"
+      - "${PWD}/certs/server.key:/etc/influxdb/key.pem"
+#      - "../../../.ci/docker-compose-file/certs/server.crt:/etc/influxdb/cert.pem"
+#      - "../../../.ci/docker-compose-file/certs/server.key:/etc/influxdb/key.pem"
+      - "../../../.ci/docker-compose-file/influxdb/setup-v1.sh:/docker-entrypoint-initdb.d/setup-v1.sh"
+    restart: always
+    command:
+      - influxd
+      - --tls-cert=/etc/influxdb/cert.pem
+      - --tls-key=/etc/influxdb/key.pem
+    networks:
+      - emqx_test
+
+  emqx_1:
+    container_name: emqx_1
+    image: emqx/emqx-enterprise:${EMQX_IMAGE_TAG}
+    hostname: emqx_1.emqx.influx.io
+    ports:
+      - "1883:1883"
+      - "18083:18083"
+    environment:
+      EMQX_LOG__CONSOLE_HANDLER__LEVEL: warning
+      EMQX_NODE_NAME: "emqx@emqx_1.emqx.influx.io"
+    volumes:
+      - "${PWD}/emqx.conf:/opt/emqx/etc/emqx.conf"
+      - "${PWD}/influx-bridge.conf:/opt/emqx/etc/influx-bridge.conf"
+    networks:
+      - emqx_test
+
+  emqx_2:
+    container_name: emqx_2
+    image: emqx/emqx-enterprise:${EMQX_IMAGE_TAG}
+    hostname: emqx_1.emqx.influx.io
+    environment:
+      EMQX_LOG__CONSOLE_HANDLER__LEVEL: warning
+      EMQX_NODE_NAME: "emqx@emqx_2.emqx.influx.io"
+    ports:
+      - "1884:1883"
+      - "18084:18083"
+    volumes:
+      - "${PWD}/emqx.conf:/opt/emqx/etc/emqx.conf"
+      - "${PWD}/influx-bridge.conf:/opt/emqx/etc/influx-bridge.conf"
+    networks:
+      - emqx_test
+
+networks:
+  emqx_test:
+    driver: bridge
+    name: emqx.influx.io
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.240.0/24
+          gateway: 172.100.240.1
+        - subnet: 2001:3200:3110::/64
+          gateway: 2001:3200:3210::1
