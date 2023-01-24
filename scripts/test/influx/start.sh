@@ -3,7 +3,7 @@
 NET='emqx.influx.io'
 NODE1="emqx@emqx_1.$NET"
 NODE2="emqx@emqx_2.$NET"
-export EMQX_TAG='5.0.0-rc.1-g92797d72'
+export EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-latest}"
 
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 

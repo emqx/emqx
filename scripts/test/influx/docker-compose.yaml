@@ -34,7 +34,7 @@ services:
 
   emqx_1:
     container_name: emqx_1
-    image: emqx/emqx-enterprise:${EMQX_TAG}
+    image: emqx/emqx-enterprise:${EMQX_IMAGE_TAG}
     hostname: emqx_1.emqx.influx.io
     ports:
       - "1883:1883"
@@ -50,7 +50,7 @@ services:
 
   emqx_2:
     container_name: emqx_2
-    image: emqx/emqx-enterprise:${EMQX_TAG}
+    image: emqx/emqx-enterprise:${EMQX_IMAGE_TAG}
     hostname: emqx_1.emqx.influx.io
     environment:
       EMQX_LOG__CONSOLE_HANDLER__LEVEL: warning
