@@ -24,6 +24,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TOPICS, [
     <<"TopicA">>,
@@ -43,7 +44,7 @@
     <<"TopicA/#">>
 ]).
 
--define(WAIT(EXPR, ATTEMPTS), wait(fun() -> EXPR end, ATTEMPTS)).
+-define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
 
 all() ->
     [
@@ -390,14 +391,3 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).
-
-wait(F, 1) ->
-    F();
-wait(F, Attempts) when Attempts > 0 ->
-    try
-        F()
-    catch
-        _:_ ->
-            timer:sleep(1000),
-            wait(F, Attempts - 1)
-    end.
