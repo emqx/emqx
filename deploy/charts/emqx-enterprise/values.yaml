@@ -16,6 +16,15 @@ image:
   # pullSecrets:
   # - myRegistryKeySecretName
 
+serviceAccount:
+  # Specifies whether a service account should be created
+  # If set false, means you need create service account by yourself
+  create: true
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+  # Annotations to add to the service account
+  annotations: {}
 
 # The name of a secret in the same kubernetes namespace which contains values to
 # be added to the environment (must be manually created)

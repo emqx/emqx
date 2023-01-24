@@ -43,6 +43,9 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `image.repository` | EMQX Image name | emqx/emqx |
 | `image.pullPolicy` | The image pull policy | IfNotPresent |
 | `image.pullSecrets ` | The image pull secrets | `[]` (does not add image pull secrets to deployed pods) |
+| `serviceAccount.create` | If `true`, create a new service account | `true` |
+| `serviceAccount.name` | Service account to be used. If not set and `serviceAccount.create` is `true`, a name is generated using the fullname template |  |
+| `serviceAccount.annotations` | Annotations to add to the service account |  |
 | `envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | nil |
 | `recreatePods` | Forces the recreation of pods during upgrades, which can be useful to always apply the most recent configuration. | false |
 | `podAnnotations ` | Annotations for pod | `{}` |

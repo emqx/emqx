@@ -52,6 +52,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
       {{- end }}
     spec:
+      serviceAccountName: {{ include "emqx.serviceAccountName" . }}
       volumes:
       {{- if .Values.ssl.enabled }}
       - name: ssl-cert
@@ -72,9 +73,6 @@ spec:
       - name: emqx-license
         secret:
           secretName: {{ .Values.emqxLicenseSecretName }}
-      {{- end }}
-      {{- if eq .Values.emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY "k8s"}}
-      serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- end }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
@@ -107,13 +105,13 @@ spec:
             containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default 8084 }}
           - name: dashboard
             containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP__BIND | default 18083 }}
-          {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
+          {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
           - name: internalmqtt
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT }}
+            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND }}
           {{- end }}
-          {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS) }}
+          {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS__BIND) }}
           - name: dashboardtls
-            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS }}
+            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTPS__BIND }}
           {{- end }}
           - name: ekka
             containerPort: 4370
