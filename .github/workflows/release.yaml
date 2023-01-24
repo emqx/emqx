@@ -79,14 +79,3 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
-      - name: update homebrew packages
-        if: steps.profile.outputs.profile == 'emqx' && (github.event_name == 'release' || inputs.publish_release_artefacts)
-        run: |
-          if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
-              curl --silent --show-error \
-                -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                -X POST \
-                -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ github.ref_name }}\"}}" \
-                "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
-          fi
