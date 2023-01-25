@@ -487,7 +487,7 @@ start_resource(Data, From) ->
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, connecting, UpdatedData, Actions};
         {error, Reason} = Err ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => start_resource_failed,
                 id => Data#data.id,
                 reason => Reason
@@ -546,7 +546,7 @@ handle_connected_health_check(Data) ->
                 Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (Status, UpdatedData) ->
-                ?SLOG(error, #{
+                ?SLOG(warning, #{
                     msg => health_check_failed,
                     id => Data#data.id,
                     status => Status

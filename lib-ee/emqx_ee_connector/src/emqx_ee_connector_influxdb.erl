@@ -208,7 +208,7 @@ start_client(InstId, Config) ->
     catch
         E:R:S ->
             ?tp(influxdb_connector_start_exception, #{error => {E, R}}),
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "start influxdb connector error",
                 connector => InstId,
                 error => E,
@@ -242,7 +242,7 @@ do_start_client(
                     {ok, State};
                 false ->
                     ?tp(influxdb_connector_start_failed, #{error => influxdb_client_not_alive}),
-                    ?SLOG(error, #{
+                    ?SLOG(warning, #{
                         msg => "starting influxdb connector failed",
                         connector => InstId,
                         client => redact_auth(Client),
@@ -261,7 +261,7 @@ do_start_client(
             do_start_client(InstId, ClientConfig, Config);
         {error, Reason} ->
             ?tp(influxdb_connector_start_failed, #{error => Reason}),
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "starting influxdb connector failed",
                 connector => InstId,
                 reason => Reason
