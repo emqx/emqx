@@ -137,7 +137,7 @@ create(Type, Name, Conf, Opts0) ->
         msg => "create bridge",
         type => Type,
         name => Name,
-        config => Conf
+        config => emqx_misc:redact(Conf)
     }),
     Opts = override_start_after_created(Conf, Opts0),
     {ok, _Data} = emqx_resource:create_local(
@@ -172,7 +172,7 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
                 msg => "update bridge",
                 type => Type,
                 name => Name,
-                config => Conf
+                config => emqx_misc:redact(Conf)
             }),
             case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
@@ -182,7 +182,7 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
                         msg => "updating_a_non_existing_bridge",
                         type => Type,
                         name => Name,
-                        config => Conf
+                        config => emqx_misc:redact(Conf)
                     }),
                     create(Type, Name, Conf, Opts);
                 {error, Reason} ->

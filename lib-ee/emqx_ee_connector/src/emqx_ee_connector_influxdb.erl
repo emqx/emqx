@@ -200,8 +200,8 @@ start_client(InstId, Config) ->
     ?SLOG(info, #{
         msg => "starting influxdb connector",
         connector => InstId,
-        config => Config,
-        client_config => ClientConfig
+        config => emqx_misc:redact(Config),
+        client_config => emqx_misc:redact(ClientConfig)
     }),
     try
         do_start_client(InstId, ClientConfig, Config)
@@ -236,8 +236,8 @@ do_start_client(
                     ?SLOG(info, #{
                         msg => "starting influxdb connector success",
                         connector => InstId,
-                        client => Client,
-                        state => State
+                        client => redact_auth(Client),
+                        state => redact_auth(State)
                     }),
                     {ok, State};
                 false ->
@@ -245,7 +245,7 @@ do_start_client(
                     ?SLOG(error, #{
                         msg => "starting influxdb connector failed",
                         connector => InstId,
-                        client => Client,
+                        client => redact_auth(Client),
                         reason => "client is not alive"
                     }),
                     {error, influxdb_client_not_alive}
@@ -255,7 +255,7 @@ do_start_client(
             ?SLOG(info, #{
                 msg => "restarting influxdb connector, found already started client",
                 connector => InstId,
-                old_client => Client0
+                old_client => redact_auth(Client0)
             }),
             _ = influxdb:stop_client(Client0),
             do_start_client(InstId, ClientConfig, Config);
@@ -337,6 +337,13 @@ password(#{password := Password}) ->
     [{password, str(Password)}];
 password(_) ->
     [].
+
+redact_auth(Term) ->
+    emqx_misc:redact(Term, fun is_auth_key/1).
+
+is_auth_key(<<"Authorization">>) -> true;
+is_auth_key(<<"authorization">>) -> true;
+is_auth_key(_) -> false.
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
