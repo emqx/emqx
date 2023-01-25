@@ -142,12 +142,13 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     ok = delete_all_rules(),
     ok = delete_all_bridges(),
-    case ?config(connector_type, Config) of
-        undefined ->
+    case {?config(connector_type, Config), ?config(batch_mode, Config)} of
+        {undefined, _} ->
             Config;
-        RedisType ->
+        {redis_cluster, batch_on} ->
+            {skip, "Batching is not supported by 'redis_cluster' bridge type"};
+        {RedisType, BatchMode} ->
             Transport = ?config(transport, Config),
-            BatchMode = ?config(batch_mode, Config),
             #{RedisType := #{Transport := RedisConnConfig}} = redis_connect_configs(),
             #{BatchMode := ResourceConfig} = resource_configs(),
             IsBatch = (BatchMode =:= batch_on),
@@ -522,7 +523,6 @@ invalid_command_bridge_config() ->
     Conf1#{
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"sync">>,
-            <<"batch_size">> => <<"1">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"start_timeout">> => <<"15s">>
         },
@@ -533,7 +533,6 @@ resource_configs() ->
     #{
         batch_off => #{
             <<"query_mode">> => <<"sync">>,
-            <<"batch_size">> => <<"1">>,
             <<"start_timeout">> => <<"15s">>
         },
         batch_on => #{
