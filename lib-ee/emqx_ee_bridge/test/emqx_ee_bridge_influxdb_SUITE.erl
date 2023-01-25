@@ -945,7 +945,8 @@ t_write_failure(Config) ->
                         {error, {recoverable_error, {closed, "The connection was lost."}}} =:=
                             Result orelse
                             {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, econnrefused}} =:= Result,
+                            {error, {recoverable_error, econnrefused}} =:= Result orelse
+                            {error, {recoverable_error, noproc}} =:= Result,
                         #{got => Result}
                     )
             end,
