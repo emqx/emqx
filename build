@@ -205,6 +205,14 @@ make_zip() {
                     ;;
             esac
             ;;
+        ubuntu22)
+            case "$PKG_VSN" in
+                4.4.15*)
+                    # this is the first version for amzn2, no relup
+                    has_relup='no'
+                    ;;
+            esac
+            ;;
         macos*)
             case "$PKG_VSN" in
                 4.4.12*)
