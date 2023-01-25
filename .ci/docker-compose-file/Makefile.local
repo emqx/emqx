@@ -13,10 +13,10 @@ help:
 up:
 	env \
 		MYSQL_TAG=8 \
-		REDIS_TAG=6 \
+		REDIS_TAG=7.0 \
 		MONGO_TAG=5 \
 		PGSQL_TAG=13 \
-	docker compose \
+	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
@@ -34,7 +34,7 @@ up:
 		up -d --build --remove-orphans
 
 down:
-	docker compose \
+	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \

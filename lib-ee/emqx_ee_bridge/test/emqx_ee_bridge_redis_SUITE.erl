@@ -479,12 +479,13 @@ redis_connect_configs() ->
         },
         redis_cluster => #{
             tcp => #{
-                <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>,
+                <<"servers">> =>
+                    <<"redis-cluster-1:6379,redis-cluster-2:6379,redis-cluster-3:6379">>,
                 <<"redis_type">> => <<"cluster">>
             },
             tls => #{
                 <<"servers">> =>
-                    <<"redis-cluster-tls:8000,redis-cluster-tls:8001,redis-cluster-tls:8002">>,
+                    <<"redis-cluster-tls-1:6389,redis-cluster-tls-2:6389,redis-cluster-tls-3:6389">>,
                 <<"redis_type">> => <<"cluster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_cluster)
             }

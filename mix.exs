@@ -57,7 +57,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.7", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
+      {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.6", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.7.0-rc.2", override: true},
@@ -76,8 +76,6 @@ defmodule EMQXUmbrella.MixProject do
       {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
       # in conflict by emqx_connector and system_monitor
       {:epgsql, github: "emqx/epgsql", tag: "4.7.0.1", override: true},
-      # in conflict by mongodb and eredis_cluster
-      {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},

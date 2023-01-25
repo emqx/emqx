@@ -153,7 +153,7 @@ on_start(
             false ->
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    PoolName = InstId,
     State = #{poolname => PoolName, type => Type},
     case Type of
         cluster ->
@@ -225,26 +225,10 @@ is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
 is_unrecoverable_error(_) ->
     false.
 
-extract_eredis_cluster_workers(PoolName) ->
-    lists:flatten([
-        gen_server:call(PoolPid, get_all_workers)
-     || PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)
-    ]).
-
-eredis_cluster_workers_exist_and_are_connected(Workers) ->
-    length(Workers) > 0 andalso
-        lists:all(
-            fun({_, Pid, _, _}) ->
-                eredis_cluster_pool_worker:is_connected(Pid) =:= true
-            end,
-            Workers
-        ).
-
 on_get_status(_InstId, #{type := cluster, poolname := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
-            Workers = extract_eredis_cluster_workers(PoolName),
-            Health = eredis_cluster_workers_exist_and_are_connected(Workers),
+            Health = eredis_cluster:ping_all(PoolName),
             status_result(Health);
         false ->
             disconnected

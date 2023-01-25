@@ -27,6 +27,8 @@
 -define(REDIS_SINGLE_PORT, 6379).
 -define(REDIS_SENTINEL_HOST, "redis-sentinel").
 -define(REDIS_SENTINEL_PORT, 26379).
+-define(REDIS_CLUSTER_HOST, "redis-cluster-1").
+-define(REDIS_CLUSTER_PORT, 6379).
 -define(REDIS_RESOURCE_MOD, emqx_connector_redis).
 
 all() ->
@@ -203,8 +205,8 @@ redis_config_base(Type, ServerKey) ->
             MaybeSentinel = "",
             MaybeDatabase = "    database = 1\n";
         "cluster" ->
-            Host = ?REDIS_SINGLE_HOST,
-            Port = ?REDIS_SINGLE_PORT,
+            Host = ?REDIS_CLUSTER_HOST,
+            Port = ?REDIS_CLUSTER_PORT,
             MaybeSentinel = "",
             MaybeDatabase = ""
     end,
