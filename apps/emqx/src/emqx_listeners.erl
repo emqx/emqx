@@ -72,9 +72,7 @@ id_example() -> 'tcp:default'.
 list_raw() ->
     [
         {listener_id(Type, LName), Type, LConf}
-     || %% FIXME: quic is not supported update vi dashboard yet
-        {Type, LName, LConf} <- do_list_raw(),
-        Type =/= <<"quic">>
+     || {Type, LName, LConf} <- do_list_raw()
     ].
 
 list() ->
@@ -170,6 +168,11 @@ current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+current_conns(quic, _Name, _ListenOn) ->
+    case quicer:perf_counters() of
+        {ok, PerfCnts} -> proplists:get_value(conn_active, PerfCnts);
+        _ -> 0
+    end;
 current_conns(_, _, _) ->
     {error, not_support}.
 
