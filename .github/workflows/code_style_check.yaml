@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   code_style_check:
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-25.1.2-2-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-27:1.13.4-25.1.2-2-ubuntu20.04"
     steps:
       - uses: actions/checkout@v3
         with:
