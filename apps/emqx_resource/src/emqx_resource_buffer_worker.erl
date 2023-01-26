@@ -243,7 +243,7 @@ blocked(cast, flush, Data) ->
 blocked(state_timeout, unblock, St) ->
     resume_from_blocked(St);
 blocked(info, ?SEND_REQ(_ReqFrom, {query, _Request, _Opts}) = Request0, Data0) ->
-    {_Queries, Data} = collect_and_enqueue_query_requests(Request0, Data0),
+    Data = collect_and_enqueue_query_requests(Request0, Data0),
     {keep_state, Data};
 blocked(info, {flush, _Ref}, _Data) ->
     keep_state_and_data;
@@ -412,7 +412,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
 -spec handle_query_requests(?SEND_REQ(request_from(), request()), data()) ->
     gen_statem:event_handler_result(state(), data()).
 handle_query_requests(Request0, Data0) ->
-    {_Queries, Data} = collect_and_enqueue_query_requests(Request0, Data0),
+    Data = collect_and_enqueue_query_requests(Request0, Data0),
     maybe_flush(Data).
 
 collect_and_enqueue_query_requests(Request0, Data0) ->
@@ -438,8 +438,7 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
             Requests
         ),
     {_Overflow, NewQ} = append_queue(Id, Index, Q, Queries),
-    Data = Data0#{queue := NewQ},
-    {Queries, Data}.
+    Data0#{queue := NewQ}.
 
 maybe_flush(Data0) ->
     #{
