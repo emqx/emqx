@@ -89,6 +89,8 @@
 -define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024).
 -define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
 
+-define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(15)).
+
 %% count
 -define(DEFAULT_BATCH_SIZE, 1).
 

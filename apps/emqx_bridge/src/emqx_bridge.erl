@@ -171,12 +171,20 @@ send_message(BridgeId, Message) ->
         not_found ->
             {error, {bridge_not_found, BridgeId}};
         #{enable := true} = Config ->
-            Timeout = emqx_map_lib:deep_get(
-                [resource_opts, request_timeout], Config, timer:seconds(15)
-            ),
-            emqx_resource:query(ResId, {send_message, Message}, #{timeout => Timeout});
+            QueryOpts = query_opts(Config),
+            emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
             {error, {bridge_stopped, BridgeId}}
+    end.
+
+query_opts(Config) ->
+    case emqx_map_lib:deep_get([resource_opts, request_timeout], Config, false) of
+        Timeout when is_integer(Timeout) ->
+            %% request_timeout is configured
+            #{timeout => Timeout};
+        _ ->
+            %% emqx_resource has a default value (15s)
+            #{}
     end.
 
 config_key_path() ->

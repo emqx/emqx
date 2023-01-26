@@ -46,7 +46,14 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, on_query},
+        {group, on_query_async}
+    ].
+
+groups() ->
+    All = emqx_common_test_helpers:all(?MODULE),
+    [{on_query, All}, {on_query_async, All}].
 
 wait_until_kafka_is_up() ->
     wait_until_kafka_is_up(0).
@@ -89,6 +96,12 @@ end_per_suite(_Config) ->
     _ = application:stop(emqx_connector),
     ok.
 
+init_per_group(GroupName, Config) ->
+    [{query_api, GroupName} | Config].
+
+end_per_group(_, _) ->
+    ok.
+
 set_special_configs(emqx_management) ->
     Listeners = #{http => #{port => 8081}},
     Config = #{
@@ -106,23 +119,23 @@ set_special_configs(_) ->
 %% Test cases for all combinations of SSL, no SSL and authentication types
 %%------------------------------------------------------------------------------
 
-t_publish_no_auth(_CtConfig) ->
-    publish_with_and_without_ssl("none").
+t_publish_no_auth(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, "none").
 
-t_publish_no_auth_key_dispatch(_CtConfig) ->
-    publish_with_and_without_ssl("none", #{"partition_strategy" => "key_dispatch"}).
+t_publish_no_auth_key_dispatch(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, "none", #{"partition_strategy" => "key_dispatch"}).
 
-t_publish_sasl_plain(_CtConfig) ->
-    publish_with_and_without_ssl(valid_sasl_plain_settings()).
+t_publish_sasl_plain(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_plain_settings()).
 
-t_publish_sasl_scram256(_CtConfig) ->
-    publish_with_and_without_ssl(valid_sasl_scram256_settings()).
+t_publish_sasl_scram256(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_scram256_settings()).
 
-t_publish_sasl_scram512(_CtConfig) ->
-    publish_with_and_without_ssl(valid_sasl_scram512_settings()).
+t_publish_sasl_scram512(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_scram512_settings()).
 
-t_publish_sasl_kerberos(_CtConfig) ->
-    publish_with_and_without_ssl(valid_sasl_kerberos_settings()).
+t_publish_sasl_kerberos(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_kerberos_settings()).
 
 %%------------------------------------------------------------------------------
 %% Test cases for REST api
@@ -350,7 +363,7 @@ kafka_bridge_rest_api_helper(Config) ->
 %% exists and it will.  This is specially bad if the
 %% original crash was due to misconfiguration and we are
 %% trying to fix it...
-t_failed_creation_then_fix(_Config) ->
+t_failed_creation_then_fix(Config) ->
     HostsString = kafka_hosts_string_sasl(),
     ValidAuthSettings = valid_sasl_plain_settings(),
     WrongAuthSettings = ValidAuthSettings#{"password" := "wrong"},
@@ -394,7 +407,7 @@ t_failed_creation_then_fix(_Config) ->
     },
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
-    ?assertEqual({async_return, ok}, ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State)),
+    ok = send(Config, ResourceId, Msg, State),
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     %% TODO: refactor those into init/end per testcase
@@ -406,11 +419,37 @@ t_failed_creation_then_fix(_Config) ->
 %% Helper functions
 %%------------------------------------------------------------------------------
 
-publish_with_and_without_ssl(AuthSettings) ->
-    publish_with_and_without_ssl(AuthSettings, #{}).
+send(Config, ResourceId, Msg, State) when is_list(Config) ->
+    Ref = make_ref(),
+    ok = do_send(Ref, Config, ResourceId, Msg, State),
+    receive
+        {ack, Ref} ->
+            ok
+    after 10000 ->
+        error(timeout)
+    end.
 
-publish_with_and_without_ssl(AuthSettings, Config) ->
+do_send(Ref, Config, ResourceId, Msg, State) when is_list(Config) ->
+    Caller = self(),
+    F = fun(ok) ->
+        Caller ! {ack, Ref},
+        ok
+    end,
+    case proplists:get_value(query_api, Config) of
+        on_query ->
+            ok = ?PRODUCER:on_query(ResourceId, {send_message, Msg}, State),
+            F(ok);
+        on_query_async ->
+            {ok, _} = ?PRODUCER:on_query_async(ResourceId, {send_message, Msg}, {F, []}, State),
+            ok
+    end.
+
+publish_with_and_without_ssl(CtConfig, AuthSettings) ->
+    publish_with_and_without_ssl(CtConfig, AuthSettings, #{}).
+
+publish_with_and_without_ssl(CtConfig, AuthSettings, Config) ->
     publish_helper(
+        CtConfig,
         #{
             auth_settings => AuthSettings,
             ssl_settings => #{}
@@ -418,6 +457,7 @@ publish_with_and_without_ssl(AuthSettings, Config) ->
         Config
     ),
     publish_helper(
+        CtConfig,
         #{
             auth_settings => AuthSettings,
             ssl_settings => valid_ssl_settings()
@@ -426,10 +466,11 @@ publish_with_and_without_ssl(AuthSettings, Config) ->
     ),
     ok.
 
-publish_helper(AuthSettings) ->
-    publish_helper(AuthSettings, #{}).
+publish_helper(CtConfig, AuthSettings) ->
+    publish_helper(CtConfig, AuthSettings, #{}).
 
 publish_helper(
+    CtConfig,
     #{
         auth_settings := AuthSettings,
         ssl_settings := SSLSettings
@@ -477,8 +518,7 @@ publish_helper(
     ct:pal("base offset before testing ~p", [Offset]),
     StartRes = ?PRODUCER:on_start(InstId, Conf),
     {ok, State} = StartRes,
-    OnQueryRes = ?PRODUCER:on_query(InstId, {send_message, Msg}, State),
-    {async_return, ok} = OnQueryRes,
+    ok = send(CtConfig, InstId, Msg, State),
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     ok = ?PRODUCER:on_stop(InstId, State),
