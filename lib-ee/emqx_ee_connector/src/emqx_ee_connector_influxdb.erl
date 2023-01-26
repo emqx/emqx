@@ -248,6 +248,8 @@ do_start_client(
                         client => Client,
                         reason => "client is not alive"
                     }),
+                    %% no leak
+                    _ = influxdb:stop_client(Client),
                     {error, influxdb_client_not_alive}
             end;
         {error, {already_started, Client0}} ->
