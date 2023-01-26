@@ -305,7 +305,7 @@ connected({call, From}, {send_to_remote, Msg}, State) ->
         {ok, NState} ->
             {keep_state, NState, [{reply, From, ok}]};
         {error, Reason} ->
-            {keep_state_and_data, [[reply, From, {error, Reason}]]}
+            {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
 connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
     _ = do_send_async(State, Msg, Callback),
