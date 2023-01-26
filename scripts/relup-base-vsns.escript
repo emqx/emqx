@@ -176,6 +176,11 @@ filter_froms(Froms0, AvailableVersionsIndex) ->
             {"amzn2", _} ->
                 Excluded = [list_to_binary(["4.4.", integer_to_list(X)]) || X <- lists:seq(0,11)],
                 lists:filter(fun(Vsn) -> not lists:member(Vsn, Excluded) end, Froms0);
+            %% ubuntu22.04 is introduced since v4.4.15 and e4.4.15
+            %% exclude tags before them
+            {"ubuntu22.04", _} ->
+                Excluded = [list_to_binary(["4.4.", integer_to_list(X)]) || X <- lists:seq(0,14)],
+                lists:filter(fun(Vsn) -> not lists:member(Vsn, Excluded) end, Froms0);
             %% macos arm64 (M1/M2) packages are introduced since v4.4.12 and e4.4.12
             %% exclude tags before them
             {"macos" ++ _, "aarch64" ++ _} ->
