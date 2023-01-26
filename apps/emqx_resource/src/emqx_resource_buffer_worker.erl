@@ -1084,9 +1084,10 @@ estimate_size(QItem) ->
     erlang:external_size(QItem).
 
 -spec append_queue(id(), index(), replayq:q(), [queue_query()]) -> replayq:q().
-append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
-    %% we must not append a raw binary because the marshaller will get
-    %% lost.
+append_queue(Id, Index, Q, Queries) ->
+    %% this assertion is to ensure that we never append a raw binary
+    %% because the marshaller will get lost.
+    false = is_binary(hd(Queries)),
     Q0 = replayq:append(Q, Queries),
     Q2 =
         case replayq:overflow(Q0) of
