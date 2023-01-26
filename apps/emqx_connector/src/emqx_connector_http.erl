@@ -592,3 +592,33 @@ is_sensitive_key(_) ->
 %% information (i.e., passwords)
 redact(Data) ->
     emqx_misc:redact(Data, fun is_sensitive_key/1).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+redact_test_() ->
+    TestData1 = [
+        {<<"content-type">>, <<"application/json">>},
+        {<<"Authorization">>, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}
+    ],
+
+    TestData2 = #{
+        headers =>
+            [
+                {[{str, <<"content-type">>}], [{str, <<"application/json">>}]},
+                {[{str, <<"Authorization">>}], [{str, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}]}
+            ]
+    },
+    [
+        ?_assert(is_sensitive_key(<<"Authorization">>)),
+        ?_assert(is_sensitive_key(<<"AuthoriZation">>)),
+        ?_assert(is_sensitive_key('AuthoriZation')),
+        ?_assert(is_sensitive_key(<<"PrOxy-authoRizaTion">>)),
+        ?_assert(is_sensitive_key('PrOxy-authoRizaTion')),
+        ?_assertNot(is_sensitive_key(<<"Something">>)),
+        ?_assertNot(is_sensitive_key(89)),
+        ?_assertNotEqual(TestData1, redact(TestData1)),
+        ?_assertNotEqual(TestData2, redact(TestData2))
+    ].
+
+-endif.
