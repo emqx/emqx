@@ -229,6 +229,14 @@ t_banned_delayed(_) ->
     }),
 
     snabbkaffe:start_trace(),
+    {ok, SubRef} =
+        snabbkaffe:subscribe(
+            ?match_event(#{?snk_kind := ignore_delayed_message_publish}),
+            _NEvents = 2,
+            _Timeout = 10000,
+            0
+        ),
+
     lists:foreach(
         fun(ClientId) ->
             Msg = emqx_message:make(ClientId, <<"$delayed/1/bc">>, <<"payload">>),
@@ -237,8 +245,7 @@ t_banned_delayed(_) ->
         [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2]
     ),
 
-    timer:sleep(2000),
-    Trace = snabbkaffe:collect_trace(),
+    {ok, Trace} = snabbkaffe:receive_events(SubRef),
     snabbkaffe:stop(),
     emqx_banned:delete(Who),
     mnesia:clear_table(emqx_delayed),
