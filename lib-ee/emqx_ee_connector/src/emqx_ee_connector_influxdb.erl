@@ -341,9 +341,10 @@ password(_) ->
 redact_auth(Term) ->
     emqx_misc:redact(Term, fun is_auth_key/1).
 
-is_auth_key(<<"Authorization">>) -> true;
-is_auth_key(<<"authorization">>) -> true;
-is_auth_key(_) -> false.
+is_auth_key(Key) when is_binary(Key) ->
+    string:equal("authorization", Key, true);
+is_auth_key(_) ->
+    false.
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
@@ -627,6 +628,13 @@ is_unrecoverable_error(_) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+is_auth_key_test_() ->
+    [
+        ?_assert(is_auth_key(<<"Authorization">>)),
+        ?_assertNot(is_auth_key(<<"Something">>)),
+        ?_assertNot(is_auth_key(89))
+    ].
 
 %% for coverage
 desc_test_() ->
