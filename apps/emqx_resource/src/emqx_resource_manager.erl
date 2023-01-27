@@ -309,6 +309,7 @@ init({Data, Opts}) ->
     end.
 
 terminate(_Reason, _State, Data) ->
+    _ = stop_resource(Data),
     _ = maybe_clear_alarm(Data#data.id),
     delete_cache(Data#data.id, Data#data.manager_id),
     ok.
@@ -334,8 +335,7 @@ handle_event({call, From}, start, _State, _Data) ->
 % Called when the resource received a `quit` message
 handle_event(info, quit, stopped, _Data) ->
     {stop, {shutdown, quit}};
-handle_event(info, quit, _State, Data) ->
-    _ = stop_resource(Data),
+handle_event(info, quit, _State, _Data) ->
     {stop, {shutdown, quit}};
 % Called when the resource is to be stopped
 handle_event({call, From}, stop, stopped, _Data) ->
