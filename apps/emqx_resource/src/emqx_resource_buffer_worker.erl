@@ -52,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([reply_after_query/8, batch_reply_after_query/8]).
+-export([handle_async_reply/8, batch_reply_after_query/8]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -898,7 +898,7 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
     ?APPLY_RESOURCE(
         call_query_async,
         begin
-            ReplyFun = fun ?MODULE:reply_after_query/8,
+            ReplyFun = fun ?MODULE:handle_async_reply/8,
             Args = [self(), Id, Index, InflightTID, Ref, Query, QueryOpts],
             IsRetriable = false,
             WorkerMRef = undefined,
@@ -936,7 +936,7 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
         Batch
     ).
 
-reply_after_query(
+handle_async_reply(
     Pid,
     Id,
     Index,
