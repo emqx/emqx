@@ -116,8 +116,6 @@
 %% same as default in-flight limit for emqtt
 -define(DEFAULT_INFLIGHT_SIZE, 32).
 -define(DEFAULT_RECONNECT_DELAY_MS, timer:seconds(5)).
--define(DEFAULT_SEG_BYTES, (1 bsl 20)).
--define(DEFAULT_MAX_TOTAL_SIZE, (1 bsl 31)).
 
 %% @doc Start a bridge worker. Supported configs:
 %% start_type: 'manual' (default) or 'auto', when manual, bridge will stay
@@ -274,10 +272,10 @@ idle({call, From}, ensure_started, State) ->
         {ok, State1} ->
             {next_state, connected, State1, [{reply, From, ok}, {state_timeout, 0, connected}]};
         {error, Reason, _State} ->
-            {keep_state_and_data, [{reply, From, {error, Reason}}]}
+            {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
 idle({call, From}, {send_to_remote, _}, _State) ->
-    {keep_state_and_data, [{reply, From, {error, {recoverable_error, not_connected}}}]};
+    {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
 %% @doc Standing by for manual start.
 idle(info, idle, #{start_type := manual}) ->
     keep_state_and_data;
@@ -303,9 +301,9 @@ connected(state_timeout, connected, State) ->
 connected({call, From}, {send_to_remote, Msg}, State) ->
     case do_send(State, Msg) of
         {ok, NState} ->
-            {keep_state, NState, [{reply, From, ok}]};
+            {keep_state, NState, {reply, From, ok}};
         {error, Reason} ->
-            {keep_state_and_data, [[reply, From, {error, Reason}]]}
+            {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
 connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
     _ = do_send_async(State, Msg, Callback),
@@ -328,21 +326,21 @@ connected(Type, Content, State) ->
 
 %% Common handlers
 common(StateName, {call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, StateName}]};
+    {keep_state_and_data, {reply, From, StateName}};
 common(_StateName, {call, From}, ping, #{connection := Conn} = _State) ->
     Reply = emqx_connector_mqtt_mod:ping(Conn),
-    {keep_state_and_data, [{reply, From, Reply}]};
+    {keep_state_and_data, {reply, From, Reply}};
 common(_StateName, {call, From}, ensure_stopped, #{connection := undefined} = _State) ->
-    {keep_state_and_data, [{reply, From, ok}]};
+    {keep_state_and_data, {reply, From, ok}};
 common(_StateName, {call, From}, ensure_stopped, #{connection := Conn} = State) ->
     Reply = emqx_connector_mqtt_mod:stop(Conn),
-    {next_state, idle, State#{connection => undefined}, [{reply, From, Reply}]};
+    {next_state, idle, State#{connection => undefined}, {reply, From, Reply}};
 common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := Forwards}}) ->
-    {keep_state_and_data, [{reply, From, Forwards}]};
+    {keep_state_and_data, {reply, From, Forwards}};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
-    {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
+    {keep_state_and_data, {reply, From, maps:get(subscriptions, Connection, #{})}};
 common(_StateName, {call, From}, Req, _State) ->
-    {keep_state_and_data, [{reply, From, {error, {unsupported_request, Req}}}]};
+    {keep_state_and_data, {reply, From, {error, {unsupported_request, Req}}}};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
 common(StateName, Type, Content, #{name := Name} = State) ->
