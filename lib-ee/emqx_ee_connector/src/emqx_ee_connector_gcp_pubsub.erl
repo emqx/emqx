@@ -58,7 +58,6 @@
 %% emqx_resource API
 %%-------------------------------------------------------------------------------------------------
 
-%% TODO: check
 is_buffer_supported() -> false.
 
 callback_mode() -> async_if_possible.

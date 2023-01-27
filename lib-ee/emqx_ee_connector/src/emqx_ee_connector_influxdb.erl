@@ -26,6 +26,7 @@
     on_batch_query_async/4,
     on_get_status/2
 ]).
+-export([reply_callback/2]).
 
 -export([
     namespace/0,
@@ -247,6 +248,8 @@ do_start_client(
                         client => Client,
                         reason => "client is not alive"
                     }),
+                    %% no leak
+                    _ = influxdb:stop_client(Client),
                     {error, influxdb_client_not_alive}
             end;
         {error, {already_started, Client0}} ->
@@ -323,8 +326,9 @@ ssl_config(#{enable := false}) ->
 ssl_config(SSL = #{enable := true}) ->
     [
         {https_enabled, true},
-        {transport, ssl}
-    ] ++ maps:to_list(maps:remove(enable, SSL)).
+        {transport, ssl},
+        {transport_opts, maps:to_list(maps:remove(enable, SSL))}
+    ].
 
 username(#{username := Username}) ->
     [{username, str(Username)}];
@@ -353,7 +357,12 @@ do_query(InstId, Client, Points) ->
                 connector => InstId,
                 reason => Reason
             }),
-            Err
+            case is_unrecoverable_error(Err) of
+                true ->
+                    {error, {unrecoverable_error, Reason}};
+                false ->
+                    {error, {recoverable_error, Reason}}
+            end
     end.
 
 do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
@@ -362,7 +371,20 @@ do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
         connector => InstId,
         points => Points
     }),
-    {ok, _WorkerPid} = influxdb:write_async(Client, Points, ReplyFunAndArgs).
+    WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
+    {ok, _WorkerPid} = influxdb:write_async(Client, Points, WrappedReplyFunAndArgs).
+
+reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
+    case is_unrecoverable_error(Error) of
+        true ->
+            Result = {error, {unrecoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+        false ->
+            Result = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end;
+reply_callback(ReplyFunAndArgs, Result) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
@@ -582,6 +604,17 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
+
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_error({error, {recoverable_error, _}}) ->
+    false;
+is_unrecoverable_error({error, {error, econnrefused}}) ->
+    false;
+is_unrecoverable_error({error, econnrefused}) ->
+    false;
+is_unrecoverable_error(_) ->
+    false.
 
 %%===================================================================
 %% eunit tests

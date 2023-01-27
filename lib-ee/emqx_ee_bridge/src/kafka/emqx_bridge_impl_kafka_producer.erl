@@ -11,6 +11,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_query_async/4,
     on_get_status/2
 ]).
 
@@ -140,19 +141,48 @@ on_stop(_InstanceID, #{client_id := ClientID, producers := Producers, resource_i
         }
     ).
 
+on_query(
+    _InstId,
+    {send_message, Message},
+    #{message_template := Template, producers := Producers}
+) ->
+    KafkaMessage = render_message(Template, Message),
+    %% TODO: this function is not used so far,
+    %% timeout should be configurable
+    %% or the on_query/3 should be on_query/4 instead.
+    try
+        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], 5000),
+        ok
+    catch
+        error:{producer_down, _} = Reason ->
+            {error, Reason};
+        error:timeout ->
+            {error, timeout}
+    end.
+
 %% @doc The callback API for rule-engine (or bridge without rules)
 %% The input argument `Message' is an enriched format (as a map())
 %% of the original #message{} record.
 %% The enrichment is done by rule-engine or by the data bridge framework.
 %% E.g. the output of rule-engine process chain
 %% or the direct mapping from an MQTT message.
-on_query(_InstId, {send_message, Message}, #{message_template := Template, producers := Producers}) ->
+on_query_async(
+    _InstId,
+    {send_message, Message},
+    AsyncReplyFn,
+    #{message_template := Template, producers := Producers}
+) ->
     KafkaMessage = render_message(Template, Message),
+    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
+    %% * Must be a single element batch because wolff books calls, but not batch sizes
+    %%   for counters and gauges.
+    Batch = [KafkaMessage],
     %% The retuned information is discarded here.
     %% If the producer process is down when sending, this function would
     %% raise an error exception which is to be caught by the caller of this callback
-    {_Partition, _Pid} = wolff:send(Producers, [KafkaMessage], {fun ?MODULE:on_kafka_ack/3, [#{}]}),
-    {async_return, ok}.
+    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
+    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
+    {ok, Pid}.
 
 compile_message_template(T) ->
     KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
@@ -194,9 +224,14 @@ render_timestamp(Template, Message) ->
             erlang:system_time(millisecond)
     end.
 
-on_kafka_ack(_Partition, _Offset, _Extra) ->
-    %% Do nothing so far.
-    %% Maybe need to bump some counters?
+%% Wolff producer never gives up retrying
+%% so there can only be 'ok' results.
+on_kafka_ack(_Partition, Offset, {ReplyFn, Args}) when is_integer(Offset) ->
+    %% the ReplyFn is emqx_resource_worker:reply_after_query/8
+    apply(ReplyFn, Args ++ [ok]);
+on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
+    %% wolff should bump the dropped_queue_full counter
+    %% do not apply the callback (which is basically to bump success or fail counter)
     ok.
 
 on_get_status(_InstId, _State) ->
@@ -346,26 +381,12 @@ get_required(Field, Config, Throw) ->
 %% the handler config; otherwise, multiple kafka producer bridges will
 %% install multiple handlers to the same wolff events, multiplying the
 handle_telemetry_event(
-    [wolff, dropped],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_inc(ID, Val);
-handle_telemetry_event(
     [wolff, dropped_queue_full],
     #{counter_inc := Val},
     #{bridge_id := ID},
     #{bridge_id := ID}
 ) when is_integer(Val) ->
-    %% When wolff emits a `dropped_queue_full' event due to replayq
-    %% overflow, it also emits a `dropped' event (at the time of
-    %% writing, wolff is 1.7.4).  Since we already bump `dropped' when
-    %% `dropped.queue_full' occurs, we have to correct it here.  This
-    %% correction will have to be dropped if wolff stops also emitting
-    %% `dropped'.
-    emqx_resource_metrics:dropped_queue_full_inc(ID, Val),
-    emqx_resource_metrics:dropped_inc(ID, -Val);
+    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
 handle_telemetry_event(
     [wolff, queuing],
     #{gauge_set := Val},
@@ -381,40 +402,12 @@ handle_telemetry_event(
 ) when is_integer(Val) ->
     emqx_resource_metrics:retried_inc(ID, Val);
 handle_telemetry_event(
-    [wolff, failed],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:failed_inc(ID, Val);
-handle_telemetry_event(
     [wolff, inflight],
     #{gauge_set := Val},
     #{bridge_id := ID, partition_id := PartitionID},
     #{bridge_id := ID}
 ) when is_integer(Val) ->
     emqx_resource_metrics:inflight_set(ID, PartitionID, Val);
-handle_telemetry_event(
-    [wolff, retried_failed],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:retried_failed_inc(ID, Val);
-handle_telemetry_event(
-    [wolff, retried_success],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:retried_success_inc(ID, Val);
-handle_telemetry_event(
-    [wolff, success],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:success_inc(ID, Val);
 handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
     %% Event that we do not handle
     ok.
@@ -437,15 +430,10 @@ maybe_install_wolff_telemetry_handlers(ResourceID) ->
         %% unique handler id
         telemetry_handler_id(ResourceID),
         [
-            [wolff, dropped],
             [wolff, dropped_queue_full],
             [wolff, queuing],
             [wolff, retried],
-            [wolff, failed],
-            [wolff, inflight],
-            [wolff, retried_failed],
-            [wolff, retried_success],
-            [wolff, success]
+            [wolff, inflight]
         ],
         fun ?MODULE:handle_telemetry_event/4,
         %% we *must* keep track of the same id that is handed down to

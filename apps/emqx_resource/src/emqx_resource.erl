@@ -255,7 +255,7 @@ reset_metrics(ResId) ->
 query(ResId, Request) ->
     query(ResId, Request, #{}).
 
--spec query(resource_id(), Request :: term(), emqx_resource_buffer_worker:query_opts()) ->
+-spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:ets_lookup(ResId) of
@@ -263,7 +263,8 @@ query(ResId, Request, Opts) ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
                 {true, _} ->
-                    emqx_resource_buffer_worker:simple_sync_query(ResId, Request);
+                    %% only Kafka so far
+                    emqx_resource_buffer_worker:simple_async_query(ResId, Request);
                 {false, sync} ->
                     emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
                 {false, async} ->

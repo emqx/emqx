@@ -751,11 +751,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
             )
         ) ->
             ?METRICS(
@@ -773,7 +773,9 @@ aggregate_metrics(AllMetrics) ->
                 M12 + N12,
                 M13 + N13,
                 M14 + N14,
-                M15 + N15
+                M15 + N15,
+                M16 + N16,
+                M17 + N17
             )
         end,
         InitMetrics,
@@ -805,11 +807,13 @@ format_metrics(#{
     counters := #{
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
+        'dropped.expired' := DroppedExpired,
         'dropped.queue_full' := DroppedQueueFull,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
         'retried' := Retried,
+        'late_reply' := LateReply,
         'failed' := SentFailed,
         'success' := SentSucc,
         'received' := Rcvd
@@ -824,12 +828,14 @@ format_metrics(#{
     ?METRICS(
         Dropped,
         DroppedOther,
+        DroppedExpired,
         DroppedQueueFull,
         DroppedResourceNotFound,
         DroppedResourceStopped,
         Matched,
         Queued,
         Retried,
+        LateReply,
         SentFailed,
         SentInflight,
         SentSucc,

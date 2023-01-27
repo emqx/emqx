@@ -16,19 +16,21 @@
 
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
 -define(METRICS(
     Dropped,
     DroppedOther,
+    DroppedExpired,
     DroppedQueueFull,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
     Queued,
     Retried,
+    LateReply,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -40,12 +42,14 @@
     #{
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
+        'dropped.expired' => DroppedExpired,
         'dropped.queue_full' => DroppedQueueFull,
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
         'queuing' => Queued,
         'retried' => Retried,
+        'late_reply' => LateReply,
         'failed' => SentFailed,
         'inflight' => SentInflight,
         'success' => SentSucc,
@@ -59,12 +63,14 @@
 -define(metrics(
     Dropped,
     DroppedOther,
+    DroppedExpired,
     DroppedQueueFull,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
     Queued,
     Retried,
+    LateReply,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -76,12 +82,14 @@
     #{
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
+        'dropped.expired' := DroppedExpired,
         'dropped.queue_full' := DroppedQueueFull,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
         'queuing' := Queued,
         'retried' := Retried,
+        'late_reply' := LateReply,
         'failed' := SentFailed,
         'inflight' := SentInflight,
         'success' := SentSucc,

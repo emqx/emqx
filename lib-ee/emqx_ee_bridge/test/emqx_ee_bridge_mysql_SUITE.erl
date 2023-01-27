@@ -228,7 +228,7 @@ query_resource(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request).
+    emqx_resource:query(ResourceID, Request, #{timeout => 500}).
 
 unprepare(Config, Key) ->
     Name = ?config(mysql_name, Config),
