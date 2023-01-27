@@ -920,7 +920,7 @@ t_write_failure(Config) ->
                 async ->
                     ?wait_async_action(
                         ?assertEqual(ok, send_message(Config, SentData)),
-                        #{?snk_kind := buffer_worker_reply_after_query},
+                        #{?snk_kind := handle_async_reply},
                         1_000
                     )
             end
@@ -938,7 +938,7 @@ t_write_failure(Config) ->
                         #{got => Result}
                     );
                 async ->
-                    Trace = ?of_kind(buffer_worker_reply_after_query, Trace0),
+                    Trace = ?of_kind(handle_async_reply, Trace0),
                     ?assertMatch([#{action := nack} | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(

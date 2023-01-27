@@ -960,13 +960,13 @@ handle_async_reply(
         resource_id := Id,
         worker_index := Index,
         buffer_worker := Pid,
-        query := ?QUERY(_, _, _, ExpireAt) = Query
+        query := ?QUERY(_, _, _, ExpireAt) = _Query
     } = ReplyContext,
     Result
 ) ->
     ?tp(
-        buffer_worker_reply_after_query_enter,
-        #{batch_or_query => [Query], ref => Ref}
+        handle_async_reply_enter,
+        #{batch_or_query => [_Query], ref => Ref}
     ),
     Now = now_(),
     case is_expired(ExpireAt, Now) of
@@ -975,7 +975,7 @@ handle_async_reply(
             IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
             IsAcked andalso emqx_resource_metrics:late_reply_inc(Id),
             IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ?tp(buffer_worker_reply_after_query_expired, #{expired => [Query]}),
+            ?tp(handle_async_reply_expired, #{expired => [_Query]}),
             ok;
         false ->
             do_handle_async_reply(ReplyContext, Result)
@@ -989,7 +989,7 @@ do_handle_async_reply(
         worker_index := Index,
         buffer_worker := Pid,
         inflight_tid := InflightTID,
-        query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = Query
+        query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = _Query
     },
     Result
 ) ->
@@ -1000,9 +1000,9 @@ do_handle_async_reply(
         Id, ?REPLY(ReplyTo, Sent, Result), QueryOpts
     ),
 
-    ?tp(buffer_worker_reply_after_query, #{
+    ?tp(handle_async_reply, #{
         action => Action,
-        batch_or_query => [Query],
+        batch_or_query => [_Query],
         ref => Ref,
         result => Result
     }),
@@ -1028,7 +1028,7 @@ handle_async_batch_reply(
     Result
 ) ->
     ?tp(
-        buffer_worker_reply_after_query_enter,
+        handle_async_reply_enter,
         #{batch_or_query => Batch, ref => Ref}
     ),
     Now = now_(),
@@ -1038,13 +1038,13 @@ handle_async_batch_reply(
             IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
             IsAcked andalso emqx_resource_metrics:late_reply_inc(Id),
             IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ?tp(buffer_worker_reply_after_query_expired, #{expired => Batch}),
+            ?tp(handle_async_reply_expired, #{expired => Batch}),
             ok;
         {NotExpired, Expired} ->
             NumExpired = length(Expired),
             emqx_resource_metrics:late_reply_inc(Id, NumExpired),
             NumExpired > 0 andalso
-                ?tp(buffer_worker_reply_after_query_expired, #{expired => Expired}),
+                ?tp(handle_async_reply_expired, #{expired => Expired}),
             do_handle_async_batch_reply(ReplyContext#{batch := NotExpired}, Result)
     end.
 
@@ -1060,15 +1060,8 @@ do_handle_async_batch_reply(
     },
     Result
 ) ->
-    ?tp(
-        buffer_worker_reply_after_query_enter,
-        #{batch_or_query => Batch, ref => Ref}
-    ),
-    %% NOTE: 'inflight' is the count of messages that were sent async
-    %% but received no ACK, NOT the number of messages queued in the
-    %% inflight window.
     {Action, PostFn} = batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts),
-    ?tp(buffer_worker_reply_after_query, #{
+    ?tp(handle_async_reply, #{
         action => Action,
         batch_or_query => Batch,
         ref => Ref,
