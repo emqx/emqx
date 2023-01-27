@@ -52,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([handle_async_reply/8, batch_reply_after_query/8]).
+-export([handle_async_reply/8, handle_async_batch_reply/8]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -923,7 +923,7 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
     ?APPLY_RESOURCE(
         call_batch_query_async,
         begin
-            ReplyFun = fun ?MODULE:batch_reply_after_query/8,
+            ReplyFun = fun ?MODULE:handle_async_batch_reply/8,
             ReplyFunAndArgs = {ReplyFun, [self(), Id, Index, InflightTID, Ref, Batch, QueryOpts]},
             Requests = [Request || ?QUERY(_ReplyTo, Request, _, _ExpireAt) <- Batch],
             IsRetriable = false,
@@ -1000,7 +1000,7 @@ do_reply_after_query(
             do_ack(InflightTID, Ref, Id, Index, PostFn, Pid, QueryOpts)
     end.
 
-batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
+handle_async_batch_reply(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
     ?tp(
         buffer_worker_reply_after_query_enter,
         #{batch_or_query => Batch, ref => Ref}
