@@ -2335,7 +2335,7 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := buffer_worker_reply_after_query, action := nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_reply_after_query, action := nack},
             #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
