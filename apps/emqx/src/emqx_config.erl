@@ -424,7 +424,13 @@ check_config(SchemaMod, RawConf, Opts0) ->
 %% it's maybe too much when reporting to the user
 -spec compact_errors(any(), any()) -> no_return().
 compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
-    Error1 = Error0#{discarded_errors_count => length(More)},
+    Error1 =
+        case length(More) of
+            0 ->
+                Error0;
+            _ ->
+                Error0#{unshown_errors => length(More)}
+        end,
     Error =
         case is_atom(Schema) of
             true ->

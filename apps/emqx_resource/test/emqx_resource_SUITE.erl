@@ -1226,8 +1226,8 @@ t_always_overflow(_Config) ->
             Payload = binary:copy(<<"a">>, 100),
             %% since it's sync and it should never send a request, this
             %% errors with `timeout'.
-            ?assertError(
-                timeout,
+            ?assertEqual(
+                {error, buffer_overflow},
                 emqx_resource:query(
                     ?ID,
                     {big_payload, Payload},
