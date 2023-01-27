@@ -899,7 +899,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         ),
     Payload1 = <<"hello2">>,
     Payload2 = <<"hello3">>,
-    %% we need to to it in other processes because it'll block due to
+    %% We need to do it in other processes because it'll block due to
     %% the long timeout
     spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload1)) end),
     spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload2)) end),

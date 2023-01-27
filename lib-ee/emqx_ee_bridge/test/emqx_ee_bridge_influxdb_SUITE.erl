@@ -910,12 +910,10 @@ t_write_failure(Config) ->
                 sync ->
                     {_, {ok, _}} =
                         ?wait_async_action(
-                            try
+                            ?assertMatch(
+                                {error, {resource_error, #{reason := timeout}}},
                                 send_message(Config, SentData)
-                            catch
-                                error:timeout ->
-                                    {error, timeout}
-                            end,
+                            ),
                             #{?snk_kind := buffer_worker_flush_nack},
                             1_000
                         );
@@ -947,7 +945,8 @@ t_write_failure(Config) ->
                         {error, {recoverable_error, {closed, "The connection was lost."}}} =:=
                             Result orelse
                             {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, econnrefused}} =:= Result,
+                            {error, {recoverable_error, econnrefused}} =:= Result orelse
+                            {error, {recoverable_error, noproc}} =:= Result,
                         #{got => Result}
                     )
             end,
