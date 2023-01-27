@@ -282,7 +282,7 @@ client_config(
         {host, str(Host)},
         {port, Port},
         {pool_size, erlang:system_info(schedulers)},
-        {pool, binary_to_atom(InstId, utf8)},
+        {pool, InstId},
         {precision, atom_to_binary(maps:get(precision, Config, ms), utf8)}
     ] ++ protocol_config(Config).
 
