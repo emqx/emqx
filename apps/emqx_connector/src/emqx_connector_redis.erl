@@ -222,6 +222,8 @@ is_unrecoverable_error(Results) when is_list(Results) ->
     lists:any(fun is_unrecoverable_error/1, Results);
 is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
     true;
+is_unrecoverable_error({error, invalid_cluster_command}) ->
+    true;
 is_unrecoverable_error(_) ->
     false.
 
@@ -267,7 +269,9 @@ do_cmd(PoolName, cluster, {cmd, Command}) ->
 do_cmd(Conn, _Type, {cmd, Command}) ->
     eredis:q(Conn, Command);
 do_cmd(PoolName, cluster, {cmds, Commands}) ->
-    wrap_qp_result(eredis_cluster:qp(PoolName, Commands));
+    % TODO
+    % Cluster mode is currently incompatible with batching.
+    wrap_qp_result([eredis_cluster:q(PoolName, Command) || Command <- Commands]);
 do_cmd(Conn, _Type, {cmds, Commands}) ->
     wrap_qp_result(eredis:qp(Conn, Commands)).
 
