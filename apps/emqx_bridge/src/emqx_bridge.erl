@@ -279,7 +279,7 @@ create(BridgeType, BridgeName, RawConf) ->
         brige_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => RawConf
+        bridge_raw_config => emqx_misc:redact(RawConf)
     }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
