@@ -400,7 +400,7 @@ compat_windows(Fun) ->
             end
     end.
 
-%% @doc Return on which Eralng/OTP the current vm is running.
+%% @doc Return on which Erlang/OTP the current vm is running.
 %% NOTE: This API reads a file, do not use it in critical code paths.
 get_otp_version() ->
     read_otp_version().
@@ -417,6 +417,8 @@ read_otp_version() ->
             %% running tests etc.
             OtpMajor = erlang:system_info(otp_release),
             OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
-            {ok, Vsn} = file:read_file(OtpVsnFile),
-            Vsn
+            case file:read_file(OtpVsnFile) of
+                {ok, Vsn} -> Vsn;
+                {error, enoent} -> list_to_binary(OtpMajor)
+            end
     end.
