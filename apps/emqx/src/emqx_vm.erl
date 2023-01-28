@@ -400,9 +400,19 @@ compat_windows(Fun) ->
     end.
 
 %% @doc Return on which Erlang/OTP the current vm is running.
-%% NOTE: This API reads a file, do not use it in critical code paths.
+%% The dashboard's /api/nodes endpoint will call this function frequently.
+%% we should avoid reading file every time.
+%% The OTP version never changes at runtime expect upgrade erts,
+%% so we cache it in a persistent term for performance.
 get_otp_version() ->
-    read_otp_version().
+    case persistent_term:get(emqx_otp_version, undefined) of
+        undefined ->
+            OtpVsn = read_otp_version(),
+            persistent_term:put(emqx_otp_version, OtpVsn),
+            OtpVsn;
+        OtpVsn when is_binary(OtpVsn) ->
+            OtpVsn
+    end.
 
 read_otp_version() ->
     ReleasesDir = filename:join([code:root_dir(), "releases"]),
