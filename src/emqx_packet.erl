@@ -430,7 +430,7 @@ format_header(#mqtt_packet_header{type = Type,
     Header = io_lib:format("~s(Q~p, R~p, D~p", [type_name(Type), QoS, i(Retain), i(Dup)]),
     case S == undefined of
         true -> [Header, ")"];
-        false -> [Header, S, ")"]
+        false -> [Header, ", ", S, ")"]
     end.
 
 format_variable(undefined, _) ->
