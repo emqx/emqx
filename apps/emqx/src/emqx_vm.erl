@@ -232,8 +232,10 @@ mem_info() ->
     Free = proplists:get_value(free_memory, Dataset),
     [{total_memory, Total}, {used_memory, Total - Free}].
 
-ftos(F) ->
-    io_lib:format("~.2f", [F / 1.0]).
+ftos(F) when is_float(F) ->
+    float_to_binary(F, [{decimals, 2}]);
+ftos(F) when is_integer(F) ->
+    ftos(F / 1.0).
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
@@ -391,11 +393,12 @@ cpu_util() ->
 compat_windows(Fun) ->
     case os:type() of
         {win32, nt} ->
-            0;
+            0.0;
         _Type ->
             case catch Fun() of
+                Val when is_float(Val) -> floor(Val * 100) / 100;
                 Val when is_number(Val) -> Val;
-                _Error -> 0
+                _Error -> 0.0
             end
     end.
 

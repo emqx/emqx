@@ -150,7 +150,7 @@ node_info() ->
 get_sys_memory() ->
     case os:type() of
         {unix, linux} ->
-            load_ctl:get_sys_memory();
+            emqx_mgmt_sys_memory:get_sys_memory();
         _ ->
             {0, 0}
     end.

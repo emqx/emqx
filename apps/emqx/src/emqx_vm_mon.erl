@@ -63,7 +63,7 @@ handle_info({timeout, _Timer, check}, State) ->
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent > ProcHighWatermark ->
-            Usage = io_lib:format("~p%", [Percent * 100]),
+            Usage = usage(Percent),
             Message = [Usage, " process usage"],
             emqx_alarm:activate(
                 too_many_processes,
@@ -75,7 +75,7 @@ handle_info({timeout, _Timer, check}, State) ->
                 Message
             );
         Percent when Percent < ProcLowWatermark ->
-            Usage = io_lib:format("~p%", [Percent * 100]),
+            Usage = usage(Percent),
             Message = [Usage, " process usage"],
             emqx_alarm:ensure_deactivated(
                 too_many_processes,
@@ -108,3 +108,6 @@ code_change(_OldVsn, State, _Extra) ->
 start_check_timer() ->
     Interval = emqx:get_config([sysmon, vm, process_check_interval]),
     emqx_misc:start_timer(Interval, check).
+
+usage(Percent) ->
+    integer_to_list(floor(Percent * 100)) ++ "%".

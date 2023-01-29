@@ -130,8 +130,10 @@ handle_info({timeout, _Timer, mem_check}, #{sysmem_high_watermark := HWM} = Stat
 handle_info({timeout, _Timer, cpu_check}, State) ->
     CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
-    case emqx_vm:cpu_util() of
-        0 ->
+    CPUVal = emqx_vm:cpu_util(),
+    case CPUVal of
+        %% 0 or 0.0
+        Busy when Busy == 0 ->
             ok;
         Busy when Busy > CPUHighWatermark ->
             _ = emqx_alarm:activate(
@@ -236,5 +238,5 @@ do_update_mem_alarm_status(HWM0) ->
     ok.
 
 usage_msg(Usage, What) ->
-    %% devide by 1.0 to ensure float point number
+    %% divide by 1.0 to ensure float point number
     iolist_to_binary(io_lib:format("~.2f% ~p usage", [Usage / 1.0, What])).
