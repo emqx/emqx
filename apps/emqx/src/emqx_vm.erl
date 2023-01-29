@@ -233,9 +233,7 @@ mem_info() ->
     [{total_memory, Total}, {used_memory, Total - Free}].
 
 ftos(F) when is_float(F) ->
-    float_to_binary(F, [{decimals, 2}]);
-ftos(F) when is_integer(F) ->
-    ftos(F / 1.0).
+    float_to_binary(F, [{decimals, 2}]).
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
