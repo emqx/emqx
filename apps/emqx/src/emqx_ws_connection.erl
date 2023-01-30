@@ -399,6 +399,12 @@ get_peer_info(Type, Listener, Req, Opts) ->
 websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 websocket_handle({binary, Data}, State) ->
+    ?SLOG(debug, #{
+        msg => "raw_bin_received",
+        size => iolist_size(Data),
+        bin => binary_to_list(binary:encode_hex(Data)),
+        type => "hex"
+    }),
     State2 = ensure_stats_timer(State),
     {Packets, State3} = parse_incoming(Data, [], State2),
     LenMsg = erlang:length(Packets),
@@ -437,6 +443,7 @@ websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
     NState = State#state{serialize = Serialize},
     handle_incoming(Packet, cancel_idle_timer(NState));
 websocket_info({incoming, Packet}, State) ->
+    ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 websocket_info({outgoing, Packets}, State) ->
     return(enqueue(Packets, State));
@@ -719,7 +726,6 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 handle_incoming(Packet, State = #state{listener = {Type, Listener}}) when
     is_record(Packet, mqtt_packet)
 ->
-    ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
     ok = inc_incoming_stats(Packet),
     NState =
         case

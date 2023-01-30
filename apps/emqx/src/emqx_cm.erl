@@ -152,7 +152,7 @@ start_link() ->
 insert_channel_info(ClientId, Info, Stats) ->
     Chan = {ClientId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    ?tp(debug, insert_channel_info, #{client_id => ClientId}),
+    ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
 %% @private

@@ -550,6 +550,7 @@ handle_msg(
     },
     handle_incoming(Packet, NState);
 handle_msg({incoming, Packet}, State) ->
+    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 handle_msg({outgoing, Packets}, State) ->
     handle_outgoing(Packets, State);
@@ -731,6 +732,12 @@ handle_timeout(TRef, Msg, State) ->
 %% Parse incoming data
 -compile({inline, [when_bytes_in/3]}).
 when_bytes_in(Oct, Data, State) ->
+    ?SLOG(debug, #{
+        msg => "raw_bin_received",
+        size => Oct,
+        bin => binary_to_list(binary:encode_hex(Data)),
+        type => "hex"
+    }),
     {Packets, NState} = parse_incoming(Data, [], State),
     Len = erlang:length(Packets),
     check_limiter(
@@ -783,7 +790,6 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     with_channel(handle_in, [Packet], State);
 handle_incoming(FrameError, State) ->
     with_channel(handle_in, [FrameError], State).
