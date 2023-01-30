@@ -60,172 +60,252 @@
 %% * Local messages are all normalised to QoS-1 when exporting to remote
 
 -module(emqx_connector_mqtt_worker).
--behaviour(gen_statem).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 %% APIs
 -export([
-    start_link/1,
-    stop/1
-]).
-
-%% gen_statem callbacks
--export([
-    terminate/3,
-    code_change/4,
-    init/1,
-    callback_mode/0
-]).
-
-%% state functions
--export([
-    idle/3,
-    connected/3
+    start_link/2,
+    stop/1,
+    pid/1
 ]).
 
 %% management APIs
 -export([
-    ensure_started/1,
-    ensure_stopped/1,
+    connect/1,
     status/1,
     ping/1,
     send_to_remote/2,
     send_to_remote_async/3
 ]).
 
--export([get_forwards/1]).
-
--export([get_subscriptions/1]).
+-export([handle_publish/3]).
+-export([handle_disconnect/1]).
 
 -export_type([
     config/0,
     ack_ref/0
 ]).
 
--type id() :: atom() | string() | pid().
--type qos() :: emqx_types:qos().
+-type name() :: term().
+% -type qos() :: emqx_types:qos().
 -type config() :: map().
 -type ack_ref() :: term().
--type topic() :: emqx_types:topic().
+% -type topic() :: emqx_types:topic().
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
-%% same as default in-flight limit for emqtt
--define(DEFAULT_INFLIGHT_SIZE, 32).
--define(DEFAULT_RECONNECT_DELAY_MS, timer:seconds(5)).
+-define(REF(Name), {via, gproc, ?NAME(Name)}).
+-define(NAME(Name), {n, l, Name}).
 
 %% @doc Start a bridge worker. Supported configs:
-%% start_type: 'manual' (default) or 'auto', when manual, bridge will stay
-%%      at 'idle' state until a manual call to start it.
-%% connect_module: The module which implements emqx_bridge_connect behaviour
-%%      and work as message batch transport layer
-%% reconnect_interval: Delay in milli-seconds for the bridge worker to retry
-%%      in case of transportation failure.
-%% max_inflight: Max number of batches allowed to send-ahead before receiving
-%%       confirmation from remote node/cluster
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
 %%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
 %%
 %% Find more connection specific configs in the callback modules
 %% of emqx_bridge_connect behaviour.
-start_link(Opts) when is_list(Opts) ->
-    start_link(maps:from_list(Opts));
-start_link(Opts) ->
-    case maps:get(name, Opts, undefined) of
-        undefined ->
-            gen_statem:start_link(?MODULE, Opts, []);
-        Name ->
-            Name1 = name(Name),
-            gen_statem:start_link({local, Name1}, ?MODULE, Opts#{name => Name1}, [])
+-spec start_link(name(), map()) ->
+    {ok, pid()} | {error, _Reason}.
+start_link(Name, BridgeOpts) ->
+    ?SLOG(debug, #{
+        msg => "client_starting",
+        name => Name,
+        options => BridgeOpts
+    }),
+    Conf = init_config(BridgeOpts),
+    Options = mk_client_options(Conf, BridgeOpts),
+    case emqtt:start_link(Options) of
+        {ok, Pid} ->
+            true = gproc:reg_other(?NAME(Name), Pid, Conf),
+            {ok, Pid};
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "client_start_failed",
+                config => emqx_misc:redact(BridgeOpts),
+                reason => Reason
+            }),
+            Error
     end.
 
-ensure_started(Name) ->
-    gen_statem:call(name(Name), ensure_started).
-
-%% @doc Manually stop bridge worker. State idempotency ensured.
-ensure_stopped(Name) ->
-    gen_statem:call(name(Name), ensure_stopped, 5000).
-
-stop(Pid) -> gen_statem:stop(Pid).
-
-status(Pid) when is_pid(Pid) ->
-    gen_statem:call(Pid, status);
-status(Name) ->
-    gen_statem:call(name(Name), status).
-
-ping(Pid) when is_pid(Pid) ->
-    gen_statem:call(Pid, ping);
-ping(Name) ->
-    gen_statem:call(name(Name), ping).
-
-send_to_remote(Pid, Msg) when is_pid(Pid) ->
-    gen_statem:call(Pid, {send_to_remote, Msg});
-send_to_remote(Name, Msg) ->
-    gen_statem:call(name(Name), {send_to_remote, Msg}).
-
-send_to_remote_async(Pid, Msg, Callback) when is_pid(Pid) ->
-    gen_statem:call(Pid, {send_to_remote_async, Msg, Callback});
-send_to_remote_async(Name, Msg, Callback) ->
-    gen_statem:call(name(Name), {send_to_remote_async, Msg, Callback}).
-
-%% @doc Return all forwards (local subscriptions).
--spec get_forwards(id()) -> [topic()].
-get_forwards(Name) -> gen_statem:call(name(Name), get_forwards, timer:seconds(1000)).
-
-%% @doc Return all subscriptions (subscription over mqtt connection to remote broker).
--spec get_subscriptions(id()) -> [{emqx_types:topic(), qos()}].
-get_subscriptions(Name) -> gen_statem:call(name(Name), get_subscriptions).
-
-callback_mode() -> [state_functions].
-
-%% @doc Config should be a map().
-init(#{name := Name} = ConnectOpts) ->
-    ?SLOG(debug, #{
-        msg => "starting_bridge_worker",
-        name => Name
-    }),
-    erlang:process_flag(trap_exit, true),
-    State = init_state(ConnectOpts),
-    self() ! idle,
-    {ok, idle, State#{
-        connect_opts => pre_process_opts(ConnectOpts)
-    }}.
-
-init_state(Opts) ->
-    ReconnDelayMs = maps:get(reconnect_interval, Opts, ?DEFAULT_RECONNECT_DELAY_MS),
-    StartType = maps:get(start_type, Opts, manual),
+init_config(Opts) ->
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
-    MaxInflightSize = maps:get(max_inflight, Opts, ?DEFAULT_INFLIGHT_SIZE),
-    Name = maps:get(name, Opts, undefined),
+    Subscriptions = maps:get(subscriptions, Opts, undefined),
+    Forwards = maps:get(forwards, Opts, undefined),
     #{
-        start_type => StartType,
-        reconnect_interval => ReconnDelayMs,
         mountpoint => format_mountpoint(Mountpoint),
-        max_inflight => MaxInflightSize,
-        connection => undefined,
-        name => Name
+        subscriptions => pre_process_subscriptions(Subscriptions),
+        forwards => pre_process_forwards(Forwards)
     }.
 
-pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
-    ConnectOpts#{
-        subscriptions => pre_process_in_out(in, InConf),
-        forwards => pre_process_in_out(out, OutConf)
+mk_client_options(Conf, BridgeOpts) ->
+    Server = iolist_to_binary(maps:get(server, BridgeOpts)),
+    HostPort = emqx_connector_mqtt_schema:parse_server(Server),
+    Mountpoint = maps:get(receive_mountpoint, BridgeOpts, undefined),
+    Subscriptions = maps:get(subscriptions, Conf),
+    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
+    Opts = maps:without(
+        [
+            address,
+            auto_reconnect,
+            conn_type,
+            mountpoint,
+            forwards,
+            receive_mountpoint,
+            subscriptions
+        ],
+        BridgeOpts
+    ),
+    Opts#{
+        msg_handler => mk_client_event_handler(Vars, #{server => Server}),
+        hosts => [HostPort],
+        force_ping => true,
+        proto_ver => maps:get(proto_ver, BridgeOpts, v4)
     }.
 
-pre_process_in_out(_, undefined) ->
+mk_client_event_handler(Vars, Opts) when Vars /= undefined ->
+    #{
+        publish => {fun ?MODULE:handle_publish/3, [Vars, Opts]},
+        disconnected => {fun ?MODULE:handle_disconnect/1, []}
+    };
+mk_client_event_handler(undefined, _Opts) ->
+    undefined.
+
+connect(Name) ->
+    #{subscriptions := Subscriptions} = get_config(Name),
+    case emqtt:connect(pid(Name)) of
+        {ok, Properties} ->
+            case subscribe_remote_topics(Name, Subscriptions) of
+                ok ->
+                    {ok, Properties};
+                {ok, _, _RCs} ->
+                    {ok, Properties};
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "client_subscribe_failed",
+                        subscriptions => Subscriptions,
+                        reason => Reason
+                    }),
+                    Error
+            end;
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "client_connect_failed",
+                reason => Reason
+            }),
+            Error
+    end.
+
+subscribe_remote_topics(Ref, #{remote := #{topic := FromTopic, qos := QoS}}) ->
+    emqtt:subscribe(ref(Ref), FromTopic, QoS);
+subscribe_remote_topics(_Ref, undefined) ->
+    ok.
+
+stop(Ref) ->
+    emqtt:stop(ref(Ref)).
+
+pid(Name) ->
+    gproc:lookup_pid(?NAME(Name)).
+
+status(Ref) ->
+    trycall(
+        fun() ->
+            Info = emqtt:info(ref(Ref)),
+            case proplists:get_value(socket, Info) of
+                Socket when Socket /= undefined ->
+                    connected;
+                undefined ->
+                    connecting
+            end
+        end,
+        #{noproc => disconnected}
+    ).
+
+ping(Ref) ->
+    emqtt:ping(ref(Ref)).
+
+send_to_remote(Name, MsgIn) ->
+    trycall(
+        fun() -> do_send(Name, export_msg(Name, MsgIn)) end,
+        #{
+            badarg => {error, disconnected},
+            noproc => {error, disconnected}
+        }
+    ).
+
+do_send(Name, {true, Msg}) ->
+    case emqtt:publish(pid(Name), Msg) of
+        ok ->
+            ok;
+        {ok, #{reason_code := RC}} when
+            RC =:= ?RC_SUCCESS;
+            RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
+        ->
+            ok;
+        {ok, #{reason_code := RC, reason_code_name := Reason}} ->
+            ?SLOG(warning, #{
+                msg => "remote_publish_failed",
+                message => Msg,
+                reason_code => RC,
+                reason_code_name => Reason
+            }),
+            {error, Reason};
+        {error, Reason} ->
+            ?SLOG(info, #{
+                msg => "client_failed",
+                reason => Reason
+            }),
+            {error, Reason}
+    end;
+do_send(_Name, false) ->
+    ok.
+
+send_to_remote_async(Name, MsgIn, Callback) ->
+    trycall(
+        fun() -> do_send_async(Name, export_msg(Name, MsgIn), Callback) end,
+        #{badarg => {error, disconnected}}
+    ).
+
+do_send_async(Name, {true, Msg}, Callback) ->
+    emqtt:publish_async(pid(Name), Msg, _Timeout = infinity, Callback);
+do_send_async(_Name, false, _Callback) ->
+    ok.
+
+ref(Pid) when is_pid(Pid) ->
+    Pid;
+ref(Term) ->
+    ?REF(Term).
+
+trycall(Fun, Else) ->
+    try
+        Fun()
+    catch
+        error:badarg ->
+            maps:get(badarg, Else);
+        exit:{noproc, _} ->
+            maps:get(noproc, Else)
+    end.
+
+format_mountpoint(undefined) ->
     undefined;
-pre_process_in_out(in, #{local := LC} = Conf) when is_map(Conf) ->
+format_mountpoint(Prefix) ->
+    binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
+
+pre_process_subscriptions(undefined) ->
+    undefined;
+pre_process_subscriptions(#{local := LC} = Conf) when is_map(Conf) ->
     Conf#{local => pre_process_in_out_common(LC)};
-pre_process_in_out(in, Conf) when is_map(Conf) ->
+pre_process_subscriptions(Conf) when is_map(Conf) ->
     %% have no 'local' field in the config
+    undefined.
+
+pre_process_forwards(undefined) ->
     undefined;
-pre_process_in_out(out, #{remote := RC} = Conf) when is_map(Conf) ->
+pre_process_forwards(#{remote := RC} = Conf) when is_map(Conf) ->
     Conf#{remote => pre_process_in_out_common(RC)};
-pre_process_in_out(out, Conf) when is_map(Conf) ->
+pre_process_forwards(Conf) when is_map(Conf) ->
     %% have no 'remote' field in the config
     undefined.
 
@@ -245,241 +325,112 @@ pre_process_conf(Key, Conf) ->
             Conf#{Key => Val}
     end.
 
-code_change(_Vsn, State, Data, _Extra) ->
-    {ok, State, Data}.
+get_config(Name) ->
+    gproc:lookup_value(?NAME(Name)).
 
-terminate(_Reason, _StateName, State) ->
-    _ = disconnect(State),
-    maybe_destroy_session(State).
+export_msg(Name, Msg) ->
+    case get_config(Name) of
+        #{forwards := Forwards = #{}, mountpoint := Mountpoint} ->
+            {true, export_msg(Mountpoint, Forwards, Msg)};
+        #{forwards := undefined} ->
+            ?SLOG(error, #{
+                msg => "forwarding_unavailable",
+                message => Msg,
+                reason => "egress is not configured"
+            }),
+            false
+    end.
 
-maybe_destroy_session(#{connect_opts := ConnectOpts = #{clean_start := false}} = State) ->
-    try
-        %% Destroy session if clean_start is not set.
-        %% Ignore any crashes, just refresh the clean_start = true.
-        _ = do_connect(State#{connect_opts => ConnectOpts#{clean_start => true}}),
-        _ = disconnect(State),
-        ok
-    catch
-        _:_ ->
+export_msg(Mountpoint, Forwards, Msg) ->
+    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
+    emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars).
+
+%%
+
+handle_publish(#{properties := Props} = MsgIn, Vars, Opts) ->
+    Msg = import_msg(MsgIn, Opts),
+    ?SLOG(debug, #{
+        msg => "publish_local",
+        message => Msg,
+        vars => Vars
+    }),
+    case Vars of
+        #{on_message_received := {Mod, Func, Args}} ->
+            _ = erlang:apply(Mod, Func, [Msg | Args]);
+        _ ->
             ok
-    end;
-maybe_destroy_session(_State) ->
+    end,
+    maybe_publish_local(Msg, Vars, Props).
+
+handle_disconnect(_Reason) ->
     ok.
 
-%% ensure_started will be deprecated in the future
-idle({call, From}, ensure_started, State) ->
-    case do_connect(State) of
-        {ok, State1} ->
-            {next_state, connected, State1, {reply, From, ok}};
-        {error, Reason, _State} ->
-            {keep_state_and_data, {reply, From, {error, Reason}}}
-    end;
-idle({call, From}, {send_to_remote, _}, _State) ->
-    {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
-idle({call, From}, {send_to_remote_async, _, _}, _State) ->
-    {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
-%% @doc Standing by for manual start.
-idle(info, idle, #{start_type := manual}) ->
-    keep_state_and_data;
-%% @doc Standing by for auto start.
-idle(info, idle, #{start_type := auto} = State) ->
-    connecting(State);
-idle(state_timeout, reconnect, State) ->
-    connecting(State);
-idle(Type, Content, State) ->
-    common(idle, Type, Content, State).
-
-connecting(#{reconnect_interval := ReconnectDelayMs} = State) ->
-    case do_connect(State) of
-        {ok, State1} ->
-            {next_state, connected, State1};
+maybe_publish_local(Msg, Vars, Props) ->
+    case emqx_map_lib:deep_get([local, topic], Vars, undefined) of
+        %% local topic is not set, discard it
+        undefined ->
+            ok;
         _ ->
-            {keep_state_and_data, {state_timeout, ReconnectDelayMs, reconnect}}
+            emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props))
     end.
 
-connected({call, From}, {send_to_remote, Msg}, State) ->
-    case do_send(State, Msg) of
-        {ok, NState} ->
-            {keep_state, NState, {reply, From, ok}};
-        {error, Reason} ->
-            {keep_state_and_data, {reply, From, {error, Reason}}}
-    end;
-connected(
-    {call, From},
-    {send_to_remote_async, Msg, Callback},
-    State = #{connection := Connection}
-) ->
-    _ = do_send_async(State, Msg, Callback),
-    {keep_state, State, {reply, From, {ok, emqx_connector_mqtt_mod:info(pid, Connection)}}};
-connected(
-    info,
-    {disconnected, Conn, Reason},
-    #{connection := Connection, name := Name, reconnect_interval := ReconnectDelayMs} = State
-) ->
-    ?tp(info, disconnected, #{name => Name, reason => Reason}),
-    case Conn =:= maps:get(client_pid, Connection, undefined) of
-        true ->
-            {next_state, idle, State#{connection => undefined},
-                {state_timeout, ReconnectDelayMs, reconnect}};
-        false ->
-            keep_state_and_data
-    end;
-connected(Type, Content, State) ->
-    common(connected, Type, Content, State).
-
-%% Common handlers
-common(StateName, {call, From}, status, _State) ->
-    {keep_state_and_data, {reply, From, StateName}};
-common(_StateName, {call, From}, ping, #{connection := Conn} = _State) ->
-    Reply = emqx_connector_mqtt_mod:ping(Conn),
-    {keep_state_and_data, {reply, From, Reply}};
-common(_StateName, {call, From}, ensure_stopped, #{connection := undefined} = _State) ->
-    {keep_state_and_data, {reply, From, ok}};
-common(_StateName, {call, From}, ensure_stopped, #{connection := Conn} = State) ->
-    Reply = emqx_connector_mqtt_mod:stop(Conn),
-    {next_state, idle, State#{connection => undefined}, {reply, From, Reply}};
-common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := Forwards}}) ->
-    {keep_state_and_data, {reply, From, Forwards}};
-common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
-    {keep_state_and_data, {reply, From, maps:get(subscriptions, Connection, #{})}};
-common(_StateName, {call, From}, Req, _State) ->
-    {keep_state_and_data, {reply, From, {error, {unsupported_request, Req}}}};
-common(_StateName, info, {'EXIT', _, _}, State) ->
-    {keep_state, State};
-common(StateName, Type, Content, #{name := Name} = State) ->
-    ?SLOG(error, #{
-        msg => "bridge_discarded_event",
-        name => Name,
-        type => Type,
-        state_name => StateName,
-        content => Content
-    }),
-    {keep_state, State}.
-
-do_connect(
+import_msg(
     #{
-        connect_opts := ConnectOpts,
-        name := Name
-    } = State
-) ->
-    case emqx_connector_mqtt_mod:start(ConnectOpts) of
-        {ok, Conn} ->
-            ?tp(info, connected, #{name => Name}),
-            {ok, State#{connection => Conn}};
-        {error, Reason} ->
-            ConnectOpts1 = obfuscate(ConnectOpts),
-            ?SLOG(error, #{
-                msg => "failed_to_connect",
-                config => ConnectOpts1,
-                reason => Reason
-            }),
-            {error, Reason, State}
-    end.
-
-do_send(#{connect_opts := #{forwards := undefined}}, Msg) ->
-    ?SLOG(error, #{
-        msg =>
-            "cannot_forward_messages_to_remote_broker"
-            "_as_'egress'_is_not_configured",
-        messages => Msg
-    });
-do_send(
-    #{
-        connection := Connection,
-        mountpoint := Mountpoint,
-        connect_opts := #{forwards := Forwards}
-    } = State,
-    Msg
-) ->
-    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
-    ExportMsg = emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars),
-    ?SLOG(debug, #{
-        msg => "publish_to_remote_broker",
-        message => Msg,
-        vars => Vars
-    }),
-    case emqx_connector_mqtt_mod:send(Connection, ExportMsg) of
-        ok ->
-            {ok, State};
-        {ok, #{reason_code := RC}} when
-            RC =:= ?RC_SUCCESS;
-            RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
-        ->
-            {ok, State};
-        {ok, #{reason_code := RC, reason_code_name := RCN}} ->
-            ?SLOG(warning, #{
-                msg => "publish_to_remote_node_falied",
-                message => Msg,
-                reason_code => RC,
-                reason_code_name => RCN
-            }),
-            {error, RCN};
-        {error, Reason} ->
-            ?SLOG(info, #{
-                msg => "mqtt_bridge_produce_failed",
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
-
-do_send_async(#{connect_opts := #{forwards := undefined}}, Msg, _Callback) ->
-    %% TODO: eval callback with undefined error
-    ?SLOG(error, #{
-        msg =>
-            "cannot_forward_messages_to_remote_broker"
-            "_as_'egress'_is_not_configured",
-        messages => Msg
-    });
-do_send_async(
-    #{
-        connection := Connection,
-        mountpoint := Mountpoint,
-        connect_opts := #{forwards := Forwards}
+        dup := Dup,
+        payload := Payload,
+        properties := Props,
+        qos := QoS,
+        retain := Retain,
+        topic := Topic
     },
-    Msg,
-    Callback
+    #{server := Server}
 ) ->
-    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
-    ExportMsg = emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars),
-    ?SLOG(debug, #{
-        msg => "publish_to_remote_broker",
-        message => Msg,
-        vars => Vars
-    }),
-    emqx_connector_mqtt_mod:send_async(Connection, ExportMsg, Callback).
+    #{
+        id => emqx_guid:to_hexstr(emqx_guid:gen()),
+        server => Server,
+        payload => Payload,
+        topic => Topic,
+        qos => QoS,
+        dup => Dup,
+        retain => Retain,
+        pub_props => printable_maps(Props),
+        message_received_at => erlang:system_time(millisecond)
+    }.
 
-disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
-    emqx_connector_mqtt_mod:stop(Conn),
-    State#{connection => undefined};
-disconnect(State) ->
-    State.
-
-format_mountpoint(undefined) ->
-    undefined;
-format_mountpoint(Prefix) ->
-    binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
-
-name(Id) -> list_to_atom(str(Id)).
-
-obfuscate(Map) ->
+printable_maps(undefined) ->
+    #{};
+printable_maps(Headers) ->
     maps:fold(
-        fun(K, V, Acc) ->
-            case is_sensitive(K) of
-                true -> [{K, '***'} | Acc];
-                false -> [{K, V} | Acc]
-            end
+        fun
+            ('User-Property', V0, AccIn) when is_list(V0) ->
+                AccIn#{
+                    'User-Property' => maps:from_list(V0),
+                    'User-Property-Pairs' => [
+                        #{
+                            key => Key,
+                            value => Value
+                        }
+                     || {Key, Value} <- V0
+                    ]
+                };
+            (K, V0, AccIn) ->
+                AccIn#{K => V0}
         end,
-        [],
-        Map
+        #{},
+        Headers
     ).
 
-is_sensitive(password) -> true;
-is_sensitive(ssl_opts) -> true;
-is_sensitive(_) -> false.
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.
+%% TODO
+% maybe_destroy_session(#{connect_opts := ConnectOpts = #{clean_start := false}} = State) ->
+%     try
+%         %% Destroy session if clean_start is not set.
+%         %% Ignore any crashes, just refresh the clean_start = true.
+%         _ = do_connect(State#{connect_opts => ConnectOpts#{clean_start => true}}),
+%         _ = disconnect(State),
+%         ok
+%     catch
+%         _:_ ->
+%             ok
+%     end;
+% maybe_destroy_session(_State) ->
+%     ok.

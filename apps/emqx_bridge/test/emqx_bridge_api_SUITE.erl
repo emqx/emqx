@@ -640,7 +640,7 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"#{reason => econnrefused", _/binary>>
+            <<"message">> := <<"econnrefused">>
         },
         jsx:decode(ConnRefused)
     ),
