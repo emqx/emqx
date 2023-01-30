@@ -479,7 +479,11 @@ format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, Pa
     case format_variable(Variable, Payload, PayloadEncode) of
         "" -> [HeaderIO, ")"];
         VarIO -> [HeaderIO, ", ", VarIO, ")"]
-    end.
+    end;
+%% receive a frame error packet, such as {frame_error,frame_too_large} or
+%% {frame_error,#{expected => <<"'MQTT' or 'MQIsdp'">>,hint => invalid_proto_name,received => <<"bad_name">>}}
+format(FrameError, _PayloadEncode) ->
+    lists:flatten(io_lib:format("~tp", [FrameError])).
 
 format_header(#mqtt_packet_header{
     type = Type,
