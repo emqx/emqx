@@ -477,8 +477,8 @@ format(Packet) -> format(Packet, emqx_trace_handler:payload_encode()).
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
     HeaderIO = format_header(Header),
     case format_variable(Variable, Payload, PayloadEncode) of
-        "" -> HeaderIO;
-        VarIO -> [HeaderIO, ",", VarIO]
+        "" -> [HeaderIO, ")"];
+        VarIO -> [HeaderIO, ", ", VarIO, ")"]
     end.
 
 format_header(#mqtt_packet_header{
@@ -487,14 +487,14 @@ format_header(#mqtt_packet_header{
     qos = QoS,
     retain = Retain
 }) ->
-    io_lib:format("~ts(Q~p, R~p, D~p)", [type_name(Type), QoS, i(Retain), i(Dup)]).
+    io_lib:format("~ts(Q~p, R~p, D~p", [type_name(Type), QoS, i(Retain), i(Dup)]).
 
 format_variable(undefined, _, _) ->
     "";
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), ",", format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ", ", format_payload(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{
