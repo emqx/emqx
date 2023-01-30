@@ -26,6 +26,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -75,6 +76,49 @@ t_delayed_message(_) ->
     ?assertEqual(<<"delayed_m">>, Payload),
     timer:sleep(5000),
 
+    EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
+    ?assertEqual([], EmptyKey),
+    ok = emqx_mod_delayed:unload([]).
+
+t_banned_delayed(_) ->
+    ok = emqx_mod_delayed:load([]),
+    ClientId1 = <<"bc1">>,
+    ClientId2 = <<"bc2">>,
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    snabbkaffe:start_trace(),
+
+    {ok, SubRef} =
+        snabbkaffe_collector:subscribe(?match_event(#{?snk_kind := ignore_delayed_message_publish}),
+                                       _NEvents    = 2,
+                                       _Timeout    = 10000,
+                                      0),
+
+    lists:foreach(
+      fun(ClientId) ->
+              Msg = emqx_message:make(ClientId, <<"$delayed/1/bc">>, <<"payload">>),
+              emqx_mod_delayed:on_message_publish(Msg)
+      end,
+      [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2]
+     ),
+
+    ?assertMatch({ok, [#{?snk_kind := ignore_delayed_message_publish},
+                       #{?snk_kind := ignore_delayed_message_publish}
+                      ]},
+                 snabbkaffe_collector:receive_events(SubRef)),
+
+    snabbkaffe:stop(),
+
+    emqx_banned:delete(Who),
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
     ?assertEqual([], EmptyKey),
     ok = emqx_mod_delayed:unload([]).
