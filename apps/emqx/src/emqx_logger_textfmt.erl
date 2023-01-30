@@ -22,20 +22,49 @@
 
 check_config(X) -> logger_formatter:check_config(X).
 
-format(#{msg := {report, Report0}, meta := Meta} = Event, Config) when is_map(Report0) ->
-    Report1 = enrich_report_mfa(Report0, Meta),
-    Report2 = enrich_report_clientid(Report1, Meta),
-    Report3 = enrich_report_peername(Report2, Meta),
-    Report4 = enrich_report_topic(Report3, Meta),
-    logger_formatter:format(Event#{msg := {report, Report4}}, Config);
+format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(ReportMap) ->
+    Report = enrich_report(ReportMap, Meta),
+    logger_formatter:format(Event#{msg := {report, Report}}, Config);
 format(#{msg := {string, String}} = Event, Config) ->
     format(Event#{msg => {"~ts ", [String]}}, Config);
+%% trace
 format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     Msg1 = enrich_client_info(Msg0, Meta),
     Msg2 = enrich_mfa(Msg1, Meta),
     Msg3 = enrich_topic(Msg2, Meta),
     logger_formatter:format(Event#{msg := Msg3}, Config).
 
+enrich_report(ReportRaw, Meta) ->
+    %% clientid and peername always in emqx_conn's process metadata.
+    %% topic can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
+    Topic =
+        case maps:get(topic, Meta, undefined) of
+            undefined -> maps:get(topic, ReportRaw, undefined);
+            Topic0 -> Topic0
+        end,
+    ClientId = maps:get(clientid, Meta, undefined),
+    Peer = maps:get(peername, Meta, undefined),
+    MFA = maps:get(mfa, Meta, undefined),
+    Line = maps:get(line, Meta, undefined),
+    Msg = maps:get(msg, ReportRaw, undefined),
+    lists:foldl(
+        fun
+            ({_, undefined}, Acc) -> Acc;
+            (Item, Acc) -> [Item | Acc]
+        end,
+        maps:to_list(maps:without([topic, msg, clientid], ReportRaw)),
+        [
+            {topic, try_format_unicode(Topic)},
+            {clientid, try_format_unicode(ClientId)},
+            {peername, Peer},
+            {line, Line},
+            {mfa, mfa(MFA)},
+            {msg, Msg}
+        ]
+    ).
+
+try_format_unicode(undefined) ->
+    undefined;
 try_format_unicode(Char) ->
     List =
         try
@@ -52,30 +81,6 @@ try_format_unicode(Char) ->
         error -> io_lib:format("~0p", [Char]);
         _ -> List
     end.
-
-enrich_report_mfa(Report, #{mfa := Mfa, line := Line}) ->
-    Report#{mfa => mfa(Mfa), line => Line};
-enrich_report_mfa(Report, _) ->
-    Report.
-
-enrich_report_clientid(Report, #{clientid := ClientId}) ->
-    Report#{clientid => try_format_unicode(ClientId)};
-enrich_report_clientid(Report, _) ->
-    Report.
-
-enrich_report_peername(Report, #{peername := Peername}) ->
-    Report#{peername => Peername};
-enrich_report_peername(Report, _) ->
-    Report.
-
-%% clientid and peername always in emqx_conn's process metadata.
-%% topic can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
-enrich_report_topic(Report, #{topic := Topic}) ->
-    Report#{topic => try_format_unicode(Topic)};
-enrich_report_topic(Report = #{topic := Topic}, _) ->
-    Report#{topic => try_format_unicode(Topic)};
-enrich_report_topic(Report, _) ->
-    Report.
 
 enrich_mfa({Fmt, Args}, #{mfa := Mfa, line := Line}) when is_list(Fmt) ->
     {Fmt ++ " mfa: ~ts line: ~w", Args ++ [mfa(Mfa), Line]};

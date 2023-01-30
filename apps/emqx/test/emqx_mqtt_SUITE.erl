@@ -237,7 +237,7 @@ do_async_set_keepalive() ->
     {ok, _} = ?block_until(
         #{
             ?snk_kind := insert_channel_info,
-            client_id := ClientID
+            clientid := ClientID
         },
         2000,
         100
