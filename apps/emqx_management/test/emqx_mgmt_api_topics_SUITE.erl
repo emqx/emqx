@@ -19,18 +19,25 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(ROUTE_TAB, emqx_route).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    Slave = emqx_common_test_helpers:start_slave(some_node, []),
+    [{slave, Slave} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
+    Slave = ?config(slave, Config),
+    emqx_common_test_helpers:stop_slave(Slave),
+    mria:clear_table(?ROUTE_TAB),
     emqx_mgmt_api_test_util:end_suite().
 
-t_nodes_api(_) ->
+t_nodes_api(Config) ->
     Node = atom_to_binary(node(), utf8),
     Topic = <<"test_topic">>,
     {ok, Client} = emqtt:start_link(#{
@@ -74,16 +81,15 @@ t_nodes_api(_) ->
     %% get topics/:topic
     %% We add another route here to ensure that the response handles
     %% multiple routes for a single topic
-    DummyNode = 'dummy-node-name',
-    ok = emqx_router:add_route(Topic, DummyNode),
+    Slave = ?config(slave, Config),
+    ok = emqx_router:add_route(Topic, Slave),
     RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
-    ok = emqx_router:delete_route(Topic, DummyNode),
+    ok = emqx_router:delete_route(Topic, Slave),
 
     [
         #{<<"topic">> := Topic, <<"node">> := Node1},
         #{<<"topic">> := Topic, <<"node">> := Node2}
     ] = emqx_json:decode(RouteResponse, [return_maps]),
 
-    DummyNodeBin = atom_to_binary(DummyNode),
-    ?assertEqual(lists:usort([Node, DummyNodeBin]), lists:usort([Node1, Node2])).
+    ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])).
