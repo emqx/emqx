@@ -152,7 +152,7 @@ cluster(Specs) ->
     Env = [{emqx, boot_modules, []}],
     emqx_common_test_helpers:emqx_cluster(Specs, [
         {env, Env},
-        {apps, [emqx_conf]},
+        {apps, [emqx_conf, emqx_management]},
         {load_schema, false},
         {join_to, true},
         {env_handler, fun
