@@ -19,30 +19,11 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(
-    emqx_common_test_http,
-    [
-        request_api/3
-    ]
-).
-
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx_dashboard.hrl").
 
--define(HOST, "http://127.0.0.1:18083").
-
--define(BASE_PATH, "/").
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
-
-end_suite() ->
-    end_suite([]).
-
-end_suite(Apps) ->
-    application:unload(emqx_management),
-    mnesia:clear_table(?ADMIN),
-    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps(
@@ -51,33 +32,69 @@ init_per_suite(Config) ->
     ),
     Config.
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    mria:stop().
-
 set_special_configs(emqx_dashboard) ->
     emqx_dashboard_api_test_helpers:set_default_config(<<"admin">>, true),
     ok;
 set_special_configs(_) ->
     ok.
 
-disabled_t_status(_) ->
-    %% no easy way since httpc doesn't support emulating the haproxy protocol
-    {ok, 200, _Res} = http_get(["status"]),
+end_per_suite(Config) ->
+    application:unload(emqx_management),
+    mnesia:clear_table(?ADMIN),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
+    mria:stop(),
+    Config.
+
+t_status(_Config) ->
+    ProxyInfo = #{
+        version => 1,
+        command => proxy,
+        transport_family => ipv4,
+        transport_protocol => stream,
+        src_address => {127, 0, 0, 1},
+        src_port => 444,
+        dest_address => {192, 168, 0, 1},
+        dest_port => 443
+    },
+    {ok, Socket} = gen_tcp:connect(
+        "localhost",
+        18083,
+        [binary, {active, false}, {packet, raw}]
+    ),
+    ok = gen_tcp:send(Socket, ranch_proxy_header:header(ProxyInfo)),
+    {ok, Token} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    ok = gen_tcp:send(
+        Socket,
+        "GET /status HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Authorization: Bearer " ++ binary_to_list(Token) ++
+            "\r\n"
+            "\r\n"
+    ),
+    {_, 200, _, Rest0} = cow_http:parse_status_line(raw_recv_head(Socket)),
+    {Headers, Body0} = cow_http:parse_headers(Rest0),
+    {_, LenBin} = lists:keyfind(<<"content-length">>, 1, Headers),
+    Len = binary_to_integer(LenBin),
+    Body =
+        if
+            byte_size(Body0) =:= Len ->
+                Body0;
+            true ->
+                {ok, Body1} = gen_tcp:recv(Socket, Len - byte_size(Body0), 5000),
+                <<Body0/bits, Body1/bits>>
+        end,
+    ?assertMatch({match, _}, re:run(Body, "Node .+ is started\nemqx is running")),
     ok.
 
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-http_get(Parts) ->
-    request_api(get, api_path(Parts), auth_header_()).
+raw_recv_head(Socket) ->
+    {ok, Data} = gen_tcp:recv(Socket, 0, 10000),
+    raw_recv_head(Socket, Data).
 
-auth_header_() ->
-    auth_header_(<<"admin">>, <<"public">>).
-
-auth_header_(Username, Password) ->
-    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
-
-api_path(Parts) ->
-    ?HOST ++ filename:join([?BASE_PATH | Parts]).
+raw_recv_head(Socket, Buffer) ->
+    case binary:match(Buffer, <<"\r\n\r\n">>) of
+        nomatch ->
+            {ok, Data} = gen_tcp:recv(Socket, 0, 10000),
+            raw_recv_head(Socket, <<Buffer/binary, Data/binary>>);
+        {_, _} ->
+            Buffer
+    end.
