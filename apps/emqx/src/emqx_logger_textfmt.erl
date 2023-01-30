@@ -101,4 +101,5 @@ enrich_topic({Fmt, Args}, #{topic := Topic}) when is_list(Fmt) ->
 enrich_topic(Msg, _) ->
     Msg.
 
+mfa(undefined) -> undefined;
 mfa({M, F, A}) -> atom_to_list(M) ++ ":" ++ atom_to_list(F) ++ "/" ++ integer_to_list(A).
