@@ -1094,7 +1094,7 @@ append_queue(Id, Index, Q, Queries) ->
                 {Q1, QAckRef, Items2} = replayq:pop(Q0, PopOpts),
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
-                emqx_resource_metrics:dropped_queue_full_inc(Id),
+                emqx_resource_metrics:dropped_queue_full_inc(Id, Dropped),
                 ?SLOG(info, #{
                     msg => buffer_worker_overflow,
                     worker_id => Id,
