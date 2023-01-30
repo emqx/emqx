@@ -25,19 +25,22 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_load(_Config) ->
     lists:foreach(
-        fun(Avg, Int) ->
+        fun({Avg, LoadKey, Int}) ->
             emqx_common_test_helpers:with_mock(
                 cpu_sup,
                 Avg,
                 fun() -> Int end,
                 fun() ->
-                    Load = proplists:get_value(Avg, emqx_vm:loads()),
-                    ?assertEqual(Int / 1.0, Load)
+                    Load = proplists:get_value(LoadKey, emqx_vm:loads()),
+                    ?assertEqual(Int / 256, Load)
                 end
-            ),
-            ?assertMatch([{load1, _}, {load5, _}, {load15, _}], emqx_vm:loads())
+            )
         end,
-        [{load1, 1}, {load5, 5}, {load15, 15}]
+        [{avg1, load1, 0}, {avg5, load5, 128}, {avg15, load15, 256}]
+    ),
+    ?assertMatch(
+        [{load1, _}, {load5, _}, {load15, _}],
+        emqx_vm:loads()
     ).
 
 t_systeminfo(_Config) ->

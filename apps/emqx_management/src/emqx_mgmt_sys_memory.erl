@@ -17,7 +17,7 @@
 
 -behaviour(gen_server).
 -define(SYS_MEMORY_CACHE_KEY, ?MODULE).
--define(TIMEOUT, 3000).
+-define(TIMEOUT, 2200).
 
 -export([start_link/0, get_sys_memory/0, get_sys_memory/1]).
 -export([

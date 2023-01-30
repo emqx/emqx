@@ -159,18 +159,18 @@ fields(node_info) ->
             )},
         {load1,
             mk(
-                string(),
-                #{desc => <<"CPU average load in 1 minute">>, example => "2.66"}
+                float(),
+                #{desc => <<"CPU average load in 1 minute">>, example => 2.66}
             )},
         {load5,
             mk(
-                string(),
-                #{desc => <<"CPU average load in 5 minute">>, example => "2.66"}
+                float(),
+                #{desc => <<"CPU average load in 5 minute">>, example => 2.66}
             )},
         {load15,
             mk(
-                string(),
-                #{desc => <<"CPU average load in 15 minute">>, example => "2.66"}
+                float(),
+                #{desc => <<"CPU average load in 15 minute">>, example => 2.66}
             )},
         {max_fds,
             mk(

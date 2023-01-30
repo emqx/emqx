@@ -126,7 +126,7 @@ lookup_node(Node) ->
 
 node_info() ->
     {UsedRatio, Total} = get_sys_memory(),
-    Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
+    Info = maps:from_list(emqx_vm:loads()),
     BrokerInfo = emqx_sys:info(),
     Info#{
         node => node(),

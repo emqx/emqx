@@ -175,9 +175,9 @@ schedulers() ->
 
 loads() ->
     [
-        {load1, ftos(avg1() / 256)},
-        {load5, ftos(avg5() / 256)},
-        {load15, ftos(avg15() / 256)}
+        {load1, load(avg1())},
+        {load5, load(avg5())},
+        {load15, load(avg15())}
     ].
 
 system_info_keys() -> ?SYSTEM_INFO_KEYS.
@@ -231,9 +231,6 @@ mem_info() ->
     Total = proplists:get_value(total_memory, Dataset),
     Free = proplists:get_value(free_memory, Dataset),
     [{total_memory, Total}, {used_memory, Total - Free}].
-
-ftos(F) when is_float(F) ->
-    float_to_binary(F, [{decimals, 2}]).
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
@@ -399,6 +396,9 @@ compat_windows(Fun) ->
                 _Error -> 0.0
             end
     end.
+
+load(Avg) ->
+    floor((Avg / 256) * 100) / 100.
 
 %% @doc Return on which Erlang/OTP the current vm is running.
 %% The dashboard's /api/nodes endpoint will call this function frequently.

@@ -93,9 +93,9 @@ init([]) ->
     %% memsup is not reliable, ignore
     memsup:set_sysmem_high_watermark(1.0),
     SysHW = init_os_monitor(),
-    _ = start_mem_check_timer(),
-    _ = start_cpu_check_timer(),
-    {ok, #{sysmem_high_watermark => SysHW}}.
+    MemRef = start_mem_check_timer(),
+    CpuRef = start_cpu_check_timer(),
+    {ok, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}}.
 
 init_os_monitor() ->
     init_os_monitor(emqx:get_config([sysmon, os])).
@@ -125,8 +125,8 @@ handle_cast(Msg, State) ->
 
 handle_info({timeout, _Timer, mem_check}, #{sysmem_high_watermark := HWM} = State) ->
     ok = update_mem_alarm_status(HWM),
-    ok = start_mem_check_timer(),
-    {noreply, State};
+    Ref = start_mem_check_timer(),
+    {noreply, State#{mem_time_ref => Ref}};
 handle_info({timeout, _Timer, cpu_check}, State) ->
     CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
@@ -158,11 +158,14 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
         _Busy ->
             ok
     end,
-    ok = start_cpu_check_timer(),
-    {noreply, State};
-handle_info({monitor_conf_update, OS}, _State) ->
+    Ref = start_cpu_check_timer(),
+    {noreply, State#{cpu_time_ref => Ref}};
+handle_info({monitor_conf_update, OS}, State) ->
+    cancel_outdated_timer(State),
     SysHW = init_os_monitor(OS),
-    {noreply, #{sysmem_high_watermark => SysHW}};
+    MemRef = start_mem_check_timer(),
+    CpuRef = start_cpu_check_timer(),
+    {noreply, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -176,11 +179,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+cancel_outdated_timer(#{mem_time_ref := MemRef, cpu_time_ref := CpuRef}) ->
+    emqx_misc:cancel_timer(MemRef),
+    emqx_misc:cancel_timer(CpuRef),
+    ok.
 
 start_cpu_check_timer() ->
     Interval = emqx:get_config([sysmon, os, cpu_check_interval]),
     case erlang:system_info(system_architecture) of
-        "x86_64-pc-linux-musl" -> ok;
+        "x86_64-pc-linux-musl" -> undefined;
         _ -> start_timer(Interval, cpu_check)
     end.
 
@@ -193,12 +200,11 @@ start_mem_check_timer() ->
         true ->
             start_timer(Interval, mem_check);
         false ->
-            ok
+            undefined
     end.
 
 start_timer(Interval, Msg) ->
-    _ = emqx_misc:start_timer(Interval, Msg),
-    ok.
+    emqx_misc:start_timer(Interval, Msg).
 
 update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
     ?SLOG(warning, #{msg => "discarded_out_of_range_mem_alarm_threshold", value => HWM}),
@@ -225,7 +231,7 @@ do_update_mem_alarm_status(HWM0) ->
                 },
                 usage_msg(Usage, mem)
             );
-        _ ->
+        false ->
             ok = emqx_alarm:ensure_deactivated(
                 high_system_memory_usage,
                 #{
