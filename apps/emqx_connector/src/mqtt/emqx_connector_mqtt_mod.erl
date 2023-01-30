@@ -38,12 +38,6 @@
 ]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
-
--define(ACK_REF(ClientPid, PktId), {ClientPid, PktId}).
-
-%% Messages towards ack collector process
--define(REF_IDS(Ref, Ids), {Ref, Ids}).
 
 %%--------------------------------------------------------------------
 %% emqx_bridge_connect callbacks
