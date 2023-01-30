@@ -168,9 +168,9 @@ send_to_remote(Name, Msg) ->
     gen_statem:call(name(Name), {send_to_remote, Msg}).
 
 send_to_remote_async(Pid, Msg, Callback) when is_pid(Pid) ->
-    gen_statem:cast(Pid, {send_to_remote_async, Msg, Callback});
+    gen_statem:call(Pid, {send_to_remote_async, Msg, Callback});
 send_to_remote_async(Name, Msg, Callback) ->
-    gen_statem:cast(name(Name), {send_to_remote_async, Msg, Callback}).
+    gen_statem:call(name(Name), {send_to_remote_async, Msg, Callback}).
 
 %% @doc Return all forwards (local subscriptions).
 -spec get_forwards(id()) -> [topic()].
@@ -270,11 +270,13 @@ maybe_destroy_session(_State) ->
 idle({call, From}, ensure_started, State) ->
     case do_connect(State) of
         {ok, State1} ->
-            {next_state, connected, State1, [{reply, From, ok}, {state_timeout, 0, connected}]};
+            {next_state, connected, State1, {reply, From, ok}};
         {error, Reason, _State} ->
             {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
 idle({call, From}, {send_to_remote, _}, _State) ->
+    {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
+idle({call, From}, {send_to_remote_async, _, _}, _State) ->
     {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
 %% @doc Standing by for manual start.
 idle(info, idle, #{start_type := manual}) ->
@@ -290,14 +292,11 @@ idle(Type, Content, State) ->
 connecting(#{reconnect_interval := ReconnectDelayMs} = State) ->
     case do_connect(State) of
         {ok, State1} ->
-            {next_state, connected, State1, {state_timeout, 0, connected}};
+            {next_state, connected, State1};
         _ ->
             {keep_state_and_data, {state_timeout, ReconnectDelayMs, reconnect}}
     end.
 
-connected(state_timeout, connected, State) ->
-    %% nothing to do
-    {keep_state, State};
 connected({call, From}, {send_to_remote, Msg}, State) ->
     case do_send(State, Msg) of
         {ok, NState} ->
@@ -305,9 +304,13 @@ connected({call, From}, {send_to_remote, Msg}, State) ->
         {error, Reason} ->
             {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
-connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
+connected(
+    {call, From},
+    {send_to_remote_async, Msg, Callback},
+    State = #{connection := Connection}
+) ->
     _ = do_send_async(State, Msg, Callback),
-    {keep_state, State};
+    {keep_state, State, {reply, From, {ok, emqx_connector_mqtt_mod:info(pid, Connection)}}};
 connected(
     info,
     {disconnected, Conn, Reason},

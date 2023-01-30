@@ -26,6 +26,8 @@
     ping/1
 ]).
 
+-export([info/2]).
+
 -export([
     ensure_subscribed/3,
     ensure_unsubscribed/2
@@ -89,6 +91,9 @@ ping(undefined) ->
     pang;
 ping(#{client_pid := Pid}) ->
     emqtt:ping(Pid).
+
+info(pid, #{client_pid := Pid}) ->
+    Pid.
 
 ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when
     is_pid(Pid)
