@@ -36,6 +36,7 @@
         , create_resource/1
         , test_resource/1
         , start_resource/1
+        , start_all_resources_of_type/1
         , get_resource_status/1
         , is_resource_alive/1
         , is_resource_alive/2
@@ -354,18 +355,26 @@ do_check_and_update_resource(#{id := Id, type := Type, description := NewDescrip
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).
 start_resource(ResId) ->
     case emqx_rule_registry:find_resource(ResId) of
-        {ok, #resource{type = ResType, config = Config}} ->
-            {ok, #resource_type{on_create = {Mod, Create}}}
-                = emqx_rule_registry:find_resource_type(ResType),
-            try
-                init_resource_with_retrier(Mod, Create, ResId, Config),
-                refresh_actions_of_a_resource(ResId)
-            catch
-                throw:Reason -> {error, Reason}
-            end;
+        {ok, Res} ->
+            do_start_resource(Res);
         not_found ->
             {error, {resource_not_found, ResId}}
     end.
+
+do_start_resource(#resource{id = ResId, type = ResType, config = Config}) ->
+    {ok, #resource_type{on_create = {Mod, Create}}}
+        = emqx_rule_registry:find_resource_type(ResType),
+    try
+        init_resource_with_retrier(Mod, Create, ResId, Config),
+        refresh_actions_of_a_resource(ResId)
+    catch
+        throw:Reason -> {error, Reason}
+    end.
+
+-spec(start_all_resources_of_type(resource_type_name()) -> [{resource_id(), ok | {error, term()}}]).
+start_all_resources_of_type(Type) ->
+    [{ResId, do_start_resource(Res)}
+        || #resource{id = ResId} = Res <- emqx_rule_registry:get_resources_by_type(Type)].
 
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
 test_resource(#{type := Type} = Params) ->
