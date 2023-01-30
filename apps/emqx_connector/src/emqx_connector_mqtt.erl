@@ -270,7 +270,9 @@ basic_config(
         bridge_mode => BridgeMode,
         clean_start => CleanStart,
         keepalive => ms_to_s(KeepAlive),
-        retry_interval => RetryIntv,
+        %% `RetryIntv` defined in `emqx_connector_mqtt_schema` in ms,
+        %% but emqtt requires in second
+        retry_interval => RetryIntv div 1000,
         max_inflight => MaxInflight,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl)),

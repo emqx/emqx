@@ -23,7 +23,8 @@
     send/2,
     send_async/3,
     stop/1,
-    ping/1
+    ping/1,
+    status/1
 ]).
 
 -export([
@@ -34,8 +35,12 @@
 %% callbacks for emqtt
 -export([
     handle_publish/3,
-    handle_disconnected/2
+    handle_connected/2,
+    handle_disconnected/2,
+    async_callback_delegate/2
 ]).
+
+-export([apply_callback_function/2]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -96,6 +101,9 @@ ping(undefined) ->
 ping(#{client_pid := Pid}) ->
     emqtt:ping(Pid).
 
+status(#{client_pid := Pid}) ->
+    emqtt:status(Pid).
+
 ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when
     is_pid(Pid)
 ->
@@ -138,7 +146,21 @@ send(#{client_pid := ClientPid}, Msg) ->
     emqtt:publish(ClientPid, Msg).
 
 send_async(#{client_pid := ClientPid}, Msg, Callback) ->
-    emqtt:publish_async(ClientPid, Msg, infinity, Callback).
+    emqtt:publish_async(
+        ClientPid, Msg, infinity, {fun ?MODULE:async_callback_delegate/2, [Callback]}
+    ).
+
+async_callback_delegate(Callback, Result) ->
+    Result1 =
+        case Result of
+            {error, waiting_reconnect} ->
+                {error, {recoverable_error, waiting_reconnect}};
+            {error, waiting_for_connack} ->
+                {error, {recoverable_error, waiting_for_connack}};
+            _ ->
+                Result
+        end,
+    apply_callback_function(Callback, Result1).
 
 handle_publish(Msg, undefined, _Opts) ->
     ?SLOG(error, #{
@@ -162,12 +184,16 @@ handle_publish(#{properties := Props} = Msg0, Vars, Opts) ->
     end,
     maybe_publish_to_local_broker(Msg, Vars, Props).
 
+handle_connected(_Properties, Parent) ->
+    Parent ! {connected, self()}.
+
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
 
 make_hdlr(Parent, Vars, Opts) ->
     #{
         publish => {fun ?MODULE:handle_publish/3, [Vars, Opts]},
+        connected => {fun ?MODULE:handle_connected/2, [Parent]},
         disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
     }.
 
@@ -234,3 +260,21 @@ printable_maps(Headers) ->
         #{},
         Headers
     ).
+
+%% Result returned at the end of args
+%% see: emqx_resource_buffer_worker:batch_reply_after_query/8
+apply_callback_function(F, Result) when
+    is_function(F)
+->
+    erlang:apply(F, [Result]);
+apply_callback_function({F, A}, Result) when
+    is_function(F),
+    is_list(A)
+->
+    erlang:apply(F, A ++ [Result]);
+apply_callback_function({M, F, A}, Result) when
+    is_atom(M),
+    is_atom(F),
+    is_list(A)
+->
+    erlang:apply(M, F, A ++ [Result]).

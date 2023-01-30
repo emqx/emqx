@@ -122,7 +122,7 @@
 %%      at 'idle' state until a manual call to start it.
 %% connect_module: The module which implements emqx_bridge_connect behaviour
 %%      and work as message batch transport layer
-%% reconnect_interval: Delay in milli-seconds for the bridge worker to retry
+%% reconnect_interval: Delay in seconds for the bridge worker to retry
 %%      in case of transportation failure.
 %% max_inflight: Max number of batches allowed to send-ahead before receiving
 %%       confirmation from remote node/cluster
@@ -196,7 +196,7 @@ init(#{name := Name} = ConnectOpts) ->
     }}.
 
 init_state(Opts) ->
-    ReconnDelayMs = maps:get(reconnect_interval, Opts, ?DEFAULT_RECONNECT_DELAY_MS),
+    ReconnDelayMs = timer:seconds(maps:get(reconnect_interval, Opts)),
     StartType = maps:get(start_type, Opts, manual),
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
     MaxInflightSize = maps:get(max_inflight, Opts, ?DEFAULT_INFLIGHT_SIZE),
@@ -210,10 +210,13 @@ init_state(Opts) ->
         name => Name
     }.
 
-pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
+pre_process_opts(
+    #{subscriptions := InConf, forwards := OutConf, reconnect_interval := Reconnect} = ConnectOpts
+) ->
     ConnectOpts#{
         subscriptions => pre_process_in_out(in, InConf),
-        forwards => pre_process_in_out(out, OutConf)
+        forwards => pre_process_in_out(out, OutConf),
+        reconnect => Reconnect
     }.
 
 pre_process_in_out(_, undefined) ->
@@ -270,7 +273,7 @@ maybe_destroy_session(_State) ->
 idle({call, From}, ensure_started, State) ->
     case do_connect(State) of
         {ok, State1} ->
-            {next_state, connected, State1, [{reply, From, ok}, {state_timeout, 0, connected}]};
+            {next_state, connected, State1, [{reply, From, ok}]};
         {error, Reason, _State} ->
             {keep_state_and_data, {reply, From, {error, Reason}}}
     end;
@@ -282,6 +285,15 @@ idle(info, idle, #{start_type := manual}) ->
 %% @doc Standing by for auto start.
 idle(info, idle, #{start_type := auto} = State) ->
     connecting(State);
+idle(
+    info,
+    {connected, Pid},
+    #{connection := Connection, name := Name} = State
+) ->
+    %% assert
+    Pid = maps:get(client_pid, Connection),
+    ?tp(info, reconnected, #{name => Name}),
+    {next_state, connected, State};
 idle(state_timeout, reconnect, State) ->
     connecting(State);
 idle(Type, Content, State) ->
@@ -290,13 +302,12 @@ idle(Type, Content, State) ->
 connecting(#{reconnect_interval := ReconnectDelayMs} = State) ->
     case do_connect(State) of
         {ok, State1} ->
-            {next_state, connected, State1, {state_timeout, 0, connected}};
+            {next_state, connected, State1};
         _ ->
             {keep_state_and_data, {state_timeout, ReconnectDelayMs, reconnect}}
     end.
 
-connected(state_timeout, connected, State) ->
-    %% nothing to do
+connected(info, {connected, _}, State) ->
     {keep_state, State};
 connected({call, From}, {send_to_remote, Msg}, State) ->
     case do_send(State, Msg) of
@@ -310,23 +321,20 @@ connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
     {keep_state, State};
 connected(
     info,
-    {disconnected, Conn, Reason},
-    #{connection := Connection, name := Name, reconnect_interval := ReconnectDelayMs} = State
+    {disconnected, Pid, Reason},
+    #{connection := Connection, name := Name} = State
 ) ->
+    %% assert
+    Pid = maps:get(client_pid, Connection),
     ?tp(info, disconnected, #{name => Name, reason => Reason}),
-    case Conn =:= maps:get(client_pid, Connection, undefined) of
-        true ->
-            {next_state, idle, State#{connection => undefined},
-                {state_timeout, ReconnectDelayMs, reconnect}};
-        false ->
-            keep_state_and_data
-    end;
+    {next_state, idle, State};
 connected(Type, Content, State) ->
     common(connected, Type, Content, State).
 
 %% Common handlers
-common(StateName, {call, From}, status, _State) ->
-    {keep_state_and_data, {reply, From, StateName}};
+common(_StateName, {call, From}, status, #{connection := Conn} = _State) ->
+    Reply = emqx_connector_mqtt_mod:status(Conn),
+    {keep_state_and_data, {reply, From, Reply}};
 common(_StateName, {call, From}, ping, #{connection := Conn} = _State) ->
     Reply = emqx_connector_mqtt_mod:ping(Conn),
     {keep_state_and_data, {reply, From, Reply}};
@@ -339,10 +347,28 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
     {keep_state_and_data, {reply, From, Forwards}};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, {reply, From, maps:get(subscriptions, Connection, #{})}};
+common(_StateName, {call, From}, {send_to_remote, _}, _State) ->
+    {keep_state_and_data, {reply, From, {error, {recoverable_error, not_connected}}}};
 common(_StateName, {call, From}, Req, _State) ->
     {keep_state_and_data, {reply, From, {error, {unsupported_request, Req}}}};
-common(_StateName, info, {'EXIT', _, _}, State) ->
+common(_StateName, cast, {send_to_remote_async, _Msg, Callback}, State) ->
+    emqx_connector_mqtt_mod:apply_callback_function(
+        Callback, {error, {recoverable_error, not_connected}}
+    ),
     {keep_state, State};
+common(
+    _StateName,
+    info,
+    {'EXIT', Pid, Reason},
+    #{connection := Connection, name := Name} = _State
+) ->
+    case Pid =:= maps:get(client_pid, Connection, undefined) of
+        true ->
+            ?tp(info, client_exited, #{name => Name, reason => Reason}),
+            {stop, {shutdown, Reason}};
+        false ->
+            keep_state_and_data
+    end;
 common(StateName, Type, Content, #{name := Name} = State) ->
     ?SLOG(error, #{
         msg => "bridge_discarded_event",
