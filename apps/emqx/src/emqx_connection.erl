@@ -732,6 +732,12 @@ handle_timeout(TRef, Msg, State) ->
 %% Parse incoming data
 -compile({inline, [when_bytes_in/3]}).
 when_bytes_in(Oct, Data, State) ->
+    ?SLOG(debug, #{
+        msg => "raw_bin_received",
+        size => Oct,
+        bin => binary_to_list(binary:encode_hex(Data)),
+        type => "hex"
+    }),
     {Packets, NState} = parse_incoming(Data, [], State),
     Len = erlang:length(Packets),
     check_limiter(
