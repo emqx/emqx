@@ -198,8 +198,9 @@ on_query_async(_InstId, {send_message, Msg}, Callback, #{name := InstanceId}) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     case emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, Callback) of
         ok ->
-            % TODO this is racy
-            {ok, emqx_connector_mqtt_worker:pid(InstanceId)};
+            ok;
+        {ok, Pid} ->
+            {ok, Pid};
         {error, Reason} ->
             classify_error(Reason)
     end.
