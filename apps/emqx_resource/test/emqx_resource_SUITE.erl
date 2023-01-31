@@ -1718,7 +1718,7 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
                 async ->
                     {ok, _} = ?block_until(
                         #{
-                            ?snk_kind := buffer_worker_reply_after_query,
+                            ?snk_kind := handle_async_reply,
                             action := ack,
                             batch_or_query := [{query, _, {inc_counter, 99}, _, _}]
                         },
@@ -1849,7 +1849,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
             ?force_ordering(
                 #{?snk_kind := delay},
                 #{
-                    ?snk_kind := buffer_worker_reply_after_query_enter,
+                    ?snk_kind := handle_async_reply_enter,
                     batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
                 }
             ),
@@ -1874,7 +1874,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
                 #{?snk_kind := buffer_worker_flush_potentially_partial}, 4 * TimeoutMS
             ),
             {ok, _} = ?block_until(
-                #{?snk_kind := buffer_worker_reply_after_query_expired}, 10 * TimeoutMS
+                #{?snk_kind := handle_async_reply_expired}, 10 * TimeoutMS
             ),
 
             unlink(Pid0),
@@ -1888,7 +1888,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
                         expired := [{query, _, {inc_counter, 199}, _, _}]
                     }
                 ],
-                ?of_kind(buffer_worker_reply_after_query_expired, Trace)
+                ?of_kind(handle_async_reply_expired, Trace)
             ),
             wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
             Metrics = tap_metrics(?LINE),
@@ -1936,7 +1936,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
             ?force_ordering(
                 #{?snk_kind := delay},
                 #{
-                    ?snk_kind := buffer_worker_reply_after_query_enter,
+                    ?snk_kind := handle_async_reply_enter,
                     batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
                 }
             ),
@@ -1955,7 +1955,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                 end),
 
             {ok, _} = ?block_until(
-                #{?snk_kind := buffer_worker_reply_after_query_expired}, 10 * TimeoutMS
+                #{?snk_kind := handle_async_reply_expired}, 10 * TimeoutMS
             ),
 
             unlink(Pid0),
@@ -1969,7 +1969,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                         expired := [{query, _, {inc_counter, 199}, _, _}]
                     }
                 ],
-                ?of_kind(buffer_worker_reply_after_query_expired, Trace)
+                ?of_kind(handle_async_reply_expired, Trace)
             ),
             Metrics = tap_metrics(?LINE),
             ?assertMatch(
@@ -2335,7 +2335,7 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
     ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
-            #{?snk_kind := buffer_worker_reply_after_query, action := nack, ref := _Ref},
+            #{?snk_kind := handle_async_reply, action := nack},
             #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
             Trace
         )
