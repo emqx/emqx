@@ -18,25 +18,16 @@ main([Command0, DistInfoStr | CommandArgs]) ->
     Opts = parse_arguments(CommandArgs),
     %% invoke the command passed as argument
     F = case Command0 of
-        %% "install" -> fun(A, B) -> install(A, B) end;
-        %% "unpack" -> fun(A, B) -> unpack(A, B) end;
-        %% "upgrade" -> fun(A, B) -> upgrade(A, B) end;
-        %% "downgrade" -> fun(A, B) -> downgrade(A, B) end;
-        %% "uninstall" -> fun(A, B) -> uninstall(A, B) end;
-        "versions" -> fun(A, B) -> versions(A, B) end;
-        _ -> fun fail_upgrade/2
+        "install" -> fun(A, B) -> install(A, B) end;
+        "unpack" -> fun(A, B) -> unpack(A, B) end;
+        "upgrade" -> fun(A, B) -> upgrade(A, B) end;
+        "downgrade" -> fun(A, B) -> downgrade(A, B) end;
+        "uninstall" -> fun(A, B) -> uninstall(A, B) end;
+        "versions" -> fun(A, B) -> versions(A, B) end
     end,
     F(DistInfo, Opts);
 main(Args) ->
     ?INFO("unknown args: ~p", [Args]),
-    erlang:halt(1).
-
-%% temporary block for hot-upgrades; next release will just remove
-%% this and the new script version shall be used instead of this
-%% current version.
-%% TODO: always deny relup for macos (unsupported)
-fail_upgrade(_DistInfo, _Opts) ->
-    ?ERROR("Unsupported upgrade path", []),
     erlang:halt(1).
 
 unpack({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
