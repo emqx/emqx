@@ -75,7 +75,7 @@ schema("/topics/:topic") ->
             tags => ?TAGS,
             parameters => [topic_param(path)],
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(topic), #{}),
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(topic)), #{}),
                 404 =>
                     emqx_dashboard_swagger:error_codes(['TOPIC_NOT_FOUND'], <<"Topic not found">>)
             }
@@ -130,8 +130,9 @@ lookup(#{topic := Topic}) ->
     case emqx_router:lookup_routes(Topic) of
         [] ->
             {404, #{code => ?TOPIC_NOT_FOUND, message => <<"Topic not found">>}};
-        [Route] ->
-            {200, format(Route)}
+        Routes when is_list(Routes) ->
+            Formatted = [format(Route) || Route <- Routes],
+            {200, Formatted}
     end.
 
 %%%==============================================================================================
