@@ -72,12 +72,6 @@ fields("server_configs") ->
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
-        {reconnect_interval,
-            mk_duration(
-                "Reconnect interval. Delay for the MQTT bridge to retry establishing the connection "
-                "in case of transportation failure.",
-                #{default => "15s"}
-            )},
         {proto_ver,
             mk(
                 hoconsc:enum([v3, v4, v5]),

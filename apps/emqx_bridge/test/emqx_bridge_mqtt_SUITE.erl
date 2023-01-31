@@ -825,15 +825,15 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF,
-            %% to make it reconnect quickly
-            <<"reconnect_interval">> => <<"1s">>,
             <<"resource_opts">> => #{
                 <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"sync">>,
                 %% using a long time so we can test recovery
                 <<"request_timeout">> => <<"15s">>,
                 %% to make it check the healthy quickly
-                <<"health_check_interval">> => <<"0.5s">>
+                <<"health_check_interval">> => <<"0.5s">>,
+                %% to make it reconnect quickly
+                <<"auto_restart_interval">> => <<"1s">>
             }
         }
     ),
@@ -911,7 +911,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     Decoded1 = jsx:decode(BridgeStr1),
     DecodedMetrics1 = jsx:decode(BridgeMetricsStr1),
     ?assertMatch(
-        Status when (Status == <<"connected">> orelse Status == <<"connecting">>),
+        Status when (Status == <<"connecting">> orelse Status == <<"disconnected">>),
         maps:get(<<"status">>, Decoded1)
     ),
     %% matched >= 3 because of possible retries.

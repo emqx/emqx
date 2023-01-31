@@ -1144,6 +1144,10 @@ append_queue(Id, Index, Q, Queries) ->
 -define(INITIAL_TIME_REF, initial_time).
 -define(INITIAL_MONOTONIC_TIME_REF, initial_monotonic_time).
 
+%% NOTE
+%% There are 4 metadata rows in an inflight table, keyed by atoms declared above. ☝
+-define(INFLIGHT_META_ROWS, 4).
+
 inflight_new(InfltWinSZ, Id, Index) ->
     TableId = ets:new(
         emqx_resource_buffer_worker_inflight_tab,
@@ -1204,12 +1208,9 @@ is_inflight_full(InflightTID) ->
     Size >= MaxSize.
 
 inflight_num_batches(InflightTID) ->
-    %% Note: we subtract 2 because there're 2 metadata rows that hold
-    %% the maximum size value and the number of messages.
-    MetadataRowCount = 2,
     case ets:info(InflightTID, size) of
         undefined -> 0;
-        Size -> max(0, Size - MetadataRowCount)
+        Size -> max(0, Size - ?INFLIGHT_META_ROWS)
     end.
 
 inflight_num_msgs(InflightTID) ->
