@@ -100,14 +100,16 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    Words = emqx_topic:words(bin(Topic)),
-    case pattern(Words) of
-        true -> {pattern, Words};
-        false -> Words
+    TopicBin = bin(Topic),
+    case
+        emqx_placeholder:preproc_tmpl(
+            TopicBin,
+            #{placeholders => [?PH_USERNAME, ?PH_CLIENTID]}
+        )
+    of
+        [{str, _}] -> emqx_topic:words(TopicBin);
+        Tokens -> {pattern, Tokens}
     end.
-
-pattern(Words) ->
-    lists:member(?PH_USERNAME, Words) orelse lists:member(?PH_CLIENTID, Words).
 
 atom(B) when is_binary(B) ->
     try
@@ -202,8 +204,8 @@ match_who(_, _) ->
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
-    TopicFilter = feed_var(ClientInfo, PatternFilter),
-    match_topic(emqx_topic:words(Topic), TopicFilter) orelse
+    TopicFilter = emqx_placeholder:proc_tmpl(PatternFilter, ClientInfo),
+    match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter)) orelse
         match_topics(ClientInfo, Topic, Filters);
 match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->
     match_topic(emqx_topic:words(Topic), TopicFilter) orelse
@@ -213,18 +215,3 @@ match_topic(Topic, {'eq', TopicFilter}) ->
     Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
-
-feed_var(ClientInfo, Pattern) ->
-    feed_var(ClientInfo, Pattern, []).
-feed_var(_ClientInfo, [], Acc) ->
-    lists:reverse(Acc);
-feed_var(ClientInfo = #{clientid := undefined}, [?PH_CLIENTID | Words], Acc) ->
-    feed_var(ClientInfo, Words, [?PH_CLIENTID | Acc]);
-feed_var(ClientInfo = #{clientid := ClientId}, [?PH_CLIENTID | Words], Acc) ->
-    feed_var(ClientInfo, Words, [ClientId | Acc]);
-feed_var(ClientInfo = #{username := undefined}, [?PH_USERNAME | Words], Acc) ->
-    feed_var(ClientInfo, Words, [?PH_USERNAME | Acc]);
-feed_var(ClientInfo = #{username := Username}, [?PH_USERNAME | Words], Acc) ->
-    feed_var(ClientInfo, Words, [Username | Acc]);
-feed_var(ClientInfo, [W | Words], Acc) ->
-    feed_var(ClientInfo, Words, [W | Acc]).
