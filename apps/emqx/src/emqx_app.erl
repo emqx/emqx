@@ -42,6 +42,7 @@
 start(_Type, _Args) ->
     ok = maybe_load_config(),
     ok = emqx_persistent_session:init_db_backend(),
+    ok = emqx_config_logger:refresh_config(),
     ok = maybe_start_quicer(),
     ok = emqx_bpapi:start(),
     wait_boot_shards(),

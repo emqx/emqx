@@ -993,7 +993,7 @@ translation("ekka") ->
 translation("kernel") ->
     [
         {"logger_level", fun tr_logger_level/1},
-        {"logger", fun tr_logger/1},
+        {"logger", fun tr_logger_handlers/1},
         {"error_logger", fun(_) -> silent end}
     ];
 translation("emqx") ->
@@ -1065,70 +1065,10 @@ tr_cluster_discovery(Conf) ->
 
 -spec tr_logger_level(hocon:config()) -> logger:level().
 tr_logger_level(Conf) ->
-    ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
-    FileLevels = [
-        conf_get("level", SubConf)
-     || {_, SubConf} <-
-            logger_file_handlers(Conf)
-    ],
-    case FileLevels ++ [ConsoleLevel || ConsoleLevel =/= undefined] of
-        %% warning is the default level we should use
-        [] -> warning;
-        Levels -> least_severe_log_level(Levels)
-    end.
+    emqx_config_logger:tr_level(Conf).
 
-logger_file_handlers(Conf) ->
-    Handlers = maps:to_list(conf_get("log.file_handlers", Conf, #{})),
-    lists:filter(
-        fun({_Name, Opts}) ->
-            B = conf_get("enable", Opts),
-            true = is_boolean(B),
-            B
-        end,
-        Handlers
-    ).
-
-tr_logger(Conf) ->
-    %% For the default logger that outputs to console
-    ConsoleHandler =
-        case conf_get("log.console_handler.enable", Conf) of
-            true ->
-                ConsoleConf = conf_get("log.console_handler", Conf),
-                [
-                    {handler, console, logger_std_h, #{
-                        level => conf_get("log.console_handler.level", Conf),
-                        config => (log_handler_conf(ConsoleConf))#{type => standard_io},
-                        formatter => log_formatter(ConsoleConf),
-                        filters => log_filter(ConsoleConf)
-                    }}
-                ];
-            false ->
-                []
-        end,
-    %% For the file logger
-    FileHandlers =
-        [
-            begin
-                {handler, to_atom(HandlerName), logger_disk_log_h, #{
-                    level => conf_get("level", SubConf),
-                    config => (log_handler_conf(SubConf))#{
-                        type =>
-                            case conf_get("rotation.enable", SubConf) of
-                                true -> wrap;
-                                _ -> halt
-                            end,
-                        file => conf_get("file", SubConf),
-                        max_no_files => conf_get("rotation.count", SubConf),
-                        max_no_bytes => conf_get("max_size", SubConf)
-                    },
-                    formatter => log_formatter(SubConf),
-                    filters => log_filter(SubConf),
-                    filesync_repeat_interval => no_repeat
-                }}
-            end
-         || {HandlerName, SubConf} <- logger_file_handlers(Conf)
-        ],
-    [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
+tr_logger_handlers(Conf) ->
+    emqx_config_logger:tr_handlers(Conf).
 
 log_handler_common_confs(Enable) ->
     [
@@ -1225,78 +1165,6 @@ log_handler_common_confs(Enable) ->
             )}
     ].
 
-log_handler_conf(Conf) ->
-    SycModeQlen = conf_get("sync_mode_qlen", Conf),
-    DropModeQlen = conf_get("drop_mode_qlen", Conf),
-    FlushQlen = conf_get("flush_qlen", Conf),
-    Overkill = conf_get("overload_kill", Conf),
-    BurstLimit = conf_get("burst_limit", Conf),
-    #{
-        sync_mode_qlen => SycModeQlen,
-        drop_mode_qlen => DropModeQlen,
-        flush_qlen => FlushQlen,
-        overload_kill_enable => conf_get("enable", Overkill),
-        overload_kill_qlen => conf_get("qlen", Overkill),
-        overload_kill_mem_size => conf_get("mem_size", Overkill),
-        overload_kill_restart_after => conf_get("restart_after", Overkill),
-        burst_limit_enable => conf_get("enable", BurstLimit),
-        burst_limit_max_count => conf_get("max_count", BurstLimit),
-        burst_limit_window_time => conf_get("window_time", BurstLimit)
-    }.
-
-log_formatter(Conf) ->
-    CharsLimit =
-        case conf_get("chars_limit", Conf) of
-            unlimited -> unlimited;
-            V when V > 0 -> V
-        end,
-    TimeOffSet =
-        case conf_get("time_offset", Conf) of
-            "system" -> "";
-            "utc" -> 0;
-            OffSetStr -> OffSetStr
-        end,
-    SingleLine = conf_get("single_line", Conf),
-    Depth = conf_get("max_depth", Conf),
-    do_formatter(conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth).
-
-%% helpers
-do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
-    {emqx_logger_jsonfmt, #{
-        chars_limit => CharsLimit,
-        single_line => SingleLine,
-        time_offset => TimeOffSet,
-        depth => Depth
-    }};
-do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
-    {emqx_logger_textfmt, #{
-        template => [time, " [", level, "] ", msg, "\n"],
-        chars_limit => CharsLimit,
-        single_line => SingleLine,
-        time_offset => TimeOffSet,
-        depth => Depth
-    }}.
-
-log_filter(Conf) ->
-    case conf_get("supervisor_reports", Conf) of
-        error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
-        progress -> []
-    end.
-
-least_severe_log_level(Levels) ->
-    hd(sort_log_levels(Levels)).
-
-sort_log_levels(Levels) ->
-    lists:sort(
-        fun(A, B) ->
-            case logger:compare_levels(A, B) of
-                R when R == lt; R == eq -> true;
-                gt -> false
-            end
-        end,
-        Levels
-    ).
-
 crash_dump_file_default() ->
     case os:getenv("RUNNER_LOG_DIR") of
         false ->
@@ -1308,11 +1176,9 @@ crash_dump_file_default() ->
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
-conf_get(Key, Conf) ->
-    ensure_list(hocon_maps:get(Key, Conf)).
+conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
 
-conf_get(Key, Conf, Default) ->
-    ensure_list(hocon_maps:get(Key, Conf, Default)).
+conf_get(Key, Conf, Default) -> emqx_schema:conf_get(Key, Conf, Default).
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
@@ -1375,15 +1241,6 @@ to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
-
--spec ensure_list(binary() | list(char())) -> list(char()).
-ensure_list(V) ->
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
 
 roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
