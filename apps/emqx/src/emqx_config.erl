@@ -24,6 +24,7 @@
     init_load/2,
     init_load/3,
     read_override_conf/1,
+    read_override_confs/0,
     delete_override_conf_files/0,
     check_config/2,
     fill_defaults/1,
@@ -326,9 +327,7 @@ init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
-    ClusterOverrides = read_override_conf(#{override_to => cluster}),
-    LocalOverrides = read_override_conf(#{override_to => local}),
-    Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
+    Overrides = read_override_confs(),
     RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
     RootNames = get_root_names(),
     RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
@@ -336,6 +335,12 @@ init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConfAll).
+
+%% @doc Read merged cluster + local overrides.
+read_override_confs() ->
+    ClusterOverrides = read_override_conf(#{override_to => cluster}),
+    LocalOverrides = read_override_conf(#{override_to => local}),
+    hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
 raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
@@ -599,8 +604,16 @@ load_hocon_file(FileName, LoadType) ->
     case filelib:is_regular(FileName) of
         true ->
             Opts = #{include_dirs => include_dirs(), format => LoadType},
-            {ok, Raw0} = hocon:load(FileName, Opts),
-            Raw0;
+            case hocon:load(FileName, Opts) of
+                {ok, Raw0} ->
+                    Raw0;
+                {error, Reason} ->
+                    throw(#{
+                        msg => failed_to_load_conf,
+                        reason => Reason,
+                        file => FileName
+                    })
+            end;
         false ->
             #{}
     end.
