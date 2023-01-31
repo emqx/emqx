@@ -1308,11 +1308,9 @@ crash_dump_file_default() ->
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
-conf_get(Key, Conf) ->
-    ensure_list(hocon_maps:get(Key, Conf)).
+conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
 
-conf_get(Key, Conf, Default) ->
-    ensure_list(hocon_maps:get(Key, Conf, Default)).
+conf_get(Key, Conf, Default) -> emqx_schema:conf_get(Key, Conf, Default).
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
@@ -1375,15 +1373,6 @@ to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
-
--spec ensure_list(binary() | list(char())) -> list(char()).
-ensure_list(V) ->
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
 
 roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).

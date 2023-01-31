@@ -1815,16 +1815,12 @@ desc(_) ->
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
 conf_get(Key, Conf) ->
-    V = hocon_maps:get(Key, Conf),
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
+    ensure_list(hocon_maps:get(Key, Conf)).
 
 conf_get(Key, Conf, Default) ->
-    V = hocon_maps:get(Key, Conf, Default),
+    ensure_list(hocon_maps:get(Key, Conf, Default)).
+
+ensure_list(V) ->
     case is_binary(V) of
         true ->
             binary_to_list(V);
