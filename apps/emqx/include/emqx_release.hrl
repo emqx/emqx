@@ -35,7 +35,7 @@
 -define(EMQX_RELEASE_CE, "5.0.15").
 
 %% Enterprise edition
--define(EMQX_RELEASE_EE, "5.0.0-rc.2").
+-define(EMQX_RELEASE_EE, "5.0.0-rc.3").
 
 %% the HTTP API version
 -define(EMQX_API_VERSION, "5.0").
