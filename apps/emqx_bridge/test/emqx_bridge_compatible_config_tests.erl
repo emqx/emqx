@@ -224,7 +224,6 @@ bridges {
         mode = \"cluster_shareload\"
         password = \"\"
         proto_ver = \"v5\"
-        reconnect_interval = \"15s\"
         replayq {offload = false, seg_bytes = \"100MB\"}
         retry_interval = \"12s\"
         server = \"localhost:1883\"
@@ -257,7 +256,6 @@ bridges {
         mode = \"cluster_shareload\"
         password = \"\"
         proto_ver = \"v4\"
-        reconnect_interval = \"15s\"
         replayq {offload = false, seg_bytes = \"100MB\"}
         retry_interval = \"44s\"
         server = \"localhost:1883\"
