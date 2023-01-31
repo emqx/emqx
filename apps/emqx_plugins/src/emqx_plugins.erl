@@ -111,8 +111,8 @@ do_ensure_installed(NameVsn) ->
             }}
     end.
 
-%% @doc Ensure files and directories for the given plugin are delete.
-%% If a plugin is running, or enabled, error is returned.
+%% @doc Ensure files and directories for the given plugin are being deleted.
+%% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
     case read_plugin(NameVsn, #{}) of
