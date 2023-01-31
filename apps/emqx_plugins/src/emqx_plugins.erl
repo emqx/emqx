@@ -16,8 +16,13 @@
 
 -module(emqx_plugins).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include("emqx_plugins.hrl").
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     ensure_installed/1,
@@ -56,10 +61,6 @@
 -compile(nowarn_export_all).
 -endif.
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
--include("emqx_plugins.hrl").
-
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
 %% the parse result of the JSON info file
@@ -87,14 +88,15 @@ ensure_installed(NameVsn) ->
 
 do_ensure_installed(NameVsn) ->
     TarGz = pkg_file(NameVsn),
-    case erl_tar:extract(TarGz, [{cwd, install_dir()}, compressed]) of
-        ok ->
+    case erl_tar:extract(TarGz, [compressed, memory]) of
+        {ok, TarContent} ->
+            ok = write_tar_file_content(install_dir(), TarContent),
             case read_plugin(NameVsn, #{}) of
                 {ok, _} ->
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
-                    _ = ensure_uninstalled(NameVsn),
+                    ok = delete_tar_file_content(install_dir(), TarContent),
                     {error, Reason}
             end;
         {error, {_, enoent}} ->
@@ -110,6 +112,66 @@ do_ensure_installed(NameVsn) ->
                 return => Reason
             }}
     end.
+
+write_tar_file_content(BaseDir, TarContent) ->
+    lists:foreach(
+        fun({Name, Bin}) ->
+            Filename = filename:join(BaseDir, Name),
+            ok = filelib:ensure_dir(Filename),
+            ok = file:write_file(Filename, Bin)
+        end,
+        TarContent
+    ).
+
+delete_tar_file_content(BaseDir, TarContent) ->
+    lists:foreach(
+        fun({Name, _}) ->
+            Filename = filename:join(BaseDir, Name),
+            case filelib:is_file(Filename) of
+                true ->
+                    TopDirOrFile = top_dir(BaseDir, Filename),
+                    ok = file:del_dir_r(TopDirOrFile);
+                false ->
+                    %% probably already deleted
+                    ok
+            end
+        end,
+        TarContent
+    ).
+
+top_dir(BaseDir0, DirOrFile) ->
+    BaseDir = normalize_dir(BaseDir0),
+    case filename:dirname(DirOrFile) of
+        RockBottom when RockBottom =:= "/" orelse RockBottom =:= "." ->
+            throw({out_of_bounds, DirOrFile});
+        BaseDir ->
+            DirOrFile;
+        Parent ->
+            top_dir(BaseDir, Parent)
+    end.
+
+normalize_dir(Dir) ->
+    %% Get rid of possible trailing slash
+    filename:join([Dir, ""]).
+
+-ifdef(TEST).
+normalize_dir_test_() ->
+    [
+        ?_assertEqual("foo", normalize_dir("foo")),
+        ?_assertEqual("foo", normalize_dir("foo/")),
+        ?_assertEqual("/foo", normalize_dir("/foo")),
+        ?_assertEqual("/foo", normalize_dir("/foo/"))
+    ].
+
+top_dir_test_() ->
+    [
+        ?_assertEqual("base/foo", top_dir("base", filename:join(["base", "foo", "bar"]))),
+        ?_assertEqual("/base/foo", top_dir("/base", filename:join(["/", "base", "foo", "bar"]))),
+        ?_assertEqual("/base/foo", top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))),
+        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
+        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
+    ].
+-endif.
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
 %% If a plugin is running, or enabled, an error is returned.
