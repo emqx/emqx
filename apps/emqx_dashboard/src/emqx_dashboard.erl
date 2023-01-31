@@ -92,8 +92,8 @@ start_listeners(Listeners) ->
     },
     Res =
         lists:foldl(
-            fun({Name, Protocol, Bind, RanchOptions}, Acc) ->
-                Minirest = BaseMinirest#{protocol => Protocol},
+            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, Acc) ->
+                Minirest = BaseMinirest#{protocol => Protocol, protocol_options => ProtoOpts},
                 case minirest:start(Name, RanchOptions, Minirest) of
                     {ok, _} ->
                         ?ULOG("Listener ~ts on ~ts started.~n", [
@@ -125,7 +125,7 @@ stop_listeners(Listeners) ->
                     ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
             end
         end
-     || {Name, _, Port, _} <- listeners(Listeners)
+     || {Name, _, Port, _, _} <- listeners(Listeners)
     ],
     ok.
 
@@ -164,7 +164,13 @@ listeners(Listeners) ->
             maps:get(enable, Conf) andalso
                 begin
                     {Conf1, Bind} = ip_port(Conf),
-                    {true, {listener_name(Protocol), Protocol, Bind, ranch_opts(Conf1)}}
+                    {true, {
+                        listener_name(Protocol),
+                        Protocol,
+                        Bind,
+                        ranch_opts(Conf1),
+                        proto_opts(Conf1)
+                    }}
                 end
         end,
         maps:to_list(Listeners)
@@ -197,7 +203,7 @@ ranch_opts(Options) ->
     SocketOpts = maps:fold(
         fun filter_false/3,
         [],
-        maps:without([enable, inet6, ipv6_v6only | Keys], Options)
+        maps:without([enable, inet6, ipv6_v6only, proxy_header | Keys], Options)
     ),
     InetOpts =
         case Options of
@@ -209,6 +215,9 @@ ranch_opts(Options) ->
                 [inet]
         end,
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
+
+proto_opts(Options) ->
+    maps:with([proxy_header], Options).
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].

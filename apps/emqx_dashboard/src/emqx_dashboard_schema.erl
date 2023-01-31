@@ -160,6 +160,14 @@ common_listener_fields() ->
                     default => false,
                     desc => ?DESC(ipv6_v6only)
                 }
+            )},
+        {"proxy_header",
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(proxy_header),
+                    default => false
+                }
             )}
     ].
 
