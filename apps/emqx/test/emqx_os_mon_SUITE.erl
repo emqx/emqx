@@ -32,8 +32,6 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(t_cpu_check_alarm, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
     SysMon = emqx_config:get([sysmon, os], #{}),
     emqx_config:put([sysmon, os], SysMon#{
         cpu_high_watermark => 0.9,
@@ -45,19 +43,20 @@ init_per_testcase(t_cpu_check_alarm, Config) ->
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
     Config;
 init_per_testcase(t_sys_mem_check_alarm, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    SysMon = emqx_config:get([sysmon, os], #{}),
-    emqx_config:put([sysmon, os], SysMon#{
-        sysmem_high_watermark => 0.51,
-        %% 200ms
-        mem_check_interval => 200
-    }),
-    ok = meck:new(os, [non_strict, no_link, no_history, passthrough, unstick]),
-    ok = meck:expect(os, type, fun() -> {unix, linux} end),
-    ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
-    {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
-    Config;
+    case os:type() of
+        {unix, linux} ->
+            SysMon = emqx_config:get([sysmon, os], #{}),
+            emqx_config:put([sysmon, os], SysMon#{
+                sysmem_high_watermark => 0.51,
+                %% 200ms
+                mem_check_interval => 200
+            }),
+            ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
+            {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
+            Config;
+        _ ->
+            Config
+    end;
 init_per_testcase(_, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
@@ -87,7 +86,15 @@ t_api(_) ->
     gen_server:stop(emqx_os_mon),
     ok.
 
-t_sys_mem_check_alarm(_) ->
+t_sys_mem_check_alarm(Config) ->
+    case os:type() of
+        {unix, linux} ->
+            do_sys_mem_check_alarm(Config);
+        _ ->
+            skip
+    end.
+
+do_sys_mem_check_alarm(_Config) ->
     emqx_config:put([sysmon, os, mem_check_interval], 200),
     emqx_os_mon:update(emqx_config:get([sysmon, os])),
     Mem = 0.52345,
