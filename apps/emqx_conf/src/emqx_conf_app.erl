@@ -29,6 +29,7 @@
 
 start(_StartType, _StartArgs) ->
     init_conf(),
+    ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
 
 stop(_State) ->
