@@ -234,7 +234,7 @@ do_start_client(
 ) ->
     case influxdb:start_client(ClientConfig) of
         {ok, Client} ->
-            case influxdb:is_alive(Client) of
+            case influxdb:is_alive(Client, true) of
                 true ->
                     State = #{
                         client => Client,
@@ -249,13 +249,13 @@ do_start_client(
                         state => redact_auth(State)
                     }),
                     {ok, State};
-                false ->
+                {false, Reason} ->
                     ?tp(influxdb_connector_start_failed, #{error => influxdb_client_not_alive}),
                     ?SLOG(warning, #{
-                        msg => "starting influxdb connector failed",
+                        msg => "starting influxdb connector failed - client is not alive",
                         connector => InstId,
                         client => redact_auth(Client),
-                        reason => "client is not alive"
+                        reason => Reason
                     }),
                     %% no leak
                     _ = influxdb:stop_client(Client),
