@@ -53,7 +53,16 @@ init([]) ->
         modules => [emqx_ft_assembler_sup]
     },
 
-    ChildSpecs = [AssemblerSup],
+    Responder = #{
+        id => emqx_ft_responder,
+        start => {emqx_ft_responder, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => worker,
+        modules => [emqx_ft_responder]
+    },
+
+    ChildSpecs = [Responder, AssemblerSup],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
