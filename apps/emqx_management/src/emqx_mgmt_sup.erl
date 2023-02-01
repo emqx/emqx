@@ -26,8 +26,14 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    LC = child_spec(emqx_mgmt_cache, 5000, worker),
-    {ok, {{one_for_one, 1, 5}, [LC]}}.
+    Workers =
+        case os:type() of
+            {unix, linux} ->
+                [child_spec(emqx_mgmt_cache, 5000, worker)];
+            _ ->
+                []
+        end,
+    {ok, {{one_for_one, 1, 5}, Workers}}.
 
 child_spec(Mod, Shutdown, Type) ->
     #{
