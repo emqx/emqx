@@ -264,9 +264,10 @@ on_query(InstId, {send_message, Msg}, State) ->
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout,
-                max_retries := Retry
+                request_timeout := Timeout
             } = process_request(Request, Msg),
+            %% bridge buffer worker has retry, do not let ehttpc retry
+            Retry = 0,
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -274,9 +275,11 @@ on_query(InstId, {send_message, Msg}, State) ->
             )
     end;
 on_query(InstId, {Method, Request}, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, 5000, _Retry = 2}, State);
 on_query(InstId, {Method, Request, Timeout}, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, Timeout, _Retry = 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
