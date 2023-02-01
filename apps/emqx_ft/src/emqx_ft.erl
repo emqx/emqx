@@ -39,6 +39,8 @@
 %% For Debug
 -export([transfer/2, storage/0]).
 
+-export([on_assemble_timeout/1]).
+
 -export_type([clientid/0]).
 -export_type([transfer/0]).
 -export_type([offset/0]).
@@ -61,6 +63,8 @@
     chan_pid :: pid(),
     ft_data :: ft_data()
 }).
+
+-define(ASSEMBLE_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% API for app
@@ -210,23 +214,66 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
         checksum => Checksum,
         packet_id => PacketId
     }),
-    % %% TODO: handle checksum? Do we need it?
-    % {ok, _} = emqx_ft_storage_fs:assemble(
-    %     storage(),
-    %     transfer(Msg, FileId),
-    %     callback(FileId, Msg)
-    % ),
-    Callback = callback(FileId, PacketId),
-    spawn(fun() -> Callback({error, not_implemented}) end),
-    undefined.
+    %% TODO: handle checksum? Do we need it?
+    FinPacketKey = {self(), PacketId},
+    _ =
+        case
+            emqx_ft_responder:register(
+                FinPacketKey, fun ?MODULE:on_assemble_timeout/1, ?ASSEMBLE_TIMEOUT
+            )
+        of
+            %% We have new fin packet
+            ok ->
+                Callback = callback(FinPacketKey, FileId),
+                case assemble(transfer(Msg, FileId), Callback) of
+                    %% Assembling started, packet will be acked by the callback or the responder
+                    ok ->
+                        undefined;
+                    %% Assembling failed, unregister the packet key
+                    {error, _} ->
+                        case emqx_ft_responder:unregister(FinPacketKey) of
+                            %% We successfully unregistered the packet key,
+                            %% so we can send the error code at once
+                            ok ->
+                                ?RC_UNSPECIFIED_ERROR;
+                            %% Someone else already unregistered the key,
+                            %% that is, either responder or someone else acked the packet,
+                            %% we do not have to ack
+                            {error, not_found} ->
+                                undefined
+                        end
+                end;
+            %% Fin packet already received.
+            %% Since we are still handling the previous one,
+            %% we probably have retransmit here
+            {error, already_registered} ->
+                undefined
+        end.
 
-callback(_FileId, PacketId) ->
-    ChanPid = self(),
-    fun
-        (ok) ->
-            erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
-        ({error, _}) ->
-            erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
+assemble(_Transfer, _Callback) ->
+    % spawn(fun() -> Callback({error, not_implemented}) end),
+    ok.
+
+% assemble(Transfer, Callback) ->
+%     emqx_ft_storage_fs:assemble(
+%         storage(),
+%         Transfer,
+%         Callback
+%     ).
+
+callback({ChanPid, PacketId} = Key, _FileId) ->
+    fun(Result) ->
+        case emqx_ft_responder:unregister(Key) of
+            ok ->
+                case Result of
+                    {ok, _} ->
+                        erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
+                    {error, _} ->
+                        erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
+                end;
+            {error, not_registered} ->
+                ok
+        end
     end.
 
 transfer(Msg, FileId) ->
@@ -236,3 +283,7 @@ transfer(Msg, FileId) ->
 %% TODO: configure
 storage() ->
     filename:join(emqx:data_dir(), "file_transfer").
+
+on_assemble_timeout({ChanPid, PacketId}) ->
+    ?SLOG(warning, #{msg => "on_assemble_timeout", packet_id => PacketId}),
+    erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR}).
