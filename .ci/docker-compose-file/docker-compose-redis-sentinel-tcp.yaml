@@ -1,11 +1,41 @@
-version: '3.9'
+version: "3"
 
 services:
-  redis_sentinel_server:
+
+  redis-sentinel-master:
+    container_name: redis-sentinel-master
+    image: redis:${REDIS_TAG}
+    volumes:
+    - ./redis/sentinel-tcp:/usr/local/etc/redis
+    command: redis-server /usr/local/etc/redis/master.conf
+    networks:
+      - emqx_bridge
+
+  redis-sentinel-slave:
+    container_name: redis-sentinel-slave
+    image: redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-tcp:/usr/local/etc/redis
+    command: redis-server /usr/local/etc/redis/slave.conf
+    networks:
+      - emqx_bridge
+    depends_on:
+      - redis-sentinel-master
+
+  redis-sentinel:
     container_name: redis-sentinel
     image: redis:${REDIS_TAG}
     volumes:
-      - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh --node sentinel && tail -f /var/log/redis-server.log"
+      - ./redis/sentinel-tcp/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
+    depends_on:
+      - redis-sentinel-master
+      - redis-sentinel-slave
+    command: >
+      bash -c "cp -f /usr/local/etc/redis/sentinel-base.conf /usr/local/etc/redis/sentinel.conf &&
+               redis-sentinel /usr/local/etc/redis/sentinel.conf"
     networks:
       - emqx_bridge
+
+
+
+
