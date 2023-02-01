@@ -206,6 +206,18 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     BridgeIDIngress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
 
+    %% try to create the bridge again
+    ?assertMatch(
+        {ok, 400, _},
+        request(post, uri(["bridges"]), ServerConf)
+    ),
+
+    %% try to reconfigure the bridge
+    ?assertMatch(
+        {ok, 200, _},
+        request(put, uri(["bridges", BridgeIDIngress]), ServerConf)
+    ),
+
     %% we now test if the bridge works as expected
     RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
     LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
