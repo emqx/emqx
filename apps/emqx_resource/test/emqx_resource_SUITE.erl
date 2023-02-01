@@ -625,7 +625,7 @@ t_query_counter_async_inflight_batch(_) ->
             %% this will block the resource_worker as the inflight window is full now
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    emqx_resource:query(?ID, {inc_counter, 2}),
+                    emqx_resource:query(?ID, {inc_counter, 2}, ReqOpts()),
                     #{?snk_kind := buffer_worker_flush_but_inflight_full},
                     5_000
                 ),
@@ -635,11 +635,7 @@ t_query_counter_async_inflight_batch(_) ->
         []
     ),
 
-    %% NOTE
-    %% The query above won't affect the size of the results table for some reason,
-    %% it's not clear if this is expected behaviour. Only the `async_reply_fun`
-    %% defined below will be called for the whole batch consisting of 2 increments.
-    Sent2 = Sent1 + 0,
+    Sent2 = Sent1 + 1,
 
     tap_metrics(?LINE),
     %% send query now will fail because the resource is blocked.
