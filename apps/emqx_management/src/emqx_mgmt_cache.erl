@@ -27,14 +27,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 get_sys_memory() ->
-    Now = now_millisecond(),
-    {CacheMem, ExpiredAt} = get_memory_from_cache(),
-    case Now > ExpiredAt of
-        true ->
+    case get_memory_from_cache() of
+        {ok, CacheMem} ->
             erlang:send(?MODULE, fresh_sys_memory),
             CacheMem;
-        %% stale cache value, try to recalculate
-        false ->
+        stale ->
             get_sys_memory_sync()
     end.
 
@@ -80,24 +77,31 @@ code_change(_OldVsn, State, _Extra) ->
 
 fresh_sys_memory(State = #{fresh_at := LastFreshAt}) ->
     Now = now_millisecond(),
-    {Mem, ExpiredAt} = get_memory_from_cache(),
-    case Now >= ExpiredAt orelse Now - LastFreshAt >= ?REFRESH_MS of
+    case Now - LastFreshAt >= ?REFRESH_MS of
         true ->
-            %% NOTE: Now /= UpdateAt, because
-            %% load_ctl:get_sys_memory/0 maybe a heavy operation,
-            %% so record update_at timestamp after get_sys_memory/0.
-            NewMem = load_ctl:get_sys_memory(),
-            NewExpiredAt = now_millisecond() + ?EXPIRED_MS,
-            ets:insert(?MODULE, {?SYS_MEMORY_KEY, {NewMem, NewExpiredAt}}),
-            {NewMem, State#{fresh_at => Now}};
+            do_fresh_sys_memory(Now, State);
         false ->
-            {Mem, State}
+            case get_memory_from_cache() of
+                stale -> do_fresh_sys_memory(Now, State);
+                {ok, Mem} -> {Mem, State}
+            end
     end.
+
+do_fresh_sys_memory(FreshAt, State) ->
+    NewMem = load_ctl:get_sys_memory(),
+    NewExpiredAt = now_millisecond() + ?EXPIRED_MS,
+    ets:insert(?MODULE, {?SYS_MEMORY_KEY, {NewMem, NewExpiredAt}}),
+    {NewMem, State#{fresh_at => FreshAt}}.
 
 get_memory_from_cache() ->
     case ets:lookup(?MODULE, ?SYS_MEMORY_KEY) of
-        [] -> {?DEFAULT_BAD_MEMORY, 0};
-        [{_, CacheVal}] -> CacheVal
+        [] ->
+            stale;
+        [{_, {Mem, ExpiredAt}}] ->
+            case now_millisecond() < ExpiredAt of
+                true -> {ok, Mem};
+                false -> stale
+            end
     end.
 
 now_millisecond() ->
