@@ -234,6 +234,7 @@ on_start(
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     State = #{
         pool_name => PoolName,
+        pool_type => PoolType,
         host => Host,
         port => Port,
         connect_timeout => ConnectTimeout,
@@ -264,9 +265,10 @@ on_query(InstId, {send_message, Msg}, State) ->
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout,
-                max_retries := Retry
+                request_timeout := Timeout
             } = process_request(Request, Msg),
+            %% bridge buffer worker has retry, do not let ehttpc retry
+            Retry = 0,
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -274,13 +276,15 @@ on_query(InstId, {send_message, Msg}, State) ->
             )
     end;
 on_query(InstId, {Method, Request}, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, 5000, _Retry = 2}, State);
 on_query(InstId, {Method, Request, Timeout}, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, Timeout, _Retry = 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
-    #{pool_name := PoolName, base_path := BasePath} = State
+    #{base_path := BasePath} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -288,12 +292,10 @@ on_query(
         #{request => Request, connector => InstId, state => State}
     ),
     NRequest = formalize_request(Method, BasePath, Request),
+    Worker = resolve_pool_worker(State, KeyOrNum),
     case
         ehttpc:request(
-            case KeyOrNum of
-                undefined -> PoolName;
-                _ -> {PoolName, KeyOrNum}
-            end,
+            Worker,
             Method,
             NRequest,
             Timeout,
@@ -361,19 +363,15 @@ on_query_async(
     InstId,
     {KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{pool_name := PoolName, base_path := BasePath} = State
+    #{base_path := BasePath} = State
 ) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
         "QUERY_ASYNC",
         "http_connector_received",
         #{request => Request, connector => InstId, state => State}
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    Worker =
-        case KeyOrNum of
-            undefined -> ehttpc_pool:pick_worker(PoolName);
-            _ -> ehttpc_pool:pick_worker(PoolName, KeyOrNum)
-        end,
     ok = ehttpc:request_async(
         Worker,
         Method,
@@ -382,6 +380,16 @@ on_query_async(
         {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
     ),
     {ok, Worker}.
+
+resolve_pool_worker(State, undefined) ->
+    resolve_pool_worker(State, self());
+resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
+    case maps:get(pool_type, State, random) of
+        random ->
+            ehttpc_pool:pick_worker(PoolName);
+        hash ->
+            ehttpc_pool:pick_worker(PoolName, Key)
+    end.
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of

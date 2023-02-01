@@ -112,8 +112,7 @@ t_update_with_invalid_config(_Config) ->
                         #{
                             kind := validation_error,
                             path := "authentication.server",
-                            reason := required_field,
-                            value := undefined
+                            reason := required_field
                         }
                     ]}
             }}},

@@ -188,7 +188,7 @@ t_create_invalid_config(_Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            path := "authorization.sources.1"
+            path := "authorization.sources.1.server"
         }},
         emqx_authz:update(?CMD_REPLACE, [C])
     ).
