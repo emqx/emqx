@@ -29,7 +29,7 @@
 get_sys_memory() ->
     case get_memory_from_cache() of
         {ok, CacheMem} ->
-            erlang:send(?MODULE, fresh_sys_memory),
+            erlang:send(?MODULE, refresh_sys_memory),
             CacheMem;
         stale ->
             get_sys_memory_sync()
@@ -48,10 +48,10 @@ start_link() ->
 
 init([]) ->
     ets:new(?MODULE, [set, named_table, public, {keypos, 1}]),
-    {ok, #{fresh_at => 0}}.
+    {ok, #{latest_refresh => 0}}.
 
 handle_call(get_sys_memory, _From, State) ->
-    {Mem, NewState} = fresh_sys_memory(State),
+    {Mem, NewState} = refresh_sys_memory(State),
     {reply, Mem, NewState};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -59,8 +59,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(fresh_sys_memory, State) ->
-    {_, NewState} = fresh_sys_memory(State),
+handle_info(refresh_sys_memory, State) ->
+    {_, NewState} = refresh_sys_memory(State),
     {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -75,23 +75,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-fresh_sys_memory(State = #{fresh_at := LastFreshAt}) ->
+refresh_sys_memory(State = #{latest_refresh := LatestRefresh}) ->
     Now = now_millisecond(),
-    case Now - LastFreshAt >= ?REFRESH_MS of
+    case Now - LatestRefresh >= ?REFRESH_MS of
         true ->
-            do_fresh_sys_memory(Now, State);
+            do_refresh_sys_memory(Now, State);
         false ->
             case get_memory_from_cache() of
-                stale -> do_fresh_sys_memory(Now, State);
+                stale -> do_refresh_sys_memory(Now, State);
                 {ok, Mem} -> {Mem, State}
             end
     end.
 
-do_fresh_sys_memory(FreshAt, State) ->
+do_refresh_sys_memory(RefreshAt, State) ->
     NewMem = load_ctl:get_sys_memory(),
     NewExpiredAt = now_millisecond() + ?EXPIRED_MS,
     ets:insert(?MODULE, {?SYS_MEMORY_KEY, {NewMem, NewExpiredAt}}),
-    {NewMem, State#{fresh_at => FreshAt}}.
+    {NewMem, State#{latest_refresh => RefreshAt}}.
 
 get_memory_from_cache() ->
     case ets:lookup(?MODULE, ?SYS_MEMORY_KEY) of
