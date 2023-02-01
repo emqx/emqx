@@ -315,7 +315,7 @@ vm([]) ->
 vm(["all"]) ->
     [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
 vm(["load"]) ->
-    [emqx_ctl:print("cpu/~-20s: ~ts~n", [L, V]) || {L, V} <- emqx_vm:loads()];
+    [emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) || {L, V} <- emqx_vm:loads()];
 vm(["memory"]) ->
     [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
 vm(["process"]) ->

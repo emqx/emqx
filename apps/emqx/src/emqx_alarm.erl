@@ -325,19 +325,20 @@ deactivate_alarm(
         false ->
             ok
     end,
+    Now = erlang:system_time(microsecond),
     HistoryAlarm = make_deactivated_alarm(
         ActivateAt,
         Name,
         Details0,
         Msg0,
-        erlang:system_time(microsecond)
+        Now
     ),
     DeActAlarm = make_deactivated_alarm(
         ActivateAt,
         Name,
         Details,
         normalize_message(Name, iolist_to_binary(Message)),
-        erlang:system_time(microsecond)
+        Now
     ),
     mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     mria:dirty_delete(?ACTIVATED_ALARM, Name),

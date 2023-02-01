@@ -24,11 +24,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+    emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
 
 init_per_testcase(t_log_path, Config) ->
     emqx_config_logger:add_handler(),
@@ -152,7 +152,7 @@ cluster(Specs) ->
     Env = [{emqx, boot_modules, []}],
     emqx_common_test_helpers:emqx_cluster(Specs, [
         {env, Env},
-        {apps, [emqx_conf]},
+        {apps, [emqx_conf, emqx_management]},
         {load_schema, false},
         {join_to, true},
         {env_handler, fun

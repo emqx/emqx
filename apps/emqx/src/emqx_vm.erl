@@ -175,9 +175,9 @@ schedulers() ->
 
 loads() ->
     [
-        {load1, ftos(avg1() / 256)},
-        {load5, ftos(avg5() / 256)},
-        {load15, ftos(avg15() / 256)}
+        {load1, load(avg1())},
+        {load5, load(avg5())},
+        {load15, load(avg15())}
     ].
 
 system_info_keys() -> ?SYSTEM_INFO_KEYS.
@@ -231,9 +231,6 @@ mem_info() ->
     Total = proplists:get_value(total_memory, Dataset),
     Free = proplists:get_value(free_memory, Dataset),
     [{total_memory, Total}, {used_memory, Total - Free}].
-
-ftos(F) ->
-    io_lib:format("~.2f", [F / 1.0]).
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
@@ -391,18 +388,32 @@ cpu_util() ->
 compat_windows(Fun) ->
     case os:type() of
         {win32, nt} ->
-            0;
+            0.0;
         _Type ->
             case catch Fun() of
+                Val when is_float(Val) -> floor(Val * 100) / 100;
                 Val when is_number(Val) -> Val;
-                _Error -> 0
+                _Error -> 0.0
             end
     end.
 
-%% @doc Return on which Eralng/OTP the current vm is running.
-%% NOTE: This API reads a file, do not use it in critical code paths.
+load(Avg) ->
+    floor((Avg / 256) * 100) / 100.
+
+%% @doc Return on which Erlang/OTP the current vm is running.
+%% The dashboard's /api/nodes endpoint will call this function frequently.
+%% we should avoid reading file every time.
+%% The OTP version never changes at runtime expect upgrade erts,
+%% so we cache it in a persistent term for performance.
 get_otp_version() ->
-    read_otp_version().
+    case persistent_term:get(emqx_otp_version, undefined) of
+        undefined ->
+            OtpVsn = read_otp_version(),
+            persistent_term:put(emqx_otp_version, OtpVsn),
+            OtpVsn;
+        OtpVsn when is_binary(OtpVsn) ->
+            OtpVsn
+    end.
 
 read_otp_version() ->
     ReleasesDir = filename:join([code:root_dir(), "releases"]),
@@ -416,6 +427,8 @@ read_otp_version() ->
             %% running tests etc.
             OtpMajor = erlang:system_info(otp_release),
             OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
-            {ok, Vsn} = file:read_file(OtpVsnFile),
-            Vsn
+            case file:read_file(OtpVsnFile) of
+                {ok, Vsn} -> Vsn;
+                {error, enoent} -> list_to_binary(OtpMajor)
+            end
     end.
