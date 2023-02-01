@@ -24,6 +24,7 @@
 
 -define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
+-define(ID1, <<"id1">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
 -define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
@@ -1032,6 +1033,63 @@ t_auto_retry(_) ->
         #{auto_retry_interval => 100}
     ),
     ?assertEqual(ok, Res).
+
+t_health_check_disconnected(_) ->
+    _ = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, create_error => true},
+        #{auto_retry_interval => 100}
+    ),
+    ?assertEqual(
+        {ok, disconnected},
+        emqx_resource:health_check(?ID)
+    ).
+
+t_unblock_only_required_buffer_workers(_) ->
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 5
+        }
+    ),
+    lists:foreach(
+        fun emqx_resource_buffer_worker:block/1,
+        emqx_resource_buffer_worker_sup:worker_pids(?ID)
+    ),
+    emqx_resource:create(
+        ?ID1,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 5
+        }
+    ),
+    %% creation of `?ID1` should not have unblocked `?ID`'s buffer workers
+    %% so we should see resumes now (`buffer_worker_enter_running`).
+    ?check_trace(
+        ?wait_async_action(
+            lists:foreach(
+                fun emqx_resource_buffer_worker:resume/1,
+                emqx_resource_buffer_worker_sup:worker_pids(?ID)
+            ),
+            #{?snk_kind := buffer_worker_enter_running},
+            5000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{id := ?ID} | _],
+                ?of_kind(buffer_worker_enter_running, Trace)
+            )
+        end
+    ).
 
 t_retry_batch(_Config) ->
     {ok, _} = emqx_resource:create(

@@ -195,7 +195,7 @@ init({Id, Index, Opts}) ->
     {ok, running, Data}.
 
 running(enter, _, Data) ->
-    ?tp(buffer_worker_enter_running, #{}),
+    ?tp(buffer_worker_enter_running, #{id => maps:get(id, Data)}),
     %% According to `gen_statem' laws, we mustn't call `maybe_flush'
     %% directly because it may decide to return `{next_state, blocked, _}',
     %% and that's an invalid response for a state enter call.
