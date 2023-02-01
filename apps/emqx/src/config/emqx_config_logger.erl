@@ -111,7 +111,17 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     log_to_console("Config override: ~s is ~p~n", [id_for_log(Id), Action]),
     % may return {error, {not_found, Id}}
     _ = logger:remove_handler(Id),
-    ok = logger:add_handler(Id, Mod, Conf).
+    case logger:add_handler(Id, Mod, Conf) of
+        ok ->
+            ok;
+        %% Don't crash here, otherwise the cluster rpc will retry the wrong handler forever.
+        {error, Reason} ->
+            log_to_console(
+                "Config override: ~s is ~p, but failed to add handler: ~p~n",
+                [id_for_log(Id), Action, Reason]
+            )
+    end,
+    ok.
 
 id_for_log(console) -> "log.console_handler";
 id_for_log(Other) -> "log.file_handlers." ++ atom_to_list(Other).
