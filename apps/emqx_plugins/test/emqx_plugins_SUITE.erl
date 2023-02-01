@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, "emqx_plugin_template").
 -define(EMQX_PLUGIN_TEMPLATE_URL,
@@ -325,27 +326,60 @@ t_bad_tar_gz(Config) ->
     %% idempotent
     ok = emqx_plugins:delete_package("fake-vsn").
 
-%% create a corrupted .tar.gz
+%% create with incomplete info file
 %% failed install attempts should not leave behind extracted dir
 t_bad_tar_gz2({init, Config}) ->
-    Config;
-t_bad_tar_gz2({'end', _Config}) ->
-    ok;
-t_bad_tar_gz2(Config) ->
     WorkDir = proplists:get_value(data_dir, Config),
     NameVsn = "foo-0.2",
-    %% this an invalid info file content
+    %% this an invalid info file content (description missing)
     BadInfo = "name=foo, rel_vsn=\"0.2\", rel_apps=[foo]",
     ok = write_info_file(Config, NameVsn, BadInfo),
     TarGz = filename:join([WorkDir, NameVsn ++ ".tar.gz"]),
     ok = make_tar(WorkDir, NameVsn),
+    [{tar_gz, TarGz}, {name_vsn, NameVsn} | Config];
+t_bad_tar_gz2({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_bad_tar_gz2(Config) ->
+    TarGz = ?config(tar_gz, Config),
+    NameVsn = ?config(name_vsn, Config),
     ?assert(filelib:is_regular(TarGz)),
-    %% failed to install, it also cleans up the bad .tar.gz file
+    %% failed to install, it also cleans up the bad content of .tar.gz file
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir(NameVsn))),
+    %% but the tar.gz file is still around
+    ?assert(filelib:is_regular(TarGz)),
+    ok.
+
+%% test that we even cleanup content that doesn't match the expected name-vsn
+%% pattern
+t_tar_vsn_content_mismatch({init, Config}) ->
+    WorkDir = proplists:get_value(data_dir, Config),
+    NameVsn = "bad_tar-0.2",
+    %% this an invalid info file content
+    BadInfo = "name=foo, rel_vsn=\"0.2\", rel_apps=[\"foo-0.2\"], description=\"lorem ipsum\"",
+    ok = write_info_file(Config, "foo-0.2", BadInfo),
+    TarGz = filename:join([WorkDir, "bad_tar-0.2.tar.gz"]),
+    ok = make_tar(WorkDir, "foo-0.2", NameVsn),
+    file:delete(filename:join([WorkDir, "foo-0.2", "release.json"])),
+    [{tar_gz, TarGz}, {name_vsn, NameVsn} | Config];
+t_tar_vsn_content_mismatch({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_tar_vsn_content_mismatch(Config) ->
+    TarGz = ?config(tar_gz, Config),
+    NameVsn = ?config(name_vsn, Config),
+    ?assert(filelib:is_regular(TarGz)),
+    %% failed to install, it also cleans up content of the bad .tar.gz file even
+    %% if in other directory
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir(NameVsn))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir("foo-0.2"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir(NameVsn))),
-    ok = emqx_plugins:delete_package(NameVsn).
+    ok.
 
 t_bad_info_json({init, Config}) ->
     Config;
@@ -446,11 +480,14 @@ t_elixir_plugin(Config) ->
     ok.
 
 make_tar(Cwd, NameWithVsn) ->
+    make_tar(Cwd, NameWithVsn, NameWithVsn).
+
+make_tar(Cwd, NameWithVsn, TarfileVsn) ->
     {ok, OriginalCwd} = file:get_cwd(),
     ok = file:set_cwd(Cwd),
     try
         Files = filelib:wildcard(NameWithVsn ++ "/**"),
-        TarFile = NameWithVsn ++ ".tar.gz",
+        TarFile = TarfileVsn ++ ".tar.gz",
         ok = erl_tar:create(TarFile, Files, [compressed])
     after
         file:set_cwd(OriginalCwd)
