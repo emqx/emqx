@@ -13,7 +13,7 @@ Environment=HOME=/var/lib/emqx
 # Enable logging to file
 Environment=EMQX_LOG__TO=default
 
-# Start 'foregroun' but not 'start' (daemon) mode.
+# Start 'foreground' but not 'start' (daemon) mode.
 # Because systemd monitor/restarts 'simple' services
 ExecStart=/bin/bash /usr/bin/emqx foreground
 

@@ -67,12 +67,16 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 maybe_update_log_level(NewLevel) ->
-    OldLevel = application:get_env(kernel, logger_level, warning),
+    OldLevel = emqx_logger:get_primary_log_level(),
     case OldLevel =:= NewLevel of
         true ->
             %% no change
             ok;
         false ->
+            ok = emqx_logger:set_primary_log_level(NewLevel),
+            %% also update kernel's logger_level for troubleshooting
+            %% what is actually in effect is the logger's primary log level
+            ok = application:set_env(kernel, logger_level, NewLevel),
             log_to_console("Config override: log level is set to '~p'~n", [NewLevel])
     end.
 
@@ -97,7 +101,7 @@ update_log_handlers(NewHandlers) ->
     end,
     AddsAndUpdates = lists:filtermap(MapFn, NewHandlers),
     lists:foreach(fun update_log_handler/1, Removes ++ AddsAndUpdates),
-    _ = application:set_env(kernel, logger, NewHandlers),
+    ok = application:set_env(kernel, logger, NewHandlers),
     ok.
 
 update_log_handler({removed, Id}) ->
@@ -107,7 +111,17 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     log_to_console("Config override: ~s is ~p~n", [id_for_log(Id), Action]),
     % may return {error, {not_found, Id}}
     _ = logger:remove_handler(Id),
-    ok = logger:add_handler(Id, Mod, Conf).
+    case logger:add_handler(Id, Mod, Conf) of
+        ok ->
+            ok;
+        %% Don't crash here, otherwise the cluster rpc will retry the wrong handler forever.
+        {error, Reason} ->
+            log_to_console(
+                "Config override: ~s is ~p, but failed to add handler: ~p~n",
+                [id_for_log(Id), Action, Reason]
+            )
+    end,
+    ok.
 
 id_for_log(console) -> "log.console_handler";
 id_for_log(Other) -> "log.file_handlers." ++ atom_to_list(Other).
@@ -115,7 +129,7 @@ id_for_log(Other) -> "log.file_handlers." ++ atom_to_list(Other).
 atom(Id) when is_binary(Id) -> binary_to_atom(Id, utf8);
 atom(Id) when is_atom(Id) -> Id.
 
-%% @doc Translate raw config to app-env conpatible log handler configs list.
+%% @doc Translate raw config to app-env compatible log handler configs list.
 tr_handlers(Conf) ->
     %% mute the default handler
     tr_console_handler(Conf) ++
