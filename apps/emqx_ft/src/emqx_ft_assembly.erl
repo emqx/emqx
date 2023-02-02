@@ -47,7 +47,7 @@ append(Asm, Node, Fragments) when is_list(Fragments) ->
     lists:foldl(fun(F, AsmIn) -> append(AsmIn, Node, F) end, Asm, Fragments);
 append(Asm, Node, Fragment = #{fragment := {filemeta, _}}) ->
     append_filemeta(Asm, Node, Fragment);
-append(Asm, Node, Segment = #{fragment := {segmentinfo, _}}) ->
+append(Asm, Node, Segment = #{fragment := {segment, _}}) ->
     append_segmentinfo(Asm, Node, Segment).
 
 update(Asm) ->
@@ -105,7 +105,7 @@ append_filemeta(Asm, Node, Fragment = #{fragment := {filemeta, Meta}}) ->
         meta = orddict:store(Meta, {Node, Fragment}, Asm#asm.meta)
     }.
 
-append_segmentinfo(Asm, Node, Fragment = #{fragment := {segmentinfo, Info}}) ->
+append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
     Offset = maps:get(offset, Info),
     Size = maps:get(size, Info),
     End = Offset + Size,
@@ -176,7 +176,7 @@ locality(Node) when Node =:= node() ->
 locality(_RemoteNode) ->
     1.
 
-segsize(#{fragment := {segmentinfo, Info}}) ->
+segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).
 
 -ifdef(TEST).
@@ -195,8 +195,8 @@ incomplete_test() ->
         status(
             update(
                 append(new(), node(), [
-                    segmentinfo(p1, 0, 42),
-                    segmentinfo(p1, 42, 100)
+                    segment(p1, 0, 42),
+                    segment(p1, 42, 100)
                 ])
             )
         )
@@ -204,14 +204,14 @@ incomplete_test() ->
 
 consistent_test() ->
     Asm1 = append(new(), n1, [filemeta(m1, "blarg")]),
-    Asm2 = append(Asm1, n2, [segmentinfo(s2, 0, 42)]),
+    Asm2 = append(Asm1, n2, [segment(s2, 0, 42)]),
     Asm3 = append(Asm2, n3, [filemeta(m3, "blarg")]),
     ?assertMatch({complete, _}, status(meta, Asm3)).
 
 inconsistent_test() ->
-    Asm1 = append(new(), node(), [segmentinfo(s1, 0, 42)]),
+    Asm1 = append(new(), node(), [segment(s1, 0, 42)]),
     Asm2 = append(Asm1, n1, [filemeta(m1, "blarg")]),
-    Asm3 = append(Asm2, n2, [segmentinfo(s2, 0, 42), filemeta(m1, "blorg")]),
+    Asm3 = append(Asm2, n2, [segment(s2, 0, 42), filemeta(m1, "blorg")]),
     Asm4 = append(Asm3, n3, [filemeta(m3, "blarg")]),
     ?assertMatch(
         {error,
@@ -226,10 +226,10 @@ inconsistent_test() ->
 simple_coverage_test() ->
     Node = node(),
     Segs = [
-        {node42, segmentinfo(n1, 20, 30)},
-        {Node, segmentinfo(n2, 0, 10)},
-        {Node, segmentinfo(n3, 50, 50)},
-        {Node, segmentinfo(n4, 10, 10)}
+        {node42, segment(n1, 20, 30)},
+        {Node, segment(n2, 0, 10)},
+        {Node, segment(n3, 50, 50)},
+        {Node, segment(n4, 10, 10)}
     ],
     Asm = append_many(new(), Segs),
     ?assertMatch(
@@ -247,14 +247,14 @@ simple_coverage_test() ->
 redundant_coverage_test() ->
     Node = node(),
     Segs = [
-        {Node, segmentinfo(n1, 0, 20)},
-        {node1, segmentinfo(n2, 0, 10)},
-        {Node, segmentinfo(n3, 20, 40)},
-        {node2, segmentinfo(n4, 10, 10)},
-        {node2, segmentinfo(n5, 50, 20)},
-        {node3, segmentinfo(n6, 20, 20)},
-        {Node, segmentinfo(n7, 50, 10)},
-        {node1, segmentinfo(n8, 40, 10)}
+        {Node, segment(n1, 0, 20)},
+        {node1, segment(n2, 0, 10)},
+        {Node, segment(n3, 20, 40)},
+        {node2, segment(n4, 10, 10)},
+        {node2, segment(n5, 50, 20)},
+        {node3, segment(n6, 20, 20)},
+        {Node, segment(n7, 50, 10)},
+        {node1, segment(n8, 40, 10)}
     ],
     Asm = append_many(new(), Segs),
     ?assertMatch(
@@ -272,12 +272,12 @@ redundant_coverage_test() ->
 redundant_coverage_prefer_local_test() ->
     Node = node(),
     Segs = [
-        {node1, segmentinfo(n1, 0, 20)},
-        {Node, segmentinfo(n2, 0, 10)},
-        {Node, segmentinfo(n3, 10, 10)},
-        {node2, segmentinfo(n4, 20, 20)},
-        {Node, segmentinfo(n5, 30, 10)},
-        {Node, segmentinfo(n6, 20, 10)}
+        {node1, segment(n1, 0, 20)},
+        {Node, segment(n2, 0, 10)},
+        {Node, segment(n3, 10, 10)},
+        {node2, segment(n4, 20, 20)},
+        {Node, segment(n5, 30, 10)},
+        {Node, segment(n6, 20, 10)}
     ],
     Asm = append_many(new(), Segs),
     ?assertMatch(
@@ -295,11 +295,11 @@ redundant_coverage_prefer_local_test() ->
 missing_coverage_test() ->
     Node = node(),
     Segs = [
-        {Node, segmentinfo(n1, 0, 10)},
-        {node1, segmentinfo(n3, 10, 20)},
-        {Node, segmentinfo(n2, 0, 20)},
-        {node2, segmentinfo(n4, 50, 50)},
-        {Node, segmentinfo(n5, 40, 60)}
+        {Node, segment(n1, 0, 10)},
+        {node1, segment(n3, 10, 20)},
+        {Node, segment(n2, 0, 20)},
+        {node2, segment(n4, 50, 50)},
+        {Node, segment(n5, 40, 60)}
     ],
     Asm = append_many(new(), Segs),
     ?assertEqual(
@@ -311,8 +311,8 @@ missing_coverage_test() ->
 missing_end_coverage_test() ->
     Node = node(),
     Segs = [
-        {Node, segmentinfo(n1, 0, 15)},
-        {node1, segmentinfo(n3, 10, 10)}
+        {Node, segment(n1, 0, 15)},
+        {node1, segment(n3, 10, 10)}
     ],
     Asm = append_many(new(), Segs),
     ?assertEqual(
@@ -322,11 +322,11 @@ missing_end_coverage_test() ->
 
 missing_coverage_with_redudancy_test() ->
     Segs = [
-        {node(), segmentinfo(n1, 0, 10)},
-        {node(), segmentinfo(n2, 0, 20)},
-        {node42, segmentinfo(n3, 10, 20)},
-        {node43, segmentinfo(n4, 10, 50)},
-        {node(), segmentinfo(n5, 40, 60)}
+        {node(), segment(n1, 0, 10)},
+        {node(), segment(n2, 0, 20)},
+        {node42, segment(n3, 10, 20)},
+        {node43, segment(n4, 10, 50)},
+        {node(), segment(n5, 40, 60)}
     ],
     Asm = append_many(new(), Segs),
     ?assertEqual(
@@ -351,11 +351,11 @@ filemeta(Path, Name) ->
             }}
     }.
 
-segmentinfo(Path, Offset, Size) ->
+segment(Path, Offset, Size) ->
     #{
         path => Path,
         fragment =>
-            {segmentinfo, #{
+            {segment, #{
                 offset => Offset,
                 size => Size
             }}
