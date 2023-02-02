@@ -509,7 +509,7 @@ redis_connect_configs() ->
 toxiproxy_redis_bridge_config() ->
     Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
         <<"resource_opts">> => #{
-            <<"query_mode">> => <<"async">>,
+            <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>,
@@ -537,7 +537,7 @@ resource_configs() ->
             <<"start_timeout">> => <<"15s">>
         },
         batch_on => #{
-            <<"query_mode">> => <<"async">>,
+            <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"start_timeout">> => <<"15s">>

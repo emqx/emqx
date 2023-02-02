@@ -39,7 +39,7 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
         {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
         {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
-    ] ++ fields("resource_opts");
+    ] ++ emqx_resource_schema:fields("resource_opts_sync_only");
 fields(mongodb_rs) ->
     emqx_connector_mongo:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
@@ -69,32 +69,7 @@ fields("get_sharded") ->
 fields("get_single") ->
     emqx_bridge_schema:status_fields() ++
         fields(mongodb_single) ++
-        type_and_name_fields(mongodb_single);
-fields("creation_opts") ->
-    lists:map(
-        fun
-            ({query_mode, _FieldSchema}) ->
-                {query_mode,
-                    mk(
-                        enum([sync, async]),
-                        #{
-                            desc => ?DESC(emqx_resource_schema, "query_mode"),
-                            default => sync
-                        }
-                    )};
-            (Field) ->
-                Field
-        end,
-        emqx_resource_schema:fields("creation_opts")
-    );
-fields("resource_opts") ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{default => #{}, desc => ?DESC(emqx_resource_schema, "resource_opts")}
-            )}
-    ].
+        type_and_name_fields(mongodb_single).
 
 conn_bridge_examples(Method) ->
     [
