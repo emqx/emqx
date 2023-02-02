@@ -113,7 +113,7 @@ query_mode(_) -> undefined.
 
 query_mode_sync_only(type) -> enum([sync]);
 query_mode_sync_only(desc) -> ?DESC("query_mode_sync_only");
-query_mode_sync_only(default) -> async;
+query_mode_sync_only(default) -> sync;
 query_mode_sync_only(required) -> false;
 query_mode_sync_only(_) -> undefined.
 
