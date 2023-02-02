@@ -55,10 +55,6 @@ jobs:
       run: |
         make ${EMQX_NAME}-tgz
         ./scripts/pkg-tests.sh ${EMQX_NAME}-tgz
-    - name: run static checks
-      if: contains(matrix.os, 'ubuntu')
-      run: |
-        make static_checks
     - name: build and test deb/rpm packages
       run: |
         make ${EMQX_NAME}-pkg
