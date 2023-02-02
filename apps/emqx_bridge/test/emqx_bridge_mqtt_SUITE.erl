@@ -242,6 +242,29 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     ok.
 
+t_mqtt_conn_bridge_ignores_clean_start(_) ->
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<"user1">>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"ingress">> => ?INGRESS_CONF,
+            <<"clean_start">> => false
+        }
+    ),
+
+    {ok, 200, BridgeJSON} = request(get, uri(["bridges", BridgeID]), []),
+    Bridge = jsx:decode(BridgeJSON),
+
+    %% verify that there's no `clean_start` in response
+    ?assertEqual(#{}, maps:with([<<"clean_start">>], Bridge)),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    ok.
+
 t_mqtt_conn_bridge_ingress_no_payload_template(_) ->
     User1 = <<"user1">>,
     BridgeIDIngress = create_bridge(
