@@ -9,7 +9,6 @@ on:
     tags:
     - v*
     - e*
-    - docker-latest-*
   workflow_dispatch:
     inputs:
       branch_or_tag:
@@ -44,6 +43,7 @@ jobs:
       - name: Get profiles to build
         id: get_profile
         run: |
+          set -x
           cd source
           tag=${{ github.ref }}
           # tag docker-latest-ce or docker-latest-ee
