@@ -22,7 +22,7 @@
 -behaviour(emqx_ft_storage).
 
 -export([store_filemeta/3]).
--export([store_segment/4]).
+-export([store_segment/3]).
 -export([list/2]).
 -export([read_segment/5]).
 -export([assemble/3]).
@@ -84,8 +84,7 @@ store_filemeta(Storage, Transfer, Meta) ->
     case read_file(Filepath, fun decode_filemeta/1) of
         {ok, Meta} ->
             _ = touch_file(Filepath),
-            %% No context is needed for this implementation.
-            {ok, #{}};
+            ok;
         {ok, _Conflict} ->
             % TODO
             % We won't see conflicts in case of concurrent `store_filemeta`
@@ -98,18 +97,13 @@ store_filemeta(Storage, Transfer, Meta) ->
 
 %% Store a segment in the backing filesystem.
 %% Atomic operation.
--spec store_segment(storage(), emqx_ft_storage:ctx(), transfer(), segment()) ->
+-spec store_segment(storage(), transfer(), segment()) ->
     % Where is the checksum gets verified? Upper level probably.
     % Quota? Some lower level errors?
     ok | {error, _TODO}.
-store_segment(Storage, Ctx, Transfer, Segment = {_Offset, Content}) ->
+store_segment(Storage, Transfer, Segment = {_Offset, Content}) ->
     Filepath = mk_filepath(Storage, Transfer, mk_segment_filename(Segment)),
-    case write_file_atomic(Filepath, Content) of
-        ok ->
-            {ok, Ctx};
-        {error, _} = Error ->
-            Error
-    end.
+    write_file_atomic(Filepath, Content).
 
 -spec list(storage(), transfer()) ->
     % Some lower level errors? {error, notfound}?
@@ -149,8 +143,9 @@ read_segment(_Storage, _Transfer, Segment, Offset, Size) ->
     end.
 
 -spec assemble(storage(), transfer(), fun((ok | {error, term()}) -> any())) ->
+    % {ok, _Assembler :: pid()} | {error, incomplete} | {error, badrpc} | {error, _TODO}.
     {ok, _Assembler :: pid()} | {error, _TODO}.
-assemble(Storage, _Ctx, Transfer, Callback) ->
+assemble(Storage, Transfer, Callback) ->
     emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
 
 -type handle() :: {file:name(), io:device(), crypto:hash_state()}.
@@ -321,8 +316,8 @@ mk_filedir(Storage, {ClientId, FileId}) ->
 mk_filepath(Storage, Transfer, Filename) ->
     filename:join(mk_filedir(Storage, Transfer), Filename).
 
-get_storage_root(_Storage) ->
-    filename:join(emqx:data_dir(), "file_transfer").
+get_storage_root(Storage) ->
+    maps:get(root, Storage, filename:join(emqx:data_dir(), "file_transfer")).
 
 -include_lib("kernel/include/file.hrl").
 
