@@ -29,6 +29,7 @@
 -export([reply_callback/2]).
 
 -export([
+    roots/0,
     namespace/0,
     fields/1,
     desc/1
@@ -138,6 +139,19 @@ on_get_status(_InstId, #{client := Client}) ->
 %% -------------------------------------------------------------------------------------------------
 %% schema
 namespace() -> connector_influxdb.
+
+roots() ->
+    [
+        {config, #{
+            type => hoconsc:union(
+                [
+                    hoconsc:ref(?MODULE, influxdb_udp),
+                    hoconsc:ref(?MODULE, influxdb_api_v1),
+                    hoconsc:ref(?MODULE, influxdb_api_v2)
+                ]
+            )
+        }}
+    ].
 
 fields(common) ->
     [
