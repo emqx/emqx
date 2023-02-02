@@ -16,28 +16,20 @@
 
 -module(emqx_ft).
 
--include("emqx_ft.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
-    create_tab/0,
     hook/0,
     unhook/0
 ]).
 
 -export([
-    on_channel_unregistered/1,
-    on_channel_takeover/3,
-    on_channel_takenover/3,
     on_message_publish/1,
     on_message_puback/4
 ]).
-
-%% For Debug
--export([transfer/2, storage/0]).
 
 -export([on_assemble_timeout/1]).
 
@@ -79,65 +71,23 @@
 
 -type segment() :: {offset(), _Content :: binary()}.
 
--type ft_data() :: #{
-    nodes := list(node())
-}.
-
--record(emqx_ft, {
-    chan_pid :: pid(),
-    ft_data :: ft_data()
-}).
-
 -define(ASSEMBLE_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% API for app
 %%--------------------------------------------------------------------
 
-create_tab() ->
-    _Tab = ets:new(?FT_TAB, [
-        set,
-        public,
-        named_table,
-        {keypos, #emqx_ft.chan_pid}
-    ]),
-    ok.
-
 hook() ->
-    ok = emqx_hooks:put('channel.unregistered', {?MODULE, on_channel_unregistered, []}, ?HP_LOWEST),
-    ok = emqx_hooks:put('channel.takeover', {?MODULE, on_channel_takeover, []}, ?HP_LOWEST),
-    ok = emqx_hooks:put('channel.takenover', {?MODULE, on_channel_takenover, []}, ?HP_LOWEST),
-
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
     ok = emqx_hooks:put('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST).
 
 unhook() ->
-    ok = emqx_hooks:del('channel.unregistered', {?MODULE, on_channel_unregistered}),
-    ok = emqx_hooks:del('channel.takeover', {?MODULE, on_channel_takeover}),
-    ok = emqx_hooks:del('channel.takenover', {?MODULE, on_channel_takenover}),
-
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok = emqx_hooks:del('message.puback', {?MODULE, on_message_puback}).
 
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
-
-on_channel_unregistered(ChanPid) ->
-    ok = delete_ft_data(ChanPid).
-
-on_channel_takeover(_ConnMod, ChanPid, TakeoverData) ->
-    case get_ft_data(ChanPid) of
-        {ok, FTData} ->
-            {ok, TakeoverData#{ft_data => FTData}};
-        none ->
-            ok
-    end.
-
-on_channel_takenover(_ConnMod, ChanPid, #{ft_data := FTData}) ->
-    ok = put_ft_data(ChanPid, FTData);
-on_channel_takenover(_ConnMod, _ChanPid, _) ->
-    ok.
 
 on_message_publish(
     Msg = #message{
@@ -190,8 +140,7 @@ on_init(Msg, FileId) ->
     % %% Add validations here
     Meta = emqx_json:decode(Payload, [return_maps]),
     case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
-        {ok, Ctx} ->
-            ok = put_context(Ctx),
+        ok ->
             ?RC_SUCCESS;
         {error, _Reason} ->
             ?RC_UNSPECIFIED_ERROR
@@ -213,9 +162,8 @@ on_segment(Msg, FileId, Offset, Checksum) ->
     Payload = Msg#message.payload,
     Segment = {binary_to_integer(Offset), Payload},
     %% Add offset/checksum validations
-    case emqx_ft_storage:store_segment(get_context(), transfer(Msg, FileId), Segment) of
-        {ok, Ctx} ->
-            ok = put_context(Ctx),
+    case emqx_ft_storage:store_segment(transfer(Msg, FileId), Segment) of
+        ok ->
             ?RC_SUCCESS;
         {error, _Reason} ->
             ?RC_UNSPECIFIED_ERROR
@@ -267,7 +215,6 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
 
 assemble(Transfer, Callback) ->
     emqx_ft_storage:assemble(
-        get_context(),
         Transfer,
         Callback
     ).
@@ -291,35 +238,6 @@ transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
     {ClientId, FileId}.
 
-%% TODO: configure
-
-storage() ->
-    emqx_config:get([file_transfer, storage]).
-
 on_assemble_timeout({ChanPid, PacketId}) ->
     ?SLOG(warning, #{msg => "on_assemble_timeout", packet_id => PacketId}),
     erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR}).
-
-%%--------------------------------------------------------------------
-%% Context management
-%%--------------------------------------------------------------------
-
-get_context() ->
-    get_ft_data(self()).
-
-put_context(Context) ->
-    put_ft_data(self(), Context).
-
-get_ft_data(ChanPid) ->
-    case ets:lookup(?FT_TAB, ChanPid) of
-        [#emqx_ft{ft_data = FTData}] -> {ok, FTData};
-        [] -> none
-    end.
-
-delete_ft_data(ChanPid) ->
-    true = ets:delete(?FT_TAB, ChanPid),
-    ok.
-
-put_ft_data(ChanPid, FTData) ->
-    true = ets:insert(?FT_TAB, #emqx_ft{chan_pid = ChanPid, ft_data = FTData}),
-    ok.
