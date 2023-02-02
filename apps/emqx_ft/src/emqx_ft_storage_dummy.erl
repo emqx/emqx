@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,19 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ft_app).
+-module(emqx_ft_storage_dummy).
 
--behaviour(application).
+-behaviour(emqx_ft_storage).
 
--export([start/2, stop/1]).
+-export([
+    store_filemeta/3,
+    store_segment/4,
+    assemble/4
+]).
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_ft_sup:start_link(),
-    ok = emqx_ft:hook(),
-    ok = emqx_ft_conf:load(),
-    {ok, Sup}.
+store_filemeta(_Storage, _Transfer, _Meta) ->
+    {ok, #{}}.
 
-stop(_State) ->
-    ok = emqx_ft_conf:unload(),
-    ok = emqx_ft:unhook(),
-    ok.
+store_segment(_Storage, Ctx, _Transfer, _Segment) ->
+    {ok, Ctx}.
+
+assemble(_Storage, _Ctx, _Transfer, Callback) ->
+    Pid = spawn(fun() -> Callback({error, not_implemented}) end),
+    {ok, Pid}.

@@ -41,9 +41,13 @@
 
 -export([on_assemble_timeout/1]).
 
--export_type([clientid/0]).
--export_type([transfer/0]).
--export_type([offset/0]).
+-export_type([
+    clientid/0,
+    transfer/0,
+    offset/0,
+    filemeta/0,
+    segment/0
+]).
 
 %% Number of bytes
 -type bytes() :: non_neg_integer().
@@ -54,6 +58,26 @@
 -type fileid() :: binary().
 -type transfer() :: {clientid(), fileid()}.
 -type offset() :: bytes().
+
+-type filemeta() :: #{
+    %% Display name
+    name := string(),
+    %% Size in bytes, as advertised by the client.
+    %% Client is free to specify here whatever it wants, which means we can end
+    %% up with a file of different size after assembly. It's not clear from
+    %% specification what that means (e.g. what are clients' expectations), we
+    %% currently do not condider that an error (or, specifically, a signal that
+    %% the resulting file is corrupted during transmission).
+    size => _Bytes :: non_neg_integer(),
+    checksum => {sha256, <<_:256>>},
+    expire_at := emqx_datetime:epoch_second(),
+    %% TTL of individual segments
+    %% Somewhat confusing that we won't know it on the nodes where the filemeta
+    %% is missing.
+    segments_ttl => _Seconds :: pos_integer()
+}.
+
+-type segment() :: {offset(), _Content :: binary()}.
 
 -type ft_data() :: #{
     nodes := list(node())
@@ -135,22 +159,8 @@ on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Private funs
+%% Handlers for transfer messages
 %%--------------------------------------------------------------------
-
-get_ft_data(ChanPid) ->
-    case ets:lookup(?FT_TAB, ChanPid) of
-        [#emqx_ft{ft_data = FTData}] -> {ok, FTData};
-        [] -> none
-    end.
-
-delete_ft_data(ChanPid) ->
-    true = ets:delete(?FT_TAB, ChanPid),
-    ok.
-
-put_ft_data(ChanPid, FTData) ->
-    true = ets:insert(?FT_TAB, #emqx_ft{chan_pid = ChanPid, ft_data = FTData}),
-    ok.
 
 on_file_command(PacketId, Msg, FileCommand) ->
     case string:split(FileCommand, <<"/">>, all) of
@@ -176,12 +186,16 @@ on_init(Msg, FileId) ->
         mqtt_msg => Msg,
         file_id => FileId
     }),
-    % Payload = Msg#message.payload,
+    Payload = Msg#message.payload,
     % %% Add validations here
-    % Meta = emqx_json:decode(Payload, [return_maps]),
-    % ok = emqx_ft_storage_fs:store_filemeta(storage(), transfer(Msg, FileId), Meta),
-    % ?RC_SUCCESS.
-    ?RC_UNSPECIFIED_ERROR.
+    Meta = emqx_json:decode(Payload, [return_maps]),
+    case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
+        {ok, Ctx} ->
+            ok = put_context(Ctx),
+            ?RC_SUCCESS;
+        {error, _Reason} ->
+            ?RC_UNSPECIFIED_ERROR
+    end.
 
 on_abort(_Msg, _FileId) ->
     %% TODO
@@ -195,16 +209,17 @@ on_segment(Msg, FileId, Offset, Checksum) ->
         offset => Offset,
         checksum => Checksum
     }),
-    % %% TODO: handle checksum
-    % Payload = Msg#message.payload,
-    % %% Add offset/checksum validations
-    % ok = emqx_ft_storage_fs:store_segment(
-    %     storage(),
-    %     transfer(Msg, FileId),
-    %     {binary_to_integer(Offset), Payload}
-    % ),
-    % ?RC_SUCCESS.
-    ?RC_UNSPECIFIED_ERROR.
+    %% TODO: handle checksum
+    Payload = Msg#message.payload,
+    Segment = {binary_to_integer(Offset), Payload},
+    %% Add offset/checksum validations
+    case emqx_ft_storage:store_segment(get_context(), transfer(Msg, FileId), Segment) of
+        {ok, Ctx} ->
+            ok = put_context(Ctx),
+            ?RC_SUCCESS;
+        {error, _Reason} ->
+            ?RC_UNSPECIFIED_ERROR
+    end.
 
 on_fin(PacketId, Msg, FileId, Checksum) ->
     ?SLOG(info, #{
@@ -227,7 +242,7 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
                 Callback = callback(FinPacketKey, FileId),
                 case assemble(transfer(Msg, FileId), Callback) of
                     %% Assembling started, packet will be acked by the callback or the responder
-                    ok ->
+                    {ok, _} ->
                         undefined;
                     %% Assembling failed, unregister the packet key
                     {error, _} ->
@@ -250,16 +265,12 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
                 undefined
         end.
 
-assemble(_Transfer, _Callback) ->
-    % spawn(fun() -> Callback({error, not_implemented}) end),
-    ok.
-
-% assemble(Transfer, Callback) ->
-%     emqx_ft_storage_fs:assemble(
-%         storage(),
-%         Transfer,
-%         Callback
-%     ).
+assemble(Transfer, Callback) ->
+    emqx_ft_storage:assemble(
+        get_context(),
+        Transfer,
+        Callback
+    ).
 
 callback({ChanPid, PacketId} = Key, _FileId) ->
     fun(Result) ->
@@ -281,9 +292,34 @@ transfer(Msg, FileId) ->
     {ClientId, FileId}.
 
 %% TODO: configure
+
 storage() ->
-    filename:join(emqx:data_dir(), "file_transfer").
+    emqx_config:get([file_transfer, storage]).
 
 on_assemble_timeout({ChanPid, PacketId}) ->
     ?SLOG(warning, #{msg => "on_assemble_timeout", packet_id => PacketId}),
     erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR}).
+
+%%--------------------------------------------------------------------
+%% Context management
+%%--------------------------------------------------------------------
+
+get_context() ->
+    get_ft_data(self()).
+
+put_context(Context) ->
+    put_ft_data(self(), Context).
+
+get_ft_data(ChanPid) ->
+    case ets:lookup(?FT_TAB, ChanPid) of
+        [#emqx_ft{ft_data = FTData}] -> {ok, FTData};
+        [] -> none
+    end.
+
+delete_ft_data(ChanPid) ->
+    true = ets:delete(?FT_TAB, ChanPid),
+    ok.
+
+put_ft_data(ChanPid, FTData) ->
+    true = ets:insert(?FT_TAB, #emqx_ft{chan_pid = ChanPid, ft_data = FTData}),
+    ok.

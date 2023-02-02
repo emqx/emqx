@@ -19,10 +19,10 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
-% -compile(export_all).
+-behaviour(emqx_ft_storage).
 
 -export([store_filemeta/3]).
--export([store_segment/3]).
+-export([store_segment/4]).
 -export([list/2]).
 -export([read_segment/5]).
 -export([assemble/3]).
@@ -32,45 +32,10 @@
 -export([write/2]).
 -export([discard/1]).
 
-% -behaviour(gen_server).
-% -export([init/1]).
-% -export([handle_call/3]).
-% -export([handle_cast/2]).
-
--type json_value() ::
-    null
-    | boolean()
-    | binary()
-    | number()
-    | [json_value()]
-    | #{binary() => json_value()}.
-
--reflect_type([json_value/0]).
-
 -type transfer() :: emqx_ft:transfer().
 -type offset() :: emqx_ft:offset().
 
-%% TODO: move to `emqx_ft` interface module
-% -type sha256_hex() :: <<_:512>>.
-
--type filemeta() :: #{
-    %% Display name
-    name := string(),
-    %% Size in bytes, as advertised by the client.
-    %% Client is free to specify here whatever it wants, which means we can end
-    %% up with a file of different size after assembly. It's not clear from
-    %% specification what that means (e.g. what are clients' expectations), we
-    %% currently do not condider that an error (or, specifically, a signal that
-    %% the resulting file is corrupted during transmission).
-    size => _Bytes :: non_neg_integer(),
-    checksum => {sha256, <<_:256>>},
-    expire_at := emqx_datetime:epoch_second(),
-    %% TTL of individual segments
-    %% Somewhat confusing that we won't know it on the nodes where the filemeta
-    %% is missing.
-    segments_ttl => _Seconds :: pos_integer(),
-    user_data => json_value()
-}.
+-type filemeta() :: emqx_ft:filemeta().
 
 -type segment() :: {offset(), _Content :: binary()}.
 
@@ -113,13 +78,14 @@
 %% Atomic operation.
 -spec store_filemeta(storage(), transfer(), filemeta()) ->
     % Quota? Some lower level errors?
-    ok | {error, conflict} | {error, _TODO}.
+    {ok, emqx_ft_storage:ctx()} | {error, conflict} | {error, _TODO}.
 store_filemeta(Storage, Transfer, Meta) ->
     Filepath = mk_filepath(Storage, Transfer, ?MANIFEST),
     case read_file(Filepath, fun decode_filemeta/1) of
         {ok, Meta} ->
             _ = touch_file(Filepath),
-            ok;
+            %% No context is needed for this implementation.
+            {ok, #{}};
         {ok, _Conflict} ->
             % TODO
             % We won't see conflicts in case of concurrent `store_filemeta`
@@ -132,13 +98,18 @@ store_filemeta(Storage, Transfer, Meta) ->
 
 %% Store a segment in the backing filesystem.
 %% Atomic operation.
--spec store_segment(storage(), transfer(), segment()) ->
+-spec store_segment(storage(), emqx_ft_storage:ctx(), transfer(), segment()) ->
     % Where is the checksum gets verified? Upper level probably.
     % Quota? Some lower level errors?
     ok | {error, _TODO}.
-store_segment(Storage, Transfer, Segment = {_Offset, Content}) ->
+store_segment(Storage, Ctx, Transfer, Segment = {_Offset, Content}) ->
     Filepath = mk_filepath(Storage, Transfer, mk_segment_filename(Segment)),
-    write_file_atomic(Filepath, Content).
+    case write_file_atomic(Filepath, Content) of
+        ok ->
+            {ok, Ctx};
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec list(storage(), transfer()) ->
     % Some lower level errors? {error, notfound}?
@@ -178,12 +149,9 @@ read_segment(_Storage, _Transfer, Segment, Offset, Size) ->
     end.
 
 -spec assemble(storage(), transfer(), fun((ok | {error, term()}) -> any())) ->
-    % {ok, _Assembler :: pid()} | {error, incomplete} | {error, badrpc} | {error, _TODO}.
     {ok, _Assembler :: pid()} | {error, _TODO}.
-assemble(Storage, Transfer, Callback) ->
+assemble(Storage, _Ctx, Transfer, Callback) ->
     emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
-
-%%
 
 -type handle() :: {file:name(), io:device(), crypto:hash_state()}.
 
@@ -268,8 +236,7 @@ schema() ->
             {size, hoconsc:mk(non_neg_integer())},
             {expire_at, hoconsc:mk(non_neg_integer())},
             {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
-            {segments_ttl, hoconsc:mk(pos_integer())},
-            {user_data, hoconsc:mk(json_value())}
+            {segments_ttl, hoconsc:mk(pos_integer())}
         ]
     }.
 
@@ -354,10 +321,8 @@ mk_filedir(Storage, {ClientId, FileId}) ->
 mk_filepath(Storage, Transfer, Filename) ->
     filename:join(mk_filedir(Storage, Transfer), Filename).
 
-get_storage_root(Storage) ->
-    Storage.
-
-%%
+get_storage_root(_Storage) ->
+    filename:join(emqx:data_dir(), "file_transfer").
 
 -include_lib("kernel/include/file.hrl").
 

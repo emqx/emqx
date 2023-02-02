@@ -14,19 +14,36 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ft_app).
+-module(emqx_ft_schema).
 
--behaviour(application).
+-behaviour(hocon_schema).
 
--export([start/2, stop/1]).
+-include_lib("hocon/include/hoconsc.hrl").
+-include_lib("typerefl/include/types.hrl").
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_ft_sup:start_link(),
-    ok = emqx_ft:hook(),
-    ok = emqx_ft_conf:load(),
-    {ok, Sup}.
+-export([namespace/0, roots/0, fields/1, tags/0]).
 
-stop(_State) ->
-    ok = emqx_ft_conf:unload(),
-    ok = emqx_ft:unhook(),
-    ok.
+namespace() -> file_transfer.
+
+tags() ->
+    [<<"File Transfer">>].
+
+roots() -> [file_transfer].
+
+fields(file_transfer) ->
+    [
+        {storage, #{
+            type => hoconsc:union([
+                hoconsc:ref(?MODULE, local_storage)
+            ])
+        }}
+    ];
+fields(local_storage) ->
+    [
+        {type, #{
+            type => local,
+            default => local,
+            required => false,
+            desc => ?DESC("local")
+        }}
+    ].
