@@ -79,6 +79,7 @@ handle_call({register, Key, DefaultAction, Timeout}, _From, State) ->
             {reply, {error, already_registered}, State}
     end;
 handle_call({unregister, Key}, _From, State) ->
+    ?SLOG(warning, #{msg => "unregister", key => Key}),
     case ets:lookup(?TAB, Key) of
         [] ->
             {reply, {error, not_found}, State};
