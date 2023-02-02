@@ -49,12 +49,14 @@ case "$TAG" in
         TAG_PREFIX='v'
         PROFILE='emqx'
         SKIP_APPUP='yes'
+        DOCKER_LATEST_TAG='docker-latest-ce'
         ;;
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
         #TODO change to no when we are ready to support hot-upgrade
         SKIP_APPUP='yes'
+        DOCKER_LATEST_TAG='docker-latest-ee'
         ;;
     -h|--help)
         usage
@@ -214,6 +216,11 @@ generate_changelog () {
     git add "$CHANGES_EN_MD" "$CHANGES_ZH_MD"
     [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
 }
+
+if ! git describe --tags --match "$DOCKER_LATEST_TAG" --exact; then
+    logerr "Must tag and PUSH '$DOCKER_LATEST_TAG' first"
+    exit 1
+fi
 
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
