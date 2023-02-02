@@ -687,11 +687,19 @@ t_deliver_when_banned(_) ->
     }),
 
     timer:sleep(100),
-    snabbkaffe:start_trace(),
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
-    timer:sleep(500),
 
-    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:start_trace(),
+    {ok, SubRef} =
+        snabbkaffe:subscribe(
+            ?match_event(#{?snk_kind := ignore_retained_message_deliver}),
+            _NEvents = 3,
+            _Timeout = 10000,
+            0
+        ),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
+
+    {ok, Trace} = snabbkaffe:receive_events(SubRef),
     ?assertEqual(3, length(?of_kind(ignore_retained_message_deliver, Trace))),
     snabbkaffe:stop(),
     emqx_banned:delete(Who),

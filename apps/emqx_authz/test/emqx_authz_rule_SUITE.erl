@@ -35,6 +35,7 @@
         ]},
         publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
 ).
+-define(SOURCE6, {allow, {username, "test"}, publish, ["t/foo${username}boo"]}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -80,7 +81,7 @@ t_compile(_) ->
                 {{127, 0, 0, 1}, {127, 0, 0, 1}, 32},
                 {{192, 168, 1, 0}, {192, 168, 1, 255}, 24}
             ]},
-            subscribe, [{pattern, [?PH_CLIENTID]}]},
+            subscribe, [{pattern, [{var, {var, <<"clientid">>}}]}]},
         emqx_authz_rule:compile(?SOURCE3)
     ),
 
@@ -97,8 +98,17 @@ t_compile(_) ->
                 {username, {re_pattern, _, _, _, _}},
                 {clientid, {re_pattern, _, _, _, _}}
             ]},
-            publish, [{pattern, [?PH_USERNAME]}, {pattern, [?PH_CLIENTID]}]},
+            publish, [
+                {pattern, [{var, {var, <<"username">>}}]}, {pattern, [{var, {var, <<"clientid">>}}]}
+            ]},
         emqx_authz_rule:compile(?SOURCE5)
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, publish, [
+            {pattern, [{str, <<"t/foo">>}, {var, {var, <<"username">>}}, {str, <<"boo">>}]}
+        ]},
+        emqx_authz_rule:compile(?SOURCE6)
     ),
     ok.
 
@@ -305,6 +315,26 @@ t_match(_) ->
             publish,
             <<"fake">>,
             emqx_authz_rule:compile(?SOURCE5)
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            ClientInfo1,
+            publish,
+            <<"t/foo${username}boo">>,
+            emqx_authz_rule:compile(?SOURCE6)
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            ClientInfo4,
+            publish,
+            <<"t/footestboo">>,
+            emqx_authz_rule:compile(?SOURCE6)
         )
     ),
     ok.

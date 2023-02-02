@@ -196,13 +196,13 @@ do_unsubscribe(Topic, SubPid, SubOpts) ->
     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
     true = ets:delete_object(?SUBSCRIPTION, {SubPid, Topic}),
     Group = maps:get(share, SubOpts, undefined),
-    do_unsubscribe(Group, Topic, SubPid, SubOpts),
-    emqx_exclusive_subscription:unsubscribe(Topic, SubOpts).
+    do_unsubscribe(Group, Topic, SubPid, SubOpts).
 
 do_unsubscribe(undefined, Topic, SubPid, SubOpts) ->
     case maps:get(shard, SubOpts, 0) of
         0 ->
             true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
+            emqx_exclusive_subscription:unsubscribe(Topic, SubOpts),
             cast(pick(Topic), {unsubscribed, Topic});
         I ->
             true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
@@ -366,14 +366,7 @@ subscriber_down(SubPid) ->
                 SubOpts when is_map(SubOpts) ->
                     _ = emqx_broker_helper:reclaim_seq(Topic),
                     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
-                    case maps:get(shard, SubOpts, 0) of
-                        0 ->
-                            true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
-                            ok = cast(pick(Topic), {unsubscribed, Topic});
-                        I ->
-                            true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
-                            ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
-                    end;
+                    do_unsubscribe(undefined, Topic, SubPid, SubOpts);
                 undefined ->
                     ok
             end

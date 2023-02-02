@@ -30,10 +30,12 @@ jobs:
       matrix:
         profile:
         - ["emqx", "24.3.4.2-1", "el7"]
-        - ["emqx", "25.1.2-2", "ubuntu20.04"]
+        - ["emqx", "24.3.4.2-1", "ubuntu20.04"]
+        - ["emqx", "25.1.2-2", "ubuntu22.04"]
         - ["emqx-enterprise", "24.3.4.2-1", "ubuntu20.04"]
+        - ["emqx-enterprise", "25.1.2-2", "ubuntu22.04"]
         builder:
-        - 5.0-26
+        - 5.0-27
         elixir:
         - 1.13.4
 
