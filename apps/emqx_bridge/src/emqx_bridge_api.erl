@@ -171,12 +171,12 @@ bridge_info_examples(Method, WithMetrics) ->
         ee_bridge_examples(Method)
     ).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 ee_bridge_examples(Method) ->
-    try
-        emqx_ee_bridge:examples(Method)
-    catch
-        _:_ -> #{}
-    end.
+    emqx_ee_bridge:examples(Method).
+-else.
+ee_bridge_examples(_Method) -> #{}.
+-endif.
 
 info_example(Type, Method, WithMetrics) ->
     maps:merge(
