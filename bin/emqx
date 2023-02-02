@@ -361,7 +361,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
             logerr "$COMPATIBILITY_INFO"
             exit 2
         fi
-        logerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
+        logwarn "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
     fi
     [ "$DEBUG" -eq 1 ] && set -x
 fi
