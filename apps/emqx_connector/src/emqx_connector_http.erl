@@ -209,7 +209,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_http_connector",
         connector => InstId,
-        config => emqx_misc:redact(Config)
+        config => redact(Config)
     }),
     {Transport, TransportOpts} =
         case Scheme of
@@ -289,7 +289,11 @@ on_query(
     ?TRACE(
         "QUERY",
         "http_connector_received",
-        #{request => Request, connector => InstId, state => State}
+        #{
+            request => redact(Request),
+            connector => InstId,
+            state => redact(State)
+        }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
     Worker = resolve_pool_worker(State, KeyOrNum),
@@ -312,7 +316,7 @@ on_query(
         {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
-                request => NRequest,
+                request => redact(NRequest),
                 reason => Reason,
                 connector => InstId
             }),
@@ -324,7 +328,7 @@ on_query(
         {ok, StatusCode, Headers} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
-                request => NRequest,
+                request => redact(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
@@ -332,7 +336,7 @@ on_query(
         {ok, StatusCode, Headers, Body} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
-                request => NRequest,
+                request => redact(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
@@ -369,7 +373,11 @@ on_query_async(
     ?TRACE(
         "QUERY_ASYNC",
         "http_connector_received",
-        #{request => Request, connector => InstId, state => State}
+        #{
+            request => redact(Request),
+            connector => InstId,
+            state => redact(State)
+        }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
     ok = ehttpc:request_async(
@@ -409,7 +417,7 @@ do_get_status(PoolName, Timeout) ->
                 {error, Reason} = Error ->
                     ?SLOG(error, #{
                         msg => "http_connector_get_status_failed",
-                        reason => Reason,
+                        reason => redact(Reason),
                         worker => Worker
                     }),
                     Error
@@ -562,3 +570,63 @@ reply_delegator(ReplyFunAndArgs, Result) ->
         _ ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
     end.
+
+%% The HOCON schema system may generate sensitive keys with this format
+is_sensitive_key([{str, StringKey}]) ->
+    is_sensitive_key(StringKey);
+is_sensitive_key(Atom) when is_atom(Atom) ->
+    is_sensitive_key(erlang:atom_to_binary(Atom));
+is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
+    try
+        %% This is wrapped in a try-catch since we don't know that Bin is a
+        %% valid string so string:lowercase/1 might throw an exception.
+        %%
+        %% We want to convert this to lowercase since the http header fields
+        %% are case insensitive, which means that a user of the Webhook bridge
+        %% can write this field name in many different ways.
+        LowercaseBin = iolist_to_binary(string:lowercase(Bin)),
+        case LowercaseBin of
+            <<"authorization">> -> true;
+            <<"proxy-authorization">> -> true;
+            _ -> false
+        end
+    catch
+        _:_ -> false
+    end;
+is_sensitive_key(_) ->
+    false.
+
+%% Function that will do a deep traversal of Data and remove sensitive
+%% information (i.e., passwords)
+redact(Data) ->
+    emqx_misc:redact(Data, fun is_sensitive_key/1).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+redact_test_() ->
+    TestData1 = [
+        {<<"content-type">>, <<"application/json">>},
+        {<<"Authorization">>, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}
+    ],
+
+    TestData2 = #{
+        headers =>
+            [
+                {[{str, <<"content-type">>}], [{str, <<"application/json">>}]},
+                {[{str, <<"Authorization">>}], [{str, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}]}
+            ]
+    },
+    [
+        ?_assert(is_sensitive_key(<<"Authorization">>)),
+        ?_assert(is_sensitive_key(<<"AuthoriZation">>)),
+        ?_assert(is_sensitive_key('AuthoriZation')),
+        ?_assert(is_sensitive_key(<<"PrOxy-authoRizaTion">>)),
+        ?_assert(is_sensitive_key('PrOxy-authoRizaTion')),
+        ?_assertNot(is_sensitive_key(<<"Something">>)),
+        ?_assertNot(is_sensitive_key(89)),
+        ?_assertNotEqual(TestData1, redact(TestData1)),
+        ?_assertNotEqual(TestData2, redact(TestData2))
+    ].
+
+-endif.
