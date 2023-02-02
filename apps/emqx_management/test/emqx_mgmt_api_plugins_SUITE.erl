@@ -89,6 +89,28 @@ t_plugins(Config) ->
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
+t_bad_plugin(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePathOrig = get_demo_plugin_package(DemoShDir),
+    PackagePath = filename:join([
+        filename:dirname(PackagePathOrig),
+        "bad_plugin-1.0.0.tar.gz"
+    ]),
+    ct:pal("package_location:~p orig:~p", [PackagePath, PackagePathOrig]),
+    %% rename plugin tarball
+    file:copy(PackagePathOrig, PackagePath),
+    file:delete(PackagePathOrig),
+    {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, _}} = install_plugin(PackagePath),
+    ?assertEqual(
+        {error, enoent},
+        file:delete(
+            filename:join([
+                emqx_plugins:install_dir(),
+                filename:basename(PackagePath)
+            ])
+        )
+    ).
+
 list_plugins() ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins"]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
