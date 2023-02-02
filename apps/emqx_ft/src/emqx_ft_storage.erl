@@ -19,12 +19,11 @@
 -export(
     [
         store_filemeta/2,
-        store_segment/3,
-        assemble/3
+        store_segment/2,
+        assemble/2
     ]
 ).
 
--type ctx() :: term().
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
@@ -32,14 +31,14 @@
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
 
 %%--------------------------------------------------------------------
-%% behaviour
+%% Behaviour
 %%--------------------------------------------------------------------
 
 -callback store_filemeta(storage(), emqx_ft:transfer(), emqx_ft:filemeta()) ->
-    {ok, ctx()} | {error, term()}.
--callback store_segment(storage(), ctx(), emqx_ft:transfer(), emqx_ft:segment()) ->
-    {ok, ctx()} | {error, term()}.
--callback assemble(storage(), ctx(), emqx_ft:transfer(), assemble_callback()) ->
+    ok | {error, term()}.
+-callback store_segment(storage(), emqx_ft:transfer(), emqx_ft:segment()) ->
+    ok | {error, term()}.
+-callback assemble(storage(), emqx_ft:transfer(), assemble_callback()) ->
     {ok, pid()} | {error, term()}.
 
 %%--------------------------------------------------------------------
@@ -47,28 +46,28 @@
 %%--------------------------------------------------------------------
 
 -spec store_filemeta(emqx_ft:transfer(), emqx_ft:filemeta()) ->
-    {ok, ctx()} | {error, term()}.
+    ok | {error, term()}.
 store_filemeta(Transfer, FileMeta) ->
     Mod = mod(),
     Mod:store_filemeta(storage(), Transfer, FileMeta).
 
--spec store_segment(ctx(), emqx_ft:transfer(), emqx_ft:segment()) ->
-    {ok, ctx()} | {error, term()}.
-store_segment(Ctx, Transfer, Segment) ->
+-spec store_segment(emqx_ft:transfer(), emqx_ft:segment()) ->
+    ok | {error, term()}.
+store_segment(Transfer, Segment) ->
     Mod = mod(),
-    Mod:store_segment(storage(), Ctx, Transfer, Segment).
+    Mod:store_segment(storage(), Transfer, Segment).
 
--spec assemble(ctx(), emqx_ft:transfer(), assemble_callback()) ->
+-spec assemble(emqx_ft:transfer(), assemble_callback()) ->
     {ok, pid()} | {error, term()}.
-assemble(Ctx, Transfer, Callback) ->
+assemble(Transfer, Callback) ->
     Mod = mod(),
-    Mod:assemble(storage(), Ctx, Transfer, Callback).
+    Mod:assemble(storage(), Transfer, Callback).
 
 mod() ->
     case storage() of
         #{type := local} ->
-            % emqx_ft_storage_fs
-            emqx_ft_storage_dummy
+            emqx_ft_storage_fs
+        % emqx_ft_storage_dummy
     end.
 
 storage() ->
