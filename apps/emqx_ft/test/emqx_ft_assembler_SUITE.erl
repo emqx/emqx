@@ -54,7 +54,7 @@ end_per_testcase(_TC, Config) ->
 -define(CLIENTID, <<"thatsme">>).
 
 t_assemble_empty_transfer(Config) ->
-    Storage = ?config(storage_root, Config),
+    Storage = storage(Config),
     Transfer = {?CLIENTID, mk_fileid()},
     Filename = "important.pdf",
     Meta = #{
@@ -84,7 +84,7 @@ t_assemble_empty_transfer(Config) ->
     ok.
 
 t_assemble_complete_local_transfer(Config) ->
-    Storage = ?config(storage_root, Config),
+    Storage = storage(Config),
     Transfer = {?CLIENTID, mk_fileid()},
     Filename = "topsecret.pdf",
     TransferSize = 10000 + rand:uniform(50000),
@@ -161,3 +161,8 @@ inspect_file(Filename) ->
 
 mk_fileid() ->
     integer_to_binary(erlang:system_time(millisecond)).
+
+storage(Config) ->
+    #{
+        root => ?config(storage_root, Config)
+    }.

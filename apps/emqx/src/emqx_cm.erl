@@ -170,7 +170,6 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid)
     true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
-    ok = emqx_hooks:run('channel.registered', [ConnMod, ChanPid]),
     cast({registered, Chan}).
 
 %% @doc Unregister a channel.
@@ -280,7 +279,7 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
         {ok, #{session => Session1, present => false}}
     end,
     emqx_cm_locker:trans(ClientId, CleanStart);
-open_session(false, ClientInfo = #{clientid := ClientId}, #{conn_mod := NewConnMod} = ConnInfo) ->
+open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     ResumeStart = fun(_) ->
         CreateSess =
@@ -307,11 +306,10 @@ open_session(false, ClientInfo = #{clientid := ClientId}, #{conn_mod := NewConnM
             {living, ConnMod, ChanPid, Session} ->
                 ok = emqx_session:resume(ClientInfo, Session),
                 case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
-                    {ok, Pendings, TakoverData} ->
+                    {ok, Pendings} ->
                         Session1 = emqx_persistent_session:persist(
                             ClientInfo, ConnInfo, Session
                         ),
-                        ok = emqx_hooks:run('channel.takenover', [NewConnMod, Self, TakoverData]),
                         {ok, #{
                             session => Session1,
                             present => true,
@@ -396,18 +394,11 @@ takeover_session(ClientId) ->
     end.
 
 takeover_finish(ConnMod, ChanPid) ->
-    TakoverData = emqx_hooks:run_fold('channel.takeover', [ConnMod, ChanPid], #{}),
-    case
-        %% node-local call
-        request_stepdown(
-            {takeover, 'end'},
-            ConnMod,
-            ChanPid
-        )
-    of
-        {ok, Pendings} -> {ok, Pendings, TakoverData};
-        {error, _} = Error -> Error
-    end.
+    request_stepdown(
+        {takeover, 'end'},
+        ConnMod,
+        ChanPid
+    ).
 
 takeover_session(ClientId, Pid) ->
     try

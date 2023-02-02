@@ -20,16 +20,16 @@
 
 -export([
     store_filemeta/3,
-    store_segment/4,
-    assemble/4
+    store_segment/3,
+    assemble/3
 ]).
 
 store_filemeta(_Storage, _Transfer, _Meta) ->
-    {ok, #{}}.
+    ok.
 
-store_segment(_Storage, Ctx, _Transfer, _Segment) ->
-    {ok, Ctx}.
+store_segment(_Storage, _Transfer, _Segment) ->
+    ok.
 
-assemble(_Storage, _Ctx, _Transfer, Callback) ->
+assemble(_Storage, _Transfer, Callback) ->
     Pid = spawn(fun() -> Callback({error, not_implemented}) end),
     {ok, Pid}.
