@@ -865,7 +865,7 @@ call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
     end.
 
 do_call_query(QM, Id, Index, Ref, Query, #{is_buffer_supported := true} = QueryOpts, Resource) ->
-    %% The connector supprots buffer, send even in disconnected state
+    %% The connector supports buffer, send even in disconnected state
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
