@@ -36,7 +36,7 @@ start_child(Storage, Transfer, Callback) ->
 init(_) ->
     SupFlags = #{
         strategy => one_for_one,
-        intensity => 100,
+        intensity => 10,
         period => 1000
     },
     {ok, {SupFlags, []}}.
