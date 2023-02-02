@@ -110,7 +110,9 @@ fields("server_configs") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("clean_start")
+                    desc => ?DESC("clean_start"),
+                    hidden => true,
+                    deprecated => {since, "v5.0.16"}
                 }
             )},
         {keepalive, mk_duration("MQTT Keepalive.", #{default => "300s"})},
