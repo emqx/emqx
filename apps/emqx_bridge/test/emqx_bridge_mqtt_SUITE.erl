@@ -720,7 +720,8 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
 
     %% verify the metrics of the bridge, the message should be queued
     ?assertMatch(
-        #{<<"status">> := Status} when Status == <<"connecting">>; Status == <<"disconnected">>,
+        #{<<"status">> := Status} when
+            Status == <<"connecting">> orelse Status == <<"disconnected">>,
         request_bridge(BridgeIDEgress)
     ),
     %% matched >= 3 because of possible retries.
@@ -797,7 +798,8 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
     ok = emqx_listeners:stop_listener('tcp:default'),
     ct:sleep(1500),
     ?assertMatch(
-        #{<<"status">> := Status} when Status == <<"connecting">>; Status == <<"disconnected">>,
+        #{<<"status">> := Status} when
+            Status == <<"connecting">> orelse Status == <<"disconnected">>,
         request_bridge(BridgeIDEgress)
     ),
 
