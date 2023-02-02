@@ -555,12 +555,14 @@ handle_connected_health_check(Data) ->
         end
     ).
 
+with_health_check(#data{state = undefined} = Data, Func) ->
+    Func(disconnected, Data);
 with_health_check(Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId),
-    ok = maybe_resume_resource_workers(Status),
+    ok = maybe_resume_resource_workers(ResId, Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
@@ -581,14 +583,12 @@ maybe_alarm(_Status, ResId) ->
         <<"resource down: ", ResId/binary>>
     ).
 
-maybe_resume_resource_workers(connected) ->
+maybe_resume_resource_workers(ResId, connected) ->
     lists:foreach(
-        fun({_, Pid, _, _}) ->
-            emqx_resource_buffer_worker:resume(Pid)
-        end,
-        supervisor:which_children(emqx_resource_buffer_worker_sup)
+        fun emqx_resource_buffer_worker:resume/1,
+        emqx_resource_buffer_worker_sup:worker_pids(ResId)
     );
-maybe_resume_resource_workers(_) ->
+maybe_resume_resource_workers(_, _) ->
     ok.
 
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
