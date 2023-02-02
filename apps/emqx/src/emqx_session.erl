@@ -82,6 +82,7 @@
     deliver/3,
     enqueue/3,
     dequeue/2,
+    filter_queue/2,
     ignore_local/4,
     retry/2,
     terminate/3
@@ -528,6 +529,9 @@ dequeue(ClientInfo, Cnt, Msgs, Q) ->
                     dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
             end
     end.
+
+filter_queue(Pred, #session{mqueue = Q} = Session) ->
+    Session#session{mqueue = emqx_mqueue:filter(Pred, Q)}.
 
 acc_cnt(#message{qos = ?QOS_0}, Cnt) -> Cnt;
 acc_cnt(_Msg, Cnt) -> Cnt - 1.
