@@ -31,7 +31,9 @@
     pick_key => term(),
     timeout => timeout(),
     expire_at => infinity | integer(),
-    async_reply_fun => reply_fun()
+    async_reply_fun => reply_fun(),
+    simple_query => boolean(),
+    is_buffer_supported => boolean()
 }.
 -type resource_data() :: #{
     id := resource_id(),
