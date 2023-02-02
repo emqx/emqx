@@ -257,12 +257,8 @@ send_to_remote_async(Name, MsgIn, Callback) ->
 
 do_send_async(Name, {true, Msg}, Callback) ->
     Pid = get_pid(Name),
-    case emqtt:publish_async(Pid, Msg, _Timeout = infinity, Callback) of
-        ok ->
-            {ok, Pid};
-        {error, _} = Error ->
-            Error
-    end;
+    ok = emqtt:publish_async(Pid, Msg, _Timeout = infinity, Callback),
+    {ok, Pid};
 do_send_async(_Name, false, _Callback) ->
     ok.
 

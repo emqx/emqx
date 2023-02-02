@@ -79,7 +79,8 @@ ct: $(REBAR) merge-config
 
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do dialyzer, xref, ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+	@$(REBAR) as check do dialyzer, xref
+	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 

@@ -47,7 +47,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    ets:new(?MODULE, [set, named_table, public, {keypos, 1}]),
+    _ = ets:new(?MODULE, [set, named_table, public, {keypos, 1}]),
     {ok, #{latest_refresh => 0}}.
 
 handle_call(get_sys_memory, _From, State) ->
