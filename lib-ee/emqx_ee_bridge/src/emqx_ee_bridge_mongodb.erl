@@ -79,7 +79,7 @@ fields("creation_opts") ->
                         enum([sync, async]),
                         #{
                             desc => ?DESC(emqx_resource_schema, "query_mode"),
-                            default => sync
+                            default => async
                         }
                     )};
             (Field) ->
