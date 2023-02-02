@@ -181,10 +181,10 @@ resource_fields(Type) ->
 resource_creation_fields("redis_cluster") ->
     % TODO
     % Cluster bridge is currently incompatible with batching.
-    Fields = emqx_resource_schema:fields("creation_opts"),
+    Fields = emqx_resource_schema:fields("creation_opts_sync_only"),
     lists:foldl(fun proplists:delete/2, Fields, [batch_size, batch_time]);
 resource_creation_fields(_) ->
-    emqx_resource_schema:fields("creation_opts").
+    emqx_resource_schema:fields("creation_opts_sync_only").
 
 desc("config") ->
     ?DESC("desc_config");
