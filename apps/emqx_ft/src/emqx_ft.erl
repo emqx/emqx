@@ -66,7 +66,8 @@
     %% TTL of individual segments
     %% Somewhat confusing that we won't know it on the nodes where the filemeta
     %% is missing.
-    segments_ttl => _Seconds :: pos_integer()
+    segments_ttl => _Seconds :: pos_integer(),
+    user_data => emqx_ft_schema:json_value()
 }.
 
 -type segment() :: {offset(), _Content :: binary()}.
