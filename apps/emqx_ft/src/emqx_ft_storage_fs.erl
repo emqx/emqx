@@ -16,9 +16,6 @@
 
 -module(emqx_ft_storage_fs).
 
--include_lib("typerefl/include/types.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_ft_storage).
 
 -export([store_filemeta/3]).
@@ -224,17 +221,6 @@ verify_checksum(undefined, _) ->
 
 -define(PRELUDE(Vsn, Meta), [<<"filemeta">>, Vsn, Meta]).
 
-schema() ->
-    #{
-        roots => [
-            {name, hoconsc:mk(string(), #{required => true})},
-            {size, hoconsc:mk(non_neg_integer())},
-            {expire_at, hoconsc:mk(non_neg_integer())},
-            {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
-            {segments_ttl, hoconsc:mk(pos_integer())}
-        ]
-    }.
-
 % encode_filemeta(Meta) ->
 %     emqx_json:encode(
 %         ?PRELUDE(
@@ -261,26 +247,14 @@ schema() ->
 
 encode_filemeta(Meta) ->
     % TODO: Looks like this should be hocon's responsibility.
-    Term = hocon_tconf:make_serializable(schema(), emqx_map_lib:binary_key_map(Meta), #{}),
+    Schema = emqx_ft_schema:schema(filemeta),
+    Term = hocon_tconf:make_serializable(Schema, emqx_map_lib:binary_key_map(Meta), #{}),
     emqx_json:encode(?PRELUDE(_Vsn = 1, Term)).
 
 decode_filemeta(Binary) ->
+    Schema = emqx_ft_schema:schema(filemeta),
     ?PRELUDE(_Vsn = 1, Term) = emqx_json:decode(Binary, [return_maps]),
-    hocon_tconf:check_plain(schema(), Term, #{atom_key => true, required => false}).
-
-converter(checksum) ->
-    fun
-        (undefined, #{}) ->
-            undefined;
-        ({sha256, Bin}, #{make_serializable := true}) ->
-            _ = is_binary(Bin) orelse throw({expected_type, string}),
-            _ = byte_size(Bin) =:= 32 orelse throw({expected_length, 32}),
-            binary:encode_hex(Bin);
-        (Hex, #{}) ->
-            _ = is_binary(Hex) orelse throw({expected_type, string}),
-            _ = byte_size(Hex) =:= 64 orelse throw({expected_length, 64}),
-            {sha256, binary:decode_hex(Hex)}
-    end.
+    hocon_tconf:check_plain(Schema, Term, #{atom_key => true, required => false}).
 
 % map_into(Fun, Into, Ks, Map) ->
 %     map_foldr(map_into_fn(Fun, Into), Into, Ks, Map).

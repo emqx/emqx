@@ -23,6 +23,20 @@
 
 -export([namespace/0, roots/0, fields/1, tags/0]).
 
+-export([schema/1]).
+
+-type json_value() ::
+    null
+    | boolean()
+    | binary()
+    | number()
+    | [json_value()]
+    | #{binary() => json_value()}.
+
+-reflect_type([json_value/0]).
+
+%%
+
 namespace() -> file_transfer.
 
 tags() ->
@@ -47,3 +61,29 @@ fields(local_storage) ->
             desc => ?DESC("local")
         }}
     ].
+
+schema(filemeta) ->
+    #{
+        roots => [
+            {name, hoconsc:mk(string(), #{required => true})},
+            {size, hoconsc:mk(non_neg_integer())},
+            {expire_at, hoconsc:mk(non_neg_integer())},
+            {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
+            {segments_ttl, hoconsc:mk(pos_integer())},
+            {user_data, hoconsc:mk(json_value())}
+        ]
+    }.
+
+converter(checksum) ->
+    fun
+        (undefined, #{}) ->
+            undefined;
+        ({sha256, Bin}, #{make_serializable := true}) ->
+            _ = is_binary(Bin) orelse throw({expected_type, string}),
+            _ = byte_size(Bin) =:= 32 orelse throw({expected_length, 32}),
+            binary:encode_hex(Bin);
+        (Hex, #{}) ->
+            _ = is_binary(Hex) orelse throw({expected_type, string}),
+            _ = byte_size(Hex) =:= 64 orelse throw({expected_length, 64}),
+            {sha256, binary:decode_hex(Hex)}
+    end.
