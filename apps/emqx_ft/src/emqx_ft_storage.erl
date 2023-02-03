@@ -24,6 +24,14 @@
     ]
 ).
 
+-export([list_local/2]).
+-export([pread_local/4]).
+
+-export([local_transfers/0]).
+
+-type offset() :: emqx_ft:offset().
+-type transfer() :: emqx_ft:transfer().
+
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
@@ -63,8 +71,41 @@ assemble(Transfer, Callback) ->
     Mod = mod(),
     Mod:assemble(storage(), Transfer, Callback).
 
+%%--------------------------------------------------------------------
+%% Local FS API
+%%--------------------------------------------------------------------
+
+-type filefrag() :: emqx_ft_storage_fs:filefrag().
+-type transferinfo() :: emqx_ft_storage_fs:transferinfo().
+
+-spec list_local(transfer(), fragment | result) ->
+    {ok, [filefrag()]} | {error, term()}.
+list_local(Transfer, What) ->
+    with_local_storage(
+        fun(Mod, Storage) -> Mod:list(Storage, Transfer, What) end
+    ).
+
+-spec pread_local(transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
+    {ok, [filefrag()]} | {error, term()}.
+pread_local(Transfer, Frag, Offset, Size) ->
+    with_local_storage(
+        fun(Mod, Storage) -> Mod:pread(Storage, Transfer, Frag, Offset, Size) end
+    ).
+
+-spec local_transfers() ->
+    {ok, node(), #{transfer() => transferinfo()}} | {error, term()}.
+local_transfers() ->
+    with_local_storage(
+        fun(Mod, Storage) -> Mod:transfers(Storage) end
+    ).
+
+%%
+
 mod() ->
-    case storage() of
+    mod(storage()).
+
+mod(Storage) ->
+    case Storage of
         #{type := local} ->
             emqx_ft_storage_fs
         % emqx_ft_storage_dummy
@@ -72,3 +113,11 @@ mod() ->
 
 storage() ->
     emqx_config:get([file_transfer, storage]).
+
+with_local_storage(Fun) ->
+    case storage() of
+        #{type := local} = Storage ->
+            Fun(mod(Storage), Storage);
+        #{type := Type} ->
+            {error, {unsupported_storage_type, Type}}
+    end.
