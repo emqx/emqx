@@ -24,6 +24,8 @@
 -export([pread/5]).
 -export([assemble/3]).
 
+-export([transfers/1]).
+
 -export([open_file/3]).
 -export([complete/4]).
 -export([write/2]).
@@ -31,14 +33,17 @@
 
 -type transfer() :: emqx_ft:transfer().
 -type offset() :: emqx_ft:offset().
-
 -type filemeta() :: emqx_ft:filemeta().
-
--type segment() :: {offset(), _Content :: binary()}.
+-type segment() :: emqx_ft:segment().
 
 -type segmentinfo() :: #{
     offset := offset(),
     size := _Bytes :: non_neg_integer()
+}.
+
+-type transferinfo() :: #{
+    status := complete | incomplete,
+    result => [filefrag({result, #{}})]
 }.
 
 % TODO naming
@@ -85,6 +90,7 @@
     % Quota? Some lower level errors?
     {ok, emqx_ft_storage:ctx()} | {error, conflict} | {error, _TODO}.
 store_filemeta(Storage, Transfer, Meta) ->
+    % TODO safeguard against bad clientids / fileids.
     Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], ?MANIFEST),
     case read_file(Filepath, fun decode_filemeta/1) of
         {ok, Meta} ->
@@ -167,6 +173,52 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
     {ok, _Assembler :: pid()} | {error, _TODO}.
 assemble(Storage, Transfer, Callback) ->
     emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
+
+%%
+
+-spec transfers(storage()) ->
+    {ok, #{transfer() => transferinfo()}}.
+transfers(Storage) ->
+    % TODO `Continuation`
+    % There might be millions of transfers on the node, we need a protocol and
+    % storage schema to iterate through them effectively.
+    ClientIds = try_list_dir(get_storage_root(Storage)),
+    {ok,
+        lists:foldl(
+            fun(ClientId, Acc) -> transfers(Storage, ClientId, Acc) end,
+            #{},
+            ClientIds
+        )}.
+
+transfers(Storage, ClientId, AccIn) ->
+    Dirname = mk_client_filedir(Storage, ClientId),
+    case file:list_dir(Dirname) of
+        {ok, FileIds} ->
+            lists:foldl(
+                fun(FileId, Acc) ->
+                    Transfer = {filename_to_binary(ClientId), filename_to_binary(FileId)},
+                    read_transferinfo(Storage, Transfer, Acc)
+                end,
+                AccIn,
+                FileIds
+            );
+        {error, _Reason} ->
+            % TODO worth logging
+            AccIn
+    end.
+
+read_transferinfo(Storage, Transfer, Acc) ->
+    case list(Storage, Transfer, result) of
+        {ok, Result = [_ | _]} ->
+            Info = #{status => complete, result => Result},
+            Acc#{Transfer => Info};
+        {ok, []} ->
+            Info = #{status => incomplete},
+            Acc#{Transfer => Info};
+        {error, _Reason} ->
+            % TODO worth logging
+            Acc
+    end.
 
 %%
 
@@ -312,8 +364,17 @@ break_segment_filename(Filename) ->
 mk_filedir(Storage, {ClientId, FileId}, SubDirs) ->
     filename:join([get_storage_root(Storage), ClientId, FileId | SubDirs]).
 
+mk_client_filedir(Storage, ClientId) ->
+    filename:join([get_storage_root(Storage), ClientId]).
+
 mk_filepath(Storage, Transfer, SubDirs, Filename) ->
     filename:join(mk_filedir(Storage, Transfer, SubDirs), Filename).
+
+try_list_dir(Dirname) ->
+    case file:list_dir(Dirname) of
+        {ok, List} -> List;
+        {error, _} -> []
+    end.
 
 get_storage_root(Storage) ->
     maps:get(root, Storage, filename:join(emqx:data_dir(), "file_transfer")).
@@ -421,3 +482,6 @@ read_filemeta(_Filename, Filepath) ->
 
 read_segmentinfo(Filename, _Filepath) ->
     break_segment_filename(Filename).
+
+filename_to_binary(S) when is_list(S) -> unicode:characters_to_binary(S);
+filename_to_binary(B) when is_binary(B) -> B.
