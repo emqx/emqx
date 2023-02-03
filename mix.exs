@@ -47,7 +47,7 @@ defmodule EMQXUmbrella.MixProject do
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
       {:redbug, "2.0.8"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.4", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.6", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
@@ -57,8 +57,8 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
-      {:replayq, github: "emqx/replayq", tag: "0.3.6", override: true},
+      {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
+      {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.7.0-rc.2", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
@@ -68,7 +68,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.35.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.35.3", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -76,8 +76,6 @@ defmodule EMQXUmbrella.MixProject do
       {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
       # in conflict by emqx_connector and system_monitor
       {:epgsql, github: "emqx/epgsql", tag: "4.7.0.1", override: true},
-      # in conflict by mongodb and eredis_cluster
-      {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
@@ -132,7 +130,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.7", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.7.4"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.7"},

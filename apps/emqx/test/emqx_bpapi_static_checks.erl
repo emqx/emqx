@@ -65,7 +65,7 @@
     % Reason: legacy code. A fun and a QC query are
     % passed in the args, it's futile to try to statically
     % check it
-    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/3"
+    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2"
 ).
 
 -define(XREF, myxref).

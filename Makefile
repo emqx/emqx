@@ -6,8 +6,8 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.6
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1
+export EMQX_DASHBOARD_VERSION ?= v1.1.7
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.3
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -77,9 +77,11 @@ test-compile: $(REBAR) merge-config
 ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
+## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do dialyzer, xref, ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+	@$(REBAR) as check do dialyzer, xref
+	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 

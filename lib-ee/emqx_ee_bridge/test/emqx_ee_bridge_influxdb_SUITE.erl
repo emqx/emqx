@@ -910,19 +910,17 @@ t_write_failure(Config) ->
                 sync ->
                     {_, {ok, _}} =
                         ?wait_async_action(
-                            try
+                            ?assertMatch(
+                                {error, {resource_error, #{reason := timeout}}},
                                 send_message(Config, SentData)
-                            catch
-                                error:timeout ->
-                                    {error, timeout}
-                            end,
+                            ),
                             #{?snk_kind := buffer_worker_flush_nack},
                             1_000
                         );
                 async ->
                     ?wait_async_action(
                         ?assertEqual(ok, send_message(Config, SentData)),
-                        #{?snk_kind := buffer_worker_reply_after_query},
+                        #{?snk_kind := handle_async_reply},
                         1_000
                     )
             end
@@ -940,14 +938,15 @@ t_write_failure(Config) ->
                         #{got => Result}
                     );
                 async ->
-                    Trace = ?of_kind(buffer_worker_reply_after_query, Trace0),
+                    Trace = ?of_kind(handle_async_reply, Trace0),
                     ?assertMatch([#{action := nack} | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
                         {error, {recoverable_error, {closed, "The connection was lost."}}} =:=
                             Result orelse
                             {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, econnrefused}} =:= Result,
+                            {error, {recoverable_error, econnrefused}} =:= Result orelse
+                            {error, {recoverable_error, noproc}} =:= Result,
                         #{got => Result}
                     )
             end,

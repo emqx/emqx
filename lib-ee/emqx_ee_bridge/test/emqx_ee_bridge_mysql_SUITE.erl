@@ -406,7 +406,10 @@ t_write_failure(Config) ->
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
             case QueryMode of
                 sync ->
-                    ?assertError(timeout, send_message(Config, SentData));
+                    ?assertMatch(
+                        {error, {resource_error, #{reason := timeout}}},
+                        send_message(Config, SentData)
+                    );
                 async ->
                     send_message(Config, SentData)
             end
@@ -439,8 +442,8 @@ t_write_timeout(Config) ->
     SentData = #{payload => Val, timestamp => 1668602148000},
     Timeout = 1000,
     emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertError(
-            timeout,
+        ?assertMatch(
+            {error, {resource_error, #{reason := timeout}}},
             query_resource(Config, {send_message, SentData, [], Timeout})
         )
     end),

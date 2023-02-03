@@ -1,11 +1,57 @@
 version: '3.9'
-
 services:
-  redis_cluster:
+
+  redis-cluster-1: &redis-node
+    container_name: redis-cluster-1
     image: redis:${REDIS_TAG}
-    container_name: redis-cluster
     volumes:
-      - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster && tail -f /var/log/redis-server.log"
+    - ./redis/cluster-tcp:/usr/local/etc/redis
+    command: redis-server /usr/local/etc/redis/redis.conf
     networks:
       - emqx_bridge
+
+
+  redis-cluster-2:
+    <<: *redis-node
+    container_name: redis-cluster-2
+
+  redis-cluster-3:
+    <<: *redis-node
+    container_name: redis-cluster-3
+
+  redis-cluster-4:
+    <<: *redis-node
+    container_name: redis-cluster-4
+
+  redis-cluster-5:
+    <<: *redis-node
+    container_name: redis-cluster-5
+
+  redis-cluster-6:
+    <<: *redis-node
+    container_name: redis-cluster-6
+
+  redis-cluster-create:
+    <<: *redis-node
+    container_name: redis-cluster-create
+    command: >
+      redis-cli
+        --cluster create
+          redis-cluster-1:6379
+          redis-cluster-2:6379
+          redis-cluster-3:6379
+          redis-cluster-4:6379
+          redis-cluster-5:6379
+          redis-cluster-6:6379
+        --cluster-replicas 1
+        --cluster-yes
+        --pass "public"
+        --no-auth-warning
+    depends_on:
+      - redis-cluster-1
+      - redis-cluster-2
+      - redis-cluster-3
+      - redis-cluster-4
+      - redis-cluster-5
+      - redis-cluster-6
+

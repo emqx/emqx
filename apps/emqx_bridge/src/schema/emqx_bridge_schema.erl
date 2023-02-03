@@ -56,8 +56,8 @@ api_schema(Method) ->
     EE = ee_api_schemas(Method),
     hoconsc:union(Broker ++ EE).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 ee_api_schemas(Method) ->
-    %% must ensure the app is loaded before checking if fn is defined.
     ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, api_schemas, 1) of
         true -> emqx_ee_bridge:api_schemas(Method);
@@ -65,12 +65,30 @@ ee_api_schemas(Method) ->
     end.
 
 ee_fields_bridges() ->
-    %% must ensure the app is loaded before checking if fn is defined.
     ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, fields, 1) of
         true -> emqx_ee_bridge:fields(bridges);
         false -> []
     end.
+
+%% must ensure the app is loaded before checking if fn is defined.
+ensure_loaded(App, Mod) ->
+    try
+        _ = application:load(App),
+        _ = Mod:module_info(),
+        ok
+    catch
+        _:_ ->
+            ok
+    end.
+
+-else.
+
+ee_api_schemas(_) -> [].
+
+ee_fields_bridges() -> [].
+
+-endif.
 
 common_bridge_fields() ->
     [
@@ -194,17 +212,3 @@ status() ->
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
-
-%%=================================================================================================
-%% Internal fns
-%%=================================================================================================
-
-ensure_loaded(App, Mod) ->
-    try
-        _ = application:load(App),
-        _ = Mod:module_info(),
-        ok
-    catch
-        _:_ ->
-            ok
-    end.

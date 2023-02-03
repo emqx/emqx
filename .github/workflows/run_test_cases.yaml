@@ -77,6 +77,7 @@ jobs:
             make ensure-rebar3
             # fetch all deps and compile
             make ${{ matrix.profile }}
+            make static_checks
             make test-compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
@@ -155,11 +156,11 @@ jobs:
           working-directory: source
           env:
             DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
-            MONGO_TAG: 5
-            MYSQL_TAG: 8
-            PGSQL_TAG: 13
-            REDIS_TAG: 6
-            INFLUXDB_TAG: 2.5.0
+            MONGO_TAG: "5"
+            MYSQL_TAG: "8"
+            PGSQL_TAG: "13"
+            REDIS_TAG: "7.0"
+            INFLUXDB_TAG: "2.5.0"
             PROFILE: ${{ matrix.profile }}
             CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}

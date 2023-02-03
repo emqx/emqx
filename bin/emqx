@@ -159,7 +159,7 @@ usage() {
         echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
         ;;
     versions)
-        echo "List installed EMQX versions and their status"
+        echo "List installed EMQX release versions and their status"
         ;;
     unpack)
         echo "Usage: $REL_NAME unpack [VERSION]"
@@ -217,12 +217,12 @@ usage() {
         echo "  ctl:        Administration commands, execute '$REL_NAME ctl help' for more details"
         echo ''
         echo "More:"
-        echo "  Shell attach:  remote_console | attach"
-        echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
-        echo "  Install info:  ertspath | root_dir"
-        echo "  Runtime info:  pid | ping | versions"
+        echo "  Shell attach:     remote_console | attach"
+#       echo "  Up/Down-grade:    upgrade | downgrade | install | uninstall | versions" # TODO enable when supported
+        echo "  Install Info:     ertspath | root_dir"
+        echo "  Runtime Status:   pid | ping"
         echo "  Validate Config:  check_config"
-        echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval | eval-erl"
+        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-erl"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
     ;;
@@ -361,7 +361,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
             logerr "$COMPATIBILITY_INFO"
             exit 2
         fi
-        logerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
+        logwarn "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
     fi
     [ "$DEBUG" -eq 1 ] && set -x
 fi

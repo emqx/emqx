@@ -153,7 +153,7 @@ on_start(
             false ->
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    PoolName = InstId,
     State = #{poolname => PoolName, type => Type},
     case Type of
         cluster ->
@@ -222,29 +222,15 @@ is_unrecoverable_error(Results) when is_list(Results) ->
     lists:any(fun is_unrecoverable_error/1, Results);
 is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
     true;
+is_unrecoverable_error({error, invalid_cluster_command}) ->
+    true;
 is_unrecoverable_error(_) ->
     false.
-
-extract_eredis_cluster_workers(PoolName) ->
-    lists:flatten([
-        gen_server:call(PoolPid, get_all_workers)
-     || PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)
-    ]).
-
-eredis_cluster_workers_exist_and_are_connected(Workers) ->
-    length(Workers) > 0 andalso
-        lists:all(
-            fun({_, Pid, _, _}) ->
-                eredis_cluster_pool_worker:is_connected(Pid) =:= true
-            end,
-            Workers
-        ).
 
 on_get_status(_InstId, #{type := cluster, poolname := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
-            Workers = extract_eredis_cluster_workers(PoolName),
-            Health = eredis_cluster_workers_exist_and_are_connected(Workers),
+            Health = eredis_cluster:ping_all(PoolName),
             status_result(Health);
         false ->
             disconnected
@@ -267,7 +253,9 @@ do_cmd(PoolName, cluster, {cmd, Command}) ->
 do_cmd(Conn, _Type, {cmd, Command}) ->
     eredis:q(Conn, Command);
 do_cmd(PoolName, cluster, {cmds, Commands}) ->
-    wrap_qp_result(eredis_cluster:qp(PoolName, Commands));
+    % TODO
+    % Cluster mode is currently incompatible with batching.
+    wrap_qp_result([eredis_cluster:q(PoolName, Command) || Command <- Commands]);
 do_cmd(Conn, _Type, {cmds, Commands}) ->
     wrap_qp_result(eredis:qp(Conn, Commands)).
 

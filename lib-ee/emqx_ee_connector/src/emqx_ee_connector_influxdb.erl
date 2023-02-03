@@ -200,15 +200,15 @@ start_client(InstId, Config) ->
     ?SLOG(info, #{
         msg => "starting influxdb connector",
         connector => InstId,
-        config => Config,
-        client_config => ClientConfig
+        config => emqx_misc:redact(Config),
+        client_config => emqx_misc:redact(ClientConfig)
     }),
     try
         do_start_client(InstId, ClientConfig, Config)
     catch
         E:R:S ->
             ?tp(influxdb_connector_start_exception, #{error => {E, R}}),
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "start influxdb connector error",
                 connector => InstId,
                 error => E,
@@ -236,16 +236,16 @@ do_start_client(
                     ?SLOG(info, #{
                         msg => "starting influxdb connector success",
                         connector => InstId,
-                        client => Client,
-                        state => State
+                        client => redact_auth(Client),
+                        state => redact_auth(State)
                     }),
                     {ok, State};
                 false ->
                     ?tp(influxdb_connector_start_failed, #{error => influxdb_client_not_alive}),
-                    ?SLOG(error, #{
+                    ?SLOG(warning, #{
                         msg => "starting influxdb connector failed",
                         connector => InstId,
-                        client => Client,
+                        client => redact_auth(Client),
                         reason => "client is not alive"
                     }),
                     %% no leak
@@ -257,13 +257,13 @@ do_start_client(
             ?SLOG(info, #{
                 msg => "restarting influxdb connector, found already started client",
                 connector => InstId,
-                old_client => Client0
+                old_client => redact_auth(Client0)
             }),
             _ = influxdb:stop_client(Client0),
             do_start_client(InstId, ClientConfig, Config);
         {error, Reason} ->
             ?tp(influxdb_connector_start_failed, #{error => Reason}),
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "starting influxdb connector failed",
                 connector => InstId,
                 reason => Reason
@@ -282,7 +282,7 @@ client_config(
         {host, str(Host)},
         {port, Port},
         {pool_size, erlang:system_info(schedulers)},
-        {pool, binary_to_atom(InstId, utf8)},
+        {pool, InstId},
         {precision, atom_to_binary(maps:get(precision, Config, ms), utf8)}
     ] ++ protocol_config(Config).
 
@@ -339,6 +339,14 @@ password(#{password := Password}) ->
     [{password, str(Password)}];
 password(_) ->
     [].
+
+redact_auth(Term) ->
+    emqx_misc:redact(Term, fun is_auth_key/1).
+
+is_auth_key(Key) when is_binary(Key) ->
+    string:equal("authorization", Key, true);
+is_auth_key(_) ->
+    false.
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
@@ -622,6 +630,13 @@ is_unrecoverable_error(_) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+is_auth_key_test_() ->
+    [
+        ?_assert(is_auth_key(<<"Authorization">>)),
+        ?_assertNot(is_auth_key(<<"Something">>)),
+        ?_assertNot(is_auth_key(89))
+    ].
 
 %% for coverage
 desc_test_() ->

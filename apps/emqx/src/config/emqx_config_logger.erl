@@ -18,6 +18,7 @@
 -behaviour(emqx_config_handler).
 
 %% API
+-export([tr_handlers/1, tr_level/1]).
 -export([add_handler/0, remove_handler/0, refresh_config/0]).
 -export([post_config_update/5]).
 
@@ -37,38 +38,238 @@ remove_handler() ->
 %% so we need to refresh the logger config after this node starts.
 %% It will not affect the logger config when cluster-override.conf is unchanged.
 refresh_config() ->
-    case emqx:get_raw_config(?LOG, undefined) of
-        %% no logger config when CT is running.
-        undefined ->
-            ok;
-        Log ->
-            {ok, _} = emqx:update_config(?LOG, Log),
-            ok
-    end.
+    Overrides = emqx_config:read_override_confs(),
+    refresh_config(Overrides).
 
-post_config_update(?LOG, _Req, _NewConf, _OldConf, AppEnvs) ->
-    Kernel = proplists:get_value(kernel, AppEnvs),
-    NewHandlers = proplists:get_value(logger, Kernel, []),
-    Level = proplists:get_value(logger_level, Kernel, warning),
-    ok = update_log_handlers(NewHandlers),
-    ok = emqx_logger:set_primary_log_level(Level),
-    application:set_env(kernel, logger_level, Level),
-    ok;
+refresh_config(#{<<"log">> := _}) ->
+    %% read the checked config
+    LogConfig = emqx:get_config(?LOG, undefined),
+    Conf = #{log => LogConfig},
+    ok = do_refresh_config(Conf);
+refresh_config(_) ->
+    %% No config override found for 'log', do nothing
+    %% because the 'kernel' app should already be configured
+    %% from the base configs. i.e. emqx.conf + env vars
+    ok.
+
+%% this call is shared between initial config refresh at boot
+%% and dynamic config update from HTTP API
+do_refresh_config(Conf) ->
+    Handlers = tr_handlers(Conf),
+    ok = update_log_handlers(Handlers),
+    Level = tr_level(Conf),
+    ok = maybe_update_log_level(Level),
+    ok.
+
+post_config_update(?LOG, _Req, NewConf, _OldConf, _AppEnvs) ->
+    ok = do_refresh_config(#{log => NewConf});
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
+maybe_update_log_level(NewLevel) ->
+    OldLevel = emqx_logger:get_primary_log_level(),
+    case OldLevel =:= NewLevel of
+        true ->
+            %% no change
+            ok;
+        false ->
+            ok = emqx_logger:set_primary_log_level(NewLevel),
+            %% also update kernel's logger_level for troubleshooting
+            %% what is actually in effect is the logger's primary log level
+            ok = application:set_env(kernel, logger_level, NewLevel),
+            log_to_console("Config override: log level is set to '~p'~n", [NewLevel])
+    end.
+
+log_to_console(Fmt, Args) ->
+    io:format(standard_error, Fmt, Args).
+
 update_log_handlers(NewHandlers) ->
     OldHandlers = application:get_env(kernel, logger, []),
-    lists:foreach(
-        fun({handler, HandlerId, _Mod, _Conf}) ->
-            logger:remove_handler(HandlerId)
+    NewHandlersIds = lists:map(fun({handler, Id, _Mod, _Conf}) -> Id end, NewHandlers),
+    OldHandlersIds = lists:map(fun({handler, Id, _Mod, _Conf}) -> Id end, OldHandlers),
+    Removes = lists:map(fun(Id) -> {removed, Id} end, OldHandlersIds -- NewHandlersIds),
+    MapFn = fun({handler, Id, Mod, Conf} = Handler) ->
+        case lists:keyfind(Id, 2, OldHandlers) of
+            {handler, Id, Mod, Conf} ->
+                %% no change
+                false;
+            {handler, Id, _Mod, _Conf} ->
+                {true, {updated, Handler}};
+            false ->
+                {true, {enabled, Handler}}
+        end
+    end,
+    AddsAndUpdates = lists:filtermap(MapFn, NewHandlers),
+    lists:foreach(fun update_log_handler/1, Removes ++ AddsAndUpdates),
+    ok = application:set_env(kernel, logger, NewHandlers),
+    ok.
+
+update_log_handler({removed, Id}) ->
+    log_to_console("Config override: ~s is removed~n", [id_for_log(Id)]),
+    logger:remove_handler(Id);
+update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
+    log_to_console("Config override: ~s is ~p~n", [id_for_log(Id), Action]),
+    % may return {error, {not_found, Id}}
+    _ = logger:remove_handler(Id),
+    case logger:add_handler(Id, Mod, Conf) of
+        ok ->
+            ok;
+        %% Don't crash here, otherwise the cluster rpc will retry the wrong handler forever.
+        {error, Reason} ->
+            log_to_console(
+                "Config override: ~s is ~p, but failed to add handler: ~p~n",
+                [id_for_log(Id), Action, Reason]
+            )
+    end,
+    ok.
+
+id_for_log(console) -> "log.console_handler";
+id_for_log(Other) -> "log.file_handlers." ++ atom_to_list(Other).
+
+atom(Id) when is_binary(Id) -> binary_to_atom(Id, utf8);
+atom(Id) when is_atom(Id) -> Id.
+
+%% @doc Translate raw config to app-env compatible log handler configs list.
+tr_handlers(Conf) ->
+    %% mute the default handler
+    tr_console_handler(Conf) ++
+        tr_file_handlers(Conf).
+
+%% For the default logger that outputs to console
+tr_console_handler(Conf) ->
+    case conf_get("log.console_handler.enable", Conf) of
+        true ->
+            ConsoleConf = conf_get("log.console_handler", Conf),
+            [
+                {handler, console, logger_std_h, #{
+                    level => conf_get("log.console_handler.level", Conf),
+                    config => (log_handler_conf(ConsoleConf))#{type => standard_io},
+                    formatter => log_formatter(ConsoleConf),
+                    filters => log_filter(ConsoleConf)
+                }}
+            ];
+        false ->
+            []
+    end.
+
+%% For the file logger
+tr_file_handlers(Conf) ->
+    Handlers = logger_file_handlers(Conf),
+    lists:map(fun tr_file_handler/1, Handlers).
+
+tr_file_handler({HandlerName, SubConf}) ->
+    {handler, atom(HandlerName), logger_disk_log_h, #{
+        level => conf_get("level", SubConf),
+        config => (log_handler_conf(SubConf))#{
+            type =>
+                case conf_get("rotation.enable", SubConf) of
+                    true -> wrap;
+                    _ -> halt
+                end,
+            file => conf_get("file", SubConf),
+            max_no_files => conf_get("rotation.count", SubConf),
+            max_no_bytes => conf_get("max_size", SubConf)
+        },
+        formatter => log_formatter(SubConf),
+        filters => log_filter(SubConf),
+        filesync_repeat_interval => no_repeat
+    }}.
+
+logger_file_handlers(Conf) ->
+    Handlers = maps:to_list(conf_get("log.file_handlers", Conf, #{})),
+    lists:filter(
+        fun({_Name, Opts}) ->
+            B = conf_get("enable", Opts),
+            true = is_boolean(B),
+            B
         end,
-        OldHandlers -- NewHandlers
-    ),
-    lists:foreach(
-        fun({handler, HandlerId, Mod, Conf}) ->
-            logger:add_handler(HandlerId, Mod, Conf)
+        Handlers
+    ).
+
+conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
+conf_get(Key, Conf, Default) -> emqx_schema:conf_get(Key, Conf, Default).
+
+log_handler_conf(Conf) ->
+    SycModeQlen = conf_get("sync_mode_qlen", Conf),
+    DropModeQlen = conf_get("drop_mode_qlen", Conf),
+    FlushQlen = conf_get("flush_qlen", Conf),
+    Overkill = conf_get("overload_kill", Conf),
+    BurstLimit = conf_get("burst_limit", Conf),
+    #{
+        sync_mode_qlen => SycModeQlen,
+        drop_mode_qlen => DropModeQlen,
+        flush_qlen => FlushQlen,
+        overload_kill_enable => conf_get("enable", Overkill),
+        overload_kill_qlen => conf_get("qlen", Overkill),
+        overload_kill_mem_size => conf_get("mem_size", Overkill),
+        overload_kill_restart_after => conf_get("restart_after", Overkill),
+        burst_limit_enable => conf_get("enable", BurstLimit),
+        burst_limit_max_count => conf_get("max_count", BurstLimit),
+        burst_limit_window_time => conf_get("window_time", BurstLimit)
+    }.
+
+log_formatter(Conf) ->
+    CharsLimit =
+        case conf_get("chars_limit", Conf) of
+            unlimited -> unlimited;
+            V when V > 0 -> V
         end,
-        NewHandlers -- OldHandlers
-    ),
-    application:set_env(kernel, logger, NewHandlers).
+    TimeOffSet =
+        case conf_get("time_offset", Conf) of
+            "system" -> "";
+            "utc" -> 0;
+            OffSetStr -> OffSetStr
+        end,
+    SingleLine = conf_get("single_line", Conf),
+    Depth = conf_get("max_depth", Conf),
+    do_formatter(conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth).
+
+%% helpers
+do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+    {emqx_logger_jsonfmt, #{
+        chars_limit => CharsLimit,
+        single_line => SingleLine,
+        time_offset => TimeOffSet,
+        depth => Depth
+    }};
+do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+    {emqx_logger_textfmt, #{
+        template => [time, " [", level, "] ", msg, "\n"],
+        chars_limit => CharsLimit,
+        single_line => SingleLine,
+        time_offset => TimeOffSet,
+        depth => Depth
+    }}.
+
+log_filter(Conf) ->
+    case conf_get("supervisor_reports", Conf) of
+        error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
+        progress -> []
+    end.
+
+tr_level(Conf) ->
+    ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
+    FileLevels = [
+        conf_get("level", SubConf)
+     || {_, SubConf} <-
+            logger_file_handlers(Conf)
+    ],
+    case FileLevels ++ [ConsoleLevel || ConsoleLevel =/= undefined] of
+        %% warning is the default level we should use
+        [] -> warning;
+        Levels -> least_severe_log_level(Levels)
+    end.
+
+least_severe_log_level(Levels) ->
+    hd(sort_log_levels(Levels)).
+
+sort_log_levels(Levels) ->
+    lists:sort(
+        fun(A, B) ->
+            case logger:compare_levels(A, B) of
+                R when R == lt; R == eq -> true;
+                gt -> false
+            end
+        end,
+        Levels
+    ).

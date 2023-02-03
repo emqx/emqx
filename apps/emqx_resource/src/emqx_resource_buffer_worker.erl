@@ -20,7 +20,6 @@
 -module(emqx_resource_buffer_worker).
 
 -include("emqx_resource.hrl").
--include("emqx_resource_utils.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -39,7 +38,7 @@
 
 -export([
     simple_sync_query/2,
-    simple_async_query/2
+    simple_async_query/3
 ]).
 
 -export([
@@ -53,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([reply_after_query/8, batch_reply_after_query/8]).
+-export([handle_async_reply/2, handle_async_batch_reply/2]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -63,11 +62,7 @@
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
 -define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT), {query, FROM, REQUEST, SENT, EXPIRE_AT}).
 -define(SIMPLE_QUERY(REQUEST), ?QUERY(undefined, REQUEST, false, infinity)).
--define(REPLY(FROM, REQUEST, SENT, RESULT), {reply, FROM, REQUEST, SENT, RESULT}).
--define(EXPAND(RESULT, BATCH), [
-    ?REPLY(FROM, REQUEST, SENT, RESULT)
- || ?QUERY(FROM, REQUEST, SENT, _EXPIRE_AT) <- BATCH
-]).
+-define(REPLY(FROM, SENT, RESULT), {reply, FROM, SENT, RESULT}).
 -define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, WorkerMRef),
     {Ref, BatchOrQuery, IsRetriable, WorkerMRef}
 ).
@@ -78,9 +73,8 @@
 -type id() :: binary().
 -type index() :: pos_integer().
 -type expire_at() :: infinity | integer().
--type queue_query() :: ?QUERY(from(), request(), HasBeenSent :: boolean(), expire_at()).
+-type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
 -type request() :: term().
--type from() :: pid() | reply_fun() | request_from().
 -type request_from() :: undefined | gen_statem:from().
 -type state() :: blocked | running.
 -type inflight_key() :: integer().
@@ -130,18 +124,18 @@ simple_sync_query(Id, Request) ->
     Index = undefined,
     QueryOpts = simple_query_opts(),
     emqx_resource_metrics:matched_inc(Id),
-    Ref = make_message_ref(),
+    Ref = make_request_ref(),
     Result = call_query(sync, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
 %% simple async-query the resource without batching and queuing.
--spec simple_async_query(id(), request()) -> term().
-simple_async_query(Id, Request) ->
+-spec simple_async_query(id(), request(), query_opts()) -> term().
+simple_async_query(Id, Request, QueryOpts0) ->
     Index = undefined,
-    QueryOpts = simple_query_opts(),
+    QueryOpts = maps:merge(simple_query_opts(), QueryOpts0),
     emqx_resource_metrics:matched_inc(Id),
-    Ref = make_message_ref(),
+    Ref = make_request_ref(),
     Result = call_query(async, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
@@ -201,7 +195,7 @@ init({Id, Index, Opts}) ->
     {ok, running, Data}.
 
 running(enter, _, Data) ->
-    ?tp(buffer_worker_enter_running, #{}),
+    ?tp(buffer_worker_enter_running, #{id => maps:get(id, Data)}),
     %% According to `gen_statem' laws, we mustn't call `maybe_flush'
     %% directly because it may decide to return `{next_state, blocked, _}',
     %% and that's an invalid response for a state enter call.
@@ -214,7 +208,7 @@ running(cast, flush, Data) ->
     flush(Data);
 running(cast, block, St) ->
     {next_state, blocked, St};
-running(info, ?SEND_REQ(_From, _Req) = Request0, Data) ->
+running(info, ?SEND_REQ(_ReplyTo, _Req) = Request0, Data) ->
     handle_query_requests(Request0, Data);
 running(info, {flush, Ref}, St = #{tref := {_TRef, Ref}}) ->
     flush(St#{tref := undefined});
@@ -242,8 +236,8 @@ blocked(cast, flush, Data) ->
     resume_from_blocked(Data);
 blocked(state_timeout, unblock, St) ->
     resume_from_blocked(St);
-blocked(info, ?SEND_REQ(_ReqFrom, {query, _Request, _Opts}) = Request0, Data0) ->
-    {_Queries, Data} = collect_and_enqueue_query_requests(Request0, Data0),
+blocked(info, ?SEND_REQ(_ReplyTo, _Req) = Request0, Data0) ->
+    Data = collect_and_enqueue_query_requests(Request0, Data0),
     {keep_state, Data};
 blocked(info, {flush, _Ref}, _Data) ->
     keep_state_and_data;
@@ -270,15 +264,17 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%==============================================================================
 -define(PICK(ID, KEY, PID, EXPR),
-    try gproc_pool:pick_worker(ID, KEY) of
-        PID when is_pid(PID) ->
-            EXPR;
-        _ ->
-            ?RESOURCE_ERROR(worker_not_created, "resource not created")
+    try
+        case gproc_pool:pick_worker(ID, KEY) of
+            PID when is_pid(PID) ->
+                EXPR;
+            _ ->
+                ?RESOURCE_ERROR(worker_not_created, "resource not created")
+        end
     catch
         error:badarg ->
             ?RESOURCE_ERROR(worker_not_created, "resource not created");
-        exit:{timeout, _} ->
+        error:timeout ->
             ?RESOURCE_ERROR(timeout, "call resource timeout")
     end
 ).
@@ -288,7 +284,8 @@ pick_call(Id, Key, Query, Timeout) ->
         Caller = self(),
         MRef = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
         From = {Caller, MRef},
-        erlang:send(Pid, ?SEND_REQ(From, Query)),
+        ReplyTo = {fun gen_statem:reply/2, [From]},
+        erlang:send(Pid, ?SEND_REQ(ReplyTo, Query)),
         receive
             {MRef, Response} ->
                 erlang:demonitor(MRef, [flush]),
@@ -308,8 +305,8 @@ pick_call(Id, Key, Query, Timeout) ->
 
 pick_cast(Id, Key, Query) ->
     ?PICK(Id, Key, Pid, begin
-        From = undefined,
-        erlang:send(Pid, ?SEND_REQ(From, Query)),
+        ReplyTo = undefined,
+        erlang:send(Pid, ?SEND_REQ(ReplyTo, Query)),
         ok
     end).
 
@@ -370,8 +367,8 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     Result = call_query(sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     ReplyResult =
         case QueryOrBatch of
-            ?QUERY(From, CoreReq, HasBeenSent, _ExpireAt) ->
-                Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
+            ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) ->
+                Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
                 reply_caller_defer_metrics(Id, Reply, QueryOpts);
             [?QUERY(_, _, _, _) | _] = Batch ->
                 batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts)
@@ -412,7 +409,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
 -spec handle_query_requests(?SEND_REQ(request_from(), request()), data()) ->
     gen_statem:event_handler_result(state(), data()).
 handle_query_requests(Request0, Data0) ->
-    {_Queries, Data} = collect_and_enqueue_query_requests(Request0, Data0),
+    Data = collect_and_enqueue_query_requests(Request0, Data0),
     maybe_flush(Data).
 
 collect_and_enqueue_query_requests(Request0, Data0) ->
@@ -425,21 +422,37 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
     Queries =
         lists:map(
             fun
-                (?SEND_REQ(undefined = _From, {query, Req, Opts})) ->
+                (?SEND_REQ(undefined = _ReplyTo, {query, Req, Opts})) ->
                     ReplyFun = maps:get(async_reply_fun, Opts, undefined),
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
                     ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt);
-                (?SEND_REQ(From, {query, Req, Opts})) ->
+                (?SEND_REQ(ReplyTo, {query, Req, Opts})) ->
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
-                    ?QUERY(From, Req, HasBeenSent, ExpireAt)
+                    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt)
             end,
             Requests
         ),
-    NewQ = append_queue(Id, Index, Q, Queries),
-    Data = Data0#{queue := NewQ},
-    {Queries, Data}.
+    {Overflown, NewQ} = append_queue(Id, Index, Q, Queries),
+    ok = reply_overflown(Overflown),
+    Data0#{queue := NewQ}.
+
+reply_overflown([]) ->
+    ok;
+reply_overflown([?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt) | More]) ->
+    do_reply_caller(ReplyTo, {error, buffer_overflow}),
+    reply_overflown(More).
+
+do_reply_caller(undefined, _Result) ->
+    ok;
+do_reply_caller({F, Args}, {async_return, Result}) ->
+    %% this is an early return to async caller, the retry
+    %% decision has to be made by the caller
+    do_reply_caller({F, Args}, Result);
+do_reply_caller({F, Args}, Result) when is_function(F) ->
+    _ = erlang:apply(F, Args ++ [Result]),
+    ok.
 
 maybe_flush(Data0) ->
     #{
@@ -498,7 +511,7 @@ flush(Data0) ->
                         buffer_worker_flush_potentially_partial,
                         #{expired => Expired, not_expired => NotExpired}
                     ),
-                    Ref = make_message_ref(),
+                    Ref = make_request_ref(),
                     do_flush(Data2, #{
                         new_queue => Q1,
                         is_batch => IsBatch,
@@ -533,10 +546,10 @@ do_flush(
         inflight_tid := InflightTID
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
-    [?QUERY(From, CoreReq, HasBeenSent, _ExpireAt) = Request] = Batch,
+    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(configured, Id, Index, Ref, Request, QueryOpts),
-    Reply = ?REPLY(From, CoreReq, HasBeenSent, Result),
+    Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
     case reply_caller(Id, Reply, QueryOpts) of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
@@ -690,6 +703,14 @@ batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
     ShouldBlock.
 
 batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
+    %% the `Mod:on_batch_query/3` returns a single result for a batch,
+    %% so we need to expand
+    Replies = lists:map(
+        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT)) ->
+            ?REPLY(FROM, SENT, BatchResult)
+        end,
+        Batch
+    ),
     {ShouldAck, PostFns} =
         lists:foldl(
             fun(Reply, {_ShouldAck, PostFns}) ->
@@ -697,9 +718,7 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
                 {ShouldAck, [PostFn | PostFns]}
             end,
             {ack, []},
-            %% the `Mod:on_batch_query/3` returns a single result for a batch,
-            %% so we need to expand
-            ?EXPAND(BatchResult, Batch)
+            Replies
         ),
     PostFn = fun() -> lists:foreach(fun(F) -> F() end, PostFns) end,
     {ShouldAck, PostFn}.
@@ -711,48 +730,23 @@ reply_caller(Id, Reply, QueryOpts) ->
 
 %% Should only reply to the caller when the decision is final (not
 %% retriable).  See comment on `handle_query_result_pure'.
-reply_caller_defer_metrics(Id, ?REPLY(undefined, _, HasBeenSent, Result), _QueryOpts) ->
+reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result), _QueryOpts) ->
     handle_query_result_pure(Id, Result, HasBeenSent);
-reply_caller_defer_metrics(Id, ?REPLY({ReplyFun, Args}, _, HasBeenSent, Result), QueryOpts) when
-    is_function(ReplyFun)
-->
+reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result), QueryOpts) ->
     IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
     IsUnrecoverableError = is_unrecoverable_error(Result),
     {ShouldAck, PostFn} = handle_query_result_pure(Id, Result, HasBeenSent),
     case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
         {ack, {async_return, _}, true, _} ->
-            apply(ReplyFun, Args ++ [Result]),
-            ok;
+            ok = do_reply_caller(ReplyTo, Result);
         {ack, {async_return, _}, false, _} ->
             ok;
         {_, _, _, true} ->
-            apply(ReplyFun, Args ++ [Result]),
-            ok;
+            ok = do_reply_caller(ReplyTo, Result);
         {nack, _, _, _} ->
             ok;
         {ack, _, _, _} ->
-            apply(ReplyFun, Args ++ [Result]),
-            ok
-    end,
-    {ShouldAck, PostFn};
-reply_caller_defer_metrics(Id, ?REPLY(From, _, HasBeenSent, Result), QueryOpts) ->
-    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
-    IsUnrecoverableError = is_unrecoverable_error(Result),
-    {ShouldAck, PostFn} = handle_query_result_pure(Id, Result, HasBeenSent),
-    case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
-        {ack, {async_return, _}, true, _} ->
-            gen_statem:reply(From, Result),
-            ok;
-        {ack, {async_return, _}, false, _} ->
-            ok;
-        {_, _, _, true} ->
-            gen_statem:reply(From, Result),
-            ok;
-        {nack, _, _, _} ->
-            ok;
-        {ack, _, _, _} ->
-            gen_statem:reply(From, Result),
-            ok
+            ok = do_reply_caller(ReplyTo, Result)
     end,
     {ShouldAck, PostFn}.
 
@@ -857,22 +851,32 @@ handle_async_worker_down(Data0, Pid) ->
 call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query}),
     case emqx_resource_manager:ets_lookup(Id) of
-        {ok, _Group, #{mod := Mod, state := ResSt, status := connected} = Data} ->
-            QM =
-                case QM0 =:= configured of
-                    true -> maps:get(query_mode, Data);
-                    false -> QM0
-                end,
-            CBM = maps:get(callback_mode, Data),
-            CallMode = call_mode(QM, CBM),
-            apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
         {ok, _Group, #{status := stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
-        {ok, _Group, #{status := S}} when S == connecting; S == disconnected ->
-            ?RESOURCE_ERROR(not_connected, "resource not connected");
+        {ok, _Group, Resource} ->
+            QM =
+                case QM0 =:= configured of
+                    true -> maps:get(query_mode, Resource);
+                    false -> QM0
+                end,
+            do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource);
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
+
+do_call_query(QM, Id, Index, Ref, Query, #{is_buffer_supported := true} = QueryOpts, Resource) ->
+    %% The connector supports buffer, send even in disconnected state
+    #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
+    CallMode = call_mode(QM, CBM),
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
+do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Resource) ->
+    %% when calling from the buffer worker or other simple queries,
+    %% only apply the query fun when it's at connected status
+    #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
+    CallMode = call_mode(QM, CBM),
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
+do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
+    ?RESOURCE_ERROR(not_connected, "resource not connected").
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
     try
@@ -903,13 +907,21 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
     ?APPLY_RESOURCE(
         call_query_async,
         begin
-            ReplyFun = fun ?MODULE:reply_after_query/8,
-            Args = [self(), Id, Index, InflightTID, Ref, Query, QueryOpts],
+            ReplyFun = fun ?MODULE:handle_async_reply/2,
+            ReplyContext = #{
+                buffer_worker => self(),
+                resource_id => Id,
+                worker_index => Index,
+                inflight_tid => InflightTID,
+                request_ref => Ref,
+                query_opts => QueryOpts,
+                query => minimize(Query)
+            },
             IsRetriable = false,
             WorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
             ok = inflight_append(InflightTID, InflightItem, Id, Index),
-            Result = Mod:on_query_async(Id, Request, {ReplyFun, Args}, ResSt),
+            Result = Mod:on_query_async(Id, Request, {ReplyFun, [ReplyContext]}, ResSt),
             {async_return, Result}
         end,
         Request
@@ -918,7 +930,7 @@ apply_query_fun(sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, R
     ?tp(call_batch_query, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => sync
     }),
-    Requests = [Request || ?QUERY(_From, Request, _, _ExpireAt) <- Batch],
+    Requests = lists:map(fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch),
     ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch);
 apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts) ->
     ?tp(call_batch_query_async, #{
@@ -928,32 +940,43 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
     ?APPLY_RESOURCE(
         call_batch_query_async,
         begin
-            ReplyFun = fun ?MODULE:batch_reply_after_query/8,
-            ReplyFunAndArgs = {ReplyFun, [self(), Id, Index, InflightTID, Ref, Batch, QueryOpts]},
-            Requests = [Request || ?QUERY(_From, Request, _, _ExpireAt) <- Batch],
+            ReplyFun = fun ?MODULE:handle_async_batch_reply/2,
+            ReplyContext = #{
+                buffer_worker => self(),
+                resource_id => Id,
+                worker_index => Index,
+                inflight_tid => InflightTID,
+                request_ref => Ref,
+                query_opts => QueryOpts,
+                batch => minimize(Batch)
+            },
+            Requests = lists:map(
+                fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch
+            ),
             IsRetriable = false,
             WorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef),
             ok = inflight_append(InflightTID, InflightItem, Id, Index),
-            Result = Mod:on_batch_query_async(Id, Requests, ReplyFunAndArgs, ResSt),
+            Result = Mod:on_batch_query_async(Id, Requests, {ReplyFun, [ReplyContext]}, ResSt),
             {async_return, Result}
         end,
         Batch
     ).
 
-reply_after_query(
-    Pid,
-    Id,
-    Index,
-    InflightTID,
-    Ref,
-    ?QUERY(_From, _Request, _HasBeenSent, ExpireAt) = Query,
-    QueryOpts,
+handle_async_reply(
+    #{
+        request_ref := Ref,
+        inflight_tid := InflightTID,
+        resource_id := Id,
+        worker_index := Index,
+        buffer_worker := Pid,
+        query := ?QUERY(_, _, _, ExpireAt) = _Query
+    } = ReplyContext,
     Result
 ) ->
     ?tp(
-        buffer_worker_reply_after_query_enter,
-        #{batch_or_query => [Query], ref => Ref}
+        handle_async_reply_enter,
+        #{batch_or_query => [_Query], ref => Ref}
     ),
     Now = now_(),
     case is_expired(ExpireAt, Now) of
@@ -962,52 +985,60 @@ reply_after_query(
             IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
             IsAcked andalso emqx_resource_metrics:late_reply_inc(Id),
             IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ?tp(buffer_worker_reply_after_query_expired, #{expired => [Query]}),
+            ?tp(handle_async_reply_expired, #{expired => [_Query]}),
             ok;
         false ->
-            do_reply_after_query(Pid, Id, Index, InflightTID, Ref, Query, QueryOpts, Result)
+            do_handle_async_reply(ReplyContext, Result)
     end.
 
-do_reply_after_query(
-    Pid,
-    Id,
-    Index,
-    InflightTID,
-    Ref,
-    ?QUERY(From, Request, HasBeenSent, _ExpireAt),
-    QueryOpts,
+do_handle_async_reply(
+    #{
+        query_opts := QueryOpts,
+        resource_id := Id,
+        request_ref := Ref,
+        worker_index := Index,
+        buffer_worker := Pid,
+        inflight_tid := InflightTID,
+        query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = _Query
+    },
     Result
 ) ->
     %% NOTE: 'inflight' is the count of messages that were sent async
     %% but received no ACK, NOT the number of messages queued in the
     %% inflight window.
     {Action, PostFn} = reply_caller_defer_metrics(
-        Id, ?REPLY(From, Request, HasBeenSent, Result), QueryOpts
+        Id, ?REPLY(ReplyTo, Sent, Result), QueryOpts
     ),
+
+    ?tp(handle_async_reply, #{
+        action => Action,
+        batch_or_query => [_Query],
+        ref => Ref,
+        result => Result
+    }),
+
     case Action of
         nack ->
             %% Keep retrying.
-            ?tp(buffer_worker_reply_after_query, #{
-                action => Action,
-                batch_or_query => ?QUERY(From, Request, HasBeenSent, _ExpireAt),
-                ref => Ref,
-                result => Result
-            }),
             mark_inflight_as_retriable(InflightTID, Ref),
             ?MODULE:block(Pid);
         ack ->
-            ?tp(buffer_worker_reply_after_query, #{
-                action => Action,
-                batch_or_query => ?QUERY(From, Request, HasBeenSent, _ExpireAt),
-                ref => Ref,
-                result => Result
-            }),
             do_ack(InflightTID, Ref, Id, Index, PostFn, Pid, QueryOpts)
     end.
 
-batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
+handle_async_batch_reply(
+    #{
+        buffer_worker := Pid,
+        resource_id := Id,
+        worker_index := Index,
+        inflight_tid := InflightTID,
+        request_ref := Ref,
+        batch := Batch
+    } = ReplyContext,
+    Result
+) ->
     ?tp(
-        buffer_worker_reply_after_query_enter,
+        handle_async_reply_enter,
         #{batch_or_query => Batch, ref => Ref}
     ),
     Now = now_(),
@@ -1017,45 +1048,41 @@ batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Resu
             IsAcked = ack_inflight(InflightTID, Ref, Id, Index),
             IsAcked andalso emqx_resource_metrics:late_reply_inc(Id),
             IsFullBefore andalso ?MODULE:flush_worker(Pid),
-            ?tp(buffer_worker_reply_after_query_expired, #{expired => Batch}),
+            ?tp(handle_async_reply_expired, #{expired => Batch}),
             ok;
         {NotExpired, Expired} ->
             NumExpired = length(Expired),
             emqx_resource_metrics:late_reply_inc(Id, NumExpired),
             NumExpired > 0 andalso
-                ?tp(buffer_worker_reply_after_query_expired, #{expired => Expired}),
-            do_batch_reply_after_query(
-                Pid, Id, Index, InflightTID, Ref, NotExpired, QueryOpts, Result
-            )
+                ?tp(handle_async_reply_expired, #{expired => Expired}),
+            do_handle_async_batch_reply(ReplyContext#{batch := NotExpired}, Result)
     end.
 
-do_batch_reply_after_query(Pid, Id, Index, InflightTID, Ref, Batch, QueryOpts, Result) ->
-    ?tp(
-        buffer_worker_reply_after_query_enter,
-        #{batch_or_query => Batch, ref => Ref}
-    ),
-    %% NOTE: 'inflight' is the count of messages that were sent async
-    %% but received no ACK, NOT the number of messages queued in the
-    %% inflight window.
+do_handle_async_batch_reply(
+    #{
+        buffer_worker := Pid,
+        resource_id := Id,
+        worker_index := Index,
+        inflight_tid := InflightTID,
+        request_ref := Ref,
+        batch := Batch,
+        query_opts := QueryOpts
+    },
+    Result
+) ->
     {Action, PostFn} = batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts),
+    ?tp(handle_async_reply, #{
+        action => Action,
+        batch_or_query => Batch,
+        ref => Ref,
+        result => Result
+    }),
     case Action of
         nack ->
             %% Keep retrying.
-            ?tp(buffer_worker_reply_after_query, #{
-                action => nack,
-                batch_or_query => Batch,
-                ref => Ref,
-                result => Result
-            }),
             mark_inflight_as_retriable(InflightTID, Ref),
             ?MODULE:block(Pid);
         ack ->
-            ?tp(buffer_worker_reply_after_query, #{
-                action => ack,
-                batch_or_query => Batch,
-                ref => Ref,
-                result => Result
-            }),
             do_ack(InflightTID, Ref, Id, Index, PostFn, Pid, QueryOpts)
     end.
 
@@ -1083,23 +1110,30 @@ queue_item_marshaller(Item) ->
 estimate_size(QItem) ->
     erlang:external_size(QItem).
 
--spec append_queue(id(), index(), replayq:q(), [queue_query()]) -> replayq:q().
-append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
-    %% we must not append a raw binary because the marshaller will get
-    %% lost.
+-spec append_queue(id(), index(), replayq:q(), [queue_query()]) ->
+    {[queue_query()], replayq:q()}.
+append_queue(Id, Index, Q, Queries) ->
+    %% this assertion is to ensure that we never append a raw binary
+    %% because the marshaller will get lost.
+    false = is_binary(hd(Queries)),
     Q0 = replayq:append(Q, Queries),
-    Q2 =
+    {Overflown, Q2} =
         case replayq:overflow(Q0) of
-            Overflow when Overflow =< 0 ->
-                Q0;
-            Overflow ->
-                PopOpts = #{bytes_limit => Overflow, count_limit => 999999999},
+            OverflownBytes when OverflownBytes =< 0 ->
+                {[], Q0};
+            OverflownBytes ->
+                PopOpts = #{bytes_limit => OverflownBytes, count_limit => 999999999},
                 {Q1, QAckRef, Items2} = replayq:pop(Q0, PopOpts),
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
-                emqx_resource_metrics:dropped_queue_full_inc(Id),
-                ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
-                Q1
+                emqx_resource_metrics:dropped_queue_full_inc(Id, Dropped),
+                ?SLOG(info, #{
+                    msg => buffer_worker_overflow,
+                    resource_id => Id,
+                    worker_index => Index,
+                    dropped => Dropped
+                }),
+                {Items2, Q1}
         end,
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q2)),
     ?tp(
@@ -1107,10 +1141,11 @@ append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
         #{
             id => Id,
             items => Queries,
-            queue_count => queue_count(Q2)
+            queue_count => queue_count(Q2),
+            overflown => length(Overflown)
         }
     ),
-    Q2.
+    {Overflown, Q2}.
 
 %%==============================================================================
 %% the inflight queue for async query
@@ -1118,6 +1153,10 @@ append_queue(Id, Index, Q, Queries) when not is_binary(Q) ->
 -define(SIZE_REF, size).
 -define(INITIAL_TIME_REF, initial_time).
 -define(INITIAL_MONOTONIC_TIME_REF, initial_monotonic_time).
+
+%% NOTE
+%% There are 4 metadata rows in an inflight table, keyed by atoms declared above. ☝
+-define(INFLIGHT_META_ROWS, 4).
 
 inflight_new(InfltWinSZ, Id, Index) ->
     TableId = ets:new(
@@ -1130,7 +1169,7 @@ inflight_new(InfltWinSZ, Id, Index) ->
     inflight_append(TableId, {?SIZE_REF, 0}, Id, Index),
     inflight_append(TableId, {?INITIAL_TIME_REF, erlang:system_time()}, Id, Index),
     inflight_append(
-        TableId, {?INITIAL_MONOTONIC_TIME_REF, make_message_ref()}, Id, Index
+        TableId, {?INITIAL_MONOTONIC_TIME_REF, make_request_ref()}, Id, Index
     ),
     TableId.
 
@@ -1151,7 +1190,7 @@ inflight_get_first_retriable(InflightTID, Now) ->
     case ets:select(InflightTID, MatchSpec, _Limit = 1) of
         '$end_of_table' ->
             none;
-        {[{Ref, Query = ?QUERY(_From, _CoreReq, _HasBeenSent, ExpireAt)}], _Continuation} ->
+        {[{Ref, Query = ?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt)}], _Continuation} ->
             case is_expired(ExpireAt, Now) of
                 true ->
                     {expired, Ref, [Query]};
@@ -1179,12 +1218,9 @@ is_inflight_full(InflightTID) ->
     Size >= MaxSize.
 
 inflight_num_batches(InflightTID) ->
-    %% Note: we subtract 2 because there're 2 metadata rows that hold
-    %% the maximum size value and the number of messages.
-    MetadataRowCount = 2,
     case ets:info(InflightTID, size) of
         undefined -> 0;
-        Size -> max(0, Size - MetadataRowCount)
+        Size -> max(0, Size - ?INFLIGHT_META_ROWS)
     end.
 
 inflight_num_msgs(InflightTID) ->
@@ -1210,7 +1246,7 @@ inflight_append(
 inflight_append(
     InflightTID,
     ?INFLIGHT_ITEM(
-        Ref, ?QUERY(_From, _Req, _HasBeenSent, _ExpireAt) = Query0, IsRetriable, WorkerMRef
+        Ref, ?QUERY(_ReplyTo, _Req, _HasBeenSent, _ExpireAt) = Query0, IsRetriable, WorkerMRef
     ),
     Id,
     Index
@@ -1369,8 +1405,8 @@ cancel_flush_timer(St = #{tref := {TRef, _Ref}}) ->
     _ = erlang:cancel_timer(TRef),
     St#{tref => undefined}.
 
--spec make_message_ref() -> inflight_key().
-make_message_ref() ->
+-spec make_request_ref() -> inflight_key().
+make_request_ref() ->
     now_().
 
 collect_requests(Acc, Limit) ->
@@ -1381,7 +1417,7 @@ do_collect_requests(Acc, Count, Limit) when Count >= Limit ->
     lists:reverse(Acc);
 do_collect_requests(Acc, Count, Limit) ->
     receive
-        ?SEND_REQ(_From, _Req) = Request ->
+        ?SEND_REQ(_ReplyTo, _Req) = Request ->
             do_collect_requests([Request | Acc], Count + 1, Limit)
     after 0 ->
         lists:reverse(Acc)
@@ -1389,9 +1425,9 @@ do_collect_requests(Acc, Count, Limit) ->
 
 mark_as_sent(Batch) when is_list(Batch) ->
     lists:map(fun mark_as_sent/1, Batch);
-mark_as_sent(?QUERY(From, Req, _HasBeenSent, ExpireAt)) ->
+mark_as_sent(?QUERY(ReplyTo, Req, _HasBeenSent, ExpireAt)) ->
     HasBeenSent = true,
-    ?QUERY(From, Req, HasBeenSent, ExpireAt).
+    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt).
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
@@ -1415,7 +1451,7 @@ is_async_return(_) ->
 sieve_expired_requests(Batch, Now) ->
     {Expired, NotExpired} =
         lists:partition(
-            fun(?QUERY(_From, _CoreReq, _HasBeenSent, ExpireAt)) ->
+            fun(?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt)) ->
                 is_expired(ExpireAt, Now)
             end,
             Batch
@@ -1456,3 +1492,15 @@ ensure_expire_at(#{timeout := TimeoutMS} = Opts) ->
     TimeoutNS = erlang:convert_time_unit(TimeoutMS, millisecond, nanosecond),
     ExpireAt = now_() + TimeoutNS,
     Opts#{expire_at => ExpireAt}.
+
+%% no need to keep the request for async reply handler
+minimize(?QUERY(_, _, _, _) = Q) ->
+    do_minimize(Q);
+minimize(L) when is_list(L) ->
+    lists:map(fun do_minimize/1, L).
+
+-ifdef(TEST).
+do_minimize(?QUERY(_ReplyTo, _Req, _Sent, _ExpireAt) = Query) -> Query.
+-else.
+do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt)) -> ?QUERY(ReplyTo, [], Sent, ExpireAt).
+-endif.

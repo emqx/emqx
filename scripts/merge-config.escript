@@ -30,7 +30,7 @@ main(_) ->
     case IsEnterprise of
         true ->
             EnterpriseCfgs = get_all_cfgs("lib-ee"),
-            EnterpriseConf = merge("", EnterpriseCfgs),
+            EnterpriseConf = merge(<<"">>, EnterpriseCfgs),
             ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf);
         false ->
             ok
@@ -41,22 +41,21 @@ is_enterprise() ->
     nomatch =/= string:find(Profile, "enterprise").
 
 merge(BaseConf, Cfgs) ->
-    lists:foldl(
-        fun(CfgFile, Acc) ->
-            case filelib:is_regular(CfgFile) of
-                true ->
-                    {ok, Bin1} = file:read_file(CfgFile),
-                    case string:trim(Bin1, both) of
-                        <<>> -> Acc;
-                        Bin2 -> [Acc, io_lib:nl(), io_lib:nl(), Bin2]
-                    end;
-                false ->
-                    Acc
-            end
-        end,
-        BaseConf,
-        Cfgs
-    ).
+    Confs = [BaseConf | lists:map(fun read_conf/1, Cfgs)],
+    infix(lists:filter(fun(I) -> iolist_size(I) > 0 end, Confs), [io_lib:nl(), io_lib:nl()]).
+
+read_conf(CfgFile) ->
+    case filelib:is_regular(CfgFile) of
+        true ->
+            {ok, Bin1} = file:read_file(CfgFile),
+            string:trim(Bin1, both);
+        false ->
+            <<>>
+    end.
+
+infix([], _With) -> [];
+infix([One], _With) -> [One];
+infix([H | T], With) -> [H, With, infix(T, With)].
 
 get_all_cfgs(Root) ->
     Apps0 = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],

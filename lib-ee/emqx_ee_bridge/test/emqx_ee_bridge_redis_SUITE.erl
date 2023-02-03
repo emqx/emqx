@@ -16,6 +16,9 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+-define(KEYSHARDS, 3).
+-define(KEYPREFIX, "MSGS").
+
 -define(REDIS_TOXYPROXY_CONNECT_CONFIG, #{
     <<"server">> => <<"toxiproxy:6379">>,
     <<"redis_type">> => <<"single">>
@@ -23,7 +26,7 @@
 
 -define(COMMON_REDIS_OPTS, #{
     <<"password">> => <<"public">>,
-    <<"command_template">> => [<<"RPUSH">>, <<"MSGS">>, <<"${payload}">>],
+    <<"command_template">> => [<<"RPUSH">>, <<?KEYPREFIX, "/${topic}">>, <<"${payload}">>],
     <<"local_topic">> => <<"local_topic/#">>
 }).
 
@@ -47,7 +50,7 @@
     )
 ).
 
-all() -> [{group, transport_types}, {group, rest}].
+all() -> [{group, transports}, {group, rest}].
 
 groups() ->
     ResourceSpecificTCs = [t_create_delete_bridge],
@@ -63,7 +66,7 @@ groups() ->
     ],
     [
         {rest, TCs},
-        {transport_types, [
+        {transports, [
             {group, tcp},
             {group, tls}
         ]},
@@ -79,7 +82,7 @@ groups() ->
 init_per_group(Group, Config) when
     Group =:= redis_single; Group =:= redis_sentinel; Group =:= redis_cluster
 ->
-    [{transport_type, Group} | Config];
+    [{connector_type, Group} | Config];
 init_per_group(Group, Config) when
     Group =:= tcp; Group =:= tls
 ->
@@ -139,12 +142,13 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     ok = delete_all_rules(),
     ok = delete_all_bridges(),
-    case ?config(transport_type, Config) of
-        undefined ->
+    case {?config(connector_type, Config), ?config(batch_mode, Config)} of
+        {undefined, _} ->
             Config;
-        RedisType ->
+        {redis_cluster, batch_on} ->
+            {skip, "Batching is not supported by 'redis_cluster' bridge type"};
+        {RedisType, BatchMode} ->
             Transport = ?config(transport, Config),
-            BatchMode = ?config(batch_mode, Config),
             #{RedisType := #{Transport := RedisConnConfig}} = redis_connect_configs(),
             #{BatchMode := ResourceConfig} = resource_configs(),
             IsBatch = (BatchMode =:= batch_on),
@@ -162,7 +166,7 @@ end_per_testcase(_Testcase, Config) ->
 
 t_create_delete_bridge(Config) ->
     Name = <<"mybridge">>,
-    Type = ?config(transport_type, Config),
+    Type = ?config(connector_type, Config),
     BridgeConfig = ?config(bridge_config, Config),
     IsBatch = ?config(is_batch, Config),
     ?assertMatch(
@@ -350,9 +354,7 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
         ?wait_async_action(
             lists:foreach(
                 fun(I) ->
-                    IBin = integer_to_binary(I),
-                    Topic = <<BaseTopic/binary, "/", IBin/binary>>,
-                    _ = publish_message(Topic, RandomPayload)
+                    _ = publish_message(format_topic(BaseTopic, I), RandomPayload)
                 end,
                 lists:seq(1, N)
             ),
@@ -360,7 +362,7 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
             5000
         ),
         fun(Trace) ->
-            AddedMsgCount = length(added_msgs(ResourceId, RandomPayload)),
+            AddedMsgCount = length(added_msgs(ResourceId, BaseTopic, RandomPayload)),
             case IsBatch of
                 true ->
                     ?assertMatch(
@@ -378,11 +380,23 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
         end
     ).
 
-added_msgs(ResourceId, Payload) ->
-    {ok, Results} = emqx_resource:simple_sync_query(
-        ResourceId, {cmd, [<<"LRANGE">>, <<"MSGS">>, <<"0">>, <<"-1">>]}
-    ),
-    [El || El <- Results, El =:= Payload].
+added_msgs(ResourceId, BaseTopic, Payload) ->
+    lists:flatmap(
+        fun(K) ->
+            {ok, Results} = emqx_resource:simple_sync_query(
+                ResourceId,
+                {cmd, [<<"LRANGE">>, K, <<"0">>, <<"-1">>]}
+            ),
+            [El || El <- Results, El =:= Payload]
+        end,
+        [format_redis_key(BaseTopic, S) || S <- lists:seq(0, ?KEYSHARDS - 1)]
+    ).
+
+format_topic(Base, I) ->
+    iolist_to_binary(io_lib:format("~s/~2..0B", [Base, I rem ?KEYSHARDS])).
+
+format_redis_key(Base, I) ->
+    iolist_to_binary([?KEYPREFIX, "/", format_topic(Base, I)]).
 
 conf_schema(StructName) ->
     #{
@@ -479,12 +493,13 @@ redis_connect_configs() ->
         },
         redis_cluster => #{
             tcp => #{
-                <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>,
+                <<"servers">> =>
+                    <<"redis-cluster-1:6379,redis-cluster-2:6379,redis-cluster-3:6379">>,
                 <<"redis_type">> => <<"cluster">>
             },
             tls => #{
                 <<"servers">> =>
-                    <<"redis-cluster-tls:8000,redis-cluster-tls:8001,redis-cluster-tls:8002">>,
+                    <<"redis-cluster-tls-1:6389,redis-cluster-tls-2:6389,redis-cluster-tls-3:6389">>,
                 <<"redis_type">> => <<"cluster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_cluster)
             }
@@ -494,7 +509,7 @@ redis_connect_configs() ->
 toxiproxy_redis_bridge_config() ->
     Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
         <<"resource_opts">> => #{
-            <<"query_mode">> => <<"async">>,
+            <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>,
@@ -509,7 +524,6 @@ invalid_command_bridge_config() ->
     Conf1#{
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"sync">>,
-            <<"batch_size">> => <<"1">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"start_timeout">> => <<"15s">>
         },
@@ -520,11 +534,10 @@ resource_configs() ->
     #{
         batch_off => #{
             <<"query_mode">> => <<"sync">>,
-            <<"batch_size">> => <<"1">>,
             <<"start_timeout">> => <<"15s">>
         },
         batch_on => #{
-            <<"query_mode">> => <<"async">>,
+            <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"start_timeout">> => <<"15s">>

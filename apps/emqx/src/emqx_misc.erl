@@ -609,7 +609,11 @@ do_redact(K, V, Checker) ->
 
 -define(REDACT_VAL, "******").
 redact_v(V) when is_binary(V) -> <<?REDACT_VAL>>;
-redact_v(_V) -> ?REDACT_VAL.
+%% The HOCON schema system may generate sensitive values with this format
+redact_v([{str, Bin}]) when is_binary(Bin) ->
+    [{str, <<?REDACT_VAL>>}];
+redact_v(_V) ->
+    ?REDACT_VAL.
 
 is_redacted(K, V) ->
     do_is_redacted(K, V, fun is_sensitive_key/1).

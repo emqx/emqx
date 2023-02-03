@@ -194,7 +194,7 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
 restart(ResId, Opts) when is_binary(ResId) ->
     case safe_call(ResId, restart, ?T_OPERATION) of
         ok ->
-            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
+            _ = wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -205,7 +205,7 @@ restart(ResId, Opts) when is_binary(ResId) ->
 start(ResId, Opts) ->
     case safe_call(ResId, start, ?T_OPERATION) of
         ok ->
-            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
+            _ = wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -309,6 +309,7 @@ init({Data, Opts}) ->
     end.
 
 terminate(_Reason, _State, Data) ->
+    _ = stop_resource(Data),
     _ = maybe_clear_alarm(Data#data.id),
     delete_cache(Data#data.id, Data#data.manager_id),
     ok.
@@ -334,8 +335,7 @@ handle_event({call, From}, start, _State, _Data) ->
 % Called when the resource received a `quit` message
 handle_event(info, quit, stopped, _Data) ->
     {stop, {shutdown, quit}};
-handle_event(info, quit, _State, Data) ->
-    _ = stop_resource(Data),
+handle_event(info, quit, _State, _Data) ->
     {stop, {shutdown, quit}};
 % Called when the resource is to be stopped
 handle_event({call, From}, stop, stopped, _Data) ->
@@ -487,7 +487,7 @@ start_resource(Data, From) ->
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, connecting, UpdatedData, Actions};
         {error, Reason} = Err ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => start_resource_failed,
                 id => Data#data.id,
                 reason => Reason
@@ -546,7 +546,7 @@ handle_connected_health_check(Data) ->
                 Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (Status, UpdatedData) ->
-                ?SLOG(error, #{
+                ?SLOG(warning, #{
                     msg => health_check_failed,
                     id => Data#data.id,
                     status => Status
@@ -555,12 +555,14 @@ handle_connected_health_check(Data) ->
         end
     ).
 
+with_health_check(#data{state = undefined} = Data, Func) ->
+    Func(disconnected, Data);
 with_health_check(Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId),
-    ok = maybe_resume_resource_workers(Status),
+    ok = maybe_resume_resource_workers(ResId, Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
@@ -581,14 +583,12 @@ maybe_alarm(_Status, ResId) ->
         <<"resource down: ", ResId/binary>>
     ).
 
-maybe_resume_resource_workers(connected) ->
+maybe_resume_resource_workers(ResId, connected) ->
     lists:foreach(
-        fun({_, Pid, _, _}) ->
-            emqx_resource_buffer_worker:resume(Pid)
-        end,
-        supervisor:which_children(emqx_resource_buffer_worker_sup)
+        fun emqx_resource_buffer_worker:resume/1,
+        emqx_resource_buffer_worker_sup:worker_pids(ResId)
     );
-maybe_resume_resource_workers(_) ->
+maybe_resume_resource_workers(_, _) ->
     ok.
 
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->

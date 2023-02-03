@@ -31,6 +31,7 @@
 
 -export([
     load/0,
+    unload/0,
     lookup/1,
     lookup/2,
     lookup/3,
@@ -68,6 +69,21 @@ load() ->
                     %% fetch opts for `emqx_resource_buffer_worker`
                     ResOpts = emqx_resource:fetch_creation_opts(Conf),
                     safe_load_bridge(Type, Name, Conf, ResOpts)
+                end,
+                maps:to_list(NamedConf)
+            )
+        end,
+        maps:to_list(Bridges)
+    ).
+
+unload() ->
+    unload_hook(),
+    Bridges = emqx:get_config([bridges], #{}),
+    lists:foreach(
+        fun({Type, NamedConf}) ->
+            lists:foreach(
+                fun({Name, _Conf}) ->
+                    _ = emqx_bridge_resource:stop(Type, Name)
                 end,
                 maps:to_list(NamedConf)
             )
@@ -263,7 +279,7 @@ create(BridgeType, BridgeName, RawConf) ->
         brige_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => RawConf
+        bridge_raw_config => emqx_misc:redact(RawConf)
     }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],

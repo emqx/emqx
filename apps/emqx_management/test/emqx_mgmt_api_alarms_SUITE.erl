@@ -40,6 +40,9 @@ t_alarms_api(_) ->
     get_alarms(1, true),
     get_alarms(1, false).
 
+t_alarm_cpu(_) ->
+    ok.
+
 t_delete_alarms_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["alarms"]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Path),

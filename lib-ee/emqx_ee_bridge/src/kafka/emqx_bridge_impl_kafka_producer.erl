@@ -91,6 +91,7 @@ on_start(InstId, Config) ->
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
                 client_id => ClientId,
+                kafka_topic => KafkaTopic,
                 producers => Producers,
                 resource_id => ResourceID
             }};
@@ -227,15 +228,42 @@ render_timestamp(Template, Message) ->
 %% Wolff producer never gives up retrying
 %% so there can only be 'ok' results.
 on_kafka_ack(_Partition, Offset, {ReplyFn, Args}) when is_integer(Offset) ->
-    %% the ReplyFn is emqx_resource_worker:reply_after_query/8
+    %% the ReplyFn is emqx_resource_worker:handle_async_reply/2
     apply(ReplyFn, Args ++ [ok]);
 on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
     %% wolff should bump the dropped_queue_full counter
     %% do not apply the callback (which is basically to bump success or fail counter)
     ok.
 
-on_get_status(_InstId, _State) ->
-    connected.
+on_get_status(_InstId, #{client_id := ClientId, kafka_topic := KafkaTopic}) ->
+    case wolff_client_sup:find_client(ClientId) of
+        {ok, Pid} ->
+            do_get_status(Pid, KafkaTopic);
+        {error, _Reason} ->
+            disconnected
+    end.
+
+do_get_status(Client, KafkaTopic) ->
+    %% TODO: add a wolff_producers:check_connectivity
+    case wolff_client:get_leader_connections(Client, KafkaTopic) of
+        {ok, Leaders} ->
+            %% Kafka is considered healthy as long as any of the partition leader is reachable
+            case
+                lists:any(
+                    fun({_Partition, Pid}) ->
+                        is_pid(Pid) andalso erlang:is_process_alive(Pid)
+                    end,
+                    Leaders
+                )
+            of
+                true ->
+                    connected;
+                false ->
+                    disconnected
+            end;
+        {error, _} ->
+            disconnected
+    end.
 
 %% Parse comma separated host:port list into a [{Host,Port}] list
 hosts(Hosts) when is_binary(Hosts) ->

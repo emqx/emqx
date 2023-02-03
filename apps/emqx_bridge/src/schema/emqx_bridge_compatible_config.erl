@@ -72,7 +72,6 @@ up(#{<<"connector">> := Connector} = Config) ->
         Cn(proto_ver, <<"v4">>),
         Cn(server, undefined),
         Cn(retry_interval, <<"15s">>),
-        Cn(reconnect_interval, <<"15s">>),
         Cn(ssl, default_ssl()),
         {enable, Enable},
         {resource_opts, default_resource_opts()},

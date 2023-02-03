@@ -35,6 +35,8 @@ serviceAccount:
 ## Forces the recreation of pods during helm upgrades. This can be useful to update configuration values even if the container image did not change.
 recreatePods: false
 
+clusterDomain: cluster.local
+
 podAnnotations: {}
 
 # Pod deployment policy

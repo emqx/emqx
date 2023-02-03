@@ -23,7 +23,7 @@
 %% External API
 -export([start_link/0]).
 
--export([start_workers/2, stop_workers/2]).
+-export([start_workers/2, stop_workers/2, worker_pids/1]).
 
 %% Callbacks
 -export([init/1]).
@@ -74,6 +74,14 @@ stop_workers(ResId, Opts) ->
     ),
     ensure_worker_pool_removed(ResId),
     ok.
+
+worker_pids(ResId) ->
+    lists:map(
+        fun({_Name, Pid}) ->
+            Pid
+        end,
+        gproc_pool:active_workers(ResId)
+    ).
 
 %%%=============================================================================
 %%% Internal

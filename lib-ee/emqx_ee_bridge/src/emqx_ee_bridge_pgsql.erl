@@ -100,8 +100,7 @@ fields("config") ->
         (emqx_connector_pgsql:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("creation_opts") ->
-    Opts = emqx_resource_schema:fields("creation_opts"),
-    [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
+    emqx_resource_schema:fields("creation_opts_sync_only");
 fields("post") ->
     fields("post", pgsql);
 fields("put") ->
@@ -122,11 +121,6 @@ desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
-%% internal
-is_hidden_opts(Field) ->
-    lists:member(Field, [
-        async_inflight_window
-    ]).
 
 type_field(Type) ->
     {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.
