@@ -80,13 +80,11 @@ handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
         %     {stop, Reason}
     end;
 handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
-    % TODO: portable "storage" ref
-    Args = [St#st.storage, St#st.transfer, fragment],
     % TODO
     % Async would better because we would not need to wait for some lagging nodes if
     % the coverage is already complete.
-    % TODO: BP API?
-    Results = erpc:multicall(Nodes, emqx_ft_storage_fs, list, Args, ?RPC_LIST_TIMEOUT),
+    % TODO: portable "storage" ref
+    Results = emqx_ft_storage_fs_proto_v1:multilist(Nodes, St#st.transfer, fragment),
     NodeResults = lists:zip(Nodes, Results),
     NAsm = emqx_ft_assembly:update(
         lists:foldl(
@@ -119,9 +117,8 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO
     % Currently, race is possible between getting segment info from the remote node and
     % this node garbage collecting the segment itself.
-    Args = [St#st.storage, St#st.transfer, Segment, 0, segsize(Segment)],
     % TODO: pipelining
-    case erpc:call(Node, emqx_ft_storage_fs, pread, Args, ?RPC_READSEG_TIMEOUT) of
+    case pread(Node, Segment, St) of
         {ok, Content} ->
             {ok, NHandle} = emqx_ft_storage_fs:write(St#st.file, Content),
             {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])}
@@ -157,6 +154,11 @@ handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle, call
 
 % handle_cast(_Cast, St) ->
 %     {noreply, St}.
+
+pread(Node, Segment, St) when Node =:= node() ->
+    emqx_ft_storage_fs:pread(St#st.storage, St#st.transfer, Segment, 0, segsize(Segment));
+pread(Node, Segment, St) ->
+    emqx_ft_storage_fs_proto_v1:pread(Node, St#st.transfer, Segment, 0, segsize(Segment)).
 
 %%
 
