@@ -4,13 +4,13 @@ concurrency:
   group: relup-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-on:
-  push:
-    branches:
-      - '**'
-    tags:
-      - e*
-  pull_request:
+# on:
+#   push:
+#     branches:
+#       - '**'
+#     tags:
+#       - e*
+#   pull_request:
 
 jobs:
   relup_test_plan:

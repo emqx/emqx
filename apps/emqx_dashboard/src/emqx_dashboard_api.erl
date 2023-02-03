@@ -325,7 +325,7 @@ is_self_auth_token(Username, Token) ->
     end.
 
 change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
-    LogMeta = #{msg => "Dashboard change password", username => Username},
+    LogMeta = #{msg => "Dashboard change password", username => binary_to_list(Username)},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case ?EMPTY(OldPwd) orelse ?EMPTY(NewPwd) of
