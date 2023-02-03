@@ -14,8 +14,10 @@ export PROFILE
 
 case $PROFILE in
     "emqx-enterprise")
-        DIR='emqx-ee'
-        EDITION='enterprise'
+        #DIR='emqx-ee'
+        #EDITION='enterprise'
+        echo "No relup for now"
+        exit 0
         ;;
     "emqx")
         echo "No relup for opensource edition"
