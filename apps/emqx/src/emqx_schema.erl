@@ -845,7 +845,15 @@ fields("mqtt_wss_listener") ->
         ];
 fields("mqtt_quic_listener") ->
     [
-        %% TODO: ensure cacertfile is configurable
+        {"cacertfile",
+            sc(
+                binary(),
+                #{
+                    default => undefined,
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_schema_cacertfile)
+                }
+            )},
         {"certfile",
             sc(
                 string(),
@@ -855,6 +863,14 @@ fields("mqtt_quic_listener") ->
             sc(
                 string(),
                 #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
+            )},
+        {"verify",
+            sc(
+                hoconsc:enum([verify_peer, verify_none]),
+                #{
+                    default => verify_none,
+                    desc => ?DESC(common_ssl_opts_schema_verify)
+                }
             )},
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",

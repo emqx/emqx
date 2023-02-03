@@ -370,17 +370,22 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            ListenOpts = [
-                {cert, maps:get(certfile, Opts)},
-                {key, maps:get(keyfile, Opts)},
-                {alpn, ["mqtt"]},
-                {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
-                {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
-                {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
-                {server_resumption_level, 2},
-                {verify, none}
-            ],
+            ListenOpts =
+                [
+                    {cert, maps:get(certfile, Opts)},
+                    {key, maps:get(keyfile, Opts)},
+                    {alpn, ["mqtt"]},
+                    {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
+                    {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
+                    {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
+                    {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
+                    {server_resumption_level, 2},
+                    {verify, maps:get(verify, Opts, verify_none)}
+                ] ++
+                    case maps:get(cacertfile, Opts, undefined) of
+                        undefined -> [];
+                        CaCertFile -> [{cacertfile, binary_to_list(CaCertFile)}]
+                    end,
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
                 peer_unidi_stream_count => 1,
