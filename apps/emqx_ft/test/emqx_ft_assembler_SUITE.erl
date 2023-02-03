@@ -24,24 +24,31 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        t_assemble_empty_transfer,
+        t_assemble_complete_local_transfer,
+
+        % NOTE
+        % It depends on the side effects of all previous testcases.
+        t_list_transfers
+    ].
 
 init_per_suite(Config) ->
-    % {ok, Apps} = application:ensure_all_started(emqx_ft),
-    % [{suite_apps, Apps} | Config].
-    % ok = emqx_common_test_helpers:start_apps([emqx_ft]),
     Config.
 
 end_per_suite(_Config) ->
-    % lists:foreach(fun application:stop/1, lists:reverse(?config(suite_apps, Config))).
-    % ok = emqx_common_test_helpers:stop_apps([emqx_ft]),
     ok.
 
 init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
-    Root = filename:join(["roots", TC]),
     {ok, Pid} = emqx_ft_assembler_sup:start_link(),
-    [{storage_root, Root}, {assembler_sup, Pid} | Config].
+    [
+        {storage_root, "file_transfer_root"},
+        {file_id, atom_to_binary(TC)},
+        {assembler_sup, Pid}
+        | Config
+    ].
 
 end_per_testcase(_TC, Config) ->
     ok = inspect_storage_root(Config),
@@ -51,11 +58,12 @@ end_per_testcase(_TC, Config) ->
 
 %%
 
--define(CLIENTID, <<"thatsme">>).
+-define(CLIENTID1, <<"thatsme">>).
+-define(CLIENTID2, <<"thatsnotme">>).
 
 t_assemble_empty_transfer(Config) ->
     Storage = storage(Config),
-    Transfer = {?CLIENTID, mk_fileid()},
+    Transfer = {?CLIENTID1, ?config(file_id, Config)},
     Filename = "important.pdf",
     Meta = #{
         name => Filename,
@@ -71,7 +79,7 @@ t_assemble_empty_transfer(Config) ->
                 fragment := {filemeta, Meta}
             }
         ]},
-        emqx_ft_storage_fs:list(Storage, Transfer)
+        emqx_ft_storage_fs:list(Storage, Transfer, fragment)
     ),
     {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun on_assembly_finished/1),
     {ok, Event} = ?block_until(#{?snk_kind := test_assembly_finished}),
@@ -81,11 +89,16 @@ t_assemble_empty_transfer(Config) ->
         % TODO
         file:read_file(mk_assembly_filename(Config, Transfer, Filename))
     ),
+    {ok, [Result = #{size := Size = 0}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
+    ?assertEqual(
+        {error, eof},
+        emqx_ft_storage_fs:pread(Storage, Transfer, Result, 0, Size)
+    ),
     ok.
 
 t_assemble_complete_local_transfer(Config) ->
     Storage = storage(Config),
-    Transfer = {?CLIENTID, mk_fileid()},
+    Transfer = {?CLIENTID2, ?config(file_id, Config)},
     Filename = "topsecret.pdf",
     TransferSize = 10000 + rand:uniform(50000),
     SegmentSize = 4096,
@@ -109,7 +122,7 @@ t_assemble_complete_local_transfer(Config) ->
         end
     ),
 
-    {ok, Fragments} = emqx_ft_storage_fs:list(Storage, Transfer),
+    {ok, Fragments} = emqx_ft_storage_fs:list(Storage, Transfer, fragment),
     ?assertEqual((TransferSize div SegmentSize) + 1 + 1, length(Fragments)),
     ?assertEqual(
         [Meta],
@@ -123,6 +136,16 @@ t_assemble_complete_local_transfer(Config) ->
 
     AssemblyFilename = mk_assembly_filename(Config, Transfer, Filename),
     ?assertMatch(
+        {ok, [
+            #{
+                path := AssemblyFilename,
+                size := TransferSize,
+                fragment := {result, #{}}
+            }
+        ]},
+        emqx_ft_storage_fs:list(Storage, Transfer, result)
+    ),
+    ?assertMatch(
         {ok, #file_info{type = regular, size = TransferSize}},
         file:read_file_info(AssemblyFilename)
     ),
@@ -133,10 +156,28 @@ t_assemble_complete_local_transfer(Config) ->
     ).
 
 mk_assembly_filename(Config, {ClientID, FileID}, Filename) ->
-    filename:join([?config(storage_root, Config), ClientID, FileID, Filename]).
+    filename:join([?config(storage_root, Config), ClientID, FileID, result, Filename]).
 
 on_assembly_finished(Result) ->
     ?tp(test_assembly_finished, #{result => Result}).
+
+%%
+
+t_list_transfers(Config) ->
+    Storage = storage(Config),
+    ?assertMatch(
+        {ok, #{
+            {?CLIENTID1, <<"t_assemble_empty_transfer">>} := #{
+                status := complete,
+                result := [#{path := _, size := 0, fragment := {result, _}}]
+            },
+            {?CLIENTID2, <<"t_assemble_complete_local_transfer">>} := #{
+                status := complete,
+                result := [#{path := _, size := Size, fragment := {result, _}}]
+            }
+        }} when Size > 0,
+        emqx_ft_storage_fs:transfers(Storage)
+    ).
 
 %%
 
