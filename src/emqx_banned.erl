@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[Banned]").
 
@@ -95,13 +96,15 @@ create(#{who    := Who,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                            by = By,
-                                            reason = Reason,
-                                            at = At,
-                                            until = Until});
+    insert_banned(#banned{
+        who = Who,
+        by = By,
+        reason = Reason,
+        at = At,
+        until = Until
+    });
 create(Banned) when is_record(Banned, banned) ->
-    mnesia:dirty_write(?BANNED_TAB, Banned).
+    insert_banned(Banned).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
@@ -162,3 +165,21 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?BANNED_TAB).
+
+insert_banned(Banned) ->
+    mnesia:dirty_write(?BANNED_TAB, Banned),
+    on_banned(Banned).
+
+on_banned(#banned{who = {clientid, ClientId}}) ->
+    %% kick the session if the client is banned by clientid
+    ?tp(
+        warning,
+        kick_session_due_to_banned,
+        #{
+            clientid => ClientId
+        }
+    ),
+    emqx_cm:kick_session(ClientId),
+    ok;
+on_banned(_) ->
+    ok.
