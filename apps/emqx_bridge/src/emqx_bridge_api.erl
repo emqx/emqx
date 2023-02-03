@@ -378,7 +378,7 @@ schema("/bridges/:id/metrics/reset") ->
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
-                200 => <<"Reset success">>,
+                204 => <<"Reset success">>,
                 400 => error_schema(['BAD_REQUEST'], "RPC Call Failed")
             }
         }
@@ -412,7 +412,7 @@ schema("/bridges/:id/:operation") ->
                 param_path_operation_cluster()
             ],
             responses => #{
-                200 => <<"Operation success">>,
+                204 => <<"Operation success">>,
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable"),
                 400 => error_schema('INVALID_ID', "Bad bridge ID")
             }
@@ -431,7 +431,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                200 => <<"Operation success">>,
+                204 => <<"Operation success">>,
                 400 => error_schema('INVALID_ID', "Bad bridge ID"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -535,7 +535,7 @@ schema("/bridges_probe") ->
                 emqx_bridge_resource:resource_id(BridgeType, BridgeName)
             )
         of
-            ok -> {200, <<"Reset success">>};
+            ok -> {204};
             Reason -> {400, error_msg('BAD_REQUEST', Reason)}
         end
     ).
@@ -660,7 +660,7 @@ operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
         end,
     case is_ok(emqx_bridge_proto_v1:RpcFunc(Nodes, BridgeType, BridgeName)) of
         {ok, _} ->
-            {200};
+            {204};
         {error, [timeout | _]} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
         {error, ErrL} ->
@@ -905,7 +905,7 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
                 )
             of
                 ok ->
-                    {200};
+                    {204};
                 {error, timeout} ->
                     {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                 {error, {start_pool_failed, Name, Reason}} ->
