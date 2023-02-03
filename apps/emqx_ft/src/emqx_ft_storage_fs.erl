@@ -31,6 +31,10 @@
 -export([write/2]).
 -export([discard/1]).
 
+-export_type([filefrag/1]).
+-export_type([filefrag/0]).
+-export_type([transferinfo/0]).
+
 -type transfer() :: emqx_ft:transfer().
 -type offset() :: emqx_ft:offset().
 -type filemeta() :: emqx_ft:filemeta().
