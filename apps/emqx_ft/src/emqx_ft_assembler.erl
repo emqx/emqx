@@ -66,7 +66,7 @@ init({Storage, Transfer, Callback}) ->
 
 handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
     % TODO: what we do with non-transients errors here (e.g. `eacces`)?
-    {ok, Fragments} = emqx_ft_storage_fs:list(St#st.storage, St#st.transfer),
+    {ok, Fragments} = emqx_ft_storage_fs:list(St#st.storage, St#st.transfer, fragment),
     NAsm = emqx_ft_assembly:update(emqx_ft_assembly:append(Asm, node(), Fragments)),
     NSt = St#st{assembly = NAsm},
     case emqx_ft_assembly:status(NAsm) of
@@ -81,7 +81,7 @@ handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
     end;
 handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
     % TODO: portable "storage" ref
-    Args = [St#st.storage, St#st.transfer],
+    Args = [St#st.storage, St#st.transfer, fragment],
     % TODO
     % Async would better because we would not need to wait for some lagging nodes if
     % the coverage is already complete.
@@ -121,7 +121,7 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % this node garbage collecting the segment itself.
     Args = [St#st.storage, St#st.transfer, Segment, 0, segsize(Segment)],
     % TODO: pipelining
-    case erpc:call(Node, emqx_ft_storage_fs, read_segment, Args, ?RPC_READSEG_TIMEOUT) of
+    case erpc:call(Node, emqx_ft_storage_fs, pread, Args, ?RPC_READSEG_TIMEOUT) of
         {ok, Content} ->
             {ok, NHandle} = emqx_ft_storage_fs:write(St#st.file, Content),
             {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])}
