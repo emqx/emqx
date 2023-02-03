@@ -14,19 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_proto_v1).
+-module(emqx_bridge_proto_v2).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
 
     list_bridges/1,
     restart_bridge_to_node/3,
+    start_bridge_to_node/3,
     stop_bridge_to_node/3,
     lookup_from_all_nodes/3,
     restart_bridges_to_all_nodes/3,
+    start_bridges_to_all_nodes/3,
     stop_bridges_to_all_nodes/3
 ]).
 
@@ -35,9 +36,6 @@
 -define(TIMEOUT, 15000).
 
 introduced_in() ->
-    "5.0.0".
-
-deprecated_since() ->
     "5.0.17".
 
 -spec list_bridges(node()) -> list() | emqx_rpc:badrpc().
@@ -53,6 +51,17 @@ restart_bridge_to_node(Node, BridgeType, BridgeName) ->
         Node,
         emqx_bridge_resource,
         restart,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec start_bridge_to_node(node(), key(), key()) ->
+    term().
+start_bridge_to_node(Node, BridgeType, BridgeName) ->
+    rpc:call(
+        Node,
+        emqx_bridge_resource,
+        start,
         [BridgeType, BridgeName],
         ?TIMEOUT
     ).
@@ -75,6 +84,17 @@ restart_bridges_to_all_nodes(Nodes, BridgeType, BridgeName) ->
         Nodes,
         emqx_bridge_resource,
         restart,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec start_bridges_to_all_nodes([node()], key(), key()) ->
+    emqx_rpc:erpc_multicall().
+start_bridges_to_all_nodes(Nodes, BridgeType, BridgeName) ->
+    erpc:multicall(
+        Nodes,
+        emqx_bridge_resource,
+        start,
         [BridgeType, BridgeName],
         ?TIMEOUT
     ).

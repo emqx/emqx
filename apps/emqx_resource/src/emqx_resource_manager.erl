@@ -17,7 +17,6 @@
 -behaviour(gen_statem).
 
 -include("emqx_resource.hrl").
--include("emqx_resource_utils.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 % API
@@ -327,8 +326,11 @@ handle_event({call, From}, set_resource_status_connecting, _State, Data) ->
 handle_event({call, From}, restart, _State, Data) ->
     _ = stop_resource(Data),
     start_resource(Data, From);
-% Called when the resource is to be started
-handle_event({call, From}, start, stopped, Data) ->
+% Called when the resource is to be started (also used for manual reconnect)
+handle_event({call, From}, start, State, Data) when
+    State =:= stopped orelse
+        State =:= disconnected
+->
     start_resource(Data, From);
 handle_event({call, From}, start, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};

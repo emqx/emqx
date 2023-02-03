@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_resource).
--include_lib("emqx/include/emqx.hrl").
+
 -include_lib("emqx/include/logger.hrl").
 
 -export([
@@ -38,6 +38,7 @@
     update/2,
     update/3,
     update/4,
+    start/2,
     stop/2,
     restart/2,
     reset_metrics/1
@@ -120,6 +121,9 @@ reset_metrics(ResourceId) ->
 
 stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
+
+start(Type, Name) ->
+    emqx_resource:start(resource_id(Type, Name)).
 
 %% we don't provide 'start', as we want an already started bridge to be restarted.
 restart(Type, Name) ->

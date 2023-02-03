@@ -413,8 +413,9 @@ schema("/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable"),
-                400 => error_schema('INVALID_ID', "Bad bridge ID")
+                400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
     };
@@ -434,6 +435,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                 204 => <<"Operation success">>,
                 400 => error_schema('INVALID_ID', "Bad bridge ID"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
@@ -640,10 +642,12 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         end
     ).
 
+node_operation_func(<<"start">>) -> start_bridge_to_node;
 node_operation_func(<<"stop">>) -> stop_bridge_to_node;
 node_operation_func(<<"restart">>) -> restart_bridge_to_node;
 node_operation_func(_) -> invalid.
 
+operation_func(<<"start">>) -> start;
 operation_func(<<"stop">>) -> stop;
 operation_func(<<"restart">>) -> restart;
 operation_func(_) -> invalid.
@@ -656,11 +660,14 @@ operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
     RpcFunc =
         case OperFunc of
             restart -> restart_bridges_to_all_nodes;
+            start -> start_bridges_to_all_nodes;
             stop -> stop_bridges_to_all_nodes
         end,
-    case is_ok(emqx_bridge_proto_v1:RpcFunc(Nodes, BridgeType, BridgeName)) of
+    case is_ok(do_bpapi_call(RpcFunc, [Nodes, BridgeType, BridgeName])) of
         {ok, _} ->
             {204};
+        {error, not_implemented} ->
+            {501};
         {error, [timeout | _]} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
         {error, ErrL} ->
@@ -858,6 +865,8 @@ unpack_bridge_conf(Type, PackedConf) ->
     #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
     RawConf.
 
+is_ok(Error = {error, _}) ->
+    Error;
 is_ok(ResL) ->
     case
         lists:filter(
@@ -899,13 +908,11 @@ bin(S) when is_binary(S) ->
 call_operation(Node, OperFunc, BridgeType, BridgeName) ->
     case emqx_misc:safe_to_existing_atom(Node, utf8) of
         {ok, TargetNode} ->
-            case
-                emqx_bridge_proto_v1:OperFunc(
-                    TargetNode, BridgeType, BridgeName
-                )
-            of
+            case do_bpapi_call(TargetNode, OperFunc, [TargetNode, BridgeType, BridgeName]) of
                 ok ->
                     {204};
+                {error, not_implemented} ->
+                    {501};
                 {error, timeout} ->
                     {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                 {error, {start_pool_failed, Name, Reason}} ->
@@ -925,6 +932,24 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
         {error, _} ->
             {400, error_msg('INVALID_NODE', <<"invalid node">>)}
     end.
+
+do_bpapi_call(Call, Args) ->
+    do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args).
+
+do_bpapi_call(Node, Call, Args) ->
+    do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args).
+
+do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
+    case lists:member(SupportedVersion, supported_versions(Call)) of
+        true ->
+            apply(emqx_bridge_proto_v2, Call, Args);
+        false ->
+            {error, not_implemented}
+    end.
+
+supported_versions(start_bridge_to_node) -> [2];
+supported_versions(start_bridges_to_all_nodes) -> [2];
+supported_versions(_Call) -> [1, 2].
 
 redact(Term) ->
     emqx_misc:redact(Term).
