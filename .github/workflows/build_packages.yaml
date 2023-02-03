@@ -308,7 +308,7 @@ jobs:
   publish_artifacts:
     runs-on: ubuntu-20.04
     needs: [prepare, mac, linux]
-    if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+    if: needs.prepare.outputs.IS_EXACT_TAG && github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -368,7 +368,7 @@ jobs:
         push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-amd64.deb"
         push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-arm64.deb"
         push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-amd64.deb"
-        push "debian/bullseye" packages/$PROFILE/$PROFILE-$VERSION-debian11-arm64.deb
+        push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-arm64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-amd64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-arm64.deb"
         push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"
