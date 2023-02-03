@@ -133,7 +133,7 @@ t_assemble_complete_local_transfer(Config) ->
     ).
 
 mk_assembly_filename(Config, {ClientID, FileID}, Filename) ->
-    filename:join([?config(storage_root, Config), ClientID, FileID, Filename]).
+    filename:join([?config(storage_root, Config), ClientID, FileID, result, Filename]).
 
 on_assembly_finished(Result) ->
     ?tp(test_assembly_finished, #{result => Result}).
