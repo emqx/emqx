@@ -71,7 +71,7 @@ t_assemble_empty_transfer(Config) ->
                 fragment := {filemeta, Meta}
             }
         ]},
-        emqx_ft_storage_fs:list(Storage, Transfer)
+        emqx_ft_storage_fs:list(Storage, Transfer, fragment)
     ),
     {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun on_assembly_finished/1),
     {ok, Event} = ?block_until(#{?snk_kind := test_assembly_finished}),
@@ -80,6 +80,11 @@ t_assemble_empty_transfer(Config) ->
         {ok, <<>>},
         % TODO
         file:read_file(mk_assembly_filename(Config, Transfer, Filename))
+    ),
+    {ok, [Result = #{size := Size = 0}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
+    ?assertEqual(
+        {error, eof},
+        emqx_ft_storage_fs:pread(Storage, Transfer, Result, 0, Size)
     ),
     ok.
 
@@ -109,7 +114,7 @@ t_assemble_complete_local_transfer(Config) ->
         end
     ),
 
-    {ok, Fragments} = emqx_ft_storage_fs:list(Storage, Transfer),
+    {ok, Fragments} = emqx_ft_storage_fs:list(Storage, Transfer, fragment),
     ?assertEqual((TransferSize div SegmentSize) + 1 + 1, length(Fragments)),
     ?assertEqual(
         [Meta],
@@ -122,6 +127,16 @@ t_assemble_complete_local_transfer(Config) ->
     ?assertMatch(#{result := ok}, Event),
 
     AssemblyFilename = mk_assembly_filename(Config, Transfer, Filename),
+    ?assertMatch(
+        {ok, [
+            #{
+                path := AssemblyFilename,
+                size := TransferSize,
+                fragment := {result, #{}}
+            }
+        ]},
+        emqx_ft_storage_fs:list(Storage, Transfer, result)
+    ),
     ?assertMatch(
         {ok, #file_info{type = regular, size = TransferSize}},
         file:read_file_info(AssemblyFilename)
