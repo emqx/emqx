@@ -20,23 +20,26 @@
     [
         store_filemeta/2,
         store_segment/2,
-        assemble/2
+        assemble/2,
+
+        parse_id/1,
+
+        ready_transfers/0,
+        get_ready_transfer/1,
+
+        with_storage_type/3
     ]
 ).
-
--export([list_local/2]).
--export([pread_local/4]).
-
--export([local_transfers/0]).
-
--type offset() :: emqx_ft:offset().
--type transfer() :: emqx_ft:transfer().
 
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
 
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
+
+-type ready_transfer_id() :: term().
+-type ready_transfer_info() :: map().
+-type ready_transfer_data() :: binary().
 
 %%--------------------------------------------------------------------
 %% Behaviour
@@ -48,6 +51,10 @@
     ok | {error, term()}.
 -callback assemble(storage(), emqx_ft:transfer(), assemble_callback()) ->
     {ok, pid()} | {error, term()}.
+-callback ready_transfers(storage()) ->
+    {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
+-callback get_ready_transfer(storage(), ready_transfer_id()) ->
+    {ok, ready_transfer_data()} | {error, term()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -71,35 +78,46 @@ assemble(Transfer, Callback) ->
     Mod = mod(),
     Mod:assemble(storage(), Transfer, Callback).
 
+-spec ready_transfers() -> {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
+ready_transfers() ->
+    Mod = mod(),
+    Mod:ready_transfers(storage()).
+
+-spec get_ready_transfer(ready_transfer_id()) -> {ok, ready_transfer_data()} | {error, term()}.
+get_ready_transfer(ReadyTransferId) ->
+    Mod = mod(),
+    Mod:get_ready_transfer(storage(), ReadyTransferId).
+
+-spec parse_id(map()) -> {ok, ready_transfer_id()} | {error, term()}.
+parse_id(#{
+    <<"type">> := local, <<"node">> := NodeBin, <<"clientid">> := ClientId, <<"id">> := Id
+}) ->
+    case emqx_misc:safe_to_existing_atom(NodeBin) of
+        {ok, Node} ->
+            {ok, {local, Node, ClientId, Id}};
+        {error, _} ->
+            {error, {invalid_node, NodeBin}}
+    end;
+parse_id(#{}) ->
+    {error, invalid_file_id}.
+
+-spec with_storage_type(atom(), atom(), list(term())) -> any().
+with_storage_type(Type, Fun, Args) ->
+    Storage = storage(),
+    case Storage of
+        #{type := Type} ->
+            Mod = mod(Storage),
+            apply(Mod, Fun, [Storage | Args]);
+        _ ->
+            {error, {invalid_storage_type, Type}}
+    end.
+
 %%--------------------------------------------------------------------
 %% Local FS API
 %%--------------------------------------------------------------------
 
--type filefrag() :: emqx_ft_storage_fs:filefrag().
--type transferinfo() :: emqx_ft_storage_fs:transferinfo().
-
--spec list_local(transfer(), fragment | result) ->
-    {ok, [filefrag()]} | {error, term()}.
-list_local(Transfer, What) ->
-    with_local_storage(
-        fun(Mod, Storage) -> Mod:list(Storage, Transfer, What) end
-    ).
-
--spec pread_local(transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
-    {ok, [filefrag()]} | {error, term()}.
-pread_local(Transfer, Frag, Offset, Size) ->
-    with_local_storage(
-        fun(Mod, Storage) -> Mod:pread(Storage, Transfer, Frag, Offset, Size) end
-    ).
-
--spec local_transfers() ->
-    {ok, node(), #{transfer() => transferinfo()}} | {error, term()}.
-local_transfers() ->
-    with_local_storage(
-        fun(Mod, Storage) -> Mod:transfers(Storage) end
-    ).
-
-%%
+storage() ->
+    emqx_config:get([file_transfer, storage]).
 
 mod() ->
     mod(storage()).
@@ -109,15 +127,4 @@ mod(Storage) ->
         #{type := local} ->
             emqx_ft_storage_fs
         % emqx_ft_storage_dummy
-    end.
-
-storage() ->
-    emqx_config:get([file_transfer, storage]).
-
-with_local_storage(Fun) ->
-    case storage() of
-        #{type := local} = Storage ->
-            Fun(mod(Storage), Storage);
-        #{type := Type} ->
-            {error, {unsupported_storage_type, Type}}
     end.
