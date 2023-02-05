@@ -21,7 +21,9 @@
 -export([
     store_filemeta/3,
     store_segment/3,
-    assemble/3
+    assemble/3,
+    ready_transfers/1,
+    get_ready_transfer/2
 ]).
 
 store_filemeta(_Storage, _Transfer, _Meta) ->
@@ -33,3 +35,9 @@ store_segment(_Storage, _Transfer, _Segment) ->
 assemble(_Storage, _Transfer, Callback) ->
     Pid = spawn(fun() -> Callback({error, not_implemented}) end),
     {ok, Pid}.
+
+ready_transfers(_Storage) ->
+    {ok, []}.
+
+get_ready_transfer(_Storage, _Id) ->
+    {error, not_implemented}.
