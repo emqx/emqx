@@ -18,6 +18,8 @@
 
 -behaviour(emqx_ft_storage).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([store_filemeta/3]).
 -export([store_segment/3]).
 -export([list/3]).
@@ -25,6 +27,14 @@
 -export([assemble/3]).
 
 -export([transfers/1]).
+
+-export([pread_local/4]).
+-export([list_local/2]).
+-export([ready_transfers_local/0, ready_transfers_local/1]).
+-export([get_ready_transfer_local/1, get_ready_transfer_local/2]).
+
+-export([ready_transfers/1]).
+-export([get_ready_transfer/2]).
 
 -export([open_file/3]).
 -export([complete/4]).
@@ -70,23 +80,8 @@
 -define(MANIFEST, "MANIFEST.json").
 -define(SEGMENT, "SEG").
 
--type root() :: file:name().
-
-% -record(st, {
-%     root :: file:name()
-% }).
-
 %% TODO
--type storage() :: root().
-
-%%
-
-% -define(PROCREF(Root), {via, gproc, {n, l, {?MODULE, Root}}}).
-
-% -spec start_link(root()) ->
-%     {ok, pid()} | {error, already_started}.
-% start_link(Root) ->
-%     gen_server:start_link(?PROCREF(Root), ?MODULE, [], []).
+-type storage() :: emqx_config:config().
 
 %% Store manifest in the backing filesystem.
 %% Atomic operation.
@@ -178,7 +173,89 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
 assemble(Storage, Transfer, Callback) ->
     emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
 
-%%
+-spec list_local(transfer(), fragment | result) ->
+    {ok, [filefrag()]} | {error, term()}.
+list_local(Transfer, What) ->
+    emqx_ft_storage:with_storage_type(local, list, [Transfer, What]).
+
+-spec pread_local(transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
+    {ok, [filefrag()]} | {error, term()}.
+pread_local(Transfer, Frag, Offset, Size) ->
+    emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
+
+get_ready_transfer(_Storage, ReadyTransferId) ->
+    case parse_ready_transfer_id(ReadyTransferId) of
+        {ok, {Node, Transfer}} ->
+            try
+                emqx_ft_storage_fs_proto_v1:get_ready_transfer(Node, Transfer)
+            catch
+                error:Error ->
+                    {error, Error};
+                C:Error ->
+                    {error, {C, Error}}
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+get_ready_transfer_local(Transfer) ->
+    emqx_ft_storage:with_storage_type(local, get_ready_transfer_local, [Transfer]).
+
+get_ready_transfer_local(Storage, Transfer) ->
+    Dirname = mk_filedir(Storage, Transfer, get_subdirs_for(result)),
+    case file:list_dir(Dirname) of
+        {ok, [Filename | _]} ->
+            file:read_file(filename:join([Dirname, Filename]));
+        {error, _} = Error ->
+            Error
+    end.
+
+ready_transfers(_Storage) ->
+    Nodes = mria_mnesia:running_nodes(),
+    Results = emqx_ft_storage_fs_proto_v1:ready_transfers(Nodes),
+    {GoodResults, BadResults} = lists:partition(
+        fun
+            ({ok, _}) -> true;
+            (_) -> false
+        end,
+        Results
+    ),
+    ?SLOG(warning, #{msg => "ready_transfers", failures => BadResults}),
+    {ok, [File || {ok, Files} <- GoodResults, File <- Files]}.
+
+ready_transfers_local() ->
+    emqx_ft_storage:with_storage_type(local, ready_transfers_local, []).
+
+ready_transfers_local(Storage) ->
+    {ok, Transfers} = transfers(Storage),
+    lists:filtermap(
+        fun
+            ({Transfer, #{status := complete, result := [Result | _]}}) ->
+                {true, {ready_transfer_id(Transfer), maps:without([fragment], Result)}};
+            (_) ->
+                false
+        end,
+        maps:to_list(Transfers)
+    ).
+
+ready_transfer_id({ClientId, FileId}) ->
+    #{
+        <<"node">> => atom_to_binary(node()),
+        <<"clientid">> => ClientId,
+        <<"fileid">> => FileId
+    }.
+
+parse_ready_transfer_id(#{
+    <<"node">> := NodeBin, <<"clientid">> := ClientId, <<"fileid">> := FileId
+}) ->
+    case emqx_misc:safe_to_existing_atom(NodeBin) of
+        {ok, Node} ->
+            {ok, {Node, {ClientId, FileId}}};
+        {error, _} ->
+            {error, {invalid_node, NodeBin}}
+    end;
+parse_ready_transfer_id(#{}) ->
+    {error, invalid_file_id}.
 
 -spec transfers(storage()) ->
     {ok, #{transfer() => transferinfo()}}.
@@ -291,40 +368,7 @@ verify_checksum(Ctx, #{checksum := {Algo, Digest}}) when Ctx /= undefined ->
 verify_checksum(undefined, _) ->
     ok.
 
-%%
-
-% -spec init(root()) -> {ok, storage()}.
-% init(Root) ->
-%     % TODO: garbage_collect(...)
-%     {ok, Root}.
-
-% %%
-
 -define(PRELUDE(Vsn, Meta), [<<"filemeta">>, Vsn, Meta]).
-
-% encode_filemeta(Meta) ->
-%     emqx_json:encode(
-%         ?PRELUDE(
-%             _Vsn = 1,
-%             maps:map(
-%                 fun
-%                     (name, Name) ->
-%                         {<<"name">>, Name};
-%                     (size, Size) ->
-%                         {<<"size">>, Size};
-%                     (checksum, {sha256, Hash}) ->
-%                         {<<"checksum">>, <<"sha256:", (binary:encode_hex(Hash))/binary>>};
-%                     (expire_at, ExpiresAt) ->
-%                         {<<"expire_at">>, ExpiresAt};
-%                     (segments_ttl, TTL) ->
-%                         {<<"segments_ttl">>, TTL};
-%                     (user_data, UserData) ->
-%                         {<<"user_data">>, UserData}
-%                 end,
-%                 Meta
-%             )
-%         )
-%     ).
 
 encode_filemeta(Meta) ->
     % TODO: Looks like this should be hocon's responsibility.
@@ -336,21 +380,6 @@ decode_filemeta(Binary) ->
     Schema = emqx_ft_schema:schema(filemeta),
     ?PRELUDE(_Vsn = 1, Term) = emqx_json:decode(Binary, [return_maps]),
     hocon_tconf:check_plain(Schema, Term, #{atom_key => true, required => false}).
-
-% map_into(Fun, Into, Ks, Map) ->
-%     map_foldr(map_into_fn(Fun, Into), Into, Ks, Map).
-
-% map_into_fn(Fun, L) when is_list(L) ->
-%     fun(K, V, Acc) -> [{K, Fun(K, V)} || Acc] end.
-
-% map_foldr(_Fun, Acc, [], _) ->
-%     Acc;
-% map_foldr(Fun, Acc, [K | Ks], Map) when is_map_key(K, Map) ->
-%     Fun(K, maps:get(K, Map), map_foldr(Fun, Acc, Ks, Map));
-% map_foldr(Fun, Acc, [_ | Ks], Map) ->
-%     map_foldr(Fun, Acc, Ks, Map).
-
-%%
 
 mk_segment_filename({Offset, Content}) ->
     lists:concat([?SEGMENT, ".", Offset, ".", byte_size(Content)]).
