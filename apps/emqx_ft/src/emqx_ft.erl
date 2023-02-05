@@ -189,7 +189,7 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
             %% We have new fin packet
             ok ->
                 Callback = callback(FinPacketKey, FileId),
-                case assemble(transfer(Msg, FileId), Callback) of
+                case emqx_ft_storage:assemble(transfer(Msg, FileId), Callback) of
                     %% Assembling started, packet will be acked by the callback or the responder
                     {ok, _} ->
                         undefined;
@@ -213,12 +213,6 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
             {error, already_registered} ->
                 undefined
         end.
-
-assemble(Transfer, Callback) ->
-    emqx_ft_storage:assemble(
-        Transfer,
-        Callback
-    ).
 
 callback({ChanPid, PacketId} = Key, _FileId) ->
     fun(Result) ->

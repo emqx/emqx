@@ -23,12 +23,12 @@
 -export([list/3]).
 -export([multilist/3]).
 -export([pread/5]).
--export([transfers/1]).
+-export([ready_transfers/1]).
+-export([get_ready_transfer/2]).
 
 -type offset() :: emqx_ft:offset().
 -type transfer() :: emqx_ft:transfer().
 -type filefrag() :: emqx_ft_storage_fs:filefrag().
--type transferinfo() :: emqx_ft_storage_fs:transferinfo().
 
 -include_lib("emqx/include/bpapi.hrl").
 
@@ -38,19 +38,26 @@ introduced_in() ->
 -spec list(node(), transfer(), fragment | result) ->
     {ok, [filefrag()]} | {error, term()}.
 list(Node, Transfer, What) ->
-    erpc:call(Node, emqx_ft_storage, list_local, [Transfer, What]).
+    erpc:call(Node, emqx_ft_storage_fs, list_local, [Transfer, What]).
 
 -spec multilist([node()], transfer(), fragment | result) ->
     emqx_rpc:erpc_multicall({ok, [filefrag()]} | {error, term()}).
 multilist(Nodes, Transfer, What) ->
-    erpc:multicall(Nodes, emqx_ft_storage, list_local, [Transfer, What]).
+    erpc:multicall(Nodes, emqx_ft_storage_fs, list_local, [Transfer, What]).
 
 -spec pread(node(), transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
     {ok, [filefrag()]} | {error, term()}.
 pread(Node, Transfer, Frag, Offset, Size) ->
-    erpc:call(Node, emqx_ft_storage, pread_local, [Transfer, Frag, Offset, Size]).
+    erpc:call(Node, emqx_ft_storage_fs, pread_local, [Transfer, Frag, Offset, Size]).
 
--spec transfers([node()]) ->
-    emqx_rpc:erpc_multicall({ok, #{transfer() => transferinfo()}} | {error, term()}).
-transfers(Nodes) ->
-    erpc:multicall(Nodes, emqx_ft_storage, local_transfers, []).
+-spec ready_transfers([node()]) ->
+    {ok, [{emqx_ft_storage:ready_transfer_id(), emqx_ft_storage:ready_transfer_info()}]}
+    | {error, term()}.
+ready_transfers(Nodes) ->
+    erpc:multicall(Nodes, emqx_ft_storage_fs, ready_transfers_local, []).
+
+-spec get_ready_transfer(node(), emqx_ft_storage:ready_transfer_id()) ->
+    {ok, emqx_ft_storage:ready_transfer_data()}
+    | {error, term()}.
+get_ready_transfer(Node, ReadyTransferId) ->
+    erpc:call(Node, emqx_ft_storage_fs, get_ready_transfer_local, [ReadyTransferId]).
