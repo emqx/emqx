@@ -429,8 +429,8 @@ to_kv_config(KVfields) ->
     maps:fold(fun to_maps_config/3, #{}, proplists:to_map(KVfields)).
 
 to_maps_config(K, V, Res) ->
-    NK = emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-    NV = emqx_plugin_libs_rule:preproc_tmpl(bin(V)),
+    [NK] = emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
+    [NV] = emqx_plugin_libs_rule:preproc_tmpl(bin(V)),
     Res#{NK => NV}.
 
 %% -------------------------------------------------------------------------------------------------
