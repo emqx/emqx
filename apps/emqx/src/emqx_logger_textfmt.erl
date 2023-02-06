@@ -23,7 +23,14 @@
 check_config(X) -> logger_formatter:check_config(X).
 
 format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(ReportMap) ->
-    Report = enrich_report(ReportMap, Meta),
+    ReportList = enrich_report(ReportMap, Meta),
+    Report =
+        case is_list_report_acceptable(Meta) of
+            true ->
+                ReportList;
+            false ->
+                maps:from_list(ReportList)
+        end,
     logger_formatter:format(Event#{msg := {report, Report}}, Config);
 format(#{msg := {string, String}} = Event, Config) ->
     format(Event#{msg => {"~ts ", [String]}}, Config);
@@ -33,6 +40,11 @@ format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     Msg2 = enrich_mfa(Msg1, Meta),
     Msg3 = enrich_topic(Msg2, Meta),
     logger_formatter:format(Event#{msg := Msg3}, Config).
+
+is_list_report_acceptable(#{report_cb := Cb}) ->
+    Cb =:= fun logger:format_otp_report/1 orelse Cb =:= fun logger:format_report/1;
+is_list_report_acceptable(_) ->
+    false.
 
 enrich_report(ReportRaw, Meta) ->
     %% clientid and peername always in emqx_conn's process metadata.
@@ -47,6 +59,7 @@ enrich_report(ReportRaw, Meta) ->
     MFA = maps:get(mfa, Meta, undefined),
     Line = maps:get(line, Meta, undefined),
     Msg = maps:get(msg, ReportRaw, undefined),
+    %% turn it into a list so that the order of the fields is determined
     lists:foldl(
         fun
             ({_, undefined}, Acc) -> Acc;
