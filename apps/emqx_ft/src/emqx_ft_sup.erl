@@ -43,6 +43,15 @@ init([]) ->
         modules => [emqx_ft_assembler_sup]
     },
 
+    FileReaderSup = #{
+        id => emqx_ft_storage_fs_reader_sup,
+        start => {emqx_ft_storage_fs_reader_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [emqx_ft_storage_fs_reader_sup]
+    },
+
     Responder = #{
         id => emqx_ft_responder,
         start => {emqx_ft_responder, start_link, []},
@@ -52,5 +61,5 @@ init([]) ->
         modules => [emqx_ft_responder]
     },
 
-    ChildSpecs = [Responder, AssemblerSup],
+    ChildSpecs = [Responder, AssemblerSup, FileReaderSup],
     {ok, {SupFlags, ChildSpecs}}.

@@ -14,27 +14,31 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% This methods are called via rpc by `emqx_ft_storage_fs`
-%% They populate the call with actual storage which may be configured differently
-%% on a concrete node.
+-module(emqx_ft_storage_fs_reader_sup).
 
--module(emqx_ft_storage_fs_proxy).
+-behaviour(supervisor).
 
 -export([
-    list_local/2,
-    pread_local/4,
-    get_ready_transfer_local/2,
-    ready_transfers_local/0
+    init/1,
+    start_link/0,
+    start_child/3
 ]).
 
-list_local(Transfer, What) ->
-    emqx_ft_storage:with_storage_type(local, list, [Transfer, What]).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-pread_local(Transfer, Frag, Offset, Size) ->
-    emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
+start_child(CallerPid, Filename, ChunkSize) ->
+    Childspec = #{
+        id => {CallerPid, Filename},
+        start => {emqx_ft_storage_fs_reader, start_link, [CallerPid, Filename, ChunkSize]},
+        restart => temporary
+    },
+    supervisor:start_child(?MODULE, Childspec).
 
-get_ready_transfer_local(CallerPid, Transfer) ->
-    emqx_ft_storage:with_storage_type(local, get_ready_transfer_local, [CallerPid, Transfer]).
-
-ready_transfers_local() ->
-    emqx_ft_storage:with_storage_type(local, ready_transfers_local, []).
+init(_) ->
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 1000
+    },
+    {ok, {SupFlags, []}}.
