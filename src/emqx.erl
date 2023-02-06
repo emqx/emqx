@@ -65,6 +65,8 @@
 
 %% Troubleshooting
 -export([ set_debug_secret/1
+        , default_started_applications/0
+        , expand_apps/1
         ]).
 
 -define(APP, ?MODULE).
@@ -253,14 +255,6 @@ is_application_running(App) ->
     proplists:is_defined(App, StartedApps).
 
 -ifdef(EMQX_ENTERPRISE).
-default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx].
--else.
-default_started_applications() ->
-    [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
--endif.
-
--ifdef(EMQX_ENTERPRISE).
 on_reboot() ->
     try
         _ = emqx_license_api:bootstrap_license(),
@@ -290,6 +284,54 @@ on_shutdown(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+-ifdef(EMQX_ENTERPRISE).
+applications_need_restart() ->
+    [gproc, esockd, ranch, cowboy, ekka, emqx].
+-else.
+applications_need_restart() ->
+    [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
+-endif.
+
+-define(PK_START_APPS, {?MODULE, default_started_applications}).
+default_started_applications() ->
+    case persistent_term:get(?PK_START_APPS, undefined) of
+        undefined ->
+            AppNames = expand_apps(applications_need_restart()),
+            ok = persistent_term:put(?PK_START_APPS, AppNames),
+            AppNames;
+        AppNames ->
+            AppNames
+    end.
+
+%% expand the application list with dependent apps.
+expand_apps(AppNames) ->
+    AllApps = application:which_applications(),
+    remove_duplicated(
+        lists:flatmap(fun(AppName) ->
+                expand_an_app(AppName, AllApps)
+            end, AppNames)).
+
+expand_an_app(AppNameA, AllApps) ->
+    expand_an_app(AppNameA, AllApps, [AppNameA]).
+
+expand_an_app(_AppNameA, [], Acc) ->
+    Acc;
+expand_an_app(AppNameA, [{AppNameB, _Descr, _Vsn} | AllApps], Acc) ->
+    {ok, DepAppNames} = application:get_key(AppNameB, applications),
+    case lists:member(AppNameA, DepAppNames) of
+        true -> %% AppNameB depends on AppNameA
+            NewAcc = Acc ++ expand_an_app(AppNameB, AllApps),
+            expand_an_app(AppNameA, AllApps, NewAcc);
+        false ->
+            expand_an_app(AppNameA, AllApps, Acc)
+    end.
+
+remove_duplicated([]) -> [];
+remove_duplicated([E | Elems]) ->
+    case lists:member(E, Elems) of
+        true -> remove_duplicated(Elems);
+        false -> [E] ++ remove_duplicated(Elems)
+    end.
 
 reload_config(ConfFile) ->
     {ok, [Conf]} = file:consult(ConfFile),
