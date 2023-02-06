@@ -24,7 +24,7 @@
 -export([multilist/3]).
 -export([pread/5]).
 -export([ready_transfers/1]).
--export([get_ready_transfer/2]).
+-export([get_ready_transfer/3]).
 
 -type offset() :: emqx_ft:offset().
 -type transfer() :: emqx_ft:transfer().
@@ -56,9 +56,9 @@ pread(Node, Transfer, Frag, Offset, Size) ->
 ready_transfers(Nodes) ->
     erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, ready_transfers_local, []).
 
--spec get_ready_transfer(node(), emqx_ft_storage:ready_transfer_id()) ->
+-spec get_ready_transfer(node(), pid(), emqx_ft_storage:ready_transfer_id()) ->
     {ok, emqx_ft_storage:ready_transfer_data()}
     | {error, term()}
     | no_return().
-get_ready_transfer(Node, ReadyTransferId) ->
-    erpc:call(Node, emqx_ft_storage_fs_proxy, get_ready_transfer_local, [ReadyTransferId]).
+get_ready_transfer(Node, CallerPid, ReadyTransferId) ->
+    erpc:call(Node, emqx_ft_storage_fs_proxy, get_ready_transfer_local, [CallerPid, ReadyTransferId]).

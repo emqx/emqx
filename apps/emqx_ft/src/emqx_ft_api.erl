@@ -107,10 +107,16 @@ schema("/file_transfer/file") ->
 '/file_transfer/file'(get, #{query_string := Query}) ->
     case emqx_ft_storage:get_ready_transfer(Query) of
         {ok, FileData} ->
-            {200, #{<<"content-type">> => <<"application/data">>}, FileData};
+            {200,
+                #{
+                    <<"content-type">> => <<"application/data">>,
+                    <<"content-disposition">> => <<"attachment">>
+                },
+                FileData};
         {error, enoent} ->
             {404, error_msg('NOT_FOUND', <<"Not found">>)};
-        {error, _} ->
+        {error, Error} ->
+            ?SLOG(warning, #{msg => "get_ready_transfer_fail", error => Error}),
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
 

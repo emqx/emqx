@@ -29,7 +29,7 @@
 -export([transfers/1]).
 
 -export([ready_transfers_local/1]).
--export([get_ready_transfer_local/2]).
+-export([get_ready_transfer_local/3]).
 
 -export([ready_transfers/1]).
 -export([get_ready_transfer/2]).
@@ -175,22 +175,43 @@ get_ready_transfer(_Storage, ReadyTransferId) ->
     case parse_ready_transfer_id(ReadyTransferId) of
         {ok, {Node, Transfer}} ->
             try
-                emqx_ft_storage_fs_proto_v1:get_ready_transfer(Node, Transfer)
+                case emqx_ft_storage_fs_proto_v1:get_ready_transfer(Node, self(), Transfer) of
+                    {ok, ReaderPid} ->
+                        {ok, emqx_ft_storage_fs_reader:table(ReaderPid)};
+                    {error, _} = Error ->
+                        Error
+                end
             catch
-                error:Error ->
-                    {error, Error};
-                C:Error ->
-                    {error, {C, Error}}
+                error:Exc:Stacktrace ->
+                    ?SLOG(warning, #{
+                        msg => "get_ready_transfer_error",
+                        node => Node,
+                        transfer => Transfer,
+                        exception => Exc,
+                        stacktrace => Stacktrace
+                    }),
+                    {error, Exc};
+                C:Exc:Stacktrace ->
+                    ?SLOG(warning, #{
+                        msg => "get_ready_transfer_fail",
+                        class => C,
+                        node => Node,
+                        transfer => Transfer,
+                        exception => Exc,
+                        stacktrace => Stacktrace
+                    }),
+                    {error, {C, Exc}}
             end;
         {error, _} = Error ->
             Error
     end.
 
-get_ready_transfer_local(Storage, Transfer) ->
+get_ready_transfer_local(Storage, CallerPid, Transfer) ->
     Dirname = mk_filedir(Storage, Transfer, get_subdirs_for(result)),
     case file:list_dir(Dirname) of
         {ok, [Filename | _]} ->
-            file:read_file(filename:join([Dirname, Filename]));
+            FullFilename = filename:join([Dirname, Filename]),
+            emqx_ft_storage_fs_reader:start_supervised(CallerPid, FullFilename);
         {error, _} = Error ->
             Error
     end.
