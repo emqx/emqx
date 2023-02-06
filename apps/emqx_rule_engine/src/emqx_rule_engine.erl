@@ -529,18 +529,26 @@ refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
 refresh_rules_when_boot() ->
     lists:foreach(fun
         (#rule{enabled = true} = Rule) ->
-            try refresh_rule(Rule)
-            catch _:_ ->
-                %% We set the enable = false when rule init failed to avoid bad rules running
-                %% without actions created properly.
-                %% The init failure might be caused by a disconnected resource, in this case the
-                %% actions can not be created, so the rules won't work.
-                %% After the user fixed the problem he can enable it manually,
-                %% doing so will also recreate the actions.
-                emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
-            end;
-        (_) -> ok
+            ensure_rule_retrier(Rule);
+        (#rule{enabled = false, state = refresh_failed_at_bootup} = Rule) ->
+            %% the rule was previously disabled by emqx so we need to retry it
+            ensure_rule_retrier(Rule);
+        (#rule{enabled = false, id = RuleId}) ->
+            ?LOG(warning, "rule ~s was disabled by the user, won't re-enable it", [RuleId])
     end, emqx_rule_registry:get_rules()).
+
+ensure_rule_retrier(#rule{id = RuleId} = Rule) ->
+    try refresh_rule(Rule)
+    catch _:_ ->
+        %% We set the enable = false when rule init failed to avoid bad rules running
+        %% without actions created properly.
+        %% The init failure might be caused by a disconnected resource, in this case the
+        %% actions can not be created, so the rules won't work.
+        %% After the user fixed the problem he can enable it manually,
+        %% doing so will also recreate the actions.
+        emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup}),
+        emqx_rule_monitor:ensure_rule_retrier(RuleId)
+    end.
 
 refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
