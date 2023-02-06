@@ -28,10 +28,8 @@
 
 -export([transfers/1]).
 
--export([pread_local/4]).
--export([list_local/2]).
--export([ready_transfers_local/0, ready_transfers_local/1]).
--export([get_ready_transfer_local/1, get_ready_transfer_local/2]).
+-export([ready_transfers_local/1]).
+-export([get_ready_transfer_local/2]).
 
 -export([ready_transfers/1]).
 -export([get_ready_transfer/2]).
@@ -173,16 +171,6 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
 assemble(Storage, Transfer, Callback) ->
     emqx_ft_assembler_sup:start_child(Storage, Transfer, Callback).
 
--spec list_local(transfer(), fragment | result) ->
-    {ok, [filefrag()]} | {error, term()}.
-list_local(Transfer, What) ->
-    emqx_ft_storage:with_storage_type(local, list, [Transfer, What]).
-
--spec pread_local(transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
-    {ok, [filefrag()]} | {error, term()}.
-pread_local(Transfer, Frag, Offset, Size) ->
-    emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
-
 get_ready_transfer(_Storage, ReadyTransferId) ->
     case parse_ready_transfer_id(ReadyTransferId) of
         {ok, {Node, Transfer}} ->
@@ -197,9 +185,6 @@ get_ready_transfer(_Storage, ReadyTransferId) ->
         {error, _} = Error ->
             Error
     end.
-
-get_ready_transfer_local(Transfer) ->
-    emqx_ft_storage:with_storage_type(local, get_ready_transfer_local, [Transfer]).
 
 get_ready_transfer_local(Storage, Transfer) ->
     Dirname = mk_filedir(Storage, Transfer, get_subdirs_for(result)),
@@ -222,9 +207,6 @@ ready_transfers(_Storage) ->
     ),
     ?SLOG(warning, #{msg => "ready_transfers", failures => BadResults}),
     {ok, [File || {ok, Files} <- GoodResults, File <- Files]}.
-
-ready_transfers_local() ->
-    emqx_ft_storage:with_storage_type(local, ready_transfers_local, []).
 
 ready_transfers_local(Storage) ->
     {ok, Transfers} = transfers(Storage),
