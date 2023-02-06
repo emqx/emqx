@@ -22,8 +22,6 @@
         store_segment/2,
         assemble/2,
 
-        parse_id/1,
-
         ready_transfers/0,
         get_ready_transfer/1,
 
@@ -39,7 +37,7 @@
 
 -type ready_transfer_id() :: term().
 -type ready_transfer_info() :: map().
--type ready_transfer_data() :: binary().
+-type ready_transfer_data() :: binary() | qlc:query_handle().
 
 %%--------------------------------------------------------------------
 %% Behaviour
@@ -87,19 +85,6 @@ ready_transfers() ->
 get_ready_transfer(ReadyTransferId) ->
     Mod = mod(),
     Mod:get_ready_transfer(storage(), ReadyTransferId).
-
--spec parse_id(map()) -> {ok, ready_transfer_id()} | {error, term()}.
-parse_id(#{
-    <<"type">> := local, <<"node">> := NodeBin, <<"clientid">> := ClientId, <<"id">> := Id
-}) ->
-    case emqx_misc:safe_to_existing_atom(NodeBin) of
-        {ok, Node} ->
-            {ok, {local, Node, ClientId, Id}};
-        {error, _} ->
-            {error, {invalid_node, NodeBin}}
-    end;
-parse_id(#{}) ->
-    {error, invalid_file_id}.
 
 -spec with_storage_type(atom(), atom(), list(term())) -> any().
 with_storage_type(Type, Fun, Args) ->
