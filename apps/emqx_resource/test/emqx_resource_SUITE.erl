@@ -1452,6 +1452,61 @@ t_retry_async_inflight(_Config) ->
     ),
     ok.
 
+t_retry_async_inflight_full(_Config) ->
+    ResumeInterval = 1_000,
+    AsyncInflightWindow = 5,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => ?FUNCTION_NAME},
+        #{
+            query_mode => async,
+            async_inflight_window => AsyncInflightWindow,
+            batch_size => 1,
+            batch_time => 20,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% block
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    inc_counter_in_parallel(
+                        AsyncInflightWindow * 2,
+                        fun() ->
+                            For = (ResumeInterval div 4) + rand:uniform(ResumeInterval div 4),
+                            {sleep, For}
+                        end,
+                        #{async_reply_fun => {fun(Res) -> ct:pal("Res = ~p", [Res]) end, []}}
+                    ),
+                    #{?snk_kind := buffer_worker_flush_but_inflight_full},
+                    ResumeInterval * 2
+                ),
+
+            %% will reply with success after the resource is healed
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_resource:simple_sync_query(?ID, resume),
+                    #{?snk_kind := buffer_worker_enter_running}
+                ),
+            ok
+        end,
+        [
+            fun(Trace) ->
+                ?assertMatch([#{} | _], ?of_kind(buffer_worker_flush_but_inflight_full, Trace))
+            end
+        ]
+    ),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+    ok.
+
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(async_if_possible),
@@ -2241,18 +2296,16 @@ t_expiration_retry_batch_multiple_times(_Config) ->
 %%------------------------------------------------------------------------------
 
 inc_counter_in_parallel(N) ->
-    inc_counter_in_parallel(N, #{}).
+    inc_counter_in_parallel(N, {inc_counter, 1}, #{}).
 
 inc_counter_in_parallel(N, Opts0) ->
+    inc_counter_in_parallel(N, {inc_counter, 1}, Opts0).
+
+inc_counter_in_parallel(N, Query, Opts) ->
     Parent = self(),
     Pids = [
         erlang:spawn(fun() ->
-            Opts =
-                case is_function(Opts0) of
-                    true -> Opts0();
-                    false -> Opts0
-                end,
-            emqx_resource:query(?ID, {inc_counter, 1}, Opts),
+            emqx_resource:query(?ID, maybe_apply(Query), maybe_apply(Opts)),
             Parent ! {complete, self()}
         end)
      || _ <- lists:seq(1, N)
@@ -2267,16 +2320,11 @@ inc_counter_in_parallel(N, Opts0) ->
     ],
     ok.
 
-inc_counter_in_parallel_increasing(N, StartN, Opts0) ->
+inc_counter_in_parallel_increasing(N, StartN, Opts) ->
     Parent = self(),
     Pids = [
         erlang:spawn(fun() ->
-            Opts =
-                case is_function(Opts0) of
-                    true -> Opts0();
-                    false -> Opts0
-                end,
-            emqx_resource:query(?ID, {inc_counter, M}, Opts),
+            emqx_resource:query(?ID, {inc_counter, M}, maybe_apply(Opts)),
             Parent ! {complete, self()}
         end)
      || M <- lists:seq(StartN, StartN + N - 1)
@@ -2289,6 +2337,14 @@ inc_counter_in_parallel_increasing(N, StartN, Opts0) ->
         end
      || Pid <- Pids
     ].
+
+maybe_apply(FunOrTerm) ->
+    maybe_apply(FunOrTerm, []).
+
+maybe_apply(Fun, Args) when is_function(Fun) ->
+    erlang:apply(Fun, Args);
+maybe_apply(Term, _Args) ->
+    Term.
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.

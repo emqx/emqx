@@ -134,6 +134,17 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
         {ReqRef, Num} -> {ok, Num}
     after 1000 ->
         {error, timeout}
+    end;
+on_query(_InstId, {sleep, For}, #{pid := Pid}) ->
+    ?tp(connector_demo_sleep, #{mode => sync, for => For}),
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, {sleep, For}},
+    receive
+        {ReqRef, Result} ->
+            Result
+    after 1000 ->
+        {error, timeout}
     end.
 
 on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
@@ -147,6 +158,10 @@ on_query_async(_InstId, block_now, ReplyFun, #{pid := Pid}) ->
     {ok, Pid};
 on_query_async(_InstId, {big_payload, Payload}, ReplyFun, #{pid := Pid}) ->
     Pid ! {big_payload, Payload, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, {sleep, For}, ReplyFun, #{pid := Pid}) ->
+    ?tp(connector_demo_sleep, #{mode => async, for => For}),
+    Pid ! {{sleep, For}, ReplyFun},
     {ok, Pid}.
 
 on_batch_query(InstId, BatchReq, State) ->
@@ -283,9 +298,27 @@ counter_loop(
                 State;
             {{FromPid, ReqRef}, get} ->
                 FromPid ! {ReqRef, Num},
+                State;
+            {{sleep, _} = SleepQ, ReplyFun} ->
+                apply_reply(ReplyFun, handle_query(async, SleepQ, Status)),
+                State;
+            {{FromPid, ReqRef}, {sleep, _} = SleepQ} ->
+                FromPid ! {ReqRef, handle_query(sync, SleepQ, Status)},
                 State
         end,
     counter_loop(NewState).
+
+handle_query(Mode, {sleep, For} = Query, Status) ->
+    ok = timer:sleep(For),
+    Result =
+        case Status of
+            running -> ok;
+            blocked -> {error, {recoverable_error, blocked}}
+        end,
+    ?tp(connector_demo_sleep_handled, #{
+        mode => Mode, query => Query, slept => For, result => Result
+    }),
+    Result.
 
 maybe_register(Name, Pid, true) ->
     ct:pal("---- Register Name: ~p", [Name]),
