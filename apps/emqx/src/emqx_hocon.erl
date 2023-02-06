@@ -119,8 +119,8 @@ compact_errors(SchemaModule, [Error0 | More], _Stacktrace) when is_map(Error0) -
         end,
     {error, Error};
 compact_errors(SchemaModule, Error, Stacktrace) ->
-    %% unexpected, we need the stacktrace reported, hence error
-    %% if this happens i'ts a bug in hocon_tconf
+    %% unexpected, we need the stacktrace reported
+    %% if this happens it's a bug in hocon_tconf
     {error, #{
         schema_module => SchemaModule,
         exception => Error,

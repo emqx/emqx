@@ -168,6 +168,38 @@ t_password_undefined(Config) when is_list(Config) ->
     end,
     ok.
 
+t_union_selector_errors({init, Config}) ->
+    Config;
+t_union_selector_errors({'end', _Config}) ->
+    ok;
+t_union_selector_errors(Config) when is_list(Config) ->
+    Conf0 = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"mysql">>
+    },
+    Conf1 = Conf0#{<<"mechanism">> => <<"unknown-atom-xx">>},
+    ?assertThrow(#{error := unknown_mechanism}, emqx_authn:check_config(Conf1)),
+    Conf2 = Conf0#{<<"backend">> => <<"unknown-atom-xx">>},
+    ?assertThrow(#{error := unknown_backend}, emqx_authn:check_config(Conf2)),
+    Conf3 = Conf0#{<<"backend">> => <<"unknown">>, <<"mechanism">> => <<"unknown">>},
+    ?assertThrow(
+        #{
+            error := unknown_authn_provider,
+            backend := unknown,
+            mechanism := unknown
+        },
+        emqx_authn:check_config(Conf3)
+    ),
+    Res = catch (emqx_authn:check_config(#{<<"mechanism">> => <<"unknown">>})),
+    ?assertEqual(
+        #{
+            error => unknown_authn_provider,
+            mechanism => unknown
+        },
+        Res
+    ),
+    ok.
+
 parse(Bytes) ->
     {ok, Frame, <<>>, {none, _}} = emqx_frame:parse(Bytes),
     Frame.

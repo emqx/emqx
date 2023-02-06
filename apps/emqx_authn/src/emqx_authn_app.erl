@@ -55,8 +55,7 @@ stop(_State) ->
 initialize() ->
     ok = ?AUTHN:register_providers(emqx_authn:providers()),
     lists:foreach(
-        fun({ChainName, RawAuthConfigs}) ->
-            AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
+        fun({ChainName, AuthConfig}) ->
             ?AUTHN:initialize_authentication(
                 ChainName,
                 AuthConfig
@@ -73,12 +72,12 @@ chain_configs() ->
     [global_chain_config() | listener_chain_configs()].
 
 global_chain_config() ->
-    {?GLOBAL, emqx:get_raw_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
+    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
 
 listener_chain_configs() ->
     lists:map(
         fun({ListenerID, _}) ->
-            {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
+            {ListenerID, emqx:get_config(auth_config_path(ListenerID), [])}
         end,
         emqx_listeners:list()
     ).
