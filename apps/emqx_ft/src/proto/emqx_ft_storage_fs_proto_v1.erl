@@ -36,28 +36,29 @@ introduced_in() ->
     "5.0.17".
 
 -spec list(node(), transfer(), fragment | result) ->
-    {ok, [filefrag()]} | {error, term()}.
+    {ok, [filefrag()]} | {error, term()} | no_return().
 list(Node, Transfer, What) ->
-    erpc:call(Node, emqx_ft_storage_fs, list_local, [Transfer, What]).
+    erpc:call(Node, emqx_ft_storage_fs_proxy, list_local, [Transfer, What]).
 
 -spec multilist([node()], transfer(), fragment | result) ->
     emqx_rpc:erpc_multicall({ok, [filefrag()]} | {error, term()}).
 multilist(Nodes, Transfer, What) ->
-    erpc:multicall(Nodes, emqx_ft_storage_fs, list_local, [Transfer, What]).
+    erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, list_local, [Transfer, What]).
 
 -spec pread(node(), transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
-    {ok, [filefrag()]} | {error, term()}.
+    {ok, [filefrag()]} | {error, term()} | no_return().
 pread(Node, Transfer, Frag, Offset, Size) ->
-    erpc:call(Node, emqx_ft_storage_fs, pread_local, [Transfer, Frag, Offset, Size]).
+    erpc:call(Node, emqx_ft_storage_fs_proxy, pread_local, [Transfer, Frag, Offset, Size]).
 
 -spec ready_transfers([node()]) ->
     {ok, [{emqx_ft_storage:ready_transfer_id(), emqx_ft_storage:ready_transfer_info()}]}
     | {error, term()}.
 ready_transfers(Nodes) ->
-    erpc:multicall(Nodes, emqx_ft_storage_fs, ready_transfers_local, []).
+    erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, ready_transfers_local, []).
 
 -spec get_ready_transfer(node(), emqx_ft_storage:ready_transfer_id()) ->
     {ok, emqx_ft_storage:ready_transfer_data()}
-    | {error, term()}.
+    | {error, term()}
+    | no_return().
 get_ready_transfer(Node, ReadyTransferId) ->
-    erpc:call(Node, emqx_ft_storage_fs, get_ready_transfer_local, [ReadyTransferId]).
+    erpc:call(Node, emqx_ft_storage_fs_proxy, get_ready_transfer_local, [ReadyTransferId]).
