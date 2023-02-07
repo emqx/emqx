@@ -105,8 +105,12 @@ select_union_member(Value, _Providers) ->
     throw(#{reason => "not_a_struct", value => Value}).
 
 try_select_union_member(Module, Value) ->
-    %% some modules have union_member_selector/1 exported to help selectin the sub-types
-    %% emqx_authn_http, emqx_authn_jwt, emqx_authn_mongodb and emqx_authn_redis
+    %% some modules have `union_member_selector/1' exported to help selecting
+    %% the sub-types, they are:
+    %%   emqx_authn_http
+    %%   emqx_authn_jwt
+    %%   emqx_authn_mongodb
+    %%   emqx_authn_redis
     try
         Module:union_member_selector({value, Value})
     catch
