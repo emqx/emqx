@@ -33,6 +33,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -52,7 +53,7 @@ roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun union_member_selector/1),
                 #{}
             )}
     ].
@@ -246,3 +247,20 @@ is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser});
 is_superuser(_, _) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => false}).
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, Value}) ->
+    refs(Value).
+
+refs(#{<<"mongo_type">> := <<"single">>}) ->
+    [hoconsc:ref(?MODULE, standalone)];
+refs(#{<<"mongo_type">> := <<"rs">>}) ->
+    [hoconsc:ref(?MODULE, 'replica-set')];
+refs(#{<<"mongo_type">> := <<"sharded">>}) ->
+    [hoconsc:ref(?MODULE, 'sharded-cluster')];
+refs(_) ->
+    throw(#{
+        field_name => mongo_type,
+        expected => "single | rs | sharded"
+    }).

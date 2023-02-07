@@ -45,24 +45,79 @@ enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 
 authenticator_type() ->
-    hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()])).
+    hoconsc:union(union_member_selector(emqx_authn:providers())).
 
 authenticator_type_without_scram() ->
     Providers = lists:filtermap(
         fun
-            ({{password_based, _Backend}, Mod}) ->
-                {true, Mod};
-            ({jwt, Mod}) ->
-                {true, Mod};
             ({{scram, _Backend}, _Mod}) ->
-                false
+                false;
+            (_) ->
+                true
         end,
         emqx_authn:providers()
     ),
-    hoconsc:union(config_refs(Providers)).
+    hoconsc:union(union_member_selector(Providers)).
 
-config_refs(Modules) ->
-    lists:append([Module:refs() || Module <- Modules]).
+config_refs(Providers) ->
+    lists:append([Module:refs() || {_, Module} <- Providers]).
+
+union_member_selector(Providers) ->
+    Types = config_refs(Providers),
+    fun
+        (all_union_members) -> Types;
+        ({value, Value}) -> select_union_member(Value, Providers)
+    end.
+
+select_union_member(#{<<"mechanism">> := _} = Value, Providers0) ->
+    BackendVal = maps:get(<<"backend">>, Value, undefined),
+    MechanismVal = maps:get(<<"mechanism">>, Value),
+    BackendFilterFn = fun
+        ({{_Mec, Backend}, _Mod}) ->
+            BackendVal =:= atom_to_binary(Backend);
+        (_) ->
+            BackendVal =:= undefined
+    end,
+    MechanismFilterFn = fun
+        ({{Mechanism, _Backend}, _Mod}) ->
+            MechanismVal =:= atom_to_binary(Mechanism);
+        ({Mechanism, _Mod}) ->
+            MechanismVal =:= atom_to_binary(Mechanism)
+    end,
+    case lists:filter(BackendFilterFn, Providers0) of
+        [] ->
+            throw(#{reason => "unknown_backend", backend => BackendVal});
+        Providers1 ->
+            case lists:filter(MechanismFilterFn, Providers1) of
+                [] ->
+                    throw(#{
+                        reason => "unsupported_mechanism",
+                        mechanism => MechanismVal,
+                        backend => BackendVal
+                    });
+                [{_, Module}] ->
+                    try_select_union_member(Module, Value)
+            end
+    end;
+select_union_member(Value, _Providers) when is_map(Value) ->
+    throw(#{reason => "missing_mechanism_field"});
+select_union_member(Value, _Providers) ->
+    throw(#{reason => "not_a_struct", value => Value}).
+
+try_select_union_member(Module, Value) ->
+    %% some modules have `union_member_selector/1' exported to help selecting
+    %% the sub-types, they are:
+    %%   emqx_authn_http
+    %%   emqx_authn_jwt
+    %%   emqx_authn_mongodb
+    %%   emqx_authn_redis
+    try
+        Module:union_member_selector({value, Value})
+    catch
+        error:undef ->
+            %% otherwise expect only one member from this module
+            Module:refs()
+    end.
 
 %% authn is a core functionality however implemented outside of emqx app
 %% in emqx_schema, 'authentication' is a map() type which is to allow

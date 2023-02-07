@@ -136,7 +136,7 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
 ) ->
     ok | {ok, map()} | {error, term()}.
 post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    do_post_config_update(UpdateReq, check_configs(to_list(NewConfig)), OldConfig, AppEnvs).
+    do_post_config_update(UpdateReq, to_list(NewConfig), OldConfig, AppEnvs).
 
 do_post_config_update({create_authenticator, ChainName, Config}, NewConfig, _OldConfig, _AppEnvs) ->
     NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
@@ -174,56 +174,6 @@ do_post_config_update(
     _AppEnvs
 ) ->
     emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position).
-
-check_configs(Configs) ->
-    Providers = emqx_authentication:get_providers(),
-    lists:map(fun(C) -> do_check_config(C, Providers) end, Configs).
-
-do_check_config(Config, Providers) ->
-    Type = authn_type(Config),
-    case maps:get(Type, Providers, false) of
-        false ->
-            ?SLOG(warning, #{
-                msg => "unknown_authn_type",
-                type => Type,
-                providers => Providers
-            }),
-            throw({unknown_authn_type, Type});
-        Module ->
-            do_check_config(Type, Config, Module)
-    end.
-
-do_check_config(Type, Config, Module) ->
-    F =
-        case erlang:function_exported(Module, check_config, 1) of
-            true ->
-                fun Module:check_config/1;
-            false ->
-                fun(C) ->
-                    Key = list_to_binary(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
-                    AtomKey = list_to_atom(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
-                    R = hocon_tconf:check_plain(
-                        Module,
-                        #{Key => C},
-                        #{atom_key => true}
-                    ),
-                    maps:get(AtomKey, R)
-                end
-        end,
-    try
-        F(Config)
-    catch
-        C:E:S ->
-            ?SLOG(warning, #{
-                msg => "failed_to_check_config",
-                config => Config,
-                type => Type,
-                exception => C,
-                reason => E,
-                stacktrace => S
-            }),
-            throw({bad_authenticator_config, #{type => Type, reason => E}})
-    end.
 
 to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];

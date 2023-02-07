@@ -21,7 +21,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
--behaviour(emqx_authentication).
 
 -export([
     namespace/0,
@@ -33,6 +32,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -52,7 +52,7 @@ roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun union_member_selector/1),
                 #{}
             )}
     ].
@@ -164,6 +164,31 @@ refs() ->
         hoconsc:ref(?MODULE, 'public-key'),
         hoconsc:ref(?MODULE, 'jwks')
     ].
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, V}) ->
+    UseJWKS = maps:get(<<"use_jwks">>, V, undefined),
+    select_ref(boolean(UseJWKS), V).
+
+%% this field is technically a boolean type,
+%% but union member selection is done before type casting (by typrefl),
+%% so we have to allow strings too
+boolean(<<"true">>) -> true;
+boolean(<<"false">>) -> false;
+boolean(Other) -> Other.
+
+select_ref(true, _) ->
+    [hoconsc:ref(?MODULE, 'jwks')];
+select_ref(false, #{<<"public_key">> := _}) ->
+    [hoconsc:ref(?MODULE, 'public-key')];
+select_ref(false, _) ->
+    [hoconsc:ref(?MODULE, 'hmac-based')];
+select_ref(_, _) ->
+    throw(#{
+        field_name => use_jwks,
+        expected => "true | false"
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).

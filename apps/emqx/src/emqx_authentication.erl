@@ -759,9 +759,10 @@ maybe_unhook(State) ->
     State.
 
 do_create_authenticator(AuthenticatorID, #{enable := Enable} = Config, Providers) ->
-    case maps:get(authn_type(Config), Providers, undefined) of
+    Type = authn_type(Config),
+    case maps:get(Type, Providers, undefined) of
         undefined ->
-            {error, no_available_provider};
+            {error, {no_available_provider_for, Type}};
         Provider ->
             case Provider:create(AuthenticatorID, Config) of
                 {ok, State} ->

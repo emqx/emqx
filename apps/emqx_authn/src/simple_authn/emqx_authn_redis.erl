@@ -33,6 +33,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -52,7 +53,7 @@ roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun union_member_selector/1),
                 #{}
             )}
     ].
@@ -96,6 +97,23 @@ refs() ->
         hoconsc:ref(?MODULE, cluster),
         hoconsc:ref(?MODULE, sentinel)
     ].
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, Value}) ->
+    refs(Value).
+
+refs(#{<<"redis_type">> := <<"single">>}) ->
+    [hoconsc:ref(?MODULE, standalone)];
+refs(#{<<"redis_type">> := <<"cluster">>}) ->
+    [hoconsc:ref(?MODULE, cluster)];
+refs(#{<<"redis_type">> := <<"sentinel">>}) ->
+    [hoconsc:ref(?MODULE, sentinel)];
+refs(_) ->
+    throw(#{
+        field_name => redis_type,
+        expected => "single | cluster | sentinel"
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).

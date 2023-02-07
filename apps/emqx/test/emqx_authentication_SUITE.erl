@@ -53,48 +53,8 @@
 ).
 
 %%------------------------------------------------------------------------------
-%% Hocon Schema
-%%------------------------------------------------------------------------------
-
-roots() ->
-    [
-        {config, #{
-            type => hoconsc:union([
-                hoconsc:ref(?MODULE, type1),
-                hoconsc:ref(?MODULE, type2)
-            ])
-        }}
-    ].
-
-fields(type1) ->
-    [
-        {mechanism, {enum, [password_based]}},
-        {backend, {enum, [built_in_database]}},
-        {enable, fun enable/1}
-    ];
-fields(type2) ->
-    [
-        {mechanism, {enum, [password_based]}},
-        {backend, {enum, [mysql]}},
-        {enable, fun enable/1}
-    ].
-
-enable(type) -> boolean();
-enable(default) -> true;
-enable(_) -> undefined.
-
-%%------------------------------------------------------------------------------
 %% Callbacks
 %%------------------------------------------------------------------------------
-
-check_config(C) ->
-    #{config := R} =
-        hocon_tconf:check_plain(
-            ?MODULE,
-            #{<<"config">> => C},
-            #{atom_key => true}
-        ),
-    R.
 
 create(_AuthenticatorID, _Config) ->
     {ok, #{mark => 1}}.
@@ -200,7 +160,7 @@ t_authenticator(Config) when is_list(Config) ->
     % Create an authenticator when the provider does not exist
 
     ?assertEqual(
-        {error, no_available_provider},
+        {error, {no_available_provider_for, {password_based, built_in_database}}},
         ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)
     ),
 
@@ -335,14 +295,14 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
     AuthenticatorConfig1 = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"enable">> => true
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
     },
     AuthenticatorConfig2 = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"mysql">>,
-        <<"enable">> => true
+        mechanism => password_based,
+        backend => mysql,
+        enable => true
     },
     ID1 = <<"password_based:built_in_database">>,
     ID2 = <<"password_based:mysql">>,

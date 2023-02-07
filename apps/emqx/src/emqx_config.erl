@@ -366,13 +366,6 @@ schema_default(Schema) ->
     case hocon_schema:field_schema(Schema, type) of
         ?ARRAY(_) ->
             [];
-        ?LAZY(?ARRAY(_)) ->
-            [];
-        ?LAZY(?UNION(Members)) ->
-            case [A || ?ARRAY(A) <- hoconsc:union_members(Members)] of
-                [_ | _] -> [];
-                _ -> #{}
-            end;
         _ ->
             #{}
     end.
@@ -407,8 +400,7 @@ merge_envs(SchemaMod, RawConf) ->
     Opts = #{
         required => false,
         format => map,
-        apply_override_envs => true,
-        check_lazy => true
+        apply_override_envs => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
@@ -421,39 +413,15 @@ check_config(SchemaMod, RawConf, Opts0) ->
     try
         do_check_config(SchemaMod, RawConf, Opts0)
     catch
-        throw:{Schema, Errors} ->
-            compact_errors(Schema, Errors)
+        throw:Errors:Stacktrace ->
+            {error, Reason} = emqx_hocon:compact_errors(Errors, Stacktrace),
+            erlang:raise(throw, Reason, Stacktrace)
     end.
-
-%% HOCON tries to be very informative about all the detailed errors
-%% it's maybe too much when reporting to the user
--spec compact_errors(any(), any()) -> no_return().
-compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
-    Error1 =
-        case length(More) of
-            0 ->
-                Error0;
-            _ ->
-                Error0#{unshown_errors => length(More)}
-        end,
-    Error =
-        case is_atom(Schema) of
-            true ->
-                Error1#{schema_module => Schema};
-            false ->
-                Error1
-        end,
-    throw(Error);
-compact_errors(Schema, Errors) ->
-    %% unexpected, we need the stacktrace reported, hence error
-    error({Schema, Errors}).
 
 do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
-        format => map,
-        %% Don't check lazy types, such as authenticate
-        check_lazy => false
+        format => map
     },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =

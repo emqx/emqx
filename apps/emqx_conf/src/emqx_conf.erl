@@ -296,8 +296,6 @@ hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
 hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
     {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
     {#{type => array, items => Schema}, Refs};
-hocon_schema_to_spec(?LAZY(Item), LocalModule) ->
-    hocon_schema_to_spec(Item, LocalModule);
 hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
     {#{type => enum, symbols => Items}, []};
 hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->

@@ -35,6 +35,9 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
+    %% required by test cases, ensure the injection of
+    %% EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    _ = emqx_conf_schema:roots(),
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     case initialize() of
@@ -43,34 +46,23 @@ start(_StartType, _StartArgs) ->
     end.
 
 stop(_State) ->
-    ok = deinitialize(),
-    ok.
+    ok = deinitialize().
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
 initialize() ->
-    try
-        ok = ?AUTHN:register_providers(emqx_authn:providers()),
-
-        lists:foreach(
-            fun({ChainName, RawAuthConfigs}) ->
-                AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
-                ?AUTHN:initialize_authentication(
-                    ChainName,
-                    AuthConfig
-                )
-            end,
-            chain_configs()
-        )
-    of
-        ok -> ok
-    catch
-        throw:Reason ->
-            ?SLOG(error, #{msg => "failed_to_initialize_authentication", reason => Reason}),
-            {error, {failed_to_initialize_authentication, Reason}}
-    end.
+    ok = ?AUTHN:register_providers(emqx_authn:providers()),
+    lists:foreach(
+        fun({ChainName, AuthConfig}) ->
+            ?AUTHN:initialize_authentication(
+                ChainName,
+                AuthConfig
+            )
+        end,
+        chain_configs()
+    ).
 
 deinitialize() ->
     ok = ?AUTHN:deregister_providers(provider_types()),
@@ -80,12 +72,12 @@ chain_configs() ->
     [global_chain_config() | listener_chain_configs()].
 
 global_chain_config() ->
-    {?GLOBAL, emqx:get_raw_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
+    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
 
 listener_chain_configs() ->
     lists:map(
         fun({ListenerID, _}) ->
-            {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
+            {ListenerID, emqx:get_config(auth_config_path(ListenerID), [])}
         end,
         emqx_listeners:list()
     ).

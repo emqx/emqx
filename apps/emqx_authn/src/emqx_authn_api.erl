@@ -1232,15 +1232,10 @@ serialize_error({unknown_authn_type, Type}) ->
         code => <<"BAD_REQUEST">>,
         message => binfmt("Unknown type '~p'", [Type])
     }};
-serialize_error({bad_authenticator_config, Reason}) ->
-    {400, #{
-        code => <<"BAD_REQUEST">>,
-        message => binfmt("Bad authenticator config ~p", [Reason])
-    }};
 serialize_error(Reason) ->
     {400, #{
         code => <<"BAD_REQUEST">>,
-        message => binfmt("~p", [Reason])
+        message => binfmt("~0p", [Reason])
     }}.
 
 parse_position(<<"front">>) ->

@@ -40,6 +40,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -59,19 +60,19 @@ roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun union_member_selector/1),
                 #{}
             )}
     ].
 
 fields(get) ->
     [
-        {method, #{type => get, required => true, default => get, desc => ?DESC(method)}},
+        {method, #{type => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->
     [
-        {method, #{type => post, required => true, default => post, desc => ?DESC(method)}},
+        {method, #{type => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
@@ -158,6 +159,21 @@ refs() ->
         hoconsc:ref(?MODULE, get),
         hoconsc:ref(?MODULE, post)
     ].
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, Value}) ->
+    refs(Value).
+
+refs(#{<<"method">> := <<"get">>}) ->
+    [hoconsc:ref(?MODULE, get)];
+refs(#{<<"method">> := <<"post">>}) ->
+    [hoconsc:ref(?MODULE, post)];
+refs(_) ->
+    throw(#{
+        field_name => method,
+        expected => "get | post"
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).

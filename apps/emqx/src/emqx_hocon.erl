@@ -20,6 +20,8 @@
 -export([
     format_path/1,
     check/2,
+    check/3,
+    compact_errors/2,
     format_error/1,
     format_error/2,
     make_schema/1
@@ -36,20 +38,23 @@ format_path([Name | Rest]) -> [iol(Name), "." | format_path(Rest)].
 %% Always return plain map with atom keys.
 -spec check(module(), hocon:config() | iodata()) ->
     {ok, hocon:config()} | {error, any()}.
-check(SchemaModule, Conf) when is_map(Conf) ->
+check(SchemaModule, Conf) ->
     %% TODO: remove required
     %% fields should state required or not in their schema
     Opts = #{atom_key => true, required => false},
+    check(SchemaModule, Conf, Opts).
+
+check(SchemaModule, Conf, Opts) when is_map(Conf) ->
     try
         {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
     catch
-        throw:Reason ->
-            {error, Reason}
+        throw:Errors:Stacktrace ->
+            compact_errors(Errors, Stacktrace)
     end;
-check(SchemaModule, HoconText) ->
+check(SchemaModule, HoconText, Opts) ->
     case hocon:binary(HoconText, #{format => map}) of
         {ok, MapConfig} ->
-            check(SchemaModule, MapConfig);
+            check(SchemaModule, MapConfig, Opts);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -90,3 +95,34 @@ iol(L) when is_list(L) -> L.
 
 no_stacktrace(Map) ->
     maps:without([stacktrace], Map).
+
+%% @doc HOCON tries to be very informative about all the detailed errors
+%% it's maybe too much when reporting to the user
+-spec compact_errors(any(), Stacktrace :: list()) -> {error, any()}.
+compact_errors({SchemaModule, Errors}, Stacktrace) ->
+    compact_errors(SchemaModule, Errors, Stacktrace).
+
+compact_errors(SchemaModule, [Error0 | More], _Stacktrace) when is_map(Error0) ->
+    Error1 =
+        case length(More) of
+            0 ->
+                Error0;
+            N ->
+                Error0#{unshown_errors_count => N}
+        end,
+    Error =
+        case is_atom(SchemaModule) of
+            true ->
+                Error1#{schema_module => SchemaModule};
+            false ->
+                Error1
+        end,
+    {error, Error};
+compact_errors(SchemaModule, Error, Stacktrace) ->
+    %% unexpected, we need the stacktrace reported
+    %% if this happens it's a bug in hocon_tconf
+    {error, #{
+        schema_module => SchemaModule,
+        exception => Error,
+        stacktrace => Stacktrace
+    }}.

@@ -2352,25 +2352,23 @@ authentication(Which) ->
             global -> ?DESC(global_authentication);
             listener -> ?DESC(listener_authentication)
         end,
-    %% The runtime module injection
-    %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
-    %% is for now only affecting document generation.
-    %% maybe in the future, we can find a more straightforward way to support
-    %% * document generation (at compile time)
-    %% * type checks before boot (in bin/emqx config generation)
-    %% * type checks at runtime (when changing configs via management API)
-    Type0 =
+    %% poor man's dependency injection
+    %% this is due to the fact that authn is implemented outside of 'emqx' app.
+    %% so it can not be a part of emqx_schema since 'emqx' app is supposed to
+    %% work standalone.
+    Type =
         case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
-            undefined -> hoconsc:array(typerefl:map());
-            Module -> Module:root_type()
+            undefined ->
+                hoconsc:array(typerefl:map());
+            Module ->
+                Module:root_type()
         end,
-    %% It is a lazy type because when handling runtime update requests
-    %% the config is not checked by emqx_schema, but by the injected schema
-    Type = hoconsc:lazy(Type0),
-    #{
-        type => Type,
-        desc => Desc
-    }.
+    hoconsc:mk(Type, #{desc => Desc, converter => fun ensure_array/2}).
+
+%% the older version schema allows individual element (instead of a chain) in config
+ensure_array(undefined, _) -> undefined;
+ensure_array(L, _) when is_list(L) -> L;
+ensure_array(M, _) -> [M].
 
 -spec qos() -> typerefl:type().
 qos() ->
