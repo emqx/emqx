@@ -391,22 +391,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
     end.
 
 on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->
-    JoinFun = fun
-        ([Msg]) ->
-            emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg);
-        ([H | T]) ->
-            lists:foldl(
-                fun(Msg, Acc) ->
-                    Value = emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg),
-                    <<Acc/binary, ", ", Value/binary>>
-                end,
-                emqx_plugin_libs_rule:proc_sql_param_str(Tokens, H),
-                T
-            )
-    end,
-    {_, Msgs} = lists:unzip(BatchReqs),
-    JoinPart = JoinFun(Msgs),
-    SQL = <<InsertPart/binary, " values ", JoinPart/binary>>,
+    SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, InsertPart, Tokens),
     on_sql_query(InstId, query, SQL, [], default_timeout, State).
 
 on_sql_query(

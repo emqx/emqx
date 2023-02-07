@@ -31,7 +31,8 @@
     proc_sql_param_str/2,
     proc_cql_param_str/2,
     split_insert_sql/1,
-    detect_sql_type/1
+    detect_sql_type/1,
+    proc_batch_sql/3
 ]).
 
 %% type converting
@@ -163,6 +164,20 @@ detect_sql_type(SQL) ->
         _ ->
             {error, invalid_sql}
     end.
+
+-spec proc_batch_sql(
+    BatchReqs :: list({atom(), map()}),
+    InsertPart :: binary(),
+    Tokens :: tmpl_token()
+) -> InsertSQL :: binary().
+proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
+    ValuesPart = erlang:iolist_to_binary(
+        lists:join(", ", [
+            emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg)
+         || {_, Msg} <- BatchReqs
+        ])
+    ),
+    <<InsertPart/binary, " values ", ValuesPart/binary>>.
 
 unsafe_atom_key(Key) when is_atom(Key) ->
     Key;
