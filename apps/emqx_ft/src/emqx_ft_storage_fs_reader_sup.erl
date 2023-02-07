@@ -21,16 +21,16 @@
 -export([
     init/1,
     start_link/0,
-    start_child/3
+    start_child/2
 ]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_child(CallerPid, Filename, ChunkSize) ->
+start_child(CallerPid, Filename) ->
     Childspec = #{
         id => {CallerPid, Filename},
-        start => {emqx_ft_storage_fs_reader, start_link, [CallerPid, Filename, ChunkSize]},
+        start => {emqx_ft_storage_fs_reader, start_link, [CallerPid, Filename]},
         restart => temporary
     },
     supervisor:start_child(?MODULE, Childspec).
