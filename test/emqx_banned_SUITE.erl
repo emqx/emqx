@@ -21,11 +21,12 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx),
+    emqx_ct_helpers:start_apps([]),
     ok = ekka:start(),
     %% for coverage
     ok = emqx_banned:mnesia(copy),
@@ -34,7 +35,8 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ekka:stop(),
     ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    ekka_mnesia:delete_schema(),
+    emqx_ct_helpers:stop_apps([]).
 
 t_add_delete(_) ->
     Banned = #banned{who = {clientid, <<"TestClient">>},
@@ -84,7 +86,10 @@ t_check(_) ->
     ?assertEqual(0, emqx_banned:info(size)).
 
 t_unused(_) ->
-    {ok, Banned} = emqx_banned:start_link(),
+    Banned = case emqx_banned:start_link() of
+                 {ok, Pid} -> Pid;
+                 {error, {already_started, Pid}} -> Pid
+             end,
     ok = emqx_banned:create(#banned{who = {clientid, <<"BannedClient">>},
                                     until = erlang:system_time(second)}),
     ?assertEqual(ignored, gen_server:call(Banned, unexpected_req)),
@@ -93,3 +98,22 @@ t_unused(_) ->
     timer:sleep(500), %% expiry timer
     ok = emqx_banned:stop().
 
+t_kick(_) ->
+    ClientId = <<"client">>,
+    snabbkaffe:start_trace(),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId},
+
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    ?assertEqual(1, length(?of_kind(kick_session_due_to_banned, Trace))).
