@@ -30,4 +30,4 @@ introduced_in() ->
 -spec read(node(), pid()) ->
     {ok, binary()} | eof | {error, term()} | no_return().
 read(Node, Pid) ->
-    erpc:call(Node, emqx_ft_storage_fs_reader, read, [Pid]).
+    emqx_rpc:call(Node, emqx_ft_storage_fs_reader, read, [Pid]).
