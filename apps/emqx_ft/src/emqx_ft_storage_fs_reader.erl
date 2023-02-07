@@ -19,7 +19,18 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/types.hrl").
 
+%% API
+-export([
+    start_link/2,
+    start_supervised/2,
+    table/1,
+    table/2,
+    read/2
+]).
+
+%% gen_server callbacks
 -export([
     init/1,
     handle_call/3,
@@ -29,71 +40,68 @@
     code_change/3
 ]).
 
--export([
-    start_link/2,
-    start_link/3,
-    start_supervised/2,
-    start_supervised/3,
-    read/1
-]).
-
--export([
-    table/1
-]).
-
 -define(DEFAULT_CHUNK_SIZE, 1024).
+-define(IS_FILENAME(Filename), (is_list(Filename) or is_binary(Filename))).
 
-table(ReaderPid) ->
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
+-spec table(pid()) -> qlc:query_handle().
+table(ReaderPid) when is_pid(ReaderPid) ->
+    table(ReaderPid, ?DEFAULT_CHUNK_SIZE).
+
+-spec table(pid(), pos_integer()) -> qlc:query_handle().
+table(ReaderPid, Bytes) when is_pid(ReaderPid) andalso is_integer(Bytes) andalso Bytes > 0 ->
     NextFun = fun NextFun(Pid) ->
-        try
-            case emqx_ft_storage_fs_reader_proto_v1:read(node(Pid), Pid) of
-                eof ->
-                    [];
-                {ok, Data} ->
-                    [Data | fun() -> NextFun(Pid) end];
-                {error, Reason} ->
-                    ?SLOG(warning, #{msg => "file_read_error", reason => Reason}),
-                    [];
-                {BadRPC, Reason} when BadRPC =:= badrpc orelse BadRPC =:= badtcp ->
-                    ?SLOG(warning, #{msg => "file_read_rpc_error", kind => BadRPC, reason => Reason}),
-                    []
-            end
-        catch
-            Class:Error:Stacktrace ->
-                ?SLOG(warning, #{
-                    msg => "file_read_error",
-                    class => Class,
-                    reason => Error,
-                    stacktrace => Stacktrace
-                }),
+        case emqx_ft_storage_fs_reader_proto_v1:read(node(Pid), Pid, Bytes) of
+            eof ->
+                [];
+            {ok, Data} ->
+                [Data | fun() -> NextFun(Pid) end];
+            {error, Reason} ->
+                ?SLOG(warning, #{msg => "file_read_error", reason => Reason}),
+                [];
+            {BadRPC, Reason} when BadRPC =:= badrpc orelse BadRPC =:= badtcp ->
+                ?SLOG(warning, #{msg => "file_read_rpc_error", kind => BadRPC, reason => Reason}),
                 []
         end
     end,
     qlc:table(fun() -> NextFun(ReaderPid) end, []).
 
-start_link(CallerPid, Filename) ->
-    start_link(CallerPid, Filename, ?DEFAULT_CHUNK_SIZE).
+-spec start_link(pid(), filename:filename()) -> startlink_ret().
+start_link(CallerPid, Filename) when
+    is_pid(CallerPid) andalso
+        ?IS_FILENAME(Filename)
+->
+    gen_server:start_link(?MODULE, [CallerPid, Filename], []).
 
-start_link(CallerPid, Filename, ChunkSize) ->
-    gen_server:start_link(?MODULE, [CallerPid, Filename, ChunkSize], []).
+-spec start_supervised(pid(), filename:filename()) -> startlink_ret().
+start_supervised(CallerPid, Filename) when
+    is_pid(CallerPid) andalso
+        ?IS_FILENAME(Filename)
+->
+    emqx_ft_storage_fs_reader_sup:start_child(CallerPid, Filename).
 
-start_supervised(CallerPid, Filename) ->
-    start_supervised(CallerPid, Filename, ?DEFAULT_CHUNK_SIZE).
+-spec read(pid(), pos_integer()) -> {ok, binary()} | eof | {error, term()}.
+read(Pid, Bytes) when
+    is_pid(Pid) andalso
+        is_integer(Bytes) andalso
+        Bytes > 0
+->
+    gen_server:call(Pid, {read, Bytes}).
 
-start_supervised(CallerPid, Filename, ChunkSize) ->
-    emqx_ft_storage_fs_reader_sup:start_child(CallerPid, Filename, ChunkSize).
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
-read(Pid) ->
-    gen_server:call(Pid, read).
-
-init([CallerPid, Filename, ChunkSize]) ->
+init([CallerPid, Filename]) ->
     MRef = erlang:monitor(process, CallerPid),
     case file:open(Filename, [read, raw, binary]) of
         {ok, File} ->
             {ok, #{
                 filename => Filename,
                 file => File,
-                chunk_size => ChunkSize,
                 caller_pid => CallerPid,
                 mref => MRef
             }};
@@ -101,8 +109,8 @@ init([CallerPid, Filename, ChunkSize]) ->
             {stop, Reason}
     end.
 
-handle_call(read, _From, #{file := File, chunk_size := ChunkSize} = State) ->
-    case file:read(File, ChunkSize) of
+handle_call({read, Bytes}, _From, #{file := File} = State) ->
+    case file:read(File, Bytes) of
         {ok, Data} ->
             ?SLOG(debug, #{msg => "read", bytes => byte_size(Data)}),
             {reply, {ok, Data}, State};
@@ -113,7 +121,7 @@ handle_call(read, _From, #{file := File, chunk_size := ChunkSize} = State) ->
             {stop, Reason, Error, State}
     end;
 handle_call(Msg, _From, State) ->
-    {stop, {bad_call, Msg}, {bad_call, Msg}, State}.
+    {reply, {error, {bad_call, Msg}}, State}.
 
 handle_info(
     {'DOWN', MRef, process, CallerPid, _Reason}, #{mref := MRef, caller_pid := CallerPid} = State
