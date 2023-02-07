@@ -91,11 +91,7 @@ desc('public-key') ->
     ?DESC('public-key');
 desc('jwks') ->
     ?DESC('jwks');
-desc(ssl_disable) ->
-    ?DESC(ssl_disable);
-desc(ssl_enable) ->
-    ?DESC(ssl_enable);
-desc(_) ->
+desc(undefined) ->
     undefined.
 
 common_fields() ->
