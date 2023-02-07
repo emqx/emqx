@@ -167,7 +167,7 @@ cluster_query(Params, {Tab, QsSchema}, QueryFun) ->
     Start = if Page > 1 -> (Page-1) * Limit;
                true -> 0
             end,
-    Nodes = ekka_mnesia:running_nodes(),
+    Nodes = lists:sort(ekka_mnesia:running_nodes()),
     Rows = do_cluster_query(Nodes, Qs, QueryFun, Start, Limit+1, []),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
