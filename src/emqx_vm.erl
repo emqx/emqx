@@ -380,14 +380,19 @@ read_otp_version() ->
     Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILT_ON"]),
     case file:read_file(Filename) of
         {ok, BuiltOn} ->
-            %% running on EQM X release
+            %% running on EQMX release
             BuiltOn;
         {error, enoent} ->
-            %% running tests etc.
             OtpMajor = erlang:system_info(otp_release),
             OtpVsnFile = filename:join([ReleasesDir, OtpMajor, "OTP_VERSION"]),
-            {ok, Vsn} = file:read_file(OtpVsnFile),
-            Vsn
+            case file:read_file(OtpVsnFile) of
+                {ok, Vsn} ->
+                    %% this happens when running in test where system's OTP is in use
+                    Vsn;
+                _ ->
+                    %% when the code is cover-compiled
+                    iolist_to_binary(OtpMajor)
+            end
     end.
 
 parse_built_on(BuiltOn) ->
