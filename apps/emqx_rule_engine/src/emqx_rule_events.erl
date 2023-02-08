@@ -853,9 +853,25 @@ printable_maps(Headers) ->
                         value => Value
                      } || {Key, Value} <- V0]
                 };
+            (K, V, AccIn) when is_map(V) ->
+                AccIn#{K => printable_maps(V)};
+            (K, V, AccIn) when is_list(V) ->
+                AccIn#{K => printable_list(V)};
             (_K, V, AccIn) when is_tuple(V) ->
-                %% internal header
+                %% internal header, remove it
                 AccIn;
             (K, V, AccIn) ->
                 AccIn#{K => V}
         end, #{}, Headers).
+
+printable_list(L) ->
+    lists:filtermap(fun printable_element/1, L).
+
+printable_element(E) when is_map(E) ->
+    {true, printable_maps(E)};
+printable_element(E) when is_tuple(E) ->
+    false;
+printable_element(E) when is_list(E) ->
+    {true, printable_list(E)};
+printable_element(E) ->
+    {true, E}.
