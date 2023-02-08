@@ -111,11 +111,11 @@
                        zh => <<"桥接挂载点"/utf8>>},
             description => #{
                 en => <<"MountPoint for bridge topic:<br/>"
-                        "Example: The topic of messages sent to `topic1` on local node "
-                        "will be transformed to `bridge/aws/${node}/topic1`">>,
+                        "Example: The topic of messages sent to <code>topic1</code> on local node "
+                        "will be transformed to <code>bridge/aws/${node}/topic1</code>">>,
                 zh => <<"桥接主题的挂载点:<br/>"
-                        "示例: 本地节点向 `topic1` 发消息，远程桥接节点的主题"
-                        "会变换为 `bridge/aws/${node}/topic1`"/utf8>>
+                        "示例: 本地节点向 <code>topic1</code> 发消息，远程桥接节点的主题"
+                        "会变换为 <code>bridge/aws/${node}/topic1</code>"/utf8>>
             }
         },
         disk_cache => #{
@@ -267,10 +267,10 @@
             type => string,
             required => true,
             default => <<"emqx2@127.0.0.1">>,
-            title => #{en => <<"EMQ X Node Name">>,
-                       zh => <<"EMQ X 节点名称"/utf8>>},
-            description => #{en => <<"EMQ X Remote Node Name">>,
-                             zh => <<"远程 EMQ X 节点名称 "/utf8>>}
+            title => #{en => <<"EMQX Node Name">>,
+                       zh => <<"EMQX 节点名称"/utf8>>},
+            description => #{en => <<"EMQX Remote Node Name">>,
+                             zh => <<"远程 EMQX 节点名称 "/utf8>>}
         },
         mountpoint => #{
             order => 2,
@@ -280,11 +280,11 @@
             title => #{en => <<"Bridge MountPoint">>,
                        zh => <<"桥接挂载点"/utf8>>},
             description => #{en => <<"MountPoint for bridge topic<br/>"
-                                     "Example: The topic of messages sent to `topic1` on local node "
-                                     "will be transformed to `bridge/aws/${node}/topic1`">>,
+                                     "Example: The topic of messages sent to <code>topic1</code> on local node "
+                                     "will be transformed to <code>bridge/emqx/${node}/topic1</code>">>,
                              zh => <<"桥接主题的挂载点<br/>"
-                                     "示例: 本地节点向 `topic1` 发消息，远程桥接节点的主题"
-                                     "会变换为 `bridge/aws/${node}/topic1`"/utf8>>}
+                                     "示例: 本地节点向 <code>topic1</code> 发消息，远程桥接节点的主题"
+                                     "会变换为 <code>bridge/emqx/${node}/topic1</code>"/utf8>>}
         },
         pool_size => #{
             order => 3,
@@ -358,7 +358,7 @@
         destroy => on_resource_destroy,
         params => ?RESOURCE_CONFIG_SPEC_RPC,
         title => #{en => <<"EMQX Bridge">>, zh => <<"EMQX Bridge"/utf8>>},
-        description => #{en => <<"EMQ X RPC Bridge">>, zh => <<"EMQ X RPC 消息桥接"/utf8>>}
+        description => #{en => <<"EMQX RPC Bridge">>, zh => <<"EMQX RPC 消息桥接"/utf8>>}
     }).
 
 -rule_action(#{

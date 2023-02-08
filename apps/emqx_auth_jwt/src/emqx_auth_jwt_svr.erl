@@ -99,13 +99,13 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _TRef, refresh}, State = #state{addr = Addr}) ->
-    NState = try
-                 true = ets:insert(?TAB, {remote, request_jwks(Addr)}),
-                 State
-             catch _:_ ->
-                 State
-             end,
-    {noreply, reset_timer(NState)};
+    try
+        true = ets:insert(?TAB, {remote, request_jwks(Addr)})
+    catch Err:Reason ->
+        ?LOG_SENSITIVE(warning, "Request JWKS failed, jwks_addr: ~p, reason: ~p",
+            [Addr, {Err, Reason}])
+    end,
+    {noreply, reset_timer(State)};
 
 handle_info({request_jwks, Options}, State) ->
     Remote = key2jwt_value(jwks_addr, fun request_jwks/1, Options),
