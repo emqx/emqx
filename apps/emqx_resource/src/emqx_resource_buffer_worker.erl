@@ -334,12 +334,7 @@ resume_from_blocked(Data) ->
         {single, Ref, Query} ->
             %% We retry msgs in inflight window sync, as if we send them
             %% async, they will be appended to the end of inflight window again.
-            case is_inflight_full(InflightTID) of
-                true ->
-                    {keep_state, Data};
-                false ->
-                    retry_inflight_sync(Ref, Query, Data)
-            end;
+            retry_inflight_sync(Ref, Query, Data);
         {batch, Ref, NotExpired, Expired} ->
             update_inflight_item(InflightTID, Ref, NotExpired),
             NumExpired = length(Expired),
@@ -347,12 +342,7 @@ resume_from_blocked(Data) ->
             NumExpired > 0 andalso ?tp(buffer_worker_retry_expired, #{expired => Expired}),
             %% We retry msgs in inflight window sync, as if we send them
             %% async, they will be appended to the end of inflight window again.
-            case is_inflight_full(InflightTID) of
-                true ->
-                    {keep_state, Data};
-                false ->
-                    retry_inflight_sync(Ref, NotExpired, Data)
-            end
+            retry_inflight_sync(Ref, NotExpired, Data)
     end.
 
 retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
