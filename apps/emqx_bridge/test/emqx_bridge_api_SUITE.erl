@@ -82,19 +82,27 @@ end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge]),
     ok.
 
-init_per_testcase(t_bad_bpapi_vsn, Config) ->
+init_per_testcase(t_broken_bpapi_vsn, Config) ->
+    meck:new(emqx_bpapi, [passthrough]),
+    meck:expect(emqx_bpapi, supported_version, 1, -1),
+    meck:expect(emqx_bpapi, supported_version, 2, -1),
+    init_per_testcase(commong, Config);
+init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:new(emqx_bpapi, [passthrough]),
     meck:expect(emqx_bpapi, supported_version, 1, 1),
     meck:expect(emqx_bpapi, supported_version, 2, 1),
-    init_per_testcase(commong, Config);
+    init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
     [{port, Port}, {sock, Sock}, {acceptor, Acceptor} | Config].
 
-end_per_testcase(t_bad_bpapi_vsn, Config) ->
+end_per_testcase(t_broken_bpapi_vsn, Config) ->
     meck:unload([emqx_bpapi]),
-    end_per_testcase(commong, Config);
+    end_per_testcase(common, Config);
+end_per_testcase(t_old_bpapi_vsn, Config) ->
+    meck:unload([emqx_bpapi]),
+    end_per_testcase(common, Config);
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),
     Acceptor = ?config(acceptor, Config),
@@ -442,13 +450,7 @@ t_cascade_delete_actions(Config) ->
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     ok.
 
-t_start_stop_bridges_node(Config) ->
-    do_start_stop_bridges(node, Config).
-
-t_start_stop_bridges_cluster(Config) ->
-    do_start_stop_bridges(cluster, Config).
-
-t_bad_bpapi_vsn(Config) ->
+t_broken_bpapi_vsn(Config) ->
     Port = ?config(port, Config),
     URL1 = ?URL(Port, "abc"),
     Name = <<"t_bad_bpapi_vsn">>,
@@ -458,9 +460,35 @@ t_bad_bpapi_vsn(Config) ->
         ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
     ),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    %% still works since we redirect to 'restart'
     {ok, 501, <<>>} = request(post, operation_path(cluster, start, BridgeID), <<"">>),
     {ok, 501, <<>>} = request(post, operation_path(node, start, BridgeID), <<"">>),
     ok.
+
+t_old_bpapi_vsn(Config) ->
+    Port = ?config(port, Config),
+    URL1 = ?URL(Port, "abc"),
+    Name = <<"t_bad_bpapi_vsn">>,
+    {ok, 201, _Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    {ok, 204, <<>>} = request(post, operation_path(cluster, stop, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(post, operation_path(node, stop, BridgeID), <<"">>),
+    %% still works since we redirect to 'restart'
+    {ok, 204, <<>>} = request(post, operation_path(cluster, start, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(post, operation_path(node, start, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(post, operation_path(cluster, restart, BridgeID), <<"">>),
+    {ok, 204, <<>>} = request(post, operation_path(node, restart, BridgeID), <<"">>),
+    ok.
+
+t_start_stop_bridges_node(Config) ->
+    do_start_stop_bridges(node, Config).
+
+t_start_stop_bridges_cluster(Config) ->
+    do_start_stop_bridges(cluster, Config).
 
 do_start_stop_bridges(Type, Config) ->
     %% assert we there's no bridges at first
