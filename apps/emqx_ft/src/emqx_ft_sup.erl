@@ -29,7 +29,7 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 100,
         period => 10
     },
