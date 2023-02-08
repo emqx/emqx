@@ -20,7 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0-rc.1").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 all() ->
@@ -30,12 +30,11 @@ init_per_suite(Config) ->
     WorkDir = proplists:get_value(data_dir, Config),
     ok = filelib:ensure_dir(WorkDir),
     DemoShDir1 = string:replace(WorkDir, "emqx_mgmt_api_plugins", "emqx_plugins"),
-    DemoShDir = string:replace(DemoShDir1, "emqx_management", "emqx_plugins"),
+    DemoShDir = lists:flatten(string:replace(DemoShDir1, "emqx_management", "emqx_plugins")),
     OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
     ok = filelib:ensure_dir(DemoShDir),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_plugins]),
     emqx_plugins:put_config(install_dir, DemoShDir),
-
     [{demo_sh_dir, DemoShDir}, {orig_install_dir, OrigInstallDir} | Config].
 
 end_per_suite(Config) ->
@@ -48,18 +47,20 @@ end_per_suite(Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_plugins, emqx_conf]),
     ok.
 
-todo_t_plugins(Config) ->
+t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = get_demo_plugin_package(DemoShDir),
     ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
     ok = install_plugin(PackagePath),
     {ok, StopRes} = describe_plugins(NameVsn),
+    Node = atom_to_binary(node()),
     ?assertMatch(
         #{
             <<"running_status">> := [
-                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}
+                #{<<"node">> := Node, <<"status">> := <<"stopped">>}
             ]
         },
         StopRes
@@ -70,7 +71,7 @@ todo_t_plugins(Config) ->
     ?assertMatch(
         #{
             <<"running_status">> := [
-                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"running">>}
+                #{<<"node">> := Node, <<"status">> := <<"running">>}
             ]
         },
         StartRes
@@ -80,13 +81,35 @@ todo_t_plugins(Config) ->
     ?assertMatch(
         #{
             <<"running_status">> := [
-                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}
+                #{<<"node">> := Node, <<"status">> := <<"stopped">>}
             ]
         },
         StopRes2
     ),
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
+
+t_bad_plugin(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePathOrig = get_demo_plugin_package(DemoShDir),
+    PackagePath = filename:join([
+        filename:dirname(PackagePathOrig),
+        "bad_plugin-1.0.0.tar.gz"
+    ]),
+    ct:pal("package_location:~p orig:~p", [PackagePath, PackagePathOrig]),
+    %% rename plugin tarball
+    file:copy(PackagePathOrig, PackagePath),
+    file:delete(PackagePathOrig),
+    {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, _}} = install_plugin(PackagePath),
+    ?assertEqual(
+        {error, enoent},
+        file:delete(
+            filename:join([
+                emqx_plugins:install_dir(),
+                filename:basename(PackagePath)
+            ])
+        )
+    ).
 
 list_plugins() ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins"]),

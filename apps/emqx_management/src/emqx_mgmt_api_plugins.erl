@@ -17,7 +17,6 @@
 
 -behaviour(minirest_api).
 
--include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 %%-include_lib("emqx_plugins/include/emqx_plugins.hrl").
@@ -326,7 +325,8 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     %% TODO what happens when a new node join in?
     %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
-    case emqx_plugins:describe(string:trim(FileName, trailing, ".tar.gz")) of
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    case emqx_plugins:describe(NameVsn) of
         {error, #{error := "bad_info_file", return := {enoent, _}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
@@ -346,6 +346,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
                             }}
                     end;
                 {error, Reason} ->
+                    emqx_plugins:delete_package(NameVsn),
                     {400, #{
                         code => 'BAD_PLUGIN_INFO',
                         message => iolist_to_binary([Reason, ":", FileName])
@@ -367,9 +368,24 @@ upload_install(post, #{}) ->
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
     {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
-    %% TODO: handle non-OKs
-    [] = lists:filter(fun(R) -> R =/= ok end, Res),
-    {200}.
+    case lists:filter(fun(R) -> R =/= ok end, Res) of
+        [] ->
+            {200};
+        Filtered ->
+            %% crash if we have unexpected errors or results
+            [] = lists:filter(
+                fun
+                    ({error, {failed, _}}) -> true;
+                    ({error, _}) -> false
+                end,
+                Filtered
+            ),
+            {error, #{error := Reason}} = hd(Filtered),
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => iolist_to_binary([Reason, ":", FileName])
+            }}
+    end.
 
 plugin(get, #{bindings := #{name := Name}}) ->
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
@@ -408,7 +424,15 @@ install_package(FileName, Bin) ->
     File = filename:join(emqx_plugins:install_dir(), FileName),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    emqx_plugins:ensure_installed(PackageName).
+    case emqx_plugins:ensure_installed(PackageName) of
+        {error, #{return := not_found}} = NotFound ->
+            NotFound;
+        {error, _Reason} = Error ->
+            _ = file:delete(File),
+            Error;
+        Result ->
+            Result
+    end.
 
 %% For RPC plugin get
 describe_package(Name) ->
