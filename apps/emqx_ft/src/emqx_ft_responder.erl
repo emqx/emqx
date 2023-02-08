@@ -21,6 +21,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([start_link/0]).
 
 -export([
@@ -87,10 +89,13 @@ handle_call({unregister, Key}, _From, State) ->
             _ = erlang:cancel_timer(TRef),
             true = ets:delete(?TAB, Key),
             {reply, ok, State}
-    end.
+    end;
+handle_call(Msg, _From, State) ->
+    ?SLOG(warning, #{msg => "unknown_call", call_msg => Msg}),
+    {reply, {error, unknown_call}, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(warning, #{msg => "unknown cast", cast_msg => Msg}),
+    ?SLOG(warning, #{msg => "unknown_cast", cast_msg => Msg}),
     {noreply, State}.
 
 handle_info({timeout, TRef, {timeout, Key}}, State) ->
@@ -100,12 +105,12 @@ handle_info({timeout, TRef, {timeout, Key}}, State) ->
         [{_, Action, TRef}] ->
             _ = erlang:cancel_timer(TRef),
             true = ets:delete(?TAB, Key),
-            %% TODO: safe apply
-            _ = Action(Key),
+            ok = safe_apply(Action, [Key]),
+            ?tp(ft_timeout_action_applied, #{key => Key}),
             {noreply, State}
     end;
 handle_info(Msg, State) ->
-    ?SLOG(warning, #{msg => "unknown message", info_msg => Msg}),
+    ?SLOG(warning, #{msg => "unknown_message", info_msg => Msg}),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -113,3 +118,20 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(_Reason, _State) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+safe_apply(Fun, Args) ->
+    try apply(Fun, Args) of
+        _ -> ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "safe_apply_failed",
+                class => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end.
