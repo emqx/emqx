@@ -34,7 +34,7 @@
     storage :: _Storage,
     transfer :: emqx_ft:transfer(),
     assembly :: _TODO,
-    file :: io:device(),
+    file :: {file:filename(), io:device(), term()} | undefined,
     hash,
     callback :: fun((ok | {error, term()}) -> any())
 }).
@@ -120,10 +120,16 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO: pipelining
     case pread(Node, Segment, St) of
         {ok, Content} ->
-            {ok, NHandle} = emqx_ft_storage_fs:write(St#st.file, Content),
-            {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])}
-        % {error, _} ->
-        %     ...
+            case emqx_ft_storage_fs:write(St#st.file, Content) of
+                {ok, NHandle} ->
+                    {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])};
+                %% TODO: better error handling
+                {error, Error} ->
+                    error(Error)
+            end;
+        {error, Error} ->
+            %% TODO: better error handling
+            error(Error)
     end;
 handle_event(internal, _, {assemble, []}, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
