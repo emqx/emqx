@@ -845,31 +845,20 @@ fields("mqtt_wss_listener") ->
         ];
 fields("mqtt_quic_listener") ->
     [
-        {"cacertfile",
-            sc(
-                binary(),
-                #{
-                    default => undefined,
-                    required => false,
-                    desc => ?DESC(common_ssl_opts_schema_cacertfile)
-                }
-            )},
         {"certfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_certfile)}
+                #{
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                }
             )},
         {"keyfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
-            )},
-        {"verify",
-            sc(
-                hoconsc:enum([verify_peer, verify_none]),
+                %% TODO: deprecated => {since, "5.1.0"}
                 #{
-                    default => verify_none,
-                    desc => ?DESC(common_ssl_opts_schema_verify)
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
                 }
             )},
         {"ciphers", ciphers_schema(quic)},
@@ -895,6 +884,14 @@ fields("mqtt_quic_listener") ->
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                }
+            )},
+        {"ssl_options",
+            sc(
+                ref("listener_quic_ssl_opts"),
+                #{
+                    required => false,
+                    desc => ?DESC(fields_mqtt_quic_listener_ssl_options)
                 }
             )}
     ] ++ base_listener(14567);
@@ -1106,6 +1103,8 @@ fields("listener_wss_opts") ->
         },
         true
     );
+fields("listener_quic_ssl_opts") ->
+    server_ssl_opts_schema(#{}, false);
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
@@ -1785,6 +1784,8 @@ desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
+desc("listener_quic_ssl_opts") ->
+    "TLS options for QUIC transport.";
 desc("ssl_client_opts") ->
     "Socket options for SSL clients.";
 desc("deflate_opts") ->
