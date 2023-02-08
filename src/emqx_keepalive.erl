@@ -73,6 +73,7 @@ check(NewVal, KeepAlive = #keepalive{statval = OldVal,
         true -> {error, timeout}
     end.
 
+-define(IS_KEEPALIVE(Interval), Interval >= 0 andalso Interval =< 65535000).
 %% from mqtt-v3.1.1 specific
 %% A Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism.
 %% This means that, in this case, the Server is not required
@@ -85,7 +86,10 @@ check(NewVal, KeepAlive = #keepalive{statval = OldVal,
 %% typically this is a few minutes.
 %% The maximum value is (65535s) 18 hours 12 minutes and 15 seconds.
 
-%% @doc Update keepalive's interval
--spec(set(interval, non_neg_integer(), keepalive()) -> keepalive()).
-set(interval, Interval, KeepAlive) when Interval >= 0 andalso Interval =< 65535000 ->
+%% @doc Update keepalive interval
+%% The keepalive() is undefined when connecting via keepalive=0.
+-spec(set(interval, non_neg_integer(), keepalive() | undefined) -> keepalive()).
+set(interval, Interval, undefined) when ?IS_KEEPALIVE(Interval) ->
+    init(Interval);
+set(interval, Interval, KeepAlive) when ?IS_KEEPALIVE(Interval) ->
     KeepAlive#keepalive{interval = Interval}.
