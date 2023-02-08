@@ -18,8 +18,7 @@
 
 -behaviour(gen_server).
 
--include("types.hrl").
--include("logger.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -export([start_link/0, stop/0]).
 
@@ -70,7 +69,7 @@
 -define(SERVER, ?MODULE).
 -define(CMD_TAB, emqx_command).
 
--spec start_link() -> startlink_ret().
+-spec start_link() -> {ok, pid()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -103,7 +102,7 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
-    case emqx_misc:safe_to_existing_atom(Cmd) of
+    case safe_to_existing_atom(Cmd) of
         {ok, Cmd1} ->
             run_command(Cmd1, Args);
         _ ->
@@ -122,7 +121,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 ok
             catch
                 _:Reason:Stacktrace ->
-                    ?SLOG(error, #{
+                    ?LOG_ERROR(#{
                         msg => "ctl_command_crashed",
                         stacktrace => Stacktrace,
                         reason => Reason
@@ -220,7 +219,7 @@ format_usage(CmdParams, Desc, Width) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?CMD_TAB, [protected, ordered_set]),
+    _ = ets:new(?CMD_TAB, [named_table, protected, ordered_set]),
     {ok, #state{seq = 0}}.
 
 handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq}) ->
@@ -229,23 +228,23 @@ handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq})
             ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts}),
             {reply, ok, next_seq(State)};
         [[OriginSeq] | _] ->
-            ?SLOG(warning, #{msg => "CMD_overidden", cmd => Cmd, mf => MF}),
+            ?LOG_WARNING(#{msg => "CMD_overidden", cmd => Cmd, mf => MF}),
             true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts}),
             {reply, ok, State}
     end;
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    ?LOG_ERROR(#{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({unregister_command, Cmd}, State) ->
     ets:match_delete(?CMD_TAB, {{'_', Cmd}, '_', '_'}),
     noreply(State);
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
+    ?LOG_ERROR(#{msg => "unexpected_cast", cast => Msg}),
     noreply(State).
 
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+    ?LOG_ERROR(#{msg => "unexpected_info", info => Info}),
     noreply(State).
 
 terminate(_Reason, _State) ->
@@ -272,3 +271,11 @@ zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
 zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
 zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
 zip_cmd([], []) -> [].
+
+safe_to_existing_atom(Str) ->
+    try
+        {ok, list_to_existing_atom(Str)}
+    catch
+        _:badarg ->
+            undefined
+    end.

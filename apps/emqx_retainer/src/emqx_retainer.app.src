@@ -5,7 +5,7 @@
     {vsn, "5.0.9"},
     {modules, []},
     {registered, [emqx_retainer_sup]},
-    {applications, [kernel, stdlib, emqx]},
+    {applications, [kernel, stdlib, emqx, emqx_ctl]},
     {mod, {emqx_retainer_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},
