@@ -28,7 +28,7 @@
 
 -spec description() -> string().
 description() ->
-    "EMQ X Trace Module".
+    "EMQX Trace Module".
 
 -spec load(any()) -> ok.
 load(_Env) ->

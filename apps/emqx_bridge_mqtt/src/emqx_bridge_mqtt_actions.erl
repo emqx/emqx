@@ -267,10 +267,10 @@
             type => string,
             required => true,
             default => <<"emqx2@127.0.0.1">>,
-            title => #{en => <<"EMQ X Node Name">>,
-                       zh => <<"EMQ X 节点名称"/utf8>>},
-            description => #{en => <<"EMQ X Remote Node Name">>,
-                             zh => <<"远程 EMQ X 节点名称 "/utf8>>}
+            title => #{en => <<"EMQX Node Name">>,
+                       zh => <<"EMQX 节点名称"/utf8>>},
+            description => #{en => <<"EMQX Remote Node Name">>,
+                             zh => <<"远程 EMQX 节点名称 "/utf8>>}
         },
         mountpoint => #{
             order => 2,
@@ -358,7 +358,7 @@
         destroy => on_resource_destroy,
         params => ?RESOURCE_CONFIG_SPEC_RPC,
         title => #{en => <<"EMQX Bridge">>, zh => <<"EMQX Bridge"/utf8>>},
-        description => #{en => <<"EMQ X RPC Bridge">>, zh => <<"EMQ X RPC 消息桥接"/utf8>>}
+        description => #{en => <<"EMQX RPC Bridge">>, zh => <<"EMQX RPC 消息桥接"/utf8>>}
     }).
 
 -rule_action(#{
