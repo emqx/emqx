@@ -642,14 +642,14 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         end
     ).
 
+node_operation_func(<<"restart">>) -> restart_bridge_to_node;
 node_operation_func(<<"start">>) -> start_bridge_to_node;
 node_operation_func(<<"stop">>) -> stop_bridge_to_node;
-node_operation_func(<<"restart">>) -> restart_bridge_to_node;
 node_operation_func(_) -> invalid.
 
+operation_func(<<"restart">>) -> restart;
 operation_func(<<"start">>) -> start;
 operation_func(<<"stop">>) -> stop;
-operation_func(<<"restart">>) -> restart;
 operation_func(_) -> invalid.
 
 enable_func(<<"true">>) -> enable;
@@ -667,12 +667,19 @@ operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
         {ok, _} ->
             {204};
         {error, not_implemented} ->
-            {501};
+            %% As of now this can only happen when we call 'start' on nodes
+            %% that run on an older proto version.
+            maybe_try_restart(Nodes, OperFunc, BridgeType, BridgeName);
         {error, [timeout | _]} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
         {error, ErrL} ->
             {500, error_msg('INTERNAL_ERROR', ErrL)}
     end.
+
+maybe_try_restart(Nodes, start, BridgeType, BridgeName) ->
+    operation_to_all_nodes(Nodes, restart, BridgeType, BridgeName);
+maybe_try_restart(_, _, _, _) ->
+    {501}.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
@@ -912,7 +919,9 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
                 ok ->
                     {204};
                 {error, not_implemented} ->
-                    {501};
+                    %% Should only happen if we call `start` on a node that is
+                    %% still on an older bpapi version that doesn't support it.
+                    maybe_try_restart_node(Node, OperFunc, BridgeType, BridgeName);
                 {error, timeout} ->
                     {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                 {error, {start_pool_failed, Name, Reason}} ->
@@ -932,6 +941,11 @@ call_operation(Node, OperFunc, BridgeType, BridgeName) ->
         {error, _} ->
             {400, error_msg('INVALID_NODE', <<"invalid node">>)}
     end.
+
+maybe_try_restart_node(Node, start_bridge_to_node, BridgeType, BridgeName) ->
+    call_operation(Node, restart_bridge_to_node, BridgeType, BridgeName);
+maybe_try_restart_node(_, _, _, _) ->
+    {501}.
 
 do_bpapi_call(Call, Args) ->
     do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args).
