@@ -78,7 +78,7 @@ takeover_finish(ConnMod, ChanPid) ->
     erpc:call(
         node(ChanPid),
         emqx_cm,
-        takeover_session_finish,
+        takeover_finish,
         [ConnMod, ChanPid],
         ?T_TAKEOVER * 2
     ).

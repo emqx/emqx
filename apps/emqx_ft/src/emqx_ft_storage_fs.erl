@@ -85,7 +85,7 @@
 %% Atomic operation.
 -spec store_filemeta(storage(), transfer(), filemeta()) ->
     % Quota? Some lower level errors?
-    {ok, emqx_ft_storage:ctx()} | {error, conflict} | {error, _TODO}.
+    ok | {error, conflict} | {error, _TODO}.
 store_filemeta(Storage, Transfer, Meta) ->
     % TODO safeguard against bad clientids / fileids.
     Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], ?MANIFEST),
@@ -226,8 +226,16 @@ ready_transfers(_Storage) ->
         end,
         Results
     ),
-    ?SLOG(warning, #{msg => "ready_transfers", failures => BadResults}),
-    {ok, [File || {ok, Files} <- GoodResults, File <- Files]}.
+    case {GoodResults, BadResults} of
+        {[], _} ->
+            ?SLOG(warning, #{msg => "ready_transfers", failures => BadResults}),
+            {error, no_nodes};
+        {_, []} ->
+            {ok, [File || {ok, Files} <- GoodResults, File <- Files]};
+        {_, _} ->
+            ?SLOG(warning, #{msg => "ready_transfers", failures => BadResults}),
+            {ok, [File || {ok, Files} <- GoodResults, File <- Files]}
+    end.
 
 ready_transfers_local(Storage) ->
     {ok, Transfers} = transfers(Storage),
@@ -323,7 +331,7 @@ open_file(Storage, Transfer, Filemeta) ->
     end.
 
 -spec write(handle(), iodata()) ->
-    ok | {error, _TODO}.
+    {ok, handle()} | {error, _TODO}.
 write({Filepath, IoDevice, Ctx}, IoData) ->
     case file:write(IoDevice, IoData) of
         ok ->

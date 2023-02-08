@@ -51,8 +51,12 @@ pread(Node, Transfer, Frag, Offset, Size) ->
     erpc:call(Node, emqx_ft_storage_fs_proxy, pread_local, [Transfer, Frag, Offset, Size]).
 
 -spec ready_transfers([node()]) ->
-    {ok, [{emqx_ft_storage:ready_transfer_id(), emqx_ft_storage:ready_transfer_info()}]}
-    | {error, term()}.
+    [
+        {ok, [{emqx_ft_storage:ready_transfer_id(), emqx_ft_storage:ready_transfer_info()}]}
+        | {error, term()}
+        | {exit, term()}
+        | {throw, term()}
+    ].
 ready_transfers(Nodes) ->
     erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, ready_transfers_local, []).
 
