@@ -117,14 +117,10 @@ jobs:
       matrix:
         profile:
           - "${{ needs.prepare.outputs.PROFILE }}"
-        flavor:
-          - ''
-          - '-elixir'
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
         os:
-          - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
         # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
         #       only support latest otp and elixir, not a matrix
@@ -133,12 +129,11 @@ jobs:
         otp:
           - 24.3.4.2-1 # switch to 25 once ready to release 5.1
         elixir:
-          - 1.13.4 # update to latest
+          - 'no_elixir'
+          - '1.13.4' # update to latest
         exclude: # TODO: publish enterprise to ecr too?
           - registry: 'public.ecr.aws'
             profile: emqx-enterprise
-          - flavor: '-elixir'
-            os: [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
 
     steps:
     - uses: actions/download-artifact@v3
@@ -173,13 +168,9 @@ jobs:
       run: |
         extra_labels=
         img_suffix=
-        flavor="${{ matrix.flavor }}"
-        if [ "${{ matrix.flavor }}" = '-elixir' ]; then
+        if [ "${{ matrix.elixir }}" != 'no_elixir' ]; then
           img_suffix="-elixir"
           extra_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}"
-        fi
-        if [[ "${{ matrix.os[0] }}" =~ "alpine" ]]; then
-          img_suffix="${img_suffix}-alpine"
         fi
 
         echo "img_suffix=$img_suffix" >> $GITHUB_OUTPUT
@@ -209,6 +200,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          EMQX_NAME=${{ matrix.profile }}${{ matrix.flavor }}
+          EMQX_NAME=${{ matrix.profile }}${{ steps.pre-meta.outputs.img_suffix }}
         file: source/${{ matrix.os[2] }}
         context: source

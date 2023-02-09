@@ -322,13 +322,7 @@ make_tgz() {
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
-    if [ -z "${EMQX_DOCKERFILE:-}" ]; then
-        if [[ "$EMQX_BUILDER" =~ "alpine" ]]; then
-            EMQX_DOCKERFILE='deploy/docker/Dockerfile.alpine'
-        else
-            EMQX_DOCKERFILE='deploy/docker/Dockerfile'
-        fi
-    fi
+    EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     if [[ "$PROFILE" = *-elixir ]]; then
       PKG_VSN="$PKG_VSN-elixir"
     fi
