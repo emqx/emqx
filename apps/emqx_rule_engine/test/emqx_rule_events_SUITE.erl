@@ -36,18 +36,44 @@ t_mod_hook_fun(_) ->
               ]].
 
 t_printable_maps(_) ->
-    Headers = #{peerhost => {127,0,0,1},
-                peername => {{127,0,0,1}, 9980},
-                sockname => {{127,0,0,1}, 1883},
-                redispatch_to => {<<"group">>, <<"sub/topic/+">>},
-                shared_dispatch_ack => {self(), ref}
-                },
+    TestMap = #{
+      peerhost => {127,0,0,1},
+      peername => {{127,0,0,1}, 9980},
+      sockname => {{127,0,0,1}, 1883},
+      redispatch_to => {<<"group">>, <<"sub/topic/+">>},
+      shared_dispatch_ack => {self(), ref},
+      string => <<"abc">>,
+      atom => abc,
+      integer => 1,
+      float => 1.0,
+      simple_list => [1, 1.0, a, "abc", <<"abc">>, {a,b}]
+    },
+    Headers = TestMap#{
+      map => TestMap,
+      map_list => [
+        TestMap#{
+          map => TestMap
+        }
+      ]
+    },
     Converted = emqx_rule_events:printable_maps(Headers),
-    ?assertMatch(
-        #{peerhost := <<"127.0.0.1">>,
-          peername := <<"127.0.0.1:9980">>,
-          sockname := <<"127.0.0.1:1883">>
-        }, Converted),
-    ?assertNot(maps:is_key(redispatch_to, Converted)),
-    ?assertNot(maps:is_key(shared_dispatch_ack, Converted)),
+    Verify = fun(Result) ->
+      ?assertMatch(
+          #{peerhost := <<"127.0.0.1">>,
+            peername := <<"127.0.0.1:9980">>,
+            sockname := <<"127.0.0.1:1883">>,
+            string := <<"abc">>,
+            atom := abc,
+            integer := 1,
+            float := 1.0,
+            simple_list := [1, 1.0, a, "abc", <<"abc">>] %% {a,b} is removed
+          }, Result),
+      ?assertNot(maps:is_key(redispatch_to, Result)),
+      ?assertNot(maps:is_key(shared_dispatch_ack, Result)),
+      %% make sure the result is jsonable
+      _ = emqx_json:encode(Result)
+    end,
+    Verify(maps:get(map, Converted)),
+    Verify(maps:get(map, lists:nth(1, maps:get(map_list, Converted)))),
+    Verify(Converted),
     ok.
