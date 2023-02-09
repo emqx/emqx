@@ -73,7 +73,7 @@ t_iterate(_Config) ->
     %% Iterate through individual topics:
     [
         begin
-            {ok, It} = emqx_replay_local_store:make_iterator(?ZONE, Topic, 0),
+            {ok, It} = emqx_replay_local_store:make_iterator(?ZONE, {Topic, 0}),
             Values = iterate(It),
             ?assertEqual(lists:map(fun integer_to_binary/1, Timestamps), Values)
         end
@@ -195,7 +195,7 @@ store(Zone, PublishedAt, Topic, Payload) ->
     emqx_replay_local_store:store(Zone, ID, PublishedAt, parse_topic(Topic), Payload).
 
 iterate(DB, TopicFilter, StartTime) ->
-    {ok, It} = emqx_replay_local_store:make_iterator(DB, parse_topic(TopicFilter), StartTime),
+    {ok, It} = emqx_replay_local_store:make_iterator(DB, {parse_topic(TopicFilter), StartTime}),
     iterate(It).
 
 iterate(It) ->

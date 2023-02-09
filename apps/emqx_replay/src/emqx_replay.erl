@@ -19,6 +19,7 @@
 -export([]).
 
 -export_type([topic/0, time/0]).
+-export_type([replay_id/0, replay/0]).
 
 %%================================================================================
 %% Type declarations
@@ -31,6 +32,13 @@
 %% Earliest possible timestamp is 0.
 %% TODO granularity?
 -type time() :: non_neg_integer().
+
+-type replay_id() :: binary().
+
+-type replay() :: {
+    _TopicFilter :: topic(),
+    _StartTime :: time()
+}.
 
 %%================================================================================
 %% API funcions

@@ -21,6 +21,8 @@
 
 -define(WORK_DIR, ["_build", "test"]).
 -define(RUN_ID, {?MODULE, testrun_id}).
+
+-define(ZONE, ?MODULE).
 -define(GEN_ID, 42).
 
 %%--------------------------------------------------------------------
@@ -51,8 +53,7 @@ prop_next_seek_monotonic() ->
         {topic_filter(), pos_integer(), keymapper()},
         begin
             Filter = emqx_replay_message_storage:make_keyspace_filter(
-                TopicFilter,
-                StartTime,
+                {TopicFilter, StartTime},
                 Keymapper
             ),
             ?FORALL(
@@ -99,8 +100,9 @@ prop_iterate_messages() ->
             },
             begin
                 TopicFilter = make_topic_filter(Pattern, Topic),
-                Messages = iterate_db(DB, TopicFilter, StartTime),
-                Reference = iterate_shim(Shim, TopicFilter, StartTime),
+                Iteration = {TopicFilter, StartTime},
+                Messages = iterate_db(DB, Iteration),
+                Reference = iterate_shim(Shim, Iteration),
                 ok = close_db(Handle),
                 ok = emqx_replay_message_storage_shim:close(Shim),
                 ?WHENFAIL(
@@ -143,10 +145,11 @@ prop_iterate_eq_iterate_with_preserve_restore() ->
                 shuffled(flat([non_empty(list({preserve, restore})), list(iterate)]))
             },
             begin
-                TopicFilter = make_topic_filter(Pat, Topic),
-                Iterator = make_iterator(DB, TopicFilter, StartTime),
-                Messages = run_iterator_commands(Commands, Iterator, DB),
-                equals(Messages, iterate_db(DB, TopicFilter, StartTime))
+                Replay = {make_topic_filter(Pat, Topic), StartTime},
+                Iterator = make_iterator(DB, Replay),
+                Ctx = #{db => DB, replay => Replay},
+                Messages = run_iterator_commands(Commands, Iterator, Ctx),
+                equals(Messages, iterate_db(DB, Replay))
             end
         )
     end).
@@ -177,11 +180,11 @@ prop_iterate_eq_iterate_with_refresh() ->
                 pos_integer()
             },
             ?TIMEOUT(5000, begin
-                TopicFilter = make_topic_filter(Pat, Topic),
+                Replay = {make_topic_filter(Pat, Topic), StartTime},
                 IterationOptions = #{iterator_refresh => {every, RefreshEvery}},
-                Iterator = make_iterator(DB, TopicFilter, StartTime, IterationOptions),
+                Iterator = make_iterator(DB, Replay, IterationOptions),
                 Messages = iterate_db(Iterator),
-                equals(Messages, iterate_db(DB, TopicFilter, StartTime))
+                equals(Messages, iterate_db(DB, Replay))
             end)
         )
     end).
@@ -205,8 +208,8 @@ store_db(DB, Messages) ->
         Messages
     ).
 
-iterate_db(DB, TopicFilter, StartTime) ->
-    iterate_db(make_iterator(DB, TopicFilter, StartTime)).
+iterate_db(DB, Iteration) ->
+    iterate_db(make_iterator(DB, Iteration)).
 
 iterate_db(It) ->
     case emqx_replay_message_storage:next(It) of
@@ -216,26 +219,30 @@ iterate_db(It) ->
             []
     end.
 
-make_iterator(DB, TopicFilter, StartTime) ->
-    {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime),
+make_iterator(DB, Replay) ->
+    {ok, It} = emqx_replay_message_storage:make_iterator(DB, Replay),
     It.
 
-make_iterator(DB, TopicFilter, StartTime, Options) ->
-    {ok, It} = emqx_replay_message_storage:make_iterator(DB, TopicFilter, StartTime, Options),
+make_iterator(DB, Replay, Options) ->
+    {ok, It} = emqx_replay_message_storage:make_iterator(DB, Replay, Options),
     It.
 
-run_iterator_commands([iterate | Rest], It, DB) ->
+run_iterator_commands([iterate | Rest], It, Ctx) ->
     case emqx_replay_message_storage:next(It) of
         {value, Payload, ItNext} ->
-            [binary_to_term(Payload) | run_iterator_commands(Rest, ItNext, DB)];
+            [binary_to_term(Payload) | run_iterator_commands(Rest, ItNext, Ctx)];
         none ->
             []
     end;
-run_iterator_commands([{preserve, restore} | Rest], It, DB) ->
+run_iterator_commands([{preserve, restore} | Rest], It, Ctx) ->
+    #{
+        db := DB,
+        replay := Replay
+    } = Ctx,
     Serial = emqx_replay_message_storage:preserve_iterator(It),
-    {ok, ItNext} = emqx_replay_message_storage:restore_iterator(DB, Serial),
-    run_iterator_commands(Rest, ItNext, DB);
-run_iterator_commands([], It, _DB) ->
+    {ok, ItNext} = emqx_replay_message_storage:restore_iterator(DB, Replay, Serial),
+    run_iterator_commands(Rest, ItNext, Ctx);
+run_iterator_commands([], It, _Ctx) ->
     iterate_db(It).
 
 store_shim(Shim, Messages) ->
@@ -247,10 +254,10 @@ store_shim(Shim, Messages) ->
         Messages
     ).
 
-iterate_shim(Shim, TopicFilter, StartTime) ->
+iterate_shim(Shim, Iteration) ->
     lists:map(
         fun binary_to_term/1,
-        emqx_replay_message_storage_shim:iterate(Shim, TopicFilter, StartTime)
+        emqx_replay_message_storage_shim:iterate(Shim, Iteration)
     ).
 
 %%--------------------------------------------------------------------
@@ -260,7 +267,7 @@ iterate_shim(Shim, TopicFilter, StartTime) ->
 open_db(Filepath, Options) ->
     {ok, Handle} = rocksdb:open(Filepath, [{create_if_missing, true}]),
     {Schema, CFRefs} = emqx_replay_message_storage:create_new(Handle, ?GEN_ID, Options),
-    DB = emqx_replay_message_storage:open(Handle, ?GEN_ID, CFRefs, Schema),
+    DB = emqx_replay_message_storage:open(?ZONE, Handle, ?GEN_ID, CFRefs, Schema),
     {DB, Handle}.
 
 close_db(Handle) ->
@@ -384,7 +391,7 @@ keyspace_filter() ->
     ?LET(
         {TopicFilter, StartTime, Keymapper},
         {topic_filter(), pos_integer(), keymapper()},
-        emqx_replay_message_storage:make_keyspace_filter(TopicFilter, StartTime, Keymapper)
+        emqx_replay_message_storage:make_keyspace_filter({TopicFilter, StartTime}, Keymapper)
     ).
 
 messages(Topic) ->

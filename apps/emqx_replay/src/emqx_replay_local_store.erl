@@ -21,7 +21,11 @@
 -export([start_link/1]).
 -export([create_generation/3]).
 
--export([store/5, make_iterator/3, next/1]).
+-export([store/5]).
+
+-export([make_iterator/2, next/1]).
+
+-export([preserve_iterator/2, restore_iterator/2, discard_iterator/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -57,14 +61,14 @@
 -record(s, {
     zone :: emqx_types:zone(),
     db :: rocksdb:db_handle(),
-    column_families :: cf_refs()
+    cf_iterator :: rocksdb:cf_handle(),
+    cf_generations :: cf_refs()
 }).
 
 -record(it, {
     zone :: emqx_types:zone(),
     gen :: gen_id(),
-    filter :: emqx_topic:words(),
-    start_time :: emqx_replay:time(),
+    replay :: emqx_replay:replay(),
     module :: module(),
     data :: term()
 }).
@@ -79,7 +83,16 @@
 %% [{<<"genNN">>, #generation{}}, ...,
 %%  {<<"current">>, GenID}]
 
+-define(DEFAULT_CF, "default").
 -define(DEFAULT_CF_OPTS, []).
+
+-define(ITERATOR_CF, "$iterators").
+
+%% TODO
+%% 1. CuckooTable might be of use here / `OptimizeForPointLookup(...)`.
+%% 2. Supposedly might be compressed _very_ effectively.
+%% 3. `inplace_update_support`?
+-define(ITERATOR_CF_OPTS, []).
 
 -define(REF(Zone), {via, gproc, {n, l, {?MODULE, Zone}}}).
 
@@ -102,15 +115,14 @@ store(Zone, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Zone, Time),
     Mod:store(Data, GUID, Time, Topic, Msg).
 
--spec make_iterator(emqx_types:zone(), emqx_topic:words(), emqx_replay:time()) ->
+-spec make_iterator(emqx_types:zone(), emqx_replay:replay()) ->
     {ok, iterator()} | {error, _TODO}.
-make_iterator(Zone, TopicFilter, StartTime) ->
+make_iterator(Zone, Replay = {_, StartTime}) ->
     {GenId, Gen} = meta_lookup_gen(Zone, StartTime),
     open_iterator(Gen, #it{
         zone = Zone,
         gen = GenId,
-        filter = TopicFilter,
-        start_time = StartTime
+        replay = Replay
     }).
 
 -spec next(iterator()) -> {value, binary(), iterator()} | none | {error, closed}.
@@ -131,20 +143,37 @@ next(It = #it{module = Mod, data = ItData}) ->
             end
     end.
 
+-spec preserve_iterator(iterator(), emqx_replay:replay_id()) ->
+    ok | {error, _TODO}.
+preserve_iterator(It = #it{}, ReplayID) ->
+    iterator_put_state(ReplayID, It).
+
+-spec restore_iterator(emqx_types:zone(), emqx_replay:replay_id()) ->
+    {ok, iterator()} | {error, _TODO}.
+restore_iterator(Zone, ReplayID) ->
+    case iterator_get_state(Zone, ReplayID) of
+        {ok, Serial} ->
+            restore_iterator_state(Zone, Serial);
+        not_found ->
+            {error, not_found};
+        {error, _Reason} = Error ->
+            Error
+    end.
+
+-spec discard_iterator(emqx_types:zone(), emqx_replay:replay_id()) ->
+    ok | {error, _TODO}.
+discard_iterator(Zone, ReplayID) ->
+    iterator_delete(Zone, ReplayID).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 init([Zone]) ->
     process_flag(trap_exit, true),
-    {ok, DBHandle, CFRefs} = open_db(Zone),
-    S0 = #s{
-        zone = Zone,
-        db = DBHandle,
-        column_families = CFRefs
-    },
+    {ok, S0} = open_db(Zone),
     S = ensure_current_generation(S0),
-    read_metadata(S),
+    ok = populate_metadata(S),
     {ok, S}.
 
 handle_call({create_generation, Since, Config}, _From, S) ->
@@ -171,13 +200,16 @@ terminate(_Reason, #s{db = DB, zone = Zone}) ->
 %% Internal functions
 %%================================================================================
 
--spec read_metadata(state()) -> ok.
-read_metadata(S = #s{db = DBHandle}) ->
-    Current = schema_get_current(DBHandle),
-    lists:foreach(fun(GenId) -> read_metadata(GenId, S) end, lists:seq(0, Current)).
+-record(db, {handle :: rocksdb:db_handle(), cf_iterator :: rocksdb:cf_handle()}).
 
--spec read_metadata(gen_id(), state()) -> ok.
-read_metadata(GenId, S = #s{zone = Zone, db = DBHandle}) ->
+-spec populate_metadata(state()) -> ok.
+populate_metadata(S = #s{zone = Zone, db = DBHandle, cf_iterator = CFIterator}) ->
+    ok = meta_put(Zone, db, #db{handle = DBHandle, cf_iterator = CFIterator}),
+    Current = schema_get_current(DBHandle),
+    lists:foreach(fun(GenId) -> populate_metadata(GenId, S) end, lists:seq(0, Current)).
+
+-spec populate_metadata(gen_id(), state()) -> ok.
+populate_metadata(GenId, S = #s{zone = Zone, db = DBHandle}) ->
     Gen = open_gen(GenId, schema_get_gen(DBHandle, GenId), S),
     meta_register_gen(Zone, GenId, Gen).
 
@@ -193,7 +225,7 @@ ensure_current_generation(S = #s{zone = Zone, db = DBHandle}) ->
     end.
 
 -spec create_new_gen(emqx_replay:time(), emqx_replay_conf:backend_config(), state()) ->
-    {ok, gen_id(), state()}.
+    {ok, gen_id(), state()} | {error, nonmonotonic}.
 create_new_gen(Since, Config, S = #s{zone = Zone, db = DBHandle}) ->
     GenId = get_next_id(meta_get_current(Zone)),
     GenId = get_next_id(schema_get_current(DBHandle)),
@@ -211,7 +243,7 @@ create_new_gen(Since, Config, S = #s{zone = Zone, db = DBHandle}) ->
 
 -spec create_gen(gen_id(), emqx_replay:time(), emqx_replay_conf:backend_config(), state()) ->
     {ok, generation(), state()}.
-create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, column_families = CFs}) ->
+create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations = CFs}) ->
     % TODO: Backend implementation should ensure idempotency.
     {Schema, NewCFs} = Module:create_new(DBHandle, GenId, Options),
     Gen = #{
@@ -219,24 +251,38 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, column_familie
         data => Schema,
         since => Since
     },
-    {ok, Gen, S#s{column_families = NewCFs ++ CFs}}.
+    {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
--spec open_db(emqx_types:zone()) -> {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
+-spec open_db(emqx_types:zone()) -> {ok, state()} | {error, _TODO}.
 open_db(Zone) ->
     Filename = atom_to_list(Zone),
-    DBOptions = emqx_replay_conf:db_options(),
-    ColumnFamiles =
+    DBOptions = [
+        {create_if_missing, true},
+        {create_missing_column_families, true}
+        | emqx_replay_conf:db_options()
+    ],
+    ExistingCFs =
         case rocksdb:list_column_families(Filename, DBOptions) of
-            {ok, ColumnFamiles0} ->
-                [{I, []} || I <- ColumnFamiles0];
+            {ok, CFs} ->
+                [{Name, []} || Name <- CFs, Name /= ?DEFAULT_CF, Name /= ?ITERATOR_CF];
             % DB is not present. First start
             {error, {db_open, _}} ->
-                [{"default", ?DEFAULT_CF_OPTS}]
+                []
         end,
-    case rocksdb:open(Filename, [{create_if_missing, true} | DBOptions], ColumnFamiles) of
-        {ok, Handle, CFRefs} ->
-            {CFNames, _} = lists:unzip(ColumnFamiles),
-            {ok, Handle, lists:zip(CFNames, CFRefs)};
+    ColumnFamilies = [
+        {?DEFAULT_CF, ?DEFAULT_CF_OPTS},
+        {?ITERATOR_CF, ?ITERATOR_CF_OPTS}
+        | ExistingCFs
+    ],
+    case rocksdb:open(Filename, DBOptions, ColumnFamilies) of
+        {ok, DBHandle, [_CFDefault, CFIterator | CFRefs]} ->
+            {CFNames, _} = lists:unzip(ExistingCFs),
+            {ok, #s{
+                zone = Zone,
+                db = DBHandle,
+                cf_iterator = CFIterator,
+                cf_generations = lists:zip(CFNames, CFRefs)
+            }};
         Error ->
             Error
     end.
@@ -245,7 +291,7 @@ open_db(Zone) ->
 open_gen(
     GenId,
     Gen = #{module := Mod, data := Data},
-    #s{zone = Zone, db = DBHandle, column_families = CFs}
+    #s{zone = Zone, db = DBHandle, cf_generations = CFs}
 ) ->
     DB = Mod:open(Zone, DBHandle, GenId, CFs, Data),
     Gen#{data := DB}.
@@ -261,12 +307,71 @@ open_next_iterator(Gen = #{}, It) ->
 
 -spec open_iterator(generation(), iterator()) -> {ok, iterator()} | {error, _Reason}.
 open_iterator(#{module := Mod, data := Data}, It = #it{}) ->
-    case Mod:make_iterator(Data, It#it.filter, It#it.start_time) of
+    case Mod:make_iterator(Data, It#it.replay) of
         {ok, ItData} ->
             {ok, It#it{module = Mod, data = ItData}};
         Err ->
             Err
     end.
+
+-spec open_restore_iterator(generation(), iterator(), binary()) ->
+    {ok, iterator()} | {error, _Reason}.
+open_restore_iterator(#{module := Mod, data := Data}, It = #it{replay = Replay}, Serial) ->
+    case Mod:restore_iterator(Data, Replay, Serial) of
+        {ok, ItData} ->
+            {ok, It#it{module = Mod, data = ItData}};
+        Err ->
+            Err
+    end.
+
+%%
+
+-define(KEY_REPLAY_STATE(ReplayID), <<(ReplayID)/binary, "rs">>).
+
+-define(ITERATION_WRITE_OPTS, []).
+-define(ITERATION_READ_OPTS, []).
+
+iterator_get_state(Zone, ReplayID) ->
+    #db{handle = Handle, cf_iterator = CF} = meta_lookup(Zone, db),
+    rocksdb:get(Handle, CF, ?KEY_REPLAY_STATE(ReplayID), ?ITERATION_READ_OPTS).
+
+iterator_put_state(ID, It = #it{zone = Zone}) ->
+    #db{handle = Handle, cf_iterator = CF} = meta_lookup(Zone, db),
+    Serial = preserve_iterator_state(It),
+    rocksdb:put(Handle, CF, ?KEY_REPLAY_STATE(ID), Serial, ?ITERATION_WRITE_OPTS).
+
+iterator_delete(Zone, ID) ->
+    #db{handle = Handle, cf_iterator = CF} = meta_lookup(Zone, db),
+    rocksdb:delete(Handle, CF, ?KEY_REPLAY_STATE(ID), ?ITERATION_WRITE_OPTS).
+
+preserve_iterator_state(#it{
+    gen = Gen,
+    replay = {TopicFilter, StartTime},
+    module = Mod,
+    data = ItData
+}) ->
+    term_to_binary(#{
+        v => 1,
+        gen => Gen,
+        filter => TopicFilter,
+        start => StartTime,
+        st => Mod:preserve_iterator(ItData)
+    }).
+
+restore_iterator_state(Zone, Serial) when is_binary(Serial) ->
+    restore_iterator_state(Zone, binary_to_term(Serial));
+restore_iterator_state(
+    Zone,
+    #{
+        v := 1,
+        gen := Gen,
+        filter := TopicFilter,
+        start := StartTime,
+        st := State
+    }
+) ->
+    It = #it{zone = Zone, gen = Gen, replay = {TopicFilter, StartTime}},
+    open_restore_iterator(meta_get_gen(Zone, Gen), It, State).
 
 %% Functions for dealing with the metadata stored persistently in rocksdb
 
