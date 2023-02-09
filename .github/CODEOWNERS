@@ -2,37 +2,25 @@
 * @emqx/emqx-review-board
 
 ## apps
-/apps/emqx/                @emqx/emqx-review-board @lafirest @thalesmg
+/apps/emqx/                @emqx/emqx-review-board @lafirest
 /apps/emqx_authn/          @emqx/emqx-review-board @JimMoen @savonarola
 /apps/emqx_authz/          @emqx/emqx-review-board @JimMoen @savonarola
-/apps/emqx_auto_subscribe/ @emqx/emqx-review-board @thalesmg
-/apps/emqx_bridge/         @emqx/emqx-review-board @thalesmg
-/apps/emqx_conf/           @emqx/emqx-review-board @thalesmg
 /apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
 /apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
-/apps/emqx_machine/        @emqx/emqx-review-board @thalesmg
 /apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
-/apps/emqx_modules/        @emqx/emqx-review-board @thalesmg
 /apps/emqx_plugin_libs/    @emqx/emqx-review-board @lafirest
-/apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen @thalesmg
+/apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
 /apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
-/apps/emqx_psk/            @emqx/emqx-review-board @lafirest @thalesmg
-/apps/emqx_resource/       @emqx/emqx-review-board @thalesmg
-/apps/emqx_retainer/       @emqx/emqx-review-board @lafirest @thalesmg
+/apps/emqx_psk/            @emqx/emqx-review-board @lafirest
+/apps/emqx_retainer/       @emqx/emqx-review-board @lafirest
 /apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
 /apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
 
-## other
-/lib-ee/                   @emqx/emqx-review-board @thalesmg
-/bin/                      @emqx/emqx-review-board @thalesmg @id
-/rel/                      @emqx/emqx-review-board @thalesmg @id
-
 ## CI
-/.github/ @emqx/emqx-review-board @id
-/.ci/     @emqx/emqx-review-board @id
-/scripts/ @emqx/emqx-review-board @id
-/build    @emqx/emqx-review-board @id
-/deploy/  @emqx/emqx-review-board @id @Rory-Z
+/deploy/  @emqx/emqx-review-board @Rory-Z
+
+## no owner for changelogs, anyone can approve
+/changes
