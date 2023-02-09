@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_resource).
--include_lib("emqx/include/emqx.hrl").
+
 -include_lib("emqx/include/logger.hrl").
 
 -export([
@@ -29,18 +29,19 @@
     create/2,
     create/3,
     create/4,
+    create_dry_run/2,
     recreate/2,
     recreate/3,
-    create_dry_run/2,
     remove/1,
     remove/2,
     remove/4,
+    reset_metrics/1,
+    restart/2,
+    start/2,
+    stop/2,
     update/2,
     update/3,
-    update/4,
-    stop/2,
-    restart/2,
-    reset_metrics/1
+    update/4
 ]).
 
 %% bi-directional bridge with producer/consumer or ingress/egress configs
@@ -118,12 +119,14 @@ to_type_atom(Type) ->
 reset_metrics(ResourceId) ->
     emqx_resource:reset_metrics(ResourceId).
 
+restart(Type, Name) ->
+    emqx_resource:restart(resource_id(Type, Name)).
+
 stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
 
-%% we don't provide 'start', as we want an already started bridge to be restarted.
-restart(Type, Name) ->
-    emqx_resource:restart(resource_id(Type, Name)).
+start(Type, Name) ->
+    emqx_resource:start(resource_id(Type, Name)).
 
 create(BridgeId, Conf) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),

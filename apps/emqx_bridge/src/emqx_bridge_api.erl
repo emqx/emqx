@@ -378,7 +378,7 @@ schema("/bridges/:id/metrics/reset") ->
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
-                200 => <<"Reset success">>,
+                204 => <<"Reset success">>,
                 400 => error_schema(['BAD_REQUEST'], "RPC Call Failed")
             }
         }
@@ -412,9 +412,10 @@ schema("/bridges/:id/:operation") ->
                 param_path_operation_cluster()
             ],
             responses => #{
-                200 => <<"Operation success">>,
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable"),
-                400 => error_schema('INVALID_ID', "Bad bridge ID")
+                204 => <<"Operation success">>,
+                400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
     };
@@ -431,9 +432,10 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                200 => <<"Operation success">>,
+                204 => <<"Operation success">>,
                 400 => error_schema('INVALID_ID', "Bad bridge ID"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
@@ -535,7 +537,7 @@ schema("/bridges_probe") ->
                 emqx_bridge_resource:resource_id(BridgeType, BridgeName)
             )
         of
-            ok -> {200, <<"Reset success">>};
+            ok -> {204};
             Reason -> {400, error_msg('BAD_REQUEST', Reason)}
         end
     ).
@@ -607,12 +609,12 @@ lookup_from_local_node(BridgeType, BridgeName) ->
 }) ->
     ?TRY_PARSE_ID(
         Id,
-        case operation_func(Op) of
+        case operation_to_all_func(Op) of
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
             OperFunc ->
                 Nodes = mria_mnesia:running_nodes(),
-                operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName)
+                call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
         end
     ).
 
@@ -635,37 +637,31 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                                 <<"forbidden operation: bridge disabled">>
                             )};
                     true ->
-                        call_operation(Node, OperFunc, BridgeType, BridgeName)
+                        case emqx_misc:safe_to_existing_atom(Node, utf8) of
+                            {ok, TargetNode} ->
+                                call_operation(TargetNode, OperFunc, [
+                                    TargetNode, BridgeType, BridgeName
+                                ]);
+                            {error, _} ->
+                                {400, error_msg('INVALID_NODE', <<"invalid node">>)}
+                        end
                 end
         end
     ).
 
-node_operation_func(<<"stop">>) -> stop_bridge_to_node;
 node_operation_func(<<"restart">>) -> restart_bridge_to_node;
+node_operation_func(<<"start">>) -> start_bridge_to_node;
+node_operation_func(<<"stop">>) -> stop_bridge_to_node;
 node_operation_func(_) -> invalid.
 
-operation_func(<<"stop">>) -> stop;
-operation_func(<<"restart">>) -> restart;
-operation_func(_) -> invalid.
+operation_to_all_func(<<"restart">>) -> restart_bridges_to_all_nodes;
+operation_to_all_func(<<"start">>) -> start_bridges_to_all_nodes;
+operation_to_all_func(<<"stop">>) -> stop_bridges_to_all_nodes;
+operation_to_all_func(_) -> invalid.
 
 enable_func(<<"true">>) -> enable;
 enable_func(<<"false">>) -> disable;
 enable_func(_) -> invalid.
-
-operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
-    RpcFunc =
-        case OperFunc of
-            restart -> restart_bridges_to_all_nodes;
-            stop -> stop_bridges_to_all_nodes
-        end,
-    case is_ok(emqx_bridge_proto_v1:RpcFunc(Nodes, BridgeType, BridgeName)) of
-        {ok, _} ->
-            {200};
-        {error, [timeout | _]} ->
-            {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-        {error, ErrL} ->
-            {500, error_msg('INTERNAL_ERROR', ErrL)}
-    end.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
@@ -858,6 +854,12 @@ unpack_bridge_conf(Type, PackedConf) ->
     #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
     RawConf.
 
+is_ok(ok) ->
+    ok;
+is_ok({ok, _} = OkResult) ->
+    OkResult;
+is_ok(Error = {error, _}) ->
+    Error;
 is_ok(ResL) ->
     case
         lists:filter(
@@ -896,35 +898,56 @@ bin(S) when is_atom(S) ->
 bin(S) when is_binary(S) ->
     S.
 
-call_operation(Node, OperFunc, BridgeType, BridgeName) ->
-    case emqx_misc:safe_to_existing_atom(Node, utf8) of
-        {ok, TargetNode} ->
-            case
-                emqx_bridge_proto_v1:OperFunc(
-                    TargetNode, BridgeType, BridgeName
-                )
-            of
-                ok ->
-                    {200};
-                {error, timeout} ->
-                    {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-                {error, {start_pool_failed, Name, Reason}} ->
-                    {503,
-                        error_msg(
-                            'SERVICE_UNAVAILABLE',
-                            bin(
-                                io_lib:format(
-                                    "failed to start ~p pool for reason ~p",
-                                    [Name, Reason]
-                                )
-                            )
-                        )};
-                {error, Reason} ->
-                    {500, error_msg('INTERNAL_ERROR', Reason)}
-            end;
-        {error, _} ->
-            {400, error_msg('INVALID_NODE', <<"invalid node">>)}
+call_operation(NodeOrAll, OperFunc, Args) ->
+    case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
+        ok ->
+            {204};
+        {ok, _} ->
+            {204};
+        {error, not_implemented} ->
+            %% Should only happen if we call `start` on a node that is
+            %% still on an older bpapi version that doesn't support it.
+            maybe_try_restart(NodeOrAll, OperFunc, Args);
+        {error, timeout} ->
+            {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+        {error, {start_pool_failed, Name, Reason}} ->
+            {503,
+                error_msg(
+                    'SERVICE_UNAVAILABLE',
+                    bin(
+                        io_lib:format(
+                            "failed to start ~p pool for reason ~p",
+                            [Name, Reason]
+                        )
+                    )
+                )};
+        {error, Reason} ->
+            {500, error_msg('INTERNAL_ERROR', Reason)}
     end.
+
+maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
+    call_operation(all, restart_bridges_to_all_nodes, Args);
+maybe_try_restart(Node, start_bridge_to_node, Args) ->
+    call_operation(Node, restart_bridge_to_node, Args);
+maybe_try_restart(_, _, _) ->
+    {501}.
+
+do_bpapi_call(all, Call, Args) ->
+    do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args);
+do_bpapi_call(Node, Call, Args) ->
+    do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args).
+
+do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
+    case lists:member(SupportedVersion, supported_versions(Call)) of
+        true ->
+            apply(emqx_bridge_proto_v2, Call, Args);
+        false ->
+            {error, not_implemented}
+    end.
+
+supported_versions(start_bridge_to_node) -> [2];
+supported_versions(start_bridges_to_all_nodes) -> [2];
+supported_versions(_Call) -> [1, 2].
 
 redact(Term) ->
     emqx_misc:redact(Term).

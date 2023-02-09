@@ -346,9 +346,9 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, 204, _} = show(http_put(show(BridgesPartsOpDisable), #{})),
     {ok, 204, _} = show(http_put(show(BridgesPartsOpEnable), #{})),
     {ok, 204, _} = show(http_put(show(BridgesPartsOpEnable), #{})),
-    {ok, 200, _} = show(http_post(show(BridgesPartsOpStop), #{})),
-    {ok, 200, _} = show(http_post(show(BridgesPartsOpStop), #{})),
-    {ok, 200, _} = show(http_post(show(BridgesPartsOpRestart), #{})),
+    {ok, 204, _} = show(http_post(show(BridgesPartsOpStop), #{})),
+    {ok, 204, _} = show(http_post(show(BridgesPartsOpStop), #{})),
+    {ok, 204, _} = show(http_post(show(BridgesPartsOpRestart), #{})),
     %% Cleanup
     {ok, 204, _} = show(http_delete(BridgesPartsIdDeleteAlsoActions)),
     false = MyKafkaBridgeExists(),
