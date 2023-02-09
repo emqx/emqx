@@ -33,8 +33,16 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult,
         {ok, []} -> ok;
         {ok, Rules} ->
             case match(ClientInfo, PubSub, Topic, Rules) of
-                allow   -> {stop, allow};
-                nomatch -> {stop, deny}
+                allow ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[Redis] Allow Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, allow};
+                nomatch ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[Redis] Deny Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, deny}
             end;
         {error, Reason} ->
             ?LOG(error, "[Redis] do_check_acl error: ~p", [Reason]),
@@ -71,4 +79,3 @@ feed_var(Str, Var, Val) ->
 b2i(Bin) -> list_to_integer(binary_to_list(Bin)).
 
 description() -> "Redis ACL Module".
-

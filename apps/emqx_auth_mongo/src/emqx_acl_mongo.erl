@@ -38,8 +38,16 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) 
         [] -> ok;
         Rows ->
             try match(ClientInfo, Topic, topics(PubSub, Rows)) of
-                matched -> {stop, allow};
-                nomatch -> {stop, deny}
+                matched ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[MongoDB] Allow Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, allow};
+                nomatch ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[MongoDB] Deny Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, deny}
             catch
                 _Err:Reason->
                     ?LOG(error, "[MongoDB] Check mongo ~p ACL failed, got ACL config: ~p, error: :~p",

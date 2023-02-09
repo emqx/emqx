@@ -17,6 +17,7 @@
 -module(emqx_acl_mnesia).
 
 -include("emqx_auth_mnesia.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% ACL Callbacks
 -export([ init/0
@@ -43,8 +44,14 @@ check_acl(ClientInfo = #{ clientid := Clientid }, PubSub, Topic, _NoMatchAction,
 
     case match(ClientInfo, PubSub, Topic, Acls) of
         allow ->
+            ?LOG_SENSITIVE(debug,
+                           "[Mnesia] Allow Topic: ~p, Action: ~p for Client: ~p",
+                           [Topic, PubSub, ClientInfo]),
             {stop, allow};
         deny ->
+            ?LOG_SENSITIVE(debug,
+                           "[Mnesia] Deny Topic: ~p, Action: ~p for Client: ~p",
+                           [Topic, PubSub, ClientInfo]),
             {stop, deny};
         _ ->
             ok
