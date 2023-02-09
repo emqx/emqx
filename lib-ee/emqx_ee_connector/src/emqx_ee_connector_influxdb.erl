@@ -341,7 +341,7 @@ ssl_config(SSL = #{enable := true}) ->
     [
         {https_enabled, true},
         {transport, ssl},
-        {transport_opts, maps:to_list(maps:remove(enable, SSL))}
+        {transport_opts, emqx_tls_lib:to_client_opts(SSL)}
     ].
 
 username(#{username := Username}) ->
