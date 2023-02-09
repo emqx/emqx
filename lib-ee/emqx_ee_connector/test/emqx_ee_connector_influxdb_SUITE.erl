@@ -117,40 +117,64 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     % Should not even be able to get the resource data out of ets now unlike just stopping.
     ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
 
-t_tls_opts(Config) ->
+t_tls_verify_none(Config) ->
     PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
-    VerifyNoneStatus = perform_tls_opts_check(
-        PoolName, influxdb_config(Host, Port, true, "verify_none")
-    ),
-    ?assertEqual(connected, VerifyNoneStatus),
-    VerifyPeerStatus = perform_tls_opts_check(
-        PoolName, influxdb_config(Host, Port, true, "verify_peer")
-    ),
-    ?assertEqual(disconnected, VerifyPeerStatus),
+    InitialConfig = influxdb_config(Host, Port, true, "verify_none"),
+    ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
+    ?assertEqual(connected, ValidStatus),
+    InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
+    ?assertEqual(disconnected, InvalidStatus),
     ok.
 
-perform_tls_opts_check(PoolName, InitialConfig) ->
+t_tls_verify_peer(Config) ->
+    PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
+    Host = ?config(influxdb_tls_host, Config),
+    Port = ?config(influxdb_tls_port, Config),
+    InitialConfig = influxdb_config(Host, Port, true, "verify_peer"),
+    ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
+    ?assertEqual(connected, ValidStatus),
+    InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
+    ?assertEqual(disconnected, InvalidStatus),
+    ok.
+
+perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?INFLUXDB_RESOURCE_MOD, InitialConfig),
-    % We need to add a write_syntax to the config since the connector
-    % expects this
-    FullConfig = CheckedConfig#{write_syntax => influxdb_write_syntax()},
-    {ok, #{
-        config := #{ssl := #{enable := SslEnabled}},
-        status := Status
-    }} = emqx_resource:create_local(
-        PoolName,
-        ?CONNECTOR_RESOURCE_GROUP,
-        ?INFLUXDB_RESOURCE_MOD,
-        FullConfig,
-        #{}
+    % Meck handling of TLS opt handling so that we can inject custom
+    % verification returns
+    meck:new(emqx_tls_lib, [passthrough, no_link]),
+    meck:expect(
+        emqx_tls_lib,
+        to_client_opts,
+        fun(Opts) ->
+            Verify = {verify_fun, {custom_verify(), {return, VerifyReturn}}},
+            [Verify | meck:passthrough([Opts])]
+        end
     ),
-    ?assert(SslEnabled),
-    % Stop and remove the resource in one go.
-    ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
-    Status.
+    try
+        % We need to add a write_syntax to the config since the connector
+        % expects this
+        FullConfig = CheckedConfig#{write_syntax => influxdb_write_syntax()},
+        {ok, #{
+            config := #{ssl := #{enable := SslEnabled}},
+            status := Status
+        }} = emqx_resource:create_local(
+            PoolName,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?INFLUXDB_RESOURCE_MOD,
+            FullConfig,
+            #{}
+        ),
+        ?assert(SslEnabled),
+        ?assert(meck:validate(emqx_tls_lib)),
+        % Stop and remove the resource in one go.
+        ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
+        Status
+    after
+        meck:unload(emqx_tls_lib)
+    end.
 
 % %%------------------------------------------------------------------------------
 % %% Helpers
@@ -177,6 +201,18 @@ influxdb_config(Host, Port, SslEnabled, Verify) ->
 
     {ok, ResourceConfig} = hocon:binary(RawConfig),
     #{<<"config">> => ResourceConfig}.
+
+custom_verify() ->
+    fun
+        (_, {bad_cert, unknown_ca} = Event, {return, Return} = UserState) ->
+            ct:pal("Call to custom verify fun. Event: ~p UserState: ~p", [Event, UserState]),
+            {Return, UserState};
+        (_, Event, UserState) ->
+            ct:pal("Unexpected call to custom verify fun. Event: ~p UserState: ~p", [
+                Event, UserState
+            ]),
+            {fail, unexpected_call_to_verify_fun}
+    end.
 
 influxdb_write_syntax() ->
     [
