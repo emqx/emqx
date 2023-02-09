@@ -72,6 +72,7 @@ fields("server_configs") ->
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
+        {reconnect_interval, mk(string(), #{deprecated => {since, "v5.0.16"}})},
         {proto_ver,
             mk(
                 hoconsc:enum([v3, v4, v5]),

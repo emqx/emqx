@@ -177,6 +177,7 @@ bridges {
         keepalive = \"60s\"
         mode = cluster_shareload
         proto_ver = \"v4\"
+        reconnect_interval = \"15s\"
         server = \"localhost:1883\"
         ssl {enable = false, verify = \"verify_peer\"}
       }
@@ -194,6 +195,7 @@ bridges {
         keepalive = \"60s\"
         mode = \"cluster_shareload\"
         proto_ver = \"v4\"
+        reconnect_interval = \"15s\"
         server = \"localhost:1883\"
         ssl {enable = false, verify = \"verify_peer\"}
       }
