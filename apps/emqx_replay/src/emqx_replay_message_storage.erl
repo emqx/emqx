@@ -94,12 +94,12 @@
 -export([make_keymapper/1]).
 
 -export([store/5]).
+-export([make_iterator/2]).
 -export([make_iterator/3]).
--export([make_iterator/4]).
 -export([next/1]).
 
 -export([preserve_iterator/1]).
--export([restore_iterator/2]).
+-export([restore_iterator/3]).
 -export([refresh_iterator/1]).
 
 %% Debug/troubleshooting:
@@ -114,7 +114,7 @@
 
 %% Keyspace filters
 -export([
-    make_keyspace_filter/3,
+    make_keyspace_filter/2,
     compute_initial_seek/1,
     compute_next_seek/2,
     compute_time_seek/3,
@@ -289,20 +289,20 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
     Value = make_message_value(Topic, MessagePayload),
     rocksdb:put(DBHandle, CFHandle, Key, Value, DB#db.write_options).
 
--spec make_iterator(db(), emqx_topic:words(), time()) ->
+-spec make_iterator(db(), emqx_replay:replay()) ->
     {ok, iterator()} | {error, _TODO}.
-make_iterator(DB, TopicFilter, StartTime) ->
+make_iterator(DB, Replay) ->
     Options = emqx_replay_conf:zone_iteration_options(DB#db.zone),
-    make_iterator(DB, TopicFilter, StartTime, Options).
+    make_iterator(DB, Replay, Options).
 
--spec make_iterator(db(), emqx_topic:words(), time(), iteration_options()) ->
+-spec make_iterator(db(), emqx_replay:replay(), iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time
     % and call it a day: client violated the contract anyway.
     {ok, iterator()} | {error, _TODO}.
-make_iterator(DB = #db{handle = DBHandle, cf = CFHandle}, TopicFilter, StartTime, Options) ->
+make_iterator(DB = #db{handle = DBHandle, cf = CFHandle}, Replay, Options) ->
     case rocksdb:iterator(DBHandle, CFHandle, DB#db.read_options) of
         {ok, ITHandle} ->
-            Filter = make_keyspace_filter(TopicFilter, StartTime, DB#db.keymapper),
+            Filter = make_keyspace_filter(Replay, DB#db.keymapper),
             InitialSeek = combine(compute_initial_seek(Filter), <<>>, DB#db.keymapper),
             RefreshCounter = make_refresh_counter(maps:get(iterator_refresh, Options, undefined)),
             {ok, #it{
@@ -342,26 +342,23 @@ next(It0 = #it{filter = #filter{keymapper = Keymapper}}) ->
     end.
 
 -spec preserve_iterator(iterator()) -> binary().
-preserve_iterator(#it{cursor = Cursor, filter = Filter}) ->
+preserve_iterator(#it{cursor = Cursor}) ->
     State = #{
         v => 1,
-        cursor => Cursor,
-        filter => Filter#filter.topic_filter,
-        stime => Filter#filter.start_time
+        cursor => Cursor
     },
     term_to_binary(State).
 
--spec restore_iterator(db(), binary()) -> {ok, iterator()} | {error, _TODO}.
-restore_iterator(DB, Serial) when is_binary(Serial) ->
+-spec restore_iterator(db(), emqx_replay:replay(), binary()) ->
+    {ok, iterator()} | {error, _TODO}.
+restore_iterator(DB, Replay, Serial) when is_binary(Serial) ->
     State = binary_to_term(Serial),
-    restore_iterator(DB, State);
-restore_iterator(DB, #{
+    restore_iterator(DB, Replay, State);
+restore_iterator(DB, Replay, #{
     v := 1,
-    cursor := Cursor,
-    filter := TopicFilter,
-    stime := StartTime
+    cursor := Cursor
 }) ->
-    case make_iterator(DB, TopicFilter, StartTime) of
+    case make_iterator(DB, Replay) of
         {ok, It} when Cursor == undefined ->
             % Iterator was preserved right after it has been made.
             {ok, It};
@@ -434,8 +431,8 @@ hash(Input, Bits) ->
     % at most 32 bits
     erlang:phash2(Input, 1 bsl Bits).
 
--spec make_keyspace_filter(emqx_topic:words(), time(), keymapper()) -> keyspace_filter().
-make_keyspace_filter(TopicFilter, StartTime, Keymapper) ->
+-spec make_keyspace_filter(emqx_replay:replay(), keymapper()) -> keyspace_filter().
+make_keyspace_filter({TopicFilter, StartTime}, Keymapper) ->
     Bitstring = compute_bitstring(TopicFilter, StartTime, Keymapper),
     HashBitmask = compute_topic_bitmask(TopicFilter, Keymapper),
     TimeBitmask = compute_time_bitmask(Keymapper),
