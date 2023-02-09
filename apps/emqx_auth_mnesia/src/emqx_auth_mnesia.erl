@@ -70,6 +70,9 @@ check(ClientInfo = #{ clientid := Clientid
                     ?LOG(info, "[Mnesia] Auth from mnesia failed: ~p", [Info]),
                     {stop, AuthResult#{anonymous => false, auth_result => password_error}};
                 _ ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[Mnesia] Auth from mnesia succeeded, Client: ~p",
+                                   [ClientInfo]),
                     {stop, AuthResult#{anonymous => false, auth_result => success}}
             end
     end.

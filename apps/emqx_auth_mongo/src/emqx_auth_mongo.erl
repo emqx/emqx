@@ -68,6 +68,9 @@ check(ClientInfo = #{password := Password}, AuthResult,
             case Result of
                 ok ->
                     ?tp(emqx_auth_mongo_superuser_check_authn_ok, #{}),
+                    ?LOG_SENSITIVE(debug,
+                                   "[MongoDB] Auth from mongo succeeded, Client: ~p",
+                                   [ClientInfo]),
                     {stop, AuthResult#{is_superuser => is_superuser(Pool, SuperQuery, ClientInfo),
                                        anonymous => false,
                                        auth_result => success}};

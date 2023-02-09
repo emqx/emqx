@@ -45,6 +45,9 @@ check(ClientInfo = #{password := Password}, AuthResult,
                 end,
     case CheckPass of
         ok ->
+            ?LOG_SENSITIVE(debug,
+                           "[Postgres] Auth from pgsql succeeded, Client: ~p",
+                           [ClientInfo]),
             {stop, AuthResult#{is_superuser => is_superuser(Pool, SuperQuery, ClientInfo),
                                 anonymous => false,
                                 auth_result => success}};

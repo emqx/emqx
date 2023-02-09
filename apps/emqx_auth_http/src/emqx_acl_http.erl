@@ -44,7 +44,10 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl := ACLParams = #{path := 
     Username = maps:get(username, ClientInfo1, undefined),
     case check_acl_request(ACLParams, ClientInfo1) of
         {ok, 200, <<"ignore">>} -> ok;
-        {ok, 200, _Body} -> {stop, allow};
+        {ok, 200, _Body} ->
+            ?LOG(debug, "Allow ~s to topic ~ts, username: ~ts",
+                 [PubSub, Topic, Username]),
+            {stop, allow};
         {ok, Code, _Body} ->
             ?LOG(warning, "Deny ~s to topic ~ts, username: ~ts, http response code: ~p",
                  [PubSub, Topic, Username, Code]),
@@ -74,4 +77,3 @@ check_acl_request(ACLParams =
 
 access(subscribe) -> 1;
 access(publish)   -> 2.
-

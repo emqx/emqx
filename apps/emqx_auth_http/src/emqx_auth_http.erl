@@ -41,19 +41,20 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
         {ok, 200, <<"ignore">>} ->
             ok;
         {ok, 200, Body}  ->
+            ?LOG(debug, "Auth succeeded from path: ~ts, username: ~ts", [Path, Username]),
             IsSuperuser = is_superuser(SuperParams, ClientInfo),
             {stop, AuthResult#{is_superuser => IsSuperuser,
                                 auth_result => success,
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
-            ?LOG(warning, "Deny connection from path: ~s, username: ~ts, http "
+            ?LOG(warning, "Deny connection from path: ~ts, username: ~ts, http "
                           "response code: ~p",
                           [Path, Username, Code]),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG_SENSITIVE(warning, "Deny connection from path: ~s, username: ~ts, due to "
+            ?LOG_SENSITIVE(warning, "Deny connection from path: ~ts, username: ~ts, due to "
                                     "request http-server failed: ~0p", [Path, Username, Error]),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
