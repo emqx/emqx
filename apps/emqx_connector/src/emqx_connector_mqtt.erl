@@ -251,6 +251,7 @@ basic_config(
         server := Server,
         proto_ver := ProtoVer,
         bridge_mode := BridgeMode,
+        clean_start := CleanStart,
         keepalive := KeepAlive,
         retry_interval := RetryIntv,
         max_inflight := MaxInflight,
@@ -270,11 +271,8 @@ basic_config(
         %% non-standard mqtt connection packets will be filtered out by LB.
         %% So let's disable bridge_mode.
         bridge_mode => BridgeMode,
-        %% NOTE
-        %% We are ignoring the user configuration here because there's currently no reliable way
-        %% to ensure proper session recovery according to the MQTT spec.
-        clean_start => true,
         keepalive => ms_to_s(KeepAlive),
+        clean_start => CleanStart,
         retry_interval => RetryIntv,
         max_inflight => MaxInflight,
         ssl => EnableSsl,

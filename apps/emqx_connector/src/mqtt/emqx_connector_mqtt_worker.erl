@@ -75,6 +75,7 @@
     connect/1,
     status/1,
     ping/1,
+    info/1,
     send_to_remote/2,
     send_to_remote_async/3
 ]).
@@ -145,6 +146,16 @@ mk_client_options(Conf, BridgeOpts) ->
     Mountpoint = maps:get(receive_mountpoint, BridgeOpts, undefined),
     Subscriptions = maps:get(subscriptions, Conf),
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
+    CleanStart =
+        case Subscriptions of
+            #{remote := _} ->
+                maps:get(clean_start, BridgeOpts);
+            undefined ->
+                %% NOTE
+                %% We are ignoring the user configuration here because there's currently no reliable way
+                %% to ensure proper session recovery according to the MQTT spec.
+                true
+        end,
     Opts = maps:without(
         [
             address,
@@ -160,6 +171,7 @@ mk_client_options(Conf, BridgeOpts) ->
     Opts#{
         msg_handler => mk_client_event_handler(Vars, #{server => Server}),
         hosts => [HostPort],
+        clean_start => CleanStart,
         force_ping => true,
         proto_ver => maps:get(proto_ver, BridgeOpts, v4)
     }.
@@ -205,10 +217,12 @@ subscribe_remote_topics(_Ref, undefined) ->
 stop(Ref) ->
     emqtt:stop(ref(Ref)).
 
+info(Ref) ->
+    emqtt:info(ref(Ref)).
+
 status(Ref) ->
     try
-        Info = emqtt:info(ref(Ref)),
-        case proplists:get_value(socket, Info) of
+        case proplists:get_value(socket, info(Ref)) of
             Socket when Socket /= undefined ->
                 connected;
             undefined ->

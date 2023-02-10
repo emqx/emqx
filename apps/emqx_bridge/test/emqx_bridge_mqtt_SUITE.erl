@@ -242,26 +242,26 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     ok.
 
-t_mqtt_conn_bridge_ignores_clean_start(_) ->
+t_mqtt_egress_bridge_ignores_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
     BridgeID = create_bridge(
         ?SERVER_CONF(<<"user1">>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => BridgeName,
-            <<"ingress">> => ?INGRESS_CONF,
+            <<"egress">> => ?EGRESS_CONF,
             <<"clean_start">> => false
         }
     ),
 
-    {ok, 200, BridgeJSON} = request(get, uri(["bridges", BridgeID]), []),
-    Bridge = jsx:decode(BridgeJSON),
-
-    %% verify that there's no `clean_start` in response
-    ?assertEqual(#{}, maps:with([<<"clean_start">>], Bridge)),
+    {ok, _, #{state := #{name := WorkerName}}} =
+        emqx_resource:get_instance(emqx_bridge_resource:resource_id(BridgeID)),
+    ?assertMatch(
+        #{clean_start := true},
+        maps:from_list(emqx_connector_mqtt_worker:info(WorkerName))
+    ),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     ok.
 
