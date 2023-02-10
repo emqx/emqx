@@ -605,40 +605,55 @@ b2i(Any) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-params2qs_test() ->
+params2qs_test_() ->
     QSchema = [
         {<<"str">>, binary},
         {<<"int">>, integer},
+        {<<"binatom">>, atom},
         {<<"atom">>, atom},
         {<<"ts">>, timestamp},
         {<<"gte_range">>, integer},
         {<<"lte_range">>, integer},
         {<<"like_fuzzy">>, binary},
-        {<<"match_topic">>, binary}
+        {<<"match_topic">>, binary},
+        {<<"ip">>, ip},
+        {<<"ip_port">>, ip_port}
     ],
     QString = [
         {<<"str">>, <<"abc">>},
         {<<"int">>, <<"123">>},
-        {<<"atom">>, <<"connected">>},
+        {<<"binatom">>, <<"connected">>},
+        {<<"atom">>, ok},
         {<<"ts">>, <<"156000">>},
         {<<"gte_range">>, <<"1">>},
         {<<"lte_range">>, <<"5">>},
         {<<"like_fuzzy">>, <<"user">>},
-        {<<"match_topic">>, <<"t/#">>}
+        {<<"match_topic">>, <<"t/#">>},
+        {<<"ip">>, <<"127.0.0.1">>},
+        {<<"ip_port">>, <<"127.0.0.1:8888">>}
     ],
     ExpectedQs = [
         {str, '=:=', <<"abc">>},
         {int, '=:=', 123},
-        {atom, '=:=', connected},
+        {binatom, '=:=', connected},
+        {atom, '=:=', ok},
         {ts, '=:=', 156000},
-        {range, '>=', 1, '=<', 5}
+        {range, '>=', 1, '=<', 5},
+        {ip, '=:=', {127, 0, 0, 1}},
+        {ip_port, '=:=', {{127, 0, 0, 1}, 8888}}
     ],
     FuzzyNQString = [
         {fuzzy, like, <<"user">>},
         {topic, match, <<"t/#">>}
     ],
-    ?assertEqual({7, {ExpectedQs, FuzzyNQString}}, parse_qstring(QString, QSchema)),
 
-    {0, {[], []}} = parse_qstring([{not_a_predefined_params, val}], QSchema).
+    [
+        ?_assertEqual({10, {ExpectedQs, FuzzyNQString}}, parse_qstring(QString, QSchema)),
+        ?_assertEqual({0, {[], []}}, parse_qstring([{not_a_predefined_params, val}], QSchema)),
+        ?_assertThrow(
+            {bad_value_type, {<<"ip">>, ip, <<"helloworld">>}},
+            parse_qstring([{<<"ip">>, <<"helloworld">>}], QSchema)
+        )
+    ].
 
 -endif.
