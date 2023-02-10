@@ -92,6 +92,12 @@ t_prometheus_api(_) ->
     NewConf1 = Conf#{<<"enable">> => (not Enable)},
     {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
     ?assertEqual((not Enable), undefined =/= erlang:whereis(emqx_prometheus)),
+
+    ConfWithoutScheme = Conf#{<<"push_gateway_server">> => "127.0.0.1:8081"},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
+    ),
     ok.
 
 t_stats_api(_) ->
