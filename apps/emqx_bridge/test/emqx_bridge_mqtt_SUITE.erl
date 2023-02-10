@@ -52,7 +52,7 @@
 -define(INGRESS_CONF, #{
     <<"remote">> => #{
         <<"topic">> => <<?INGRESS_REMOTE_TOPIC, "/#">>,
-        <<"qos">> => 2
+        <<"qos">> => 1
     },
     <<"local">> => #{
         <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
@@ -77,7 +77,7 @@
 -define(INGRESS_CONF_NO_PAYLOAD_TEMPLATE, #{
     <<"remote">> => #{
         <<"topic">> => <<?INGRESS_REMOTE_TOPIC, "/#">>,
-        <<"qos">> => 2
+        <<"qos">> => 1
     },
     <<"local">> => #{
         <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
@@ -242,26 +242,54 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     ok.
 
-t_mqtt_conn_bridge_ignores_clean_start(_) ->
+t_mqtt_egress_bridge_ignores_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
     BridgeID = create_bridge(
         ?SERVER_CONF(<<"user1">>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => BridgeName,
-            <<"ingress">> => ?INGRESS_CONF,
+            <<"egress">> => ?EGRESS_CONF,
             <<"clean_start">> => false
         }
     ),
 
-    {ok, 200, BridgeJSON} = request(get, uri(["bridges", BridgeID]), []),
-    Bridge = jsx:decode(BridgeJSON),
-
-    %% verify that there's no `clean_start` in response
-    ?assertEqual(#{}, maps:with([<<"clean_start">>], Bridge)),
+    {ok, _, #{state := #{name := WorkerName}}} =
+        emqx_resource:get_instance(emqx_bridge_resource:resource_id(BridgeID)),
+    ?assertMatch(
+        #{clean_start := true},
+        maps:from_list(emqx_connector_mqtt_worker:info(WorkerName))
+    ),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    ok.
+
+t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<"user1">>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"ingress">> => emqx_map_lib:deep_merge(
+                ?INGRESS_CONF,
+                #{<<"remote">> => #{<<"qos">> => 2}}
+            )
+        }
+    ),
+
+    RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
+    LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
+    Payload = <<"whatqos">>,
+    emqx:subscribe(LocalTopic),
+    emqx:publish(emqx_message:make(undefined, _QoS = 2, RemoteTopic, Payload)),
+
+    %% we should receive a message on the local broker, with specified topic
+    Msg = assert_mqtt_msg_received(LocalTopic, Payload),
+    ?assertMatch(#message{qos = 1}, Msg),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
 
     ok.
 

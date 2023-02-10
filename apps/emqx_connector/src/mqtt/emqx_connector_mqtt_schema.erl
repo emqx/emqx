@@ -18,6 +18,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(hocon_schema).
 
@@ -111,9 +112,7 @@ fields("server_configs") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("clean_start"),
-                    hidden => true,
-                    deprecated => {since, "v5.0.16"}
+                    desc => ?DESC("clean_start")
                 }
             )},
         {keepalive, mk_duration("MQTT Keepalive.", #{default => "300s"})},
@@ -143,8 +142,7 @@ fields("ingress") ->
             mk(
                 ref(?MODULE, "ingress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local"),
-                    is_required => false
+                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")
                 }
             )}
     ];
@@ -161,7 +159,7 @@ fields("ingress_remote") ->
             )},
         {qos,
             mk(
-                qos(),
+                emqx_schema:qos(),
                 #{
                     default => 1,
                     desc => ?DESC("ingress_remote_qos")
