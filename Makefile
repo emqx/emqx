@@ -222,6 +222,10 @@ run: $(PROFILE) quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
+## Take the currently set PROFILE
+docker:
+	@$(BUILD) $(PROFILE) docker
+
 ## docker target is to create docker instructions
 .PHONY: $(REL_PROFILES:%=%-docker) $(REL_PROFILES:%=%-elixir-docker)
 define gen-docker-target
