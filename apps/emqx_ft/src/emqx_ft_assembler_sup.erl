@@ -29,7 +29,7 @@ start_child(Storage, Transfer, Callback) ->
     Childspec = #{
         id => {Storage, Transfer},
         start => {emqx_ft_assembler, start_link, [Storage, Transfer, Callback]},
-        restart => transient
+        restart => temporary
     },
     supervisor:start_child(?MODULE, Childspec).
 
