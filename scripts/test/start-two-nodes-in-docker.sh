@@ -10,7 +10,8 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/.."
 
-IMAGE="${1}"
+IMAGE1="${1}"
+IMAGE2="${2:-${IMAGE1}}"
 
 NET='emqx.io'
 NODE1="node1.$NET"
@@ -35,7 +36,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  "$IMAGE"
+  "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
@@ -47,7 +48,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  "$IMAGE"
+  "$IMAGE2"
 
 mkdir -p tmp
 cat <<EOF > tmp/haproxy.cfg
@@ -84,14 +85,17 @@ defaults
 ## API
 ##----------------------------------------------------------------
 frontend emqx_dashboard
-   mode tcp
-   option tcplog
-   bind *:18083
-   default_backend emqx_dashboard_back
+    mode tcp
+    option tcplog
+    bind *:18083
+    default_backend emqx_dashboard_back
 
 backend emqx_dashboard_back
+    # Must use a consistent dispatch when EMQX is running on different versions
+    # because the js files for the dashboard is chunked, having the backends sharing
+    # load randomly will cause the browser fail to GET some chunks (or get bad chunks if names clash)
+    balance first
     mode http
-    # balance static-rr
     server emqx-1 $NODE1:18083
     server emqx-2 $NODE2:18083
 
