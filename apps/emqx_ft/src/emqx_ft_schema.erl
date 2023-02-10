@@ -59,6 +59,11 @@ fields(local_storage) ->
             default => local,
             required => false,
             desc => ?DESC("local")
+        }},
+        {root, #{
+            type => binary(),
+            desc => ?DESC("local_storage_root"),
+            required => false
         }}
     ].
 
