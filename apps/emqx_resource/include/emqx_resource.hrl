@@ -43,7 +43,7 @@
     config := resource_config(),
     state := resource_state(),
     status := resource_status(),
-    metrics := emqx_metrics_worker:metrics()
+    metrics => emqx_metrics_worker:metrics()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{

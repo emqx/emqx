@@ -238,7 +238,7 @@ lookup(ResId) ->
 ets_lookup(ResId) ->
     case read_cache(ResId) of
         {Group, Data} ->
-            {ok, Group, data_record_to_external_map_with_metrics(Data)};
+            {ok, Group, data_record_to_external_map(Data)};
         not_found ->
             {error, not_found}
     end.
@@ -620,8 +620,8 @@ maybe_reply(Actions, undefined, _Reply) ->
 maybe_reply(Actions, From, Reply) ->
     [{reply, From, Reply} | Actions].
 
--spec data_record_to_external_map_with_metrics(data()) -> resource_data().
-data_record_to_external_map_with_metrics(Data) ->
+-spec data_record_to_external_map(data()) -> resource_data().
+data_record_to_external_map(Data) ->
     #{
         id => Data#data.id,
         mod => Data#data.mod,
@@ -629,9 +629,13 @@ data_record_to_external_map_with_metrics(Data) ->
         query_mode => Data#data.query_mode,
         config => Data#data.config,
         status => Data#data.status,
-        state => Data#data.state,
-        metrics => get_metrics(Data#data.id)
+        state => Data#data.state
     }.
+
+-spec data_record_to_external_map_with_metrics(data()) -> resource_data().
+data_record_to_external_map_with_metrics(Data) ->
+    DataMap = data_record_to_external_map(Data),
+    DataMap#{metrics => get_metrics(Data#data.id)}.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
 wait_for_ready(ResId, WaitTime) ->
