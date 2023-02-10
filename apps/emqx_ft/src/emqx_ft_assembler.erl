@@ -16,6 +16,8 @@
 
 -module(emqx_ft_assembler).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([start_link/3]).
 
 -behaviour(gen_statem).
@@ -73,7 +75,7 @@ handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
         complete ->
             {next_state, start_assembling, NSt, ?internal([])};
         {incomplete, _} ->
-            Nodes = ekka:nodelist() -- [node()],
+            Nodes = mria_mnesia:running_nodes() -- [node()],
             {next_state, {list_remote_fragments, Nodes}, NSt, ?internal([])}
         % TODO: recovery?
         % {error, _} = Reason ->
@@ -105,7 +107,7 @@ handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
             {next_state, start_assembling, NSt, ?internal([])};
         % TODO: retries / recovery?
         {incomplete, _} = Status ->
-            {stop, {error, Status}}
+            {next_state, {failure, {error, Status}}, NSt, ?internal([])}
     end;
 handle_event(internal, _, start_assembling, St = #st{assembly = Asm}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
@@ -124,21 +126,23 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
                 {ok, NHandle} ->
                     {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])};
                 %% TODO: better error handling
-                {error, Error} ->
-                    error(Error)
+                {error, _} = Error ->
+                    {next_state, {failure, Error}, St, ?internal([])}
             end;
-        {error, Error} ->
+        {error, _} = Error ->
             %% TODO: better error handling
-            error(Error)
+            {next_state, {failure, Error}, St, ?internal([])}
     end;
 handle_event(internal, _, {assemble, []}, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
 handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle, callback = Callback}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Result = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
-    %% TODO: safe apply
-    _ = Callback(Result),
-    {stop, shutdown}.
+    _ = safe_apply(Callback, Result),
+    {stop, shutdown};
+handle_event(internal, _, {failure, Error}, #st{callback = Callback}) ->
+    _ = safe_apply(Callback, Error),
+    {stop, Error}.
 
 % handle_continue(list_local, St = #st{storage = Storage, transfer = Transfer, assembly = Asm}) ->
 %     % TODO: what we do with non-transients errors here (e.g. `eacces`)?
@@ -170,3 +174,16 @@ pread(Node, Segment, St) ->
 
 segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).
+
+safe_apply(Callback, Result) ->
+    try apply(Callback, [Result]) of
+        _ -> ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "safe_apply_failed",
+                class => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end.
