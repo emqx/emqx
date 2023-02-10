@@ -114,7 +114,7 @@ start_link(Name, BridgeOpts) ->
         name => Name,
         options => BridgeOpts
     }),
-    Conf = init_config(BridgeOpts),
+    Conf = init_config(Name, BridgeOpts),
     Options = mk_client_options(Conf, BridgeOpts),
     case emqtt:start_link(Options) of
         {ok, Pid} ->
@@ -129,13 +129,13 @@ start_link(Name, BridgeOpts) ->
             Error
     end.
 
-init_config(Opts) ->
+init_config(Name, Opts) ->
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
     Subscriptions = maps:get(subscriptions, Opts, undefined),
     Forwards = maps:get(forwards, Opts, undefined),
     #{
         mountpoint => format_mountpoint(Mountpoint),
-        subscriptions => pre_process_subscriptions(Subscriptions),
+        subscriptions => pre_process_subscriptions(Subscriptions, Name, Opts),
         forwards => pre_process_forwards(Forwards)
     }.
 
@@ -282,11 +282,18 @@ format_mountpoint(undefined) ->
 format_mountpoint(Prefix) ->
     binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
-pre_process_subscriptions(undefined) ->
+pre_process_subscriptions(undefined, _, _) ->
     undefined;
-pre_process_subscriptions(#{local := LC} = Conf) when is_map(Conf) ->
-    Conf#{local => pre_process_in_out_common(LC)};
-pre_process_subscriptions(Conf) when is_map(Conf) ->
+pre_process_subscriptions(
+    #{remote := RC, local := LC} = Conf,
+    BridgeName,
+    BridgeOpts
+) when is_map(Conf) ->
+    Conf#{
+        remote => pre_process_in_remote(RC, BridgeName, BridgeOpts),
+        local => pre_process_in_out_common(LC)
+    };
+pre_process_subscriptions(Conf, _, _) when is_map(Conf) ->
     %% have no 'local' field in the config
     undefined.
 
@@ -313,6 +320,27 @@ pre_process_conf(Key, Conf) ->
         {ok, Val} ->
             Conf#{Key => Val}
     end.
+
+pre_process_in_remote(#{qos := QoSIn} = Conf, BridgeName, BridgeOpts) ->
+    QoS = downgrade_ingress_qos(QoSIn),
+    case QoS of
+        QoSIn ->
+            ok;
+        _ ->
+            ?SLOG(warning, #{
+                msg => "downgraded_unsupported_ingress_qos",
+                qos_configured => QoSIn,
+                qos_used => QoS,
+                name => BridgeName,
+                options => BridgeOpts
+            })
+    end,
+    Conf#{qos => QoS}.
+
+downgrade_ingress_qos(2) ->
+    1;
+downgrade_ingress_qos(QoS) ->
+    QoS.
 
 get_pid(Name) ->
     case gproc:where(?NAME(Name)) of

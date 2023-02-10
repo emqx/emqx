@@ -18,6 +18,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(hocon_schema).
 
@@ -143,8 +144,7 @@ fields("ingress") ->
             mk(
                 ref(?MODULE, "ingress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local"),
-                    is_required => false
+                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")
                 }
             )}
     ];
@@ -161,7 +161,7 @@ fields("ingress_remote") ->
             )},
         {qos,
             mk(
-                qos(),
+                emqx_schema:qos(),
                 #{
                     default => 1,
                     desc => ?DESC("ingress_remote_qos")
