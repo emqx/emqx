@@ -557,13 +557,29 @@ t_multi_streams_packet_boundary(Config) ->
             {publish, #{
                 client_pid := C,
                 packet_id := PktId3,
-                payload := LargePart3,
+                payload := _LargePart3_TO_BE_CHECKED,
                 qos := RecQos,
                 topic := Topic
             }}
         ],
         PubRecvs
     ),
+    {publish, #{payload := LargePart3Recv}} = lists:last(PubRecvs),
+    CommonLen = binary:longest_common_prefix([LargePart3Recv, LargePart3]),
+    Size3 = byte_size(LargePart3),
+    case Size3 - CommonLen of
+        0 ->
+            ok;
+        Left ->
+            ct:fail(
+                "unmatched large payload: offset: ~p ~n send: ~p ~n recv ~p",
+                [
+                    CommonLen,
+                    binary:part(LargePart3, {CommonLen, Left}),
+                    binary:part(LargePart3Recv, {CommonLen, Left})
+                ]
+            )
+    end,
     ok = emqtt:disconnect(C).
 
 %% @doc test that one malformed stream will not close the entire connection
