@@ -18,8 +18,9 @@
 %% Transport:
 %%   - TCP connection
 %%   - TCP/TLS connection
-%%   - WebSocket
 %%   - QUIC Stream
+%%
+%% for WebSocket @see emqx_ws_connection.erl
 -module(emqx_connection).
 
 -include("emqx.hrl").
