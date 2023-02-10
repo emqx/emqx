@@ -38,12 +38,16 @@
     <<"type">> => TYPE,
     <<"name">> => NAME
 }).
--define(MQTT_BRIDGE(SERVER), ?BRIDGE(<<"mqtt_egress_test_bridge">>, <<"mqtt">>)#{
+
+-define(BRIDGE_TYPE_MQTT, <<"mqtt">>).
+-define(MQTT_BRIDGE(SERVER, NAME), ?BRIDGE(NAME, ?BRIDGE_TYPE_MQTT)#{
     <<"server">> => SERVER,
     <<"username">> => <<"user1">>,
     <<"password">> => <<"">>,
     <<"proto_ver">> => <<"v5">>
 }).
+-define(MQTT_BRIDGE(SERVER), ?MQTT_BRIDGE(SERVER, <<"mqtt_egress_test_bridge">>)).
+
 -define(HTTP_BRIDGE(URL, TYPE, NAME), ?BRIDGE(NAME, TYPE)#{
     <<"url">> => URL,
     <<"local_topic">> => <<"emqx_webhook/#">>,
@@ -536,7 +540,27 @@ do_start_stop_bridges(Type, Config) ->
     ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge4)),
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% Create broken bridge
+    BadServer = <<"nohost">>,
+    BadName = <<"bad_", (atom_to_binary(Type))/binary>>,
+    {ok, 201, BadBridge1} = request(
+        post,
+        uri(["bridges"]),
+        ?MQTT_BRIDGE(BadServer, BadName)
+    ),
+    #{
+        <<"type">> := ?BRIDGE_TYPE_MQTT,
+        <<"name">> := BadName,
+        <<"enable">> := true,
+        <<"server">> := BadServer,
+        <<"status">> := <<"disconnected">>,
+        <<"node_status">> := [_ | _]
+    } = jsx:decode(BadBridge1),
+    BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
+    {ok, 500, _} = request(post, operation_path(Type, start, BadBridgeID), <<"">>),
+    ok.
 
 t_enable_disable_bridges(Config) ->
     %% assert we there's no bridges at first

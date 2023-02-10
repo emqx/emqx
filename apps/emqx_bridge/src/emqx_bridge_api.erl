@@ -856,7 +856,7 @@ unpack_bridge_conf(Type, PackedConf) ->
 
 is_ok(ok) ->
     ok;
-is_ok({ok, _} = OkResult) ->
+is_ok(OkResult = {ok, _}) ->
     OkResult;
 is_ok(Error = {error, _}) ->
     Error;
@@ -933,7 +933,9 @@ maybe_try_restart(_, _, _) ->
     {501}.
 
 do_bpapi_call(all, Call, Args) ->
-    do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args);
+    maybe_unwrap(
+        do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
+    );
 do_bpapi_call(Node, Call, Args) ->
     do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args).
 
@@ -944,6 +946,11 @@ do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
         false ->
             {error, not_implemented}
     end.
+
+maybe_unwrap({error, not_implemented}) ->
+    {error, not_implemented};
+maybe_unwrap(RpcMulticallResult) ->
+    emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
 supported_versions(start_bridge_to_node) -> [2];
 supported_versions(start_bridges_to_all_nodes) -> [2];
