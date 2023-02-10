@@ -26,7 +26,8 @@
     fields/1,
     desc/1,
     translation/1,
-    convert_headers/1
+    convert_headers/1,
+    validate_push_gateway_server/1
 ]).
 
 namespace() -> "prometheus".
@@ -41,6 +42,7 @@ fields("prometheus") ->
                 #{
                     default => "http://127.0.0.1:9091",
                     required => true,
+                    validator => fun ?MODULE:validate_push_gateway_server/1,
                     desc => ?DESC(push_gateway_server)
                 }
             )},
@@ -157,6 +159,12 @@ convert_headers(Headers) when is_map(Headers) ->
     );
 convert_headers(Headers) when is_list(Headers) ->
     Headers.
+
+validate_push_gateway_server(Url) ->
+    case uri_string:parse(Url) of
+        #{scheme := S} when S =:= "https" orelse S =:= "http" -> ok;
+        _ -> {error, "Invalid url"}
+    end.
 
 %% for CI test, CI don't load the whole emqx_conf_schema.
 translation(Name) ->
