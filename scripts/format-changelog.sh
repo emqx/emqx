@@ -26,8 +26,8 @@ item() {
 }
 
 section() {
-    local section_name=$1
-    for i in "${changes_dir}"/"${section_name}"-*."${language}".md; do
+    local prefix=$1
+    for i in "${changes_dir}"/"${prefix}"-*."${language}".md; do
         item "${i}"
     done
 }
@@ -39,6 +39,7 @@ if [ "${language}" = "en" ]; then
 ## Enhancements
 
 $(section feat)
+$(section perf)
 
 ## Bug fixes
 
