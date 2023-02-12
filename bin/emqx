@@ -464,9 +464,29 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         export EMQX_BOOT_CONFIGS
     fi
 else
-    # For non-boot commands, we try to get data_dir and ssl_dist_optfile from 'ps -ef' output
+    # For non-boot commands, we need below runtime facts to connect to the running node:
+    #  1. The running node name.
+    #  2. The Erlang cookie in use by the running node name.
+    #  3. SSL options if the node is using TLS for Erlang distribution
+    #
+    # There are 3 sources of truth to get those runtime information.
+    # Listed in the order of preference:
+    #  1. The boot command (which can be inspected from 'ps -ef' command output)
+    #  2. The generated app.<time>.config file located in the dir pointed by 'node.data_dir'
+    #  3. The bootstrap config 'etc/emqx.conf'
+    #
+    # NOTES:
+    #  * We should avoid getting runtime information with the 3rd approach because 'etc/emqx.conf' might
+    #    be updated after the node is started. e.g. If a user starts the node with name 'emqx@127.0.0.1'
+    #    then update the config in the file to 'node.name = "emqx@local.net"', after this change,
+    #    there would be no way stop the running node 'emqx@127.0.0.1', because 'emqx stop' command
+    #    would try to stop the new node instead.
+    #  * The node name and Erlang cookie can be found in 'ps -ef' output, but they are parsed from generated config instead.
+    #  * The primary grep pattern is $RUNNER_ROOT_DIR because one can start multiple nodes at the same time
+    #  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
+    #  * The running 'remsh' and 'escript' processes must be excluded
     # shellcheck disable=SC2009
-    PS_LINE="$(ps -ef | grep "\-[r]oot $RUNNER_ROOT_DIR" || true)"
+    PS_LINE="$(ps -ef | grep '[e]mqx' | grep -v -E '(remsh|nodetool)' | grep -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
     if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
         ## only one emqx node is running
         ## strip 'emqx_data_dir ' and ' --' because the dir in between may contain spaces
