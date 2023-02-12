@@ -299,6 +299,8 @@ fi
 # Make sure log directory exists
 mkdir -p "$RUNNER_LOG_DIR"
 
+# turn off debug as this is static
+set +x
 COMPATIBILITY_CHECK='
     io:format("BEAM_OK~n", []),
     try
@@ -321,14 +323,15 @@ COMPATIBILITY_CHECK='
     end,
     halt(0).
 '
+[ "$DEBUG" -eq 1 ] && set -x
 
 compatiblity_info() {
   # RELEASE_LIB is used by Elixir
   # set crash-dump bytes to zero to ensure no crash dump is generated when erl crashes
   env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" \
     -noshell \
-    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
     -boot "$REL_DIR/start_clean" \
+    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
     -eval "$COMPATIBILITY_CHECK"
 }
 
@@ -464,6 +467,8 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         export EMQX_BOOT_CONFIGS
     fi
 else
+    # Turn off debug as the ps output can be quite noisy
+    set +x
     # For non-boot commands, we need below runtime facts to connect to the running node:
     #  1. The running node name.
     #  2. The Erlang cookie in use by the running node name.
@@ -481,31 +486,33 @@ else
     #    then update the config in the file to 'node.name = "emqx@local.net"', after this change,
     #    there would be no way stop the running node 'emqx@127.0.0.1', because 'emqx stop' command
     #    would try to stop the new node instead.
-    #  * The node name and Erlang cookie can be found in 'ps -ef' output, but they are parsed from generated config instead.
     #  * The primary grep pattern is $RUNNER_ROOT_DIR because one can start multiple nodes at the same time
     #  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
-    #  * The running 'remsh' and 'escript' processes must be excluded
+    #  * The running 'remsh' and 'nodetool' processes must be excluded
     # shellcheck disable=SC2009
     PS_LINE="$(ps -ef | grep '[e]mqx' | grep -v -E '(remsh|nodetool)' | grep -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
+    [ "$DEBUG" -eq 1 ] && echo "EMQX processes: $PS_LINE"
     if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
-        ## only one emqx node is running
-        ## strip 'emqx_data_dir ' and ' --' because the dir in between may contain spaces
-        DATA_DIR="$(echo -e "$PS_LINE" | grep -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
-        if [ "$DATA_DIR" = '' ]; then
-            ## this should not happen unless -emqx_data_dir is not set
-            die "node_is_not_running!" 1
-        fi
-        # get ssl_dist_optfile option
-        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | grep -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
-        if [ -z "$SSL_DIST_OPTFILE" ]; then
-            EMQX_BOOT_CONFIGS="node.data_dir=${DATA_DIR}\ncluster.proto_dist=inet_tcp"
+        ## only one emqx node is running, get running args from 'ps -ef' output
+        tmp_nodename=$(echo -e "$PS_LINE" | grep -oE "\s\-s?name.*" | awk '{print $2}' || true)
+        tmp_cookie=$(echo -e "$PS_LINE" | grep -oE "\s\-setcookie.*" | awk '{print $2}' || true)
+        tmp_dist="$(echo -e "$PS_LINE" | grep -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        # data_dir is actually not needed, but kept anyway
+        tmp_daadir="$(echo -e "$PS_LINE" | grep -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
+        if [ -z "$tmp_dist" ]; then
+            tmp_proto='inet_tcp'
         else
-            EMQX_BOOT_CONFIGS="node.data_dir=${DATA_DIR}\ncluster.proto_dist=inet_tls"
+            tmp_proto='inet_tls'
         fi
+        ## Make the format like what call_hocon multi_get prints out, but only need 4 args
+        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.data_dir=${tmp_daadir}"
+        [ "$DEBUG" -eq 1 ] && echo "EMQX boot-configs: $EMQX_BOOT_CONFIGS"
     else
         ## None or more than one node is running, resolve from boot config
+        ## we have no choiece but to read the bootstrap config (with environment overrides available in the current shell)
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
+    [ "$DEBUG" -eq 1 ] && set -x
 fi
 
 get_boot_config() {
@@ -812,23 +819,6 @@ wait_until_return_val() {
     done
 }
 
-latest_vm_args() {
-    local hint_var_name="$1"
-    local vm_args_file
-    vm_args_file="$(find "$CONFIGS_DIR" -type f -name "vm.*.args" | sort | tail -1)"
-    if [ -f "$vm_args_file" ]; then
-        echo "$vm_args_file"
-    else
-        set +x
-        logerr "Node not initialized?"
-        logerr "Generated config file vm.*.args is not found for command '$COMMAND'"
-        logerr "in config dir: $CONFIGS_DIR"
-        logerr "In case the file has been deleted while the node is running,"
-        logerr "set environment variable '$hint_var_name' to continue"
-        exit 1
-    fi
-}
-
 # backward compatible with 4.x
 tr_log_to_env() {
     local log_to=${EMQX_LOG__TO:-undefined}
@@ -871,6 +861,7 @@ maybe_log_to_console() {
     fi
 }
 
+## To be backward compatible, read and then unset EMQX_NODE_NAME
 if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
     unset EMQX_NODE_NAME
@@ -882,13 +873,7 @@ fi
 ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
 NAME="${EMQX_NODE__NAME:-}"
 if [ -z "$NAME" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        # for boot commands, inspect emqx.conf for node name
-        NAME="$(get_boot_config 'node.name')"
-    else
-        vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
-        NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
-    fi
+    NAME="$(get_boot_config 'node.name')"
 fi
 
 # force to use 'emqx' short name
@@ -914,18 +899,13 @@ PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
 ## Resolve Erlang cookie.
 if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
-    ## To be backward compatible, read EMQX_NODE_COOKIE
+    ## To be backward compatible, read and unset EMQX_NODE_COOKIE
     export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
     unset EMQX_NODE_COOKIE
 fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 if [ -z "$COOKIE" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(get_boot_config 'node.cookie')"
-    else
-        vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
-        COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
-    fi
+    COOKIE="$(get_boot_config 'node.cookie')"
 fi
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
 if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
