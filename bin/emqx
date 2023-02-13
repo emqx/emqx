@@ -85,7 +85,7 @@ die() {
 
 assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
-        die "node_is_not_running!" 1
+        exit 1
     fi
 }
 
@@ -457,6 +457,8 @@ if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
 fi
 
+# Turn off debug as the ps output can be quite noisy
+set +x
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
@@ -466,18 +468,20 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         export EMQX_BOOT_CONFIGS
     fi
 else
-    # Turn off debug as the ps output can be quite noisy
-    set +x
     # For non-boot commands, we need below runtime facts to connect to the running node:
-    #  1. The running node name.
-    #  2. The Erlang cookie in use by the running node name.
-    #  3. SSL options if the node is using TLS for Erlang distribution
+    #  1. The running node name;
+    #  2. The Erlang cookie in use by the running node name;
+    #  3. SSL options if the node is using TLS for Erlang distribution;
+    #  4. Erlang kernel application's net_ticktime config.
     #
     # There are 3 sources of truth to get those runtime information.
     # Listed in the order of preference:
     #  1. The boot command (which can be inspected from 'ps -ef' command output)
-    #  2. The generated app.<time>.config file located in the dir pointed by 'node.data_dir'
+    #  2. The generated vm.<time>.config file located in the dir pointed by 'node.data_dir'
     #  3. The bootstrap config 'etc/emqx.conf'
+    #
+    # If failed to read from source 1, the information is retrieved from source 3
+    # i.e. source 2 is never used.
     #
     # NOTES:
     #  * We should avoid getting runtime information with the 3rd approach because 'etc/emqx.conf' might
@@ -491,7 +495,8 @@ else
     # shellcheck disable=SC2009
     PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
     [ "$DEBUG" -eq 1 ] && echo "EMQX processes: $PS_LINE"
-    if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
+    running_nodes_count="$(echo -e "$PS_LINE" | wc -l)"
+    if [ "$running_nodes_count" -eq 1 ]; then
         ## only one emqx node is running, get running args from 'ps -ef' output
         tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
         tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
@@ -506,14 +511,14 @@ else
         fi
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
         EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
-        [ "$DEBUG" -eq 1 ] && echo "EMQX boot-configs: $EMQX_BOOT_CONFIGS"
     else
         ## None or more than one node is running, resolve from boot config
         ## we have no choiece but to read the bootstrap config (with environment overrides available in the current shell)
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
-    [ "$DEBUG" -eq 1 ] && set -x
 fi
+[ "$DEBUG" -eq 1 ] && echo "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
+[ "$DEBUG" -eq 1 ] && set -x
 
 get_boot_config() {
     path_to_value="$1"
@@ -889,7 +894,7 @@ case "$NAME" in
 esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
-    echo "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
+    logerr "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
 fi
 # This also changes the program name from 'beam.smp' to node name
@@ -931,7 +936,7 @@ case "${COMMAND}" in
     start)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
-            die "node_is_already_running!"
+            die "Node $NAME is already running!"
         fi
 
         # this flag passes down to console mode
