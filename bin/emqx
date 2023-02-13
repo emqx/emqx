@@ -453,9 +453,25 @@ if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
 fi
 
+
+## Find the running node from 'ps -ef'
+## The primary grep pattern is $RUNNER_ROOT_DIR because one can start multiple nodes at the same time
+# shellcheck disable=SC2009
+PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
+if [ -n "${PS_LINE}" ]; then
+    RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | wc -l)"
+else
+    RUNNING_NODES_COUNT=0
+fi
+
 # Turn off debug as the ps output can be quite noisy
 set +x
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    if [ "$RUNNING_NODES_COUNT" -gt 0 ] && [ "$COMMAND" != 'check_config' ]; then
+        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
+        echo "Node ${tmp_nodename} is already running!"
+        exit 1
+    fi
     [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
     maybe_use_portable_dynlibs
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
@@ -486,14 +502,9 @@ else
     #    then update the config in the file to 'node.name = "emqx@local.net"', after this change,
     #    there would be no way stop the running node 'emqx@127.0.0.1', because 'emqx stop' command
     #    would try to stop the new node instead.
-    #  * The primary grep pattern is $RUNNER_ROOT_DIR because one can start multiple nodes at the same time
     #  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
     #  * The running 'remsh' and 'nodetool' processes must be excluded
-    # shellcheck disable=SC2009
-    PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
-    [ "$DEBUG" -eq 1 ] && echo "EMQX processes: $PS_LINE"
-    running_nodes_count="$(echo -e "$PS_LINE" | wc -l)"
-    if [ "$running_nodes_count" -eq 1 ]; then
+    if [ "$RUNNING_NODES_COUNT" -eq 1 ]; then
         ## only one emqx node is running, get running args from 'ps -ef' output
         tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
         tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
@@ -936,10 +947,6 @@ cd "$RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
-        # Make sure a node IS not running
-        if relx_nodetool "ping" >/dev/null 2>&1; then
-            die "Node $NAME is already running!"
-        fi
         maybe_warn_default_cookie
 
         # this flag passes down to console mode
@@ -1111,10 +1118,6 @@ case "${COMMAND}" in
         if [ "${_EMQX_START_DAEMON_MODE:-}" = 1 ]; then
             tr_log_to_env
         else
-            # Make sure a node IS not running
-            if relx_nodetool "ping" >/dev/null 2>&1; then
-                die "Node $NAME is already running!"
-            fi
             maybe_log_to_console
             maybe_warn_default_cookie
         fi
