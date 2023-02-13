@@ -169,8 +169,6 @@ cluster_query(Tab, QString, QSchema, MsFun, FmtFun) ->
     end.
 
 %% @private
-do_cluster_query([], QueryState, ResultAcc) ->
-    finalize_query(ResultAcc, mark_complete(QueryState));
 do_cluster_query(
     [Node | Tail] = Nodes,
     QueryState,
