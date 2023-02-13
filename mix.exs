@@ -46,6 +46,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
       {:redbug, "2.0.8"},
+      {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.6", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
@@ -222,6 +223,8 @@ defmodule EMQXUmbrella.MixProject do
         emqx_plugin_libs: :load,
         esasl: :load,
         observer_cli: :permanent,
+        tools: :load,
+        covertool: :load,
         system_monitor: :load,
         emqx_http_lib: :permanent,
         emqx_resource: :permanent,
