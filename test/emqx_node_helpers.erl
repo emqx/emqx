@@ -24,6 +24,7 @@
 -export([start_slave/1,
          start_slave/2,
          stop_slave/1,
+         make_node_name/1,
          wait_for_synced_routes/3
         ]).
 
@@ -75,6 +76,7 @@ stop_slave(Node0) ->
     erase_slave_mod(Node),
     case rpc:call(Node, ekka, leave, []) of
         ok -> ok;
+        {error, node_not_in_cluster} -> ok;
         {badrpc, nodedown} -> ok
     end,
     case SlaveMod:stop(Node) of
@@ -116,11 +118,15 @@ setup_node(Node, #{} = Opts) ->
                   end, LoadApps),
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
-    case maps:get(no_join, Opts, false) of
-        true ->
+    case maps:get(join_to, Opts, node()) of
+        undefined ->
             ok;
-        false ->
-            ok = rpc:call(Node, ekka, join, [node()])
+        JoinTo ->
+            %% assert
+            case rpc:call(Node, ekka, join, [JoinTo]) of
+                ok -> ok;
+                ignore -> ok
+            end
     end,
 
     %% Sanity check. Assert that `gen_rpc' is set up correctly:

@@ -580,7 +580,10 @@ render_appup(App, File, Up, Down) ->
         {error, enoent} when IsCheck ->
             %% failed to read old file, exit
             logerr("~s is missing", [File]),
-            set_invalid()
+            set_invalid();
+        {error, enoent} ->
+            logerr("~s is missing", [File]),
+            exit(1)
     end.
 
 do_render_appup(File, Up, Down) ->
