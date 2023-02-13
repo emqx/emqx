@@ -913,11 +913,14 @@ if [ -z "$COOKIE" ]; then
     COOKIE="$(get_boot_config 'node.cookie')"
 fi
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
-if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
-    logwarn "Default (insecure) Erlang cookie is in use."
-    logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
-    logwarn "NOTE: Use the same cookie for all nodes in the cluster."
-fi
+
+maybe_warn_default_cookie() {
+    if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
+        logwarn "Default (insecure) Erlang cookie is in use."
+        logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+        logwarn "NOTE: Use the same cookie for all nodes in the cluster."
+    fi
+}
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
@@ -937,6 +940,7 @@ case "${COMMAND}" in
         if relx_nodetool "ping" >/dev/null 2>&1; then
             die "Node $NAME is already running!"
         fi
+        maybe_warn_default_cookie
 
         # this flag passes down to console mode
         # so we know it's intended to be run in daemon mode
@@ -1107,7 +1111,12 @@ case "${COMMAND}" in
         if [ "${_EMQX_START_DAEMON_MODE:-}" = 1 ]; then
             tr_log_to_env
         else
+            # Make sure a node IS not running
+            if relx_nodetool "ping" >/dev/null 2>&1; then
+                die "Node $NAME is already running!"
+            fi
             maybe_log_to_console
+            maybe_warn_default_cookie
         fi
 
         #generate app.config and vm.args
