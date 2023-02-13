@@ -173,6 +173,17 @@ t_cluster_query(_Config) ->
     end,
     ok.
 
+t_bad_rpc(_) ->
+    emqx_mgmt_api_test_util:init_suite(),
+    meck:expect(mria_mnesia, running_nodes, 0, ['fake@nohost']),
+    try
+        Path = emqx_mgmt_api_test_util:api_path(["clients"]),
+        {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path)
+    after
+        meck:unload(mria_mnesia),
+        emqx_mgmt_api_test_util:end_suite()
+    end.
+
 %%--------------------------------------------------------------------
 %% helpers
 %%--------------------------------------------------------------------
