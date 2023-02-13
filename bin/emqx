@@ -230,6 +230,7 @@ usage() {
 }
 
 COMMAND="${1:-}"
+GREP='grep --color=never'
 
 if [ -z "$COMMAND" ]; then
     usage 'help'
@@ -340,7 +341,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     # Read BUILD_INFO early as the next commands may mess up the shell
     BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
     COMPATIBILITY_INFO="$(compatiblity_info 2>/dev/null || true)"
-    if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'CRYPTO_OK'); then
+    if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'CRYPTO_OK'); then
         ## failed to start, might be due to missing libs, try to be portable
         export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
         if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
@@ -349,7 +350,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         ## Turn off debug, because COMPATIBILITY_INFO needs to capture stderr
         set +x
         COMPATIBILITY_INFO="$(compatiblity_info 2>&1 || true)"
-        if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'BEAM_OK'); then
+        if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'BEAM_OK'); then
             ## not able to start beam.smp
             set +x
             logerr "$COMPATIBILITY_INFO"
@@ -358,7 +359,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
             logerr "Version=$REL_VSN"
             logerr "Required dependencies: openssl-1.1.1 (libcrypto), libncurses and libatomic1"
             exit 1
-        elif ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'CRYPTO_OK'); then
+        elif ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'CRYPTO_OK'); then
             ## not able to start crypto app
             set +x
             logerr "$COMPATIBILITY_INFO"
@@ -490,22 +491,22 @@ else
     #  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
     #  * The running 'remsh' and 'nodetool' processes must be excluded
     # shellcheck disable=SC2009
-    PS_LINE="$(ps -ef | grep '[e]mqx' | grep -v -E '(remsh|nodetool)' | grep -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
+    PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
     [ "$DEBUG" -eq 1 ] && echo "EMQX processes: $PS_LINE"
     if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
         ## only one emqx node is running, get running args from 'ps -ef' output
-        tmp_nodename=$(echo -e "$PS_LINE" | grep -oE "\s\-s?name.*" | awk '{print $2}' || true)
-        tmp_cookie=$(echo -e "$PS_LINE" | grep -oE "\s\-setcookie.*" | awk '{print $2}' || true)
-        tmp_dist="$(echo -e "$PS_LINE" | grep -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
+        tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
+        tmp_dist="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         # data_dir is actually not needed, but kept anyway
-        tmp_daadir="$(echo -e "$PS_LINE" | grep -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
+        tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         if [ -z "$tmp_dist" ]; then
             tmp_proto='inet_tcp'
         else
             tmp_proto='inet_tls'
         fi
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
-        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.data_dir=${tmp_daadir}"
+        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.data_dir=${tmp_datadir}"
         [ "$DEBUG" -eq 1 ] && echo "EMQX boot-configs: $EMQX_BOOT_CONFIGS"
     else
         ## None or more than one node is running, resolve from boot config
@@ -517,7 +518,7 @@ fi
 
 get_boot_config() {
     path_to_value="$1"
-    echo -e "$EMQX_BOOT_CONFIGS" | grep "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
+    echo -e "$EMQX_BOOT_CONFIGS" | $GREP "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
 }
 
 EPMD_ARGS="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
@@ -744,7 +745,7 @@ generate_config() {
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
         ## use the key to look up in vm.args file for the value
-        TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
+        TMP_ARG_VALUE=$($GREP "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
         ## compare generated (to override) value to original (to be overridden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
             ## if they are different
@@ -769,7 +770,7 @@ is_down() {
     if ps -p "$PID" >/dev/null; then
         # still around
         # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
-        if ps -p "$PID" | grep -q 'defunct'; then
+        if ps -p "$PID" | $GREP -q 'defunct'; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
             logwarn "$PID is marked <defunct>, parent: $(ps -p "$parent")"
