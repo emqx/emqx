@@ -138,6 +138,41 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
+t_restart_listeners_with_hibernate_after_disabled(Config) ->
+    OldLConf = emqx_config:get([listeners]),
+    maps:foreach(
+        fun(LType, Listeners) ->
+            maps:foreach(
+                fun(Name, Opts) ->
+                    case maps:is_key(ssl_options, Opts) of
+                        true ->
+                            emqx_config:put(
+                                [
+                                    listeners,
+                                    LType,
+                                    Name,
+                                    ssl_options,
+                                    hibernate_after
+                                ],
+                                5000
+                            );
+                        _ ->
+                            skip
+                    end
+                end,
+                Listeners
+            )
+        end,
+        OldLConf
+    ),
+    ok = emqx_listeners:start(),
+    ok = emqx_listeners:stop(),
+    %% flakyness: eaddrinuse
+    timer:sleep(timer:seconds(2)),
+    ok = emqx_listeners:restart(),
+    ok = emqx_listeners:stop(),
+    emqx_config:put([listeners], OldLConf).
+
 t_max_conns_tcp(_) ->
     %% Note: Using a string representation for the bind address like
     %% "127.0.0.1" does not work

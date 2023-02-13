@@ -1929,6 +1929,16 @@ common_ssl_opts_schema(Defaults) ->
                     default => Df("secure_renegotiate", true),
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
+            )},
+
+        {"hibernate_after",
+            sc(
+                duration(),
+                #{
+                    default => undefined,
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_schema_hibernate_after)
+                }
             )}
     ].
 
