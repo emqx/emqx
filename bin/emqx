@@ -401,8 +401,6 @@ remsh() {
     # Generate a unique id used to allow multiple remsh to the same node
     # transparently
     id="remsh$(relx_gen_id)-${NAME}"
-    # Get the node's ticktime so that we use the same thing.
-    TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
@@ -454,7 +452,7 @@ call_hocon() {
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
-CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
+CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' 'node.dist_net_ticktime' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
 fi
@@ -498,6 +496,7 @@ else
         tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
         tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
         tmp_dist="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s\-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         if [ -z "$tmp_dist" ]; then
@@ -506,7 +505,7 @@ else
             tmp_proto='inet_tls'
         fi
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
-        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.data_dir=${tmp_datadir}"
+        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
         [ "$DEBUG" -eq 1 ] && echo "EMQX boot-configs: $EMQX_BOOT_CONFIGS"
     else
         ## None or more than one node is running, resolve from boot config
@@ -523,6 +522,7 @@ get_boot_config() {
 
 EPMD_ARGS="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
+TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '120')"
 # this environment variable is required by ekka_dist module
 # because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
 export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
