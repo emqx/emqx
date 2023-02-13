@@ -59,8 +59,8 @@ table(ReaderPid, Bytes) when is_pid(ReaderPid) andalso is_integer(Bytes) andalso
                 [];
             {ok, Data} ->
                 [Data] ++ fun() -> NextFun(Pid) end;
-            {error, Reason} ->
-                ?SLOG(warning, #{msg => "file_read_error", reason => Reason}),
+            {ErrorKind, Reason} when ErrorKind =:= badrpc; ErrorKind =:= error ->
+                ?SLOG(warning, #{msg => "file_read_error", kind => ErrorKind, reason => Reason}),
                 []
         end
     end,
