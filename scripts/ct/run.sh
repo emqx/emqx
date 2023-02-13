@@ -80,6 +80,14 @@ if [ "${WHICH_APP}" = 'novalue' ]; then
     exit 1
 fi
 
+if [[ "${WHICH_APP}" == lib-ee* && (-z "${PROFILE+x}" || "${PROFILE}" != emqx-enterprise) ]]; then
+    echo 'You are trying to run an enterprise test case without the emqx-enterprise profile.'
+    echo 'This will most likely not work.'
+    echo ''
+    echo 'Run "export PROFILE=emqx-enterprise" and "make" to fix this'
+    exit 1
+fi
+
 ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
