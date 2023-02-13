@@ -173,13 +173,30 @@ t_cluster_query(_Config) ->
     end,
     ok.
 
+t_paging(_) ->
+    emqx_mgmt_api_test_util:init_suite(),
+    try
+        Path0 = emqx_mgmt_api_test_util:api_path(["banned?page=1"]),
+        {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path0)
+        Path1 = emqx_mgmt_api_test_util:api_path(["banned?page=10"]),
+        {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path1)
+    after
+        emqx_mgmt_api_test_util:end_suite()
+    end.
+
 t_bad_rpc(_) ->
     emqx_mgmt_api_test_util:init_suite(),
-    meck:expect(mria_mnesia, running_nodes, 0, ['fake@nohost']),
+    process_flag(trap_exit, true),
+    ClientLs1 = [start_emqtt_client(node(), I, 1883) || I <- lists:seq(1, 10)],
+    Path = emqx_mgmt_api_test_util:api_path(["clients?limit=2&page=2"]),
     try
-        Path = emqx_mgmt_api_test_util:api_path(["clients"]),
+        meck:expect(mria_mnesia, running_nodes, 0, ['fake@nohost']),
+        {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path),
+        %% good cop, bad cop
+        meck:expect(mria_mnesia, running_nodes, 0, [node(), 'fake@nohost']),
         {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path)
     after
+        _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
         meck:unload(mria_mnesia),
         emqx_mgmt_api_test_util:end_suite()
     end.
