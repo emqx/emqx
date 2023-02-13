@@ -12,7 +12,7 @@ on:
 jobs:
   prepare:
     runs-on: aws-amd64
-    container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
     outputs:
       fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
       docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
@@ -58,7 +58,7 @@ jobs:
   eunit_and_proper:
     needs: prepare
     runs-on: aws-amd64
-    container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +86,7 @@ jobs:
   fast_ct:
     needs: prepare
     runs-on: ${{ matrix.runs-on }}
-    container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
     strategy:
       fail-fast: false
       matrix:
@@ -249,7 +249,7 @@ jobs:
       - fast_ct
       - docker_ct
     runs-on: aws-amd64
-    container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3

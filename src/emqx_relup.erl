@@ -32,6 +32,7 @@ post_release_upgrade(FromRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
     ?INFO("emqx has been upgraded from ~s to ~s!", [FromRelVsn, CurrRelVsn]),
     maybe_refresh_jwt_module(FromRelVsn),
+    _ = maybe_restart_oracle_resources(FromRelVsn),
     reload_components().
 
 %% What to do after downgraded to an old release vsn.
@@ -90,6 +91,30 @@ maybe_refresh_jwt_module(_) ->
 -else.
 
 maybe_refresh_jwt_module(_) ->
+    ok.
+
+-endif.
+
+
+-ifdef(EMQX_ENTERPRISE).
+maybe_restart_oracle_resources("4.4." ++ PatchVsn0) ->
+    try
+        case list_to_integer(PatchVsn0) of
+            PatchVsn when PatchVsn =< 14 ->
+                emqx_rule_engine:start_all_resources_of_type(backend_oracle);
+            _ -> ok
+        end
+    catch
+        Err:Reason:ST ->
+            ?INFO("maybe_restart_oracle_resources failed: ~p", [{Err, Reason, ST}]),
+            ok
+    end;
+maybe_restart_oracle_resources(_) ->
+    ok.
+
+-else.
+
+maybe_restart_oracle_resources(_) ->
     ok.
 
 -endif.

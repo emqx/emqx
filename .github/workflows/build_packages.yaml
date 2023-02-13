@@ -157,6 +157,7 @@ jobs:
           - amd64
           - arm64
         os:
+          - ubuntu22.04
           - ubuntu20.04
           - ubuntu18.04
           - ubuntu16.04
@@ -195,7 +196,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/4.4-23:${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/4.4-24:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}
@@ -271,7 +272,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-24:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -287,7 +288,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-23:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-24:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise

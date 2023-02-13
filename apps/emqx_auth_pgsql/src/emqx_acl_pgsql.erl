@@ -36,9 +36,17 @@ do_check_acl(Pool, ClientInfo, PubSub, Topic, _NoMatchAction, #{acl_query := {Ac
         {ok, _, Rows} ->
             Rules = filter(PubSub, compile(Rows)),
             case match(ClientInfo, Topic, Rules) of
-                {matched, allow} -> {stop, allow};
-                {matched, deny}  -> {stop, deny};
-                nomatch          -> ok
+                {matched, allow} ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[Postgres] Allow Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, allow};
+                {matched, deny} ->
+                    ?LOG_SENSITIVE(debug,
+                                   "[Postgres] Deny Topic: ~p, Action: ~p for Client: ~p",
+                                   [Topic, PubSub, ClientInfo]),
+                    {stop, deny};
+                nomatch -> ok
             end;
         {error, Reason} ->
             ?LOG(error, "[Postgres] do_check_acl error: ~p~n", [Reason]),
@@ -105,4 +113,3 @@ empty(null) -> true;
 empty("")   -> true;
 empty(<<>>) -> true;
 empty(_)    -> false.
-

@@ -52,12 +52,12 @@ stop_listeners() ->
 start_listener({Proto, Port, Options}) when Proto == http ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch);
+    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch, proto_opts(Options));
 
 start_listener({Proto, Port, Options}) when Proto == https ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
+    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch, proto_opts(Options)).
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = proplists:get_value(num_acceptors, Options0, 4),
@@ -68,6 +68,7 @@ ranch_opts(Port, Options0) ->
                              ({inet6, false}, Acc) -> Acc;
                              ({ipv6_v6only, true}, Acc) -> [{ipv6_v6only, true} | Acc];
                              ({ipv6_v6only, false}, Acc) -> Acc;
+                             ({proxy_header, _}, Acc) -> Acc;
                              ({K, V}, Acc)->
                                  [{K, V} | Acc]
                           end, [], Options0),
@@ -76,6 +77,9 @@ ranch_opts(Port, Options0) ->
             max_connections => MaxConnections,
             socket_opts => [{port, Port} | Options]},
     Res.
+
+proto_opts(Options) ->
+    maps:with([proxy_header], maps:from_list(Options)).
 
 stop_listener({Proto, Port, _}) ->
     io:format("Stop http:management listener on ~s successfully.~n",[format(Port)]),

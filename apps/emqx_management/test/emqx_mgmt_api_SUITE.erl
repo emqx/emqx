@@ -794,13 +794,7 @@ t_keepalive(_Config) ->
     Path = api_path(["clients", ClientId, "keepalive"]),
     {ok, NotFound} = request_api(put, Path, "interval=5", AuthHeader, [#{}]),
     ?assertEqual("{\"message\":\"not_found\",\"code\":112}", NotFound),
-    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
-    {ok, _} = emqtt:connect(C1),
-    {ok, Ok} = request_api(put, Path, "interval=5", AuthHeader, [#{}]),
-    ?assertEqual("{\"code\":0}", Ok),
-    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
-    #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
-    ?assertEqual(5, Keepalive),
+    C1 = keepalive_ok(61, 0, Username, ClientId, Path, AuthHeader),
     {ok, Error1} = request_api(put, Path, "interval=-1", AuthHeader, [#{}]),
     {ok, Error2} = request_api(put, Path, "interval=65536", AuthHeader, [#{}]),
     ErrMsg = #{<<"code">> => 102,
@@ -808,8 +802,25 @@ t_keepalive(_Config) ->
     ?assertEqual(ErrMsg, jiffy:decode(Error1, [return_maps])),
     ?assertEqual(Error1, Error2),
     emqtt:disconnect(C1),
+    %% test change keepalive from 0 to 60
+    C2 = keepalive_ok(0, 60, Username, ClientId, Path, AuthHeader),
+    emqtt:disconnect(C2),
+    %% test change keepalive from 60 to 0
+    C3 = keepalive_ok(60, 0, Username, ClientId, Path, AuthHeader),
+    emqtt:disconnect(C3),
     application:stop(emqx_dashboard),
     ok.
+
+keepalive_ok(InitSec, UpdateSec, Username, ClientId, Path, AuthHeader) ->
+    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId, keepalive => InitSec}),
+    {ok, _} = emqtt:connect(C1),
+    Qs = "interval=" ++ integer_to_list(UpdateSec),
+    {ok, Ok} = request_api(put, Path, Qs, AuthHeader, [#{}]),
+    ?assertEqual("{\"code\":0}", Ok),
+    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
+    ?assertEqual(UpdateSec, Keepalive),
+    C1.
 
 t_status_ok(_Config) ->
     {ok, #{ body := Resp

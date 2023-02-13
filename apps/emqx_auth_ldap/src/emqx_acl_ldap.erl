@@ -29,8 +29,16 @@
 check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) ->
     case do_check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) of
         ok -> ok;
-        {stop, allow} -> {stop, allow};
-        {stop, deny} -> {stop, deny}
+        {stop, allow} ->
+            ?LOG_SENSITIVE(debug,
+                           "[LDAP] Allow Topic: ~p, Action: ~p for Client: ~p",
+                           [Topic, PubSub, ClientInfo]),
+            {stop, allow};
+        {stop, deny} ->
+            ?LOG_SENSITIVE(debug,
+                           "[LDAP] Deny Topic: ~p, Action: ~p for Client: ~p",
+                           [Topic, PubSub, ClientInfo]),
+            {stop, deny}
     end.
 
 do_check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _NoMatchAction, _State) ->

@@ -58,6 +58,9 @@ check(ClientInfo = #{username := Username, password := Password}, AuthResult,
         end,
     case CheckResult of
         ok ->
+            ?LOG_SENSITIVE(debug,
+                           "[LDAP] Auth from ldap succeeded, Client: ~p",
+                           [ClientInfo]),
             {stop, AuthResult#{auth_result => success, anonymous => false}};
         {error, not_found} ->
             ok;

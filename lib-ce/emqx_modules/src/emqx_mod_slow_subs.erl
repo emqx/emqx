@@ -46,4 +46,4 @@ unload(_Env) ->
     ok.
 
 description() ->
-    "EMQ X Slow Subscribers Statistics Module".
+    "EMQX Slow Subscribers Statistics Module".

@@ -200,7 +200,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -251,7 +251,7 @@ jobs:
              otp:
              - 24.3.4.2-1
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -288,7 +288,7 @@ jobs:
           - relup_test_plan
           - relup_test_build
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-23:24.3.4.2-1-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-24:24.3.4.2-1-ubuntu20.04
         strategy:
           fail-fast: false
           matrix:

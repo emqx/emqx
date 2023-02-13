@@ -36,6 +36,7 @@
         , create_resource/1
         , test_resource/1
         , start_resource/1
+        , start_all_resources_of_type/1
         , get_resource_status/1
         , is_resource_alive/1
         , is_resource_alive/2
@@ -354,18 +355,26 @@ do_check_and_update_resource(#{id := Id, type := Type, description := NewDescrip
 -spec(start_resource(resource_id()) -> ok | {error, Reason :: term()}).
 start_resource(ResId) ->
     case emqx_rule_registry:find_resource(ResId) of
-        {ok, #resource{type = ResType, config = Config}} ->
-            {ok, #resource_type{on_create = {Mod, Create}}}
-                = emqx_rule_registry:find_resource_type(ResType),
-            try
-                init_resource_with_retrier(Mod, Create, ResId, Config),
-                refresh_actions_of_a_resource(ResId)
-            catch
-                throw:Reason -> {error, Reason}
-            end;
+        {ok, Res} ->
+            do_start_resource(Res);
         not_found ->
             {error, {resource_not_found, ResId}}
     end.
+
+do_start_resource(#resource{id = ResId, type = ResType, config = Config}) ->
+    {ok, #resource_type{on_create = {Mod, Create}}}
+        = emqx_rule_registry:find_resource_type(ResType),
+    try
+        init_resource_with_retrier(Mod, Create, ResId, Config),
+        refresh_actions_of_a_resource(ResId)
+    catch
+        throw:Reason -> {error, Reason}
+    end.
+
+-spec(start_all_resources_of_type(resource_type_name()) -> [{resource_id(), ok | {error, term()}}]).
+start_all_resources_of_type(Type) ->
+    [{ResId, do_start_resource(Res)}
+        || #resource{id = ResId} = Res <- emqx_rule_registry:get_resources_by_type(Type)].
 
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
 test_resource(#{type := Type} = Params) ->
@@ -520,18 +529,26 @@ refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
 refresh_rules_when_boot() ->
     lists:foreach(fun
         (#rule{enabled = true} = Rule) ->
-            try refresh_rule(Rule)
-            catch _:_ ->
-                %% We set the enable = false when rule init failed to avoid bad rules running
-                %% without actions created properly.
-                %% The init failure might be caused by a disconnected resource, in this case the
-                %% actions can not be created, so the rules won't work.
-                %% After the user fixed the problem he can enable it manually,
-                %% doing so will also recreate the actions.
-                emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
-            end;
-        (_) -> ok
+            ensure_rule_retrier(Rule);
+        (#rule{enabled = false, state = refresh_failed_at_bootup} = Rule) ->
+            %% the rule was previously disabled by emqx so we need to retry it
+            ensure_rule_retrier(Rule);
+        (#rule{enabled = false, id = RuleId}) ->
+            ?LOG(warning, "rule ~s was disabled by the user, won't re-enable it", [RuleId])
     end, emqx_rule_registry:get_rules()).
+
+ensure_rule_retrier(#rule{id = RuleId} = Rule) ->
+    try refresh_rule(Rule)
+    catch _:_ ->
+        %% We set the enable = false when rule init failed to avoid bad rules running
+        %% without actions created properly.
+        %% The init failure might be caused by a disconnected resource, in this case the
+        %% actions can not be created, so the rules won't work.
+        %% After the user fixed the problem he can enable it manually,
+        %% doing so will also recreate the actions.
+        emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup}),
+        emqx_rule_monitor:ensure_rule_retrier(RuleId)
+    end.
 
 refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),

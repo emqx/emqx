@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[Delayed]").
 
@@ -94,7 +95,7 @@ unload(_Env) ->
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
-    "EMQ X Delayed Publish Module".
+    "EMQX Delayed Publish Module".
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
@@ -228,7 +229,20 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     case mnesia:dirty_read(?TAB, Key) of
         [] -> ok;
         [#delayed_message{msg = Msg}] ->
-            emqx_pool:async_submit(fun emqx:publish/1, [Msg])
+            case emqx_banned:look_up({clientid, Msg#message.from}) of
+                [] ->
+                    emqx_pool:async_submit(fun emqx:publish/1, [Msg]);
+                _ ->
+                    ?tp(
+                        notice,
+                        ignore_delayed_message_publish,
+                        #{
+                            reason => "client is banned",
+                            clienid => Msg#message.from
+                        }
+                    ),
+                    ok
+            end
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key|Acc]).
 

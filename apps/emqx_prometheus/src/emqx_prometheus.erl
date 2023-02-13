@@ -185,6 +185,10 @@ emqx_collect(emqx_connections_count, Stats) ->
     gauge_metric(?C('connections.count', Stats));
 emqx_collect(emqx_connections_max, Stats) ->
     gauge_metric(?C('connections.max', Stats));
+emqx_collect(emqx_live_connections_count, Stats) ->
+    gauge_metric(?C('live_connections.count', Stats));
+emqx_collect(emqx_live_connections_max, Stats) ->
+    gauge_metric(?C('live_connections.max', Stats));
 
 %% sessions
 emqx_collect(emqx_sessions_count, Stats) ->
@@ -471,6 +475,8 @@ emqx_collect(emqx_cluster_nodes_stopped, ClusterData) ->
 emqx_stats() ->
     [ emqx_connections_count
     , emqx_connections_max
+    , emqx_live_connections_count
+    , emqx_live_connections_max
     , emqx_sessions_count
     , emqx_sessions_max
     , emqx_topics_count

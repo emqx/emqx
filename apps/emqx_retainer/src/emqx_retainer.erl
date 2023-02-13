@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[Retainer]").
 
@@ -74,11 +75,12 @@ on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}) ->
 
 %% @private
 dispatch(Pid, Topic) ->
-    Msgs = case emqx_topic:wildcard(Topic) of
-               false -> read_messages(Topic);
-               true  -> match_messages(Topic)
-           end,
+    MsgsT = case emqx_topic:wildcard(Topic) of
+                false -> read_messages(Topic);
+                true  -> match_messages(Topic)
+            end,
     Now = erlang:system_time(millisecond),
+    Msgs = drop_banned_messages(MsgsT),
     [Pid ! {deliver, Topic, refresh_timestamp_expiry(Msg, Now)} || Msg  <- sort_retained(Msgs)].
 
 %% RETAIN flag set to 1 and payload containing zero bytes
@@ -332,3 +334,21 @@ refresh_timestamp_expiry(Msg = #message{headers =
 
 refresh_timestamp_expiry(Msg, Now) ->
     Msg#message{timestamp = Now}.
+
+drop_banned_messages(Msgs) ->
+    lists:filter(fun(Msg) ->
+                         case emqx_banned:look_up({clientid, Msg#message.from}) of
+                             [] ->
+                                 true;
+                             _ ->
+                                 ?tp(
+                                    notice,
+                                    ignore_retained_message_deliver,
+                                    #{
+                                      reason => "client is banned",
+                                      clientid => Msg#message.from
+                                     }
+                                   ),
+                                 false
+                         end
+                 end, Msgs).

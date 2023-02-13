@@ -57,7 +57,7 @@ reload(Env) ->
     unload(Env), load(Env).
 
 description() ->
-    "EMQ X Internal ACL Module".
+    "EMQX Internal ACL Module".
 %%--------------------------------------------------------------------
 %% ACL callbacks
 %%--------------------------------------------------------------------

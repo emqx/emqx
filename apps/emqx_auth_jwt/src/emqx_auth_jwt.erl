@@ -51,8 +51,14 @@ check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
                 {error, not_token} ->
                     ok;
                 {error, Reason} ->
+                    ?LOG_SENSITIVE(debug,
+                                   "Auth from JWT failed, Client: ~p, Reason: ~p",
+                                   [ClientInfo, Reason]),
                     {stop, AuthResult#{auth_result => Reason, anonymous => false}};
                 {ok, Claims} ->
+                    ?LOG_SENSITIVE(debug,
+                                   "Auth from JWT succeeded, Client: ~p",
+                                   [ClientInfo]),
                     {stop, maps:merge(AuthResult, verify_claims(Checklists, Claims, ClientInfo))}
             end
     end.

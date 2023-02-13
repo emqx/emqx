@@ -48,7 +48,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_restart_resource, Config) ->
-    emqx_rule_monitor:put_retry_interval(100),
+    emqx_rule_monitor:put_resource_retry_interval(100),
     Opts = [public, named_table, set, {read_concurrency, true}],
     _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     ets:new(t_restart_resource, [named_table, public]),
@@ -90,12 +90,13 @@ end_per_testcase(_, Config) ->
 
 common_init_per_testcase() ->
     AlarmOpts = [{actions, [log, publish]}, {size_limit, 1000}, {validity_period, 86400}],
+    _ = emqx_alarm:mnesia(boot),
     {ok, _} = emqx_alarm:start_link(AlarmOpts),
     {ok, _} = emqx_rule_monitor:start_link().
 
 common_end_per_testcases() ->
     ok = emqx_alarm:stop(),
-    emqx_rule_monitor:erase_retry_interval(),
+    emqx_rule_monitor:erase_resource_retry_interval(),
     emqx_rule_monitor:stop().
 
 t_restart_resource(_) ->

@@ -90,6 +90,11 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "management.listener.http.proxy_header", "emqx_management.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {mapping, "management.listener.https", "emqx_management.listeners", [
   {datatype, [integer, ip]}
 ]}.
@@ -186,6 +191,11 @@
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "management.listener.https.proxy_header", "emqx_management.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx_management.application", fun(Conf) ->
   Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   Opts = fun(Prefix) ->
@@ -202,7 +212,9 @@ end}.
   Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
   Opts = fun(Prefix) ->
              Filter([{num_acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
-                     {max_connections, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)}])
+                     {max_connections, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
+                     {proxy_header, cuttlefish:conf_get(Prefix ++ ".proxy_header", Conf)}
+                    ])
          end,
   TcpOpts = fun(Prefix) ->
                 Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
