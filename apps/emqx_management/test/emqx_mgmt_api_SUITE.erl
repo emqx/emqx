@@ -145,6 +145,12 @@ t_cluster_query(_Config) ->
             query_clients(Node1, #{<<"node">> => Node1, <<"page">> => -1})
         ),
 
+        %% Query bad node
+        ?assertMatch(
+            {500, #{code := <<"NODE_DOWN">>}},
+            query_clients(Node1, #{<<"node">> => 'nonode@nohost'})
+        ),
+
         %% exact match can return non-zero total
         {200, ClientsNode1} = query_clients(Node2, #{<<"username">> => <<"corenode1@127.0.0.1">>}),
         ?assertMatch(
