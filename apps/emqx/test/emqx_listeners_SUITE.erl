@@ -138,7 +138,7 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
-t_restart_listeners_with_hibernate_after_disabled(Config) ->
+t_restart_listeners_with_hibernate_after_disabled(_Config) ->
     OldLConf = emqx_config:get([listeners]),
     maps:foreach(
         fun(LType, Listeners) ->
@@ -154,7 +154,7 @@ t_restart_listeners_with_hibernate_after_disabled(Config) ->
                                     ssl_options,
                                     hibernate_after
                                 ],
-                                5000
+                                undefined
                             );
                         _ ->
                             skip

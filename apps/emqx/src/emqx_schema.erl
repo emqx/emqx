@@ -1935,8 +1935,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 duration(),
                 #{
-                    default => undefined,
-                    required => false,
+                    default => Df("hibernate_after", "5s"),
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
