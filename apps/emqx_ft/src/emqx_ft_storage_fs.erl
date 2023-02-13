@@ -387,10 +387,14 @@ encode_filemeta(Meta) ->
     Term = hocon_tconf:make_serializable(Schema, emqx_map_lib:binary_key_map(Meta), #{}),
     emqx_json:encode(?PRELUDE(_Vsn = 1, Term)).
 
-decode_filemeta(Binary) ->
-    Schema = emqx_ft_schema:schema(filemeta),
-    ?PRELUDE(_Vsn = 1, Term) = emqx_json:decode(Binary, [return_maps]),
-    hocon_tconf:check_plain(Schema, Term, #{atom_key => true, required => false}).
+decode_filemeta(Binary) when is_binary(Binary) ->
+    ?PRELUDE(_Vsn = 1, Map) = emqx_json:decode(Binary, [return_maps]),
+    case emqx_ft:decode_filemeta(Map) of
+        {ok, Meta} ->
+            Meta;
+        {error, Reason} ->
+            error(Reason)
+    end.
 
 mk_segment_filename({Offset, Content}) ->
     lists:concat([?SEGMENT, ".", Offset, ".", byte_size(Content)]).
