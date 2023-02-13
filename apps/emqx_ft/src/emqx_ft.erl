@@ -31,6 +31,10 @@
     on_message_puback/4
 ]).
 
+-export([
+    decode_filemeta/1
+]).
+
 -export([on_assemble_timeout/1]).
 
 -export_type([
@@ -87,6 +91,27 @@ unhook() ->
     ok = emqx_hooks:del('message.puback', {?MODULE, on_message_puback}).
 
 %%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
+decode_filemeta(Payload) when is_binary(Payload) ->
+    case emqx_json:safe_decode(Payload, [return_maps]) of
+        {ok, Map} ->
+            decode_filemeta(Map);
+        {error, Error} ->
+            {error, {invalid_filemeta_json, Error}}
+    end;
+decode_filemeta(Map) when is_map(Map) ->
+    Schema = emqx_ft_schema:schema(filemeta),
+    try
+        Meta = hocon_tconf:check_plain(Schema, Map, #{atom_key => true, required => false}),
+        {ok, Meta}
+    catch
+        throw:Error ->
+            {error, {invalid_filemeta, Error}}
+    end.
+
+%%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
 
@@ -113,6 +138,8 @@ on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
 %% Handlers for transfer messages
 %%--------------------------------------------------------------------
 
+%% TODO Move to emqx_ft_mqtt?
+
 on_file_command(PacketId, Msg, FileCommand) ->
     case string:split(FileCommand, <<"/">>, all) of
         [FileId, <<"init">>] ->
@@ -123,10 +150,14 @@ on_file_command(PacketId, Msg, FileCommand) ->
             on_fin(PacketId, Msg, FileId, Checksum);
         [FileId, <<"abort">>] ->
             on_abort(Msg, FileId);
-        [FileId, Offset] ->
-            on_segment(Msg, FileId, Offset, undefined);
-        [FileId, Offset, Checksum] ->
-            on_segment(Msg, FileId, Offset, Checksum);
+        [FileId, OffsetBin] ->
+            validate([{offset, OffsetBin}], fun([Offset]) ->
+                on_segment(Msg, FileId, Offset, undefined)
+            end);
+        [FileId, OffsetBin, ChecksumBin] ->
+            validate([{offset, OffsetBin}, {checksum, ChecksumBin}], fun([Offset, Checksum]) ->
+                on_segment(Msg, FileId, Offset, Checksum)
+            end);
         _ ->
             ?RC_UNSPECIFIED_ERROR
     end.
@@ -139,11 +170,21 @@ on_init(Msg, FileId) ->
     }),
     Payload = Msg#message.payload,
     % %% Add validations here
-    Meta = emqx_json:decode(Payload, [return_maps]),
-    case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
-        ok ->
-            ?RC_SUCCESS;
-        {error, _Reason} ->
+    case decode_filemeta(Payload) of
+        {ok, Meta} ->
+            case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
+                ok ->
+                    ?RC_SUCCESS;
+                {error, _Reason} ->
+                    ?RC_UNSPECIFIED_ERROR
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "on_init: invalid filemeta",
+                mqtt_msg => Msg,
+                file_id => FileId,
+                reason => Reason
+            }),
             ?RC_UNSPECIFIED_ERROR
     end.
 
@@ -161,7 +202,7 @@ on_segment(Msg, FileId, Offset, Checksum) ->
     }),
     %% TODO: handle checksum
     Payload = Msg#message.payload,
-    Segment = {binary_to_integer(Offset), Payload},
+    Segment = {Offset, Payload},
     %% Add offset/checksum validations
     case emqx_ft_storage:store_segment(transfer(Msg, FileId), Segment) of
         ok ->
@@ -247,3 +288,42 @@ transfer(Msg, FileId) ->
 on_assemble_timeout({ChanPid, PacketId}) ->
     ?SLOG(warning, #{msg => "on_assemble_timeout", packet_id => PacketId}),
     erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR}).
+
+validate(Validations, Fun) ->
+    case do_validate(Validations, []) of
+        {ok, Parsed} ->
+            Fun(Parsed);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "validate: invalid $file command",
+                reason => Reason
+            }),
+            ?RC_UNSPECIFIED_ERROR
+    end.
+
+do_validate([], Parsed) ->
+    {ok, lists:reverse(Parsed)};
+do_validate([{offset, Offset} | Rest], Parsed) ->
+    case string:to_integer(Offset) of
+        {Int, <<>>} ->
+            do_validate(Rest, [Int | Parsed]);
+        _ ->
+            {error, {invalid_offset, Offset}}
+    end;
+do_validate([{checksum, Checksum} | Rest], Parsed) ->
+    case parse_checksum(Checksum) of
+        {ok, Bin} ->
+            do_validate(Rest, [Bin | Parsed]);
+        {error, _Reason} ->
+            {error, {invalid_checksum, Checksum}}
+    end.
+
+parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:= 64 ->
+    try
+        {ok, binary:decode_hex(Checksum)}
+    catch
+        error:badarg ->
+            {error, invalid_checksum}
+    end;
+parse_checksum(_Checksum) ->
+    {error, invalid_checksum}.
