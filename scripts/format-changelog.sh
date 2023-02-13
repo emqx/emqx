@@ -39,6 +39,7 @@ if [ "${language}" = "en" ]; then
 ## Enhancements
 
 $(section feat)
+
 $(section perf)
 
 ## Bug fixes
@@ -52,6 +53,8 @@ elif [ "${language}" = "zh" ]; then
 ## 增强
 
 $(section feat)
+
+$(section perf)
 
 ## 修复
 
