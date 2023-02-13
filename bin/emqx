@@ -337,7 +337,7 @@ compatiblity_info() {
 }
 
 # Collect Erlang/OTP runtime sanity and compatibility in one go
-if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+maybe_use_portable_dynlibs() {
     # Read BUILD_INFO early as the next commands may mess up the shell
     BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
     COMPATIBILITY_INFO="$(compatiblity_info 2>/dev/null || true)"
@@ -348,11 +348,9 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
             export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
         fi
         ## Turn off debug, because COMPATIBILITY_INFO needs to capture stderr
-        set +x
         COMPATIBILITY_INFO="$(compatiblity_info 2>&1 || true)"
         if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'BEAM_OK'); then
             ## not able to start beam.smp
-            set +x
             logerr "$COMPATIBILITY_INFO"
             logerr "Please ensure it is running on the correct platform:"
             logerr "$BUILD_INFO"
@@ -361,14 +359,12 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
             exit 1
         elif ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'CRYPTO_OK'); then
             ## not able to start crypto app
-            set +x
             logerr "$COMPATIBILITY_INFO"
             exit 2
         fi
         logwarn "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
     fi
-    [ "$DEBUG" -eq 1 ] && set -x
-fi
+}
 
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=$(ulimit -n)
@@ -461,6 +457,7 @@ fi
 set +x
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
+    maybe_use_portable_dynlibs
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
         ## export here so the 'console' command recursively called from
@@ -514,6 +511,8 @@ else
     else
         ## None or more than one node is running, resolve from boot config
         ## we have no choiece but to read the bootstrap config (with environment overrides available in the current shell)
+        [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
+        maybe_use_portable_dynlibs
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
 fi
