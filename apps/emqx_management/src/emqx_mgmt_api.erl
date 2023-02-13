@@ -57,7 +57,7 @@
 
 -export([do_query/2, apply_total_query/1]).
 
--spec paginate(atom(), map(), {atom(), fun()}) ->
+-spec paginate(atom(), map(), {atom(), atom()}) ->
     #{
         meta => #{page => pos_integer(), limit => pos_integer(), count => pos_integer()},
         data => list(term())
