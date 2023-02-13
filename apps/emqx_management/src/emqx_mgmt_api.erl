@@ -23,8 +23,7 @@
 -define(LONG_QUERY_TIMEOUT, 50000).
 
 -export([
-    paginate/3,
-    paginate/4
+    paginate/3
 ]).
 
 %% first_next query APIs
@@ -58,14 +57,14 @@
 
 -export([do_query/2, apply_total_query/1]).
 
-paginate(Tables, Params, {Module, FormatFun}) ->
-    Qh = query_handle(Tables),
-    Count = count(Tables),
-    do_paginate(Qh, Count, Params, {Module, FormatFun}).
-
-paginate(Tables, MatchSpec, Params, {Module, FormatFun}) ->
-    Qh = query_handle(Tables, MatchSpec),
-    Count = count(Tables, MatchSpec),
+-spec paginate(atom(), map(), {atom(), fun()}) ->
+    #{
+        meta => #{page => pos_integer(), limit => pos_integer(), count => pos_integer()},
+        data => list(term())
+    }.
+paginate(Table, Params, {Module, FormatFun}) ->
+    Qh = query_handle(Table),
+    Count = count(Table),
     do_paginate(Qh, Count, Params, {Module, FormatFun}).
 
 do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
@@ -86,57 +85,17 @@ do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
         data => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]
     }.
 
-query_handle(Table) when is_atom(Table) ->
-    qlc:q([R || R <- ets:table(Table)]);
-query_handle({Table, Opts}) when is_atom(Table) ->
-    qlc:q([R || R <- ets:table(Table, Opts)]);
-query_handle([Table]) when is_atom(Table) ->
-    qlc:q([R || R <- ets:table(Table)]);
-query_handle([{Table, Opts}]) when is_atom(Table) ->
-    qlc:q([R || R <- ets:table(Table, Opts)]);
-query_handle(Tables) ->
-    %
-    qlc:append([query_handle(T) || T <- Tables]).
+query_handle(Table) ->
+    qlc:q([R || R <- ets:table(Table)]).
 
-query_handle(Table, MatchSpec) when is_atom(Table) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:q([R || R <- ets:table(Table, Options)]);
-query_handle([Table], MatchSpec) when is_atom(Table) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:q([R || R <- ets:table(Table, Options)]);
-query_handle(Tables, MatchSpec) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:append([qlc:q([E || E <- ets:table(T, Options)]) || T <- Tables]).
+count(Table) ->
+    ets:info(Table, size).
 
-count(Table) when is_atom(Table) ->
-    ets:info(Table, size);
-count({Table, _}) when is_atom(Table) ->
-    ets:info(Table, size);
-count([Table]) when is_atom(Table) ->
-    ets:info(Table, size);
-count([{Table, _}]) when is_atom(Table) ->
-    ets:info(Table, size);
-count(Tables) ->
-    lists:sum([count(T) || T <- Tables]).
-
-count(Table, MatchSpec) when is_atom(Table) ->
-    [{MatchPattern, Where, _Re}] = MatchSpec,
-    NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec);
-count([Table], MatchSpec) when is_atom(Table) ->
-    count(Table, MatchSpec);
-count(Tables, MatchSpec) ->
-    lists:sum([count(T, MatchSpec) || T <- Tables]).
-
-page(Params) when is_map(Params) ->
-    maps:get(<<"page">>, Params, 1);
 page(Params) ->
-    proplists:get_value(<<"page">>, Params, <<"1">>).
+    maps:get(<<"page">>, Params, 1).
 
-limit(Params) when is_map(Params) ->
-    maps:get(<<"limit">>, Params, emqx_mgmt:max_row_limit());
 limit(Params) ->
-    proplists:get_value(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
+    maps:get(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -605,7 +564,7 @@ to_type(V, TargetType) ->
 to_type_(V, atom) -> to_atom(V);
 to_type_(V, integer) -> to_integer(V);
 to_type_(V, timestamp) -> to_timestamp(V);
-to_type_(V, ip) -> aton(V);
+to_type_(V, ip) -> to_ip(V);
 to_type_(V, ip_port) -> to_ip_port(V);
 to_type_(V, _) -> V.
 
@@ -624,8 +583,9 @@ to_timestamp(I) when is_integer(I) ->
 to_timestamp(B) when is_binary(B) ->
     binary_to_integer(B).
 
-aton(B) when is_binary(B) ->
-    list_to_tuple([binary_to_integer(T) || T <- re:split(B, "[.]")]).
+to_ip(IP0) when is_binary(IP0) ->
+    {ok, IP} = inet:parse_address(binary_to_list(IP0)),
+    IP.
 
 to_ip_port(IPAddress) ->
     [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
