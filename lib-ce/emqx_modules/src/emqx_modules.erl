@@ -208,7 +208,7 @@ cli(["list"]) ->
     lists:foreach(fun({Name, Active}) ->
                     emqx_ctl:print("Module(~s, description=~s, active=~s)~n",
                         [Name, Name:description(), Active])
-                  end, emqx_modules:list());
+                  end, list());
 
 cli(["load", Name]) ->
     case emqx_modules:load(list_to_atom(Name)) of
