@@ -177,7 +177,7 @@ t_paging(_) ->
     emqx_mgmt_api_test_util:init_suite(),
     try
         Path0 = emqx_mgmt_api_test_util:api_path(["banned?page=1"]),
-        {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path0)
+        {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path0),
         Path1 = emqx_mgmt_api_test_util:api_path(["banned?page=10"]),
         {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path1)
     after
