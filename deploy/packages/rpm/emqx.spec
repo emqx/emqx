@@ -5,12 +5,12 @@
 %define _log_dir %{_var}/log/%{_name}
 %define _lib_home /usr/lib/%{_name}
 %define _var_home %{_sharedstatedir}/%{_name}
-%define _build_name_fmt %{_arch}/%{_name}-%{_version}-%{_release}.%{_arch}.rpm
+%define _build_name_fmt %{_arch}/%{_name}-%{_version}.%{_arch}.rpm
 %define _build_id_links none
 
 Name: %{_package_name}
 Version: %{_version}
-Release: %{_release}%{?dist}
+Release: 1%{?dist}
 Summary: emqx
 Group: System Environment/Daemons
 License: Apache License Version 2.0
