@@ -55,7 +55,7 @@
 ]).
 
 -export([
-    maybe_fix_gen_rpc/0,
+    set_gen_rpc_stateless/0,
     emqx_cluster/1,
     emqx_cluster/2,
     start_epmd/0,
@@ -554,13 +554,14 @@ ensure_quic_listener(Name, UdpPort) ->
     listener_ports => [{Type :: tcp | ssl | ws | wss, inet:port_number()}]
 }.
 
--spec maybe_fix_gen_rpc() -> ok.
-maybe_fix_gen_rpc() ->
+-spec set_gen_rpc_stateless() -> ok.
+set_gen_rpc_stateless() ->
     %% When many tests run in an obscure order, it may occur that
     %% `gen_rpc` started with its default settings before `emqx_conf`.
     %% `gen_rpc` and `emqx_conf` have different default `port_discovery` modes,
     %% so we reinitialize `gen_rpc` explicitly.
     ok = application:stop(gen_rpc),
+    ok = application:set_env(gen_rpc, port_discovery, stateless),
     ok = application:start(gen_rpc).
 
 -spec emqx_cluster(cluster_spec()) -> [{shortname(), node_opts()}].
@@ -713,7 +714,8 @@ setup_node(Node, Opts) when is_map(Opts) ->
         undefined ->
             ok;
         _ ->
-            case rpc:call(Node, ekka, join, [JoinTo]) of
+            Res = rpc:call(Node, ekka, join, [JoinTo]),
+            case Res of
                 ok ->
                     ok;
                 ignore ->
