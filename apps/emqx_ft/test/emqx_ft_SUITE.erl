@@ -71,7 +71,7 @@ end_per_testcase(_Case, Config) ->
     ok.
 
 init_per_group(cluster, Config) ->
-    Node = emqx_ft_test_helpers:start_additional_node(Config, test2),
+    Node = emqx_ft_test_helpers:start_additional_node(Config, emqx_ft1),
     [{additional_node, Node} | Config];
 init_per_group(_Group, Config) ->
     Config.
