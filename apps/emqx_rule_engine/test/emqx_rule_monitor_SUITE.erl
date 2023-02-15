@@ -40,6 +40,8 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    %% ensure alarm_handler started
+    {ok, _} = application:ensure_all_started(sasl),
     ok = ekka_mnesia:start(),
     ok = emqx_rule_registry:mnesia(boot),
     Config.
