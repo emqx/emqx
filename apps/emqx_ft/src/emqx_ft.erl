@@ -35,7 +35,7 @@
     decode_filemeta/1
 ]).
 
--export([on_assemble_timeout/1]).
+-export([on_assemble/2]).
 
 -export_type([
     clientid/0,
@@ -227,45 +227,25 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
     }),
     %% TODO: handle checksum? Do we need it?
     FinPacketKey = {self(), PacketId},
-    _ =
-        case
-            emqx_ft_responder:register(
-                FinPacketKey, fun ?MODULE:on_assemble_timeout/1, ?ASSEMBLE_TIMEOUT
-            )
-        of
-            %% We have new fin packet
-            ok ->
-                Callback = callback(FinPacketKey, FileId),
-                case assemble(transfer(Msg, FileId), Callback) of
-                    %% Assembling started, packet will be acked by the callback or the responder
-                    {ok, _} ->
-                        undefined;
-                    %% Assembling failed, unregister the packet key
-                    {error, Reason} ->
-                        ?SLOG(warning, #{
-                            msg => "assemble_not_started",
-                            mqtt_msg => Msg,
-                            file_id => FileId,
-                            reason => Reason
-                        }),
-                        case emqx_ft_responder:unregister(FinPacketKey) of
-                            %% We successfully unregistered the packet key,
-                            %% so we can send the error code at once
-                            ok ->
-                                ?RC_UNSPECIFIED_ERROR;
-                            %% Someone else already unregistered the key,
-                            %% that is, either responder or someone else acked the packet,
-                            %% we do not have to ack
-                            {error, not_found} ->
-                                undefined
-                        end
-                end;
-            %% Fin packet already received.
-            %% Since we are still handling the previous one,
-            %% we probably have retransmit here
-            {error, already_registered} ->
-                undefined
-        end.
+    case emqx_ft_responder:start(FinPacketKey, fun ?MODULE:on_assemble/2, ?ASSEMBLE_TIMEOUT) of
+        %% We have new fin packet
+        {ok, _} ->
+            Callback = fun(Result) -> emqx_ft_responder:ack(FinPacketKey, Result) end,
+            case assemble(transfer(Msg, FileId), Callback) of
+                %% Assembling started, packet will be acked by the callback or the responder
+                {ok, _} ->
+                    ok;
+                %% Assembling failed, ack through the responder
+                {error, _} = Error ->
+                    emqx_ft_responder:ack(FinPacketKey, Error)
+            end;
+        %% Fin packet already received.
+        %% Since we are still handling the previous one,
+        %% we probably have retransmit here
+        {error, {already_started, _}} ->
+            ok
+    end,
+    undefined.
 
 assemble(Transfer, Callback) ->
     try
@@ -278,28 +258,20 @@ assemble(Transfer, Callback) ->
             {error, {internal_error, E}}
     end.
 
-callback({ChanPid, PacketId} = Key, _FileId) ->
-    fun(Result) ->
-        case emqx_ft_responder:unregister(Key) of
-            ok ->
-                case Result of
-                    ok ->
-                        erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
-                    {error, _} ->
-                        erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
-                end;
-            {error, not_found} ->
-                ok
-        end
-    end.
-
 transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
     {ClientId, FileId}.
 
-on_assemble_timeout({ChanPid, PacketId}) ->
-    ?SLOG(warning, #{msg => "on_assemble_timeout", packet_id => PacketId}),
-    erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR}).
+on_assemble({ChanPid, PacketId}, Result) ->
+    ?SLOG(debug, #{msg => "on_assemble", packet_id => PacketId, result => Result}),
+    case Result of
+        {ack, ok} ->
+            erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
+        {ack, {error, _}} ->
+            erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR});
+        timeout ->
+            erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
+    end.
 
 validate(Validations, Fun) ->
     case do_validate(Validations, []) of

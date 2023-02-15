@@ -23,73 +23,50 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([start_link/0]).
+%% API
+-export([start/3]).
+-export([ack/2]).
 
--export([
-    register/3,
-    unregister/1
-]).
+%% Supervisor API
+-export([start_link/3]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--define(SERVER, ?MODULE).
--define(TAB, ?MODULE).
+-define(REF(Key), {via, gproc, {n, l, {?MODULE, Key}}}).
 
 -type key() :: term().
+-type respfun() :: fun(({ack, _Result} | timeout) -> _SideEffect).
 
 %%--------------------------------------------------------------------
 %% API
 %% -------------------------------------------------------------------
 
--spec start_link() -> startlink_ret().
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec start(key(), timeout(), respfun()) -> startlink_ret().
+start(Key, RespFun, Timeout) ->
+    emqx_ft_responder_sup:start_child(Key, RespFun, Timeout).
 
--spec register(Key, DefaultAction, Timeout) -> ok | {error, already_registered} when
-    Key :: key(),
-    DefaultAction :: fun((Key) -> any()),
-    Timeout :: timeout().
-register(Key, DefaultAction, Timeout) ->
-    case ets:lookup(?TAB, Key) of
-        [] ->
-            gen_server:call(?SERVER, {register, Key, DefaultAction, Timeout});
-        [{Key, _Action, _Ref}] ->
-            {error, already_registered}
-    end.
+-spec ack(key(), _Result) -> _Return.
+ack(Key, Result) ->
+    % TODO: it's possible to avoid term copy
+    gen_server:call(?REF(Key), {ack, Result}, infinity).
 
--spec unregister(Key) -> ok | {error, not_found} when
-    Key :: key().
-unregister(Key) ->
-    gen_server:call(?SERVER, {unregister, Key}).
+-spec start_link(key(), timeout(), respfun()) -> startlink_ret().
+start_link(Key, RespFun, Timeout) ->
+    gen_server:start_link(?REF(Key), ?MODULE, {Key, RespFun, Timeout}, []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %% -------------------------------------------------------------------
 
-init([]) ->
-    _ = ets:new(?TAB, [named_table, protected, set, {read_concurrency, true}]),
-    {ok, #{}}.
+init({Key, RespFun, Timeout}) ->
+    _ = erlang:process_flag(trap_exit, true),
+    _TRef = erlang:send_after(Timeout, self(), timeout),
+    {ok, {Key, RespFun}}.
 
-handle_call({register, Key, DefaultAction, Timeout}, _From, State) ->
-    ?SLOG(warning, #{msg => "register", key => Key, timeout => Timeout}),
-    case ets:lookup(?TAB, Key) of
-        [] ->
-            TRef = erlang:start_timer(Timeout, self(), {timeout, Key}),
-            true = ets:insert(?TAB, {Key, DefaultAction, TRef}),
-            {reply, ok, State};
-        [{_, _Action, _Ref}] ->
-            {reply, {error, already_registered}, State}
-    end;
-handle_call({unregister, Key}, _From, State) ->
-    ?SLOG(warning, #{msg => "unregister", key => Key}),
-    case ets:lookup(?TAB, Key) of
-        [] ->
-            {reply, {error, not_found}, State};
-        [{_, _Action, TRef}] ->
-            _ = erlang:cancel_timer(TRef),
-            true = ets:delete(?TAB, Key),
-            {reply, ok, State}
-    end;
+handle_call({ack, Result}, _From, {Key, RespFun}) ->
+    Ret = apply(RespFun, [Key, {ack, Result}]),
+    ?tp(ft_responder_ack, #{key => Key, result => Result, return => Ret}),
+    {stop, {shutdown, Ret}, Ret, undefined};
 handle_call(Msg, _From, State) ->
     ?SLOG(warning, #{msg => "unknown_call", call_msg => Msg}),
     {reply, {error, unknown_call}, State}.
@@ -98,40 +75,17 @@ handle_cast(Msg, State) ->
     ?SLOG(warning, #{msg => "unknown_cast", cast_msg => Msg}),
     {noreply, State}.
 
-handle_info({timeout, TRef, {timeout, Key}}, State) ->
-    case ets:lookup(?TAB, Key) of
-        [] ->
-            {noreply, State};
-        [{_, Action, TRef}] ->
-            _ = erlang:cancel_timer(TRef),
-            true = ets:delete(?TAB, Key),
-            ok = safe_apply(Action, [Key]),
-            ?tp(ft_timeout_action_applied, #{key => Key}),
-            {noreply, State}
-    end;
+handle_info(timeout, {Key, RespFun}) ->
+    Ret = apply(RespFun, [Key, timeout]),
+    ?tp(ft_responder_timeout, #{key => Key, return => Ret}),
+    {stop, {shutdown, Ret}, undefined};
 handle_info(Msg, State) ->
     ?SLOG(warning, #{msg => "unknown_message", info_msg => Msg}),
     {noreply, State}.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-terminate(_Reason, _State) ->
+terminate(_Reason, undefined) ->
+    ok;
+terminate(Reason, {Key, RespFun}) ->
+    Ret = apply(RespFun, [Key, timeout]),
+    ?tp(ft_responder_shutdown, #{key => Key, reason => Reason, return => Ret}),
     ok.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-safe_apply(Fun, Args) ->
-    try apply(Fun, Args) of
-        _ -> ok
-    catch
-        Class:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "safe_apply_failed",
-                class => Class,
-                reason => Reason,
-                stacktrace => Stacktrace
-            })
-    end.
