@@ -717,8 +717,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
         undefined ->
             ok;
         _ ->
-            Res = rpc:call(Node, ekka, join, [JoinTo]),
-            case Res of
+            case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->
                     ok;
                 ignore ->
