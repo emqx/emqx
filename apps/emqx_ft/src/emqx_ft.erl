@@ -175,7 +175,13 @@ on_init(Msg, FileId) ->
             case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
                 ok ->
                     ?RC_SUCCESS;
-                {error, _Reason} ->
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "store_filemeta_failed",
+                        mqtt_msg => Msg,
+                        file_id => FileId,
+                        reason => Reason
+                    }),
                     ?RC_UNSPECIFIED_ERROR
             end;
         {error, Reason} ->
@@ -235,7 +241,13 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
                     {ok, _} ->
                         undefined;
                     %% Assembling failed, unregister the packet key
-                    {error, _} ->
+                    {error, Reason} ->
+                        ?SLOG(warning, #{
+                            msg => "assemble_not_started",
+                            mqtt_msg => Msg,
+                            file_id => FileId,
+                            reason => Reason
+                        }),
                         case emqx_ft_responder:unregister(FinPacketKey) of
                             %% We successfully unregistered the packet key,
                             %% so we can send the error code at once

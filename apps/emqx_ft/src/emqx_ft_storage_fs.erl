@@ -93,7 +93,10 @@ store_filemeta(Storage, Transfer, Meta) ->
         {ok, Meta} ->
             _ = touch_file(Filepath),
             ok;
-        {ok, _Conflict} ->
+        {ok, Conflict} ->
+            ?SLOG(warning, #{
+                msg => "filemeta_conflict", transfer => Transfer, new => Meta, old => Conflict
+            }),
             % TODO
             % We won't see conflicts in case of concurrent `store_filemeta`
             % requests. It's rather odd scenario so it's fine not to worry
