@@ -582,14 +582,15 @@ to_timestamp(B) when is_binary(B) ->
     binary_to_integer(B).
 
 to_ip(IP0) when is_binary(IP0) ->
-    {ok, IP} = inet:parse_address(binary_to_list(IP0)),
-    IP.
+    ensure_ok(inet:parse_address(binary_to_list(IP0))).
 
 to_ip_port(IPAddress) ->
-    [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
-    {ok, IP} = inet:parse_address(IP0),
-    Port = list_to_integer(Port0),
-    {IP, Port}.
+    ensure_ok(emqx_schema:to_ip_port(IPAddress)).
+
+ensure_ok({ok, V}) ->
+    V;
+ensure_ok({error, _R} = E) ->
+    throw(E).
 
 b2i(Bin) when is_binary(Bin) ->
     binary_to_integer(Bin);
@@ -648,9 +649,25 @@ params2qs_test_() ->
     [
         ?_assertEqual({10, {ExpectedQs, FuzzyNQString}}, parse_qstring(QString, QSchema)),
         ?_assertEqual({0, {[], []}}, parse_qstring([{not_a_predefined_params, val}], QSchema)),
+        ?_assertEqual(
+            {1, {[{ip, '=:=', {0, 0, 0, 0, 0, 0, 0, 1}}], []}},
+            parse_qstring([{<<"ip">>, <<"::1">>}], QSchema)
+        ),
+        ?_assertEqual(
+            {1, {[{ip_port, '=:=', {{0, 0, 0, 0, 0, 0, 0, 1}, 8888}}], []}},
+            parse_qstring([{<<"ip_port">>, <<"::1:8888">>}], QSchema)
+        ),
         ?_assertThrow(
             {bad_value_type, {<<"ip">>, ip, <<"helloworld">>}},
             parse_qstring([{<<"ip">>, <<"helloworld">>}], QSchema)
+        ),
+        ?_assertThrow(
+            {bad_value_type, {<<"ip_port">>, ip_port, <<"127.0.0.1">>}},
+            parse_qstring([{<<"ip_port">>, <<"127.0.0.1">>}], QSchema)
+        ),
+        ?_assertThrow(
+            {bad_value_type, {<<"ip_port">>, ip_port, <<"helloworld:abcd">>}},
+            parse_qstring([{<<"ip_port">>, <<"helloworld:abcd">>}], QSchema)
         )
     ].
 
