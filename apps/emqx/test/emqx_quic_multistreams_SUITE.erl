@@ -527,7 +527,11 @@ t_multi_streams_packet_boundary(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    LargePart3 = binary:copy(atom_to_binary(?FUNCTION_NAME), 20000),
+    ThisFunB = atom_to_binary(?FUNCTION_NAME),
+    LargePart3 = iolist_to_binary([
+        <<N:64, ThisFunB/binary>>
+     || N <- lists:seq(1, 20000)
+    ]),
     ok = emqtt:publish_async(
         C,
         PubVia,
