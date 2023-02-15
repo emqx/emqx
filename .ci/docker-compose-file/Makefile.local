@@ -16,6 +16,7 @@ up:
 		REDIS_TAG=7.0 \
 		MONGO_TAG=5 \
 		PGSQL_TAG=13 \
+        TDENGINE_TAG=3.0.2.4 \
 	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
@@ -31,6 +32,7 @@ up:
 		-f .ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+		-f .ci/docker-compose-file/docker-compose-tdengine-restful.yaml \
 		up -d --build --remove-orphans
 
 down:
@@ -49,6 +51,7 @@ down:
 		-f .ci/docker-compose-file/docker-compose-redis-cluster-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-cluster-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+		-f .ci/docker-compose-file/docker-compose-tdengine-restful.yaml \
 		down --remove-orphans
 
 ct:

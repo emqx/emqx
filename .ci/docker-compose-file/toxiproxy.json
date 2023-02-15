@@ -41,5 +41,11 @@
     "listen": "0.0.0.0:5433",
     "upstream": "pgsql-tls:5432",
     "enabled": true
+  },
+  {
+    "name": "tdengine_restful",
+    "listen": "0.0.0.0:6041",
+    "upstream": "tdengine:6041",
+    "enabled": true
   }
 ]

@@ -1,6 +1,6 @@
 {application, emqx_ee_bridge, [
     {description, "EMQX Enterprise data bridges"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, []},
     {applications, [
         kernel,

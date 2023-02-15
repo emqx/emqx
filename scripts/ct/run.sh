@@ -153,6 +153,9 @@ for dep in ${CT_DEPS}; do
             NEED_ROOT=yes
             FILES+=( '.ci/docker-compose-file/docker-compose-kafka.yaml' )
             ;;
+        tdengine)
+            FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
+            ;; 
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

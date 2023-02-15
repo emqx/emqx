@@ -265,3 +265,4 @@ GSSAPI
 keytab
 jq
 nif
+TDengine
