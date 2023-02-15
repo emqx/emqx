@@ -33,6 +33,10 @@
     b2i/1
 ]).
 
+-ifdef(TEST).
+-export([paginate_test_format/1]).
+-endif.
+
 -export_type([
     match_spec_and_filter/0
 ]).
@@ -671,4 +675,48 @@ params2qs_test_() ->
         )
     ].
 
+paginate_test_format(Row) ->
+    Row.
+
+paginate_test_() ->
+    _ = ets:new(?MODULE, [named_table]),
+    Size = 1000,
+    MyLimit = 10,
+    ets:insert(?MODULE, [{I, foo} || I <- lists:seq(1, Size)]),
+    DefaultLimit = emqx_mgmt:max_row_limit(),
+    NoParamsResult = paginate(?MODULE, #{}, {?MODULE, paginate_test_format}),
+    PaginateResults = [
+        paginate(
+            ?MODULE, #{<<"page">> => I, <<"limit">> => MyLimit}, {?MODULE, paginate_test_format}
+        )
+     || I <- lists:seq(1, floor(Size / MyLimit))
+    ],
+    [
+        ?_assertMatch(
+            #{meta := #{count := Size, page := 1, limit := DefaultLimit}}, NoParamsResult
+        ),
+        ?_assertEqual(DefaultLimit, length(maps:get(data, NoParamsResult))),
+        ?_assertEqual(
+            #{data => [], meta => #{count => Size, limit => DefaultLimit, page => 100}},
+            paginate(?MODULE, #{<<"page">> => <<"100">>}, {?MODULE, paginate_test_format})
+        )
+    ] ++ assertPaginateResults(PaginateResults, Size, MyLimit).
+
+assertPaginateResults(Results, Size, Limit) ->
+    AllData = lists:flatten([Data || #{data := Data} <- Results]),
+    [
+        begin
+            Result = lists:nth(I, Results),
+            [
+                ?_assertMatch(#{meta := #{count := Size, limit := Limit, page := I}}, Result),
+                ?_assertEqual(Limit, length(maps:get(data, Result)))
+            ]
+        end
+     || I <- lists:seq(1, floor(Size / Limit))
+    ] ++
+        [
+            ?_assertEqual(floor(Size / Limit), length(Results)),
+            ?_assertEqual(Size, length(AllData)),
+            ?_assertEqual(Size, sets:size(sets:from_list(AllData)))
+        ].
 -endif.
