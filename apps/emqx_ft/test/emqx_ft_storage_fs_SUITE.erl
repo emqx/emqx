@@ -25,9 +25,11 @@
 -define(assertInclude(Pattern, List),
     ?assert(
         lists:any(
-            fun
-                (Pattern) -> true;
-                (_) -> false
+            fun(El) ->
+                case El of
+                    Pattern -> true;
+                    _ -> false
+                end
             end,
             List
         )

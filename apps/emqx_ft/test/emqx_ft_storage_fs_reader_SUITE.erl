@@ -25,11 +25,12 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_ft]),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft]),
+    ok = emqx_common_test_helpers:set_gen_rpc_stateless(),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
     ok.
 
 init_per_testcase(_Case, Config) ->
