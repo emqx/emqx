@@ -89,6 +89,7 @@
             try (_EXP_)
             catch
                 throw : Reason ->
+                    _EXP_ON_FAIL_,
                     throw({_ERROR_CONTEXT_, Reason});
                 _EXCLASS_:_EXCPTION_:_ST_ ->
                     _EXP_ON_FAIL_,
