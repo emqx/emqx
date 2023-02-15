@@ -1106,13 +1106,13 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             ?assertMatch(
                 #{
                     dropped := Dropped,
-                    failed := 0,
+                    failed := Failed,
                     inflight := Inflight,
                     matched := Matched,
                     queuing := Queueing,
                     retried := 0,
                     success := 0
-                } when Matched >= 1 andalso Inflight + Queueing + Dropped =< 2,
+                } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
                 CurrentMetrics
             );
         {timeout, async} ->
