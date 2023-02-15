@@ -50,8 +50,8 @@ unload() ->
 
 -spec pre_config_update(list(atom()), emqx_config:update_request(), emqx_config:raw_config()) ->
     {ok, emqx_config:update_request()} | {error, term()}.
-pre_config_update(_, _Req, Config) ->
-    {ok, Config}.
+pre_config_update(_, Req, _Config) ->
+    {ok, Req}.
 
 -spec post_config_update(
     list(atom()),
