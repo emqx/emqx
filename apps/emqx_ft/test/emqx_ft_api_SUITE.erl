@@ -22,19 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(assertInclude(Pattern, List),
-    ?assert(
-        lists:any(
-            fun(El) ->
-                case El of
-                    Pattern -> true;
-                    _ -> false
-                end
-            end,
-            List
-        )
-    )
-).
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 

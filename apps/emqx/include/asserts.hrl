@@ -36,3 +36,17 @@
         end
     )
 ).
+
+-define(assertInclude(Pattern, List),
+    ?assert(
+        lists:any(
+            fun(El) ->
+                case El of
+                    Pattern -> true;
+                    _ -> false
+                end
+            end,
+            List
+        )
+    )
+).
