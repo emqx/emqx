@@ -1785,9 +1785,9 @@ desc("listener_ssl_opts") ->
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
 desc("fields_mqtt_quic_listener_certfile") ->
-    "Path to the certificate file. Will be deprecated in 5.1, use .ssl_options.certfile instead.";
+    "Path to the certificate file. Will be deprecated in 5.1, use '.ssl_options.certfile' instead.";
 desc("fields_mqtt_quic_listener_keyfile") ->
-    "Path to the secret key file. Will be deprecated in 5.1, use .ssl_options.keyfile instead.";
+    "Path to the secret key file. Will be deprecated in 5.1, use '.ssl_options.keyfile' instead.";
 desc("listener_quic_ssl_opts") ->
     "TLS options for QUIC transport.";
 desc("ssl_client_opts") ->
