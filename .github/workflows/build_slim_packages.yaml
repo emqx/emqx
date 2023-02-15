@@ -154,6 +154,47 @@ jobs:
         name: ${{ matrix.os }}
         path: _packages/**/*
 
+  docker:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: prepare
+      run: |
+        echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
+    - name: build and test docker image
+      run: |
+        set -x
+        make $EMQX_NAME-docker
+        PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh $EMQX_NAME)}"
+        EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$EMQX_NAME:$PKG_VSN}"
+        CID=$(docker run -d --rm -P $EMQX_IMAGE_TAG)
+        HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+        IDLE_TIME=0
+        while ! curl http://127.0.0.1:$HTTP_PORT/status >/dev/null 2>&1; do
+            if [ $IDLE_TIME -gt 5 ]
+            then
+                echo "emqx running error"
+                docker rm -f $CID
+                exit 1
+            fi
+            sleep 5
+            IDLE_TIME=$((IDLE_TIME+1))
+        done
+        docker stop $CID
+        docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-$PKG_VSN.tar.gz
+    - uses: actions/upload-artifact@v3
+      with:
+        name: "${{ matrix.profile }}-docker"
+        path: "*.tar.gz"
+
   spellcheck:
     needs: linux
     strategy:
