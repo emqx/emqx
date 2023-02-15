@@ -700,9 +700,9 @@ paginate_test_() ->
             #{data => [], meta => #{count => Size, limit => DefaultLimit, page => 100}},
             paginate(?MODULE, #{<<"page">> => <<"100">>}, {?MODULE, paginate_test_format})
         )
-    ] ++ assertPaginateResults(PaginateResults, Size, MyLimit).
+    ] ++ assert_paginate_results(PaginateResults, Size, MyLimit).
 
-assertPaginateResults(Results, Size, Limit) ->
+assert_paginate_results(Results, Size, Limit) ->
     AllData = lists:flatten([Data || #{data := Data} <- Results]),
     [
         begin
