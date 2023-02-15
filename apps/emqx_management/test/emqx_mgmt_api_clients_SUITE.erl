@@ -64,7 +64,7 @@ t_clients(_) ->
     ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
     ClientsCount = maps:get(<<"count">>, ClientsMeta),
     ?assertEqual(ClientsPage, 1),
-    ?assertEqual(ClientsLimit, emqx_mgmt:max_row_limit()),
+    ?assertEqual(ClientsLimit, emqx_mgmt:default_row_limit()),
     ?assertEqual(ClientsCount, 2),
 
     %% get /clients/:clientid

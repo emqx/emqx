@@ -21,8 +21,6 @@
 -elvis([{elvis_style, god_modules, disable}]).
 
 -include_lib("stdlib/include/qlc.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% Nodes and Brokers API
 -export([
@@ -105,11 +103,9 @@
 
 %% Common Table API
 -export([
-    max_row_limit/0,
+    default_row_limit/0,
     vm_stats/0
 ]).
-
--define(APP, emqx_management).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -390,10 +386,10 @@ call_client(Node, ClientId, Req) ->
 
 -spec do_list_subscriptions() -> [map()].
 do_list_subscriptions() ->
-    case check_row_limit([mqtt_subproperty]) of
+    case check_max_table_size([mqtt_subproperty]) of
         false ->
             throw(max_row_limit);
-        ok ->
+        true ->
             [
                 #{topic => Topic, clientid => ClientId, options => Options}
              || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)
@@ -556,15 +552,15 @@ unwrap_rpc(Res) ->
 otp_rel() ->
     iolist_to_binary([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
 
-check_row_limit(Tables) ->
-    check_row_limit(Tables, max_row_limit()).
+check_max_table_size(Tables) ->
+    check_max_table_size(Tables, ?MAX_TABLE_SIZE).
 
-check_row_limit([], _Limit) ->
-    ok;
-check_row_limit([Tab | Tables], Limit) ->
+check_max_table_size([], _Limit) ->
+    true;
+check_max_table_size([Tab | Tables], Limit) ->
     case table_size(Tab) > Limit of
         true -> false;
-        false -> check_row_limit(Tables, Limit)
+        false -> check_max_table_size(Tables, Limit)
     end.
 
 check_results(Results) ->
@@ -573,7 +569,7 @@ check_results(Results) ->
         false -> unwrap_rpc(lists:last(Results))
     end.
 
-max_row_limit() ->
-    ?MAX_ROW_LIMIT.
+default_row_limit() ->
+    ?DEFAULT_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
