@@ -190,8 +190,14 @@ lookup_broker(Node) ->
     Broker.
 
 broker_info() ->
-    Info = maps:from_list([{K, iolist_to_binary(V)} || {K, V} <- emqx_sys:info()]),
+    Info = lists:foldl(fun convert_broker_info/2, #{}, emqx_sys:info()),
     Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
+
+convert_broker_info({uptime, Uptime}, M) ->
+    M#{uptime => emqx_datetime:human_readable_duration_string(Uptime)};
+convert_broker_info({K, V}, M) ->
+    M#{K => iolist_to_binary(V)}.
+
 
 broker_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:broker_info(Nodes)).
