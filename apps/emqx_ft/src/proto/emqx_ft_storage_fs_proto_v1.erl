@@ -20,7 +20,6 @@
 
 -export([introduced_in/0]).
 
--export([list/3]).
 -export([multilist/3]).
 -export([pread/5]).
 -export([ready_transfers/1]).
@@ -34,11 +33,6 @@
 
 introduced_in() ->
     "5.0.17".
-
--spec list(node(), transfer(), fragment | result) ->
-    {ok, [filefrag()]} | {error, term()} | no_return().
-list(Node, Transfer, What) ->
-    erpc:call(Node, emqx_ft_storage_fs_proxy, list_local, [Transfer, What]).
 
 -spec multilist([node()], transfer(), fragment | result) ->
     emqx_rpc:erpc_multicall({ok, [filefrag()]} | {error, term()}).
