@@ -26,6 +26,8 @@ options:
   --dryrun:  Do not actually create the git tag.
   --skip-appup: Skip checking appup
                 Useful when you are sure that appup is already updated'
+  --prev-tag: Provide the prev tag to automatically generate changelogs
+              If this option is absent, the tag found by git describe will be used
 
 NOTE: For 5.0 series the current working branch must be 'release-50' for opensource edition
       and 'release-e50' for enterprise edition.
@@ -91,6 +93,11 @@ while [ "$#" -gt 0 ]; do
                 exit 1
             fi
             shift 2
+            ;;
+        --prev-tag)
+            shift
+            PREV_TAG="$1"
+            shift
             ;;
         *)
             logerr "Unknown option $1"
@@ -208,10 +215,17 @@ if [ -d "${CHECKS_DIR}" ]; then
 fi
 
 generate_changelog () {
-    local CHANGES_EN_MD="changes/${TAG}-en.md" CHANGES_ZH_MD="changes/${TAG}-zh.md"
-    ./scripts/format-changelog.sh "${TAG}" "en" > "$CHANGES_EN_MD"
-    ./scripts/format-changelog.sh "${TAG}" "zh" > "$CHANGES_ZH_MD"
-    git add "$CHANGES_EN_MD" "$CHANGES_ZH_MD"
+    local from_tag="${PREV_TAG:-}"
+    if [[ -z $from_tag ]]; then
+        if [ $PROFILE == "emqx" ]; then
+            from_tag="$(git describe --tags --abbrev=0 --match 'v*')"
+        else
+            from_tag="$(git describe --tags --abbrev=0 --match 'e*')"
+        fi
+    fi
+    local output_dir="changes"
+    ./scripts/format-changelog.sh $PROFILE "${from_tag}" "${TAG}" $output_dir
+    git add $output_dir
     [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
 }
 
