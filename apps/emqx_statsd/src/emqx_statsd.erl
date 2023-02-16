@@ -105,7 +105,7 @@ handle_info(
         timer := Ref
     }
 ) ->
-    Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_vm_data(),
+    Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_mgmt:vm_stats(),
     SampleRate = SampleTimeInterval / FlushTimeInterval,
     StatsdMetrics = [
         {gauge, Name, Value, SampleRate, []}
@@ -128,20 +128,6 @@ terminate(_Reason, #{estatsd_pid := Pid}) ->
 %%------------------------------------------------------------------------------
 %% Internal function
 %%------------------------------------------------------------------------------
-
-emqx_vm_data() ->
-    Idle =
-        case cpu_sup:util([detailed]) of
-            %% Not support for Windows
-            {_, 0, 0, _} -> 0;
-            {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
-        end,
-    RunQueue = erlang:statistics(run_queue),
-    [
-        {run_queue, RunQueue},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle}
-    ] ++ emqx_vm:mem_info().
 
 ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
     State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.

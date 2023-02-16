@@ -104,7 +104,10 @@
 ]).
 
 %% Common Table API
--export([max_row_limit/0]).
+-export([
+    max_row_limit/0,
+    vm_stats/0
+]).
 
 -define(APP, emqx_management).
 
@@ -160,6 +163,23 @@ node_info(Nodes) ->
 
 stopped_node_info(Node) ->
     #{name => Node, node_status => 'stopped'}.
+
+vm_stats() ->
+    Idle =
+        case cpu_sup:util([detailed]) of
+            %% Not support for Windows
+            {_, 0, 0, _} -> 0;
+            {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
+        end,
+    RunQueue = erlang:statistics(run_queue),
+    {MemUsedRatio, MemTotal} = get_sys_memory(),
+    [
+        {run_queue, RunQueue},
+        {cpu_idle, Idle},
+        {cpu_use, 100 - Idle},
+        {total_memory, MemTotal},
+        {used_memory, erlang:round(MemTotal * MemUsedRatio)}
+    ].
 
 %%--------------------------------------------------------------------
 %% Brokers
