@@ -267,7 +267,7 @@ lookup_client({username, Username}, FormatFun) ->
      || Node <- mria_mnesia:running_nodes()
     ]).
 
-lookup_client(Node, Key, {M, F}) ->
+lookup_client(Node, Key, FormatFun) ->
     case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
         {error, Err} ->
             {error, Err};
@@ -275,14 +275,19 @@ lookup_client(Node, Key, {M, F}) ->
             lists:map(
                 fun({Chan, Info0, Stats}) ->
                     Info = Info0#{node => Node},
-                    M:F({Chan, Info, Stats})
+                    maybe_format(FormatFun, {Chan, Info, Stats})
                 end,
                 L
             )
     end.
 
-kickout_client({ClientID, FormatFun}) ->
-    case lookup_client({clientid, ClientID}, FormatFun) of
+maybe_format(undefined, A) ->
+    A;
+maybe_format({M, F}, A) ->
+    M:F(A).
+
+kickout_client(ClientID) ->
+    case lookup_client({clientid, ClientID}, undefined) of
         [] ->
             {error, not_found};
         _ ->

@@ -23,6 +23,8 @@
 
 -export([ident/1]).
 
+-define(FORMATFUN, {?MODULE, ident}).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -117,12 +119,12 @@ t_lookup_client('end', Config) ->
     disconnect_clients(Config).
 
 t_lookup_client(_Config) ->
-    [{Chan, Info, Stats}] = emqx_mgmt:lookup_client({clientid, <<"client1">>}, {?MODULE, ident}),
+    [{Chan, Info, Stats}] = emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN),
     ?assertEqual(
         [{Chan, Info, Stats}],
-        emqx_mgmt:lookup_client({username, <<"user1">>}, {?MODULE, ident})
+        emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN)
     ),
-    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, {?MODULE, ident})).
+    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)).
 
 t_kickout_client(init, Config) ->
     process_flag(trap_exit, true),
@@ -132,7 +134,7 @@ t_kickout_client('end', _Config) ->
 
 t_kickout_client(Config) ->
     [C | _] = ?config(clients, Config),
-    ok = emqx_mgmt:kickout_client({<<"client1">>, {?MODULE, ident}}),
+    ok = emqx_mgmt:kickout_client(<<"client1">>),
     receive
         {'EXIT', C, Reason} ->
             ?assertEqual({shutdown, tcp_closed}, Reason);
@@ -141,7 +143,7 @@ t_kickout_client(Config) ->
     after 1000 ->
         error(timeout)
     end,
-    ?assertEqual({error, not_found}, emqx_mgmt:kickout_client({<<"notfound">>, {?MODULE, ident}})).
+    ?assertEqual({error, not_found}, emqx_mgmt:kickout_client(<<"notfound">>)).
 
 %%% helpers
 ident(Arg) ->

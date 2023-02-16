@@ -677,7 +677,7 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+    case emqx_mgmt:kickout_client(ClientID) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->
