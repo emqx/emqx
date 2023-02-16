@@ -16,8 +16,6 @@
 
 -module(emqx_ft_assembler).
 
--include_lib("emqx/include/logger.hrl").
-
 -export([start_link/2]).
 
 -behaviour(gen_statem).
@@ -142,16 +140,3 @@ pread(Node, Segment, St) ->
 
 segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).
-
-safe_apply(Callback, Result) ->
-    try apply(Callback, [Result]) of
-        _ -> ok
-    catch
-        Class:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "safe_apply_failed",
-                class => Class,
-                reason => Reason,
-                stacktrace => Stacktrace
-            })
-    end.
