@@ -5,7 +5,7 @@
     {vsn, "5.0.6"},
     {modules, []},
     {registered, [emqx_prometheus_sup]},
-    {applications, [kernel, stdlib, prometheus, emqx]},
+    {applications, [kernel, stdlib, prometheus, emqx, emqx_management]},
     {mod, {emqx_prometheus_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},
