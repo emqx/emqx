@@ -191,7 +191,7 @@ lookup_broker(Node) ->
 
 broker_info() ->
     Info = lists:foldl(fun convert_broker_info/2, #{}, emqx_sys:info()),
-    Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
+    Info#{node => node(), otp_release => otp_rel(), node_status => 'running'}.
 
 convert_broker_info({uptime, Uptime}, M) ->
     M#{uptime => emqx_datetime:human_readable_duration_string(Uptime)};

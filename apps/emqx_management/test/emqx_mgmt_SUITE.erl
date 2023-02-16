@@ -19,6 +19,9 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-export([ident/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -31,9 +34,11 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
 
 init_per_testcase(TestCase, Config) ->
+    meck:expect(mria_mnesia, running_nodes, 0, [node()]),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config).
 
 end_per_testcase(TestCase, Config) ->
+    meck:unload(mria_mnesia),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 t_list_nodes(init, Config) ->
@@ -47,7 +52,7 @@ t_list_nodes(init, Config) ->
     ),
     Config;
 t_list_nodes('end', _Config) ->
-    meck:unload(mria_mnesia).
+    ok.
 
 t_list_nodes(_) ->
     NodeInfos = emqx_mgmt:list_nodes(),
@@ -59,3 +64,94 @@ t_list_nodes(_) ->
         ],
         NodeInfos
     ).
+
+t_lookup_node(init, Config) ->
+    meck:new(os, [passthrough, unstick, no_link]),
+    OsType = os:type(),
+    meck:expect(os, type, 0, {win32, winME}),
+    [{os_type, OsType} | Config];
+t_lookup_node('end', Config) ->
+    %% We need to restore the original behavior so that rebar3 doesn't crash. If
+    %% we'd `meck:unload(os)` or not set `no_link` then `ct` crashes calling
+    %% `os` with "The code server called the unloaded module `os'".
+    OsType = ?config(os_type, Config),
+    meck:expect(os, type, 0, OsType),
+    ok.
+
+t_lookup_node(_) ->
+    Node = node(),
+    ?assertMatch(
+        #{node := Node, node_status := 'running', memory_total := 0},
+        emqx_mgmt:lookup_node(node())
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_mgmt:lookup_node('fake@nohost')
+    ),
+    ok.
+
+t_list_brokers(_) ->
+    Node = node(),
+    ?assertMatch(
+        [{Node, #{node := Node, node_status := running, uptime := _}}],
+        emqx_mgmt:list_brokers()
+    ).
+
+t_lookup_broker(_) ->
+    Node = node(),
+    ?assertMatch(
+        #{node := Node, node_status := running, uptime := _},
+        emqx_mgmt:lookup_broker(Node)
+    ).
+
+t_get_metrics(_) ->
+    Metrics = emqx_mgmt:get_metrics(),
+    ?assert(maps:size(Metrics) > 0),
+    ?assertMatch(
+        Metrics, maps:from_list(emqx_mgmt:get_metrics(node()))
+    ).
+
+t_lookup_client(init, Config) ->
+    setup_clients(Config);
+t_lookup_client('end', Config) ->
+    disconnect_clients(Config).
+
+t_lookup_client(_Config) ->
+    [{Chan, Info, Stats}] = emqx_mgmt:lookup_client({clientid, <<"client1">>}, {?MODULE, ident}),
+    ?assertEqual(
+        [{Chan, Info, Stats}],
+        emqx_mgmt:lookup_client({username, <<"user1">>}, {?MODULE, ident})
+    ),
+    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, {?MODULE, ident})).
+
+t_kickout_client(init, Config) ->
+    process_flag(trap_exit, true),
+    setup_clients(Config);
+t_kickout_client('end', _Config) ->
+    ok.
+
+t_kickout_client(Config) ->
+    [C | _] = ?config(clients, Config),
+    ok = emqx_mgmt:kickout_client({<<"client1">>, {?MODULE, ident}}),
+    receive
+        {'EXIT', C, Reason} ->
+            ?assertEqual({shutdown, tcp_closed}, Reason);
+        Foo ->
+            error({unexpected, Foo})
+    after 1000 ->
+        error(timeout)
+    end,
+    ?assertEqual({error, not_found}, emqx_mgmt:kickout_client({<<"notfound">>, {?MODULE, ident}})).
+
+%%% helpers
+ident(Arg) ->
+    Arg.
+
+setup_clients(Config) ->
+    {ok, C} = emqtt:start_link([{clientid, <<"client1">>}, {username, <<"user1">>}]),
+    {ok, _} = emqtt:connect(C),
+    [{clients, [C]} | Config].
+
+disconnect_clients(Config) ->
+    Clients = ?config(clients, Config),
+    lists:foreach(fun emqtt:disconnect/1, Clients).
