@@ -509,9 +509,10 @@ ensure_quic_listener(Name, UdpPort) ->
             ],
         enabled => true,
         idle_timeout => 15000,
-             ssl_options => #{ certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
-                               keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem")
-                             },
+        ssl_options => #{
+            certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem")
+        },
         limiter => #{},
         max_connections => 1024000,
         mountpoint => <<>>,
