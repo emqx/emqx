@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,34 +14,35 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ft_assembler_sup).
+-module(emqx_ft_responder_sup).
 
 -export([start_link/0]).
--export([ensure_child/2]).
+-export([start_child/3]).
 
 -behaviour(supervisor).
 -export([init/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+-define(SUPERVISOR, ?MODULE).
 
-ensure_child(Storage, Transfer) ->
-    Childspec = #{
-        id => Transfer,
-        start => {emqx_ft_assembler, start_link, [Storage, Transfer]},
+%%
+
+-spec start_link() -> {ok, pid()}.
+start_link() ->
+    supervisor:start_link({local, ?SUPERVISOR}, ?MODULE, []).
+
+start_child(Key, RespFun, Timeout) ->
+    supervisor:start_child(?SUPERVISOR, [Key, RespFun, Timeout]).
+
+-spec init(_) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
+init(_) ->
+    Flags = #{
+        strategy => simple_one_for_one,
+        intensity => 100,
+        period => 100
+    },
+    ChildSpec = #{
+        id => responder,
+        start => {emqx_ft_responder, start_link, []},
         restart => temporary
     },
-    case supervisor:start_child(?MODULE, Childspec) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {error, {already_started, Pid}} ->
-            {ok, Pid}
-    end.
-
-init(_) ->
-    SupFlags = #{
-        strategy => one_for_one,
-        intensity => 10,
-        period => 1000
-    },
-    {ok, {SupFlags, []}}.
+    {ok, {Flags, [ChildSpec]}}.

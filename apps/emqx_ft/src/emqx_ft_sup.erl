@@ -53,12 +53,12 @@ init([]) ->
     },
 
     Responder = #{
-        id => emqx_ft_responder,
-        start => {emqx_ft_responder, start_link, []},
+        id => emqx_ft_responder_sup,
+        start => {emqx_ft_responder_sup, start_link, []},
         restart => permanent,
         shutdown => infinity,
         type => worker,
-        modules => [emqx_ft_responder]
+        modules => [emqx_ft_responder_sup]
     },
 
     ChildSpecs = [Responder, AssemblerSup, FileReaderSup],

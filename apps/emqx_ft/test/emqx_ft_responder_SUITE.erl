@@ -19,9 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("emqx/include/asserts.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -39,58 +37,45 @@ init_per_testcase(_Case, Config) ->
 end_per_testcase(_Case, _Config) ->
     ok.
 
-t_register_unregister(_Config) ->
+t_start_ack(_Config) ->
     Key = <<"test">>,
-    DefaultAction = fun(_) -> ok end,
-    ?assertEqual(
-        ok,
-        emqx_ft_responder:register(Key, DefaultAction, 1000)
+    DefaultAction = fun({ack, Ref}) -> Ref end,
+    ?assertMatch(
+        {ok, _Pid},
+        emqx_ft_responder:start(Key, DefaultAction, 1000)
     ),
-    ?assertEqual(
-        {error, already_registered},
-        emqx_ft_responder:register(Key, DefaultAction, 1000)
+    ?assertMatch(
+        {error, {already_started, _Pid}},
+        emqx_ft_responder:start(Key, DefaultAction, 1000)
     ),
+    Ref = make_ref(),
     ?assertEqual(
-        ok,
-        emqx_ft_responder:unregister(Key)
+        Ref,
+        emqx_ft_responder:ack(Key, Ref)
     ),
-    ?assertEqual(
-        {error, not_found},
-        emqx_ft_responder:unregister(Key)
+    ?assertExit(
+        {noproc, _},
+        emqx_ft_responder:ack(Key, Ref)
     ).
 
 t_timeout(_Config) ->
     Key = <<"test">>,
     Self = self(),
-    DefaultAction = fun(K) -> Self ! {timeout, K} end,
-    ok = emqx_ft_responder:register(Key, DefaultAction, 20),
+    DefaultAction = fun(timeout) -> Self ! {timeout, Key} end,
+    {ok, _Pid} = emqx_ft_responder:start(Key, DefaultAction, 20),
     receive
         {timeout, Key} ->
             ok
     after 100 ->
         ct:fail("emqx_ft_responder not called")
     end,
-    ?assertEqual(
-        {error, not_found},
-        emqx_ft_responder:unregister(Key)
-    ).
-
-t_action_exception(_Config) ->
-    Key = <<"test">>,
-    DefaultAction = fun(K) -> error({oops, K}) end,
-
-    ?assertWaitEvent(
-        emqx_ft_responder:register(Key, DefaultAction, 10),
-        #{?snk_kind := ft_timeout_action_applied, key := <<"test">>},
-        1000
-    ),
-    ?assertEqual(
-        {error, not_found},
-        emqx_ft_responder:unregister(Key)
+    ?assertExit(
+        {noproc, _},
+        emqx_ft_responder:ack(Key, oops)
     ).
 
 t_unknown_msgs(_Config) ->
-    Pid = whereis(emqx_ft_responder),
+    {ok, Pid} = emqx_ft_responder:start(make_ref(), fun(_) -> ok end, 100),
     Pid ! {unknown_msg, <<"test">>},
     ok = gen_server:cast(Pid, {unknown_msg, <<"test">>}),
     ?assertEqual(

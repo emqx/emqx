@@ -16,38 +16,31 @@
 
 -module(emqx_ft_assembler).
 
--include_lib("emqx/include/logger.hrl").
-
--export([start_link/3]).
+-export([start_link/2]).
 
 -behaviour(gen_statem).
 -export([callback_mode/0]).
 -export([init/1]).
-% -export([list_local_fragments/3]).
-% -export([list_remote_fragments/3]).
-% -export([start_assembling/3]).
 -export([handle_event/4]).
-
-% -export([handle_continue/2]).
-% -export([handle_call/3]).
-% -export([handle_cast/2]).
 
 -record(st, {
     storage :: _Storage,
     transfer :: emqx_ft:transfer(),
     assembly :: _TODO,
     file :: {file:filename(), io:device(), term()} | undefined,
-    hash,
-    callback :: fun((ok | {error, term()}) -> any())
+    hash
 }).
 
--define(RPC_LIST_TIMEOUT, 1000).
--define(RPC_READSEG_TIMEOUT, 5000).
+-define(NAME(Transfer), {n, l, {?MODULE, Transfer}}).
+-define(REF(Transfer), {via, gproc, ?NAME(Transfer)}).
 
 %%
 
-start_link(Storage, Transfer, Callback) ->
-    gen_statem:start_link(?MODULE, {Storage, Transfer, Callback}, []).
+start_link(Storage, Transfer) ->
+    %% TODO
+    %% Additional callbacks? They won't survive restarts by the supervisor, which brings a
+    %% question if we even need to retry with the help of supervisor.
+    gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer}, []).
 
 %%
 
@@ -56,16 +49,21 @@ start_link(Storage, Transfer, Callback) ->
 callback_mode() ->
     handle_event_function.
 
-init({Storage, Transfer, Callback}) ->
+init({Storage, Transfer}) ->
     St = #st{
         storage = Storage,
         transfer = Transfer,
         assembly = emqx_ft_assembly:new(),
-        hash = crypto:hash_init(sha256),
-        callback = Callback
+        hash = crypto:hash_init(sha256)
     },
-    {ok, list_local_fragments, St, ?internal([])}.
+    {ok, idle, St}.
 
+handle_event(info, kickoff, idle, St) ->
+    % NOTE
+    % Someone's told us to start the work, which usually means that it has set up a monitor.
+    % We could wait for this message and handle it at the end of the assembling rather than at
+    % the beginning, however it would make error handling much more messier.
+    {next_state, list_local_fragments, St, ?internal([])};
 handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
     % TODO: what we do with non-transients errors here (e.g. `eacces`)?
     {ok, Fragments} = emqx_ft_storage_fs:list(St#st.storage, St#st.transfer, fragment),
@@ -76,10 +74,10 @@ handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
             {next_state, start_assembling, NSt, ?internal([])};
         {incomplete, _} ->
             Nodes = mria_mnesia:running_nodes() -- [node()],
-            {next_state, {list_remote_fragments, Nodes}, NSt, ?internal([])}
+            {next_state, {list_remote_fragments, Nodes}, NSt, ?internal([])};
         % TODO: recovery?
-        % {error, _} = Reason ->
-        %     {stop, Reason}
+        {error, _} = Error ->
+            {stop, {shutdown, Error}}
     end;
 handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
     % TODO
@@ -107,12 +105,14 @@ handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
             {next_state, start_assembling, NSt, ?internal([])};
         % TODO: retries / recovery?
         {incomplete, _} = Status ->
-            {next_state, {failure, {error, Status}}, NSt, ?internal([])}
+            {stop, {shutdown, {error, Status}}};
+        {error, _} = Error ->
+            {stop, {shutdown, Error}}
     end;
 handle_event(internal, _, start_assembling, St = #st{assembly = Asm}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Coverage = emqx_ft_assembly:coverage(Asm),
-    % TODO: errors
+    % TODO: better error handling
     {ok, Handle} = emqx_ft_storage_fs:open_file(St#st.storage, St#st.transfer, Filemeta),
     {next_state, {assemble, Coverage}, St#st{file = Handle}, ?internal([])};
 handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
@@ -120,50 +120,16 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % Currently, race is possible between getting segment info from the remote node and
     % this node garbage collecting the segment itself.
     % TODO: pipelining
-    case pread(Node, Segment, St) of
-        {ok, Content} ->
-            case emqx_ft_storage_fs:write(St#st.file, Content) of
-                {ok, NHandle} ->
-                    {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])};
-                %% TODO: better error handling
-                {error, _} = Error ->
-                    {next_state, {failure, Error}, St, ?internal([])}
-            end;
-        {error, _} = Error ->
-            %% TODO: better error handling
-            {next_state, {failure, Error}, St, ?internal([])}
-    end;
+    % TODO: better error handling
+    {ok, Content} = pread(Node, Segment, St),
+    {ok, NHandle} = emqx_ft_storage_fs:write(St#st.file, Content),
+    {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])};
 handle_event(internal, _, {assemble, []}, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
-handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle, callback = Callback}) ->
+handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Result = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
-    _ = safe_apply(Callback, Result),
-    {stop, shutdown};
-handle_event(internal, _, {failure, Error}, #st{callback = Callback}) ->
-    _ = safe_apply(Callback, Error),
-    {stop, Error}.
-
-% handle_continue(list_local, St = #st{storage = Storage, transfer = Transfer, assembly = Asm}) ->
-%     % TODO: what we do with non-transients errors here (e.g. `eacces`)?
-%     {ok, Fragments} = emqx_ft_storage_fs:list(Storage, Transfer),
-%     NAsm = emqx_ft_assembly:update(emqx_ft_assembly:append(Asm, node(), Fragments)),
-%     NSt = St#st{assembly = NAsm},
-%     case emqx_ft_assembly:status(NAsm) of
-%         complete ->
-%             {noreply, NSt, {continue}};
-%         {more, _} ->
-%             error(noimpl);
-%         {error, _} ->
-%             error(noimpl)
-%     end,
-%     {noreply, St}.
-
-% handle_call(_Call, _From, St) ->
-%     {reply, {error, badcall}, St}.
-
-% handle_cast(_Cast, St) ->
-%     {noreply, St}.
+    {stop, {shutdown, Result}}.
 
 pread(Node, Segment, St) when Node =:= node() ->
     emqx_ft_storage_fs:pread(St#st.storage, St#st.transfer, Segment, 0, segsize(Segment));
@@ -174,16 +140,3 @@ pread(Node, Segment, St) ->
 
 segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).
-
-safe_apply(Callback, Result) ->
-    try apply(Callback, [Result]) of
-        _ -> ok
-    catch
-        Class:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "safe_apply_failed",
-                class => Class,
-                reason => Reason,
-                stacktrace => Stacktrace
-            })
-    end.
