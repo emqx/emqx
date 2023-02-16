@@ -40,7 +40,7 @@ end_per_testcase(_Case, _Config) ->
 
 t_start_ack(_Config) ->
     Key = <<"test">>,
-    DefaultAction = fun(_Key, {ack, Ref}) -> Ref end,
+    DefaultAction = fun({ack, Ref}) -> Ref end,
     ?assertMatch(
         {ok, _Pid},
         emqx_ft_responder:start(Key, DefaultAction, 1000)
@@ -62,7 +62,7 @@ t_start_ack(_Config) ->
 t_timeout(_Config) ->
     Key = <<"test">>,
     Self = self(),
-    DefaultAction = fun(K, timeout) -> Self ! {timeout, K} end,
+    DefaultAction = fun(timeout) -> Self ! {timeout, Key} end,
     {ok, _Pid} = emqx_ft_responder:start(Key, DefaultAction, 20),
     receive
         {timeout, Key} ->
@@ -89,7 +89,7 @@ t_timeout(_Config) ->
 %     ).
 
 t_unknown_msgs(_Config) ->
-    {ok, Pid} = emqx_ft_responder:start(make_ref(), fun(_, _) -> ok end, 100),
+    {ok, Pid} = emqx_ft_responder:start(make_ref(), fun(_) -> ok end, 100),
     Pid ! {unknown_msg, <<"test">>},
     ok = gen_server:cast(Pid, {unknown_msg, <<"test">>}),
     ?assertEqual(

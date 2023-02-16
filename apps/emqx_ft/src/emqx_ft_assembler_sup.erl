@@ -17,7 +17,7 @@
 -module(emqx_ft_assembler_sup).
 
 -export([start_link/0]).
--export([start_child/3]).
+-export([ensure_child/2]).
 
 -behaviour(supervisor).
 -export([init/1]).
@@ -25,13 +25,18 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_child(Storage, Transfer, Callback) ->
+ensure_child(Storage, Transfer) ->
     Childspec = #{
-        id => {Storage, Transfer},
-        start => {emqx_ft_assembler, start_link, [Storage, Transfer, Callback]},
+        id => Transfer,
+        start => {emqx_ft_assembler, start_link, [Storage, Transfer]},
         restart => temporary
     },
-    supervisor:start_child(?MODULE, Childspec).
+    case supervisor:start_child(?MODULE, Childspec) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid}
+    end.
 
 init(_) ->
     SupFlags = #{

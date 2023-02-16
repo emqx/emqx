@@ -20,7 +20,7 @@
     [
         store_filemeta/2,
         store_segment/2,
-        assemble/2,
+        assemble/1,
 
         ready_transfers/0,
         get_ready_transfer/1,
@@ -43,12 +43,18 @@
 %% Behaviour
 %%--------------------------------------------------------------------
 
+%% NOTE
+%% An async task will wait for a `kickoff` message to start processing, to give some time
+%% to set up monitors, etc. Async task will not explicitly report the processing result,
+%% you are expected to receive and handle exit reason of the process, which is
+%% -type result() :: `{shutdown, ok | {error, _}}`.
+
 -callback store_filemeta(storage(), emqx_ft:transfer(), emqx_ft:filemeta()) ->
-    ok | {error, term()}.
+    ok | {async, pid()} | {error, term()}.
 -callback store_segment(storage(), emqx_ft:transfer(), emqx_ft:segment()) ->
-    ok | {error, term()}.
--callback assemble(storage(), emqx_ft:transfer(), assemble_callback()) ->
-    {ok, pid()} | {error, term()}.
+    ok | {async, pid()} | {error, term()}.
+-callback assemble(storage(), emqx_ft:transfer()) ->
+    ok | {async, pid()} | {error, term()}.
 -callback ready_transfers(storage()) ->
     {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
 -callback get_ready_transfer(storage(), ready_transfer_id()) ->
@@ -59,22 +65,22 @@
 %%--------------------------------------------------------------------
 
 -spec store_filemeta(emqx_ft:transfer(), emqx_ft:filemeta()) ->
-    ok | {error, term()}.
+    ok | {async, pid()} | {error, term()}.
 store_filemeta(Transfer, FileMeta) ->
     Mod = mod(),
     Mod:store_filemeta(storage(), Transfer, FileMeta).
 
 -spec store_segment(emqx_ft:transfer(), emqx_ft:segment()) ->
-    ok | {error, term()}.
+    ok | {async, pid()} | {error, term()}.
 store_segment(Transfer, Segment) ->
     Mod = mod(),
     Mod:store_segment(storage(), Transfer, Segment).
 
--spec assemble(emqx_ft:transfer(), assemble_callback()) ->
-    {ok, pid()} | {error, term()}.
-assemble(Transfer, Callback) ->
+-spec assemble(emqx_ft:transfer()) ->
+    ok | {async, pid()} | {error, term()}.
+assemble(Transfer) ->
     Mod = mod(),
-    Mod:assemble(storage(), Transfer, Callback).
+    Mod:assemble(storage(), Transfer).
 
 -spec ready_transfers() -> {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
 ready_transfers() ->
