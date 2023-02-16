@@ -279,7 +279,7 @@ t_client_id_not_found(_Config) ->
     %% Client kickout
     ?assertMatch({error, {Http, _, Body}}, ReqFun(delete, PathFun([]))),
     %% Client Subscription list
-    ?assertMatch({ok, {{"HTTP/1.1", 200, "OK"}, _, "[]"}}, ReqFun(get, PathFun(["subscriptions"]))),
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["subscriptions"]))),
     %% AuthZ Cache lookup
     ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["authorization", "cache"]))),
     %% AuthZ Cache clean

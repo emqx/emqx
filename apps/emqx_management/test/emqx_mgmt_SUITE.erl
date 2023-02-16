@@ -145,6 +145,27 @@ t_kickout_client(Config) ->
     end,
     ?assertEqual({error, not_found}, emqx_mgmt:kickout_client(<<"notfound">>)).
 
+t_list_authz_cache(init, Config) ->
+    setup_clients(Config);
+t_list_authz_cache('end', Config) ->
+    disconnect_clients(Config).
+
+t_list_authz_cache(_) ->
+    ?assertNotMatch({error, _}, emqx_mgmt:list_authz_cache(<<"client1">>)),
+    ?assertMatch({error, not_found}, emqx_mgmt:list_authz_cache(<<"notfound">>)).
+
+t_list_client_subscriptions(init, Config) ->
+    setup_clients(Config);
+t_list_client_subscriptions('end', Config) ->
+    disconnect_clients(Config).
+
+t_list_client_subscriptions(Config) ->
+    [Client | _] = ?config(clients, Config),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(<<"client1">>)),
+    emqtt:subscribe(Client, <<"t/#">>),
+    ?assertMatch({_, [{<<"t/#">>, _Opts}]}, emqx_mgmt:list_client_subscriptions(<<"client1">>)),
+    ?assertEqual({error, not_found}, emqx_mgmt:list_client_subscriptions(<<"notfound">>)).
+
 %%% helpers
 ident(Arg) ->
     Arg.

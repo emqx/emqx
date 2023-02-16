@@ -286,12 +286,12 @@ maybe_format(undefined, A) ->
 maybe_format({M, F}, A) ->
     M:F(A).
 
-kickout_client(ClientID) ->
-    case lookup_client({clientid, ClientID}, undefined) of
+kickout_client(ClientId) ->
+    case lookup_client({clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
         _ ->
-            Results = [kickout_client(Node, ClientID) || Node <- mria_mnesia:running_nodes()],
+            Results = [kickout_client(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
             check_results(Results)
     end.
 
@@ -302,17 +302,22 @@ list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
 
 list_client_subscriptions(ClientId) ->
-    Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    Filter =
-        fun
-            ({error, _}) ->
-                false;
-            ({_Node, List}) ->
-                erlang:is_list(List) andalso 0 < erlang:length(List)
-        end,
-    case lists:filter(Filter, Results) of
-        [] -> [];
-        [Result | _] -> Result
+    case lookup_client({clientid, ClientId}, undefined) of
+        [] ->
+            {error, not_found};
+        _ ->
+            Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
+            Filter =
+                fun
+                    ({error, _}) ->
+                        false;
+                    ({_Node, List}) ->
+                        erlang:is_list(List) andalso 0 < erlang:length(List)
+                end,
+            case lists:filter(Filter, Results) of
+                [] -> [];
+                [Result | _] -> Result
+            end
     end.
 
 client_subscriptions(Node, ClientId) ->
