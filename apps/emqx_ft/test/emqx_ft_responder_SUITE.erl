@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("emqx/include/asserts.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -74,19 +73,6 @@ t_timeout(_Config) ->
         {noproc, _},
         emqx_ft_responder:ack(Key, oops)
     ).
-
-% t_action_exception(_Config) ->
-%     Key = <<"test">>,
-%     DefaultAction = fun(K) -> error({oops, K}) end,
-%     ?assertWaitEvent(
-%         emqx_ft_responder:start(Key, DefaultAction, 10),
-%         #{?snk_kind := ft_timeout_action_applied, key := <<"test">>},
-%         1000
-%     ),
-%     ?assertEqual(
-%         {error, not_found},
-%         emqx_ft_responder:ack(Key, oops)
-%     ).
 
 t_unknown_msgs(_Config) ->
     {ok, Pid} = emqx_ft_responder:start(make_ref(), fun(_) -> ok end, 100),
