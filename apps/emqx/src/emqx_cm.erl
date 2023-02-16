@@ -312,6 +312,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                         Session1 = emqx_persistent_session:persist(
                             ClientInfo, ConnInfo, Session
                         ),
+                        register_channel(ClientId, Self, ConnInfo),
                         {ok, #{
                             session => clean_session(Session1),
                             present => true,
