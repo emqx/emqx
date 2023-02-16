@@ -22,17 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(assertInclude(Pattern, List),
-    ?assert(
-        lists:any(
-            fun
-                (Pattern) -> true;
-                (_) -> false
-            end,
-            List
-        )
-    )
-).
+-include_lib("emqx/include/asserts.hrl").
 
 all() ->
     [
@@ -72,7 +62,7 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 init_per_group(cluster, Config) ->
-    Node = emqx_ft_test_helpers:start_additional_node(Config, test2),
+    Node = emqx_ft_test_helpers:start_additional_node(Config, emqx_ft_storage_fs1),
     [{additional_node, Node} | Config];
 init_per_group(_Group, Config) ->
     Config.

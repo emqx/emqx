@@ -42,7 +42,7 @@
 %% API
 %% -------------------------------------------------------------------
 
--spec start(key(), timeout(), respfun()) -> startlink_ret().
+-spec start(key(), respfun(), timeout()) -> startlink_ret().
 start(Key, RespFun, Timeout) ->
     emqx_ft_responder_sup:start_child(Key, RespFun, Timeout).
 
@@ -75,7 +75,7 @@ handle_call({kickoff, Pid}, _From, St) ->
     {reply, ok, St};
 handle_call({ack, Result}, _From, {Key, RespFun}) ->
     Ret = apply(RespFun, [{ack, Result}]),
-    ?tp(ft_responder_ack, #{key => Key, result => Result, return => Ret}),
+    ?tp(debug, ft_responder_ack, #{key => Key, result => Result, return => Ret}),
     {stop, {shutdown, Ret}, Ret, undefined};
 handle_call(Msg, _From, State) ->
     ?SLOG(warning, #{msg => "unknown_call", call_msg => Msg}),
@@ -87,11 +87,11 @@ handle_cast(Msg, State) ->
 
 handle_info(timeout, {Key, RespFun}) ->
     Ret = apply(RespFun, [timeout]),
-    ?tp(ft_responder_timeout, #{key => Key, return => Ret}),
+    ?tp(debug, ft_responder_timeout, #{key => Key, return => Ret}),
     {stop, {shutdown, Ret}, undefined};
 handle_info({'DOWN', _MRef, process, _Pid, Reason}, {Key, RespFun}) ->
     Ret = apply(RespFun, [{down, map_down_reason(Reason)}]),
-    ?tp(ft_responder_procdown, #{key => Key, reason => Reason, return => Ret}),
+    ?tp(debug, ft_responder_procdown, #{key => Key, reason => Reason, return => Ret}),
     {stop, {shutdown, Ret}, undefined};
 handle_info(Msg, State) ->
     ?SLOG(warning, #{msg => "unknown_message", info_msg => Msg}),
@@ -101,7 +101,7 @@ terminate(_Reason, undefined) ->
     ok;
 terminate(Reason, {Key, RespFun}) ->
     Ret = apply(RespFun, [timeout]),
-    ?tp(ft_responder_shutdown, #{key => Key, reason => Reason, return => Ret}),
+    ?tp(debug, ft_responder_shutdown, #{key => Key, reason => Reason, return => Ret}),
     ok.
 
 map_down_reason(normal) ->
