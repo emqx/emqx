@@ -34,6 +34,7 @@
 -define(HP_BRIDGE, 870).
 -define(HP_DELAY_PUB, 860).
 %% apps that can stop the hooks chain from continuing
+-define(HP_NODE_REBALANCE, 110).
 -define(HP_EXHOOK, 100).
 
 %% == Lowest Priority = 0, don't change this value as the plugins may depend on it.

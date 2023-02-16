@@ -18,6 +18,7 @@
 -module(emqx_channel).
 
 -include("emqx.hrl").
+-include("emqx_channel.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
@@ -57,6 +58,12 @@
     clear_keepalive/1
 ]).
 
+%% Export for emqx_channel implementations
+-export([
+    maybe_nack/1,
+    maybe_mark_as_delivered/2
+]).
+
 %% Exports for CT
 -export([set_field/3]).
 
@@ -69,7 +76,7 @@
     ]
 ).
 
--export_type([channel/0, opts/0]).
+-export_type([channel/0, opts/0, conn_state/0]).
 
 -record(channel, {
     %% MQTT ConnInfo
@@ -130,33 +137,6 @@
     will_timer => will_message,
     quota_timer => expire_quota_limit
 }).
-
--define(CHANNEL_METRICS, [
-    recv_pkt,
-    recv_msg,
-    'recv_msg.qos0',
-    'recv_msg.qos1',
-    'recv_msg.qos2',
-    'recv_msg.dropped',
-    'recv_msg.dropped.await_pubrel_timeout',
-    send_pkt,
-    send_msg,
-    'send_msg.qos0',
-    'send_msg.qos1',
-    'send_msg.qos2',
-    'send_msg.dropped',
-    'send_msg.dropped.expired',
-    'send_msg.dropped.queue_full',
-    'send_msg.dropped.too_large'
-]).
-
--define(INFO_KEYS, [
-    conninfo,
-    conn_state,
-    clientinfo,
-    session,
-    will_msg
-]).
 
 -define(LIMITER_ROUTING, message_routing).
 
@@ -1078,10 +1058,12 @@ handle_out(unsuback, {PacketId, _ReasonCodes}, Channel) ->
 handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
     handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
-handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
-    Packet = ?DISCONNECT_PACKET(ReasonCode),
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, #{}}, Channel);
+handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) ->
+    Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
     {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
-handle_out(disconnect, {_ReasonCode, ReasonName}, Channel) ->
+handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, {close, ReasonName}, Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
     {ok, ?AUTH_PACKET(ReasonCode, Properties), Channel};
@@ -1198,13 +1180,19 @@ handle_call(
     {takeover, 'end'},
     Channel = #channel{
         session = Session,
-        pendings = Pendings
+        pendings = Pendings,
+        conninfo = #{clientid := ClientId}
     }
 ) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
+    ?tp(
+        debug,
+        emqx_channel_takeover_end,
+        #{clientid => ClientId}
+    ),
     disconnect_and_shutdown(takenover, AllPendings, Channel);
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
@@ -1276,6 +1264,8 @@ handle_info(die_if_test = Info, Channel) ->
     die_if_test_compiled(),
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel};
+handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.

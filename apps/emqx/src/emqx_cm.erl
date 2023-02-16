@@ -23,6 +23,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/qlc.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -export([start_link/0]).
 
@@ -70,6 +72,12 @@
     all_channels/0,
     all_client_ids/0,
     get_session_confs/2
+]).
+
+%% Client management
+-export([
+    channel_with_session_table/1,
+    live_connection_table/1
 ]).
 
 %% gen_server callbacks
@@ -593,6 +601,40 @@ all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
 
+%% @doc Get clientinfo for all clients with sessions
+channel_with_session_table(ConnModules) ->
+    Ms = ets:fun2ms(
+        fun({{ClientId, _ChanPid}, Info, _Stats}) ->
+            {ClientId, Info}
+        end
+    ),
+    Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
+    ConnModuleMap = maps:from_list([{Mod, true} || Mod <- ConnModules]),
+    qlc:q([
+        {ClientId, ConnState, ConnInfo, ClientInfo}
+     || {ClientId, #{
+            conn_state := ConnState,
+            clientinfo := ClientInfo,
+            conninfo := #{clean_start := false, conn_mod := ConnModule} = ConnInfo
+        }} <-
+            Table,
+        maps:is_key(ConnModule, ConnModuleMap)
+    ]).
+
+%% @doc Get all local connection query handle
+live_connection_table(ConnModules) ->
+    Ms = lists:map(fun live_connection_ms/1, ConnModules),
+    Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
+    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ChanPid)]).
+
+live_connection_ms(ConnModule) ->
+    {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
+
+is_channel_connected(ChanPid) when node(ChanPid) =:= node() ->
+    ets:member(?CHAN_LIVE_TAB, ChanPid);
+is_channel_connected(_ChanPid) ->
+    false.
+
 %% @doc Get all registered clientIDs. Debug/test interface
 all_client_ids() ->
     Pat = [{{'$1', '_'}, [], ['$1']}],
@@ -693,7 +735,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down({ChanPid, ClientId}) ->
-    do_unregister_channel({ClientId, ChanPid}).
+    do_unregister_channel({ClientId, ChanPid}),
+    ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->
     lists:foreach(fun update_stats/1, ?CHAN_STATS).
@@ -719,12 +762,12 @@ get_chann_conn_mod(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v1:get_chann_conn_mod(ClientId, ChanPid)).
 
 mark_channel_connected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_inc, #{}),
+    ?tp(emqx_cm_connected_client_count_inc, #{chan_pid => ChanPid}),
     ets:insert_new(?CHAN_LIVE_TAB, {ChanPid, true}),
     ok.
 
 mark_channel_disconnected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_dec, #{}),
+    ?tp(emqx_cm_connected_client_count_dec, #{chan_pid => ChanPid}),
     ets:delete(?CHAN_LIVE_TAB, ChanPid),
     ok.
 

@@ -149,8 +149,14 @@ basic_reboot_apps() ->
                 emqx_plugins
             ],
     case emqx_release:edition() of
-        ce -> CE;
-        ee -> CE ++ []
+        ce ->
+            CE;
+        ee ->
+            CE ++
+                [
+                    emqx_eviction_agent,
+                    emqx_node_rebalance
+                ]
     end.
 
 sorted_reboot_apps() ->
