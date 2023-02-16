@@ -158,7 +158,7 @@ node_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:node_info(Nodes)).
 
 stopped_node_info(Node) ->
-    #{name => Node, node_status => 'stopped'}.
+    {Node, #{node => Node, node_status => 'stopped'}}.
 
 vm_stats() ->
     Idle =

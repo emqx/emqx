@@ -22,6 +22,8 @@
 
 -export([
     all/1,
+    init_per_testcase/3,
+    end_per_testcase/3,
     boot_modules/1,
     start_apps/1,
     start_apps/2,
@@ -149,6 +151,19 @@ all(Suite) ->
      || {F, 1} <- Suite:module_info(exports),
         string:substr(atom_to_list(F), 1, 2) == "t_"
     ]).
+
+init_per_testcase(Module, TestCase, Config) ->
+    case erlang:function_exported(Module, TestCase, 2) of
+        true -> Module:TestCase(init, Config);
+        false -> Config
+    end.
+
+end_per_testcase(Module, TestCase, Config) ->
+    case erlang:function_exported(Module, TestCase, 2) of
+        true -> Module:TestCase('end', Config);
+        false -> ok
+    end,
+    Config.
 
 %% set emqx app boot modules
 -spec boot_modules(all | list(atom())) -> ok.
