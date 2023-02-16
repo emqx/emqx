@@ -37,7 +37,8 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    Config.
+    Apps = application:ensure_all_started(gproc),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(_Config) ->
     ok.
@@ -83,9 +84,8 @@ t_assemble_empty_transfer(Config) ->
         ]},
         emqx_ft_storage_fs:list(Storage, Transfer, fragment)
     ),
-    {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun on_assembly_finished/1),
-    {ok, Event} = ?block_until(#{?snk_kind := test_assembly_finished}),
-    ?assertMatch(#{result := ok}, Event),
+    Status = complete_assemble(Storage, Transfer),
+    ?assertEqual({shutdown, ok}, Status),
     ?assertEqual(
         {ok, <<>>},
         % TODO
@@ -132,9 +132,8 @@ t_assemble_complete_local_transfer(Config) ->
         Fragments
     ),
 
-    {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun on_assembly_finished/1),
-    {ok, Event} = ?block_until(#{?snk_kind := test_assembly_finished}),
-    ?assertMatch(#{result := ok}, Event),
+    Status = complete_assemble(Storage, Transfer),
+    ?assertEqual({shutdown, ok}, Status),
 
     AssemblyFilename = mk_assembly_filename(Config, Transfer, Filename),
     ?assertMatch(
@@ -172,36 +171,31 @@ t_assemble_incomplete_transfer(Config) ->
         expire_at => 42
     },
     ok = emqx_ft_storage_fs:store_filemeta(Storage, Transfer, Meta),
-    Self = self(),
-    {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun(Result) ->
-        Self ! {test_assembly_finished, Result}
-    end),
-    receive
-        {test_assembly_finished, Result} ->
-            ?assertMatch({error, _}, Result)
-    after 1000 ->
-        ct:fail("Assembler did not called callback")
-    end.
+    Status = complete_assemble(Storage, Transfer),
+    ?assertMatch({shutdown, {error, _}}, Status).
 
 t_assemble_no_meta(Config) ->
     Storage = storage(Config),
     Transfer = {?CLIENTID2, ?config(file_id, Config)},
-    Self = self(),
-    {ok, _AsmPid} = emqx_ft_storage_fs:assemble(Storage, Transfer, fun(Result) ->
-        Self ! {test_assembly_finished, Result}
-    end),
+    Status = complete_assemble(Storage, Transfer),
+    ?assertMatch({shutdown, {error, {incomplete, _}}}, Status).
+
+complete_assemble(Storage, Transfer) ->
+    complete_assemble(Storage, Transfer, 1000).
+
+complete_assemble(Storage, Transfer, Timeout) ->
+    {async, Pid} = emqx_ft_storage_fs:assemble(Storage, Transfer),
+    MRef = erlang:monitor(process, Pid),
+    Pid ! kickoff,
     receive
-        {test_assembly_finished, Result} ->
-            ?assertMatch({error, _}, Result)
-    after 1000 ->
-        ct:fail("Assembler did not called callback")
+        {'DOWN', MRef, process, Pid, Result} ->
+            Result
+    after Timeout ->
+        ct:fail("Assembler did not finish in time")
     end.
 
 mk_assembly_filename(Config, {ClientID, FileID}, Filename) ->
     filename:join([?config(storage_root, Config), ClientID, FileID, result, Filename]).
-
-on_assembly_finished(Result) ->
-    ?tp(test_assembly_finished, #{result => Result}).
 
 %%
 
