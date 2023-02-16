@@ -42,7 +42,7 @@
 %% API
 %% -------------------------------------------------------------------
 
--spec start(key(), timeout(), respfun()) -> startlink_ret().
+-spec start(key(), respfun(), timeout()) -> startlink_ret().
 start(Key, RespFun, Timeout) ->
     emqx_ft_responder_sup:start_child(Key, RespFun, Timeout).
 

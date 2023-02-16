@@ -78,8 +78,7 @@
 -define(MANIFEST, "MANIFEST.json").
 -define(SEGMENT, "SEG").
 
-%% TODO
--type storage() :: emqx_config:config().
+-type storage() :: emqx_ft_storage:storage().
 
 %% Store manifest in the backing filesystem.
 %% Atomic operation.

@@ -184,9 +184,9 @@ on_init(PacketId, Msg, Transfer) ->
                     ok ->
                         emqx_ft_responder:ack(PacketKey, ok);
                     % Storage operation started, packet will be acked by the responder
-                    {async, Pid} ->
-                        ok = emqx_ft_responder:kickoff(PacketKey, Pid),
-                        ok;
+                    % {async, Pid} ->
+                    %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
+                    %     ok;
                     %% Storage operation failed, ack through the responder
                     {error, _} = Error ->
                         emqx_ft_responder:ack(PacketKey, Error)
@@ -227,9 +227,9 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
         case store_segment(Transfer, Segment) of
             ok ->
                 emqx_ft_responder:ack(PacketKey, ok);
-            {async, Pid} ->
-                ok = emqx_ft_responder:kickoff(PacketKey, Pid),
-                ok;
+            % {async, Pid} ->
+            %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
+            %     ok;
             {error, _} = Error ->
                 emqx_ft_responder:ack(PacketKey, Error)
         end
@@ -251,8 +251,8 @@ on_fin(PacketId, Msg, Transfer, Checksum) ->
     with_responder(FinPacketKey, Callback, ?ASSEMBLE_TIMEOUT, fun() ->
         case assemble(Transfer) of
             %% Assembling completed, ack through the responder right away
-            ok ->
-                emqx_ft_responder:ack(FinPacketKey, ok);
+            % ok ->
+            %     emqx_ft_responder:ack(FinPacketKey, ok);
             %% Assembling started, packet will be acked by the responder
             {async, Pid} ->
                 ok = emqx_ft_responder:kickoff(FinPacketKey, Pid),
