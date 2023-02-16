@@ -35,7 +35,7 @@
     decode_filemeta/1
 ]).
 
--export([on_assemble/2]).
+-export([on_complete/4]).
 
 -export_type([
     clientid/0,
@@ -76,7 +76,8 @@
 
 -type segment() :: {offset(), _Content :: binary()}.
 
--define(ASSEMBLE_TIMEOUT, 5000).
+-define(STORE_SEGMENT_TIMEOUT, 10000).
+-define(ASSEMBLE_TIMEOUT, 60000).
 
 %%--------------------------------------------------------------------
 %% API for app
@@ -143,52 +144,59 @@ on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
 on_file_command(PacketId, Msg, FileCommand) ->
     case string:split(FileCommand, <<"/">>, all) of
         [FileId, <<"init">>] ->
-            on_init(Msg, FileId);
+            on_init(PacketId, Msg, transfer(Msg, FileId));
         [FileId, <<"fin">>] ->
-            on_fin(PacketId, Msg, FileId, undefined);
+            on_fin(PacketId, Msg, transfer(Msg, FileId), undefined);
         [FileId, <<"fin">>, Checksum] ->
-            on_fin(PacketId, Msg, FileId, Checksum);
+            on_fin(PacketId, Msg, transfer(Msg, FileId), Checksum);
         [FileId, <<"abort">>] ->
-            on_abort(Msg, FileId);
+            on_abort(Msg, transfer(Msg, FileId));
         [FileId, OffsetBin] ->
             validate([{offset, OffsetBin}], fun([Offset]) ->
-                on_segment(Msg, FileId, Offset, undefined)
+                on_segment(PacketId, Msg, transfer(Msg, FileId), Offset, undefined)
             end);
         [FileId, OffsetBin, ChecksumBin] ->
             validate([{offset, OffsetBin}, {checksum, ChecksumBin}], fun([Offset, Checksum]) ->
-                on_segment(Msg, FileId, Offset, Checksum)
+                on_segment(PacketId, Msg, transfer(Msg, FileId), Offset, Checksum)
             end);
         _ ->
             ?RC_UNSPECIFIED_ERROR
     end.
 
-on_init(Msg, FileId) ->
+on_init(PacketId, Msg, Transfer) ->
     ?SLOG(info, #{
         msg => "on_init",
         mqtt_msg => Msg,
-        file_id => FileId
+        packet_id => PacketId,
+        transfer => Transfer
     }),
     Payload = Msg#message.payload,
+    PacketKey = {self(), PacketId},
     % %% Add validations here
     case decode_filemeta(Payload) of
         {ok, Meta} ->
-            case emqx_ft_storage:store_filemeta(transfer(Msg, FileId), Meta) of
-                ok ->
-                    ?RC_SUCCESS;
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "store_filemeta_failed",
-                        mqtt_msg => Msg,
-                        file_id => FileId,
-                        reason => Reason
-                    }),
-                    ?RC_UNSPECIFIED_ERROR
-            end;
+            Callback = fun(Result) ->
+                ?MODULE:on_complete("store_filemeta", PacketKey, Transfer, Result)
+            end,
+            with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
+                case store_filemeta(Transfer, Meta) of
+                    % Stored, ack through the responder right away
+                    ok ->
+                        emqx_ft_responder:ack(PacketKey, ok);
+                    % Storage operation started, packet will be acked by the responder
+                    {async, Pid} ->
+                        ok = emqx_ft_responder:kickoff(PacketKey, Pid),
+                        ok;
+                    %% Storage operation failed, ack through the responder
+                    {error, _} = Error ->
+                        emqx_ft_responder:ack(PacketKey, Error)
+                end
+            end);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "on_init: invalid filemeta",
                 mqtt_msg => Msg,
-                file_id => FileId,
+                transfer => Transfer,
                 reason => Reason
             }),
             ?RC_UNSPECIFIED_ERROR
@@ -198,48 +206,69 @@ on_abort(_Msg, _FileId) ->
     %% TODO
     ?RC_SUCCESS.
 
-on_segment(Msg, FileId, Offset, Checksum) ->
+on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
     ?SLOG(info, #{
         msg => "on_segment",
         mqtt_msg => Msg,
-        file_id => FileId,
+        packet_id => PacketId,
+        transfer => Transfer,
         offset => Offset,
         checksum => Checksum
     }),
     %% TODO: handle checksum
     Payload = Msg#message.payload,
     Segment = {Offset, Payload},
+    PacketKey = {self(), PacketId},
+    Callback = fun(Result) ->
+        ?MODULE:on_complete("store_segment", PacketKey, Transfer, Result)
+    end,
     %% Add offset/checksum validations
-    case emqx_ft_storage:store_segment(transfer(Msg, FileId), Segment) of
-        ok ->
-            ?RC_SUCCESS;
-        {error, _Reason} ->
-            ?RC_UNSPECIFIED_ERROR
-    end.
+    with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
+        case store_segment(Transfer, Segment) of
+            ok ->
+                emqx_ft_responder:ack(PacketKey, ok);
+            {async, Pid} ->
+                ok = emqx_ft_responder:kickoff(PacketKey, Pid),
+                ok;
+            {error, _} = Error ->
+                emqx_ft_responder:ack(PacketKey, Error)
+        end
+    end).
 
-on_fin(PacketId, Msg, FileId, Checksum) ->
+on_fin(PacketId, Msg, Transfer, Checksum) ->
     ?SLOG(info, #{
         msg => "on_fin",
         mqtt_msg => Msg,
-        file_id => FileId,
-        checksum => Checksum,
-        packet_id => PacketId
+        packet_id => PacketId,
+        transfer => Transfer,
+        checksum => Checksum
     }),
     %% TODO: handle checksum? Do we need it?
     FinPacketKey = {self(), PacketId},
-    case emqx_ft_responder:start(FinPacketKey, fun ?MODULE:on_assemble/2, ?ASSEMBLE_TIMEOUT) of
-        %% We have new fin packet
+    Callback = fun(Result) ->
+        ?MODULE:on_complete("assemble", FinPacketKey, Transfer, Result)
+    end,
+    with_responder(FinPacketKey, Callback, ?ASSEMBLE_TIMEOUT, fun() ->
+        case assemble(Transfer) of
+            %% Assembling completed, ack through the responder right away
+            ok ->
+                emqx_ft_responder:ack(FinPacketKey, ok);
+            %% Assembling started, packet will be acked by the responder
+            {async, Pid} ->
+                ok = emqx_ft_responder:kickoff(FinPacketKey, Pid),
+                ok;
+            %% Assembling failed, ack through the responder
+            {error, _} = Error ->
+                emqx_ft_responder:ack(FinPacketKey, Error)
+        end
+    end).
+
+with_responder(Key, Callback, Timeout, CriticalSection) ->
+    case emqx_ft_responder:start(Key, Callback, Timeout) of
+        %% We have new packet
         {ok, _} ->
-            Callback = fun(Result) -> emqx_ft_responder:ack(FinPacketKey, Result) end,
-            case assemble(transfer(Msg, FileId), Callback) of
-                %% Assembling started, packet will be acked by the callback or the responder
-                {ok, _} ->
-                    ok;
-                %% Assembling failed, ack through the responder
-                {error, _} = Error ->
-                    emqx_ft_responder:ack(FinPacketKey, Error)
-            end;
-        %% Fin packet already received.
+            CriticalSection();
+        %% Packet already received.
         %% Since we are still handling the previous one,
         %% we probably have retransmit here
         {error, {already_started, _}} ->
@@ -247,13 +276,35 @@ on_fin(PacketId, Msg, FileId, Checksum) ->
     end,
     undefined.
 
-assemble(Transfer, Callback) ->
+store_filemeta(Transfer, Segment) ->
     try
-        emqx_ft_storage:assemble(Transfer, Callback)
+        emqx_ft_storage:store_filemeta(Transfer, Segment)
     catch
         C:E:S ->
-            ?SLOG(warning, #{
-                msg => "file_assemble_failed", class => C, reason => E, stacktrace => S
+            ?SLOG(error, #{
+                msg => "start_store_filemeta_failed", class => C, reason => E, stacktrace => S
+            }),
+            {error, {internal_error, E}}
+    end.
+
+store_segment(Transfer, Segment) ->
+    try
+        emqx_ft_storage:store_segment(Transfer, Segment)
+    catch
+        C:E:S ->
+            ?SLOG(error, #{
+                msg => "start_store_segment_failed", class => C, reason => E, stacktrace => S
+            }),
+            {error, {internal_error, E}}
+    end.
+
+assemble(Transfer) ->
+    try
+        emqx_ft_storage:assemble(Transfer)
+    catch
+        C:E:S ->
+            ?SLOG(error, #{
+                msg => "start_assemble_failed", class => C, reason => E, stacktrace => S
             }),
             {error, {internal_error, E}}
     end.
@@ -262,14 +313,28 @@ transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
     {ClientId, FileId}.
 
-on_assemble({ChanPid, PacketId}, Result) ->
-    ?SLOG(debug, #{msg => "on_assemble", packet_id => PacketId, result => Result}),
+on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
+    ?SLOG(debug, #{
+        msg => "on_complete",
+        operation => Op,
+        packet_id => PacketId,
+        transfer => Transfer
+    }),
     case Result of
-        {ack, ok} ->
+        {Mode, ok} when Mode == ack orelse Mode == down ->
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
-        {ack, {error, _}} ->
+        {Mode, {error, _} = Reason} when Mode == ack orelse Mode == down ->
+            ?SLOG(error, #{
+                msg => Op ++ "_failed",
+                transfer => Transfer,
+                reason => Reason
+            }),
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR});
         timeout ->
+            ?SLOG(error, #{
+                msg => Op ++ "_timed_out",
+                transfer => Transfer
+            }),
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
     end.
 
