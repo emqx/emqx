@@ -21,7 +21,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([namespace/0, roots/0, fields/1, tags/0]).
+-export([namespace/0, roots/0, fields/1, tags/0, desc/1]).
 
 -export([schema/1]).
 
@@ -49,7 +49,8 @@ fields(file_transfer) ->
         {storage, #{
             type => hoconsc:union([
                 hoconsc:ref(?MODULE, local_storage)
-            ])
+            ]),
+            desc => ?DESC("storage")
         }}
     ];
 fields(local_storage) ->
@@ -58,7 +59,7 @@ fields(local_storage) ->
             type => local,
             default => local,
             required => false,
-            desc => ?DESC("local")
+            desc => ?DESC("local_type")
         }},
         {root, #{
             type => binary(),
@@ -66,6 +67,11 @@ fields(local_storage) ->
             required => false
         }}
     ].
+
+desc(file_transfer) ->
+    "File transfer settings";
+desc(local_storage) ->
+    "File transfer local storage settings".
 
 schema(filemeta) ->
     #{
