@@ -42,12 +42,11 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft], set_special_configs(Config)),
-    ok = emqx_common_test_helpers:set_gen_rpc_stateless(),
+    ok = emqx_common_test_helpers:start_apps([emqx_ft], set_special_configs(Config)),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_ft]),
     ok.
 
 set_special_configs(Config) ->

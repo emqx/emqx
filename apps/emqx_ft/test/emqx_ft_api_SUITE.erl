@@ -32,7 +32,7 @@ init_per_suite(Config) ->
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_ft], set_special_configs(Config)
     ),
-    ok = emqx_common_test_helpers:set_gen_rpc_stateless(),
+    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
 end_per_suite(_Config) ->
     ok = emqx_mgmt_api_test_util:end_suite([emqx_ft, emqx_conf]),
