@@ -68,7 +68,7 @@ defmodule EMQXUmbrella.MixProject do
       {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.7", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.37.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
