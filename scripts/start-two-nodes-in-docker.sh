@@ -44,6 +44,7 @@ docker run -d -it --restart=always --name "$NODE1" \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
+  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
   -p 18083:18083 \
   -v "$PROJ_DIR"/_build/"${REL_DIR}"/rel/emqx:/built \
   "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
@@ -53,6 +54,7 @@ docker run -d -it --restart=always --name "$NODE2" \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -e WAIT_FOR_ERLANG=60 \
+  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
   -p 18084:18083 \
   -v "$PROJ_DIR"/_build/"${REL_DIR}"/rel/emqx:/built \
   "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
