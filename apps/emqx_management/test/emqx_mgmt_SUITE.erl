@@ -237,9 +237,74 @@ t_list_subscriptions_via_topic(Config) ->
         emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)
     ).
 
+t_alarms(_) ->
+    Node = node(),
+    ?assertEqual(
+        [{node(), []}],
+        emqx_mgmt:get_alarms(all)
+    ),
+    emqx_alarm:activate(foo),
+    ?assertMatch(
+        [{Node, [#{name := foo, activated := true, duration := _}]}],
+        emqx_mgmt:get_alarms(all)
+    ),
+    emqx_alarm:activate(bar),
+    ?assertMatch(
+        [{Node, [#{name := foo, activated := true}, #{name := bar, activated := true}]}],
+        sort_alarms(emqx_mgmt:get_alarms(all))
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mgmt:deactivate(node(), bar)
+    ),
+    ?assertMatch(
+        [{Node, [#{name := foo, activated := true}, #{name := bar, activated := false}]}],
+        sort_alarms(emqx_mgmt:get_alarms(all))
+    ),
+    ?assertMatch(
+        [{Node, [#{name := foo, activated := true}]}],
+        emqx_mgmt:get_alarms(activated)
+    ),
+    ?assertMatch(
+        [{Node, [#{name := bar, activated := false}]}],
+        emqx_mgmt:get_alarms(deactivated)
+    ),
+    ?assertEqual(
+        [ok],
+        emqx_mgmt:delete_all_deactivated_alarms()
+    ),
+    ?assertMatch(
+        [{Node, [#{name := foo, activated := true}]}],
+        emqx_mgmt:get_alarms(all)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt:deactivate(node(), bar)
+    ).
+
+t_banned(_) ->
+    Banned = #{
+        who => {clientid, <<"TestClient">>},
+        by => <<"banned suite">>,
+        reason => <<"test">>,
+        at => erlang:system_time(second),
+        until => erlang:system_time(second) + 1
+    },
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt:create_banned(Banned)
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mgmt:delete_banned({clientid, <<"TestClient">>})
+    ).
+
 %%% helpers
 ident(Arg) ->
     Arg.
+
+sort_alarms([{Node, Alarms}]) ->
+    [{Node, lists:sort(fun(#{activate_at := A}, #{activate_at := B}) -> A < B end, Alarms)}].
 
 setup_clients(Config) ->
     {ok, C} = emqtt:start_link([{clientid, <<"client1">>}, {username, <<"user1">>}]),
