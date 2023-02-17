@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-[ ${DEBUG:-0} -eq 1 ] && set -x
+[ "${DEBUG:-0}" -eq 1 ] && set -x
 
 PROFILE_ARG="$1"
 ARTIFACT="$2"
