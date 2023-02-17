@@ -17,4 +17,3 @@
 -define(MANAGEMENT_SHARD, emqx_management_shard).
 
 -define(DEFAULT_ROW_LIMIT, 100).
--define(MAX_TABLE_SIZE, 100).
