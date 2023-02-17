@@ -55,7 +55,6 @@
 ]).
 
 -export([
-    set_gen_rpc_stateless/0,
     emqx_cluster/1,
     emqx_cluster/2,
     start_epmd/0,
@@ -254,12 +253,7 @@ read_schema_configs(no_schema, _ConfigFile) ->
     ok;
 read_schema_configs(Schema, ConfigFile) ->
     NewConfig = generate_config(Schema, ConfigFile),
-    lists:foreach(
-        fun({App, Configs}) ->
-            [application:set_env(App, Par, Value) || {Par, Value} <- Configs]
-        end,
-        NewConfig
-    ).
+    application:set_env(NewConfig).
 
 generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
     {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
@@ -556,16 +550,6 @@ ensure_quic_listener(Name, UdpPort) ->
     %% - wss: base_port + 4
     listener_ports => [{Type :: tcp | ssl | ws | wss, inet:port_number()}]
 }.
-
--spec set_gen_rpc_stateless() -> ok.
-set_gen_rpc_stateless() ->
-    %% When many tests run in an obscure order, it may occur that
-    %% `gen_rpc` started with its default settings before `emqx_conf`.
-    %% `gen_rpc` and `emqx_conf` have different default `port_discovery` modes,
-    %% so we reinitialize `gen_rpc` explicitly.
-    ok = application:stop(gen_rpc),
-    ok = application:set_env(gen_rpc, port_discovery, stateless),
-    ok = application:start(gen_rpc).
 
 -spec emqx_cluster(cluster_spec()) -> [{shortname(), node_opts()}].
 emqx_cluster(Specs) ->
