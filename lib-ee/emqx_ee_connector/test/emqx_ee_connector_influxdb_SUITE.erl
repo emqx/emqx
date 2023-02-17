@@ -24,7 +24,8 @@ init_per_suite(Config) ->
     InfluxDBTCPPort = list_to_integer(os:getenv("INFLUXDB_APIV2_TCP_PORT", "8086")),
     InfluxDBTLSHost = os:getenv("INFLUXDB_APIV2_TLS_HOST", "toxiproxy"),
     InfluxDBTLSPort = list_to_integer(os:getenv("INFLUXDB_APIV2_TLS_PORT", "8087")),
-    case emqx_common_test_helpers:is_tcp_server_available(InfluxDBTCPHost, InfluxDBTCPPort) of
+    Servers = [{InfluxDBTCPHost, InfluxDBTCPPort}, {InfluxDBTLSHost, InfluxDBTLSPort}],
+    case emqx_common_test_helpers:is_all_tcp_servers_available(Servers) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
@@ -37,7 +38,12 @@ init_per_suite(Config) ->
                 | Config
             ];
         false ->
-            {skip, no_influxdb}
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_influxdb);
+                _ ->
+                    {skip, no_influxdb}
+            end
     end.
 
 end_per_suite(_Config) ->
@@ -60,7 +66,7 @@ t_lifecycle(Config) ->
     Port = ?config(influxdb_tcp_port, Config),
     perform_lifecycle_check(
         <<"emqx_ee_connector_influxdb_SUITE">>,
-        influxdb_config(Host, Port, false, "verify_none")
+        influxdb_config(Host, Port, false, <<"verify_none">>)
     ).
 
 perform_lifecycle_check(PoolName, InitialConfig) ->
@@ -121,7 +127,7 @@ t_tls_verify_none(Config) ->
     PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_config(Host, Port, true, "verify_none"),
+    InitialConfig = influxdb_config(Host, Port, true, <<"verify_none">>),
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
     InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
@@ -132,7 +138,8 @@ t_tls_verify_peer(Config) ->
     PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_config(Host, Port, true, "verify_peer"),
+    InitialConfig = influxdb_config(Host, Port, true, <<"verify_peer">>),
+    %% This works without a CA-cert & friends since we are using a mock
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
     InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
@@ -181,25 +188,17 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
 % %%------------------------------------------------------------------------------
 
 influxdb_config(Host, Port, SslEnabled, Verify) ->
-    RawConfig = list_to_binary(
-        io_lib:format(
-            ""
-            "\n"
-            "  bucket = mqtt\n"
-            "  org = emqx\n"
-            "  token = abcdefg\n"
-            "  server = \"~s:~b\"\n"
-            "  ssl {\n"
-            "    enable = ~s\n"
-            "    verify = ~s\n"
-            "  }\n"
-            "  "
-            "",
-            [Host, Port, SslEnabled, Verify]
-        )
-    ),
-
-    {ok, ResourceConfig} = hocon:binary(RawConfig),
+    Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
+    ResourceConfig = #{
+        <<"bucket">> => <<"mqtt">>,
+        <<"org">> => <<"emqx">>,
+        <<"token">> => <<"abcdefg">>,
+        <<"server">> => Server,
+        <<"ssl">> => #{
+            <<"enable">> => SslEnabled,
+            <<"verify">> => Verify
+        }
+    },
     #{<<"config">> => ResourceConfig}.
 
 custom_verify() ->
