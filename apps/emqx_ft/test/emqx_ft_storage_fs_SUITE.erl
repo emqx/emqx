@@ -67,7 +67,7 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(cluster, Config) ->
-    ok = emqx_ft_test_helpers:stop_additional_node(Config);
+    ok = emqx_ft_test_helpers:stop_additional_node(?config(additional_node, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
