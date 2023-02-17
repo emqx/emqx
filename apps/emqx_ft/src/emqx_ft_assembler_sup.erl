@@ -17,7 +17,7 @@
 -module(emqx_ft_assembler_sup).
 
 -export([start_link/0]).
--export([ensure_child/2]).
+-export([ensure_child/3]).
 
 -behaviour(supervisor).
 -export([init/1]).
@@ -25,10 +25,10 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-ensure_child(Storage, Transfer) ->
+ensure_child(Storage, Transfer, Size) ->
     Childspec = #{
         id => Transfer,
-        start => {emqx_ft_assembler, start_link, [Storage, Transfer]},
+        start => {emqx_ft_assembler, start_link, [Storage, Transfer, Size]},
         restart => temporary
     },
     case supervisor:start_child(?MODULE, Childspec) of

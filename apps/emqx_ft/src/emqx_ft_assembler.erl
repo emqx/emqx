@@ -16,7 +16,7 @@
 
 -module(emqx_ft_assembler).
 
--export([start_link/2]).
+-export([start_link/3]).
 
 -behaviour(gen_statem).
 -export([callback_mode/0]).
@@ -36,11 +36,11 @@
 
 %%
 
-start_link(Storage, Transfer) ->
+start_link(Storage, Transfer, Size) ->
     %% TODO
     %% Additional callbacks? They won't survive restarts by the supervisor, which brings a
     %% question if we even need to retry with the help of supervisor.
-    gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer}, []).
+    gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer, Size}, []).
 
 %%
 
@@ -49,11 +49,11 @@ start_link(Storage, Transfer) ->
 callback_mode() ->
     handle_event_function.
 
-init({Storage, Transfer}) ->
+init({Storage, Transfer, Size}) ->
     St = #st{
         storage = Storage,
         transfer = Transfer,
-        assembly = emqx_ft_assembly:new(),
+        assembly = emqx_ft_assembly:new(Size),
         hash = crypto:hash_init(sha256)
     },
     {ok, idle, St}.
