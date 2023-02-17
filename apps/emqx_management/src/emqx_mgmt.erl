@@ -193,7 +193,6 @@ convert_broker_info({uptime, Uptime}, M) ->
 convert_broker_info({K, V}, M) ->
     M#{K => iolist_to_binary(V)}.
 
-
 broker_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:broker_info(Nodes)).
 
