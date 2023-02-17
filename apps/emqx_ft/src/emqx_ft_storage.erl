@@ -20,7 +20,7 @@
     [
         store_filemeta/2,
         store_segment/2,
-        assemble/1,
+        assemble/2,
 
         ready_transfers/0,
         get_ready_transfer/1,
@@ -53,7 +53,7 @@
     ok | {async, pid()} | {error, term()}.
 -callback store_segment(storage(), emqx_ft:transfer(), emqx_ft:segment()) ->
     ok | {async, pid()} | {error, term()}.
--callback assemble(storage(), emqx_ft:transfer()) ->
+-callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
 -callback ready_transfers(storage()) ->
     {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
@@ -76,11 +76,11 @@ store_segment(Transfer, Segment) ->
     Mod = mod(),
     Mod:store_segment(storage(), Transfer, Segment).
 
--spec assemble(emqx_ft:transfer()) ->
+-spec assemble(emqx_ft:transfer(), emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
-assemble(Transfer) ->
+assemble(Transfer, Size) ->
     Mod = mod(),
-    Mod:assemble(storage(), Transfer).
+    Mod:assemble(storage(), Transfer, Size).
 
 -spec ready_transfers() -> {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
 ready_transfers() ->
