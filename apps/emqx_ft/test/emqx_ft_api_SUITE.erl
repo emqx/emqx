@@ -136,8 +136,8 @@ t_download_transfer(Config) ->
     ),
 
     ?assertEqual(
-        Response,
-        <<"data">>
+        <<"data">>,
+        Response
     ).
 
 %%--------------------------------------------------------------------
