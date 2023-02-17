@@ -34,9 +34,40 @@ from_list([]) ->
 from_list([Term]) ->
     Term.
 
+%% @doc Apply a function to a maybe argument.
 -spec apply(fun((maybe(A)) -> maybe(A)), maybe(A)) ->
     maybe(A).
 apply(_Fun, undefined) ->
     undefined;
 apply(Fun, Term) when is_function(Fun) ->
     erlang:apply(Fun, [Term]).
+
+%%
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+to_list_test_() ->
+    [
+        ?_assertEqual([], to_list(undefined)),
+        ?_assertEqual([42], to_list(42))
+    ].
+
+from_list_test_() ->
+    [
+        ?_assertEqual(undefined, from_list([])),
+        ?_assertEqual(3.1415, from_list([3.1415])),
+        ?_assertError(_, from_list([1, 2, 3]))
+    ].
+
+apply_test_() ->
+    [
+        ?_assertEqual(<<"42">>, ?MODULE:apply(fun erlang:integer_to_binary/1, 42)),
+        ?_assertEqual(undefined, ?MODULE:apply(fun erlang:integer_to_binary/1, undefined)),
+        ?_assertEqual(undefined, ?MODULE:apply(fun crash/1, undefined))
+    ].
+
+crash(_) ->
+    erlang:error(crashed).
+
+-endif.
