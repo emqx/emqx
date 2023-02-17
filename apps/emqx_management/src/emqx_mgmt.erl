@@ -66,13 +66,8 @@
 
 %% Subscriptions
 -export([
-    list_subscriptions/1,
     list_subscriptions_via_topic/2,
-    list_subscriptions_via_topic/3,
-    lookup_subscriptions/1,
-    lookup_subscriptions/2,
-
-    do_list_subscriptions/0
+    list_subscriptions_via_topic/3
 ]).
 
 %% PubSub
@@ -400,21 +395,6 @@ call_client(Node, ClientId, Req) ->
 %% Subscriptions
 %%--------------------------------------------------------------------
 
--spec do_list_subscriptions() -> [map()].
-do_list_subscriptions() ->
-    case check_max_table_size([mqtt_subproperty]) of
-        false ->
-            throw(max_row_limit);
-        true ->
-            [
-                #{topic => Topic, clientid => ClientId, options => Options}
-             || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)
-            ]
-    end.
-
-list_subscriptions(Node) ->
-    unwrap_rpc(emqx_management_proto_v3:list_subscriptions(Node)).
-
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
         list_subscriptions_via_topic(Node, Topic, FormatFun)
@@ -426,12 +406,6 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
         {error, Reason} -> {error, Reason};
         Result -> M:F(Result)
     end.
-
-lookup_subscriptions(ClientId) ->
-    lists:append([lookup_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()]).
-
-lookup_subscriptions(Node, ClientId) ->
-    unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -568,17 +542,6 @@ unwrap_rpc(Res) ->
 otp_rel() ->
     iolist_to_binary([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
 
-check_max_table_size(Tables) ->
-    check_max_table_size(Tables, ?MAX_TABLE_SIZE).
-
-check_max_table_size([], _Limit) ->
-    true;
-check_max_table_size([Tab | Tables], Limit) ->
-    case table_size(Tab) > Limit of
-        true -> false;
-        false -> check_max_table_size(Tables, Limit)
-    end.
-
 check_results(Results) ->
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true -> ok;
@@ -587,5 +550,3 @@ check_results(Results) ->
 
 default_row_limit() ->
     ?DEFAULT_ROW_LIMIT.
-
-table_size(Tab) -> ets:info(Tab, size).

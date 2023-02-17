@@ -114,7 +114,7 @@ t_clients(_) ->
         SubscribeBody
     ),
     timer:sleep(100),
-    [{AfterSubTopic, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
+    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
@@ -159,7 +159,7 @@ t_clients(_) ->
         UnSubscribeBody
     ),
     timer:sleep(100),
-    ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(ClientId1)),
 
     %% testcase cleanup, kickout client1
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),

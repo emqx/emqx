@@ -166,6 +166,77 @@ t_list_client_subscriptions(Config) ->
     ?assertMatch({_, [{<<"t/#">>, _Opts}]}, emqx_mgmt:list_client_subscriptions(<<"client1">>)),
     ?assertEqual({error, not_found}, emqx_mgmt:list_client_subscriptions(<<"notfound">>)).
 
+t_clean_cache(init, Config) ->
+    setup_clients(Config);
+t_clean_cache('end', Config) ->
+    disconnect_clients(Config).
+
+t_clean_cache(_Config) ->
+    ?assertNotMatch(
+        {error, _},
+        emqx_mgmt:clean_authz_cache(<<"client1">>)
+    ),
+    ?assertNotMatch(
+        {error, _},
+        emqx_mgmt:clean_authz_cache_all()
+    ),
+    ?assertNotMatch(
+        {error, _},
+        emqx_mgmt:clean_pem_cache_all()
+    ).
+
+t_set_client_props(init, Config) ->
+    setup_clients(Config);
+t_set_client_props('end', Config) ->
+    disconnect_clients(Config).
+
+t_set_client_props(_Config) ->
+    ?assertEqual(
+        % [FIXME] not implemented at this point?
+        ignored,
+        emqx_mgmt:set_ratelimit_policy(<<"client1">>, foo)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt:set_ratelimit_policy(<<"notfound">>, foo)
+    ),
+    ?assertEqual(
+        % [FIXME] not implemented at this point?
+        ignored,
+        emqx_mgmt:set_quota_policy(<<"client1">>, foo)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt:set_quota_policy(<<"notfound">>, foo)
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mgmt:set_keepalive(<<"client1">>, 3600)
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_mgmt:set_keepalive(<<"client1">>, true)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt:set_keepalive(<<"notfound">>, 3600)
+    ),
+    ok.
+
+t_list_subscriptions_via_topic(init, Config) ->
+    setup_clients(Config);
+t_list_subscriptions_via_topic('end', Config) ->
+    disconnect_clients(Config).
+
+t_list_subscriptions_via_topic(Config) ->
+    [Client | _] = ?config(clients, Config),
+    ?assertEqual([], emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)),
+    emqtt:subscribe(Client, <<"t/#">>),
+    ?assertMatch(
+        [{{<<"t/#">>, _SubPid}, _Opts}],
+        emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)
+    ).
+
 %%% helpers
 ident(Arg) ->
     Arg.
