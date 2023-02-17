@@ -146,11 +146,14 @@ on_file_command(PacketId, Msg, FileCommand) ->
     case string:split(FileCommand, <<"/">>, all) of
         [FileId, <<"init">>] ->
             on_init(PacketId, Msg, transfer(Msg, FileId));
-        [FileId, <<"fin">>, FinalSizeBin | ChecksumL] ->
-            validate([{size, FinalSizeBin}], fun([FinalSize]) ->
-                Checksum = emqx_maybe:from_list(ChecksumL),
-                on_fin(PacketId, Msg, transfer(Msg, FileId), FinalSize, Checksum)
-            end);
+        [FileId, <<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
+            ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
+            validate(
+                [{size, FinalSizeBin}, {{maybe, checksum}, ChecksumBin}],
+                fun([FinalSize, Checksum]) ->
+                    on_fin(PacketId, Msg, transfer(Msg, FileId), FinalSize, Checksum)
+                end
+            );
         [FileId, <<"abort">>] ->
             on_abort(Msg, transfer(Msg, FileId));
         [FileId, OffsetBin] ->
@@ -375,7 +378,11 @@ do_validate([{checksum, Checksum} | Rest], Parsed) ->
             do_validate(Rest, [Bin | Parsed]);
         {error, _Reason} ->
             {error, {invalid_checksum, Checksum}}
-    end.
+    end;
+do_validate([{{maybe, _}, undefined} | Rest], Parsed) ->
+    do_validate(Rest, [undefined | Parsed]);
+do_validate([{{maybe, T}, Value} | Rest], Parsed) ->
+    do_validate([{T, Value} | Rest], Parsed).
 
 parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:= 64 ->
     try
