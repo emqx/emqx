@@ -429,25 +429,41 @@ t_unreliable_migrating_client(Config) ->
         payload => Payload
     },
     Commands = [
+        % Connect to the broker on the current node
         {fun connect_mqtt_client/2, [NodeSelf]},
+        % Send filemeta and 3 initial segments
+        % (assuming client chose 100 bytes as a desired segment size)
         {fun send_filemeta/2, [Meta]},
         {fun send_segment/3, [0, 100]},
         {fun send_segment/3, [100, 100]},
         {fun send_segment/3, [200, 100]},
+        % Disconnect the client cleanly
         {fun stop_mqtt_client/1, []},
+        % Connect to the broker on `Node1`
         {fun connect_mqtt_client/2, [Node1]},
+        % Connect to the broker on `Node2` without first disconnecting from `Node1`
+        % Client forgot the state for some reason and started the transfer again.
+        % (assuming this is usual for a client on a device that was rebooted)
         {fun connect_mqtt_client/2, [Node2]},
         {fun send_filemeta/2, [Meta]},
+        % This time it chose 200 bytes as a segment size
         {fun send_segment/3, [0, 200]},
         {fun send_segment/3, [200, 200]},
+        % But now it downscaled back to 100 bytes segments
         {fun send_segment/3, [400, 100]},
+        % Client lost connectivity and reconnected
+        % (also had last few segments unacked and decided to resend them)
         {fun connect_mqtt_client/2, [Node2]},
         {fun send_segment/3, [200, 200]},
         {fun send_segment/3, [400, 200]},
+        % Client lost connectivity and reconnected, this time to another node
+        % (also had last segment unacked and decided to resend it)
         {fun connect_mqtt_client/2, [Node1]},
         {fun send_segment/3, [400, 200]},
         {fun send_segment/3, [600, eof]},
         {fun send_finish/1, []},
+        % Client lost connectivity and reconnected, this time to the current node
+        % (client had `fin` unacked and decided to resend it)
         {fun connect_mqtt_client/2, [NodeSelf]},
         {fun send_finish/1, []}
     ],
@@ -457,6 +473,9 @@ t_unreliable_migrating_client(Config) ->
     ReadyTransferIds =
         [Id || {#{<<"clientid">> := CId} = Id, _Info} <- ReadyTransfers, CId == ClientId],
 
+    % NOTE
+    % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
+    % twice. This is currently expected, files must be identical anyway.
     Node1Bin = atom_to_binary(Node1),
     NodeSelfBin = atom_to_binary(NodeSelf),
     ?assertMatch(
