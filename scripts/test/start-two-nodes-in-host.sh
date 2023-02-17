@@ -13,51 +13,57 @@ set -euo pipefail
 cd -P -- "$(dirname -- "$0")/../../"
 
 DEFAULT_BOOT='./_build/emqx/rel/emqx/bin/emqx'
+
 BOOT1="${1:-$DEFAULT_BOOT}"
 BOOT2="${2:-$BOOT1}"
 
-DATA1="$(pwd)/tmp/emqx1/data"
-LOG1="$(pwd)/tmp/emqx1/log"
-DATA2="$(pwd)/tmp/emqx2/data"
-LOG2="$(pwd)/tmp/emqx2/log"
+export IP1='127.0.0.1'
+export IP2='127.0.0.2'
 
-mkdir -p "$DATA1" "$DATA2" "$LOG1" "$LOG2"
+# cannot use the same node name even IPs are different because Erlang distribution listens on 0.0.0.0
+NODE1="emqx1@$IP1"
+NODE2="emqx2@$IP2"
 
-echo "Stopping emqx1"
-env EMQX_NODE_NAME='emqx1@127.0.0.1' \
-    ./_build/emqx/rel/emqx/bin/emqx stop || true
+start_cmd() {
+    local index="$1"
+    local nodehome
+    nodehome="$(pwd)/tmp/emqx${index}"
+    [ "$index" -eq 1 ] && BOOT_SCRIPT="$BOOT1"
+    [ "$index" -eq 2 ] && BOOT_SCRIPT="$BOOT2"
+    mkdir -p "${nodehome}/data" "${nodehome}/log"
+    cat <<-EOF
+env DEBUG="${DEBUG:-0}" \
+EMQX_CLUSTER__STATIC__SEEDS="[\"$NODE1\",\"$NODE2\"]" \
+EMQX_CLUSTER__DISCOVERY_STRATEGY=static \
+EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL="${EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL:-debug}" \
+EMQX_LOG__FILE_HANDLERS__DEFAULT__FILE="${nodehome}/log/emqx.log" \
+EMQX_NODE_NAME="emqx${index}@\$IP${index}" \
+EMQX_NODE__COOKIE="${EMQX_NODE__COOKIE:-cookie1}" \
+EMQX_LOG_DIR="${nodehome}/log" \
+EMQX_NODE__DATA_DIR="${nodehome}/data" \
+EMQX_LISTENERS__TCP__DEFAULT__BIND="\$IP${index}:1883" \
+EMQX_LISTENERS__SSL__DEFAULT__BIND="\$IP${index}:8883" \
+EMQX_LISTENERS__WS__DEFAULT__BIND="\$IP${index}:8083" \
+EMQX_LISTENERS__WSS__DEFAULT__BIND="\$IP${index}:8084" \
+EMQX_DASHBOARD__LISTENERS__HTTP__BIND="\$IP${index}:18083" \
+$BOOT_SCRIPT start
+EOF
+}
 
-echo "Stopping emqx2"
-env EMQX_NODE_NAME='emqx2@127.0.0.1' \
-    ./_build/emqx/rel/emqx/bin/emqx stop || true
+echo "Stopping $NODE1"
+env EMQX_NODE_NAME="$NODE1" ./_build/emqx/rel/emqx/bin/emqx stop || true
+
+echo "Stopping $NODE2"
+env EMQX_NODE_NAME="$NODE2" ./_build/emqx/rel/emqx/bin/emqx stop || true
+
+start_one_node() {
+    local index="$1"
+    local cmd
+    cmd="$(start_cmd "$index" | envsubst)"
+    echo "$cmd"
+    eval "$cmd"
+}
 
 ## Fork-start node1, otherwise it'll keep waiting for node2 because we are using static cluster
-env DEBUG="${DEBUG:-0}" \
-    EMQX_CLUSTER__STATIC__SEEDS='["emqx1@127.0.0.1","emqx2@127.0.0.1"]' \
-    EMQX_CLUSTER__DISCOVERY_STRATEGY=static \
-    EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL="${EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL:-debug}" \
-    EMQX_LOG__FILE_HANDLERS__DEFAULT__FILE="$LOG1/emqx.log" \
-    EMQX_NODE_NAME='emqx1@127.0.0.1' \
-    EMQX_LOG_DIR="$LOG1" \
-    EMQX_NODE__DATA_DIR="$DATA1" \
-    EMQX_LISTENERS__TCP__DEFAULT__BIND='0.0.0.0:1881' \
-    EMQX_LISTENERS__SSL__DEFAULT__BIND='0.0.0.0:8881' \
-    EMQX_LISTENERS__WS__DEFAULT__BIND='0.0.0.0:8081' \
-    EMQX_LISTENERS__WSS__DEFAULT__BIND='0.0.0.0:8084' \
-    EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18081' \
-    "$BOOT1" start &
-
-env DEBUG="${DEBUG:-0}" \
-    EMQX_CLUSTER__STATIC__SEEDS='["emqx1@127.0.0.1","emqx2@127.0.0.1"]' \
-    EMQX_CLUSTER__DISCOVERY_STRATEGY=static \
-    EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL="${EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL:-debug}" \
-    EMQX_LOG__FILE_HANDLERS__DEFAULT__FILE="$LOG2/emqx.log" \
-    EMQX_NODE_NAME='emqx2@127.0.0.1' \
-    EMQX_LOG_DIR="$LOG2" \
-    EMQX_NODE__DATA_DIR="$DATA2" \
-    EMQX_LISTENERS__TCP__DEFAULT__BIND='0.0.0.0:1882' \
-    EMQX_LISTENERS__SSL__DEFAULT__BIND='0.0.0.0:8882' \
-    EMQX_LISTENERS__WS__DEFAULT__BIND='0.0.0.0:8082' \
-    EMQX_LISTENERS__WSS__DEFAULT__BIND='0.0.0.0:8085' \
-    EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18082' \
-    "$BOOT2" start
+start_one_node 1 &
+start_one_node 2
