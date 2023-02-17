@@ -12,9 +12,9 @@ jobs:
     strategy:
       matrix:
         builder:
-          - 5.0-27
+          - 5.0-28
         otp:
-          - 24.3.4.2-1
+          - 24.3.4.2-2
           - 25.1.2-2
         # no need to use more than 1 version of Elixir, since tests
         # run using only Erlang code.  This is needed just to specify
