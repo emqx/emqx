@@ -145,7 +145,6 @@ roots() ->
         {config, #{
             type => hoconsc:union(
                 [
-                    hoconsc:ref(?MODULE, influxdb_udp),
                     hoconsc:ref(?MODULE, influxdb_api_v1),
                     hoconsc:ref(?MODULE, influxdb_api_v2)
                 ]
@@ -165,8 +164,6 @@ fields(common) ->
                 required => false, default => ms, desc => ?DESC("precision")
             })}
     ];
-fields(influxdb_udp) ->
-    fields(common);
 fields(influxdb_api_v1) ->
     fields(common) ++
         [
@@ -199,8 +196,6 @@ server() ->
 
 desc(common) ->
     ?DESC("common");
-desc(influxdb_udp) ->
-    ?DESC("influxdb_udp");
 desc(influxdb_api_v1) ->
     ?DESC("influxdb_api_v1");
 desc(influxdb_api_v2) ->
@@ -326,12 +321,7 @@ protocol_config(#{
         {bucket, str(Bucket)},
         {org, str(Org)},
         {token, Token}
-    ] ++ ssl_config(SSL);
-%% udp config
-protocol_config(_) ->
-    [
-        {protocol, udp}
-    ].
+    ] ++ ssl_config(SSL).
 
 ssl_config(#{enable := false}) ->
     [
@@ -658,10 +648,6 @@ desc_test_() ->
         ?_assertMatch(
             {desc, _, _},
             desc(common)
-        ),
-        ?_assertMatch(
-            {desc, _, _},
-            desc(influxdb_udp)
         ),
         ?_assertMatch(
             {desc, _, _},
