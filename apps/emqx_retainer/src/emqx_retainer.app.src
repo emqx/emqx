@@ -2,10 +2,10 @@
 {application, emqx_retainer, [
     {description, "EMQX Retainer"},
     % strict semver, bump manually!
-    {vsn, "5.0.9"},
+    {vsn, "5.0.10"},
     {modules, []},
     {registered, [emqx_retainer_sup]},
-    {applications, [kernel, stdlib, emqx]},
+    {applications, [kernel, stdlib, emqx, emqx_ctl]},
     {mod, {emqx_retainer_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},

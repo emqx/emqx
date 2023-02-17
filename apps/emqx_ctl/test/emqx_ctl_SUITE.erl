@@ -22,12 +22,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [t_reg_unreg_command, t_run_commands, t_print, t_usage, t_unexpected].
 
 init_per_suite(Config) ->
-    %% ensure stopped, this suite tests emqx_ctl process independently
-    application:stop(emqx),
-    ok = emqx_logger:set_log_level(emergency),
+    application:stop(emqx_ctl),
     Config.
 
 end_per_suite(_Config) ->

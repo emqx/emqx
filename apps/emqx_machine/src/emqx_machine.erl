@@ -29,6 +29,7 @@
 
 %% @doc EMQX boot entrypoint.
 start() ->
+    emqx_mgmt_cli:load(),
     case os:type() of
         {win32, nt} ->
             ok;
