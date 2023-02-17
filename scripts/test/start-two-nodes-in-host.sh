@@ -46,15 +46,15 @@ EMQX_LISTENERS__SSL__DEFAULT__BIND="\$IP${index}:8883" \
 EMQX_LISTENERS__WS__DEFAULT__BIND="\$IP${index}:8083" \
 EMQX_LISTENERS__WSS__DEFAULT__BIND="\$IP${index}:8084" \
 EMQX_DASHBOARD__LISTENERS__HTTP__BIND="\$IP${index}:18083" \
-$BOOT_SCRIPT start
+"$BOOT_SCRIPT" start
 EOF
 }
 
 echo "Stopping $NODE1"
-env EMQX_NODE_NAME="$NODE1" ./_build/emqx/rel/emqx/bin/emqx stop || true
+env EMQX_NODE_NAME="$NODE1" "$BOOT1" stop || true
 
 echo "Stopping $NODE2"
-env EMQX_NODE_NAME="$NODE2" ./_build/emqx/rel/emqx/bin/emqx stop || true
+env EMQX_NODE_NAME="$NODE2" "$BOOT2" stop || true
 
 start_one_node() {
     local index="$1"
