@@ -28,7 +28,7 @@ start_additional_node(Config, Node) ->
         [
             {apps, [emqx_ft]},
             {join_to, SelfNode},
-            {configure_gen_rpc, false},
+            {configure_gen_rpc, true},
             {env_handler, fun
                 (emqx_ft) ->
                     ok = emqx_config:put([file_transfer, storage], #{
