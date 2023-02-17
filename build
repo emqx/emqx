@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 
 # This script helps to build release artifacts.
-# arg1: profile, e.g. emqx | emqx-pkg
+# arg1: profile, e.g. emqx | emqx-enterprise
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
-if [[ -n "$DEBUG" ]]; then
-    set -x
-fi
 set -euo pipefail
 
-DEBUG="${DEBUG:-0}"
-if [ "$DEBUG" -eq 1 ]; then
-    set -x
-fi
+[ "${DEBUG:-0}" -eq 1 ] && set -x
 
 PROFILE_ARG="$1"
 ARTIFACT="$2"
@@ -318,6 +312,12 @@ make_tgz() {
     log "Archive sha256sum: $(cat "${target}.sha256")"
 }
 
+trap docker_cleanup EXIT
+
+docker_cleanup() {
+    rm -f ./.dockerignore >/dev/null
+}
+
 ## This function builds the default docker image based on debian 11
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
@@ -329,6 +329,7 @@ make_docker() {
     local default_tag="emqx/${PROFILE%%-elixir}:${PKG_VSN}"
     EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
 
+    echo '_build' >> ./.dockerignore
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
@@ -336,6 +337,7 @@ make_docker() {
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "${EMQX_IMAGE_TAG}" \
        -f "${EMQX_DOCKERFILE}" .
+    [[ "${DEBUG:-}" -eq 1 ]] || set +x
 }
 
 function join {
