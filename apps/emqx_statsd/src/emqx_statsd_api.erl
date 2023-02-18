@@ -77,9 +77,9 @@ statsd_config_schema() ->
 statsd_example() ->
     #{
         enable => true,
-        flush_time_interval => "30s",
-        sample_time_interval => "30s",
-        server => "127.0.0.1:8125",
+        flush_time_interval => <<"30s">>,
+        sample_time_interval => <<"30s">>,
+        server => <<"127.0.0.1:8125">>,
         tags => #{}
     }.
 

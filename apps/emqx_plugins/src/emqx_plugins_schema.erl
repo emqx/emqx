@@ -78,11 +78,11 @@ states(_) -> undefined.
 install_dir(type) -> string();
 install_dir(required) -> false;
 %% runner's root dir
-install_dir(default) -> "plugins";
+install_dir(default) -> <<"plugins">>;
 install_dir(T) when T =/= desc -> undefined;
 install_dir(desc) -> ?DESC(install_dir).
 
 check_interval(type) -> emqx_schema:duration();
-check_interval(default) -> "5s";
+check_interval(default) -> <<"5s">>;
 check_interval(T) when T =/= desc -> undefined;
 check_interval(desc) -> ?DESC(check_interval).

@@ -87,7 +87,7 @@ fields(config) ->
             sc(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC("connect_timeout")
                 }
             )},
