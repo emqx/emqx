@@ -858,7 +858,8 @@ stop_slave(Node) ->
     ok = slave:stop(Node),
     ?assertEqual([node()], mria_mnesia:running_nodes()),
     ?assertEqual([], nodes()),
-    ok.
+    _ = application:stop(mria),
+    ok = application:start(mria).
 
 leave_cluster() ->
     try mnesia_hook:module_info() of

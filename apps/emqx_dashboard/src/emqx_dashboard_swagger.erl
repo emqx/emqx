@@ -417,12 +417,16 @@ init_prop(Keys, Init, Type) ->
         fun(Key, Acc) ->
             case hocon_schema:field_schema(Type, Key) of
                 undefined -> Acc;
-                Schema -> Acc#{Key => to_bin(Schema)}
+                Schema -> Acc#{Key => format_prop(Key, Schema)}
             end
         end,
         Init,
         Keys
     ).
+
+format_prop(deprecated, Value) when is_boolean(Value) -> Value;
+format_prop(deprecated, _) -> true;
+format_prop(_, Schema) -> to_bin(Schema).
 
 trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
