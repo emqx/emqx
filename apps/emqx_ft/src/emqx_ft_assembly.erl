@@ -25,16 +25,43 @@
 -export([coverage/1]).
 -export([properties/1]).
 
+-export_type([t/0]).
+
+-type filemeta() :: emqx_ft:filemeta().
+-type filefrag() :: emqx_ft_storage_fs:filefrag().
+-type filefrag(T) :: emqx_ft_storage_fs:filefrag(T).
+-type segmentinfo() :: emqx_ft_storage_fs:segmentinfo().
+
 -record(asm, {
-    status :: _TODO,
-    coverage :: _TODO,
-    properties :: _TODO,
-    meta :: _TODO,
-    % orddict:orddict(K, V)
-    segs :: _TODO,
-    size
+    status :: status(),
+    coverage :: coverage() | undefined,
+    properties :: properties() | undefined,
+    meta :: orddict:orddict(
+        filemeta(),
+        {node(), filefrag({filemeta, filemeta()})}
+    ),
+    segs :: orddict:orddict(
+        {emqx_ft:offset(), _Locality, _MEnd, node()},
+        filefrag({segment, segmentinfo()})
+    ),
+    size :: emqx_ft:bytes()
 }).
 
+-type status() ::
+    {incomplete, {missing, _}}
+    | complete
+    | {error, {inconsistent, _}}.
+
+-type coverage() :: [{node(), filefrag({segment, segmentinfo()})}].
+
+-type properties() :: #{
+    %% Node where "most" of the segments are located.
+    dominant => node()
+}.
+
+-opaque t() :: #asm{}.
+
+-spec new(emqx_ft:bytes()) -> t().
 new(Size) ->
     #asm{
         status = {incomplete, {missing, filemeta}},
@@ -43,6 +70,7 @@ new(Size) ->
         size = Size
     }.
 
+-spec append(t(), node(), filefrag() | [filefrag()]) -> t().
 append(Asm, Node, Fragments) when is_list(Fragments) ->
     lists:foldl(fun(F, AsmIn) -> append(AsmIn, Node, F) end, Asm, Fragments);
 append(Asm, Node, Fragment = #{fragment := {filemeta, _}}) ->
@@ -50,6 +78,7 @@ append(Asm, Node, Fragment = #{fragment := {filemeta, _}}) ->
 append(Asm, Node, Segment = #{fragment := {segment, _}}) ->
     append_segmentinfo(Asm, Node, Segment).
 
+-spec update(t()) -> t().
 update(Asm) ->
     case status(meta, Asm) of
         {complete, _Meta} ->
@@ -67,15 +96,18 @@ update(Asm) ->
             Asm#asm{status = Status}
     end.
 
+-spec status(t()) -> status().
 status(#asm{status = Status}) ->
     Status.
 
+-spec filemeta(t()) -> filemeta().
 filemeta(Asm) ->
     case status(meta, Asm) of
         {complete, Meta} -> Meta;
         _Other -> undefined
     end.
 
+-spec coverage(t()) -> coverage() | undefined.
 coverage(#asm{coverage = Coverage}) ->
     Coverage.
 
