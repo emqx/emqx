@@ -159,6 +159,13 @@ t_invalid_topic_format(Config) ->
         emqtt:publish(C, <<"$file">>, <<>>, 1)
     ).
 
+t_invalid_fileid(Config) ->
+    C = ?config(client, Config),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, <<"$file//init">>, <<>>, 1)
+    ).
+
 t_simple_transfer(Config) ->
     C = ?config(client, Config),
 
