@@ -40,7 +40,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | Parameter | Description | Default Value |
 |--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------|
 | `replicaCount` | It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split. | 3 |
-| `image.repository` | EMQX Image name | emqx/emqx |
+| `image.repository` | EMQX Image name | emqx/emqx-enterprise |
 | `image.pullPolicy` | The image pull policy | IfNotPresent |
 | `image.pullSecrets ` | The image pull secrets | `[]` (does not add image pull secrets to deployed pods) |
 | `serviceAccount.create` | If `true`, create a new service account | `true` |
