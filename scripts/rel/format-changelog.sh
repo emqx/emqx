@@ -3,28 +3,91 @@ set -euo pipefail
 shopt -s nullglob
 export LANG=C.UTF-8
 
-[ "$#" -ne 4 ] && {
-    echo "Usage $0 <emqx|emqx-enterprise> <LAST TAG> <VERSION> <OUTPUT DIR>" 1>&2;
-    exit 1
+logerr() {
+    echo "$(tput setaf 1)ERROR: $1$(tput sgr0)" 1>&2
 }
 
-profile="${1}"
-last_tag="${2}"
-version="${3}"
-output_dir="${4}"
-languages=("en" "zh")
+usage() {
+    cat <<EOF
+$0 [option]
+options:
+  -h|--help: print this usages info
+  -b|--base:
+    The git tag of compare base to find included changes.
+    e.g. v5.0.18, e5.0.0 etc.
+  -v|--version:
+    The tag to be released
+    e.g. v5.0.19, e5.0.1-alpha.1 etc.
+  -l|--lang: en | zh
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -b|--base)
+            shift
+            BASE_TAG="$1"
+            shift
+            ;;
+        -v|--version)
+            shift
+            TEMPLATE_VSN_HEADING="$1"
+            shift
+            ;;
+        -l|--lang)
+            shift
+            LANGUAGE="$1"
+            shift
+            ;;
+        *)
+            logerr "Unknown option $1"
+            exit 1
+            ;;
+    esac
+done
+
+case "${LANGUAGE:-}" in
+    en|zh)
+        true
+        ;;
+    *)
+        logerr "-l|--lang must be 'en' or 'zh'"
+        exit 1
+        ;;
+esac
+
+case "${BASE_TAG:-}" in
+    v*)
+        PROFILE="emqx"
+        ;;
+    e*)
+        PROFILE="emqx-enterprise"
+        ;;
+    *)
+        logerr "Unsupported -b|--base option, must be v* or e*"
+        exit 1
+        ;;
+esac
+
+TEMPLATE_VSN_HEADING="${TEMPLATE_VSN_HEADING:-<VSN-TAG>}"
+
 top_dir="$(git rev-parse --show-toplevel)"
-templates_dir="$top_dir/scripts/changelog-lang-templates"
-declare -a changes
-changes=("")
+declare -a PRS
+PRS=("")
 
-echo "generated changelogs from tag:${last_tag} to HEAD"
-
-item() {
-    local filename pr indent
+format_one_pr() {
+    local filename pr_num indent
     filename="${1}"
-    pr="$(echo "${filename}" | sed -E 's/.*-([0-9]+)\.[a-z]+\.md$/\1/')"
-    indent="- [#${pr}](https://github.com/emqx/emqx/pull/${pr}) "
+    pr_num="$(echo "${filename}" | sed -E 's/.*-([0-9]+)\.[a-z]+\.md$/\1/')"
+    re='^[0-9]+$'
+    if ! [[ $pr_num =~ $re ]]; then
+        logerr "bad filename format: $filename"
+    fi
+    indent="- [#${pr_num}](https://github.com/emqx/emqx/pull/${pr_num}) "
     while read -r line; do
         echo "${indent}${line}"
         indent="  "
@@ -34,36 +97,47 @@ item() {
 
 section() {
     local prefix=$1
-    for file in "${changes[@]}"; do
-        if [[ $file =~ .*$prefix-.*$language.md ]]; then
-            item "$file"
+    for file in "${PRS[@]}"; do
+        if [[ $file =~ .*$prefix-.*$LANGUAGE.md ]]; then
+            format_one_pr "$file"
         fi
     done
 }
 
-generate() {
-    local language=$1
-    local output="$output_dir/${version}_$language.md"
-    local template_file="$templates_dir/$language"
-    local template
-    if [ -f "$template_file" ]; then
-        template=$(cat "$template_file")
-        eval "echo \"$template\" > $output"
-    else
-        echo "Invalid language ${language}" 1>&2;
-        exit 1
-    fi
-}
-
 changes_dir=("$top_dir/changes/ce")
-if [ "$profile" == "emqx-enterprise" ]; then
+if [ "$PROFILE" == "emqx-enterprise" ]; then
     changes_dir+=("$top_dir/changes/ee")
 fi
 
 while read -d "" -r file; do
-   changes+=("$file")
-done < <(git diff --name-only -z -a "tags/${last_tag}...HEAD" "${changes_dir[@]}")
+   PRS+=("$file")
+done < <(git diff --name-only -z -a "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}")
 
-for language in "${languages[@]}"; do
-    generate "$language"
-done
+TEMPLATE_FEAT_CHANGES="$(section 'feat')"
+TEMPLATE_PERF_CHANGES="$(section 'perf')"
+TEMPLATE_FIX_CHANGES="$(section 'fix')"
+
+case "$LANGUAGE" in
+    en)
+        TEMPLATE_ENH_HEADING="Enhancements"
+        TEMPLATE_FIX_HEADING="Bug Fixes"
+        ;;
+    zh)
+        TEMPLATE_ENH_HEADING="增强"
+        TEMPLATE_FIX_HEADING="修复"
+        ;;
+esac
+
+cat <<EOF
+# ${TEMPLATE_VSN_HEADING}
+
+## ${TEMPLATE_ENH_HEADING}
+
+${TEMPLATE_FEAT_CHANGES}
+
+${TEMPLATE_PERF_CHANGES}
+
+## ${TEMPLATE_FIX_HEADING}
+
+${TEMPLATE_FIX_CHANGES}
+EOF
