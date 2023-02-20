@@ -197,7 +197,7 @@ if [[ -t 1 ]]; then
 fi
 
 function restore_ownership {
-    if ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
+    if [[ -n ${EMQX_TEST_DO_NOT_RUN_SUDO+x} ]] || ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
         docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx" >/dev/null 2>&1 || true
     fi
 }
