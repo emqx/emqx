@@ -22,7 +22,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("kernel/include/file.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     [
@@ -86,11 +85,6 @@ t_assemble_empty_transfer(Config) ->
     ),
     Status = complete_assemble(Storage, Transfer, 0),
     ?assertEqual({shutdown, ok}, Status),
-    ?assertEqual(
-        {ok, <<>>},
-        % TODO
-        file:read_file(mk_assembly_filename(Config, Transfer, Filename))
-    ),
     {ok, [Result = #{size := Size = 0}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
     ?assertEqual(
         {error, eof},
@@ -135,17 +129,16 @@ t_assemble_complete_local_transfer(Config) ->
     Status = complete_assemble(Storage, Transfer, TransferSize),
     ?assertEqual({shutdown, ok}, Status),
 
-    AssemblyFilename = mk_assembly_filename(Config, Transfer, Filename),
     ?assertMatch(
         {ok, [
             #{
-                path := AssemblyFilename,
                 size := TransferSize,
                 fragment := {result, #{}}
             }
         ]},
         emqx_ft_storage_fs:list(Storage, Transfer, result)
     ),
+    {ok, [#{path := AssemblyFilename}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
     ?assertMatch(
         {ok, #file_info{type = regular, size = TransferSize}},
         file:read_file_info(AssemblyFilename)
@@ -193,9 +186,6 @@ complete_assemble(Storage, Transfer, Size, Timeout) ->
     after Timeout ->
         ct:fail("Assembler did not finish in time")
     end.
-
-mk_assembly_filename(Config, {ClientID, FileID}, Filename) ->
-    filename:join([?config(storage_root, Config), ClientID, FileID, result, Filename]).
 
 %%
 
