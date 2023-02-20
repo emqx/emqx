@@ -26,6 +26,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft]),
+    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
 
 end_per_suite(_Config) ->
