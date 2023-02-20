@@ -29,6 +29,7 @@
 -export([reply_callback/2]).
 
 -export([
+    roots/0,
     namespace/0,
     fields/1,
     desc/1
@@ -139,6 +140,18 @@ on_get_status(_InstId, #{client := Client}) ->
 %% schema
 namespace() -> connector_influxdb.
 
+roots() ->
+    [
+        {config, #{
+            type => hoconsc:union(
+                [
+                    hoconsc:ref(?MODULE, influxdb_api_v1),
+                    hoconsc:ref(?MODULE, influxdb_api_v2)
+                ]
+            )
+        }}
+    ].
+
 fields(common) ->
     [
         {server, server()},
@@ -151,8 +164,6 @@ fields(common) ->
                 required => false, default => ms, desc => ?DESC("precision")
             })}
     ];
-fields(influxdb_udp) ->
-    fields(common);
 fields(influxdb_api_v1) ->
     fields(common) ++
         [
@@ -185,8 +196,6 @@ server() ->
 
 desc(common) ->
     ?DESC("common");
-desc(influxdb_udp) ->
-    ?DESC("influxdb_udp");
 desc(influxdb_api_v1) ->
     ?DESC("influxdb_api_v1");
 desc(influxdb_api_v2) ->
@@ -312,12 +321,7 @@ protocol_config(#{
         {bucket, str(Bucket)},
         {org, str(Org)},
         {token, Token}
-    ] ++ ssl_config(SSL);
-%% udp config
-protocol_config(_) ->
-    [
-        {protocol, udp}
-    ].
+    ] ++ ssl_config(SSL).
 
 ssl_config(#{enable := false}) ->
     [
@@ -327,7 +331,7 @@ ssl_config(SSL = #{enable := true}) ->
     [
         {https_enabled, true},
         {transport, ssl},
-        {transport_opts, maps:to_list(maps:remove(enable, SSL))}
+        {transport_opts, emqx_tls_lib:to_client_opts(SSL)}
     ].
 
 username(#{username := Username}) ->
@@ -644,10 +648,6 @@ desc_test_() ->
         ?_assertMatch(
             {desc, _, _},
             desc(common)
-        ),
-        ?_assertMatch(
-            {desc, _, _},
-            desc(influxdb_udp)
         ),
         ?_assertMatch(
             {desc, _, _},
