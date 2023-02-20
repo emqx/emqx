@@ -20,6 +20,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     hook/0,
@@ -156,7 +157,12 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
     Transfer = transfer(Msg, FileId),
     case FileCommand of
         [<<"init">>] ->
-            on_init(PacketId, Msg, Transfer);
+            validate(
+                [{filemeta, Msg#message.payload}],
+                fun([Meta]) ->
+                    on_init(PacketId, Msg, Transfer, Meta)
+                end
+            );
         [<<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
@@ -172,51 +178,47 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
                 on_segment(PacketId, Msg, Transfer, Offset, undefined)
             end);
         [OffsetBin, ChecksumBin] ->
-            validate([{offset, OffsetBin}, {checksum, ChecksumBin}], fun([Offset, Checksum]) ->
-                on_segment(PacketId, Msg, Transfer, Offset, Checksum)
-            end);
+            validate(
+                [{offset, OffsetBin}, {checksum, ChecksumBin}],
+                fun([Offset, Checksum]) ->
+                    validate(
+                        [{integrity, Msg#message.payload, Checksum}],
+                        fun(_) ->
+                            on_segment(PacketId, Msg, Transfer, Offset, Checksum)
+                        end
+                    )
+                end
+            );
         _ ->
             ?RC_UNSPECIFIED_ERROR
     end.
 
-on_init(PacketId, Msg, Transfer) ->
+on_init(PacketId, Msg, Transfer, Meta) ->
     ?SLOG(info, #{
         msg => "on_init",
         mqtt_msg => Msg,
         packet_id => PacketId,
-        transfer => Transfer
+        transfer => Transfer,
+        filemeta => Meta
     }),
-    Payload = Msg#message.payload,
     PacketKey = {self(), PacketId},
-    % %% Add validations here
-    case decode_filemeta(Payload) of
-        {ok, Meta} ->
-            Callback = fun(Result) ->
-                ?MODULE:on_complete("store_filemeta", PacketKey, Transfer, Result)
-            end,
-            with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
-                case store_filemeta(Transfer, Meta) of
-                    % Stored, ack through the responder right away
-                    ok ->
-                        emqx_ft_responder:ack(PacketKey, ok);
-                    % Storage operation started, packet will be acked by the responder
-                    % {async, Pid} ->
-                    %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
-                    %     ok;
-                    %% Storage operation failed, ack through the responder
-                    {error, _} = Error ->
-                        emqx_ft_responder:ack(PacketKey, Error)
-                end
-            end);
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "on_init: invalid filemeta",
-                mqtt_msg => Msg,
-                transfer => Transfer,
-                reason => Reason
-            }),
-            ?RC_UNSPECIFIED_ERROR
-    end.
+    Callback = fun(Result) ->
+        ?MODULE:on_complete("store_filemeta", PacketKey, Transfer, Result)
+    end,
+    with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
+        case store_filemeta(Transfer, Meta) of
+            % Stored, ack through the responder right away
+            ok ->
+                emqx_ft_responder:ack(PacketKey, ok);
+            % Storage operation started, packet will be acked by the responder
+            % {async, Pid} ->
+            %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
+            %     ok;
+            %% Storage operation failed, ack through the responder
+            {error, _} = Error ->
+                emqx_ft_responder:ack(PacketKey, Error)
+        end
+    end).
 
 on_abort(_Msg, _FileId) ->
     %% TODO
@@ -231,14 +233,11 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
         offset => Offset,
         checksum => Checksum
     }),
-    %% TODO: handle checksum
-    Payload = Msg#message.payload,
-    Segment = {Offset, Payload},
+    Segment = {Offset, Msg#message.payload},
     PacketKey = {self(), PacketId},
     Callback = fun(Result) ->
         ?MODULE:on_complete("store_segment", PacketKey, Transfer, Result)
     end,
-    %% Add offset/checksum validations
     with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
         case store_segment(Transfer, Segment) of
             ok ->
@@ -360,10 +359,7 @@ validate(Validations, Fun) ->
         {ok, Parsed} ->
             Fun(Parsed);
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "validate: invalid $file command",
-                reason => Reason
-            }),
+            ?tp(info, "client_violated_protocol", #{reason => Reason}),
             ?RC_UNSPECIFIED_ERROR
     end.
 
@@ -375,6 +371,13 @@ do_validate([{fileid, FileId} | Rest], Parsed) ->
             do_validate(Rest, [FileId | Parsed]);
         0 ->
             {error, {invalid_fileid, FileId}}
+    end;
+do_validate([{filemeta, Payload} | Rest], Parsed) ->
+    case decode_filemeta(Payload) of
+        {ok, Meta} ->
+            do_validate(Rest, [Meta | Parsed]);
+        {error, Reason} ->
+            {error, {invalid_filemeta, Reason}}
     end;
 do_validate([{offset, Offset} | Rest], Parsed) ->
     case string:to_integer(Offset) of
@@ -396,6 +399,13 @@ do_validate([{checksum, Checksum} | Rest], Parsed) ->
             do_validate(Rest, [Bin | Parsed]);
         {error, _Reason} ->
             {error, {invalid_checksum, Checksum}}
+    end;
+do_validate([{integrity, Payload, Checksum} | Rest], Parsed) ->
+    case crypto:hash(sha256, Payload) of
+        Checksum ->
+            do_validate(Rest, [Payload | Parsed]);
+        Mismatch ->
+            {error, {checksum_mismatch, binary:encode_hex(Mismatch)}}
     end;
 do_validate([{{maybe, _}, undefined} | Rest], Parsed) ->
     do_validate(Rest, [undefined | Parsed]);
