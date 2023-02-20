@@ -1369,6 +1369,8 @@ t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
     {ok, C} = emqtt:start_link([
         {proto_ver, v5},
         {reconnect, true},
+        {clean_start, false},
+        {clientid, atom_to_binary(?FUNCTION_NAME)},
         %% speedup test
         {connect_timeout, 5}
         | Config
@@ -1583,6 +1585,8 @@ t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     {ok, C} = emqtt:start_link([
         {proto_ver, v5},
         {reconnect, true},
+        {clean_start, false},
+        {clientid, atom_to_binary(?FUNCTION_NAME)},
         %% speedup test
         {connect_timeout, 5}
         | Config
