@@ -19,6 +19,7 @@
 -behaviour(emqx_ft_storage).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([store_filemeta/3]).
 -export([store_segment/3]).
@@ -305,7 +306,10 @@ transfers(Storage, ClientId, AccIn) ->
                 FileIds
             );
         {error, _Reason} ->
-            % TODO worth logging
+            ?tp(warning, "list_dir_failed", #{
+                storage => Storage,
+                directory => Dirname
+            }),
             AccIn
     end.
 
@@ -318,7 +322,10 @@ read_transferinfo(Storage, Transfer, Acc) ->
             Info = #{status => incomplete},
             Acc#{Transfer => Info};
         {error, _Reason} ->
-            % TODO worth logging
+            ?tp(warning, "list_result_failed", #{
+                storage => Storage,
+                transfer => Transfer
+            }),
             Acc
     end.
 
@@ -454,8 +461,12 @@ safe_decode(Content, DecodeFun) ->
     try
         {ok, DecodeFun(Content)}
     catch
-        _C:_R:_Stacktrace ->
-            % TODO: Log?
+        C:E:Stacktrace ->
+            ?tp(warning, "safe_decode_failed", #{
+                class => C,
+                exception => E,
+                stacktrace => Stacktrace
+            }),
             {error, corrupted}
     end.
 
@@ -509,7 +520,10 @@ mk_filefrag(Dirname, Filename = ?MANIFEST) ->
 mk_filefrag(Dirname, Filename = ?SEGMENT ++ _) ->
     mk_filefrag(Dirname, Filename, segment, fun read_segmentinfo/2);
 mk_filefrag(_Dirname, _Filename) ->
-    % TODO this is unexpected, worth logging?
+    ?tp(warning, "rogue_file_found", #{
+        directory => _Dirname,
+        filename => _Filename
+    }),
     false.
 
 mk_result_filefrag(Dirname, Filename) ->
@@ -531,7 +545,12 @@ mk_filefrag(Dirname, Filename, Tag, Fun) ->
                 fragment => {Tag, Frag}
             }};
         {error, _Reason} ->
-            % TODO loss of information
+            ?tp(warning, "mk_filefrag_failed", #{
+                directory => Dirname,
+                filename => Filename,
+                type => Tag,
+                reason => _Reason
+            }),
             false
     end.
 
