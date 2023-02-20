@@ -80,11 +80,18 @@
 
 -type storage() :: emqx_ft_storage:storage().
 
+-type file_error() ::
+    file:posix()
+    %% Filename is incompatible with the backing filesystem.
+    | badarg
+    %% System limit (e.g. number of ports) reached.
+    | system_limit.
+
 %% Store manifest in the backing filesystem.
 %% Atomic operation.
 -spec store_filemeta(storage(), transfer(), filemeta()) ->
     % Quota? Some lower level errors?
-    ok | {error, conflict} | {error, _TODO}.
+    ok | {error, conflict} | {error, file_error()}.
 store_filemeta(Storage, Transfer, Meta) ->
     % TODO safeguard against bad clientids / fileids.
     Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], ?MANIFEST),
@@ -110,7 +117,7 @@ store_filemeta(Storage, Transfer, Meta) ->
 -spec store_segment(storage(), transfer(), segment()) ->
     % Where is the checksum gets verified? Upper level probably.
     % Quota? Some lower level errors?
-    ok | {error, _TODO}.
+    ok | {error, file_error()}.
 store_segment(Storage, Transfer, Segment = {_Offset, Content}) ->
     Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], mk_segment_filename(Segment)),
     write_file_atomic(Storage, Transfer, Filepath, Content).
@@ -118,7 +125,8 @@ store_segment(Storage, Transfer, Segment = {_Offset, Content}) ->
 -spec list(storage(), transfer(), _What :: fragment | result) ->
     % Some lower level errors? {error, notfound}?
     % Result will contain zero or only one filemeta.
-    {ok, [filefrag({filemeta, filemeta()} | {segment, segmentinfo()})]} | {error, _TODO}.
+    {ok, [filefrag({filemeta, filemeta()} | {segment, segmentinfo()})]}
+    | {error, file_error()}.
 list(Storage, Transfer, What) ->
     Dirname = mk_filedir(Storage, Transfer, get_subdirs_for(What)),
     case file:list_dir(Dirname) of
@@ -146,7 +154,7 @@ get_filefrag_fun_for(result) ->
     fun mk_result_filefrag/2.
 
 -spec pread(storage(), transfer(), filefrag(), offset(), _Size :: non_neg_integer()) ->
-    {ok, _Content :: iodata()} | {error, _TODO}.
+    {ok, _Content :: iodata()} | {error, eof} | {error, file_error()}.
 pread(_Storage, _Transfer, Frag, Offset, Size) ->
     Filepath = maps:get(path, Frag),
     case file:open(Filepath, [read, raw, binary]) of
@@ -168,7 +176,6 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
     end.
 
 -spec assemble(storage(), transfer(), emqx_ft:bytes()) ->
-    % {ok, _Assembler :: pid()} | {error, incomplete} | {error, badrpc} | {error, _TODO}.
     {async, _Assembler :: pid()} | {error, _TODO}.
 assemble(Storage, Transfer, Size) ->
     % TODO: ask cluster if the transfer is already assembled
@@ -321,7 +328,7 @@ read_transferinfo(Storage, Transfer, Acc) ->
 -type handle() :: {file:name(), io:device(), crypto:hash_state()}.
 
 -spec open_file(storage(), transfer(), filemeta()) ->
-    {ok, handle()} | {error, _TODO}.
+    {ok, handle()} | {error, file_error()}.
 open_file(Storage, Transfer, Filemeta) ->
     Filename = maps:get(name, Filemeta),
     TempFilepath = mk_temp_filepath(Storage, Transfer, Filename),
@@ -335,7 +342,7 @@ open_file(Storage, Transfer, Filemeta) ->
     end.
 
 -spec write(handle(), iodata()) ->
-    {ok, handle()} | {error, _TODO}.
+    {ok, handle()} | {error, file_error()}.
 write({Filepath, IoDevice, Ctx}, IoData) ->
     case file:write(IoDevice, IoData) of
         ok ->
@@ -345,7 +352,7 @@ write({Filepath, IoDevice, Ctx}, IoData) ->
     end.
 
 -spec complete(storage(), transfer(), filemeta(), handle()) ->
-    ok | {error, {checksum, _Algo, _Computed}} | {error, _TODO}.
+    ok | {error, {checksum, _Algo, _Computed}} | {error, file_error()}.
 complete(Storage, Transfer, Filemeta, Handle = {Filepath, IoDevice, Ctx}) ->
     TargetFilepath = mk_filepath(Storage, Transfer, [?RESULTDIR], maps:get(name, Filemeta)),
     case verify_checksum(Ctx, Filemeta) of
