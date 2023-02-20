@@ -37,9 +37,6 @@
 %%
 
 start_link(Storage, Transfer, Size) ->
-    %% TODO
-    %% Additional callbacks? They won't survive restarts by the supervisor, which brings a
-    %% question if we even need to retry with the help of supervisor.
     gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer, Size}, []).
 
 %%
