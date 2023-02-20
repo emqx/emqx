@@ -93,7 +93,6 @@
     % Quota? Some lower level errors?
     ok | {error, conflict} | {error, file_error()}.
 store_filemeta(Storage, Transfer, Meta) ->
-    % TODO safeguard against bad clientids / fileids.
     Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], ?MANIFEST),
     case read_file(Filepath, fun decode_filemeta/1) of
         {ok, Meta} ->
