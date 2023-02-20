@@ -123,3 +123,17 @@ which needs to explicitly configured by either changing the emqx config file or 
 
 If you chose to use an existing certificate, make sure, you update the filenames accordingly.
 
+## Tips
+Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.
+In order to preserve the original client's IP address, you could change the emqx config by passing the following environment variable:
+
+```
+EMQX_LISTENERS__TCP__DEFAULT__PROXY_PROTOCOL: "true"
+```
+
+With haproxy you'd also need the following ingress annotation:
+
+```
+haproxy-ingress.github.io/proxy-protocol: "v2"
+```
+
