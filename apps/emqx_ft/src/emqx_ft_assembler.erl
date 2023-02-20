@@ -26,7 +26,7 @@
 -record(st, {
     storage :: _Storage,
     transfer :: emqx_ft:transfer(),
-    assembly :: _TODO,
+    assembly :: emqx_ft_assembly:t(),
     file :: {file:filename(), io:device(), term()} | undefined,
     hash
 }).
