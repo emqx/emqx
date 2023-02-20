@@ -499,8 +499,8 @@ ensure_quic_listener(Name, UdpPort) ->
     application:ensure_all_started(quicer),
     Conf = #{
         acceptors => 16,
-        bind => {{0, 0, 0, 0}, UdpPort},
-        certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+        bind => UdpPort,
+
         ciphers =>
             [
                 "TLS_AES_256_GCM_SHA384",
@@ -509,7 +509,10 @@ ensure_quic_listener(Name, UdpPort) ->
             ],
         enabled => true,
         idle_timeout => 15000,
-        keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
+        ssl_options => #{
+            certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem")
+        },
         limiter => #{},
         max_connections => 1024000,
         mountpoint => <<>>,

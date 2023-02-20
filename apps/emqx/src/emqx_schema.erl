@@ -845,16 +845,21 @@ fields("mqtt_wss_listener") ->
         ];
 fields("mqtt_quic_listener") ->
     [
-        %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_certfile)}
+                #{
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                }
             )},
         {"keyfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
+                %% TODO: deprecated => {since, "5.1.0"}
+                #{
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
+                }
             )},
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",
@@ -879,6 +884,14 @@ fields("mqtt_quic_listener") ->
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                }
+            )},
+        {"ssl_options",
+            sc(
+                ref("listener_quic_ssl_opts"),
+                #{
+                    required => false,
+                    desc => ?DESC(fields_mqtt_quic_listener_ssl_options)
                 }
             )}
     ] ++ base_listener(14567);
@@ -1090,6 +1103,8 @@ fields("listener_wss_opts") ->
         },
         true
     );
+fields("listener_quic_ssl_opts") ->
+    server_ssl_opts_schema(#{}, false);
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
@@ -1769,6 +1784,12 @@ desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
+desc("fields_mqtt_quic_listener_certfile") ->
+    "Path to the certificate file. Will be deprecated in 5.1, use '.ssl_options.certfile' instead.";
+desc("fields_mqtt_quic_listener_keyfile") ->
+    "Path to the secret key file. Will be deprecated in 5.1, use '.ssl_options.keyfile' instead.";
+desc("listener_quic_ssl_opts") ->
+    "TLS options for QUIC transport.";
 desc("ssl_client_opts") ->
     "Socket options for SSL clients.";
 desc("deflate_opts") ->
