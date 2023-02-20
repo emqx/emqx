@@ -315,7 +315,7 @@ fields(bytes) ->
             hoconsc:mk(
                 integer(),
                 #{
-                    desc => "Maximum number of bytes to store in request",
+                    desc => "Maximum number of bytes to send in response",
                     in => query,
                     required => false,
                     default => 1000
