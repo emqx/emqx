@@ -16,7 +16,7 @@
 
 -module(emqx_ft_assembly).
 
--export([new/0]).
+-export([new/1]).
 -export([append/3]).
 -export([update/1]).
 
@@ -35,12 +35,12 @@
     size
 }).
 
-new() ->
+new(Size) ->
     #asm{
         status = {incomplete, {missing, filemeta}},
         meta = orddict:new(),
         segs = orddict:new(),
-        size = 0
+        size = Size
     }.
 
 append(Asm, Node, Fragments) when is_list(Fragments) ->
@@ -114,8 +114,7 @@ append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
         % In theory it's possible to have two segments with same offset + size on
         % different nodes but with differing content. We'd need a checksum to
         % be able to disambiguate them though.
-        segs = orddict:store({Offset, locality(Node), -End, Node}, Fragment, Asm#asm.segs),
-        size = max(End, Asm#asm.size)
+        segs = orddict:store({Offset, locality(Node), -End, Node}, Fragment, Asm#asm.segs)
     }.
 
 coverage([{{Offset, _, _, _}, _Segment} | Rest], Cursor, Sz) when Offset < Cursor ->
@@ -186,7 +185,7 @@ segsize(#{fragment := {segment, Info}}) ->
 incomplete_new_test() ->
     ?assertEqual(
         {incomplete, {missing, filemeta}},
-        status(update(new()))
+        status(update(new(42)))
     ).
 
 incomplete_test() ->
@@ -194,7 +193,7 @@ incomplete_test() ->
         {incomplete, {missing, filemeta}},
         status(
             update(
-                append(new(), node(), [
+                append(new(142), node(), [
                     segment(p1, 0, 42),
                     segment(p1, 42, 100)
                 ])
@@ -203,13 +202,13 @@ incomplete_test() ->
     ).
 
 consistent_test() ->
-    Asm1 = append(new(), n1, [filemeta(m1, "blarg")]),
+    Asm1 = append(new(42), n1, [filemeta(m1, "blarg")]),
     Asm2 = append(Asm1, n2, [segment(s2, 0, 42)]),
     Asm3 = append(Asm2, n3, [filemeta(m3, "blarg")]),
     ?assertMatch({complete, _}, status(meta, Asm3)).
 
 inconsistent_test() ->
-    Asm1 = append(new(), node(), [segment(s1, 0, 42)]),
+    Asm1 = append(new(42), node(), [segment(s1, 0, 42)]),
     Asm2 = append(Asm1, n1, [filemeta(m1, "blarg")]),
     Asm3 = append(Asm2, n2, [segment(s2, 0, 42), filemeta(m1, "blorg")]),
     Asm4 = append(Asm3, n3, [filemeta(m3, "blarg")]),
@@ -231,7 +230,7 @@ simple_coverage_test() ->
         {Node, segment(n3, 50, 50)},
         {Node, segment(n4, 10, 10)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(100), Segs),
     ?assertMatch(
         {complete,
             [
@@ -256,7 +255,7 @@ redundant_coverage_test() ->
         {Node, segment(n7, 50, 10)},
         {node1, segment(n8, 40, 10)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(70), Segs),
     ?assertMatch(
         {complete,
             [
@@ -279,7 +278,7 @@ redundant_coverage_prefer_local_test() ->
         {Node, segment(n5, 30, 10)},
         {Node, segment(n6, 20, 10)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(40), Segs),
     ?assertMatch(
         {complete,
             [
@@ -301,7 +300,7 @@ missing_coverage_test() ->
         {node2, segment(n4, 50, 50)},
         {Node, segment(n5, 40, 60)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(100), Segs),
     ?assertEqual(
         % {incomplete, {missing, {segment, 30, 40}}}, ???
         {incomplete, {missing, {segment, 20, 40}}},
@@ -314,7 +313,7 @@ missing_end_coverage_test() ->
         {Node, segment(n1, 0, 15)},
         {node1, segment(n3, 10, 10)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(20), Segs),
     ?assertEqual(
         {incomplete, {missing, {segment, 15, 20}}},
         status(coverage, Asm)
@@ -328,7 +327,7 @@ missing_coverage_with_redudancy_test() ->
         {node43, segment(n4, 10, 50)},
         {node(), segment(n5, 40, 60)}
     ],
-    Asm = append_many(new(), Segs),
+    Asm = append_many(new(100), Segs),
     ?assertEqual(
         % {incomplete, {missing, {segment, 50, 60}}}, ???
         {incomplete, {missing, {segment, 20, 40}}},

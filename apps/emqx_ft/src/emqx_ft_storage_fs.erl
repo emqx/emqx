@@ -24,7 +24,7 @@
 -export([store_segment/3]).
 -export([list/3]).
 -export([pread/5]).
--export([assemble/2]).
+-export([assemble/3]).
 
 -export([transfers/1]).
 
@@ -167,12 +167,12 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
             {error, Reason}
     end.
 
--spec assemble(storage(), transfer()) ->
+-spec assemble(storage(), transfer(), emqx_ft:bytes()) ->
     % {ok, _Assembler :: pid()} | {error, incomplete} | {error, badrpc} | {error, _TODO}.
     {async, _Assembler :: pid()} | {error, _TODO}.
-assemble(Storage, Transfer) ->
+assemble(Storage, Transfer, Size) ->
     % TODO: ask cluster if the transfer is already assembled
-    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer),
+    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer, Size),
     {async, Pid}.
 
 get_ready_transfer(_Storage, ReadyTransferId) ->

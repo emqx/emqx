@@ -37,8 +37,14 @@ all() ->
 
 groups() ->
     [
-        {single_node, [sequence], emqx_common_test_helpers:all(?MODULE) -- [t_switch_node]},
-        {cluster, [sequence], [t_switch_node]}
+        {single_node, [sequence], emqx_common_test_helpers:all(?MODULE) -- group_cluster()},
+        {cluster, [sequence], group_cluster()}
+    ].
+
+group_cluster() ->
+    [
+        t_switch_node,
+        t_unreliable_migrating_client
     ].
 
 init_per_suite(Config) ->
@@ -61,24 +67,60 @@ set_special_configs(Config) ->
 
 init_per_testcase(Case, Config) ->
     ClientId = atom_to_binary(Case),
-    {ok, C} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}]),
-    {ok, _} = emqtt:connect(C),
-    [{client, C}, {clientid, ClientId} | Config].
+    case ?config(group, Config) of
+        cluster ->
+            [{clientid, ClientId} | Config];
+        _ ->
+            {ok, C} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}]),
+            {ok, _} = emqtt:connect(C),
+            [{client, C}, {clientid, ClientId} | Config]
+    end.
 end_per_testcase(_Case, Config) ->
-    C = ?config(client, Config),
-    ok = emqtt:stop(C),
+    _ = [ok = emqtt:stop(C) || {client, C} <- Config],
     ok.
 
-init_per_group(cluster, Config) ->
-    Node = emqx_ft_test_helpers:start_additional_node(Config, emqx_ft1),
-    [{additional_node, Node} | Config];
-init_per_group(_Group, Config) ->
-    Config.
+init_per_group(Group = cluster, Config) ->
+    Cluster = mk_cluster_specs(Config),
+    ct:pal("Starting ~p", [Cluster]),
+    Nodes = [
+        emqx_common_test_helpers:start_slave(Name, Opts#{join_to => node()})
+     || {Name, Opts} <- Cluster
+    ],
+    [{group, Group}, {cluster_nodes, Nodes} | Config];
+init_per_group(Group, Config) ->
+    [{group, Group} | Config].
 
 end_per_group(cluster, Config) ->
-    ok = emqx_ft_test_helpers:stop_additional_node(Config);
+    ok = lists:foreach(
+        fun emqx_ft_test_helpers:stop_additional_node/1,
+        ?config(cluster_nodes, Config)
+    );
 end_per_group(_Group, _Config) ->
     ok.
+
+mk_cluster_specs(Config) ->
+    Specs = [
+        {core, emqx_ft_SUITE1, #{listener_ports => [{tcp, 2883}]}},
+        {core, emqx_ft_SUITE2, #{listener_ports => [{tcp, 3883}]}}
+    ],
+    CommOpts = [
+        {env, [{emqx, boot_modules, [broker, listeners]}]},
+        {apps, [emqx_ft]},
+        {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
+        {env_handler, fun
+            (emqx_ft) ->
+                ok = emqx_config:put([file_transfer, storage], #{
+                    type => local,
+                    root => emqx_ft_test_helpers:ft_root(Config, node())
+                });
+            (_) ->
+                ok
+        end}
+    ],
+    emqx_common_test_helpers:emqx_cluster(
+        Specs,
+        CommOpts
+    ).
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -125,7 +167,7 @@ t_simple_transfer(Config) ->
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
-    Meta = meta(Filename, Data),
+    Meta = #{size := Filesize} = meta(Filename, Data),
     MetaPayload = emqx_json:encode(Meta),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
@@ -145,7 +187,7 @@ t_simple_transfer(Config) ->
         with_offsets(Data)
     ),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Filesize))/binary>>,
     ?assertRCName(
         success,
         emqtt:publish(C, FinTopic, <<>>, 1)
@@ -194,7 +236,7 @@ t_no_meta(Config) ->
         emqtt:publish(C, SegmentTopic, Data, 1)
     ),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/42">>,
     ?assertRCName(
         unspecified_error,
         emqtt:publish(C, FinTopic, <<>>, 1)
@@ -208,7 +250,7 @@ t_no_segment(Config) ->
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
-    Meta = meta(Filename, Data),
+    Meta = #{size := Filesize} = meta(Filename, Data),
     MetaPayload = emqx_json:encode(Meta),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
@@ -229,7 +271,7 @@ t_no_segment(Config) ->
         tl(with_offsets(Data))
     ),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Filesize))/binary>>,
     ?assertRCName(
         unspecified_error,
         emqtt:publish(C, FinTopic, <<>>, 1)
@@ -264,7 +306,7 @@ t_invalid_checksum(Config) ->
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
-    Meta = meta(Filename, Data),
+    Meta = #{size := Filesize} = meta(Filename, Data),
     MetaPayload = emqx_json:encode(Meta#{checksum => sha256hex(<<"invalid">>)}),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
@@ -284,14 +326,15 @@ t_invalid_checksum(Config) ->
         with_offsets(Data)
     ),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Filesize))/binary>>,
     ?assertRCName(
         unspecified_error,
         emqtt:publish(C, FinTopic, <<>>, 1)
     ).
 
 t_switch_node(Config) ->
-    AdditionalNodePort = emqx_ft_test_helpers:tcp_port(?config(additional_node, Config)),
+    [Node | _] = ?config(cluster_nodes, Config),
+    AdditionalNodePort = emqx_ft_test_helpers:tcp_port(Node),
 
     ClientId = <<"t_switch_node-migrating_client">>,
 
@@ -306,7 +349,7 @@ t_switch_node(Config) ->
 
     %% First, publist metadata and the first segment to the additional node
 
-    Meta = meta(Filename, Data),
+    Meta = #{size := Filesize} = meta(Filename, Data),
     MetaPayload = emqx_json:encode(Meta),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
@@ -335,7 +378,7 @@ t_switch_node(Config) ->
         emqtt:publish(C2, <<"$file/", FileId/binary, "/", Offset2/binary>>, Data2, 1)
     ),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Filesize))/binary>>,
     ?assertRCName(
         success,
         emqtt:publish(C2, FinTopic, <<>>, 1)
@@ -360,12 +403,152 @@ t_assemble_crash(Config) ->
     C = ?config(client, Config),
 
     meck:new(emqx_ft_storage_fs),
-    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _) -> meck:exception(error, oops) end),
+    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _, _) -> meck:exception(error, oops) end),
 
     ?assertRCName(
         unspecified_error,
         emqtt:publish(C, <<"$file/someid/fin">>, <<>>, 1)
     ).
+
+t_unreliable_migrating_client(Config) ->
+    NodeSelf = node(),
+    [Node1, Node2] = ?config(cluster_nodes, Config),
+
+    ClientId = ?config(clientid, Config),
+    FileId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Filename = "migratory-birds-in-southern-hemisphere-2013.pdf",
+    Filesize = 1000,
+    Gen = emqx_ft_content_gen:new({{ClientId, FileId}, Filesize}, 16),
+    Payload = iolist_to_binary(emqx_ft_content_gen:consume(Gen, fun({Chunk, _, _}) -> Chunk end)),
+    Meta = meta(Filename, Payload),
+
+    Context = #{
+        clientid => ClientId,
+        fileid => FileId,
+        filesize => Filesize,
+        payload => Payload
+    },
+    Commands = [
+        % Connect to the broker on the current node
+        {fun connect_mqtt_client/2, [NodeSelf]},
+        % Send filemeta and 3 initial segments
+        % (assuming client chose 100 bytes as a desired segment size)
+        {fun send_filemeta/2, [Meta]},
+        {fun send_segment/3, [0, 100]},
+        {fun send_segment/3, [100, 100]},
+        {fun send_segment/3, [200, 100]},
+        % Disconnect the client cleanly
+        {fun stop_mqtt_client/1, []},
+        % Connect to the broker on `Node1`
+        {fun connect_mqtt_client/2, [Node1]},
+        % Connect to the broker on `Node2` without first disconnecting from `Node1`
+        % Client forgot the state for some reason and started the transfer again.
+        % (assuming this is usual for a client on a device that was rebooted)
+        {fun connect_mqtt_client/2, [Node2]},
+        {fun send_filemeta/2, [Meta]},
+        % This time it chose 200 bytes as a segment size
+        {fun send_segment/3, [0, 200]},
+        {fun send_segment/3, [200, 200]},
+        % But now it downscaled back to 100 bytes segments
+        {fun send_segment/3, [400, 100]},
+        % Client lost connectivity and reconnected
+        % (also had last few segments unacked and decided to resend them)
+        {fun connect_mqtt_client/2, [Node2]},
+        {fun send_segment/3, [200, 200]},
+        {fun send_segment/3, [400, 200]},
+        % Client lost connectivity and reconnected, this time to another node
+        % (also had last segment unacked and decided to resend it)
+        {fun connect_mqtt_client/2, [Node1]},
+        {fun send_segment/3, [400, 200]},
+        {fun send_segment/3, [600, eof]},
+        {fun send_finish/1, []},
+        % Client lost connectivity and reconnected, this time to the current node
+        % (client had `fin` unacked and decided to resend it)
+        {fun connect_mqtt_client/2, [NodeSelf]},
+        {fun send_finish/1, []}
+    ],
+    _Context = run_commands(Commands, Context),
+
+    {ok, ReadyTransfers} = emqx_ft_storage:ready_transfers(),
+    ReadyTransferIds =
+        [Id || {#{<<"clientid">> := CId} = Id, _Info} <- ReadyTransfers, CId == ClientId],
+
+    % NOTE
+    % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
+    % twice. This is currently expected, files must be identical anyway.
+    Node1Bin = atom_to_binary(Node1),
+    NodeSelfBin = atom_to_binary(NodeSelf),
+    ?assertMatch(
+        [#{<<"node">> := Node1Bin}, #{<<"node">> := NodeSelfBin}],
+        lists:sort(ReadyTransferIds)
+    ),
+
+    [
+        begin
+            {ok, TableQH} = emqx_ft_storage:get_ready_transfer(Id),
+            ?assertEqual(
+                Payload,
+                iolist_to_binary(qlc:eval(TableQH))
+            )
+        end
+     || Id <- ReadyTransferIds
+    ].
+
+run_commands(Commands, Context) ->
+    lists:foldl(fun run_command/2, Context, Commands).
+
+run_command({Command, Args}, Context) ->
+    ct:pal("COMMAND ~p ~p", [erlang:fun_info(Command, name), Args]),
+    erlang:apply(Command, Args ++ [Context]).
+
+connect_mqtt_client(Node, ContextIn) ->
+    Context = #{clientid := ClientId} = disown_mqtt_client(ContextIn),
+    NodePort = emqx_ft_test_helpers:tcp_port(Node),
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, NodePort}]),
+    {ok, _} = emqtt:connect(Client),
+    Context#{client => Client}.
+
+stop_mqtt_client(Context = #{client := Client}) ->
+    _ = emqtt:stop(Client),
+    maps:remove(client, Context).
+
+disown_mqtt_client(Context = #{client := Client}) ->
+    _ = erlang:unlink(Client),
+    maps:remove(client, Context);
+disown_mqtt_client(Context = #{}) ->
+    Context.
+
+send_filemeta(Meta, Context = #{client := Client, fileid := FileId}) ->
+    Topic = <<"$file/", FileId/binary, "/init">>,
+    MetaPayload = emqx_json:encode(Meta),
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, Topic, MetaPayload, 1)
+    ),
+    Context.
+
+send_segment(Offset, Size, Context = #{client := Client, fileid := FileId, payload := Payload}) ->
+    Topic = <<"$file/", FileId/binary, "/", (integer_to_binary(Offset))/binary>>,
+    Data =
+        case Size of
+            eof ->
+                binary:part(Payload, Offset, byte_size(Payload) - Offset);
+            N ->
+                binary:part(Payload, Offset, N)
+        end,
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, Topic, Data, 1)
+    ),
+    Context.
+
+send_finish(Context = #{client := Client, fileid := FileId, filesize := Filesize}) ->
+    Topic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Filesize))/binary>>,
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, Topic, <<>>, 1)
+    ),
+    Context.
 
 %%--------------------------------------------------------------------
 %% Helpers

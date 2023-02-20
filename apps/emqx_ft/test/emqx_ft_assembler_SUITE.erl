@@ -84,7 +84,7 @@ t_assemble_empty_transfer(Config) ->
         ]},
         emqx_ft_storage_fs:list(Storage, Transfer, fragment)
     ),
-    Status = complete_assemble(Storage, Transfer),
+    Status = complete_assemble(Storage, Transfer, 0),
     ?assertEqual({shutdown, ok}, Status),
     ?assertEqual(
         {ok, <<>>},
@@ -132,7 +132,7 @@ t_assemble_complete_local_transfer(Config) ->
         Fragments
     ),
 
-    Status = complete_assemble(Storage, Transfer),
+    Status = complete_assemble(Storage, Transfer, TransferSize),
     ?assertEqual({shutdown, ok}, Status),
 
     AssemblyFilename = mk_assembly_filename(Config, Transfer, Filename),
@@ -171,20 +171,20 @@ t_assemble_incomplete_transfer(Config) ->
         expire_at => 42
     },
     ok = emqx_ft_storage_fs:store_filemeta(Storage, Transfer, Meta),
-    Status = complete_assemble(Storage, Transfer),
+    Status = complete_assemble(Storage, Transfer, TransferSize),
     ?assertMatch({shutdown, {error, _}}, Status).
 
 t_assemble_no_meta(Config) ->
     Storage = storage(Config),
     Transfer = {?CLIENTID2, ?config(file_id, Config)},
-    Status = complete_assemble(Storage, Transfer),
+    Status = complete_assemble(Storage, Transfer, 42),
     ?assertMatch({shutdown, {error, {incomplete, _}}}, Status).
 
-complete_assemble(Storage, Transfer) ->
-    complete_assemble(Storage, Transfer, 1000).
+complete_assemble(Storage, Transfer, Size) ->
+    complete_assemble(Storage, Transfer, Size, 1000).
 
-complete_assemble(Storage, Transfer, Timeout) ->
-    {async, Pid} = emqx_ft_storage_fs:assemble(Storage, Transfer),
+complete_assemble(Storage, Transfer, Size, Timeout) ->
+    {async, Pid} = emqx_ft_storage_fs:assemble(Storage, Transfer, Size),
     MRef = erlang:monitor(process, Pid),
     Pid ! kickoff,
     receive

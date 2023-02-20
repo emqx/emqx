@@ -40,6 +40,7 @@
 -export_type([
     clientid/0,
     transfer/0,
+    bytes/0,
     offset/0,
     filemeta/0,
     segment/0
@@ -145,10 +146,14 @@ on_file_command(PacketId, Msg, FileCommand) ->
     case string:split(FileCommand, <<"/">>, all) of
         [FileId, <<"init">>] ->
             on_init(PacketId, Msg, transfer(Msg, FileId));
-        [FileId, <<"fin">>] ->
-            on_fin(PacketId, Msg, transfer(Msg, FileId), undefined);
-        [FileId, <<"fin">>, Checksum] ->
-            on_fin(PacketId, Msg, transfer(Msg, FileId), Checksum);
+        [FileId, <<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
+            ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
+            validate(
+                [{size, FinalSizeBin}, {{maybe, checksum}, ChecksumBin}],
+                fun([FinalSize, Checksum]) ->
+                    on_fin(PacketId, Msg, transfer(Msg, FileId), FinalSize, Checksum)
+                end
+            );
         [FileId, <<"abort">>] ->
             on_abort(Msg, transfer(Msg, FileId));
         [FileId, OffsetBin] ->
@@ -235,12 +240,13 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
         end
     end).
 
-on_fin(PacketId, Msg, Transfer, Checksum) ->
+on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
     ?SLOG(info, #{
         msg => "on_fin",
         mqtt_msg => Msg,
         packet_id => PacketId,
         transfer => Transfer,
+        final_size => FinalSize,
         checksum => Checksum
     }),
     %% TODO: handle checksum? Do we need it?
@@ -249,7 +255,7 @@ on_fin(PacketId, Msg, Transfer, Checksum) ->
         ?MODULE:on_complete("assemble", FinPacketKey, Transfer, Result)
     end,
     with_responder(FinPacketKey, Callback, ?ASSEMBLE_TIMEOUT, fun() ->
-        case assemble(Transfer) of
+        case assemble(Transfer, FinalSize) of
             %% Assembling completed, ack through the responder right away
             % ok ->
             %     emqx_ft_responder:ack(FinPacketKey, ok);
@@ -298,9 +304,9 @@ store_segment(Transfer, Segment) ->
             {error, {internal_error, E}}
     end.
 
-assemble(Transfer) ->
+assemble(Transfer, FinalSize) ->
     try
-        emqx_ft_storage:assemble(Transfer)
+        emqx_ft_storage:assemble(Transfer, FinalSize)
     catch
         C:E:S ->
             ?SLOG(error, #{
@@ -359,13 +365,24 @@ do_validate([{offset, Offset} | Rest], Parsed) ->
         _ ->
             {error, {invalid_offset, Offset}}
     end;
+do_validate([{size, Size} | Rest], Parsed) ->
+    case string:to_integer(Size) of
+        {Int, <<>>} ->
+            do_validate(Rest, [Int | Parsed]);
+        _ ->
+            {error, {invalid_size, Size}}
+    end;
 do_validate([{checksum, Checksum} | Rest], Parsed) ->
     case parse_checksum(Checksum) of
         {ok, Bin} ->
             do_validate(Rest, [Bin | Parsed]);
         {error, _Reason} ->
             {error, {invalid_checksum, Checksum}}
-    end.
+    end;
+do_validate([{{maybe, _}, undefined} | Rest], Parsed) ->
+    do_validate(Rest, [undefined | Parsed]);
+do_validate([{{maybe, T}, Value} | Rest], Parsed) ->
+    do_validate([{T, Value} | Rest], Parsed).
 
 parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:= 64 ->
     try

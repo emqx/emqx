@@ -21,13 +21,12 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-start_additional_node(Config, Node) ->
-    SelfNode = node(),
+start_additional_node(Config, Name) ->
     emqx_common_test_helpers:start_slave(
-        Node,
+        Name,
         [
             {apps, [emqx_ft]},
-            {join_to, SelfNode},
+            {join_to, node()},
             {configure_gen_rpc, true},
             {env_handler, fun
                 (emqx_ft) ->
@@ -40,8 +39,7 @@ start_additional_node(Config, Node) ->
         ]
     ).
 
-stop_additional_node(Config) ->
-    Node = ?config(additional_node, Config),
+stop_additional_node(Node) ->
     ok = rpc:call(Node, ekka, leave, []),
     ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
     {ok, _} = emqx_common_test_helpers:stop_slave(Node),
@@ -58,13 +56,14 @@ ft_root(Config, Node) ->
 
 upload_file(ClientId, FileId, Data, Node) ->
     Port = tcp_port(Node),
+    Size = byte_size(Data),
 
     {ok, C1} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, Port}]),
     {ok, _} = emqtt:connect(C1),
     Meta = #{
         name => FileId,
         expire_at => erlang:system_time(_Unit = second) + 3600,
-        size => byte_size(Data)
+        size => Size
     },
     MetaPayload = emqx_json:encode(Meta),
 
@@ -72,6 +71,6 @@ upload_file(ClientId, FileId, Data, Node) ->
     {ok, _} = emqtt:publish(C1, MetaTopic, MetaPayload, 1),
     {ok, _} = emqtt:publish(C1, <<"$file/", FileId/binary, "/0">>, Data, 1),
 
-    FinTopic = <<"$file/", FileId/binary, "/fin">>,
+    FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Size))/binary>>,
     {ok, _} = emqtt:publish(C1, FinTopic, <<>>, 1),
     ok = emqtt:stop(C1).
