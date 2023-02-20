@@ -277,6 +277,9 @@ kafka_bridge_rest_api_helper(Config) ->
             },
             <<"kafka">> => #{
                 <<"topic">> => erlang:list_to_binary(KafkaTopic),
+                <<"buffer">> => #{
+                    <<"memory_overload_protection">> => <<"false">>
+                },
                 <<"message">> => #{
                     <<"key">> => <<"${clientid}">>,
                     <<"value">> => <<"${.payload}">>
@@ -384,6 +387,13 @@ t_failed_creation_then_fix(Config) ->
         "kafka_hosts_string" => HostsString,
         "kafka_topic" => KafkaTopic,
         "instance_id" => ResourceId,
+        "producer" => #{
+            "kafka" => #{
+                "buffer" => #{
+                    "memory_overload_protection" => false
+                }
+            }
+        },
         "ssl" => #{}
     }),
     %% creates, but fails to start producers
