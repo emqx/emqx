@@ -51,7 +51,6 @@
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
--define(BAD_REQUEST(C, M), {400, #{code => C, message => ?TO_BIN(M)}}).
 -define(SERVICE_UNAVAILABLE(C, M), {503, #{code => C, message => ?TO_BIN(M)}}).
 -define(TAGS, [<<"Trace">>]).
 
@@ -151,8 +150,9 @@ schema("/trace/:name/download") ->
                                 #{schema => #{type => "string", format => "binary"}}
                         }
                     },
-                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Node Not Found">>),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
+                )
             }
         }
     };
@@ -188,10 +188,10 @@ schema("/trace/:name/log") ->
                         {meta, fields(bytes) ++ fields(position)}
                     ],
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST', 'NODE_ERROR'], <<"Bad input parameter">>
+                    ['BAD_REQUEST'], <<"Bad input parameter">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Trace Name Not Found">>
+                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Requested chunk size too big">>
@@ -509,7 +509,7 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     },
                     {200, Headers, {file_binary, ZipName, Binary}};
                 {error, not_found} ->
-                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+                    ?NOT_FOUND(<<"Node">>)
             end;
         {error, not_found} ->
             ?NOT_FOUND(Name)
@@ -602,10 +602,10 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                     }),
                     ?SERVICE_UNAVAILABLE('SERVICE_UNAVAILABLE', <<"Requested chunk size too big">>);
                 {badrpc, nodedown} ->
-                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+                    ?NOT_FOUND(<<"Node">>)
             end;
         {error, not_found} ->
-            ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+            ?NOT_FOUND(<<"Node">>)
     end.
 
 -spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
