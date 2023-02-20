@@ -577,6 +577,9 @@ producer = {
         topic = \"{{ kafka_topic }}\"
         message = {key = \"${clientid}\", value = \"${.payload}\"}
         partition_strategy = {{ partition_strategy }}
+        buffer = {
+            memory_overload_protection = false
+        }
     }
 }
 """.
