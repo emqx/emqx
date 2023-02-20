@@ -47,9 +47,12 @@
     get_trace_size/0
 ]).
 
+-define(MAX_SINT32, 2147483647).
+
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
 -define(BAD_REQUEST(C, M), {400, #{code => C, message => ?TO_BIN(M)}}).
+-define(SERVICE_UNAVAILABLE(C, M), {503, #{code => C, message => ?TO_BIN(M)}}).
 -define(TAGS, [<<"Trace">>]).
 
 namespace() -> "trace".
@@ -184,8 +187,15 @@ schema("/trace/:name/log") ->
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
                         {meta, fields(bytes) ++ fields(position)}
                     ],
-                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Trace Log Failed">>),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST', 'NODE_ERROR'], <<"Bad input parameter">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], <<"Trace Name Not Found">>
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], <<"Requested chunk size too big">>
+                )
             }
         }
     }.
@@ -313,12 +323,16 @@ fields(bytes) ->
     [
         {bytes,
             hoconsc:mk(
-                integer(),
+                %% This seems to be the minimum max value we may encounter
+                %% across different OS
+                range(0, ?MAX_SINT32),
                 #{
                     desc => "Maximum number of bytes to send in response",
                     in => query,
                     required => false,
-                    default => 1000
+                    default => 1000,
+                    minimum => 0,
+                    maximum => ?MAX_SINT32
                 }
             )}
     ];
@@ -579,6 +593,14 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                     {200, #{meta => Meta, items => <<"">>}};
                 {error, not_found} ->
                     ?NOT_FOUND(Name);
+                {error, enomem} ->
+                    ?SLOG(warning, #{
+                        code => not_enough_mem,
+                        msg => "Requested chunk size too big",
+                        bytes => Bytes,
+                        name => Name
+                    }),
+                    ?SERVICE_UNAVAILABLE('SERVICE_UNAVAILABLE', <<"Requested chunk size too big">>);
                 {badrpc, nodedown} ->
                     ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
             end;
