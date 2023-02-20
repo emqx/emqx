@@ -66,8 +66,11 @@
 
 %% Subscriptions
 -export([
+    list_subscriptions/1,
     list_subscriptions_via_topic/2,
-    list_subscriptions_via_topic/3
+    list_subscriptions_via_topic/3,
+
+    do_list_subscriptions/0
 ]).
 
 %% PubSub
@@ -393,6 +396,15 @@ call_client(Node, ClientId, Req) ->
 %%--------------------------------------------------------------------
 %% Subscriptions
 %%--------------------------------------------------------------------
+
+-spec do_list_subscriptions() -> no_return().
+do_list_subscriptions() ->
+    %% [FIXME] Add function to `emqx_broker` that returns list of subscriptions
+    %% and either redirect from here or bpapi directly (EMQX-8993).
+    throw(not_implemented).
+
+list_subscriptions(Node) ->
+    unwrap_rpc(emqx_management_proto_v3:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
