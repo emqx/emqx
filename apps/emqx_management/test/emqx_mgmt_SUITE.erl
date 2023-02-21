@@ -124,7 +124,11 @@ t_lookup_client(_Config) ->
         [{Chan, Info, Stats}],
         emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN)
     ),
-    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)).
+    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)),
+    meck:expect(mria_mnesia, running_nodes, 0, [node(), 'fake@nonode']),
+    ?assertMatch(
+        [_ | {error, nodedown}], emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN)
+    ).
 
 t_kickout_client(init, Config) ->
     process_flag(trap_exit, true),
@@ -183,6 +187,15 @@ t_clean_cache(_Config) ->
     ?assertNotMatch(
         {error, _},
         emqx_mgmt:clean_pem_cache_all()
+    ),
+    meck:expect(mria_mnesia, running_nodes, 0, [node(), 'fake@nonode']),
+    ?assertMatch(
+        {error, [{'fake@nonode', {error, _}}]},
+        emqx_mgmt:clean_authz_cache_all()
+    ),
+    ?assertMatch(
+        {error, [{'fake@nonode', {error, _}}]},
+        emqx_mgmt:clean_pem_cache_all()
     ).
 
 t_set_client_props(init, Config) ->
@@ -236,6 +249,64 @@ t_list_subscriptions_via_topic(Config) ->
         [{{<<"t/#">>, _SubPid}, _Opts}],
         emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)
     ).
+
+t_pubsub_api(init, Config) ->
+    setup_clients(Config);
+t_pubsub_api('end', Config) ->
+    disconnect_clients(Config).
+
+-define(TT(Topic), {Topic, #{qos => 0}}).
+
+t_pubsub_api(Config) ->
+    [Client | _] = ?config(clients, Config),
+    ?assertEqual([], emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)),
+    ?assertMatch(
+        {subscribe, _, _},
+        emqx_mgmt:subscribe(<<"client1">>, [?TT(<<"t/#">>), ?TT(<<"t1/#">>), ?TT(<<"t2/#">>)])
+    ),
+    timer:sleep(100),
+    ?assertMatch(
+        [{{<<"t/#">>, _SubPid}, _Opts}],
+        emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)
+    ),
+    Message = emqx_message:make(?MODULE, 0, <<"t/foo">>, <<"helloworld">>, #{}, #{}),
+    emqx_mgmt:publish(Message),
+    Recv =
+        receive
+            {publish, #{client_pid := Client, payload := <<"helloworld">>}} ->
+                ok
+        after 100 ->
+            timeout
+        end,
+    ?assertEqual(ok, Recv),
+    ?assertEqual({error, channel_not_found}, emqx_mgmt:subscribe(<<"notfound">>, [?TT(<<"t/#">>)])),
+    ?assertNotMatch({error, _}, emqx_mgmt:unsubscribe(<<"client1">>, <<"t/#">>)),
+    ?assertEqual({error, channel_not_found}, emqx_mgmt:unsubscribe(<<"notfound">>, <<"t/#">>)),
+    Node = node(),
+    ?assertMatch(
+        {Node, [{<<"t1/#">>, _}, {<<"t2/#">>, _}]},
+        emqx_mgmt:list_client_subscriptions(<<"client1">>)
+    ),
+    ?assertMatch(
+        {unsubscribe, [{<<"t1/#">>, _}, {<<"t2/#">>, _}]},
+        emqx_mgmt:unsubscribe_batch(<<"client1">>, [<<"t1/#">>, <<"t2/#">>])
+    ),
+    timer:sleep(100),
+    ?assertMatch([], emqx_mgmt:list_client_subscriptions(<<"client1">>)),
+    ?assertEqual(
+        {error, channel_not_found},
+        emqx_mgmt:unsubscribe_batch(<<"notfound">>, [<<"t1/#">>, <<"t2/#">>])
+    ).
+
+t_alarms(init, Config) ->
+    [
+        emqx_mgmt:deactivate(Node, Name)
+     || {Node, ActiveAlarms} <- emqx_mgmt:get_alarms(activated), #{name := Name} <- ActiveAlarms
+    ],
+    emqx_mgmt:delete_all_deactivated_alarms(),
+    Config;
+t_alarms('end', Config) ->
+    Config.
 
 t_alarms(_) ->
     Node = node(),
