@@ -329,7 +329,7 @@ relx_plugin_apps_extra() ->
 relx_extra_import_plugins() ->
     case filelib:is_file("extra_import_plugins") of
         true ->
-            file:consult("extra_import_plugins");
+            lists:flatten(file:consult("extra_import_plugins"));
         false ->
             []
     end.
