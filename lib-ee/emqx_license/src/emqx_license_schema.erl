@@ -46,12 +46,12 @@ fields(key_license) ->
         }},
         {connection_low_watermark, #{
             type => emqx_schema:percent(),
-            default => "75%",
+            default => <<"75%">>,
             desc => ?DESC(connection_low_watermark_field)
         }},
         {connection_high_watermark, #{
             type => emqx_schema:percent(),
-            default => "80%",
+            default => <<"80%">>,
             desc => ?DESC(connection_high_watermark_field)
         }}
     ].

@@ -40,7 +40,7 @@ fields("prometheus") ->
             ?HOCON(
                 string(),
                 #{
-                    default => "http://127.0.0.1:9091",
+                    default => <<"http://127.0.0.1:9091">>,
                     required => true,
                     validator => fun ?MODULE:validate_push_gateway_server/1,
                     desc => ?DESC(push_gateway_server)
@@ -50,7 +50,7 @@ fields("prometheus") ->
             ?HOCON(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     required => true,
                     desc => ?DESC(interval)
                 }

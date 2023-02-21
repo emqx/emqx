@@ -84,20 +84,20 @@ fields("config") ->
             )},
         {connect_timeout,
             mk(emqx_schema:duration_ms(), #{
-                default => "5s",
+                default => <<"5s">>,
                 desc => ?DESC(connect_timeout)
             })},
         {min_metadata_refresh_interval,
             mk(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "3s",
+                    default => <<"3s">>,
                     desc => ?DESC(min_metadata_refresh_interval)
                 }
             )},
         {metadata_request_timeout,
             mk(emqx_schema:duration_ms(), #{
-                default => "5s",
+                default => <<"5s">>,
                 desc => ?DESC(metadata_request_timeout)
             })},
         {authentication,
@@ -141,12 +141,12 @@ fields(socket_opts) ->
         {sndbuf,
             mk(
                 emqx_schema:bytesize(),
-                #{default => "1024KB", desc => ?DESC(socket_send_buffer)}
+                #{default => <<"1024KB">>, desc => ?DESC(socket_send_buffer)}
             )},
         {recbuf,
             mk(
                 emqx_schema:bytesize(),
-                #{default => "1024KB", desc => ?DESC(socket_receive_buffer)}
+                #{default => <<"1024KB">>, desc => ?DESC(socket_receive_buffer)}
             )},
         {nodelay,
             mk(
@@ -170,7 +170,7 @@ fields(producer_kafka_opts) ->
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
         {max_batch_bytes,
-            mk(emqx_schema:bytesize(), #{default => "896KB", desc => ?DESC(max_batch_bytes)})},
+            mk(emqx_schema:bytesize(), #{default => <<"896KB">>, desc => ?DESC(max_batch_bytes)})},
         {compression,
             mk(enum([no_compression, snappy, gzip]), #{
                 default => no_compression, desc => ?DESC(compression)
@@ -192,7 +192,7 @@ fields(producer_kafka_opts) ->
             mk(
                 emqx_schema:duration_s(),
                 #{
-                    default => "60s",
+                    default => <<"60s">>,
                     desc => ?DESC(partition_count_refresh_interval)
                 }
             )},
@@ -212,11 +212,11 @@ fields(producer_kafka_opts) ->
     ];
 fields(kafka_message) ->
     [
-        {key, mk(string(), #{default => "${.clientid}", desc => ?DESC(kafka_message_key)})},
-        {value, mk(string(), #{default => "${.}", desc => ?DESC(kafka_message_value)})},
+        {key, mk(string(), #{default => <<"${.clientid}">>, desc => ?DESC(kafka_message_key)})},
+        {value, mk(string(), #{default => <<"${.}">>, desc => ?DESC(kafka_message_value)})},
         {timestamp,
             mk(string(), #{
-                default => "${.timestamp}", desc => ?DESC(kafka_message_timestamp)
+                default => <<"${.timestamp}">>, desc => ?DESC(kafka_message_timestamp)
             })}
     ];
 fields(producer_buffer) ->
@@ -229,12 +229,12 @@ fields(producer_buffer) ->
         {per_partition_limit,
             mk(
                 emqx_schema:bytesize(),
-                #{default => "2GB", desc => ?DESC(buffer_per_partition_limit)}
+                #{default => <<"2GB">>, desc => ?DESC(buffer_per_partition_limit)}
             )},
         {segment_bytes,
             mk(
                 emqx_schema:bytesize(),
-                #{default => "100MB", desc => ?DESC(buffer_segment_bytes)}
+                #{default => <<"100MB">>, desc => ?DESC(buffer_segment_bytes)}
             )},
         {memory_overload_protection,
             mk(boolean(), #{

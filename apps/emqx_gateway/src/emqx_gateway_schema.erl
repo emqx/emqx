@@ -267,7 +267,7 @@ fields(lwm2m) ->
             sc(
                 duration(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC(lwm2m_lifetime_min)
                 }
             )},
@@ -275,7 +275,7 @@ fields(lwm2m) ->
             sc(
                 duration(),
                 #{
-                    default => "86400s",
+                    default => <<"86400s">>,
                     desc => ?DESC(lwm2m_lifetime_max)
                 }
             )},
@@ -283,7 +283,7 @@ fields(lwm2m) ->
             sc(
                 duration_s(),
                 #{
-                    default => "22s",
+                    default => <<"22s">>,
                     desc => ?DESC(lwm2m_qmode_time_window)
                 }
             )},
@@ -624,7 +624,7 @@ mountpoint(Default) ->
     sc(
         binary(),
         #{
-            default => Default,
+            default => iolist_to_binary(Default),
             desc => ?DESC(gateway_common_mountpoint)
         }
     ).
@@ -707,7 +707,7 @@ proxy_protocol_opts() ->
             sc(
                 duration(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC(tcp_listener_proxy_protocol_timeout)
                 }
             )}

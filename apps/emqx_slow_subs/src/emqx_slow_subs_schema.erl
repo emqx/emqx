@@ -30,13 +30,13 @@ fields("slow_subs") ->
         {threshold,
             sc(
                 emqx_schema:duration_ms(),
-                "500ms",
+                <<"500ms">>,
                 threshold
             )},
         {expire_interval,
             sc(
                 emqx_schema:duration_ms(),
-                "300s",
+                <<"300s">>,
                 expire_interval
             )},
         {top_k_num,

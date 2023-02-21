@@ -41,13 +41,13 @@ fields("retainer") ->
             sc(
                 emqx_schema:duration_ms(),
                 msg_expiry_interval,
-                "0s"
+                <<"0s">>
             )},
         {msg_clear_interval,
             sc(
                 emqx_schema:duration_ms(),
                 msg_clear_interval,
-                "0s"
+                <<"0s">>
             )},
         {flow_control,
             sc(
@@ -59,7 +59,7 @@ fields("retainer") ->
             sc(
                 emqx_schema:bytesize(),
                 max_payload_size,
-                "1MB"
+                <<"1MB">>
             )},
         {stop_publish_clear_msg,
             sc(

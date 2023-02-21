@@ -145,7 +145,7 @@ fields("cluster") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "ekka.cluster_autoclean",
-                    default => "5m",
+                    default => <<"5m">>,
                     desc => ?DESC(cluster_autoclean),
                     'readOnly' => true
                 }
@@ -214,7 +214,7 @@ fields(cluster_mcast) ->
             sc(
                 string(),
                 #{
-                    default => "239.192.0.1",
+                    default => <<"239.192.0.1">>,
                     desc => ?DESC(cluster_mcast_addr),
                     'readOnly' => true
                 }
@@ -232,7 +232,7 @@ fields(cluster_mcast) ->
             sc(
                 string(),
                 #{
-                    default => "0.0.0.0",
+                    default => <<"0.0.0.0">>,
                     desc => ?DESC(cluster_mcast_iface),
                     'readOnly' => true
                 }
@@ -259,7 +259,7 @@ fields(cluster_mcast) ->
             sc(
                 emqx_schema:bytesize(),
                 #{
-                    default => "16KB",
+                    default => <<"16KB">>,
                     desc => ?DESC(cluster_mcast_sndbuf),
                     'readOnly' => true
                 }
@@ -268,7 +268,7 @@ fields(cluster_mcast) ->
             sc(
                 emqx_schema:bytesize(),
                 #{
-                    default => "16KB",
+                    default => <<"16KB">>,
                     desc => ?DESC(cluster_mcast_recbuf),
                     'readOnly' => true
                 }
@@ -277,7 +277,7 @@ fields(cluster_mcast) ->
             sc(
                 emqx_schema:bytesize(),
                 #{
-                    default => "32KB",
+                    default => <<"32KB">>,
                     desc => ?DESC(cluster_mcast_buffer),
                     'readOnly' => true
                 }
@@ -289,7 +289,7 @@ fields(cluster_dns) ->
             sc(
                 string(),
                 #{
-                    default => "localhost",
+                    default => <<"localhost">>,
                     desc => ?DESC(cluster_dns_name),
                     'readOnly' => true
                 }
@@ -318,7 +318,7 @@ fields(cluster_etcd) ->
             sc(
                 string(),
                 #{
-                    default => "emqxcl",
+                    default => <<"emqxcl">>,
                     desc => ?DESC(cluster_etcd_prefix),
                     'readOnly' => true
                 }
@@ -327,7 +327,7 @@ fields(cluster_etcd) ->
             sc(
                 emqx_schema:duration(),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     'readOnly' => true,
                     desc => ?DESC(cluster_etcd_node_ttl)
                 }
@@ -347,7 +347,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
-                    default => "http://10.110.111.204:8080",
+                    default => <<"http://10.110.111.204:8080">>,
                     desc => ?DESC(cluster_k8s_apiserver),
                     'readOnly' => true
                 }
@@ -356,7 +356,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
-                    default => "emqx",
+                    default => <<"emqx">>,
                     desc => ?DESC(cluster_k8s_service_name),
                     'readOnly' => true
                 }
@@ -374,7 +374,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
-                    default => "default",
+                    default => <<"default">>,
                     desc => ?DESC(cluster_k8s_namespace),
                     'readOnly' => true
                 }
@@ -383,7 +383,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
-                    default => "pod.local",
+                    default => <<"pod.local">>,
                     'readOnly' => true,
                     desc => ?DESC(cluster_k8s_suffix)
                 }
@@ -395,7 +395,7 @@ fields("node") ->
             sc(
                 string(),
                 #{
-                    default => "emqx@127.0.0.1",
+                    default => <<"emqx@127.0.0.1">>,
                     'readOnly' => true,
                     desc => ?DESC(node_name)
                 }
@@ -477,7 +477,7 @@ fields("node") ->
                 hoconsc:union([disabled, emqx_schema:duration()]),
                 #{
                     mapping => "emqx_machine.global_gc_interval",
-                    default => "15m",
+                    default => <<"15m">>,
                     desc => ?DESC(node_global_gc_interval),
                     'readOnly' => true
                 }
@@ -497,7 +497,7 @@ fields("node") ->
                 emqx_schema:duration_s(),
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS",
-                    default => "30s",
+                    default => <<"30s">>,
                     desc => ?DESC(node_crash_dump_seconds),
                     'readOnly' => true
                 }
@@ -507,7 +507,7 @@ fields("node") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES",
-                    default => "100MB",
+                    default => <<"100MB">>,
                     desc => ?DESC(node_crash_dump_bytes),
                     'readOnly' => true
                 }
@@ -517,7 +517,7 @@ fields("node") ->
                 emqx_schema:duration_s(),
                 #{
                     mapping => "vm_args.-kernel net_ticktime",
-                    default => "2m",
+                    default => <<"2m">>,
                     'readOnly' => true,
                     desc => ?DESC(node_dist_net_ticktime)
                 }
@@ -624,7 +624,7 @@ fields("cluster_call") ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(cluster_call_retry_interval),
-                    default => "1m"
+                    default => <<"1m">>
                 }
             )},
         {"max_history",
@@ -640,7 +640,7 @@ fields("cluster_call") ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(cluster_call_cleanup_interval),
-                    default => "5m"
+                    default => <<"5m">>
                 }
             )}
     ];
@@ -712,7 +712,7 @@ fields("rpc") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "gen_rpc.connect_timeout",
-                    default => "5s",
+                    default => <<"5s">>,
                     desc => ?DESC(rpc_connect_timeout)
                 }
             )},
@@ -745,7 +745,7 @@ fields("rpc") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "gen_rpc.send_timeout",
-                    default => "5s",
+                    default => <<"5s">>,
                     desc => ?DESC(rpc_send_timeout)
                 }
             )},
@@ -754,7 +754,7 @@ fields("rpc") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "gen_rpc.authentication_timeout",
-                    default => "5s",
+                    default => <<"5s">>,
                     desc => ?DESC(rpc_authentication_timeout)
                 }
             )},
@@ -763,7 +763,7 @@ fields("rpc") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "gen_rpc.call_receive_timeout",
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC(rpc_call_receive_timeout)
                 }
             )},
@@ -772,7 +772,7 @@ fields("rpc") ->
                 emqx_schema:duration_s(),
                 #{
                     mapping => "gen_rpc.socket_keepalive_idle",
-                    default => "15m",
+                    default => <<"15m">>,
                     desc => ?DESC(rpc_socket_keepalive_idle)
                 }
             )},
@@ -781,7 +781,7 @@ fields("rpc") ->
                 emqx_schema:duration_s(),
                 #{
                     mapping => "gen_rpc.socket_keepalive_interval",
-                    default => "75s",
+                    default => <<"75s">>,
                     desc => ?DESC(rpc_socket_keepalive_interval)
                 }
             )},
@@ -799,7 +799,7 @@ fields("rpc") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "gen_rpc.socket_sndbuf",
-                    default => "1MB",
+                    default => <<"1MB">>,
                     desc => ?DESC(rpc_socket_sndbuf)
                 }
             )},
@@ -808,7 +808,7 @@ fields("rpc") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "gen_rpc.socket_recbuf",
-                    default => "1MB",
+                    default => <<"1MB">>,
                     desc => ?DESC(rpc_socket_recbuf)
                 }
             )},
@@ -817,7 +817,7 @@ fields("rpc") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "gen_rpc.socket_buffer",
-                    default => "1MB",
+                    default => <<"1MB">>,
                     desc => ?DESC(rpc_socket_buffer)
                 }
             )},
@@ -861,7 +861,7 @@ fields("log_file_handler") ->
             sc(
                 hoconsc:union([infinity, emqx_schema:bytesize()]),
                 #{
-                    default => "50MB",
+                    default => <<"50MB">>,
                     desc => ?DESC("log_file_handler_max_size")
                 }
             )}
@@ -899,7 +899,7 @@ fields("log_overload_kill") ->
             sc(
                 emqx_schema:bytesize(),
                 #{
-                    default => "30MB",
+                    default => <<"30MB">>,
                     desc => ?DESC("log_overload_kill_mem_size")
                 }
             )},
@@ -915,7 +915,7 @@ fields("log_overload_kill") ->
             sc(
                 hoconsc:union([emqx_schema:duration_ms(), infinity]),
                 #{
-                    default => "5s",
+                    default => <<"5s">>,
                     desc => ?DESC("log_overload_kill_restart_after")
                 }
             )}
@@ -942,7 +942,7 @@ fields("log_burst_limit") ->
             sc(
                 emqx_schema:duration(),
                 #{
-                    default => "1s",
+                    default => <<"1s">>,
                     desc => ?DESC("log_burst_limit_window_time")
                 }
             )}
@@ -1092,7 +1092,7 @@ log_handler_common_confs(Enable) ->
             sc(
                 string(),
                 #{
-                    default => "system",
+                    default => <<"system">>,
                     desc => ?DESC("common_handler_time_offset"),
                     validator => fun validate_time_offset/1
                 }
@@ -1169,9 +1169,9 @@ crash_dump_file_default() ->
     case os:getenv("RUNNER_LOG_DIR") of
         false ->
             %% testing, or running emqx app as deps
-            "log/erl_crash.dump";
+            <<"log/erl_crash.dump">>;
         Dir ->
-            [filename:join([Dir, "erl_crash.dump"])]
+            unicode:characters_to_binary(filename:join([Dir, "erl_crash.dump"]), utf8)
     end.
 
 %% utils
