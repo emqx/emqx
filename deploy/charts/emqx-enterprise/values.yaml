@@ -102,7 +102,7 @@ initContainers: {}
   #       sysctl -w net.netfilter.nf_conntrack_max=1000000
   #       sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
 
-## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
+## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx-enterprise)
 emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
   EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
@@ -229,3 +229,10 @@ ssl:
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer
+
+## Setting PodDisruptionBudget.
+## ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb
+##
+pdb:
+  enabled: false
+  maxUnavailable: 1
