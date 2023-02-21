@@ -55,7 +55,7 @@ schema("/monitor/nodes/:node") ->
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
-                400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>)
             }
         }
     };
@@ -79,7 +79,7 @@ schema("/monitor_current/nodes/:node") ->
             parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),
-                400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>)
             }
         }
     }.
@@ -122,38 +122,31 @@ fields(sampler_current) ->
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
     RawNode = maps:get(node, Bindings, all),
-    case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
-        {ok, Node} ->
-            case emqx_dashboard_monitor:samplers(Node, Latest) of
-                {badrpc, {Node, Reason}} ->
-                    Message = list_to_binary(
-                        io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
-                    ),
-                    {400, 'BAD_RPC', Message};
-                Samplers ->
-                    {200, Samplers}
-            end;
-        _ ->
-            Message = list_to_binary(io_lib:format("Bad node ~p", [RawNode])),
-            {400, 'BAD_RPC', Message}
+    with_node(RawNode, dashboard_samplers_fun(Latest)).
+
+dashboard_samplers_fun(Latest) ->
+    fun(NodeOrCluster) ->
+        case emqx_dashboard_monitor:samplers(NodeOrCluster, Latest) of
+            {badrpc, _} = Error -> Error;
+            Samplers -> {ok, Samplers}
+        end
     end.
 
 monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, all),
+    with_node(RawNode, fun emqx_dashboard_monitor:current_rate/1).
+
+with_node(RawNode, Fun) ->
     case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
         {ok, NodeOrCluster} ->
-            case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
-                {ok, CurrentRate} ->
-                    {200, CurrentRate};
+            case Fun(NodeOrCluster) of
                 {badrpc, {Node, Reason}} ->
-                    Message = list_to_binary(
-                        io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
-                    ),
-                    {400, 'BAD_RPC', Message}
+                    {404, 'NOT_FOUND', io_lib:format("Node not found: ~p (~p)", [Node, Reason])};
+                {ok, Result} ->
+                    {200, Result}
             end;
-        {error, _} ->
-            Message = list_to_binary(io_lib:format("Bad node ~p", [RawNode])),
-            {400, 'BAD_RPC', Message}
+        _Error ->
+            {404, 'NOT_FOUND', io_lib:format("Node not found: ~p", [RawNode])}
     end.
 
 %% -------------------------------------------------------------------------------------------------

@@ -22,8 +22,6 @@
 -import(emqx_dashboard_SUITE, [auth_header_/0]).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include("emqx_dashboard.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
@@ -114,9 +112,9 @@ t_monitor_reset(_) ->
     ok.
 
 t_monitor_api_error(_) ->
-    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+    {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
         request(["monitor", "nodes", 'emqx@127.0.0.2']),
-    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+    {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
         request(["monitor_current", "nodes", 'emqx@127.0.0.2']),
     {error, {400, #{<<"code">> := <<"BAD_REQUEST">>}}} =
         request(["monitor"], "latest=0"),
