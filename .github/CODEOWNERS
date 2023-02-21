@@ -8,6 +8,7 @@
 /apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
 /apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_ft/             @emqx/emqx-review-board @savonarola @keynslug
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
 /apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
 /apps/emqx_plugin_libs/    @emqx/emqx-review-board @lafirest
