@@ -233,6 +233,9 @@ make_tgz() {
         macos*)
             target_name="${PROFILE}-${full_vsn}.zip"
             ;;
+        windows*)
+            target_name="${PROFILE}-${full_vsn}.zip"
+            ;;
         *)
             target_name="${PROFILE}-${full_vsn}.tar.gz"
             ;;
@@ -297,6 +300,13 @@ make_tgz() {
             fi
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
+            ;;
+        windows*)
+            pushd "${tard}" >/dev/null
+            7z a "${target_name}" ./emqx/* >/dev/null
+            popd >/dev/null
+            mv "${tard}/${target_name}" "${target}"
+            sha256sum "${target}" | head -c 64 > "${target}.sha256"
             ;;
         *)
             ## create tar after change dir
