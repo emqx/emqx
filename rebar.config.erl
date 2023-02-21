@@ -298,7 +298,8 @@ relx_plugin_apps(ReleaseType) ->
     ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)
     ++ relx_plugin_apps_enterprise(is_enterprise())
-    ++ relx_plugin_apps_extra().
+    ++ relx_plugin_apps_extra()
+    ++ relx_extra_import_plugins().
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
@@ -323,6 +324,15 @@ relx_plugin_apps_enterprise(false) -> [].
 relx_plugin_apps_extra() ->
     {_HasElixir, ExtraDeps} = extra_deps(),
     [Plugin || {Plugin, _} <- ExtraDeps].
+
+
+relx_extra_import_plugins() ->
+    case filelib:is_file("extra_import_plugins") of
+        true ->
+            file:consult("extra_import_plugins");
+        false ->
+            []
+    end.
 
 relx_overlay(ReleaseType) ->
     [ {mkdir, "log/"}
