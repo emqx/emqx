@@ -23,6 +23,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
+    if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
     container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
