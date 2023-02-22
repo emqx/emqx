@@ -7,14 +7,15 @@ concurrency:
 on:
   push:
     branches:
-      - '**'
+      - master
+      - 'ci/**'
     tags:
       - v*
   pull_request:
 
 jobs:
   prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     # prepare source with any OTP version, no need for a matrix
     container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-debian11
 
