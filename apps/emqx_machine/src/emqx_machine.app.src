@@ -6,7 +6,7 @@
     {vsn, "0.2.0"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib]},
+    {applications, [kernel, stdlib, emqx_ctl]},
     {mod, {emqx_machine_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},

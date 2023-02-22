@@ -100,7 +100,11 @@ on_start(
         case maps:get(enable, SSL) of
             true ->
                 [
-                    {ssl, required},
+                    %% note: this is converted to `required' in
+                    %% `conn_opts/2', and there's a boolean guard
+                    %% there; if this is set to `required' here,
+                    %% that'll require changing `conn_opts/2''s guard.
+                    {ssl, true},
                     {ssl_opts, emqx_tls_lib:to_client_opts(SSL)}
                 ];
             false ->

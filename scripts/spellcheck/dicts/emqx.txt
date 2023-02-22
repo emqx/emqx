@@ -160,6 +160,7 @@ jenkins
 jq
 kb
 keepalive
+keyfile
 libcoap
 lifecycle
 localhost
@@ -265,3 +266,4 @@ GSSAPI
 keytab
 jq
 nif
+TDengine

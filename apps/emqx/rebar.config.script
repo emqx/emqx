@@ -24,7 +24,20 @@ IsQuicSupp = fun() ->
 end,
 
 Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}},
-Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.16"}}}.
+Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.111"}}}.
+
+Dialyzer = fun(Config) ->
+                   {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
+                   {plt_extra_apps, OldExtra} = lists:keyfind(plt_extra_apps, 1, OldDialyzerConfig),
+                   Extra = OldExtra ++ [quicer || IsQuicSupp()],
+                   NewDialyzerConfig = [{plt_extra_apps, Extra} | OldDialyzerConfig],
+                   lists:keystore(
+                     dialyzer,
+                     1,
+                     Config,
+                     {dialyzer, NewDialyzerConfig}
+                    )
+           end.
 
 ExtraDeps = fun(C) ->
     {deps, Deps0} = lists:keyfind(deps, 1, C),
@@ -43,4 +56,4 @@ ExtraDeps = fun(C) ->
     )
 end,
 
-ExtraDeps(CONFIG).
+Dialyzer(ExtraDeps(CONFIG)).

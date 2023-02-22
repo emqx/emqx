@@ -51,7 +51,7 @@ fields("rule_engine") ->
             ?HOCON(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "10s",
+                    default => <<"10s">>,
                     desc => ?DESC("rule_engine_jq_function_default_timeout")
                 }
             )},

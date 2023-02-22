@@ -7,3 +7,4 @@ mysql
 redis
 redis_cluster
 pgsql
+tdengine

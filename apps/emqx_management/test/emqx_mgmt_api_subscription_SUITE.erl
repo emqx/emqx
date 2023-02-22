@@ -57,7 +57,7 @@ t_subscription_api(Config) ->
     Data = emqx_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, Data),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta)),
+    ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
     ?assertEqual(2, maps:get(<<"count">>, Meta)),
     Subscriptions = maps:get(<<"data">>, Data),
     ?assertEqual(length(Subscriptions), 2),
@@ -95,7 +95,7 @@ t_subscription_api(Config) ->
 
     DataTopic2 = #{<<"meta">> := Meta2} = request_json(get, QS, Headers),
     ?assertEqual(1, maps:get(<<"page">>, Meta2)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta2)),
+    ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta2)),
     ?assertEqual(1, maps:get(<<"count">>, Meta2)),
     SubscriptionsList2 = maps:get(<<"data">>, DataTopic2),
     ?assertEqual(length(SubscriptionsList2), 1).
@@ -120,7 +120,7 @@ t_subscription_fuzzy_search(Config) ->
 
     MatchData1 = #{<<"meta">> := MatchMeta1} = request_json(get, MatchQs, Headers),
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta1)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta1)),
+    ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, MatchMeta1)),
     %% count is undefined in fuzzy searching
     ?assertNot(maps:is_key(<<"count">>, MatchMeta1)),
     ?assertMatch(3, length(maps:get(<<"data">>, MatchData1))),

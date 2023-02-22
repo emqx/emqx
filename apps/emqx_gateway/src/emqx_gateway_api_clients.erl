@@ -19,7 +19,6 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(minirest_api).
@@ -464,7 +463,12 @@ schema("/gateways/:name/clients") ->
                 summary => <<"List Gateway's Clients">>,
                 parameters => params_client_query(),
                 responses =>
-                    ?STANDARD_RESP(#{200 => schema_client_list()})
+                    ?STANDARD_RESP(#{
+                        200 => [
+                            {data, schema_client_list()},
+                            {meta, mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
+                        ]
+                    })
             }
     };
 schema("/gateways/:name/clients/:clientid") ->

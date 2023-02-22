@@ -166,7 +166,7 @@ config(put, #{body := Body}) ->
 %%------------------------------------------------------------------------------
 lookup_retained(get, #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
-    Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:max_row_limit()),
+    Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:default_row_limit()),
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, undefined, Page, Limit),
     {200, #{
         data => [format_message(Msg) || Msg <- Msgs],

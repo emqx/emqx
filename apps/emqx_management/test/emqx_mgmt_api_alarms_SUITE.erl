@@ -62,5 +62,5 @@ get_alarms(AssertCount, Activated) ->
     Limit = maps:get(<<"limit">>, Meta),
     Count = maps:get(<<"count">>, Meta),
     ?assertEqual(Page, 1),
-    ?assertEqual(Limit, emqx_mgmt:max_row_limit()),
+    ?assertEqual(Limit, emqx_mgmt:default_row_limit()),
     ?assert(Count >= AssertCount).

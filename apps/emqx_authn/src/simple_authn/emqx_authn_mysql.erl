@@ -74,7 +74,7 @@ query(_) -> undefined.
 
 query_timeout(type) -> emqx_schema:duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
-query_timeout(default) -> "5s";
+query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------

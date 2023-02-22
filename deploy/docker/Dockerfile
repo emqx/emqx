@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-debian11
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-debian11
 ARG RUN_FROM=debian:11-slim
 FROM ${BUILD_FROM} AS builder
 
@@ -10,11 +10,9 @@ ENV EMQX_RELUP=false
 RUN export PROFILE=${EMQX_NAME%%-elixir} \
     && export EMQX_NAME1=$EMQX_NAME \
     && export EMQX_NAME=$PROFILE \
-    && export EMQX_LIB_PATH="_build/$EMQX_NAME/lib" \
     && export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx" \
     && export EMQX_REL_FORM='docker' \
     && cd /emqx \
-    && rm -rf $EMQX_LIB_PATH \
     && make $EMQX_NAME1 \
     && rm -f $EMQX_REL_PATH/*.tar.gz \
     && mkdir -p /emqx-rel \

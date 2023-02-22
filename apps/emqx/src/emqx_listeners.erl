@@ -72,9 +72,7 @@ id_example() -> 'tcp:default'.
 list_raw() ->
     [
         {listener_id(Type, LName), Type, LConf}
-     || %% FIXME: quic is not supported update vi dashboard yet
-        {Type, LName, LConf} <- do_list_raw(),
-        Type =/= <<"quic">>
+     || {Type, LName, LConf} <- do_list_raw()
     ].
 
 list() ->
@@ -170,6 +168,11 @@ current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+current_conns(quic, _Name, _ListenOn) ->
+    case quicer:perf_counters() of
+        {ok, PerfCnts} -> proplists:get_value(conn_active, PerfCnts);
+        _ -> 0
+    end;
 current_conns(_, _, _) ->
     {error, not_support}.
 
@@ -367,16 +370,26 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            ListenOpts = [
-                {cert, maps:get(certfile, Opts)},
-                {key, maps:get(keyfile, Opts)},
-                {alpn, ["mqtt"]},
-                {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
-                {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
-                {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
-                {server_resumption_level, 2}
-            ],
+            SSLOpts = maps:merge(
+                maps:with([certfile, keyfile], Opts),
+                maps:get(ssl_options, Opts, #{})
+            ),
+            ListenOpts =
+                [
+                    {certfile, str(maps:get(certfile, SSLOpts))},
+                    {keyfile, str(maps:get(keyfile, SSLOpts))},
+                    {alpn, ["mqtt"]},
+                    {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
+                    {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
+                    {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
+                    {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
+                    {server_resumption_level, 2},
+                    {verify, maps:get(verify, SSLOpts, verify_none)}
+                ] ++
+                    case maps:get(cacertfile, SSLOpts, undefined) of
+                        undefined -> [];
+                        CaCertFile -> [{cacertfile, binary_to_list(CaCertFile)}]
+                    end,
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
                 peer_unidi_stream_count => 1,
@@ -385,13 +398,16 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                 listener => {quic, ListenerName},
                 limiter => limiter(Opts)
             },
-            StreamOpts = [{stream_callback, emqx_quic_stream}],
+            StreamOpts = #{
+                stream_callback => emqx_quic_stream,
+                active => 1
+            },
             Id = listener_id(quic, ListenerName),
             add_limiter_bucket(Id, Opts),
             quicer:start_listener(
                 Id,
                 ListenOn,
-                {ListenOpts, ConnectionOpts, StreamOpts}
+                {maps:from_list(ListenOpts), ConnectionOpts, StreamOpts}
             );
         [] ->
             {ok, {skipped, quic_app_missing}}

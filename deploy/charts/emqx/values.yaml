@@ -189,6 +189,20 @@ ingress:
     hosts:
     - dashboard.emqx.local
     tls: []
+  ## ingress for MQTT
+  mqtt:
+    enabled: false
+    # ingressClassName: haproxy
+    annotations: {}
+      # kubernetes.io/ingress.class: haproxy
+      # kubernetes.io/tls-acme: "true"
+      # haproxy-ingress.github.io/tcp-service-port: "8883"
+      # haproxy-ingress.github.io/proxy-protocol: "v2"
+    path: /
+    pathType: ImplementationSpecific
+    hosts:
+    - mqtt.emqx.local
+    tls: []
 
 podSecurityContext:
   enabled: true
@@ -211,7 +225,14 @@ ssl:
   enabled: false
   useExisting: false
   existingName: emqx-tls
-  dnsnames: {}
+  dnsnames: []
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer
+
+## Setting PodDisruptionBudget.
+## ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb
+##
+pdb:
+  enabled: false
+  maxUnavailable: 1

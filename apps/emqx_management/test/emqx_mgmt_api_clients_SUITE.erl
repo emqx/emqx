@@ -64,7 +64,7 @@ t_clients(_) ->
     ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
     ClientsCount = maps:get(<<"count">>, ClientsMeta),
     ?assertEqual(ClientsPage, 1),
-    ?assertEqual(ClientsLimit, emqx_mgmt:max_row_limit()),
+    ?assertEqual(ClientsLimit, emqx_mgmt:default_row_limit()),
     ?assertEqual(ClientsCount, 2),
 
     %% get /clients/:clientid
@@ -78,7 +78,14 @@ t_clients(_) ->
     %% delete /clients/:clientid kickout
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path),
-    timer:sleep(300),
+    Kick =
+        receive
+            {'EXIT', C2, _} ->
+                ok
+        after 300 ->
+            timeout
+        end,
+    ?assertEqual(ok, Kick),
     AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
@@ -107,7 +114,7 @@ t_clients(_) ->
         SubscribeBody
     ),
     timer:sleep(100),
-    [{AfterSubTopic, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
+    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
@@ -152,7 +159,7 @@ t_clients(_) ->
         UnSubscribeBody
     ),
     timer:sleep(100),
-    ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(ClientId1)),
 
     %% testcase cleanup, kickout client1
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),
@@ -246,6 +253,49 @@ t_keepalive(_Config) ->
     ?assertEqual(11, Keepalive),
     emqtt:disconnect(C1),
     ok.
+
+t_client_id_not_found(_Config) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Http = {"HTTP/1.1", 404, "Not Found"},
+    Body = "{\"code\":\"CLIENTID_NOT_FOUND\",\"message\":\"Client ID not found\"}",
+
+    PathFun = fun(Suffix) ->
+        emqx_mgmt_api_test_util:api_path(["clients", "no_existed_clientid"] ++ Suffix)
+    end,
+    ReqFun = fun(Method, Path) ->
+        emqx_mgmt_api_test_util:request_api(
+            Method, Path, "", AuthHeader, [], #{return_all => true}
+        )
+    end,
+
+    PostFun = fun(Method, Path, Data) ->
+        emqx_mgmt_api_test_util:request_api(
+            Method, Path, "", AuthHeader, Data, #{return_all => true}
+        )
+    end,
+
+    %% Client lookup
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun([]))),
+    %% Client kickout
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(delete, PathFun([]))),
+    %% Client Subscription list
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["subscriptions"]))),
+    %% AuthZ Cache lookup
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["authorization", "cache"]))),
+    %% AuthZ Cache clean
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(delete, PathFun(["authorization", "cache"]))),
+    %% Client Subscribe
+    SubBody = #{topic => <<"testtopic">>, qos => 1, nl => 1, rh => 1},
+    ?assertMatch({error, {Http, _, Body}}, PostFun(post, PathFun(["subscribe"]), SubBody)),
+    ?assertMatch(
+        {error, {Http, _, Body}}, PostFun(post, PathFun(["subscribe", "bulk"]), [SubBody])
+    ),
+    %% Client Unsubscribe
+    UnsubBody = #{topic => <<"testtopic">>},
+    ?assertMatch({error, {Http, _, Body}}, PostFun(post, PathFun(["unsubscribe"]), UnsubBody)),
+    ?assertMatch(
+        {error, {Http, _, Body}}, PostFun(post, PathFun(["unsubscribe", "bulk"]), [UnsubBody])
+    ).
 
 time_string_to_epoch_millisecond(DateTime) ->
     time_string_to_epoch(DateTime, millisecond).

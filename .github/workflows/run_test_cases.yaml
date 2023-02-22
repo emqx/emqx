@@ -30,13 +30,13 @@ jobs:
               MATRIX="$(echo "${APPS}" | jq -c '
                 [
                   (.[] | select(.profile == "emqx") | . + {
-                    builder: "5.0-27",
+                    builder: "5.0-28",
                     otp: "25.1.2-2",
                     elixir: "1.13.4"
                   }),
                   (.[] | select(.profile == "emqx-enterprise") | . + {
-                    builder: "5.0-27",
-                    otp: ["24.3.4.2-1", "25.1.2-2"][],
+                    builder: "5.0-28",
+                    otp: ["24.3.4.2-2", "25.1.2-2"][],
                     elixir: "1.13.4"
                   })
                 ]
@@ -56,7 +56,7 @@ jobs:
               echo "runs-on=${RUNS_ON}" | tee -a $GITHUB_OUTPUT
 
     prepare:
-        runs-on: aws-amd64
+        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
         needs: [build-matrix]
         strategy:
           fail-fast: false
@@ -161,6 +161,7 @@ jobs:
             PGSQL_TAG: "13"
             REDIS_TAG: "7.0"
             INFLUXDB_TAG: "2.5.0"
+            TDENGINE_TAG: "3.0.2.4"
             PROFILE: ${{ matrix.profile }}
             CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
           run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
@@ -223,12 +224,12 @@ jobs:
         - ct
         - ct_docker
       runs-on: ubuntu-20.04
-      container: "ghcr.io/emqx/emqx-builder/5.0-27:1.13.4-24.3.4.2-1-ubuntu20.04"
+      container: "ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-ubuntu20.04"
       steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-emqx-enterprise-24.3.4.2-1
+          name: source-emqx-enterprise-24.3.4.2-2
           path: .
       - name: unzip source code
         run: unzip -q source.zip

@@ -67,7 +67,7 @@ t_cluster_query(_Config) ->
 
         %% assert: AllPage = Page1 + Page2 + Page3 + Page4
         %% !!!Note: this equation requires that the queried tables must be ordered_set
-        {200, ClientsPage2} = query_clients(Node1, #{<<"page">> => 2, <<"limit">> => 5}),
+        {200, ClientsPage2} = query_clients(Node1, #{<<"page">> => <<"2">>, <<"limit">> => 5}),
         {200, ClientsPage3} = query_clients(Node2, #{<<"page">> => 3, <<"limit">> => 5}),
         {200, ClientsPage4} = query_clients(Node1, #{<<"page">> => 4, <<"limit">> => 5}),
         GetClientIds = fun(L) -> lists:map(fun(#{clientid := Id}) -> Id end, L) end,
@@ -79,6 +79,78 @@ t_cluster_query(_Config) ->
             )
         ),
 
+        %% Scroll past count
+        {200, ClientsPage10} = query_clients(Node1, #{<<"page">> => <<"10">>, <<"limit">> => 5}),
+        ?assertEqual(
+            #{data => [], meta => #{page => 10, limit => 5, count => 20, hasnext => false}},
+            ClientsPage10
+        ),
+
+        %% Node queries
+        {200, ClientsNode2} = query_clients(Node1, #{<<"node">> => Node2}),
+        ?assertEqual({200, ClientsNode2}, query_clients(Node2, #{<<"node">> => Node2})),
+        ?assertMatch(
+            #{page := 1, limit := 100, count := 10},
+            maps:get(meta, ClientsNode2)
+        ),
+        ?assertMatch(10, length(maps:get(data, ClientsNode2))),
+
+        {200, ClientsNode2Page1} = query_clients(Node2, #{<<"node">> => Node2, <<"limit">> => 5}),
+        {200, ClientsNode2Page2} = query_clients(Node1, #{
+            <<"node">> => Node2, <<"page">> => <<"2">>, <<"limit">> => 5
+        }),
+        {200, ClientsNode2Page3} = query_clients(Node2, #{
+            <<"node">> => Node2, <<"page">> => 3, <<"limit">> => 5
+        }),
+        {200, ClientsNode2Page4} = query_clients(Node1, #{
+            <<"node">> => Node2, <<"page">> => 4, <<"limit">> => 5
+        }),
+        ?assertEqual(
+            GetClientIds(maps:get(data, ClientsNode2)),
+            GetClientIds(
+                lists:append([
+                    maps:get(data, Page)
+                 || Page <- [
+                        ClientsNode2Page1,
+                        ClientsNode2Page2,
+                        ClientsNode2Page3,
+                        ClientsNode2Page4
+                    ]
+                ])
+            )
+        ),
+
+        %% Scroll past count
+        {200, ClientsNode2Page10} = query_clients(Node1, #{
+            <<"node">> => Node2, <<"page">> => <<"10">>, <<"limit">> => 5
+        }),
+        ?assertEqual(
+            #{data => [], meta => #{page => 10, limit => 5, count => 10, hasnext => false}},
+            ClientsNode2Page10
+        ),
+
+        %% Query with bad params
+        ?assertEqual(
+            {400, #{
+                code => <<"INVALID_PARAMETER">>,
+                message => <<"page_limit_invalid">>
+            }},
+            query_clients(Node1, #{<<"page">> => -1})
+        ),
+        ?assertEqual(
+            {400, #{
+                code => <<"INVALID_PARAMETER">>,
+                message => <<"page_limit_invalid">>
+            }},
+            query_clients(Node1, #{<<"node">> => Node1, <<"page">> => -1})
+        ),
+
+        %% Query bad node
+        ?assertMatch(
+            {500, #{code := <<"NODE_DOWN">>}},
+            query_clients(Node1, #{<<"node">> => 'nonode@nohost'})
+        ),
+
         %% exact match can return non-zero total
         {200, ClientsNode1} = query_clients(Node2, #{<<"username">> => <<"corenode1@127.0.0.1">>}),
         ?assertMatch(
@@ -87,11 +159,11 @@ t_cluster_query(_Config) ->
         ),
 
         %% fuzzy searching can't return total
-        {200, ClientsNode2} = query_clients(Node2, #{<<"like_username">> => <<"corenode2">>}),
-        MetaNode2 = maps:get(meta, ClientsNode2),
+        {200, ClientsFuzzyNode2} = query_clients(Node2, #{<<"like_username">> => <<"corenode2">>}),
+        MetaNode2 = maps:get(meta, ClientsFuzzyNode2),
         ?assertNotMatch(#{count := _}, MetaNode2),
         ?assertMatch(#{hasnext := false}, MetaNode2),
-        ?assertMatch(10, length(maps:get(data, ClientsNode2))),
+        ?assertMatch(10, length(maps:get(data, ClientsFuzzyNode2))),
 
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs2)
@@ -100,6 +172,23 @@ t_cluster_query(_Config) ->
         emqx_common_test_helpers:stop_slave(Node2)
     end,
     ok.
+
+t_bad_rpc(_) ->
+    emqx_mgmt_api_test_util:init_suite(),
+    process_flag(trap_exit, true),
+    ClientLs1 = [start_emqtt_client(node(), I, 1883) || I <- lists:seq(1, 10)],
+    Path = emqx_mgmt_api_test_util:api_path(["clients?limit=2&page=2"]),
+    try
+        meck:expect(mria_mnesia, running_nodes, 0, ['fake@nohost']),
+        {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path),
+        %% good cop, bad cop
+        meck:expect(mria_mnesia, running_nodes, 0, [node(), 'fake@nohost']),
+        {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path)
+    after
+        _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
+        meck:unload(mria_mnesia),
+        emqx_mgmt_api_test_util:end_suite()
+    end.
 
 %%--------------------------------------------------------------------
 %% helpers

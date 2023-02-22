@@ -29,13 +29,13 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - ["emqx", "24.3.4.2-1", "el7"]
-        - ["emqx", "24.3.4.2-1", "ubuntu20.04"]
+        - ["emqx", "24.3.4.2-2", "el7"]
+        - ["emqx", "24.3.4.2-2", "ubuntu20.04"]
         - ["emqx", "25.1.2-2", "ubuntu22.04"]
-        - ["emqx-enterprise", "24.3.4.2-1", "ubuntu20.04"]
+        - ["emqx-enterprise", "24.3.4.2-2", "ubuntu20.04"]
         - ["emqx-enterprise", "25.1.2-2", "ubuntu22.04"]
         builder:
-        - 5.0-27
+        - 5.0-28
         elixir:
         - 1.13.4
 
@@ -128,7 +128,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.3.4.2-1
+        - 24.3.4.2-2
         os:
         - macos-11
         - macos-12-arm64
@@ -153,6 +153,50 @@ jobs:
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*
+
+  docker:
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: prepare
+      run: |
+        EMQX_NAME=${{ matrix.profile }}
+        PKG_VSN=${PKG_VSN:-$(./pkg-vsn.sh $EMQX_NAME)}
+        EMQX_IMAGE_TAG=emqx/$EMQX_NAME:test
+        echo "EMQX_NAME=$EMQX_NAME" >> $GITHUB_ENV
+        echo "PKG_VSN=$PKG_VSN" >> $GITHUB_ENV
+        echo "EMQX_IMAGE_TAG=$EMQX_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: docker/setup-buildx-action@v2
+    - name: build and export to Docker
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./deploy/docker/Dockerfile
+        load: true
+        tags: ${{ env.EMQX_IMAGE_TAG }}
+        build-args: |
+          EMQX_NAME=${{ env.EMQX_NAME }}
+    - name: test docker image
+      run: |
+        CID=$(docker run -d --rm -P $EMQX_IMAGE_TAG)
+        HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+        ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+        docker stop $CID
+    - name: export docker image
+      run: |
+        docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-$PKG_VSN.tar.gz
+    - uses: actions/upload-artifact@v3
+      with:
+        name: "${{ matrix.profile }}-docker"
+        path: "${{ env.EMQX_NAME }}-${{ env.PKG_VSN }}.tar.gz"
 
   spellcheck:
     needs: linux

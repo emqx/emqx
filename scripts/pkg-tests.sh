@@ -103,16 +103,7 @@ emqx_test(){
                 cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
                 exit 1
             fi
-            IDLE_TIME=0
-            while ! curl http://127.0.0.1:18083/status >/dev/null 2>&1; do
-                if [ $IDLE_TIME -gt 10 ]
-                then
-                    echo "emqx running error"
-                    exit 1
-                fi
-                sleep 10
-                IDLE_TIME=$((IDLE_TIME+1))
-            done
+            "$SCRIPTS/test/emqx-smoke-test.sh" 127.0.0.1 18083
             pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
             if ! "${PACKAGE_PATH}"/emqx/bin/emqx stop; then
                 cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
@@ -208,16 +199,7 @@ EOF
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
     fi
-    IDLE_TIME=0
-    while ! curl http://127.0.0.1:18083/status >/dev/null 2>&1; do
-        if [ $IDLE_TIME -gt 10 ]
-        then
-            echo "emqx running error"
-            exit 1
-        fi
-        sleep 10
-        IDLE_TIME=$((IDLE_TIME+1))
-    done
+    "$SCRIPTS/test/emqx-smoke-test.sh" 127.0.0.1 18083
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     ps -ef | grep -E '\-progname\s.+emqx\s'

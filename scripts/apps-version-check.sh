@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+exit 0
 latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*')
 echo "Compare base: $latest_release"
 

@@ -32,12 +32,6 @@
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"influxdb_udp">> => #{
-                summary => <<"InfluxDB UDP Bridge">>,
-                value => values("influxdb_udp", Method)
-            }
-        },
-        #{
             <<"influxdb_api_v1">> => #{
                 summary => <<"InfluxDB HTTP API V1 Bridge">>,
                 value => values("influxdb_api_v1", Method)
@@ -71,12 +65,6 @@ values("influxdb_api_v1", post) ->
         server => <<"127.0.0.1:8086">>
     },
     values(common, "influxdb_api_v1", SupportUint, TypeOpts);
-values("influxdb_udp", post) ->
-    SupportUint = <<>>,
-    TypeOpts = #{
-        server => <<"127.0.0.1:8089">>
-    },
-    values(common, "influxdb_udp", SupportUint, TypeOpts);
 values(Protocol, put) ->
     values(Protocol, post).
 
@@ -106,26 +94,20 @@ namespace() -> "bridge_influxdb".
 
 roots() -> [].
 
-fields("post_udp") ->
-    method_fileds(post, influxdb_udp);
 fields("post_api_v1") ->
     method_fileds(post, influxdb_api_v1);
 fields("post_api_v2") ->
     method_fileds(post, influxdb_api_v2);
-fields("put_udp") ->
-    method_fileds(put, influxdb_udp);
 fields("put_api_v1") ->
     method_fileds(put, influxdb_api_v1);
 fields("put_api_v2") ->
     method_fileds(put, influxdb_api_v2);
-fields("get_udp") ->
-    method_fileds(get, influxdb_udp);
 fields("get_api_v1") ->
     method_fileds(get, influxdb_api_v1);
 fields("get_api_v2") ->
     method_fileds(get, influxdb_api_v2);
 fields(Type) when
-    Type == influxdb_udp orelse Type == influxdb_api_v1 orelse Type == influxdb_api_v2
+    Type == influxdb_api_v1 orelse Type == influxdb_api_v2
 ->
     influxdb_bridge_common_fields() ++
         connector_fields(Type).
@@ -164,8 +146,6 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for InfluxDB using `", string:to_upper(Method), "` method."];
-desc(influxdb_udp) ->
-    ?DESC(emqx_ee_connector_influxdb, "influxdb_udp");
 desc(influxdb_api_v1) ->
     ?DESC(emqx_ee_connector_influxdb, "influxdb_api_v1");
 desc(influxdb_api_v2) ->

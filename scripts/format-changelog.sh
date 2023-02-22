@@ -3,20 +3,27 @@ set -euo pipefail
 shopt -s nullglob
 export LANG=C.UTF-8
 
-[ "$#" -ne 2 ] && {
-    echo "Usage $0 <EMQX version> <en|zh>" 1>&2;
+[ "$#" -ne 4 ] && {
+    echo "Usage $0 <emqx|emqx-enterprise> <LAST TAG> <VERSION> <OUTPUT DIR>" 1>&2;
     exit 1
 }
 
-version="${1}"
-language="${2}"
+profile="${1}"
+last_tag="${2}"
+version="${3}"
+output_dir="${4}"
+languages=("en" "zh")
+top_dir="$(git rev-parse --show-toplevel)"
+templates_dir="$top_dir/scripts/changelog-lang-templates"
+declare -a changes
+changes=("")
 
-changes_dir="$(git rev-parse --show-toplevel)/changes/${version}"
+echo "generated changelogs from tag:${last_tag} to HEAD"
 
 item() {
     local filename pr indent
     filename="${1}"
-    pr="$(echo "${filename}" | sed -E 's/.*-([0-9]+)\.(en|zh)\.md$/\1/')"
+    pr="$(echo "${filename}" | sed -E 's/.*-([0-9]+)\.[a-z]+\.md$/\1/')"
     indent="- [#${pr}](https://github.com/emqx/emqx/pull/${pr}) "
     while read -r line; do
         echo "${indent}${line}"
@@ -27,40 +34,36 @@ item() {
 
 section() {
     local prefix=$1
-    for i in "${changes_dir}"/"${prefix}"-*."${language}".md; do
-        item "${i}"
+    for file in "${changes[@]}"; do
+        if [[ $file =~ .*$prefix-.*$language.md ]]; then
+            item "$file"
+        fi
     done
 }
 
-if [ "${language}" = "en" ]; then
-    cat <<EOF
-# ${version}
+generate() {
+    local language=$1
+    local output="$output_dir/${version}_$language.md"
+    local template_file="$templates_dir/$language"
+    local template
+    if [ -f "$template_file" ]; then
+        template=$(cat "$template_file")
+        eval "echo \"$template\" > $output"
+    else
+        echo "Invalid language ${language}" 1>&2;
+        exit 1
+    fi
+}
 
-## Enhancements
-
-$(section feat)
-
-$(section perf)
-
-## Bug fixes
-
-$(section fix)
-EOF
-elif [ "${language}" = "zh" ]; then
-     cat <<EOF
-# ${version}
-
-## 增强
-
-$(section feat)
-
-$(section perf)
-
-## 修复
-
-$(section fix)
-EOF
-else
-    echo "Invalid language ${language}" 1>&2;
-    exit 1
+changes_dir=("$top_dir/changes/ce")
+if [ "$profile" == "emqx-enterprise" ]; then
+    changes_dir+=("$top_dir/changes/ee")
 fi
+
+while read -d "" -r file; do
+   changes+=("$file")
+done < <(git diff --name-only -z -a "tags/${last_tag}...HEAD" "${changes_dir[@]}")
+
+for language in "${languages[@]}"; do
+    generate "$language"
+done

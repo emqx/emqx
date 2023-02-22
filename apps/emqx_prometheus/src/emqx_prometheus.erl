@@ -590,20 +590,7 @@ emqx_vm() ->
     ].
 
 emqx_vm_data() ->
-    Idle =
-        case cpu_sup:util([detailed]) of
-            %% Not support for Windows
-            {_, 0, 0, _} -> 0;
-            {_Num, _Use, IdleList, _} -> ?C(idle, IdleList)
-        end,
-    RunQueue = erlang:statistics(run_queue),
-    [
-        {run_queue, RunQueue},
-        %% XXX: Plan removed at v5.0
-        {process_total_messages, 0},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle}
-    ] ++ emqx_vm:mem_info().
+    emqx_mgmt:vm_stats().
 
 emqx_cluster() ->
     [
