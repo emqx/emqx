@@ -223,9 +223,9 @@ generate_changelog () {
             from_tag="$(git describe --tags --abbrev=0 --match 'e*')"
         fi
     fi
-    local output_dir="changes"
-    ./scripts/format-changelog.sh $PROFILE "${from_tag}" "${TAG}" $output_dir
-    git add $output_dir
+    ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
+    ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
+    git add changes/"${TAG}".*.md
     [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
 }
 
