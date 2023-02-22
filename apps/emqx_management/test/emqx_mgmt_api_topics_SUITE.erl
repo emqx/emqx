@@ -52,7 +52,7 @@ t_nodes_api(Config) ->
     RoutesData = emqx_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, RoutesData),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta)),
+    ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
     ?assertEqual(1, maps:get(<<"count">>, Meta)),
     Data = maps:get(<<"data">>, RoutesData),
     Route = erlang:hd(Data),

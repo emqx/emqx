@@ -274,11 +274,10 @@ schema("/clients/:clientid/subscriptions") ->
             responses => #{
                 200 => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
-                %% returns [] if client not existed in cluster
-                %404 => emqx_dashboard_swagger:error_codes(
-                %    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
-                %)
             }
         }
     };
@@ -599,6 +598,8 @@ unsubscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfo
 
 subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
     case emqx_mgmt:list_client_subscriptions(ClientID) of
+        {error, not_found} ->
+            {404, ?CLIENTID_NOT_FOUND};
         [] ->
             {200, []};
         {Node, Subs} ->
@@ -677,7 +678,7 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+    case emqx_mgmt:kickout_client(ClientID) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->

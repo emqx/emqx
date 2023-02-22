@@ -98,8 +98,8 @@ count(Table) ->
 page(Params) ->
     maps:get(<<"page">>, Params, 1).
 
-limit(Params) ->
-    maps:get(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
+limit(Params) when is_map(Params) ->
+    maps:get(<<"limit">>, Params, emqx_mgmt:default_row_limit()).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -683,7 +683,7 @@ paginate_test_() ->
     Size = 1000,
     MyLimit = 10,
     ets:insert(?MODULE, [{I, foo} || I <- lists:seq(1, Size)]),
-    DefaultLimit = emqx_mgmt:max_row_limit(),
+    DefaultLimit = emqx_mgmt:default_row_limit(),
     NoParamsResult = paginate(?MODULE, #{}, {?MODULE, paginate_test_format}),
     PaginateResults = [
         paginate(
