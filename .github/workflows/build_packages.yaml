@@ -22,8 +22,8 @@ on:
 
 jobs:
   prepare:
-    runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-ubuntu20.04
+    runs-on: ubuntu-22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -211,19 +211,20 @@ jobs:
           - ubuntu18.04
           - debian11
           - debian10
+          - el9
           - el8
           - el7
           - amzn2
         build_machine:
           - aws-arm64
-          - ubuntu-20.04
+          - ubuntu-22.04
         builder:
-          - 5.0-28
+          - 5.0-29
         elixir:
           - 1.13.4
         exclude:
         - arch: arm64
-          build_machine: ubuntu-20.04
+          build_machine: ubuntu-22.04
         - arch: amd64
           build_machine: aws-arm64
         include:
@@ -232,7 +233,7 @@ jobs:
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.0-28
+            builder: 5.0-29
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
@@ -240,7 +241,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.0-28
+            builder: 5.0-29
             elixir: 1.13.4
             release_with: elixir
 
@@ -306,7 +307,7 @@ jobs:
           {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   publish_artifacts:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [prepare, mac, linux]
     if: needs.prepare.outputs.IS_EXACT_TAG && github.event_name != 'schedule'
     strategy:
@@ -375,9 +376,11 @@ jobs:
         push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-arm64.deb"
         push "ubuntu/jammy" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu22.04-amd64.deb"
         push "ubuntu/jammy" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu22.04-arm64.deb"
+        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-amd64.rpm"
+        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-arm64.rpm"
         push "el/7" "packages/$PROFILE/$PROFILE-$VERSION-el7-amd64.rpm"
         push "el/7" "packages/$PROFILE/$PROFILE-$VERSION-el7-arm64.rpm"
         push "el/8" "packages/$PROFILE/$PROFILE-$VERSION-el8-amd64.rpm"
         push "el/8" "packages/$PROFILE/$PROFILE-$VERSION-el8-arm64.rpm"
-        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-amd64.rpm"
-        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-arm64.rpm"
+        push "el/9" "packages/$PROFILE/$PROFILE-$VERSION-el9-amd64.rpm"
+        push "el/9" "packages/$PROFILE/$PROFILE-$VERSION-el9-arm64.rpm"
