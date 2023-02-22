@@ -32,7 +32,8 @@ all() ->
     [
         {group, mstream},
         {group, shutdown},
-        {group, misc}
+        {group, misc},
+        t_listener_with_lowlevel_settings
     ].
 
 groups() ->
@@ -1891,6 +1892,60 @@ t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
     end,
     ok = emqtt:disconnect(C),
     ok = emqtt:disconnect(C0).
+
+t_listener_with_lowlevel_settings(_Config) ->
+    LPort = 24567,
+    LowLevelTunings = #{
+        max_bytes_per_key => 274877906,
+        %% In conf schema we use handshake_idle_timeout
+        handshake_idle_timeout_ms => 2000,
+        %% In conf schema we use idle_timeout
+        idle_timeout_ms => 20000,
+        %% not use since we are server
+        %% tls_client_max_send_buffer,
+        tls_server_max_send_buffer => 10240,
+        stream_recv_window_default => 1024,
+        stream_recv_buffer_default => 1024,
+        conn_flow_control_window => 1024,
+        max_stateless_operations => 16,
+        initial_window_packets => 1300,
+        send_idle_timeout_ms => 12000,
+        initial_rtt_ms => 300,
+        max_ack_delay_ms => 6000,
+        disconnect_timeout_ms => 60000,
+        %% In conf schema,  we use keep_alive_interval
+        keep_alive_interval_ms => 12000,
+        %% over written by conn opts
+        peer_bidi_stream_count => 100,
+        %% over written by conn opts
+        peer_unidi_stream_count => 100,
+        retry_memory_limit => 640,
+        load_balancing_mode => 1,
+        max_operations_per_drain => 32,
+        send_buffering_enabled => 1,
+        pacing_enabled => 0,
+        migration_enabled => 0,
+        datagram_receive_enabled => 1,
+        server_resumption_level => 0,
+        minimum_mtu => 1250,
+        maximum_mtu => 1600,
+        mtu_discovery_search_complete_timeout_us => 500000000,
+        mtu_discovery_missing_probe_count => 6,
+        max_binding_stateless_operations => 200,
+        stateless_operation_expiration_ms => 200
+    },
+    ?assertEqual(
+        ok, emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
+    ),
+    timer:sleep(1000),
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {port, LPort}]),
+    {ok, _} = emqtt:quic_connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"test/1/2">>, qos2),
+    {ok, _, [_SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {<<"test/1/3">>, [{qos, 2}]}
+    ]),
+    ok = emqtt:disconnect(C),
+    emqx_listeners:stop_listener(emqx_listeners:listener_id(quic, ?FUNCTION_NAME)).
 
 %%--------------------------------------------------------------------
 %% Helper functions
