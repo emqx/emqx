@@ -1997,6 +1997,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
             {ok, _} = ?block_until(
                 #{?snk_kind := handle_async_reply_expired}, 10 * TimeoutMS
             ),
+            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
 
             unlink(Pid0),
             exit(Pid0, kill),
@@ -2011,7 +2012,6 @@ do_t_expiration_async_after_reply(IsBatch) ->
                 ],
                 ?of_kind(handle_async_reply_expired, Trace)
             ),
-            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
             Metrics = tap_metrics(?LINE),
             ?assertMatch(
                 #{
