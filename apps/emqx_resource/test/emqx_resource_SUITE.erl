@@ -2102,6 +2102,10 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                         late_reply := 1,
                         retried := 0,
                         failed := 0
+                    },
+                    gauges := #{
+                        inflight := 0,
+                        queuing := 0
                     }
                 },
                 Metrics
@@ -2216,6 +2220,16 @@ do_t_expiration_retry(IsBatch) ->
             ?assertMatch(
                 [#{expired := [{query, _, {inc_counter, 1}, _, _}]}],
                 ?of_kind(buffer_worker_retry_expired, Trace)
+            ),
+            Metrics = tap_metrics(?LINE),
+            ?assertMatch(
+                #{
+                    gauges := #{
+                        inflight := 0,
+                        queuing := 0
+                    }
+                },
+                Metrics
             ),
             ok
         end
