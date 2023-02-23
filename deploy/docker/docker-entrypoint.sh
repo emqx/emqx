@@ -39,9 +39,8 @@ if [[ -z "$EMQX_HOST" ]]; then
     export EMQX_HOST
 fi
 
-if [[ -z "$EMQX_NODE_NAME" ]]; then
-    export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
-fi
+export EMQX_NODE_NAME=${EMQX_NODE__NAME:-$EMQX_NAME@$EMQX_HOST}
+echo "node.name = $EMQX_NODE_NAME" >> /opt/emqx/etc/emqx.conf
 
 # The default rpc port discovery 'stateless' is mostly for clusters
 # having static node names. So it's troulbe-free for multiple emqx nodes
