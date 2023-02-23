@@ -1482,7 +1482,7 @@ t_retry_async_inflight_full(_Config) ->
                         AsyncInflightWindow * 2,
                         fun() ->
                             For = (ResumeInterval div 4) + rand:uniform(ResumeInterval div 4),
-                            {sleep, For}
+                            {sleep_before_reply, For}
                         end,
                         #{async_reply_fun => {fun(Res) -> ct:pal("Res = ~p", [Res]) end, []}}
                     ),
@@ -1505,6 +1505,68 @@ t_retry_async_inflight_full(_Config) ->
         ]
     ),
     ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+    ok.
+
+%% this test case is to ensure the buffer worker will not go crazy even
+%% if the underlying connector is misbehaving: evaluate async callbacks multiple times
+t_async_reply_multi_eval(_Config) ->
+    ResumeInterval = 20,
+    AsyncInflightWindow = 5,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => ?FUNCTION_NAME},
+        #{
+            query_mode => async,
+            async_inflight_window => AsyncInflightWindow,
+            batch_size => 3,
+            batch_time => 10,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% block
+            ok = emqx_resource:simple_sync_query(?ID, block),
+
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    inc_counter_in_parallel(
+                        AsyncInflightWindow * 2,
+                        fun() ->
+                            Rand = rand:uniform(1000),
+                            {random_reply, Rand}
+                        end,
+                        #{}
+                    ),
+                    #{?snk_kind := buffer_worker_queue_drained, inflight := 0},
+                    ResumeInterval * 200
+                ),
+            ok
+        end,
+        [
+            fun(Trace) ->
+                ?assertMatch([#{inflight := 0}], ?of_kind(buffer_worker_queue_drained, Trace))
+            end
+        ]
+    ),
+    Metrics = tap_metrics(?LINE),
+    #{
+        counters := Counters,
+        gauges := #{queuing := 0, inflight := 0}
+    } = Metrics,
+    #{
+        matched := Matched,
+        success := Success,
+        dropped := Dropped,
+        late_reply := LateReply,
+        failed := Failed
+    } = Counters,
+    ?assertEqual(Matched, Success + Dropped + LateReply + Failed),
     ok.
 
 t_retry_async_inflight_batch(_Config) ->

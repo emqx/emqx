@@ -475,6 +475,7 @@ flush(Data0) ->
     ?tp(buffer_worker_flush, #{queue_count => CurrentCount, is_full => IsFull}),
     case {CurrentCount, IsFull} of
         {0, _} ->
+            ?tp(buffer_worker_queue_drained, #{inflight => inflight_num_batches(InflightTID)}),
             {keep_state, Data1};
         {_, true} ->
             ?tp(buffer_worker_flush_but_inflight_full, #{}),
@@ -918,7 +919,7 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
                 inflight_tid => InflightTID,
                 request_ref => Ref,
                 query_opts => QueryOpts,
-                query => minimize(Query)
+                min_query => minimize(Query)
             },
             IsRetriable = false,
             WorkerMRef = undefined,
@@ -951,7 +952,7 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
                 inflight_tid => InflightTID,
                 request_ref => Ref,
                 query_opts => QueryOpts,
-                batch => minimize(Batch)
+                min_batch => minimize(Batch)
             },
             Requests = lists:map(
                 fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch
@@ -969,17 +970,31 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
 handle_async_reply(
     #{
         request_ref := Ref,
+        inflight_tid := InflightTID
+    } = ReplyContext,
+    Result
+) ->
+    case maybe_handle_unknown_async_reply(InflightTID, Ref) of
+        discard ->
+            ok;
+        continue ->
+            handle_async_reply1(ReplyContext, Result)
+    end.
+
+handle_async_reply1(
+    #{
+        request_ref := Ref,
         inflight_tid := InflightTID,
         resource_id := Id,
         worker_index := Index,
         buffer_worker := Pid,
-        query := ?QUERY(_, _, _, ExpireAt) = _Query
+        min_query := ?QUERY(_, _, _, ExpireAt) = _Query
     } = ReplyContext,
     Result
 ) ->
     ?tp(
         handle_async_reply_enter,
-        #{batch_or_query => [_Query], ref => Ref}
+        #{batch_or_query => [_Query], ref => Ref, result => Result}
     ),
     Now = now_(),
     case is_expired(ExpireAt, Now) of
@@ -1002,7 +1017,7 @@ do_handle_async_reply(
         worker_index := Index,
         buffer_worker := Pid,
         inflight_tid := InflightTID,
-        query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = _Query
+        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = _Query
     },
     Result
 ) ->
@@ -1033,14 +1048,28 @@ do_handle_async_reply(
 handle_async_batch_reply(
     #{
         inflight_tid := InflightTID,
+        request_ref := Ref
+    } = ReplyContext,
+    Result
+) ->
+    case maybe_handle_unknown_async_reply(InflightTID, Ref) of
+        discard ->
+            ok;
+        continue ->
+            handle_async_batch_reply1(ReplyContext, Result)
+    end.
+
+handle_async_batch_reply1(
+    #{
+        inflight_tid := InflightTID,
         request_ref := Ref,
-        batch := Batch
+        min_batch := Batch
     } = ReplyContext,
     Result
 ) ->
     ?tp(
         handle_async_reply_enter,
-        #{batch_or_query => Batch, ref => Ref}
+        #{batch_or_query => Batch, ref => Ref, result => Result}
     ),
     Now = now_(),
     IsFullBefore = is_inflight_full(InflightTID),
@@ -1060,8 +1089,7 @@ handle_async_batch_reply(
     ok = maybe_flush_after_async_reply(IsFullBefore).
 
 handle_async_batch_reply2([], _, _, _) ->
-    %% e.g. if the driver evaluates the callback more than once
-    %% which should really be a bug
+    %% should have caused the unknown_async_reply_discarded
     ok;
 handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
     ?INFLIGHT_ITEM(_, RealBatch, _IsRetriable, _WorkerMRef) = Inflight,
@@ -1070,7 +1098,7 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
         worker_index := Index,
         inflight_tid := InflightTID,
         request_ref := Ref,
-        batch := Batch
+        min_batch := Batch
     } = ReplyContext,
     %% All batch items share the same HasBeenSent flag
     %% So we just take the original flag from the ReplyContext batch
@@ -1096,7 +1124,7 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
             %% some queries are not expired, put them back to the inflight batch
             %% so it can be either acked now or retried later
             ok = update_inflight_item(InflightTID, Ref, RealNotExpired, NumExpired),
-            ok = do_handle_async_batch_reply(ReplyContext#{batch := RealNotExpired}, Result)
+            ok = do_handle_async_batch_reply(ReplyContext#{min_batch := RealNotExpired}, Result)
     end,
     ok.
 
@@ -1107,7 +1135,7 @@ do_handle_async_batch_reply(
         worker_index := Index,
         inflight_tid := InflightTID,
         request_ref := Ref,
-        batch := Batch,
+        min_batch := Batch,
         query_opts := QueryOpts
     },
     Result
@@ -1123,7 +1151,7 @@ do_handle_async_batch_reply(
         nack ->
             %% Keep retrying.
             ok = mark_inflight_as_retriable(InflightTID, Ref),
-            ?MODULE:block(Pid);
+            ok = ?MODULE:block(Pid);
         ack ->
             ok = do_async_ack(InflightTID, Ref, Id, Index, PostFn, QueryOpts)
     end.
@@ -1149,6 +1177,32 @@ maybe_flush_after_async_reply(_WasFullBeforeReplyHandled = false) ->
 maybe_flush_after_async_reply(_WasFullBeforeReplyHandled = true) ->
     %% the inflight table was full before handling aync reply
     ok = ?MODULE:flush_worker(self()).
+
+%% check if the async reply is valid.
+%% e.g. if a connector evaluates the callback more than once:
+%% 1. If the request was previously deleted from inflight table due to
+%%    either succeeded previously or expired, this function logs a
+%%    warning message and returns 'discard' instruction.
+%% 2. If the request was previously failed and now pending on a retry,
+%%    then this function will return 'continue' as there is no way to
+%%    tell if this reply is stae or not.
+maybe_handle_unknown_async_reply(InflightTID, Ref) ->
+    try ets:member(InflightTID, Ref) of
+        true ->
+            %% NOTE: this does not mean the
+            continue;
+        false ->
+            ?tp(
+                warning,
+                unknown_async_reply_discarded,
+                #{inflight_key => Ref}
+            ),
+            discard
+    catch
+        error:badarg ->
+            %% shutdown ?
+            discard
+    end.
 
 %%==============================================================================
 %% operations for queue
@@ -1287,7 +1341,7 @@ inflight_append(
     InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, WorkerMRef),
     IsNew = ets:insert_new(InflightTID, InflightItem),
     BatchSize = length(Batch),
-    IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, BatchSize}),
+    IsNew andalso inc_inflight(InflightTID, BatchSize),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     ?tp(buffer_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
     ok;
@@ -1302,7 +1356,7 @@ inflight_append(
     Query = mark_as_sent(Query0),
     InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, WorkerMRef),
     IsNew = ets:insert_new(InflightTID, InflightItem),
-    IsNew andalso ets:update_counter(InflightTID, ?SIZE_REF, {2, 1}),
+    IsNew andalso inc_inflight(InflightTID, 1),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     ?tp(buffer_worker_appended_to_inflight, #{item => InflightItem, is_new => IsNew}),
     ok;
@@ -1318,6 +1372,8 @@ mark_inflight_as_retriable(undefined, _Ref) ->
     ok;
 mark_inflight_as_retriable(InflightTID, Ref) ->
     _ = ets:update_element(InflightTID, Ref, {?RETRY_IDX, true}),
+    %% the old worker's DOWN should not affect this inflight any more
+    _ = ets:update_element(InflightTID, Ref, {?WORKER_MREF_IDX, erased}),
     ok.
 
 %% Track each worker pid only once.
@@ -1367,7 +1423,7 @@ ack_inflight(InflightTID, Ref, Id, Index) ->
     IsKnownRef = (Count > 0),
     case IsKnownRef of
         true ->
-            ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
+            ok = dec_inflight(InflightTID, Count),
             emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID));
         false ->
             ok
@@ -1390,9 +1446,17 @@ mark_inflight_items_as_retriable(Data, WorkerMRef) ->
     ok.
 
 %% used to update a batch after dropping expired individual queries.
-update_inflight_item(InflightTID, Ref, NewBatch, NumExpired) when NumExpired > 0 ->
+update_inflight_item(InflightTID, Ref, NewBatch, NumExpired) ->
     _ = ets:update_element(InflightTID, Ref, {?ITEM_IDX, NewBatch}),
-    _ = ets:update_counter(InflightTID, ?SIZE_REF, {2, -NumExpired, 0, 0}),
+    ok = dec_inflight(InflightTID, NumExpired),
+    ok.
+
+inc_inflight(InflightTID, Count) ->
+    _ = ets:update_counter(InflightTID, ?SIZE_REF, {2, Count}),
+    ok.
+
+dec_inflight(InflightTID, Count) when Count > 0 ->
+    _ = ets:update_counter(InflightTID, ?SIZE_REF, {2, -Count, 0, 0}),
     ok.
 
 %%==============================================================================

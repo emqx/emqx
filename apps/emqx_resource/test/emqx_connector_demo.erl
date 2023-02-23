@@ -135,11 +135,11 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
     after 1000 ->
         {error, timeout}
     end;
-on_query(_InstId, {sleep, For}, #{pid := Pid}) ->
+on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => sync, for => For}),
     ReqRef = make_ref(),
     From = {self(), ReqRef},
-    Pid ! {From, {sleep, For}},
+    Pid ! {From, {sleep_before_reply, For}},
     receive
         {ReqRef, Result} ->
             Result
@@ -159,9 +159,9 @@ on_query_async(_InstId, block_now, ReplyFun, #{pid := Pid}) ->
 on_query_async(_InstId, {big_payload, Payload}, ReplyFun, #{pid := Pid}) ->
     Pid ! {big_payload, Payload, ReplyFun},
     {ok, Pid};
-on_query_async(_InstId, {sleep, For}, ReplyFun, #{pid := Pid}) ->
+on_query_async(_InstId, {sleep_before_reply, For}, ReplyFun, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => async, for => For}),
-    Pid ! {{sleep, For}, ReplyFun},
+    Pid ! {{sleep_before_reply, For}, ReplyFun},
     {ok, Pid}.
 
 on_batch_query(InstId, BatchReq, State) ->
@@ -173,10 +173,13 @@ on_batch_query(InstId, BatchReq, State) ->
         get_counter ->
             batch_get_counter(sync, InstId, State);
         {big_payload, _Payload} ->
-            batch_big_payload(sync, InstId, BatchReq, State)
+            batch_big_payload(sync, InstId, BatchReq, State);
+        {random_reply, Num} ->
+            %% async batch retried
+            random_reply(Num)
     end.
 
-on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, State) ->
+on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) ->
     %% Requests can be of multiple types, but cannot be mixed.
     case hd(BatchReq) of
         {inc_counter, _} ->
@@ -186,7 +189,11 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, State) ->
         block_now ->
             on_query_async(InstId, block_now, ReplyFunAndArgs, State);
         {big_payload, _Payload} ->
-            batch_big_payload({async, ReplyFunAndArgs}, InstId, BatchReq, State)
+            batch_big_payload({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {random_reply, Num} ->
+            %% only take the first Num in the batch should be random enough
+            Pid ! {{random_reply, Num}, ReplyFunAndArgs},
+            {ok, Pid}
     end.
 
 batch_inc_counter(CallMode, InstId, BatchReq, State) ->
@@ -299,16 +306,31 @@ counter_loop(
             {{FromPid, ReqRef}, get} ->
                 FromPid ! {ReqRef, Num},
                 State;
-            {{sleep, _} = SleepQ, ReplyFun} ->
+            {{random_reply, RandNum}, ReplyFun} ->
+                %% usually a behaving  connector should reply once and only once for
+                %% each (batch) request
+                %% but we try to reply random results a random number of times
+                %% with 'ok' in the result, the buffer worker should eventually
+                %% drain the buffer (and inflights table)
+                ReplyCount = 1 + (RandNum rem 3),
+                Results = random_replies(ReplyCount),
+                lists:foreach(
+                    fun(Result) ->
+                        apply_reply(ReplyFun, Result)
+                    end,
+                    Results
+                ),
+                State;
+            {{sleep_before_reply, _} = SleepQ, ReplyFun} ->
                 apply_reply(ReplyFun, handle_query(async, SleepQ, Status)),
                 State;
-            {{FromPid, ReqRef}, {sleep, _} = SleepQ} ->
+            {{FromPid, ReqRef}, {sleep_before_reply, _} = SleepQ} ->
                 FromPid ! {ReqRef, handle_query(sync, SleepQ, Status)},
                 State
         end,
     counter_loop(NewState).
 
-handle_query(Mode, {sleep, For} = Query, Status) ->
+handle_query(Mode, {sleep_before_reply, For} = Query, Status) ->
     ok = timer:sleep(For),
     Result =
         case Status of
@@ -329,3 +351,18 @@ maybe_register(_Name, _Pid, false) ->
 
 apply_reply({ReplyFun, Args}, Result) when is_function(ReplyFun) ->
     apply(ReplyFun, Args ++ [Result]).
+
+random_replies(0) ->
+    [];
+random_replies(N) ->
+    [random_reply(N) | random_replies(N - 1)].
+
+random_reply(N) ->
+    case rand:uniform(3) of
+        1 ->
+            {ok, N};
+        2 ->
+            {error, {recoverable_error, N}};
+        3 ->
+            {error, {unrecoverable_error, N}}
+    end.
