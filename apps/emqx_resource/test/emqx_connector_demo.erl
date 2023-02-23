@@ -314,6 +314,8 @@ counter_loop(
                 %% drain the buffer (and inflights table)
                 ReplyCount = 1 + (RandNum rem 3),
                 Results = random_replies(ReplyCount),
+                %% add a delay to trigger inflight full
+                timer:sleep(5),
                 lists:foreach(
                     fun(Result) ->
                         apply_reply(ReplyFun, Result)

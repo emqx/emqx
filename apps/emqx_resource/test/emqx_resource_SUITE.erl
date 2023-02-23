@@ -1510,8 +1510,9 @@ t_retry_async_inflight_full(_Config) ->
 %% this test case is to ensure the buffer worker will not go crazy even
 %% if the underlying connector is misbehaving: evaluate async callbacks multiple times
 t_async_reply_multi_eval(_Config) ->
-    ResumeInterval = 20,
-    AsyncInflightWindow = 5,
+    ResumeInterval = 5,
+    TotalTime = 5_000,
+    AsyncInflightWindow = 3,
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = emqx_resource:create(
         ?ID,
@@ -1528,29 +1529,31 @@ t_async_reply_multi_eval(_Config) ->
         }
     ),
     ?check_trace(
-        #{timetrap => 15_000},
+        #{timetrap => 30_000},
         begin
             %% block
             ok = emqx_resource:simple_sync_query(?ID, block),
 
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    inc_counter_in_parallel(
-                        AsyncInflightWindow * 2,
-                        fun() ->
-                            Rand = rand:uniform(1000),
-                            {random_reply, Rand}
-                        end,
-                        #{}
-                    ),
-                    #{?snk_kind := buffer_worker_queue_drained, inflight := 0},
-                    ResumeInterval * 200
+            ?wait_async_action(
+                inc_counter_in_parallel(
+                    AsyncInflightWindow * 5,
+                    fun() ->
+                        Rand = rand:uniform(1000),
+                        {random_reply, Rand}
+                    end,
+                    #{}
                 ),
+                #{?snk_kind := buffer_worker_flush, inflight := 0, queued := 0},
+                TotalTime
+            ),
             ok
         end,
         [
             fun(Trace) ->
-                ?assertMatch([#{inflight := 0}], ?of_kind(buffer_worker_queue_drained, Trace))
+                ?assertMatch(
+                    [#{inflight := 0} | _],
+                    lists:reverse(?of_kind(buffer_worker_queue_drained, Trace))
+                )
             end
         ]
     ),
