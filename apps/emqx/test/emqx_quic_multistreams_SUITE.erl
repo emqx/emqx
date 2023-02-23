@@ -541,7 +541,6 @@ t_multi_streams_packet_boundary(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    timer:sleep(300),
     PubRecvs = recv_pub(3, [], 1000),
     ?assertMatch(
         [
@@ -668,12 +667,10 @@ t_multi_streams_packet_malform(Config) ->
         {error, stm_send_error, aborted} -> ok
     end,
 
-    timer:sleep(200),
     ?assert(is_list(emqtt:info(C))),
 
     {error, stm_send_error, aborted} = quicer:send(MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>),
 
-    timer:sleep(200),
     ?assert(is_list(emqtt:info(C))),
 
     ok = emqtt:disconnect(C).
@@ -743,7 +740,6 @@ t_multi_streams_packet_too_large(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    timer:sleep(200),
     ?assert(is_list(emqtt:info(C))),
 
     timeout = recv_pub(1),
@@ -757,7 +753,6 @@ t_multi_streams_packet_too_large(Config) ->
         [{qos, PubQos}],
         undefined
     ),
-    timer:sleep(200),
     timeout = recv_pub(1),
     ?assert(is_list(emqtt:info(C))),
 
@@ -783,7 +778,6 @@ t_multi_streams_packet_too_large(Config) ->
             topic := Topic
         }}
     ] = recv_pub(1),
-    timer:sleep(200),
 
     ?assert(is_list(emqtt:info(C))),
 
@@ -1409,7 +1403,7 @@ t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
     {quic, _Conn, Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
     quicer:shutdown_stream(Ctrlstream, ?config(stream_shutdown_flag, Config), 500, 100),
     timer:sleep(200),
-    %% Client should be closed
+    %% Client should not be closed
     ?assert(is_list(emqtt:info(C))).
 
 t_multi_streams_emqx_ctrl_kill(Config) ->
@@ -1462,9 +1456,8 @@ t_multi_streams_emqx_ctrl_kill(Config) ->
     [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
     exit(TransPid, kill),
 
-    timer:sleep(200),
     %% Client should be closed
-    ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
+    assert_client_die(C).
 
 t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1516,9 +1509,8 @@ t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
 
     emqx_connection:stop(TransPid),
-    timer:sleep(200),
     %% Client exit normal.
-    ?assertMatch({'EXIT', {normal, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
+    assert_client_die(C).
 
 t_multi_streams_remote_shutdown(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1570,9 +1562,8 @@ t_multi_streams_remote_shutdown(Config) ->
 
     ok = stop_emqx(),
     start_emqx_quic(?config(port, Config)),
-    timer:sleep(200),
     %% Client should be closed
-    ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
+    assert_client_die(C).
 
 t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1973,6 +1964,9 @@ test_dir(Config) ->
 recv_pub(Count) ->
     recv_pub(Count, [], 100).
 
+recv_pub(Count, Tout) ->
+    recv_pub(Count, [], Tout).
+
 recv_pub(0, Acc, _Tout) ->
     lists:reverse(Acc);
 recv_pub(Count, Acc, Tout) ->
@@ -2035,6 +2029,19 @@ select_port() ->
     quicer:stream_handle().
 via_stream({quic, _Conn, Stream}) ->
     Stream.
+
+assert_client_die(C) ->
+    assert_client_die(C, 100, 10).
+assert_client_die(C, _, 0) ->
+    ct:fail("Client ~p did not die", [C]);
+assert_client_die(C, Delay, Retries) ->
+    case catch emqtt:info(C) of
+        {'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}} ->
+            ok;
+        _Other ->
+            timer:sleep(Delay),
+            assert_client_die(C, Delay, Retries - 1)
+    end.
 
 %% BUILD_WITHOUT_QUIC
 -else.
