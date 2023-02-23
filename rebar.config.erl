@@ -378,6 +378,8 @@ relx_apps(ReleaseType, Edition) ->
             {emqx_plugin_libs, load},
             {esasl, load},
             observer_cli,
+            {tools, load},
+            {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
             emqx_http_lib,
