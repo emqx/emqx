@@ -1543,7 +1543,7 @@ t_async_reply_multi_eval(_Config) ->
                     end,
                     #{}
                 ),
-                #{?snk_kind := buffer_worker_flush, inflight := 0, queued := 0},
+                #{?snk_kind := buffer_worker_queue_drained, inflight := 0},
                 TotalTime
             ),
             ok
