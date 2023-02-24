@@ -228,7 +228,7 @@ render_timestamp(Template, Message) ->
 %% Wolff producer never gives up retrying
 %% so there can only be 'ok' results.
 on_kafka_ack(_Partition, Offset, {ReplyFn, Args}) when is_integer(Offset) ->
-    %% the ReplyFn is emqx_resource_worker:handle_async_reply/2
+    %% the ReplyFn is emqx_resource_buffer_worker:handle_async_reply/2
     apply(ReplyFn, Args ++ [ok]);
 on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
     %% wolff should bump the dropped_queue_full counter

@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   zookeeper:
-    image: wurstmeister/zookeeper
+    image: docker.io/library/zookeeper:3.6
     ports:
       - "2181:2181"
     container_name: zookeeper
@@ -39,9 +39,12 @@ services:
     container_name: kafka-1.emqx.net
     hostname: kafka-1.emqx.net
     depends_on:
-      - "kdc"
-      - "zookeeper"
-      - "ssl_cert_gen"
+      kdc:
+        condition: service_started
+      zookeeper:
+        condition: service_started
+      ssl_cert_gen:
+        condition: service_completed_successfully
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -52,7 +55,7 @@ services:
       KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256,SCRAM-SHA-512,GSSAPI
       KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
-      KAFKA_JMX_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
       KAFKA_CREATE_TOPICS_NG: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
       KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer

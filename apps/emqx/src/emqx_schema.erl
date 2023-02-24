@@ -120,6 +120,9 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-define(BIT(Bits), (1 bsl (Bits))).
+-define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
+
 namespace() -> broker.
 
 tags() ->
@@ -268,7 +271,7 @@ fields("persistent_session_store") ->
             sc(
                 duration(),
                 #{
-                    default => "1h",
+                    default => <<"1h">>,
                     desc => ?DESC(persistent_session_store_max_retain_undelivered)
                 }
             )},
@@ -276,7 +279,7 @@ fields("persistent_session_store") ->
             sc(
                 duration(),
                 #{
-                    default => "1h",
+                    default => <<"1h">>,
                     desc => ?DESC(persistent_session_store_message_gc_interval)
                 }
             )},
@@ -284,7 +287,7 @@ fields("persistent_session_store") ->
             sc(
                 duration(),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     desc => ?DESC(persistent_session_store_session_message_gc_interval)
                 }
             )}
@@ -352,7 +355,7 @@ fields("authz_cache") ->
             sc(
                 duration(),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     desc => ?DESC(fields_cache_ttl)
                 }
             )}
@@ -363,7 +366,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:union([infinity, duration()]),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC(mqtt_idle_timeout)
                 }
             )},
@@ -371,7 +374,7 @@ fields("mqtt") ->
             sc(
                 bytesize(),
                 #{
-                    default => "1MB",
+                    default => <<"1MB">>,
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
@@ -507,7 +510,7 @@ fields("mqtt") ->
             sc(
                 duration(),
                 #{
-                    default => "30s",
+                    default => <<"30s">>,
                     desc => ?DESC(mqtt_retry_interval)
                 }
             )},
@@ -523,7 +526,7 @@ fields("mqtt") ->
             sc(
                 duration(),
                 #{
-                    default => "300s",
+                    default => <<"300s">>,
                     desc => ?DESC(mqtt_await_rel_timeout)
                 }
             )},
@@ -531,7 +534,7 @@ fields("mqtt") ->
             sc(
                 duration(),
                 #{
-                    default => "2h",
+                    default => <<"2h">>,
                     desc => ?DESC(mqtt_session_expiry_interval)
                 }
             )},
@@ -617,7 +620,7 @@ fields("flapping_detect") ->
             sc(
                 duration(),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     desc => ?DESC(flapping_detect_window_time)
                 }
             )},
@@ -625,7 +628,7 @@ fields("flapping_detect") ->
             sc(
                 duration(),
                 #{
-                    default => "5m",
+                    default => <<"5m">>,
                     desc => ?DESC(flapping_detect_ban_time)
                 }
             )}
@@ -652,7 +655,7 @@ fields("force_shutdown") ->
             sc(
                 wordsize(),
                 #{
-                    default => "32MB",
+                    default => <<"32MB">>,
                     desc => ?DESC(force_shutdown_max_heap_size),
                     validator => fun ?MODULE:validate_heap_size/1
                 }
@@ -715,7 +718,7 @@ fields("conn_congestion") ->
             sc(
                 duration(),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     desc => ?DESC(conn_congestion_min_alarm_sustain_duration)
                 }
             )}
@@ -739,7 +742,7 @@ fields("force_gc") ->
             sc(
                 bytesize(),
                 #{
-                    default => "16MB",
+                    default => <<"16MB">>,
                     desc => ?DESC(force_gc_bytes)
                 }
             )}
@@ -845,18 +848,96 @@ fields("mqtt_wss_listener") ->
         ];
 fields("mqtt_quic_listener") ->
     [
-        %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_certfile)}
+                #{
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                }
             )},
         {"keyfile",
             sc(
                 string(),
-                #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
+                %% TODO: deprecated => {since, "5.1.0"}
+                #{
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
+                }
             )},
         {"ciphers", ciphers_schema(quic)},
+
+        {"max_bytes_per_key",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_max_bytes_per_key)
+            )},
+        {"handshake_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+            )},
+        {"tls_server_max_send_buffer",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_tls_server_max_send_buffer)
+            )},
+        {"stream_recv_window_default",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_stream_recv_window_default)
+            )},
+        {"stream_recv_buffer_default",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_stream_recv_buffer_default)
+            )},
+        {"conn_flow_control_window",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_conn_flow_control_window)
+            )},
+        {"max_stateless_operations",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_max_stateless_operations)
+            )},
+        {"initial_window_packets",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_initial_window_packets)
+            )},
+        {"send_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_send_idle_timeout_ms)
+            )},
+        {"initial_rtt_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_initial_rtt_ms)
+            )},
+        {"max_ack_delay_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_max_ack_delay_ms)
+            )},
+        {"disconnect_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_disconnect_timeout_ms)
+            )},
         {"idle_timeout",
             sc(
                 duration_ms(),
@@ -865,13 +946,25 @@ fields("mqtt_quic_listener") ->
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )},
+        {"idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_idle_timeout_ms)
+            )},
         {"handshake_idle_timeout",
             sc(
                 duration_ms(),
                 #{
-                    default => "10s",
+                    default => <<"10s">>,
                     desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
                 }
+            )},
+        {"handshake_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout_ms)
             )},
         {"keep_alive_interval",
             sc(
@@ -879,6 +972,108 @@ fields("mqtt_quic_listener") ->
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                }
+            )},
+        {"keep_alive_interval_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_keep_alive_interval_ms)
+            )},
+        {"peer_bidi_stream_count",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_peer_bidi_stream_count)
+            )},
+        {"peer_unidi_stream_count",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_peer_unidi_stream_count)
+            )},
+        {"retry_memory_limit",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_retry_memory_limit)
+            )},
+        {"load_balancing_mode",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_load_balancing_mode)
+            )},
+        {"max_operations_per_drain",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_max_operations_per_drain)
+            )},
+        {"send_buffering_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_send_buffering_enabled)
+            )},
+        {"pacing_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_pacing_enabled)
+            )},
+        {"migration_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_migration_enabled)
+            )},
+        {"datagram_receive_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_datagram_receive_enabled)
+            )},
+        {"server_resumption_level",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_server_resumption_level)
+            )},
+        {"minimum_mtu",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_minimum_mtu)
+            )},
+        {"maximum_mtu",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_maximum_mtu)
+            )},
+        {"mtu_discovery_search_complete_timeout_us",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us)
+            )},
+        {"mtu_discovery_missing_probe_count",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_mtu_discovery_missing_probe_count)
+            )},
+        {"max_binding_stateless_operations",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_max_binding_stateless_operations)
+            )},
+        {"stateless_operation_expiration_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_stateless_operation_expiration_ms)
+            )},
+        {"ssl_options",
+            sc(
+                ref("listener_quic_ssl_opts"),
+                #{
+                    required => false,
+                    desc => ?DESC(fields_mqtt_quic_listener_ssl_options)
                 }
             )}
     ] ++ base_listener(14567);
@@ -888,7 +1083,7 @@ fields("ws_opts") ->
             sc(
                 string(),
                 #{
-                    default => "/mqtt",
+                    default => <<"/mqtt">>,
                     desc => ?DESC(fields_ws_opts_mqtt_path)
                 }
             )},
@@ -912,7 +1107,7 @@ fields("ws_opts") ->
             sc(
                 duration(),
                 #{
-                    default => "7200s",
+                    default => <<"7200s">>,
                     desc => ?DESC(fields_ws_opts_idle_timeout)
                 }
             )},
@@ -936,7 +1131,7 @@ fields("ws_opts") ->
             sc(
                 comma_separated_list(),
                 #{
-                    default => "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5",
+                    default => <<"mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5">>,
                     desc => ?DESC(fields_ws_opts_supported_subprotocols)
                 }
             )},
@@ -968,7 +1163,7 @@ fields("ws_opts") ->
             sc(
                 string(),
                 #{
-                    default => "x-forwarded-for",
+                    default => <<"x-forwarded-for">>,
                     desc => ?DESC(fields_ws_opts_proxy_address_header)
                 }
             )},
@@ -976,7 +1171,7 @@ fields("ws_opts") ->
             sc(
                 string(),
                 #{
-                    default => "x-forwarded-port",
+                    default => <<"x-forwarded-port">>,
                     desc => ?DESC(fields_ws_opts_proxy_port_header)
                 }
             )},
@@ -1008,7 +1203,7 @@ fields("tcp_opts") ->
             sc(
                 duration(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC(fields_tcp_opts_send_timeout)
                 }
             )},
@@ -1049,7 +1244,7 @@ fields("tcp_opts") ->
             sc(
                 bytesize(),
                 #{
-                    default => "1MB",
+                    default => <<"1MB">>,
                     desc => ?DESC(fields_tcp_opts_high_watermark)
                 }
             )},
@@ -1090,6 +1285,8 @@ fields("listener_wss_opts") ->
         },
         true
     );
+fields("listener_quic_ssl_opts") ->
+    server_ssl_opts_schema(#{}, false);
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
@@ -1260,7 +1457,7 @@ fields("sys_topics") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => "1m",
+                    default => <<"1m">>,
                     desc => ?DESC(sys_msg_interval)
                 }
             )},
@@ -1268,7 +1465,7 @@ fields("sys_topics") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => "30s",
+                    default => <<"30s">>,
                     desc => ?DESC(sys_heartbeat_interval)
                 }
             )},
@@ -1337,7 +1534,7 @@ fields("sysmon_vm") ->
             sc(
                 duration(),
                 #{
-                    default => "30s",
+                    default => <<"30s">>,
                     desc => ?DESC(sysmon_vm_process_check_interval)
                 }
             )},
@@ -1345,7 +1542,7 @@ fields("sysmon_vm") ->
             sc(
                 percent(),
                 #{
-                    default => "80%",
+                    default => <<"80%">>,
                     desc => ?DESC(sysmon_vm_process_high_watermark)
                 }
             )},
@@ -1353,7 +1550,7 @@ fields("sysmon_vm") ->
             sc(
                 percent(),
                 #{
-                    default => "60%",
+                    default => <<"60%">>,
                     desc => ?DESC(sysmon_vm_process_low_watermark)
                 }
             )},
@@ -1369,7 +1566,7 @@ fields("sysmon_vm") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => "240ms",
+                    default => <<"240ms">>,
                     desc => ?DESC(sysmon_vm_long_schedule)
                 }
             )},
@@ -1377,7 +1574,7 @@ fields("sysmon_vm") ->
             sc(
                 hoconsc:union([disabled, bytesize()]),
                 #{
-                    default => "32MB",
+                    default => <<"32MB">>,
                     desc => ?DESC(sysmon_vm_large_heap)
                 }
             )},
@@ -1404,7 +1601,7 @@ fields("sysmon_os") ->
             sc(
                 duration(),
                 #{
-                    default => "60s",
+                    default => <<"60s">>,
                     desc => ?DESC(sysmon_os_cpu_check_interval)
                 }
             )},
@@ -1412,7 +1609,7 @@ fields("sysmon_os") ->
             sc(
                 percent(),
                 #{
-                    default => "80%",
+                    default => <<"80%">>,
                     desc => ?DESC(sysmon_os_cpu_high_watermark)
                 }
             )},
@@ -1420,7 +1617,7 @@ fields("sysmon_os") ->
             sc(
                 percent(),
                 #{
-                    default => "60%",
+                    default => <<"60%">>,
                     desc => ?DESC(sysmon_os_cpu_low_watermark)
                 }
             )},
@@ -1428,7 +1625,7 @@ fields("sysmon_os") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => "60s",
+                    default => <<"60s">>,
                     desc => ?DESC(sysmon_os_mem_check_interval)
                 }
             )},
@@ -1436,7 +1633,7 @@ fields("sysmon_os") ->
             sc(
                 percent(),
                 #{
-                    default => "70%",
+                    default => <<"70%">>,
                     desc => ?DESC(sysmon_os_sysmem_high_watermark)
                 }
             )},
@@ -1444,7 +1641,7 @@ fields("sysmon_os") ->
             sc(
                 percent(),
                 #{
-                    default => "5%",
+                    default => <<"5%">>,
                     desc => ?DESC(sysmon_os_procmem_high_watermark)
                 }
             )}
@@ -1465,7 +1662,7 @@ fields("sysmon_top") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "system_monitor.top_sample_interval",
-                    default => "2s",
+                    default => <<"2s">>,
                     desc => ?DESC(sysmon_top_sample_interval)
                 }
             )},
@@ -1484,7 +1681,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.db_hostname",
                     desc => ?DESC(sysmon_top_db_hostname),
-                    default => ""
+                    default => <<>>
                 }
             )},
         {"db_port",
@@ -1501,7 +1698,7 @@ fields("sysmon_top") ->
                 string(),
                 #{
                     mapping => "system_monitor.db_username",
-                    default => "system_monitor",
+                    default => <<"system_monitor">>,
                     desc => ?DESC(sysmon_top_db_username)
                 }
             )},
@@ -1510,7 +1707,7 @@ fields("sysmon_top") ->
                 binary(),
                 #{
                     mapping => "system_monitor.db_password",
-                    default => "system_monitor_password",
+                    default => <<"system_monitor_password">>,
                     desc => ?DESC(sysmon_top_db_password),
                     converter => fun password_converter/2,
                     sensitive => true
@@ -1521,7 +1718,7 @@ fields("sysmon_top") ->
                 string(),
                 #{
                     mapping => "system_monitor.db_name",
-                    default => "postgres",
+                    default => <<"postgres">>,
                     desc => ?DESC(sysmon_top_db_name)
                 }
             )}
@@ -1551,7 +1748,7 @@ fields("alarm") ->
             sc(
                 duration(),
                 #{
-                    default => "24h",
+                    default => <<"24h">>,
                     example => "24h",
                     desc => ?DESC(alarm_validity_period)
                 }
@@ -1590,7 +1787,7 @@ mqtt_listener(Bind) ->
                     duration(),
                     #{
                         desc => ?DESC(mqtt_listener_proxy_protocol_timeout),
-                        default => "3s"
+                        default => <<"3s">>
                     }
                 )},
             {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
@@ -1769,6 +1966,12 @@ desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
+desc("fields_mqtt_quic_listener_certfile") ->
+    "Path to the certificate file. Will be deprecated in 5.1, use '.ssl_options.certfile' instead.";
+desc("fields_mqtt_quic_listener_keyfile") ->
+    "Path to the secret key file. Will be deprecated in 5.1, use '.ssl_options.keyfile' instead.";
+desc("listener_quic_ssl_opts") ->
+    "TLS options for QUIC transport.";
 desc("ssl_client_opts") ->
     "Socket options for SSL clients.";
 desc("deflate_opts") ->
@@ -1935,7 +2138,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 duration(),
                 #{
-                    default => Df("hibernate_after", "5s"),
+                    default => Df("hibernate_after", <<"5s">>),
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
@@ -1985,7 +2188,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     duration(),
                     #{
-                        default => Df("handshake_timeout", "15s"),
+                        default => Df("handshake_timeout", <<"15s">>),
                         desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
                     }
                 )}
@@ -2617,3 +2820,30 @@ parse_port(Port) ->
         _:_ ->
             throw("bad_port_number")
     end.
+
+quic_feature_toggle(Desc) ->
+    sc(
+        %% true, false are for user facing
+        %% 0, 1 are for internal represtation
+        typerefl:alias("boolean", typerefl:union([true, false, 0, 1])),
+        #{
+            desc => Desc,
+            hidden => true,
+            required => false,
+            converter => fun
+                (true) -> 1;
+                (false) -> 0;
+                (Other) -> Other
+            end
+        }
+    ).
+
+quic_lowlevel_settings_uint(Low, High, Desc) ->
+    sc(
+        range(Low, High),
+        #{
+            required => false,
+            hidden => true,
+            desc => Desc
+        }
+    ).

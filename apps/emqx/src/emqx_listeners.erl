@@ -72,9 +72,7 @@ id_example() -> 'tcp:default'.
 list_raw() ->
     [
         {listener_id(Type, LName), Type, LConf}
-     || %% FIXME: quic is not supported update vi dashboard yet
-        {Type, LName, LConf} <- do_list_raw(),
-        Type =/= <<"quic">>
+     || {Type, LName, LConf} <- do_list_raw()
     ].
 
 list() ->
@@ -170,6 +168,11 @@ current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+current_conns(quic, _Name, _ListenOn) ->
+    case quicer:perf_counters() of
+        {ok, PerfCnts} -> proplists:get_value(conn_active, PerfCnts);
+        _ -> 0
+    end;
 current_conns(_, _, _) ->
     {error, not_support}.
 
@@ -367,31 +370,45 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            ListenOpts = [
-                {cert, maps:get(certfile, Opts)},
-                {key, maps:get(keyfile, Opts)},
-                {alpn, ["mqtt"]},
-                {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
-                {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
-                {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
-                {server_resumption_level, 2}
-            ],
+            SSLOpts = maps:merge(
+                maps:with([certfile, keyfile], Opts),
+                maps:get(ssl_options, Opts, #{})
+            ),
+            ListenOpts =
+                [
+                    {certfile, str(maps:get(certfile, SSLOpts))},
+                    {keyfile, str(maps:get(keyfile, SSLOpts))},
+                    {alpn, ["mqtt"]},
+                    {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
+                    {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
+                    {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
+                    {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
+                    {server_resumption_level, maps:get(server_resumption_level, Opts, 2)},
+                    {verify, maps:get(verify, SSLOpts, verify_none)}
+                ] ++
+                    case maps:get(cacertfile, SSLOpts, undefined) of
+                        undefined -> [];
+                        CaCertFile -> [{cacertfile, binary_to_list(CaCertFile)}]
+                    end ++
+                    optional_quic_listener_opts(Opts),
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
-                peer_unidi_stream_count => 1,
-                peer_bidi_stream_count => 10,
+                peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
+                peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
                 zone => zone(Opts),
                 listener => {quic, ListenerName},
                 limiter => limiter(Opts)
             },
-            StreamOpts = [{stream_callback, emqx_quic_stream}],
+            StreamOpts = #{
+                stream_callback => emqx_quic_stream,
+                active => 1
+            },
             Id = listener_id(quic, ListenerName),
             add_limiter_bucket(Id, Opts),
             quicer:start_listener(
                 Id,
                 ListenOn,
-                {ListenOpts, ConnectionOpts, StreamOpts}
+                {maps:from_list(ListenOpts), ConnectionOpts, StreamOpts}
             );
         [] ->
             {ok, {skipped, quic_app_missing}}
@@ -710,3 +727,61 @@ get_ssl_options(Conf) ->
         error ->
             maps:get(<<"ssl_options">>, Conf, undefined)
     end.
+
+%% @doc Get QUIC optional settings for low level tunings.
+%% @see quicer:quic_settings()
+-spec optional_quic_listener_opts(map()) -> proplists:proplist().
+optional_quic_listener_opts(Conf) when is_map(Conf) ->
+    maps:to_list(
+        maps:filter(
+            fun(Name, _V) ->
+                lists:member(
+                    Name,
+                    quic_listener_optional_settings()
+                )
+            end,
+            Conf
+        )
+    ).
+
+-spec quic_listener_optional_settings() -> [atom()].
+quic_listener_optional_settings() ->
+    [
+        max_bytes_per_key,
+        %% In conf schema we use handshake_idle_timeout
+        handshake_idle_timeout_ms,
+        %% In conf schema we use idle_timeout
+        idle_timeout_ms,
+        %% not use since we are server
+        %% tls_client_max_send_buffer,
+        tls_server_max_send_buffer,
+        stream_recv_window_default,
+        stream_recv_buffer_default,
+        conn_flow_control_window,
+        max_stateless_operations,
+        initial_window_packets,
+        send_idle_timeout_ms,
+        initial_rtt_ms,
+        max_ack_delay_ms,
+        disconnect_timeout_ms,
+        %% In conf schema,  we use keep_alive_interval
+        keep_alive_interval_ms,
+        %% over written by conn opts
+        peer_bidi_stream_count,
+        %% over written by conn opts
+        peer_unidi_stream_count,
+        retry_memory_limit,
+        load_balancing_mode,
+        max_operations_per_drain,
+        send_buffering_enabled,
+        pacing_enabled,
+        migration_enabled,
+        datagram_receive_enabled,
+        server_resumption_level,
+        minimum_mtu,
+        maximum_mtu,
+        mtu_discovery_search_complete_timeout_us,
+        mtu_discovery_missing_probe_count,
+        max_binding_stateless_operations,
+        stateless_operation_expiration_ms
+    ].

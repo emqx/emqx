@@ -160,6 +160,7 @@ jenkins
 jq
 kb
 keepalive
+keyfile
 libcoap
 lifecycle
 localhost

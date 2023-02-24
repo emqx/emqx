@@ -149,7 +149,7 @@ help() ->
         [] ->
             print("No commands available.~n");
         Cmds ->
-            print("Usage: ~ts~n", [?MODULE]),
+            print("Usage: ~ts~n", ["emqx ctl"]),
             lists:foreach(
                 fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]),

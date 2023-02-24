@@ -1482,7 +1482,7 @@ t_retry_async_inflight_full(_Config) ->
                         AsyncInflightWindow * 2,
                         fun() ->
                             For = (ResumeInterval div 4) + rand:uniform(ResumeInterval div 4),
-                            {sleep, For}
+                            {sleep_before_reply, For}
                         end,
                         #{async_reply_fun => {fun(Res) -> ct:pal("Res = ~p", [Res]) end, []}}
                     ),
@@ -1506,6 +1506,59 @@ t_retry_async_inflight_full(_Config) ->
     ),
     ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
     ok.
+
+%% this test case is to ensure the buffer worker will not go crazy even
+%% if the underlying connector is misbehaving: evaluate async callbacks multiple times
+t_async_reply_multi_eval(_Config) ->
+    ResumeInterval = 5,
+    TotalTime = 5_000,
+    AsyncInflightWindow = 3,
+    TotalQueries = AsyncInflightWindow * 5,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => ?FUNCTION_NAME},
+        #{
+            query_mode => async,
+            async_inflight_window => AsyncInflightWindow,
+            batch_size => 3,
+            batch_time => 10,
+            worker_pool_size => 1,
+            resume_interval => ResumeInterval
+        }
+    ),
+    %% block
+    ok = emqx_resource:simple_sync_query(?ID, block),
+    inc_counter_in_parallel(
+        TotalQueries,
+        fun() ->
+            Rand = rand:uniform(1000),
+            {random_reply, Rand}
+        end,
+        #{}
+    ),
+    ?retry(
+        ResumeInterval,
+        TotalTime div ResumeInterval,
+        begin
+            Metrics = tap_metrics(?LINE),
+            #{
+                counters := Counters,
+                gauges := #{queuing := 0, inflight := 0}
+            } = Metrics,
+            #{
+                matched := Matched,
+                success := Success,
+                dropped := Dropped,
+                late_reply := LateReply,
+                failed := Failed
+            } = Counters,
+            ?assertEqual(TotalQueries, Matched - 1),
+            ?assertEqual(Matched, Success + Dropped + LateReply + Failed)
+        end
+    ).
 
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
@@ -1944,7 +1997,7 @@ t_expiration_async_batch_after_reply(_Config) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 2,
+            batch_size => 3,
             batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 2_000
@@ -1959,7 +2012,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
             NAcks =
                 case IsBatch of
                     batch -> 1;
-                    single -> 2
+                    single -> 3
                 end,
             ?force_ordering(
                 #{?snk_kind := buffer_worker_flush_ack},
@@ -1981,6 +2034,10 @@ do_t_expiration_async_after_reply(IsBatch) ->
                 emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
             ),
             ?assertEqual(
+                ok,
+                emqx_resource:query(?ID, {inc_counter, 299}, #{timeout => TimeoutMS})
+            ),
+            ?assertEqual(
                 ok, emqx_resource:query(?ID, {inc_counter, 99}, #{timeout => infinity})
             ),
             Pid0 =
@@ -1997,30 +2054,44 @@ do_t_expiration_async_after_reply(IsBatch) ->
             {ok, _} = ?block_until(
                 #{?snk_kind := handle_async_reply_expired}, 10 * TimeoutMS
             ),
+            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
 
             unlink(Pid0),
             exit(Pid0, kill),
             ok
         end,
         fun(Trace) ->
-            ?assertMatch(
-                [
-                    #{
-                        expired := [{query, _, {inc_counter, 199}, _, _}]
-                    }
-                ],
-                ?of_kind(handle_async_reply_expired, Trace)
-            ),
-            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
+            case IsBatch of
+                batch ->
+                    ?assertMatch(
+                        [
+                            #{
+                                expired := [
+                                    {query, _, {inc_counter, 199}, _, _},
+                                    {query, _, {inc_counter, 299}, _, _}
+                                ]
+                            }
+                        ],
+                        ?of_kind(handle_async_reply_expired, Trace)
+                    );
+                single ->
+                    ?assertMatch(
+                        [
+                            #{expired := [{query, _, {inc_counter, 199}, _, _}]},
+                            #{expired := [{query, _, {inc_counter, 299}, _, _}]}
+                        ],
+                        ?of_kind(handle_async_reply_expired, Trace)
+                    )
+            end,
             Metrics = tap_metrics(?LINE),
             ?assertMatch(
                 #{
                     counters := #{
-                        matched := 2,
+                        matched := 3,
                         %% the request with infinity timeout.
                         success := 1,
                         dropped := 0,
-                        late_reply := 1,
+                        late_reply := 2,
                         retried := 0,
                         failed := 0
                     }
@@ -2042,7 +2113,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 2,
+            batch_size => 3,
             batch_time => 100,
             worker_pool_size => 1,
             resume_interval => ResumeInterval
@@ -2067,6 +2138,10 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                 ok,
                 emqx_resource:query(?ID, {inc_counter, 199}, #{timeout => TimeoutMS})
             ),
+            ?assertEqual(
+                ok,
+                emqx_resource:query(?ID, {inc_counter, 299}, #{timeout => TimeoutMS})
+            ),
             Pid0 =
                 spawn_link(fun() ->
                     ?tp(delay_enter, #{}),
@@ -2087,7 +2162,10 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
             ?assertMatch(
                 [
                     #{
-                        expired := [{query, _, {inc_counter, 199}, _, _}]
+                        expired := [
+                            {query, _, {inc_counter, 199}, _, _},
+                            {query, _, {inc_counter, 299}, _, _}
+                        ]
                     }
                 ],
                 ?of_kind(handle_async_reply_expired, Trace)
@@ -2096,12 +2174,16 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
             ?assertMatch(
                 #{
                     counters := #{
-                        matched := 1,
+                        matched := 2,
                         success := 0,
                         dropped := 0,
-                        late_reply := 1,
+                        late_reply := 2,
                         retried := 0,
                         failed := 0
+                    },
+                    gauges := #{
+                        inflight := 0,
+                        queuing := 0
                     }
                 },
                 Metrics
@@ -2216,6 +2298,16 @@ do_t_expiration_retry(IsBatch) ->
             ?assertMatch(
                 [#{expired := [{query, _, {inc_counter, 1}, _, _}]}],
                 ?of_kind(buffer_worker_retry_expired, Trace)
+            ),
+            Metrics = tap_metrics(?LINE),
+            ?assertMatch(
+                #{
+                    gauges := #{
+                        inflight := 0,
+                        queuing := 0
+                    }
+                },
+                Metrics
             ),
             ok
         end

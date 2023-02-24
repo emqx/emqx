@@ -94,6 +94,30 @@ t_object(_Config) ->
     validate("/object", Spec, Refs),
     ok.
 
+t_deprecated(_Config) ->
+    ?assertMatch(
+        [
+            #{
+                <<"emqx_swagger_requestBody_SUITE.deprecated_ref">> :=
+                    #{
+                        <<"properties">> :=
+                            [
+                                {<<"tag1">>, #{
+                                    deprecated := true
+                                }},
+                                {<<"tag2">>, #{
+                                    deprecated := true
+                                }},
+                                {<<"tag3">>, #{
+                                    deprecated := false
+                                }}
+                            ]
+                    }
+            }
+        ],
+        emqx_dashboard_swagger:components([{?MODULE, deprecated_ref}], #{})
+    ).
+
 t_nest_object(_Config) ->
     GoodRef = <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>,
     Spec = #{
@@ -790,7 +814,7 @@ to_schema(Body) ->
 
 fields(good_ref) ->
     [
-        {'webhook-host', mk(emqx_schema:ip_port(), #{default => "127.0.0.1:80"})},
+        {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
         {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];
@@ -812,7 +836,13 @@ fields(sub_fields) ->
             {init_file, fun init_file/1}
         ],
         desc => <<"test sub fields">>
-    }.
+    };
+fields(deprecated_ref) ->
+    [
+        {tag1, mk(binary(), #{desc => <<"tag1">>, deprecated => {since, "4.3.0"}})},
+        {tag2, mk(binary(), #{desc => <<"tag2">>, deprecated => true})},
+        {tag3, mk(binary(), #{desc => <<"tag3">>, deprecated => false})}
+    ].
 
 enable(type) -> boolean();
 enable(desc) -> <<"Whether to enable tls psk support">>;

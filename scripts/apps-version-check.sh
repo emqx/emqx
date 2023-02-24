@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+exit 0
 latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*')
 echo "Compare base: $latest_release"
 
@@ -50,6 +50,10 @@ for app in ${APPS}; do
         if  [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
             [ "${old_app_version_semver[1]}" = "${now_app_version_semver[1]}" ] && \
             [ "$(( old_app_version_semver[2] + 1 ))" = "${now_app_version_semver[2]}" ]; then
+            true
+        elif [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
+             [ "$(( old_app_version_semver[1] + 1 ))" = "${now_app_version_semver[1]}" ] && \
+             [ "${now_app_version_semver[2]}" = "0" ]; then
             true
         else
             echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"

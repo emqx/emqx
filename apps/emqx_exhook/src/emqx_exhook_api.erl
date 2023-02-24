@@ -229,9 +229,9 @@ server_conf_schema() ->
             name => "default",
             enable => true,
             url => <<"http://127.0.0.1:8081">>,
-            request_timeout => "5s",
+            request_timeout => <<"5s">>,
             failed_action => deny,
-            auto_reconnect => "60s",
+            auto_reconnect => <<"60s">>,
             pool_size => 8,
             ssl => SSL
         }

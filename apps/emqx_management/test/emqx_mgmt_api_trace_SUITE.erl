@@ -19,9 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("stdlib/include/zip.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -225,12 +223,12 @@ t_log_file(_Config) ->
         ]},
         zip:table(Binary2)
     ),
-    {error, {_, 400, _}} =
+    {error, {_, 404, _}} =
         request_api(
             get,
-            api_path("trace/test_client_id/download?node=unknonwn_node")
+            api_path("trace/test_client_id/download?node=unknown_node")
         ),
-    {error, {_, 400, _}} =
+    {error, {_, 404, _}} =
         request_api(
             get,
             % known atom but unknown node
@@ -296,12 +294,21 @@ t_stream_log(_Config) ->
     #{<<"meta">> := Meta1, <<"items">> := Bin1} = json(Binary1),
     ?assertEqual(#{<<"position">> => 30, <<"bytes">> => 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
-    {error, {_, 400, _}} =
+    ct:pal("~p vs ~p", [Bin, Bin1]),
+    %% in theory they could be the same but we know they shouldn't
+    ?assertNotEqual(Bin, Bin1),
+    BadReqPath = api_path("trace/test_stream_log/log?&bytes=1000000000000"),
+    {error, {_, 400, _}} = request_api(get, BadReqPath),
+    meck:new(file, [passthrough, unstick]),
+    meck:expect(file, read, 2, {error, enomem}),
+    {error, {_, 503, _}} = request_api(get, Path),
+    meck:unload(file),
+    {error, {_, 404, _}} =
         request_api(
             get,
-            api_path("trace/test_stream_log/log?node=unknonwn_node")
+            api_path("trace/test_stream_log/log?node=unknown_node")
         ),
-    {error, {_, 400, _}} =
+    {error, {_, 404, _}} =
         request_api(
             get,
             % known atom but not a node

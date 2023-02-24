@@ -110,11 +110,11 @@ fields(limiter) ->
         ];
 fields(node_opts) ->
     [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
         {burst,
             ?HOCON(burst_rate(), #{
                 desc => ?DESC(burst),
-                default => 0
+                default => <<"0">>
             })}
     ];
 fields(client_fields) ->
@@ -128,14 +128,14 @@ fields(client_fields) ->
     ];
 fields(bucket_opts) ->
     [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
-        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
-        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})}
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
+        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => <<"infinity">>})},
+        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})}
     ];
 fields(client_opts) ->
     [
-        {rate, ?HOCON(rate(), #{default => "infinity", desc => ?DESC(rate)})},
-        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
+        {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
+        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})},
         %% low_watermark add for emqx_channel and emqx_session
         %% both modules consume first and then check
         %% so we need to use this value to prevent excessive consumption
@@ -145,13 +145,13 @@ fields(client_opts) ->
                 initial(),
                 #{
                     desc => ?DESC(low_watermark),
-                    default => "0"
+                    default => <<"0">>
                 }
             )},
         {capacity,
             ?HOCON(capacity(), #{
                 desc => ?DESC(client_bucket_capacity),
-                default => "infinity"
+                default => <<"infinity">>
             })},
         {divisible,
             ?HOCON(
@@ -166,7 +166,7 @@ fields(client_opts) ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(max_retry_time),
-                    default => "10s"
+                    default => <<"10s">>
                 }
             )},
         {failure_strategy,

@@ -40,7 +40,7 @@ fields("dashboard") ->
             ?HOCON(
                 emqx_schema:duration_s(),
                 #{
-                    default => "10s",
+                    default => <<"10s">>,
                     desc => ?DESC(sample_interval),
                     validator => fun validate_sample_interval/1
                 }
@@ -49,7 +49,7 @@ fields("dashboard") ->
             ?HOCON(
                 emqx_schema:duration(),
                 #{
-                    default => "60m",
+                    default => <<"60m">>,
                     desc => ?DESC(token_expired_time)
                 }
             )},
@@ -141,7 +141,7 @@ common_listener_fields() ->
             ?HOCON(
                 emqx_schema:duration(),
                 #{
-                    default => "10s",
+                    default => <<"10s">>,
                     desc => ?DESC(send_timeout)
                 }
             )},
@@ -206,14 +206,14 @@ desc(_) ->
     undefined.
 
 default_username(type) -> binary();
-default_username(default) -> "admin";
+default_username(default) -> <<"admin">>;
 default_username(required) -> true;
 default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
 default_username(_) -> undefined.
 
 default_password(type) -> binary();
-default_password(default) -> "public";
+default_password(default) -> <<"public">>;
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;

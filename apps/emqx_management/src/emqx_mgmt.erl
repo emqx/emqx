@@ -21,8 +21,6 @@
 -elvis([{elvis_style, god_modules, disable}]).
 
 -include_lib("stdlib/include/qlc.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% Nodes and Brokers API
 -export([
@@ -71,8 +69,6 @@
     list_subscriptions/1,
     list_subscriptions_via_topic/2,
     list_subscriptions_via_topic/3,
-    lookup_subscriptions/1,
-    lookup_subscriptions/2,
 
     do_list_subscriptions/0
 ]).
@@ -105,11 +101,9 @@
 
 %% Common Table API
 -export([
-    max_row_limit/0,
+    default_row_limit/0,
     vm_stats/0
 ]).
-
--define(APP, emqx_management).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -162,7 +156,7 @@ node_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:node_info(Nodes)).
 
 stopped_node_info(Node) ->
-    #{name => Node, node_status => 'stopped'}.
+    {Node, #{node => Node, node_status => 'stopped'}}.
 
 vm_stats() ->
     Idle =
@@ -194,8 +188,13 @@ lookup_broker(Node) ->
     Broker.
 
 broker_info() ->
-    Info = maps:from_list([{K, iolist_to_binary(V)} || {K, V} <- emqx_sys:info()]),
-    Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
+    Info = lists:foldl(fun convert_broker_info/2, #{}, emqx_sys:info()),
+    Info#{node => node(), otp_release => otp_rel(), node_status => 'running'}.
+
+convert_broker_info({uptime, Uptime}, M) ->
+    M#{uptime => emqx_datetime:human_readable_duration_string(Uptime)};
+convert_broker_info({K, V}, M) ->
+    M#{K => iolist_to_binary(V)}.
 
 broker_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:broker_info(Nodes)).
@@ -265,7 +264,7 @@ lookup_client({username, Username}, FormatFun) ->
      || Node <- mria_mnesia:running_nodes()
     ]).
 
-lookup_client(Node, Key, {M, F}) ->
+lookup_client(Node, Key, FormatFun) ->
     case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
         {error, Err} ->
             {error, Err};
@@ -273,18 +272,23 @@ lookup_client(Node, Key, {M, F}) ->
             lists:map(
                 fun({Chan, Info0, Stats}) ->
                     Info = Info0#{node => Node},
-                    M:F({Chan, Info, Stats})
+                    maybe_format(FormatFun, {Chan, Info, Stats})
                 end,
                 L
             )
     end.
 
-kickout_client({ClientID, FormatFun}) ->
-    case lookup_client({clientid, ClientID}, FormatFun) of
+maybe_format(undefined, A) ->
+    A;
+maybe_format({M, F}, A) ->
+    M:F(A).
+
+kickout_client(ClientId) ->
+    case lookup_client({clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
         _ ->
-            Results = [kickout_client(Node, ClientID) || Node <- mria_mnesia:running_nodes()],
+            Results = [kickout_client(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
             check_results(Results)
     end.
 
@@ -295,17 +299,22 @@ list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
 
 list_client_subscriptions(ClientId) ->
-    Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    Filter =
-        fun
-            ({error, _}) ->
-                false;
-            ({_Node, List}) ->
-                erlang:is_list(List) andalso 0 < erlang:length(List)
-        end,
-    case lists:filter(Filter, Results) of
-        [] -> [];
-        [Result | _] -> Result
+    case lookup_client({clientid, ClientId}, undefined) of
+        [] ->
+            {error, not_found};
+        _ ->
+            Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
+            Filter =
+                fun
+                    ({error, _}) ->
+                        false;
+                    ({_Node, List}) ->
+                        erlang:is_list(List) andalso 0 < erlang:length(List)
+                end,
+            case lists:filter(Filter, Results) of
+                [] -> [];
+                [Result | _] -> Result
+            end
     end.
 
 client_subscriptions(Node, ClientId) ->
@@ -388,17 +397,11 @@ call_client(Node, ClientId, Req) ->
 %% Subscriptions
 %%--------------------------------------------------------------------
 
--spec do_list_subscriptions() -> [map()].
+-spec do_list_subscriptions() -> no_return().
 do_list_subscriptions() ->
-    case check_row_limit([mqtt_subproperty]) of
-        false ->
-            throw(max_row_limit);
-        ok ->
-            [
-                #{topic => Topic, clientid => ClientId, options => Options}
-             || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)
-            ]
-    end.
+    %% [FIXME] Add function to `emqx_broker` that returns list of subscriptions
+    %% and either redirect from here or bpapi directly (EMQX-8993).
+    throw(not_implemented).
 
 list_subscriptions(Node) ->
     unwrap_rpc(emqx_management_proto_v3:list_subscriptions(Node)).
@@ -414,12 +417,6 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
         {error, Reason} -> {error, Reason};
         Result -> M:F(Result)
     end.
-
-lookup_subscriptions(ClientId) ->
-    lists:append([lookup_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()]).
-
-lookup_subscriptions(Node, ClientId) ->
-    unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -556,24 +553,11 @@ unwrap_rpc(Res) ->
 otp_rel() ->
     iolist_to_binary([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
 
-check_row_limit(Tables) ->
-    check_row_limit(Tables, max_row_limit()).
-
-check_row_limit([], _Limit) ->
-    ok;
-check_row_limit([Tab | Tables], Limit) ->
-    case table_size(Tab) > Limit of
-        true -> false;
-        false -> check_row_limit(Tables, Limit)
-    end.
-
 check_results(Results) ->
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true -> ok;
         false -> unwrap_rpc(lists:last(Results))
     end.
 
-max_row_limit() ->
-    ?MAX_ROW_LIMIT.
-
-table_size(Tab) -> ets:info(Tab, size).
+default_row_limit() ->
+    ?DEFAULT_ROW_LIMIT.

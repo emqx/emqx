@@ -223,7 +223,7 @@ http_common_fields() ->
         {url, fun url/1},
         {request_timeout,
             mk_duration("Request timeout", #{
-                required => false, default => "30s", desc => ?DESC(request_timeout)
+                required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
             })},
         {body, ?HOCON(map(), #{required => false, desc => ?DESC(body)})}
     ] ++

@@ -56,7 +56,7 @@ jobs:
               echo "runs-on=${RUNS_ON}" | tee -a $GITHUB_OUTPUT
 
     prepare:
-        runs-on: aws-amd64
+        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
         needs: [build-matrix]
         strategy:
           fail-fast: false

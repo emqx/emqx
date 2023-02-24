@@ -115,12 +115,12 @@ fields("server_configs") ->
                     desc => ?DESC("clean_start")
                 }
             )},
-        {keepalive, mk_duration("MQTT Keepalive.", #{default => "300s"})},
+        {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"300s">>})},
         {retry_interval,
             mk_duration(
                 "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
                 "messages in case of ACK not received.",
-                #{default => "15s"}
+                #{default => <<"15s">>}
             )},
         {max_inflight,
             mk(

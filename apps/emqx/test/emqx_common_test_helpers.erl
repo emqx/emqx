@@ -22,6 +22,8 @@
 
 -export([
     all/1,
+    init_per_testcase/3,
+    end_per_testcase/3,
     boot_modules/1,
     start_apps/1,
     start_apps/2,
@@ -42,6 +44,7 @@
     client_ssl_twoway/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
+    ensure_quic_listener/3,
     is_all_tcp_servers_available/1,
     is_tcp_server_available/2,
     is_tcp_server_available/3,
@@ -149,6 +152,19 @@ all(Suite) ->
      || {F, 1} <- Suite:module_info(exports),
         string:substr(atom_to_list(F), 1, 2) == "t_"
     ]).
+
+init_per_testcase(Module, TestCase, Config) ->
+    case erlang:function_exported(Module, TestCase, 2) of
+        true -> Module:TestCase(init, Config);
+        false -> Config
+    end.
+
+end_per_testcase(Module, TestCase, Config) ->
+    case erlang:function_exported(Module, TestCase, 2) of
+        true -> Module:TestCase('end', Config);
+        false -> ok
+    end,
+    Config.
 
 %% set emqx app boot modules
 -spec boot_modules(all | list(atom())) -> ok.
@@ -496,11 +512,14 @@ ensure_dashboard_listeners_started(_App) ->
 
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
 ensure_quic_listener(Name, UdpPort) ->
+    ensure_quic_listener(Name, UdpPort, #{}).
+-spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number(), map()) -> ok.
+ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     application:ensure_all_started(quicer),
     Conf = #{
         acceptors => 16,
-        bind => {{0, 0, 0, 0}, UdpPort},
-        certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+        bind => UdpPort,
+
         ciphers =>
             [
                 "TLS_AES_256_GCM_SHA384",
@@ -509,13 +528,16 @@ ensure_quic_listener(Name, UdpPort) ->
             ],
         enabled => true,
         idle_timeout => 15000,
-        keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
+        ssl_options => #{
+            certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem")
+        },
         limiter => #{},
         max_connections => 1024000,
         mountpoint => <<>>,
         zone => default
     },
-    emqx_config:put([listeners, quic, Name], Conf),
+    emqx_config:put([listeners, quic, Name], maps:merge(Conf, ExtraSettings)),
     case emqx_listeners:start_listener(quic, Name, Conf) of
         ok -> ok;
         {error, {already_started, _Pid}} -> ok
