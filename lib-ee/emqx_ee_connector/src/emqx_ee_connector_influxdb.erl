@@ -254,7 +254,7 @@ do_start_client(
                         error => influxdb_client_not_alive, reason => Reason
                     }),
                     ?SLOG(warning, #{
-                        msg => "starting influxdb connector failed - client is not alive",
+                        msg => "failed_to_start_influxdb_connector",
                         connector => InstId,
                         client => redact_auth(Client),
                         reason => Reason
@@ -275,7 +275,7 @@ do_start_client(
         {error, Reason} ->
             ?tp(influxdb_connector_start_failed, #{error => Reason}),
             ?SLOG(warning, #{
-                msg => "starting influxdb connector failed",
+                msg => "failed_to_start_influxdb_connector",
                 connector => InstId,
                 reason => Reason
             }),
