@@ -1539,23 +1539,26 @@ t_async_reply_multi_eval(_Config) ->
         end,
         #{}
     ),
-    F = fun() ->
-        Metrics = tap_metrics(?LINE),
-        #{
-            counters := Counters,
-            gauges := #{queuing := 0, inflight := 0}
-        } = Metrics,
-        #{
-            matched := Matched,
-            success := Success,
-            dropped := Dropped,
-            late_reply := LateReply,
-            failed := Failed
-        } = Counters,
-        ?assertEqual(TotalQueries, Matched - 1),
-        ?assertEqual(Matched, Success + Dropped + LateReply + Failed)
-    end,
-    loop_wait(F, _Interval = 5, TotalTime).
+    ?retry(
+        ResumeInterval,
+        TotalTime div ResumeInterval,
+        begin
+            Metrics = tap_metrics(?LINE),
+            #{
+                counters := Counters,
+                gauges := #{queuing := 0, inflight := 0}
+            } = Metrics,
+            #{
+                matched := Matched,
+                success := Success,
+                dropped := Dropped,
+                late_reply := LateReply,
+                failed := Failed
+            } = Counters,
+            ?assertEqual(TotalQueries, Matched - 1),
+            ?assertEqual(Matched, Success + Dropped + LateReply + Failed)
+        end
+    ).
 
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
@@ -2622,15 +2625,3 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
         )
     ),
     ok.
-
-loop_wait(F, Interval, TotalTime) when Interval >= TotalTime ->
-    %% do it for the last time
-    F();
-loop_wait(F, Interval, TotalTime) ->
-    try
-        F()
-    catch
-        _:_ ->
-            timer:sleep(Interval),
-            loop_wait(F, Interval, TotalTime - Interval)
-    end.
