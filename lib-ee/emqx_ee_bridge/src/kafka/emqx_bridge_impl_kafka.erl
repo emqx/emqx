@@ -4,34 +4,38 @@
 
 %% Kafka connection configuration
 -module(emqx_bridge_impl_kafka).
--behaviour(emqx_resource).
 
-%% callbacks of behaviour emqx_resource
 -export([
-    callback_mode/0,
-    on_start/2,
-    on_stop/2,
-    on_query/3,
-    on_query_async/4,
-    on_get_status/2,
-    is_buffer_supported/0
+    hosts/1,
+    make_client_id/2,
+    sasl/1
 ]).
 
-is_buffer_supported() -> true.
+%% Parse comma separated host:port list into a [{Host,Port}] list
+hosts(Hosts) when is_binary(Hosts) ->
+    hosts(binary_to_list(Hosts));
+hosts(Hosts) when is_list(Hosts) ->
+    kpro:parse_endpoints(Hosts).
 
-callback_mode() -> async_if_possible.
+%% Client ID is better to be unique to make it easier for Kafka side trouble shooting.
+make_client_id(KafkaType0, BridgeName0) ->
+    KafkaType = to_bin(KafkaType0),
+    BridgeName = to_bin(BridgeName0),
+    iolist_to_binary([KafkaType, ":", BridgeName, ":", atom_to_list(node())]).
 
-on_start(InstId, Config) ->
-    emqx_bridge_impl_kafka_producer:on_start(InstId, Config).
+sasl(none) ->
+    undefined;
+sasl(#{mechanism := Mechanism, username := Username, password := Password}) ->
+    {Mechanism, Username, emqx_secret:wrap(Password)};
+sasl(#{
+    kerberos_principal := Principal,
+    kerberos_keytab_file := KeyTabFile
+}) ->
+    {callback, brod_gssapi, {gssapi, KeyTabFile, Principal}}.
 
-on_stop(InstId, State) ->
-    emqx_bridge_impl_kafka_producer:on_stop(InstId, State).
-
-on_query(InstId, Req, State) ->
-    emqx_bridge_impl_kafka_producer:on_query(InstId, Req, State).
-
-on_query_async(InstId, Req, ReplyFn, State) ->
-    emqx_bridge_impl_kafka_producer:on_query_async(InstId, Req, ReplyFn, State).
-
-on_get_status(InstId, State) ->
-    emqx_bridge_impl_kafka_producer:on_get_status(InstId, State).
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(L) when is_list(L) ->
+    list_to_binary(L);
+to_bin(B) when is_binary(B) ->
+    B.

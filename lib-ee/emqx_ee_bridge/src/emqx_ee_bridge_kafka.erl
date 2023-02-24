@@ -68,6 +68,10 @@ fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post");
+fields(kafka_producer) ->
+    fields("config") ++ fields(producer_opts);
+fields(kafka_consumer) ->
+    fields("config") ++ fields(consumer_opts);
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -104,8 +108,6 @@ fields("config") ->
             mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
                 default => none, desc => ?DESC("authentication")
             })},
-        {producer, mk(hoconsc:union([none, ref(producer_opts)]), #{desc => ?DESC(producer_opts)})},
-        %{consumer, mk(hoconsc:union([none, ref(consumer_opts)]), #{desc => ?DESC(consumer_opts)})},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(auth_username_password) ->
@@ -156,15 +158,16 @@ fields(socket_opts) ->
     ];
 fields(producer_opts) ->
     [
-        {mqtt, mk(ref(producer_mqtt_opts), #{desc => ?DESC(producer_mqtt_opts)})},
+        %% Note: there's an implicit convention in `emqx_bridge' that,
+        %% for egress bridges with this config, the published messages
+        %% will be forwarded to such bridges.
+        {local_topic, mk(binary(), #{desc => ?DESC(mqtt_topic)})},
         {kafka,
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 desc => ?DESC(producer_kafka_opts)
             })}
     ];
-fields(producer_mqtt_opts) ->
-    [{topic, mk(binary(), #{desc => ?DESC(mqtt_topic)})}];
 fields(producer_kafka_opts) ->
     [
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
@@ -241,23 +244,44 @@ fields(producer_buffer) ->
                 default => false,
                 desc => ?DESC(buffer_memory_overload_protection)
             })}
+    ];
+fields(consumer_opts) ->
+    [
+        {kafka,
+            mk(ref(consumer_kafka_opts), #{required => true, desc => ?DESC(consumer_kafka_opts)})},
+        {mqtt, mk(ref(consumer_mqtt_opts), #{required => true, desc => ?DESC(consumer_mqtt_opts)})}
+    ];
+fields(consumer_mqtt_opts) ->
+    [
+        {topic,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(consumer_mqtt_topic)
+            })},
+        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
+        {payload,
+            mk(
+                enum([full_message, message_value]),
+                #{default => full_message, desc => ?DESC(consumer_mqtt_payload)}
+            )}
+    ];
+fields(consumer_kafka_opts) ->
+    [
+        {topic, mk(binary(), #{desc => ?DESC(consumer_kafka_topic)})},
+        {max_batch_bytes,
+            mk(emqx_schema:bytesize(), #{
+                default => "896KB", desc => ?DESC(consumer_max_batch_bytes)
+            })},
+        {max_rejoin_attempts,
+            mk(non_neg_integer(), #{
+                default => 5, desc => ?DESC(consumer_max_rejoin_attempts)
+            })},
+        {offset_reset_policy,
+            mk(
+                enum([reset_to_latest, reset_to_earliest, reset_by_subscriber]),
+                #{default => reset_to_latest, desc => ?DESC(consumer_offset_reset_policy)}
+            )}
     ].
-
-% fields(consumer_opts) ->
-%     [
-%         {kafka, mk(ref(consumer_kafka_opts), #{required => true, desc => ?DESC(consumer_kafka_opts)})},
-%         {mqtt, mk(ref(consumer_mqtt_opts), #{required => true, desc => ?DESC(consumer_mqtt_opts)})}
-%     ];
-% fields(consumer_mqtt_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_mqtt_topic)})}
-%     ];
-
-% fields(consumer_mqtt_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_mqtt_topic)})}
-%     ];
-% fields(consumer_kafka_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_kafka_topic)})}
-%     ].
 
 desc("config") ->
     ?DESC("desc_config");
@@ -272,11 +296,15 @@ struct_names() ->
         auth_gssapi_kerberos,
         auth_username_password,
         kafka_message,
+        kafka_producer,
+        kafka_consumer,
         producer_buffer,
         producer_kafka_opts,
-        producer_mqtt_opts,
         socket_opts,
-        producer_opts
+        producer_opts,
+        consumer_opts,
+        consumer_kafka_opts,
+        consumer_mqtt_opts
     ].
 
 %% -------------------------------------------------------------------------------------------------
