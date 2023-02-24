@@ -176,7 +176,7 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_big_payload(sync, InstId, BatchReq, State);
         {random_reply, Num} ->
             %% async batch retried
-            random_reply(Num)
+            make_random_reply(Num)
     end.
 
 on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) ->
@@ -313,11 +313,11 @@ counter_loop(
                 %% with 'ok' in the result, the buffer worker should eventually
                 %% drain the buffer (and inflights table)
                 ReplyCount = 1 + (RandNum rem 3),
-                Results = random_replies(ReplyCount),
+                Results = make_random_replies(ReplyCount),
                 %% add a delay to trigger inflight full
-                timer:sleep(5),
                 lists:foreach(
                     fun(Result) ->
+                        timer:sleep(rand:uniform(5)),
                         apply_reply(ReplyFun, Result)
                     end,
                     Results
@@ -354,12 +354,12 @@ maybe_register(_Name, _Pid, false) ->
 apply_reply({ReplyFun, Args}, Result) when is_function(ReplyFun) ->
     apply(ReplyFun, Args ++ [Result]).
 
-random_replies(0) ->
+make_random_replies(0) ->
     [];
-random_replies(N) ->
-    [random_reply(N) | random_replies(N - 1)].
+make_random_replies(N) ->
+    [make_random_reply(N) | make_random_replies(N - 1)].
 
-random_reply(N) ->
+make_random_reply(N) ->
     case rand:uniform(3) of
         1 ->
             {ok, N};

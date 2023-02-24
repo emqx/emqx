@@ -77,7 +77,7 @@
             blocked ->
                 ok;
             ok ->
-                maybe_flush_after_async_reply(IsFullBefore)
+                ok = maybe_flush_after_async_reply(IsFullBefore)
         end
     end)()
 ).
@@ -486,15 +486,14 @@ flush(Data0) ->
     Data1 = cancel_flush_timer(Data0),
     CurrentCount = queue_count(Q0),
     IsFull = is_inflight_full(InflightTID),
-    InflightCount = inflight_num_batches(InflightTID),
     ?tp(buffer_worker_flush, #{
         queued => CurrentCount,
         is_inflight_full => IsFull,
-        inflight => InflightCount
+        inflight => inflight_count(InflightTID)
     }),
     case {CurrentCount, IsFull} of
         {0, _} ->
-            ?tp(buffer_worker_queue_drained, #{inflight => InflightCount}),
+            ?tp(buffer_worker_queue_drained, #{inflight => inflight_count(InflightTID)}),
             {keep_state, Data1};
         {_, true} ->
             ?tp(buffer_worker_flush_but_inflight_full, #{}),
@@ -626,7 +625,7 @@ do_flush(
                     flush_worker(self());
                 false ->
                     ?tp(buffer_worker_queue_drained, #{
-                        inflight => inflight_num_batches(InflightTID)
+                        inflight => inflight_count(InflightTID)
                     }),
                     ok
             end,
@@ -707,7 +706,7 @@ do_flush(#{queue := Q1} = Data0, #{
                 case {CurrentCount > 0, CurrentCount >= BatchSize} of
                     {false, _} ->
                         ?tp(buffer_worker_queue_drained, #{
-                            inflight => inflight_num_batches(InflightTID)
+                            inflight => inflight_count(InflightTID)
                         }),
                         Data1;
                     {true, true} ->
@@ -1336,10 +1335,10 @@ is_inflight_full(InflightTID) ->
     [{_, MaxSize}] = ets:lookup(InflightTID, ?MAX_SIZE_REF),
     %% we consider number of batches rather than number of messages
     %% because one batch request may hold several messages.
-    Size = inflight_num_batches(InflightTID),
+    Size = inflight_count(InflightTID),
     Size >= MaxSize.
 
-inflight_num_batches(InflightTID) ->
+inflight_count(InflightTID) ->
     case ets:info(InflightTID, size) of
         undefined -> 0;
         Size -> max(0, Size - ?INFLIGHT_META_ROWS)

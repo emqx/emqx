@@ -1513,6 +1513,7 @@ t_async_reply_multi_eval(_Config) ->
     ResumeInterval = 5,
     TotalTime = 5_000,
     AsyncInflightWindow = 3,
+    TotalQueries = AsyncInflightWindow * 5,
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = emqx_resource:create(
         ?ID,
@@ -1528,49 +1529,33 @@ t_async_reply_multi_eval(_Config) ->
             resume_interval => ResumeInterval
         }
     ),
-    ?check_trace(
-        #{timetrap => 30_000},
-        begin
-            %% block
-            ok = emqx_resource:simple_sync_query(?ID, block),
-
-            ?wait_async_action(
-                inc_counter_in_parallel(
-                    AsyncInflightWindow * 5,
-                    fun() ->
-                        Rand = rand:uniform(1000),
-                        {random_reply, Rand}
-                    end,
-                    #{}
-                ),
-                #{?snk_kind := buffer_worker_queue_drained, inflight := 0},
-                TotalTime
-            ),
-            ok
+    %% block
+    ok = emqx_resource:simple_sync_query(?ID, block),
+    inc_counter_in_parallel(
+        TotalQueries,
+        fun() ->
+            Rand = rand:uniform(1000),
+            {random_reply, Rand}
         end,
-        [
-            fun(Trace) ->
-                ?assertMatch(
-                    [#{inflight := 0} | _],
-                    lists:reverse(?of_kind(buffer_worker_queue_drained, Trace))
-                )
-            end
-        ]
+        #{}
     ),
-    Metrics = tap_metrics(?LINE),
-    #{
-        counters := Counters,
-        gauges := #{queuing := 0, inflight := 0}
-    } = Metrics,
-    #{
-        matched := Matched,
-        success := Success,
-        dropped := Dropped,
-        late_reply := LateReply,
-        failed := Failed
-    } = Counters,
-    ?assertEqual(Matched, Success + Dropped + LateReply + Failed),
-    ok.
+    F = fun() ->
+        Metrics = tap_metrics(?LINE),
+        #{
+            counters := Counters,
+            gauges := #{queuing := 0, inflight := 0}
+        } = Metrics,
+        #{
+            matched := Matched,
+            success := Success,
+            dropped := Dropped,
+            late_reply := LateReply,
+            failed := Failed
+        } = Counters,
+        ?assertEqual(TotalQueries, Matched - 1),
+        ?assertEqual(Matched, Success + Dropped + LateReply + Failed)
+    end,
+    loop_wait(F, _Interval = 5, TotalTime).
 
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
@@ -2637,3 +2622,15 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
         )
     ),
     ok.
+
+loop_wait(F, Interval, TotalTime) when Interval >= TotalTime ->
+    %% do it for the last time
+    F();
+loop_wait(F, Interval, TotalTime) ->
+    try
+        F()
+    catch
+        _:_ ->
+            timer:sleep(Interval),
+            loop_wait(F, Interval, TotalTime - Interval)
+    end.
