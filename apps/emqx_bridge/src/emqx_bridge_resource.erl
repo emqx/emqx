@@ -45,7 +45,12 @@
 ]).
 
 %% bi-directional bridge with producer/consumer or ingress/egress configs
--define(IS_BI_DIR_BRIDGE(TYPE), TYPE =:= <<"mqtt">>; TYPE =:= <<"kafka">>).
+-define(IS_BI_DIR_BRIDGE(TYPE),
+    TYPE =:= <<"mqtt">>
+).
+-define(IS_INGRESS_BRIDGE(TYPE),
+    TYPE =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
+).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
@@ -297,12 +302,14 @@ parse_confs(
                 max_retries => Retry
             }
     };
-parse_confs(Type, Name, Conf) when ?IS_BI_DIR_BRIDGE(Type) ->
+parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
     BId = bridge_id(Type, Name),
     Conf#{hookpoint => <<"$bridges/", BId/binary>>, bridge_name => Name};
+parse_confs(<<"kafka_producer">> = _Type, Name, Conf) ->
+    Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
 

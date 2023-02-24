@@ -11,7 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("brod/include/brod.hrl").
 
--define(PRODUCER, emqx_bridge_impl_kafka).
+-define(PRODUCER, emqx_bridge_impl_kafka_producer).
 
 %%------------------------------------------------------------------------------
 %% Things for REST API tests
@@ -71,6 +71,10 @@ wait_until_kafka_is_up(Attempts) ->
     end.
 
 init_per_suite(Config) ->
+    %% ensure loaded
+    _ = application:load(emqx_ee_bridge),
+    _ = emqx_ee_bridge:module_info(),
+    application:load(emqx_bridge),
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
     {ok, _} = application:ensure_all_started(emqx_connector),
@@ -100,6 +104,13 @@ init_per_group(GroupName, Config) ->
     [{query_api, GroupName} | Config].
 
 end_per_group(_, _) ->
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    delete_all_bridges(),
     ok.
 
 set_special_configs(emqx_management) ->
@@ -222,7 +233,7 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
     ok.
 
 kafka_bridge_rest_api_helper(Config) ->
-    BridgeType = "kafka",
+    BridgeType = "kafka_producer",
     BridgeName = "my_kafka_bridge",
     BridgeID = emqx_bridge_resource:bridge_id(
         erlang:list_to_binary(BridgeType),
@@ -266,24 +277,18 @@ kafka_bridge_rest_api_helper(Config) ->
     %% Create new Kafka bridge
     KafkaTopic = "test-topic-one-partition",
     CreateBodyTmp = #{
-        <<"type">> => <<"kafka">>,
+        <<"type">> => <<"kafka_producer">>,
         <<"name">> => <<"my_kafka_bridge">>,
         <<"bootstrap_hosts">> => iolist_to_binary(maps:get(<<"bootstrap_hosts">>, Config)),
         <<"enable">> => true,
         <<"authentication">> => maps:get(<<"authentication">>, Config),
-        <<"producer">> => #{
-            <<"mqtt">> => #{
-                topic => <<"t/#">>
-            },
-            <<"kafka">> => #{
-                <<"topic">> => iolist_to_binary(KafkaTopic),
-                <<"buffer">> => #{
-                    <<"memory_overload_protection">> => <<"false">>
-                },
-                <<"message">> => #{
-                    <<"key">> => <<"${clientid}">>,
-                    <<"value">> => <<"${.payload}">>
-                }
+        <<"local_topic">> => <<"t/#">>,
+        <<"kafka">> => #{
+            <<"topic">> => iolist_to_binary(KafkaTopic),
+            <<"buffer">> => #{<<"memory_overload_protection">> => <<"false">>},
+            <<"message">> => #{
+                <<"key">> => <<"${clientid}">>,
+                <<"value">> => <<"${.payload}">>
             }
         }
     },
@@ -355,6 +360,7 @@ kafka_bridge_rest_api_helper(Config) ->
     %% Cleanup
     {ok, 204, _} = show(http_delete(BridgesPartsIdDeleteAlsoActions)),
     false = MyKafkaBridgeExists(),
+    delete_all_bridges(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -371,9 +377,10 @@ t_failed_creation_then_fix(Config) ->
     ValidAuthSettings = valid_sasl_plain_settings(),
     WrongAuthSettings = ValidAuthSettings#{"password" := "wrong"},
     Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
+    Type = kafka_producer,
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-    ResourceId = emqx_bridge_resource:resource_id("kafka", Name),
-    BridgeId = emqx_bridge_resource:bridge_id("kafka", Name),
+    ResourceId = emqx_bridge_resource:resource_id("kafka_producer", Name),
+    BridgeId = emqx_bridge_resource:bridge_id("kafka_producer", Name),
     KafkaTopic = "test-topic-one-partition",
     WrongConf = config(#{
         "authentication" => WrongAuthSettings,
@@ -397,15 +404,19 @@ t_failed_creation_then_fix(Config) ->
         "ssl" => #{}
     }),
     %% creates, but fails to start producers
-    %% FIXME: change to kafka_producer after config refactoring
-    ?assertMatch(ok, emqx_bridge_resource:create(kafka, erlang:list_to_atom(Name), WrongConf, #{})),
-    ?assertThrow(failed_to_start_kafka_producer, ?PRODUCER:on_start(ResourceId, WrongConf)),
+    {ok, #{config := WrongConfigAtom1}} = emqx_bridge:create(
+        Type, erlang:list_to_atom(Name), WrongConf
+    ),
+    WrongConfigAtom = WrongConfigAtom1#{bridge_name => Name},
+    ?assertThrow(failed_to_start_kafka_producer, ?PRODUCER:on_start(ResourceId, WrongConfigAtom)),
     %% before throwing, it should cleanup the client process.
     ?assertEqual([], supervisor:which_children(wolff_client_sup)),
-    %% FIXME: change to kafka_producer after config refactoring
     %% must succeed with correct config
-    ?assertMatch(ok, emqx_bridge_resource:create(kafka, erlang:list_to_atom(Name), ValidConf, #{})),
-    {ok, State} = ?PRODUCER:on_start(ResourceId, ValidConf),
+    {ok, #{config := ValidConfigAtom1}} = emqx_bridge:create(
+        Type, erlang:list_to_atom(Name), ValidConf
+    ),
+    ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name},
+    {ok, State} = ?PRODUCER:on_start(ResourceId, ValidConfigAtom),
     %% To make sure we get unique value
     timer:sleep(1),
     Time = erlang:monotonic_time(),
@@ -423,6 +434,7 @@ t_failed_creation_then_fix(Config) ->
     %% TODO: refactor those into init/end per testcase
     ok = ?PRODUCER:on_stop(ResourceId, State),
     ok = emqx_bridge_resource:remove(BridgeId),
+    delete_all_bridges(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -487,6 +499,7 @@ publish_helper(
     },
     Conf0
 ) ->
+    delete_all_bridges(),
     HostsString =
         case {AuthSettings, SSLSettings} of
             {"none", Map} when map_size(Map) =:= 0 ->
@@ -500,8 +513,8 @@ publish_helper(
         end,
     Hash = erlang:phash2([HostsString, AuthSettings, SSLSettings]),
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-    InstId = emqx_bridge_resource:resource_id("kafka", Name),
-    BridgeId = emqx_bridge_resource:bridge_id("kafka", Name),
+    Type = "kafka_producer",
+    InstId = emqx_bridge_resource:resource_id(Type, Name),
     KafkaTopic = "test-topic-one-partition",
     Conf = config(
         #{
@@ -509,30 +522,40 @@ publish_helper(
             "kafka_hosts_string" => HostsString,
             "kafka_topic" => KafkaTopic,
             "instance_id" => InstId,
+            "local_topic" => <<"mqtt/local">>,
             "ssl" => SSLSettings
         },
         Conf0
     ),
-
-    emqx_bridge_resource:create(kafka, erlang:list_to_atom(Name), Conf, #{}),
+    {ok, _} = emqx_bridge:create(
+        <<"kafka_producer">>, list_to_binary(Name), Conf
+    ),
     %% To make sure we get unique value
     timer:sleep(1),
     Time = erlang:monotonic_time(),
     BinTime = integer_to_binary(Time),
+    Partition = 0,
     Msg = #{
         clientid => BinTime,
         payload => <<"payload">>,
         timestamp => Time
     },
-    {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
-    ct:pal("base offset before testing ~p", [Offset]),
-    StartRes = ?PRODUCER:on_start(InstId, Conf),
-    {ok, State} = StartRes,
+    {ok, Offset0} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, Partition),
+    ct:pal("base offset before testing ~p", [Offset0]),
+    {ok, _Group, #{state := State}} = emqx_resource:get_instance(InstId),
     ok = send(CtConfig, InstId, Msg, State),
-    {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
-    ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
-    ok = ?PRODUCER:on_stop(InstId, State),
-    ok = emqx_bridge_resource:remove(BridgeId),
+    {ok, {_, [KafkaMsg0]}} = brod:fetch(kafka_hosts(), KafkaTopic, Partition, Offset0),
+    ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg0),
+
+    %% test that it forwards from local mqtt topic as well
+    {ok, Offset1} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, Partition),
+    ct:pal("base offset before testing (2) ~p", [Offset1]),
+    emqx:publish(emqx_message:make(<<"mqtt/local">>, <<"payload">>)),
+    ct:sleep(2_000),
+    {ok, {_, [KafkaMsg1]}} = brod:fetch(kafka_hosts(), KafkaTopic, Partition, Offset1),
+    ?assertMatch(#kafka_message{value = <<"payload">>}, KafkaMsg1),
+
+    delete_all_bridges(),
     ok.
 
 default_config() ->
@@ -545,18 +568,24 @@ config(Args0, More) ->
     Args1 = maps:merge(default_config(), Args0),
     Args = maps:merge(Args1, More),
     ConfText = hocon_config(Args),
-    ct:pal("Running tests with conf:\n~s", [ConfText]),
-    {ok, Conf} = hocon:binary(ConfText),
-    #{config := Parsed} = hocon_tconf:check_plain(
-        emqx_ee_bridge_kafka,
-        #{<<"config">> => Conf},
-        #{atom_key => true}
-    ),
+    {ok, Conf} = hocon:binary(ConfText, #{format => map}),
+    ct:pal("Running tests with conf:\n~p", [Conf]),
     InstId = maps:get("instance_id", Args),
     <<"bridge:", BridgeId/binary>> = InstId,
-    Parsed#{bridge_name => erlang:element(2, emqx_bridge_resource:parse_bridge_id(BridgeId))}.
+    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    TypeBin = atom_to_binary(Type),
+    hocon_tconf:check_plain(
+        emqx_bridge_schema,
+        Conf,
+        #{atom_key => false, required => false}
+    ),
+    #{<<"bridges">> := #{TypeBin := #{Name := Parsed}}} = Conf,
+    Parsed.
 
 hocon_config(Args) ->
+    InstId = maps:get("instance_id", Args),
+    <<"bridge:", BridgeId/binary>> = InstId,
+    {_Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     AuthConf = maps:get("authentication", Args),
     AuthTemplate = iolist_to_binary(hocon_config_template_authentication(AuthConf)),
     AuthConfRendered = bbmustache:render(AuthTemplate, AuthConf),
@@ -567,6 +596,7 @@ hocon_config(Args) ->
         iolist_to_binary(hocon_config_template()),
         Args#{
             "authentication" => AuthConfRendered,
+            "bridge_name" => Name,
             "ssl" => SSLConfRendered
         }
     ),
@@ -575,22 +605,30 @@ hocon_config(Args) ->
 %% erlfmt-ignore
 hocon_config_template() ->
 """
-bootstrap_hosts = \"{{ kafka_hosts_string }}\"
-enable = true
-authentication = {{{ authentication }}}
-ssl = {{{ ssl }}}
-producer = {
-    mqtt {
-       topic = \"t/#\"
+bridges.kafka_producer.{{ bridge_name }} {
+  bootstrap_hosts = \"{{ kafka_hosts_string }}\"
+  enable = true
+  authentication = {{{ authentication }}}
+  ssl = {{{ ssl }}}
+  local_topic = \"{{ local_topic }}\"
+  kafka = {
+    message = {
+      key = \"${clientid}\"
+      value = \"${.payload}\"
+      timestamp = \"${timestamp}\"
     }
-    kafka = {
-        topic = \"{{ kafka_topic }}\"
-        message = {key = \"${clientid}\", value = \"${.payload}\"}
-        partition_strategy = {{ partition_strategy }}
-        buffer = {
-            memory_overload_protection = false
-        }
+    buffer = {
+      memory_overload_protection = false
     }
+    partition_strategy = {{ partition_strategy }}
+    topic = \"{{ kafka_topic }}\"
+  }
+  metadata_request_timeout = 5s
+  min_metadata_refresh_interval = 3s
+  socket_opts {
+    nodelay = true
+  }
+  connect_timeout = 5s
 }
 """.
 
@@ -631,22 +669,42 @@ hocon_config_template_ssl(_) ->
 """.
 
 kafka_hosts_string() ->
-    "kafka-1.emqx.net:9092,".
+    KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_PLAIN_PORT", "9092"),
+    KafkaHost ++ ":" ++ KafkaPort ++ ",".
 
 kafka_hosts_string_sasl() ->
-    "kafka-1.emqx.net:9093,".
+    KafkaHost = os:getenv("KAFKA_SASL_PLAIN_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_SASL_PLAIN_PORT", "9093"),
+    KafkaHost ++ ":" ++ KafkaPort ++ ",".
 
 kafka_hosts_string_ssl() ->
-    "kafka-1.emqx.net:9094,".
+    KafkaHost = os:getenv("KAFKA_SSL_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_SSL_PORT", "9094"),
+    KafkaHost ++ ":" ++ KafkaPort ++ ",".
 
 kafka_hosts_string_ssl_sasl() ->
-    "kafka-1.emqx.net:9095,".
+    KafkaHost = os:getenv("KAFKA_SASL_SSL_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_SASL_SSL_PORT", "9095"),
+    KafkaHost ++ ":" ++ KafkaPort ++ ",".
+
+shared_secret_path() ->
+    os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret").
+
+shared_secret(client_keyfile) ->
+    filename:join([shared_secret_path(), "client.key"]);
+shared_secret(client_certfile) ->
+    filename:join([shared_secret_path(), "client.crt"]);
+shared_secret(client_cacertfile) ->
+    filename:join([shared_secret_path(), "ca.crt"]);
+shared_secret(rig_keytab) ->
+    filename:join([shared_secret_path(), "rig.keytab"]).
 
 valid_ssl_settings() ->
     #{
-        "cacertfile" => <<"/var/lib/secret/ca.crt">>,
-        "certfile" => <<"/var/lib/secret/client.crt">>,
-        "keyfile" => <<"/var/lib/secret/client.key">>,
+        "cacertfile" => shared_secret(client_cacertfile),
+        "certfile" => shared_secret(client_certfile),
+        "keyfile" => shared_secret(client_keyfile),
         "enable" => <<"true">>
     }.
 
@@ -670,7 +728,7 @@ valid_sasl_scram512_settings() ->
 valid_sasl_kerberos_settings() ->
     #{
         "kerberos_principal" => "rig@KDC.EMQX.NET",
-        "kerberos_keytab_file" => "/var/lib/secret/rig.keytab"
+        "kerberos_keytab_file" => shared_secret(rig_keytab)
     }.
 
 kafka_hosts() ->
@@ -732,3 +790,17 @@ api_path(Parts) ->
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
     Jsx.
+
+delete_all_bridges() ->
+    lists:foreach(
+        fun(#{name := Name, type := Type}) ->
+            emqx_bridge:remove(Type, Name)
+        end,
+        emqx_bridge:list()
+    ),
+    %% at some point during the tests, sometimes `emqx_bridge:list()'
+    %% returns an empty list, but `emqx:get_config([bridges])' returns
+    %% a bunch of orphan test bridges...
+    lists:foreach(fun emqx_resource:remove/1, emqx_resource:list_instances()),
+    emqx_config:put([bridges], #{}),
+    ok.

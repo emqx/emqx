@@ -64,7 +64,8 @@ examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
-resource_type(kafka) -> emqx_bridge_impl_kafka;
+resource_type(kafka_consumer) -> emqx_bridge_impl_kafka_consumer;
+resource_type(kafka_producer) -> emqx_bridge_impl_kafka_producer;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_ee_connector_gcp_pubsub;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
@@ -85,14 +86,6 @@ resource_type(dynamo) -> emqx_ee_connector_dynamo.
 
 fields(bridges) ->
     [
-        {kafka,
-            mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_kafka, "config")),
-                #{
-                    desc => <<"Kafka Bridge Config">>,
-                    required => false
-                }
-            )},
         {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
@@ -133,8 +126,8 @@ fields(bridges) ->
                     required => false
                 }
             )}
-    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++ pgsql_structs() ++
-        clickhouse_structs().
+    ] ++ kafka_structs() ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++
+        pgsql_structs() ++ clickhouse_structs().
 
 mongodb_structs() ->
     [
@@ -147,6 +140,16 @@ mongodb_structs() ->
                 }
             )}
      || Type <- [mongodb_rs, mongodb_sharded, mongodb_single]
+    ].
+
+kafka_structs() ->
+    [
+        {Type,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_kafka, Type)),
+                #{desc => <<"EMQX Enterprise Config">>, required => false}
+            )}
+     || Type <- [kafka_producer, kafka_consumer]
     ].
 
 influxdb_structs() ->
