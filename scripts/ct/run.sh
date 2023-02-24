@@ -21,6 +21,12 @@ help() {
     echo "                        otherwise it runs the entire app's CT"
 }
 
+if command -v docker-compose; then
+    DC='docker-compose'
+else
+    DC='docker compose'
+fi
+
 WHICH_APP='novalue'
 CONSOLE='no'
 KEEP_UP='no'
@@ -155,7 +161,7 @@ for dep in ${CT_DEPS}; do
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
-            ;; 
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
@@ -201,7 +207,7 @@ if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
     # shellcheck disable=2086 # no quotes for F_OPTIONS
-    docker compose $F_OPTIONS up -d --build --remove-orphans
+    $DC $F_OPTIONS up -d --build --remove-orphans
 fi
 
 echo "Fixing file owners and permissions for $UID_GID"
@@ -218,7 +224,7 @@ set +e
 
 if [ "$STOP" = 'yes' ]; then
     # shellcheck disable=2086 # no quotes for F_OPTIONS
-    docker compose $F_OPTIONS down --remove-orphans
+    $DC $F_OPTIONS down --remove-orphans
 elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
@@ -235,11 +241,11 @@ else
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
         # shellcheck disable=2086 # no quotes for F_OPTIONS
-        docker compose $F_OPTIONS logs --no-color --timestamps > "$LOG"
+        $DC $F_OPTIONS logs --no-color --timestamps > "$LOG"
     fi
     if [ "$KEEP_UP" != 'yes' ]; then
         # shellcheck disable=2086 # no quotes for F_OPTIONS
-        docker compose $F_OPTIONS down
+        $DC $F_OPTIONS down
     fi
     exit $RESULT
 fi

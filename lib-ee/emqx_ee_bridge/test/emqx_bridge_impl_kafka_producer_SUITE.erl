@@ -268,7 +268,7 @@ kafka_bridge_rest_api_helper(Config) ->
     CreateBodyTmp = #{
         <<"type">> => <<"kafka">>,
         <<"name">> => <<"my_kafka_bridge">>,
-        <<"bootstrap_hosts">> => maps:get(<<"bootstrap_hosts">>, Config),
+        <<"bootstrap_hosts">> => iolist_to_binary(maps:get(<<"bootstrap_hosts">>, Config)),
         <<"enable">> => true,
         <<"authentication">> => maps:get(<<"authentication">>, Config),
         <<"producer">> => #{
@@ -276,7 +276,7 @@ kafka_bridge_rest_api_helper(Config) ->
                 topic => <<"t/#">>
             },
             <<"kafka">> => #{
-                <<"topic">> => erlang:list_to_binary(KafkaTopic),
+                <<"topic">> => iolist_to_binary(KafkaTopic),
                 <<"buffer">> => #{
                     <<"memory_overload_protection">> => <<"false">>
                 },

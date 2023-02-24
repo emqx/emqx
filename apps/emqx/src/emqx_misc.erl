@@ -720,4 +720,4 @@ pub_props_to_packet(Properties) ->
 safe_filename(Filename) when is_binary(Filename) ->
     binary:replace(Filename, <<":">>, <<"-">>, [global]);
 safe_filename(Filename) when is_list(Filename) ->
-    string:replace(Filename, ":", "-", all).
+    lists:flatten(string:replace(Filename, ":", "-", all)).
