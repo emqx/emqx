@@ -120,6 +120,9 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-define(BIT(Bits), (1 bsl (Bits))).
+-define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
+
 namespace() -> broker.
 
 tags() ->
@@ -862,6 +865,79 @@ fields("mqtt_quic_listener") ->
                 }
             )},
         {"ciphers", ciphers_schema(quic)},
+
+        {"max_bytes_per_key",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_max_bytes_per_key)
+            )},
+        {"handshake_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+            )},
+        {"tls_server_max_send_buffer",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_tls_server_max_send_buffer)
+            )},
+        {"stream_recv_window_default",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_stream_recv_window_default)
+            )},
+        {"stream_recv_buffer_default",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_stream_recv_buffer_default)
+            )},
+        {"conn_flow_control_window",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_conn_flow_control_window)
+            )},
+        {"max_stateless_operations",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_max_stateless_operations)
+            )},
+        {"initial_window_packets",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_initial_window_packets)
+            )},
+        {"send_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_send_idle_timeout_ms)
+            )},
+        {"initial_rtt_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_initial_rtt_ms)
+            )},
+        {"max_ack_delay_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_max_ack_delay_ms)
+            )},
+        {"disconnect_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_disconnect_timeout_ms)
+            )},
         {"idle_timeout",
             sc(
                 duration_ms(),
@@ -869,6 +945,12 @@ fields("mqtt_quic_listener") ->
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
+            )},
+        {"idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_idle_timeout_ms)
             )},
         {"handshake_idle_timeout",
             sc(
@@ -878,6 +960,12 @@ fields("mqtt_quic_listener") ->
                     desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
                 }
             )},
+        {"handshake_idle_timeout_ms",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout_ms)
+            )},
         {"keep_alive_interval",
             sc(
                 duration_ms(),
@@ -885,6 +973,100 @@ fields("mqtt_quic_listener") ->
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
                 }
+            )},
+        {"keep_alive_interval_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(32),
+                ?DESC(fields_mqtt_quic_listener_keep_alive_interval_ms)
+            )},
+        {"peer_bidi_stream_count",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_peer_bidi_stream_count)
+            )},
+        {"peer_unidi_stream_count",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_peer_unidi_stream_count)
+            )},
+        {"retry_memory_limit",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_retry_memory_limit)
+            )},
+        {"load_balancing_mode",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_load_balancing_mode)
+            )},
+        {"max_operations_per_drain",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_max_operations_per_drain)
+            )},
+        {"send_buffering_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_send_buffering_enabled)
+            )},
+        {"pacing_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_pacing_enabled)
+            )},
+        {"migration_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_migration_enabled)
+            )},
+        {"datagram_receive_enabled",
+            quic_feature_toggle(
+                ?DESC(fields_mqtt_quic_listener_datagram_receive_enabled)
+            )},
+        {"server_resumption_level",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_server_resumption_level)
+            )},
+        {"minimum_mtu",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_minimum_mtu)
+            )},
+        {"maximum_mtu",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_maximum_mtu)
+            )},
+        {"mtu_discovery_search_complete_timeout_us",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(64),
+                ?DESC(fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us)
+            )},
+        {"mtu_discovery_missing_probe_count",
+            quic_lowlevel_settings_uint(
+                1,
+                ?MAX_UINT(8),
+                ?DESC(fields_mqtt_quic_listener_mtu_discovery_missing_probe_count)
+            )},
+        {"max_binding_stateless_operations",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_max_binding_stateless_operations)
+            )},
+        {"stateless_operation_expiration_ms",
+            quic_lowlevel_settings_uint(
+                0,
+                ?MAX_UINT(16),
+                ?DESC(fields_mqtt_quic_listener_stateless_operation_expiration_ms)
             )},
         {"ssl_options",
             sc(
@@ -2638,3 +2820,30 @@ parse_port(Port) ->
         _:_ ->
             throw("bad_port_number")
     end.
+
+quic_feature_toggle(Desc) ->
+    sc(
+        %% true, false are for user facing
+        %% 0, 1 are for internal represtation
+        typerefl:alias("boolean", typerefl:union([true, false, 0, 1])),
+        #{
+            desc => Desc,
+            hidden => true,
+            required => false,
+            converter => fun
+                (true) -> 1;
+                (false) -> 0;
+                (Other) -> Other
+            end
+        }
+    ).
+
+quic_lowlevel_settings_uint(Low, High, Desc) ->
+    sc(
+        range(Low, High),
+        #{
+            required => false,
+            hidden => true,
+            desc => Desc
+        }
+    ).

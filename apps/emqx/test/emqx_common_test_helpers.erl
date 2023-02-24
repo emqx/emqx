@@ -44,6 +44,7 @@
     client_ssl_twoway/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
+    ensure_quic_listener/3,
     is_all_tcp_servers_available/1,
     is_tcp_server_available/2,
     is_tcp_server_available/3,
@@ -511,6 +512,9 @@ ensure_dashboard_listeners_started(_App) ->
 
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
 ensure_quic_listener(Name, UdpPort) ->
+    ensure_quic_listener(Name, UdpPort, #{}).
+-spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number(), map()) -> ok.
+ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     application:ensure_all_started(quicer),
     Conf = #{
         acceptors => 16,
@@ -533,7 +537,7 @@ ensure_quic_listener(Name, UdpPort) ->
         mountpoint => <<>>,
         zone => default
     },
-    emqx_config:put([listeners, quic, Name], Conf),
+    emqx_config:put([listeners, quic, Name], maps:merge(Conf, ExtraSettings)),
     case emqx_listeners:start_listener(quic, Name, Conf) of
         ok -> ok;
         {error, {already_started, _Pid}} -> ok
