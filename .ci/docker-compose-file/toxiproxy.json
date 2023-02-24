@@ -53,5 +53,29 @@
     "listen": "0.0.0.0:8000",
     "upstream": "dynamo:8000",
     "enabled": true
+  },
+  {
+    "name": "kafka_plain",
+    "listen": "0.0.0.0:9292",
+    "upstream": "kafka-1.emqx.net:9292",
+    "enabled": true
+  },
+  {
+    "name": "kafka_sasl_plain",
+    "listen": "0.0.0.0:9293",
+    "upstream": "kafka-1.emqx.net:9293",
+    "enabled": true
+  },
+  {
+    "name": "kafka_ssl",
+    "listen": "0.0.0.0:9294",
+    "upstream": "kafka-1.emqx.net:9294",
+    "enabled": true
+  },
+  {
+    "name": "kafka_sasl_ssl",
+    "listen": "0.0.0.0:9295",
+    "upstream": "kafka-1.emqx.net:9295",
+    "enabled": true
   }
 ]

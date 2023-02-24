@@ -6,7 +6,10 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.5.0
     restart: always
     networks:
-      - emqx_bridge
+      emqx_bridge:
+        aliases:
+          - toxiproxy
+          - toxiproxy.emqx.net
     volumes:
       - "./toxiproxy.json:/config/toxiproxy.json"
     ports:
