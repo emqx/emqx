@@ -267,8 +267,6 @@ t_http_crud_apis(Config) ->
                 <<"enable">> := true,
                 <<"status">> := _,
                 <<"node_status">> := [_ | _],
-                <<"metrics">> := _,
-                <<"node_metrics">> := [_ | _],
                 <<"url">> := URL2
             }
         ],
@@ -747,6 +745,7 @@ t_metrics(Config) ->
     ),
 
     %ct:pal("---bridge: ~p", [Bridge]),
+    Decoded = jsx:decode(Bridge),
     #{
         <<"type">> := ?BRIDGE_TYPE,
         <<"name">> := Name,
@@ -754,7 +753,11 @@ t_metrics(Config) ->
         <<"status">> := _,
         <<"node_status">> := [_ | _],
         <<"url">> := URL1
-    } = jsx:decode(Bridge),
+    } = Decoded,
+
+    %% assert that the bridge return doesn't contain metrics anymore
+    ?assertNot(maps:is_key(<<"metrics">>, Decoded)),
+    ?assertNot(maps:is_key(<<"node_metrics">>, Decoded)),
 
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
 
@@ -770,9 +773,9 @@ t_metrics(Config) ->
 
     %% check that the bridge doesn't contain metrics anymore
     {ok, 200, Bridge2Str} = request(get, uri(["bridges", BridgeID]), []),
-    Decoded = jsx:decode(Bridge2Str),
-    ?assertNot(maps:is_key(<<"metrics">>, Decoded)),
-    ?assertNot(maps:is_key(<<"node_metrics">>, Decoded)),
+    Decoded2 = jsx:decode(Bridge2Str),
+    ?assertNot(maps:is_key(<<"metrics">>, Decoded2)),
+    ?assertNot(maps:is_key(<<"node_metrics">>, Decoded2)),
 
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
@@ -803,15 +806,13 @@ t_metrics(Config) ->
         jsx:decode(Bridge3Str)
     ),
 
-    %% check for non-empty metrics when listing all bridges
+    %% check that metrics isn't returned when listing all bridges
     {ok, 200, BridgesStr} = request(get, uri(["bridges"]), []),
-    ?assertMatch(
-        [
-            #{
-                <<"metrics">> := #{<<"success">> := _},
-                <<"node_metrics">> := [_ | _]
-            }
-        ],
+    lists:foreach(
+        fun(BridgeMap) ->
+            ?assertNot(maps:is_key(<<"metrics">>, BridgeMap)),
+            ?assertNot(maps:is_key(<<"node_metrics">>, BridgeMap))
+        end,
         jsx:decode(BridgesStr)
     ),
     ok.

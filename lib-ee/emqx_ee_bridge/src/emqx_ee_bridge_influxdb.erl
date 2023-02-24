@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_influxdb).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -46,7 +45,7 @@ conn_bridge_examples(Method) ->
     ].
 
 values(Protocol, get) ->
-    maps:merge(values(Protocol, post), ?METRICS_EXAMPLE);
+    values(Protocol, post);
 values("influxdb_api_v2", post) ->
     SupportUint = <<"uint_value=${payload.uint_key}u,">>,
     TypeOpts = #{

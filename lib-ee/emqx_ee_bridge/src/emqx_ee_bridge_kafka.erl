@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_kafka).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -44,7 +43,7 @@ conn_bridge_examples(Method) ->
     ].
 
 values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
+    values(post);
 values(post) ->
     #{
         bootstrap_hosts => <<"localhost:9092">>
