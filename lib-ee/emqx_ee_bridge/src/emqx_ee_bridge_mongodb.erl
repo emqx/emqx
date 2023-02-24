@@ -5,7 +5,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -156,9 +155,6 @@ values(common, MongoType, Method, TypeOpts) ->
     Vals0 = maps:merge(MethodVals, Common),
     maps:merge(Vals0, TypeOpts).
 
-method_values(MongoType, get) ->
-    Vals = method_values(MongoType, post),
-    maps:merge(?METRICS_EXAMPLE, Vals);
 method_values(MongoType, _) ->
     ConnectorType =
         case MongoType of
