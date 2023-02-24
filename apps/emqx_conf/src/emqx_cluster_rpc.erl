@@ -204,7 +204,7 @@ do_multicall(M, F, A, RequiredSyncs, Timeout) ->
 query(TnxId) ->
     transaction(fun ?MODULE:trans_query/1, [TnxId]).
 
--spec reset() -> reset.
+-spec reset() -> ok.
 reset() -> gen_server:call(?MODULE, reset).
 
 -spec status() -> {'atomic', [map()]} | {'aborted', Reason :: term()}.
