@@ -545,8 +545,12 @@ else
                 logerr "Make sure environment variable EMQX_NODE__NAME is set to indicate for which node this command is intended."
                 exit 1
             fi
+        else
+            if [ -n "${EMQX_NODE__NAME:-}" ]; then
+                die "Node $EMQX_NODE__NAME is not running?"
+            fi
         fi
-        ## We have no choiece but to read the bootstrap config (with environment overrides available in the current shell)
+        ## We have no choice but to read the bootstrap config (with environment overrides available in the current shell)
         [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
         maybe_use_portable_dynlibs
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
@@ -940,9 +944,11 @@ if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
     unset EMQX_NODE_COOKIE
 fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
-if [ -z "$COOKIE" ]; then
-    COOKIE="$(get_boot_config 'node.cookie')"
+COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
+if [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then
+    die "EMQX_NODE__COOKIE is different from the cookie used by $NAME"
 fi
+[ -z "$COOKIE" ] && COOKIE="$COOKIE_IN_USE"
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
 
 maybe_warn_default_cookie() {
