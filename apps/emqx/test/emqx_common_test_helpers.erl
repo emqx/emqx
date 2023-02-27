@@ -29,6 +29,7 @@
     boot_modules/1,
     start_apps/1,
     start_apps/2,
+    start_apps/3,
     stop_apps/1,
     reload/2,
     app_path/2,
@@ -36,7 +37,8 @@
     deps_path/2,
     flush/0,
     flush/1,
-    render_and_load_app_config/1
+    render_and_load_app_config/1,
+    render_and_load_app_config/2
 ]).
 
 -export([
@@ -185,17 +187,21 @@ start_apps(Apps) ->
             application:set_env(system_monitor, db_hostname, ""),
             ok
         end,
-    start_apps(Apps, DefaultHandler).
+    start_apps(Apps, DefaultHandler, #{}).
 
 -spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
 start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
+    start_apps(Apps, SpecAppConfig, #{}).
+
+-spec start_apps(Apps :: apps(), Handler :: special_config_handler(), map()) -> ok.
+start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
     mnesia:clear_table(emqx_admin),
     ok = emqx_ratelimiter_SUITE:load_conf(),
-    lists:foreach(fun(App) -> start_app(App, SpecAppConfig) end, [emqx | Apps]).
+    lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
 
 load(App) ->
     case application:load(App) of
@@ -205,27 +211,31 @@ load(App) ->
     end.
 
 render_and_load_app_config(App) ->
+    render_and_load_app_config(App, #{}).
+
+render_and_load_app_config(App, Opts) ->
     load(App),
     Schema = app_schema(App),
-    Conf = app_path(App, filename:join(["etc", app_conf_file(App)])),
+    ConfFilePath = maps:get(conf_file_path, Opts, filename:join(["etc", app_conf_file(App)])),
+    Conf = app_path(App, ConfFilePath),
     try
-        do_render_app_config(App, Schema, Conf)
+        do_render_app_config(App, Schema, Conf, Opts)
     catch
         throw:E:St ->
             %% turn throw into error
             error({Conf, E, St})
     end.
 
-do_render_app_config(App, Schema, ConfigFile) ->
-    Vars = mustache_vars(App),
+do_render_app_config(App, Schema, ConfigFile, Opts) ->
+    Vars = mustache_vars(App, Opts),
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
     force_set_config_file_paths(App, [RenderedConfigFile]),
     copy_certs(App, RenderedConfigFile),
     ok.
 
-start_app(App, SpecAppConfig) ->
-    render_and_load_app_config(App),
+start_app(App, SpecAppConfig, Opts) ->
+    render_and_load_app_config(App, Opts),
     SpecAppConfig(App),
     case application:ensure_all_started(App) of
         {ok, _} ->
@@ -248,12 +258,13 @@ app_schema(App) ->
             no_schema
     end.
 
-mustache_vars(App) ->
+mustache_vars(App, Opts) ->
+    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, []),
     [
         {platform_data_dir, app_path(App, "data")},
         {platform_etc_dir, app_path(App, "etc")},
         {platform_log_dir, app_path(App, "log")}
-    ].
+    ] ++ ExtraMustacheVars.
 
 render_config_file(ConfigFile, Vars0) ->
     Temp =
@@ -337,7 +348,7 @@ safe_relative_path_2(Path) ->
 -spec reload(App :: atom(), SpecAppConfig :: special_config_handler()) -> ok.
 reload(App, SpecAppConfigHandler) ->
     application:stop(App),
-    start_app(App, SpecAppConfigHandler),
+    start_app(App, SpecAppConfigHandler, #{}),
     application:start(App).
 
 ensure_mnesia_stopped() ->
@@ -479,7 +490,7 @@ is_all_tcp_servers_available(Servers) ->
         {_, []} ->
             true;
         {_, Unavail} ->
-            ct:print("Unavailable servers: ~p", [Unavail]),
+            ct:pal("Unavailable servers: ~p", [Unavail]),
             false
     end.
 

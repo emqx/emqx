@@ -484,8 +484,13 @@ esockd_opts(ListenerId, Type, Opts0) ->
     },
     maps:to_list(
         case Type of
-            tcp -> Opts3#{tcp_options => tcp_opts(Opts0)};
-            ssl -> Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}
+            tcp ->
+                Opts3#{tcp_options => tcp_opts(Opts0)};
+            ssl ->
+                OptsWithCRL = inject_crl_config(Opts0),
+                OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
+                SSLOpts = ssl_opts(OptsWithSNI),
+                Opts3#{ssl_options => SSLOpts, tcp_options => tcp_opts(Opts0)}
         end
     ).
 
@@ -785,3 +790,24 @@ quic_listener_optional_settings() ->
         max_binding_stateless_operations,
         stateless_operation_expiration_ms
     ].
+
+inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
+    emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
+inject_sni_fun(_ListenerId, Conf) ->
+    Conf.
+
+inject_crl_config(
+    Conf = #{ssl_options := #{crl := #{enable_crl_check := true} = CRLOpts} = SSLOpts}
+) ->
+    HTTPTimeout = maps:get(cache_refresh_http_timeout, CRLOpts, timer:seconds(15)),
+    Conf2 = Conf#{
+        ssl_options := SSLOpts#{
+            %% `crl_check => true' doesn't work
+            crl_check => peer,
+            crl_cache => {ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
+        }
+    },
+    emqx_crl_cache:refresh_config(Conf),
+    Conf2;
+inject_crl_config(Conf) ->
+    Conf.
