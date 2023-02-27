@@ -137,6 +137,10 @@ append_filemeta(Asm, Node, Fragment = #{fragment := {filemeta, Meta}}) ->
         meta = orddict:store(Meta, {Node, Fragment}, Asm#asm.meta)
     }.
 
+append_segmentinfo(Asm, _Node, #{fragment := {segment, #{size := 0}}}) ->
+    % NOTE
+    % Empty segments are valid but meaningless for coverage.
+    Asm;
 append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
     Offset = maps:get(offset, Info),
     Size = maps:get(size, Info),
@@ -151,16 +155,17 @@ append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
 
 coverage([{{Offset, _, _, _}, _Segment} | Rest], Cursor, Sz) when Offset < Cursor ->
     coverage(Rest, Cursor, Sz);
-coverage([{{Cursor, _Locality, MEnd, Node}, Segment} | Rest], Cursor, Sz) ->
+coverage([{{Cursor, _Locality, MEnd, Node}, Segment} | _Rest] = Segments, Cursor, Sz) ->
     % NOTE
     % We consider only whole fragments here, so for example from the point of view of
     % this algo `[{Offset1 = 0, Size1 = 15}, {Offset2 = 10, Size2 = 10}]` has no
     % coverage.
-    case coverage(Rest, -MEnd, Sz) of
+    Tail = tail(Segments),
+    case coverage(Tail, -MEnd, Sz) of
         Coverage when is_list(Coverage) ->
             [{Node, Segment} | Coverage];
         Missing = {missing, _} ->
-            case coverage(Rest, Cursor, Sz) of
+            case coverage(Tail, Cursor, Sz) of
                 CoverageAlt when is_list(CoverageAlt) ->
                     CoverageAlt;
                 {missing, _} ->
@@ -173,6 +178,20 @@ coverage([], Cursor, Sz) when Cursor < Sz ->
     {missing, {segment, Cursor, Sz}};
 coverage([], Cursor, Cursor) ->
     [].
+
+tail([Segment | Rest]) ->
+    tail(Segment, Rest).
+
+tail({{Cursor, _, MEnd, _}, _} = Segment, [{{Cursor, _, MEnd, _}, _} | Rest]) ->
+    % NOTE
+    % Discarding segments with same offset / size, potentially located on other nodes.
+    % This is an optimization. They won't participate in coverage anyway given we're
+    % currently optimizing coverage towards locality. Yet if we instead decide to
+    % optimize for node dominance (e.g. compute such coverage that most of the data
+    % located on a single node) we'll need to account them again.
+    tail(Segment, Rest);
+tail(_Segment, Tail) ->
+    Tail.
 
 dominant(Coverage) ->
     % TODO: needs improvement, better defined _dominance_, maybe some score
