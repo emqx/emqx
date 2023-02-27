@@ -43,11 +43,20 @@
     ip/0,
     port/0,
     limited_atom/0,
-    limited_latin_atom/0
+    limited_latin_atom/0,
+    printable_utf8/0,
+    printable_codepoint/0
+]).
+
+%% Generic Types
+-export([
+    scaled/2
 ]).
 
 %% Iterators
 -export([nof/1]).
+
+-type proptype() :: proper_types:raw_type().
 
 %%--------------------------------------------------------------------
 %% Types High level
@@ -606,6 +615,20 @@ limited_atom() ->
 limited_any_term() ->
     oneof([binary(), number(), string()]).
 
+printable_utf8() ->
+    ?SUCHTHAT(
+        String,
+        ?LET(L, list(printable_codepoint()), unicode:characters_to_binary(L)),
+        is_binary(String)
+    ).
+
+printable_codepoint() ->
+    frequency([
+        {7, range(16#20, 16#7E)},
+        {2, range(16#00A0, 16#D7FF)},
+        {1, range(16#E000, 16#FFFD)}
+    ]).
+
 %%--------------------------------------------------------------------
 %% Iterators
 %%--------------------------------------------------------------------
@@ -631,6 +654,14 @@ limited_list(N, T) ->
             [T || _ <- lists:seq(1, N2)]
         end
     ).
+
+%%--------------------------------------------------------------------
+%% Generic Types
+%%--------------------------------------------------------------------
+
+-spec scaled(number(), proptype()) -> proptype().
+scaled(F, T) when F > 0 ->
+    ?SIZED(S, resize(round(S * F), T)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
