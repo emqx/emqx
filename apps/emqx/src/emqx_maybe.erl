@@ -20,6 +20,7 @@
 
 -export([to_list/1]).
 -export([from_list/1]).
+-export([define/2]).
 -export([apply/2]).
 
 -spec to_list(maybe(A)) -> [A].
@@ -32,6 +33,12 @@ to_list(Term) ->
 from_list([]) ->
     undefined;
 from_list([Term]) ->
+    Term.
+
+-spec define(maybe(A), B) -> A | B.
+define(undefined, Term) ->
+    Term;
+define(Term, _) ->
     Term.
 
 %% @doc Apply a function to a maybe argument.
@@ -58,6 +65,13 @@ from_list_test_() ->
         ?_assertEqual(undefined, from_list([])),
         ?_assertEqual(3.1415, from_list([3.1415])),
         ?_assertError(_, from_list([1, 2, 3]))
+    ].
+
+define_test_() ->
+    [
+        ?_assertEqual(42, define(42, undefined)),
+        ?_assertEqual(<<"default">>, define(undefined, <<"default">>)),
+        ?_assertEqual(undefined, define(undefined, undefined))
     ].
 
 apply_test_() ->
