@@ -12,6 +12,7 @@ CMD
 CN
 CONNACK
 CoAP
+CRLs
 Cygwin
 DES
 DN
@@ -41,6 +42,7 @@ Makefile
 MitM
 Multicast
 NIF
+OCSP
 OTP
 PEM
 PINGREQ

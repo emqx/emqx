@@ -810,7 +810,7 @@ fields("mqtt_ssl_listener") ->
             {"ssl_options",
                 sc(
                     ref("listener_ssl_opts"),
-                    #{}
+                    #{validator => fun mqtt_ssl_listener_ssl_options_validator/1}
                 )}
         ];
 fields("mqtt_ws_listener") ->
@@ -1294,6 +1294,56 @@ fields("listener_quic_ssl_opts") ->
     );
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
+fields("ocsp") ->
+    [
+        {"enable_ocsp_stapling",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC("server_ssl_opts_schema_enable_ocsp_stapling")
+                }
+            )},
+        {"responder_url",
+            sc(
+                binary(),
+                #{
+                    required => false,
+                    validator => fun ocsp_responder_url_validator/1,
+                    converter => fun
+                        (undefined, _Opts) ->
+                            undefined;
+                        (URL, _Opts) ->
+                            uri_string:normalize(URL)
+                    end,
+                    desc => ?DESC("server_ssl_opts_schema_ocsp_responder_url")
+                }
+            )},
+        {"issuer_pem",
+            sc(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC("server_ssl_opts_schema_ocsp_issuer_pem")
+                }
+            )},
+        {"refresh_interval",
+            sc(
+                duration(),
+                #{
+                    default => <<"5m">>,
+                    desc => ?DESC("server_ssl_opts_schema_ocsp_refresh_interval")
+                }
+            )},
+        {"refresh_http_timeout",
+            sc(
+                duration(),
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC("server_ssl_opts_schema_ocsp_refresh_http_timeout")
+                }
+            )}
+    ];
 fields("deflate_opts") ->
     [
         {"level",
@@ -2017,6 +2067,8 @@ desc("trace") ->
     "Real-time filtering logs for the ClientID or Topic or IP for debugging.";
 desc("shared_subscription_group") ->
     "Per group dispatch strategy for shared subscription";
+desc("ocsp") ->
+    "Per listener OCSP Stapling configuration.";
 desc(_) ->
     undefined.
 
@@ -2199,13 +2251,61 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 )}
         ] ++
         [
-            {"gc_after_handshake",
-                sc(boolean(), #{
-                    default => false,
-                    desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
-                })}
-         || not IsRanchListener
+            Field
+         || not IsRanchListener,
+            Field <- [
+                {"gc_after_handshake",
+                    sc(boolean(), #{
+                        default => false,
+                        desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
+                    })},
+                {"ocsp",
+                    sc(
+                        ref("ocsp"),
+                        #{
+                            required => false,
+                            validator => fun ocsp_inner_validator/1
+                        }
+                    )}
+            ]
         ].
+
+mqtt_ssl_listener_ssl_options_validator(Conf) ->
+    Checks = [
+        fun ocsp_outer_validator/1
+    ],
+    case emqx_misc:pipeline(Checks, Conf, not_used) of
+        {ok, _, _} ->
+            ok;
+        {error, Reason, _NotUsed} ->
+            {error, Reason}
+    end.
+
+ocsp_outer_validator(#{<<"ocsp">> := #{<<"enable_ocsp_stapling">> := true}} = Conf) ->
+    %% outer mqtt listener ssl server config
+    ServerCertPemPath = maps:get(<<"certfile">>, Conf, undefined),
+    case ServerCertPemPath of
+        undefined ->
+            {error, "Server certificate must be defined when using OCSP stapling"};
+        _ ->
+            %% check if issuer pem is readable and/or valid?
+            ok
+    end;
+ocsp_outer_validator(_Conf) ->
+    ok.
+
+ocsp_inner_validator(#{enable_ocsp_stapling := _} = Conf) ->
+    ocsp_inner_validator(emqx_map_lib:binary_key_map(Conf));
+ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := false} = _Conf) ->
+    ok;
+ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->
+    assert_required_field(
+        Conf, <<"responder_url">>, "The responder URL is required for OCSP stapling"
+    ),
+    assert_required_field(
+        Conf, <<"issuer_pem">>, "The issuer PEM path is required for OCSP stapling"
+    ),
+    ok.
 
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
@@ -2865,3 +2965,11 @@ is_quic_ssl_opts(Name) ->
         %% , "handshake_timeout"
         %% , "gc_after_handshake"
     ]).
+
+assert_required_field(Conf, Key, ErrorMessage) ->
+    case maps:get(Key, Conf, undefined) of
+        undefined ->
+            throw(ErrorMessage);
+        _ ->
+            ok
+    end.
