@@ -123,7 +123,7 @@ status(meta, []) ->
 status(meta, [_M1, _M2 | _] = Metas) ->
     {error, {inconsistent, [Frag#{node => Node} || {_, {Node, Frag}} <- Metas]}};
 status(coverage, #asm{segs = Segments, size = Size}) ->
-    case coverage(squash(Segments), Size) of
+    case coverage(Segments, Size) of
         Coverage when is_list(Coverage) ->
             {complete, Coverage, #{
                 dominant => dominant(Coverage)
@@ -145,8 +145,7 @@ append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
     Offset = maps:get(offset, Info),
     Size = maps:get(size, Info),
     End = Offset + Size,
-    Index = {Offset, locality(Node), -End, Node},
-    Segs = insert(Asm#asm.segs, Index, [Fragment]),
+    Segs = add_edge(Asm#asm.segs, Offset, End, locality(Node) * Size, {Node, Fragment}),
     Asm#asm{
         % TODO
         % In theory it's possible to have two segments with same offset + size on
@@ -155,69 +154,143 @@ append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
         segs = Segs
     }.
 
-squash(Segs) ->
-    % NOTE
-    % Here we're "compressing" information about every known segment by adjoining
-    % nearby segments on the same node into "runs".
-    squash(Segs, gb_trees:next(gb_trees:iterator(Segs))).
-
-squash(Segs, {Index = {Offset, Locality, MEnd, _}, Fragments, It}) ->
-    SegsSquashed = squash_run(gb_trees:delete(Index, Segs), Index, Fragments, It),
-    ItNext = gb_trees:iterator_from({Offset, Locality, MEnd + 1, 0}, SegsSquashed),
-    squash(SegsSquashed, gb_trees:next(ItNext));
-squash(Segs, none) ->
-    Segs.
-
-squash_run(Segs, {Offset, Locality, MEnd, Node} = Index, Fragments, It) ->
-    Next = gb_trees:next(It),
-    case Next of
-        {{OffsetNext, _, MEndNext, Node} = IndexNext, FragmentsNext, ItNext} when
-            OffsetNext == -MEnd
-        ->
-            SegsNext = gb_trees:delete(IndexNext, Segs),
-            IndexSquashed = {Offset, Locality, MEndNext, Node},
-            squash_run(SegsNext, IndexSquashed, Fragments ++ FragmentsNext, ItNext);
-        {{OffsetNext, _, _, _}, _, ItNext} when OffsetNext =< -MEnd ->
-            squash_run(Segs, Index, Fragments, ItNext);
-        _ ->
-            insert(Segs, Index, Fragments)
-    end.
-
-insert(Segs, Index, Fragments) ->
-    try
-        gb_trees:insert(Index, Fragments, Segs)
-    catch
-        error:{key_exists, _} -> Segs
-    end.
-
 coverage(Segs, Size) ->
-    coverage(gb_trees:next(gb_trees:iterator(Segs)), 0, Size).
+    find_shortest_path(Segs, 0, Size).
 
-coverage({{Offset, _, _, _}, _Fragments, It}, Cursor, Sz) when Offset < Cursor ->
-    coverage(gb_trees:next(It), Cursor, Sz);
-coverage({{Cursor, _Locality, MEnd, Node}, Fragments, It}, Cursor, Sz) ->
+find_shortest_path(G1, From, To) ->
     % NOTE
-    % We consider only whole fragments here, so for example from the point of view of
-    % this algo `[{Offset1 = 0, Size1 = 15}, {Offset2 = 10, Size2 = 10}]` has no
-    % coverage.
-    ItNext = gb_trees:next(It),
-    case coverage(ItNext, -MEnd, Sz) of
-        Coverage when is_list(Coverage) ->
-            [{Node, Frag} || Frag <- Fragments] ++ Coverage;
-        Missing = {missing, _} ->
-            case coverage(ItNext, Cursor, Sz) of
-                CoverageAlt when is_list(CoverageAlt) ->
-                    CoverageAlt;
-                {missing, _} ->
-                    Missing
+    % This is a Dijkstra shortest path algorithm implemented on top of `gb_trees`.
+    % It is one-way right now, for simplicity sake.
+    G2 = set_cost(G1, From, 0, []),
+    case find_shortest_path(G2, From, 0, To) of
+        {found, G3} ->
+            construct_path(G3, From, To, []);
+        {error, Last} ->
+            % NOTE: this is actually just an estimation of what is missing.
+            {missing, {segment, Last, emqx_maybe:define(find_successor(G2, Last), To)}}
+    end.
+
+find_shortest_path(G1, Node, Cost, Target) ->
+    Edges = get_edges(G1, Node),
+    G2 = update_neighbours(G1, Node, Cost, Edges),
+    case take_queued(G2) of
+        {Target, _NextCost, G3} ->
+            {found, G3};
+        {Next, NextCost, G3} ->
+            find_shortest_path(G3, Next, NextCost, Target);
+        none ->
+            {error, Node}
+    end.
+
+construct_path(_G, From, From, Acc) ->
+    Acc;
+construct_path(G, From, To, Acc) ->
+    {Prev, Label} = get_label(G, To),
+    construct_path(G, From, Prev, [Label | Acc]).
+
+update_neighbours(G1, Node, NodeCost, Edges) ->
+    lists:foldl(
+        fun({Neighbour, Weight, Label}, GAcc) ->
+            case is_visited(GAcc, Neighbour) of
+                false ->
+                    NeighCost = NodeCost + Weight,
+                    CurrentCost = get_cost(GAcc, Neighbour),
+                    case NeighCost < CurrentCost of
+                        true ->
+                            set_cost(GAcc, Neighbour, NeighCost, {Node, Label});
+                        false ->
+                            GAcc
+                    end;
+                true ->
+                    GAcc
             end
-    end;
-coverage({{Offset, _, _MEnd, _}, _Fragments, _It}, Cursor, _Sz) when Offset > Cursor ->
-    {missing, {segment, Cursor, Offset}};
-coverage(none, Cursor, Sz) when Cursor < Sz ->
-    {missing, {segment, Cursor, Sz}};
-coverage(none, Cursor, Cursor) ->
-    [].
+        end,
+        G1,
+        Edges
+    ).
+
+add_edge(G, Node, ToNode, WeightIn, EdgeLabel) ->
+    Edges = tree_lookup({Node}, G, []),
+    case lists:keyfind(ToNode, 1, Edges) of
+        {ToNode, Weight, _} when Weight =< WeightIn ->
+            % NOTE
+            % Discarding any edges with higher weight here. This is fine as long as we
+            % optimize for locality.
+            G;
+        _ ->
+            EdgesNext = lists:keystore(ToNode, 1, Edges, {ToNode, WeightIn, EdgeLabel}),
+            tree_update({Node}, EdgesNext, G)
+    end.
+
+get_edges(G, Node) ->
+    tree_lookup({Node}, G, []).
+
+get_cost(G, Node) ->
+    tree_lookup({Node, cost}, G, inf).
+
+get_label(G, Node) ->
+    gb_trees:get({Node, label}, G).
+
+set_cost(G1, Node, Cost, Label) ->
+    G3 =
+        case tree_lookup({Node, cost}, G1, inf) of
+            CostWas when CostWas /= inf ->
+                {true, G2} = gb_trees:take({queued, CostWas, Node}, G1),
+                tree_update({queued, Cost, Node}, true, G2);
+            inf ->
+                tree_update({queued, Cost, Node}, true, G1)
+        end,
+    G4 = tree_update({Node, cost}, Cost, G3),
+    G5 = tree_update({Node, label}, Label, G4),
+    G5.
+
+take_queued(G1) ->
+    It = gb_trees:iterator_from({queued, 0, 0}, G1),
+    case gb_trees:next(It) of
+        {{queued, Cost, Node} = Index, true, _It} ->
+            {Node, Cost, gb_trees:delete(Index, G1)};
+        _ ->
+            none
+    end.
+
+is_visited(G, Node) ->
+    case tree_lookup({Node, cost}, G, inf) of
+        inf ->
+            false;
+        Cost ->
+            not tree_lookup({queued, Cost, Node}, G, false)
+    end.
+
+find_successor(G, Node) ->
+    case gb_trees:next(gb_trees:iterator_from({Node}, G)) of
+        {{Node}, _, It} ->
+            case gb_trees:next(It) of
+                {{Successor}, _, _} ->
+                    Successor;
+                _ ->
+                    undefined
+            end;
+        {{Successor}, _, _} ->
+            Successor;
+        _ ->
+            undefined
+    end.
+
+tree_lookup(Index, Tree, Default) ->
+    case gb_trees:lookup(Index, Tree) of
+        {value, V} ->
+            V;
+        none ->
+            Default
+    end.
+
+tree_update(Index, Value, Tree) ->
+    case gb_trees:take_any(Index, Tree) of
+        {_, TreeNext} ->
+            gb_trees:insert(Index, Value, TreeNext);
+        error ->
+            gb_trees:insert(Index, Value, Tree)
+    end.
 
 dominant(Coverage) ->
     % TODO: needs improvement, better defined _dominance_, maybe some score
@@ -379,8 +452,7 @@ missing_coverage_test() ->
     ],
     Asm = append_many(new(100), Segs),
     ?assertEqual(
-        % {incomplete, {missing, {segment, 30, 40}}}, ???
-        {incomplete, {missing, {segment, 20, 40}}},
+        {incomplete, {missing, {segment, 30, 40}}},
         status(coverage, Asm)
     ).
 
@@ -407,7 +479,7 @@ missing_coverage_with_redudancy_test() ->
     Asm = append_many(new(100), Segs),
     ?assertEqual(
         % {incomplete, {missing, {segment, 50, 60}}}, ???
-        {incomplete, {missing, {segment, 20, 40}}},
+        {incomplete, {missing, {segment, 60, 100}}},
         status(coverage, Asm)
     ).
 
