@@ -743,40 +743,39 @@ collect_metrics(Bridges) ->
 
 aggregate_metrics(AllMetrics) ->
     InitMetrics = ?EMPTY_METRICS,
-    lists:foldl(
-        fun(
-            #{
-                metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
-                )
-            },
-            ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
-            )
-        ) ->
-            ?METRICS(
-                M1 + N1,
-                M2 + N2,
-                M3 + N3,
-                M4 + N4,
-                M5 + N5,
-                M6 + N6,
-                M7 + N7,
-                M8 + N8,
-                M9 + N9,
-                M10 + N10,
-                M11 + N11,
-                M12 + N12,
-                M13 + N13,
-                M14 + N14,
-                M15 + N15,
-                M16 + N16,
-                M17 + N17
-            )
-        end,
-        InitMetrics,
-        AllMetrics
-    ).
+    lists:foldl(fun aggregate_metrics/2, InitMetrics, AllMetrics).
+
+aggregate_metrics(
+    #{
+        metrics := ?metrics(
+            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+        )
+    },
+    ?metrics(
+        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+    )
+) ->
+    ?METRICS(
+        M1 + N1,
+        M2 + N2,
+        M3 + N3,
+        M4 + N4,
+        M5 + N5,
+        M6 + N6,
+        M7 + N7,
+        M8 + N8,
+        M9 + N9,
+        M10 + N10,
+        M11 + N11,
+        M12 + N12,
+        M13 + N13,
+        M14 + N14,
+        M15 + N15,
+        M16 + N16,
+        M17 + N17
+    );
+aggregate_metrics(#{}, Metrics) ->
+    Metrics.
 
 format_resp(Data) ->
     format_resp(Data, node()).
@@ -786,18 +785,26 @@ format_resp(
         type := Type,
         name := BridgeName,
         raw_config := RawConf,
-        resource_data := #{status := Status, metrics := Metrics}
+        resource_data := ResourceData
     },
     Node
 ) ->
     RawConfFull = fill_defaults(Type, RawConf),
-    redact(RawConfFull#{
-        type => Type,
-        name => maps:get(<<"name">>, RawConf, BridgeName),
-        node => Node,
-        status => Status,
-        metrics => format_metrics(Metrics)
-    }).
+    redact(
+        maps:merge(
+            RawConfFull#{
+                type => Type,
+                name => maps:get(<<"name">>, RawConf, BridgeName),
+                node => Node
+            },
+            format_resource_data(ResourceData)
+        )
+    ).
+
+format_resource_data(#{status := Status, metrics := Metrics}) ->
+    #{status => Status, metrics => format_metrics(Metrics)};
+format_resource_data(#{status := Status}) ->
+    #{status => Status}.
 
 format_metrics(#{
     counters := #{
