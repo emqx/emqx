@@ -328,15 +328,17 @@ on_query(
         {ok, StatusCode, Headers} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
-                request => redact(NRequest),
+                note => "the body will be redacted due to security reasons",
+                request => redact_request(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
             {error, #{status_code => StatusCode, headers => Headers}};
         {ok, StatusCode, Headers, Body} ->
             ?SLOG(error, #{
-                msg => "http connector do request, received error response",
-                request => redact(NRequest),
+                msg => "http connector do request, received error response.",
+                note => "the body will be redacted due to security reasons",
+                request => redact_request(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
@@ -600,6 +602,15 @@ is_sensitive_key(_) ->
 %% information (i.e., passwords)
 redact(Data) ->
     emqx_misc:redact(Data, fun is_sensitive_key/1).
+
+%% because the body may contain some sensitive data
+%% and at the same time the redact function will not scan the binary data
+%% and we also can't know the body format and where the sensitive data will be
+%% so the easy way to keep data security is redacted the whole body
+redact_request({Path, Headers}) ->
+    {Path, redact(Headers)};
+redact_request({Path, Headers, _Body}) ->
+    {Path, redact(Headers), <<"******">>}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
