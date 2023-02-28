@@ -525,11 +525,11 @@ else
         ## only one emqx node is running, get running args from 'ps -ef' output
         tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
         tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
-        tmp_dist="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s\-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
-        if [ -z "$tmp_dist" ]; then
+        if [ -z "$SSL_DIST_OPTFILE" ]; then
             tmp_proto='inet_tcp'
         else
             tmp_proto='inet_tls'
