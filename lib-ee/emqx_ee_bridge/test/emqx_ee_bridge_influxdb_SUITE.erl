@@ -663,6 +663,54 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
     ),
     ok.
 
+t_const_timestamp(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    Const = erlang:system_time(nanosecond),
+    ConstBin = integer_to_binary(Const),
+    TsStr = iolist_to_binary(
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+    ),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} foo=${payload.foo}i,bar=5i ", ConstBin/binary>>
+            }
+        )
+    ),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = #{<<"foo">> => 123},
+    SentData = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => Payload
+    },
+    ?assertEqual(ok, send_message(Config, SentData)),
+    case QueryMode of
+        async -> ct:sleep(500);
+        sync -> ok
+    end,
+    PersistedData = query_by_clientid(ClientId, Config),
+    Expected = #{foo => <<"123">>},
+    assert_persisted_data(ClientId, Expected, PersistedData),
+    TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"foo">>, PersistedData)),
+    TimeReturned = pad_zero(TimeReturned0),
+    ?assertEqual(TsStr, TimeReturned).
+
+%% influxdb returns timestamps without trailing zeros such as
+%% "2023-02-28T17:21:51.63678163Z"
+%% while the standard should be
+%% "2023-02-28T17:21:51.636781630Z"
+pad_zero(BinTs) ->
+    StrTs = binary_to_list(BinTs),
+    [Nano | Rest] = lists:reverse(string:tokens(StrTs, ".")),
+    [$Z | NanoNum] = lists:reverse(Nano),
+    Padding = lists:duplicate(10 - length(Nano), $0),
+    NewNano = lists:reverse(NanoNum) ++ Padding ++ "Z",
+    iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
+
 t_boolean_variants(Config) ->
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
@@ -783,7 +831,7 @@ t_bad_timestamp(Config) ->
                         [
                             #{
                                 error := [
-                                    {error, {bad_timestamp, [<<"bad_timestamp">>]}}
+                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
                                 ]
                             }
                         ],
@@ -793,7 +841,7 @@ t_bad_timestamp(Config) ->
                     ?assertEqual(
                         {error,
                             {unrecoverable_error, [
-                                {error, {bad_timestamp, [<<"bad_timestamp">>]}}
+                                {error, {bad_timestamp, <<"bad_timestamp">>}}
                             ]}},
                         Return
                     );
