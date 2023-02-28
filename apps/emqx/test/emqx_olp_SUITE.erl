@@ -22,18 +22,23 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("lc/include/lc.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([]),
-    Config.
+    OldSch = erlang:system_flag(schedulers_online, 1),
+    [{old_sch, OldSch} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    erlang:system_flag(schedulers_online, ?config(old_sch, Config)),
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     emqx_olp:enable(),
     case wait_for(fun() -> lc_sup:whereis_runq_flagman() end, 10) of
         true -> ok;
@@ -86,6 +91,7 @@ t_overload_cooldown_conn(Config) ->
     t_overloaded_conn(Config),
     timer:sleep(1000),
     ?assert(not emqx_olp:is_overloaded()),
+    true = emqx:is_running(node()),
     {ok, C} = emqtt:start_link([{host, "localhost"}, {clientid, "myclient"}]),
     ?assertMatch({ok, _Pid}, emqtt:connect(C)),
     emqtt:stop(C).
@@ -93,7 +99,7 @@ t_overload_cooldown_conn(Config) ->
 -spec burst_runq() -> ParentToKill :: pid().
 burst_runq() ->
     NProc = erlang:system_info(schedulers_online),
-    spawn(?MODULE, worker_parent, [NProc * 10, {?MODULE, busy_loop, []}]).
+    spawn(?MODULE, worker_parent, [NProc * 1000, {?MODULE, busy_loop, []}]).
 
 %% internal helpers
 worker_parent(N, {M, F, A}) ->
