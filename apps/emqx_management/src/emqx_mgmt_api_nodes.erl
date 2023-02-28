@@ -293,31 +293,12 @@ get_stats(Node) ->
 %% internal function
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
-    RootDir = list_to_binary(code:root_dir()),
-    LogPath =
-        case log_path() of
-            undefined ->
-                <<"log.file_handler.default.enable is false,only log to console">>;
-            Path ->
-                filename:join(RootDir, Path)
-        end,
     Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
-        memory_used := emqx_mgmt_util:kmg(Used),
-        sys_path => RootDir,
-        log_path => LogPath
-    }.
-
-log_path() ->
-    Configs = logger:get_handler_config(),
-    get_log_path(Configs).
-
-get_log_path([#{config := #{file := Path}} | _LoggerConfigs]) ->
-    filename:dirname(Path);
-get_log_path([_LoggerConfig | LoggerConfigs]) ->
-    get_log_path(LoggerConfigs);
-get_log_path([]) ->
-    undefined.
+        memory_used := emqx_mgmt_util:kmg(Used)
+    };
+format(_Node, Info) when is_map(Info) ->
+    Info.
 
 node_error() ->
     emqx_dashboard_swagger:error_codes([?SOURCE_ERROR], <<"Node error">>).
