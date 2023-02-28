@@ -1,11 +1,12 @@
 name: Check Rebar Dependencies
 
-on: [pull_request, push]
+on:
+  pull_request:
 
 jobs:
   check_deps_integrity:
-    runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-25.1.2-2-ubuntu20.04
+    runs-on: ubuntu-latest
+    container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-25.1.2-2-ubuntu22.04
 
     steps:
       - uses: actions/checkout@v3

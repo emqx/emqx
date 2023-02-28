@@ -7,225 +7,226 @@ concurrency:
 on:
   push:
     branches:
-      - '**'
+      - master
+      - 'ci/**'
     tags:
       - v*
       - e*
   pull_request:
 
 jobs:
-    build-matrix:
-        runs-on: ubuntu-latest
-        outputs:
-          prepare: ${{ steps.matrix.outputs.prepare }}
-          host: ${{ steps.matrix.outputs.host }}
-          docker: ${{ steps.matrix.outputs.docker }}
-          runs-on: ${{ steps.runner.outputs.runs-on }}
-        steps:
-          - uses: actions/checkout@v3
-          - name: Build matrix
-            id: matrix
-            run: |
-              APPS="$(./scripts/find-apps.sh --ci)"
-              MATRIX="$(echo "${APPS}" | jq -c '
-                [
-                  (.[] | select(.profile == "emqx") | . + {
-                    builder: "5.0-28",
-                    otp: "25.1.2-2",
-                    elixir: "1.13.4"
-                  }),
-                  (.[] | select(.profile == "emqx-enterprise") | . + {
-                    builder: "5.0-28",
-                    otp: ["24.3.4.2-2", "25.1.2-2"][],
-                    elixir: "1.13.4"
-                  })
-                ]
-              ')"
-              echo "${MATRIX}" | jq
-              MATRIX_PREPARE="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
-              MATRIX_HOST="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "host"))')"
-              MATRIX_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
-              echo "prepare=${MATRIX_PREPARE}" | tee -a $GITHUB_OUTPUT
-              echo "host=${MATRIX_HOST}" | tee -a $GITHUB_OUTPUT
-              echo "docker=${MATRIX_DOCKER}" | tee -a $GITHUB_OUTPUT
-          - name: Choose runner host
-            id: runner
-            run: |
-              RUNS_ON="ubuntu-20.04"
-              ${{ github.repository_owner == 'emqx' }} && RUNS_ON="aws-amd64"
-              echo "runs-on=${RUNS_ON}" | tee -a $GITHUB_OUTPUT
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      prepare: ${{ steps.matrix.outputs.prepare }}
+      host: ${{ steps.matrix.outputs.host }}
+      docker: ${{ steps.matrix.outputs.docker }}
+      runs-on: ${{ steps.runner.outputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build matrix
+        id: matrix
+        run: |
+          APPS="$(./scripts/find-apps.sh --ci)"
+          MATRIX="$(echo "${APPS}" | jq -c '
+            [
+              (.[] | select(.profile == "emqx") | . + {
+                builder: "5.0-29",
+                otp: "25.1.2-2",
+                elixir: "1.13.4"
+              }),
+              (.[] | select(.profile == "emqx-enterprise") | . + {
+                builder: "5.0-29",
+                otp: ["24.3.4.2-2", "25.1.2-2"][],
+                elixir: "1.13.4"
+              })
+            ]
+          ')"
+          echo "${MATRIX}" | jq
+          MATRIX_PREPARE="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
+          MATRIX_HOST="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "host"))')"
+          MATRIX_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
+          echo "prepare=${MATRIX_PREPARE}" | tee -a $GITHUB_OUTPUT
+          echo "host=${MATRIX_HOST}" | tee -a $GITHUB_OUTPUT
+          echo "docker=${MATRIX_DOCKER}" | tee -a $GITHUB_OUTPUT
+      - name: Choose runner host
+        id: runner
+        run: |
+          RUNS_ON="ubuntu-22.04"
+          ${{ github.repository_owner == 'emqx' }} && RUNS_ON="aws-amd64"
+          echo "runs-on=${RUNS_ON}" | tee -a $GITHUB_OUTPUT
 
-    prepare:
-        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-        needs: [build-matrix]
-        strategy:
-          fail-fast: false
-          matrix:
-            include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
-        steps:
-        - uses: AutoModality/action-clean@v1
-        - uses: actions/checkout@v3
-          with:
-            path: source
-        - name: get_all_deps
-          working-directory: source
-          env:
-            PROFILE: ${{ matrix.profile }}
-              #DIAGNOSTIC: 1
-          run: |
-            make ensure-rebar3
-            # fetch all deps and compile
-            make ${{ matrix.profile }}
-            make static_checks
-            make test-compile
-            cd ..
-            zip -ryq source.zip source/* source/.[^.]*
-        - uses: actions/upload-artifact@v3
-          with:
-            name: source-${{ matrix.profile }}-${{ matrix.otp }}
-            path: source.zip
+  prepare:
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    needs: [build-matrix]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/checkout@v3
+        with:
+          path: source
+      - name: get_all_deps
+        working-directory: source
+        env:
+          PROFILE: ${{ matrix.profile }}
+            #DIAGNOSTIC: 1
+        run: |
+          make ensure-rebar3
+          # fetch all deps and compile
+          make ${{ matrix.profile }}
+          make static_checks
+          make test-compile
+          cd ..
+          zip -ryq source.zip source/* source/.[^.]*
+      - uses: actions/upload-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: source.zip
 
-    eunit_and_proper:
-        needs:
-          - build-matrix
-          - prepare
-        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-        strategy:
-          fail-fast: false
-          matrix:
-            include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
+  eunit_and_proper:
+    needs:
+      - build-matrix
+      - prepare
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
 
-        defaults:
-          run:
-            shell: bash
-        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    defaults:
+      run:
+        shell: bash
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
 
-        steps:
-        - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v3
-          with:
-            name: source-${{ matrix.profile }}-${{ matrix.otp }}
-            path: .
-        - name: unzip source code
-          run: unzip -o -q source.zip
-          # produces eunit.coverdata
-        - name: eunit
-          env:
-            PROFILE: ${{ matrix.profile }}
-            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-          working-directory: source
-          run: make eunit
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+        # produces eunit.coverdata
+      - name: eunit
+        env:
+          PROFILE: ${{ matrix.profile }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+        working-directory: source
+        run: make eunit
 
-          # produces proper.coverdata
-        - name: proper
-          env:
-            PROFILE: ${{ matrix.profile }}
-            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-          working-directory: source
-          run: make proper
+        # produces proper.coverdata
+      - name: proper
+        env:
+          PROFILE: ${{ matrix.profile }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+        working-directory: source
+        run: make proper
 
-        - uses: actions/upload-artifact@v3
-          with:
-            name: coverdata
-            path: source/_build/test/cover
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverdata
+          path: source/_build/test/cover
 
-    ct_docker:
-        needs:
-          - build-matrix
-          - prepare
-        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-        strategy:
-          fail-fast: false
-          matrix:
-            include: ${{ fromJson(needs.build-matrix.outputs.docker) }}
+  ct_docker:
+    needs:
+      - build-matrix
+      - prepare
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.docker) }}
 
-        defaults:
-          run:
-            shell: bash
+    defaults:
+      run:
+        shell: bash
 
-        steps:
-        - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v3
-          with:
-            name: source-${{ matrix.profile }}-${{ matrix.otp }}
-            path: .
-        - name: unzip source code
-          run: unzip -q source.zip
-        - name: run tests
-          working-directory: source
-          env:
-            DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
-            MONGO_TAG: "5"
-            MYSQL_TAG: "8"
-            PGSQL_TAG: "13"
-            REDIS_TAG: "7.0"
-            INFLUXDB_TAG: "2.5.0"
-            TDENGINE_TAG: "3.0.2.4"
-            PROFILE: ${{ matrix.profile }}
-            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-          run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
-        - uses: actions/upload-artifact@v3
-          with:
-            name: coverdata
-            path: source/_build/test/cover
-        - uses: actions/upload-artifact@v3
-          if: failure()
-          with:
-            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
-            path: source/_build/test/logs
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: .
+      - name: unzip source code
+        run: unzip -q source.zip
+      - name: run tests
+        working-directory: source
+        env:
+          DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+          MONGO_TAG: "5"
+          MYSQL_TAG: "8"
+          PGSQL_TAG: "13"
+          REDIS_TAG: "7.0"
+          INFLUXDB_TAG: "2.5.0"
+          TDENGINE_TAG: "3.0.2.4"
+          PROFILE: ${{ matrix.profile }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+        run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverdata
+          path: source/_build/test/cover
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
+          path: source/_build/test/logs
 
-    ct:
-        needs:
-          - build-matrix
-          - prepare
-        runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-        strategy:
-          fail-fast: false
-          matrix:
-            include: ${{ fromJson(needs.build-matrix.outputs.host) }}
+  ct:
+    needs:
+      - build-matrix
+      - prepare
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.host) }}
 
-        container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
-        defaults:
-          run:
-            shell: bash
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    defaults:
+      run:
+        shell: bash
 
-        steps:
-        - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v3
-          with:
-            name: source-${{ matrix.profile }}-${{ matrix.otp }}
-            path: .
-        - name: unzip source code
-          run: unzip -q source.zip
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: .
+      - name: unzip source code
+        run: unzip -q source.zip
 
-          # produces $PROFILE-<app-name>.coverdata
-        - name: run common test
-          working-directory: source
-          env:
-            PROFILE: ${{ matrix.profile }}
-            CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-          run: |
-            make "${{ matrix.app }}-ct"
-        - uses: actions/upload-artifact@v3
-          with:
-            name: coverdata
-            path: source/_build/test/cover
-            if-no-files-found: warn # do not fail if no coverdata found
-        - uses: actions/upload-artifact@v3
-          if: failure()
-          with:
-            name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
-            path: source/_build/test/logs
+        # produces $PROFILE-<app-name>.coverdata
+      - name: run common test
+        working-directory: source
+        env:
+          PROFILE: ${{ matrix.profile }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+        run: |
+          make "${{ matrix.app }}-ct"
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverdata
+          path: source/_build/test/cover
+          if-no-files-found: warn # do not fail if no coverdata found
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
+          path: source/_build/test/logs
 
-    make_cover:
-      needs:
-        - eunit_and_proper
-        - ct
-        - ct_docker
-      runs-on: ubuntu-20.04
-      container: "ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-ubuntu20.04"
-      steps:
+  make_cover:
+    needs:
+      - eunit_and_proper
+      - ct
+      - ct_docker
+    runs-on: ubuntu-22.04
+    container: "ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04"
+    steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
@@ -258,15 +259,15 @@ jobs:
         if: failure()
         run: cat rebar3.crashdump
 
-    # do this in a separate job
-    upload_coverdata:
-      needs: make_cover
-      runs-on: ubuntu-20.04
-      steps:
-        - name: Coveralls Finished
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            curl -v -k https://coveralls.io/webhook \
-                 --header "Content-Type: application/json" \
-                 --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
+  # do this in a separate job
+  upload_coverdata:
+    needs: make_cover
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Coveralls Finished
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -v -k https://coveralls.io/webhook \
+               --header "Content-Type: application/json" \
+               --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
