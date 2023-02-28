@@ -243,7 +243,7 @@ Let's create a static node list cluster from docker-compose.
 + Start the docker-compose cluster
 
   ```bash
-  docker-compose -p my_emqx up -d
+  docker compose -p my_emqx up -d
   ```
 
 + View cluster

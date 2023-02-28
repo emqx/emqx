@@ -482,6 +482,7 @@ on_resource_destroy(ResId, #{<<"pool">> := PoolName}) ->
     ?LOG(info, "Destroying Resource ~p, ResId: ~p", [?RESOURCE_TYPE_MQTT, ResId]),
     case ecpool:stop_sup_pool(PoolName) of
         ok ->
+            emqx_plugin_libs_ssl:maybe_delete_dir("rules", ResId),
             ?LOG(info, "Destroyed Resource ~p Successfully, ResId: ~p", [?RESOURCE_TYPE_MQTT, ResId]);
         {error, Reason} ->
             ?LOG(error, "Destroy Resource ~p failed, ResId: ~p, ~p", [?RESOURCE_TYPE_MQTT, ResId, Reason]),

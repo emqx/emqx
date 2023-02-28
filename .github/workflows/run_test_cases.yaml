@@ -201,7 +201,7 @@ jobs:
           if [[ ${{ matrix.app_name }} == *ldap ]]; then
             docker_compose_files="${docker_compose_files} -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml"
           fi
-          docker-compose $docker_compose_files up -d --build
+          docker compose $docker_compose_files up -d --build
           if [ -f EMQX_ENTERPRISE ]; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
@@ -211,7 +211,7 @@ jobs:
             docker ps -a --filter name=client
             echo "waiting for docker ${client} to exit"
             if ! timeout 60 docker wait "${client}"; then
-              docker-compose $docker_compose_files logs | tee docker-compose.log
+              docker compose $docker_compose_files logs | tee docker-compose.log
               exit 1
             fi
           done
