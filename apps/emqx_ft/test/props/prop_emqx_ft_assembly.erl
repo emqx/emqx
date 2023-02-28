@@ -28,11 +28,11 @@ prop_coverage() ->
         {filesize_t(), segsizes_t()},
         ?FORALL(
             Fragments,
-            noshrink(fragments_t(Filesize, Segsizes)),
+            noshrink(segments_t(Filesize, Segsizes)),
             ?TIMEOUT(
                 ?COVERAGE_TIMEOUT,
                 begin
-                    ASM1 = append_fragments(mk_assembly(Filesize), Fragments),
+                    ASM1 = append_segments(mk_assembly(Filesize), Fragments),
                     {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
                     measure(
                         #{"Fragments" => length(Fragments), "Time" => Time},
@@ -58,11 +58,11 @@ prop_coverage_likely_incomplete() ->
         {filesize_t(), segsizes_t(), filesize_t()},
         ?FORALL(
             Fragments,
-            noshrink(fragments_t(Filesize, Segsizes, Hole)),
+            noshrink(segments_t(Filesize, Segsizes, Hole)),
             ?TIMEOUT(
                 ?COVERAGE_TIMEOUT,
                 begin
-                    ASM1 = append_fragments(mk_assembly(Filesize), Fragments),
+                    ASM1 = append_segments(mk_assembly(Filesize), Fragments),
                     {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
                     measure(
                         #{"Fragments" => length(Fragments), "Time" => Time},
@@ -85,17 +85,19 @@ prop_coverage_complete() ->
         {Filesize, Segsizes},
         {filesize_t(), ?SUCHTHAT([BaseSegsize | _], segsizes_t(), BaseSegsize > 0)},
         ?FORALL(
-            {Fragments, MaxCoverage},
-            noshrink({fragments_t(Filesize, Segsizes), coverage_t(Filesize, Segsizes)}),
+            {Fragments, RemoteNode},
+            noshrink({segments_t(Filesize, Segsizes), remote_node_t()}),
             begin
                 % Ensure that we have complete coverage
-                ASM1 = append_fragments(mk_assembly(Filesize), Fragments ++ MaxCoverage),
-                {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
+                ASM1 = mk_assembly(Filesize),
+                ASM2 = append_coverage(ASM1, RemoteNode, Filesize, Segsizes),
+                ASM3 = append_segments(ASM2, Fragments),
+                {Time, ASM4} = timer:tc(emqx_ft_assembly, update, [ASM3]),
                 measure(
-                    #{"CoverageMax" => length(MaxCoverage), "Time" => Time},
-                    case emqx_ft_assembly:status(ASM2) of
+                    #{"CoverageMax" => nsegs(Filesize, Segsizes), "Time" => Time},
+                    case emqx_ft_assembly:status(ASM4) of
                         complete ->
-                            Coverage = emqx_ft_assembly:coverage(ASM2),
+                            Coverage = emqx_ft_assembly:coverage(ASM4),
                             measure(
                                 #{"Coverage" => length(Coverage)},
                                 is_coverage_complete(Coverage)
@@ -127,14 +129,25 @@ is_coverage_complete(
 mk_assembly(Filesize) ->
     emqx_ft_assembly:append(emqx_ft_assembly:new(Filesize), node(), mk_filemeta(Filesize)).
 
-append_fragments(ASMIn, Fragments) ->
+append_segments(ASMIn, Fragments) ->
     lists:foldl(
-        fun({Node, Frag}, ASM) ->
-            emqx_ft_assembly:append(ASM, Node, Frag)
+        fun({Node, {Offset, Size}}, ASM) ->
+            emqx_ft_assembly:append(ASM, Node, mk_segment(Offset, Size))
         end,
         ASMIn,
         Fragments
     ).
+
+append_coverage(ASM, Node, Filesize, Segsizes = [BaseSegsize | _]) ->
+    append_coverage(ASM, Node, Filesize, BaseSegsize, 0, nsegs(Filesize, Segsizes)).
+
+append_coverage(ASM, Node, Filesize, Segsize, I, NSegs) when I < NSegs ->
+    Offset = I * Segsize,
+    Size = min(Segsize, Filesize - Offset),
+    ASMNext = emqx_ft_assembly:append(ASM, Node, mk_segment(Offset, Size)),
+    append_coverage(ASMNext, Node, Filesize, Segsize, I + 1, NSegs);
+append_coverage(ASM, _Node, _Filesize, _Segsize, _, _NSegs) ->
+    ASM.
 
 mk_filemeta(Filesize) ->
     #{
@@ -148,38 +161,32 @@ mk_segment(Offset, Size) ->
         fragment => {segment, #{offset => Offset, size => Size}}
     }.
 
-fragments_t(Filesize, Segsizes = [BaseSegsize | _]) ->
-    NSegs = Filesize / max(1, BaseSegsize),
-    scaled(1 + NSegs, list({node_t(), fragment_t(Filesize, Segsizes)})).
+nsegs(Filesize, [BaseSegsize | _]) ->
+    Filesize div max(1, BaseSegsize) + 1.
 
-fragments_t(Filesize, Segsizes = [BaseSegsize | _], Hole) ->
-    NSegs = Filesize / max(1, BaseSegsize),
-    scaled(1 + NSegs, list({node_t(), fragment_t(Filesize, Segsizes, Hole)})).
+segments_t(Filesize, Segsizes) ->
+    scaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes)})).
 
-fragment_t(Filesize, Segsizes, Hole) ->
+segments_t(Filesize, Segsizes, Hole) ->
+    scaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes, Hole)})).
+
+segment_t(Filesize, Segsizes, Hole) ->
     ?SUCHTHATMAYBE(
-        #{fragment := {segment, #{offset := Offset, size := Size}}},
-        fragment_t(Filesize, Segsizes),
+        {Offset, Size},
+        segment_t(Filesize, Segsizes),
         (Hole rem Filesize) =< Offset orelse (Hole rem Filesize) > (Offset + Size)
     ).
 
-fragment_t(Filesize, Segsizes) ->
+segment_t(Filesize, Segsizes) ->
     ?LET(
         Segsize,
         oneof(Segsizes),
         ?LET(
             Index,
             range(0, Filesize div max(1, Segsize)),
-            mk_segment(Index * Segsize, min(Segsize, Filesize - (Index * Segsize)))
+            {Index * Segsize, min(Segsize, Filesize - (Index * Segsize))}
         )
     ).
-
-coverage_t(Filesize, [Segsize | _]) ->
-    NSegs = Filesize div max(1, Segsize),
-    [
-        {remote_node_t(), mk_segment(I * Segsize, min(Segsize, Filesize - (I * Segsize)))}
-     || I <- lists:seq(0, NSegs)
-    ].
 
 filesize_t() ->
     scaled(4000, non_neg_integer()).
