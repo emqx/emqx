@@ -872,12 +872,6 @@ fields("mqtt_quic_listener") ->
                 ?MAX_UINT(64),
                 ?DESC(fields_mqtt_quic_listener_max_bytes_per_key)
             )},
-        {"handshake_idle_timeout_ms",
-            quic_lowlevel_settings_uint(
-                1,
-                ?MAX_UINT(64),
-                ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
-            )},
         {"tls_server_max_send_buffer",
             quic_lowlevel_settings_uint(
                 1,
