@@ -40,10 +40,7 @@
         filemeta(),
         {node(), filefrag({filemeta, filemeta()})}
     ),
-    segs :: orddict:orddict(
-        {emqx_ft:offset(), _Locality, _MEnd, node()},
-        filefrag({segment, segmentinfo()})
-    ),
+    segs :: emqx_wdgraph:t(emqx_ft:offset(), {node(), filefrag({segment, segmentinfo()})}),
     size :: emqx_ft:bytes()
 }).
 
@@ -66,7 +63,7 @@ new(Size) ->
     #asm{
         status = {incomplete, {missing, filemeta}},
         meta = orddict:new(),
-        segs = orddict:new(),
+        segs = emqx_wdgraph:new(),
         size = Size
     }.
 
@@ -123,7 +120,7 @@ status(meta, []) ->
 status(meta, [_M1, _M2 | _] = Metas) ->
     {error, {inconsistent, [Frag#{node => Node} || {_, {Node, Frag}} <- Metas]}};
 status(coverage, #asm{segs = Segments, size = Size}) ->
-    case coverage(orddict:to_list(Segments), 0, Size) of
+    case coverage(Segments, Size) of
         Coverage when is_list(Coverage) ->
             {complete, Coverage, #{
                 dominant => dominant(Coverage)
@@ -137,42 +134,50 @@ append_filemeta(Asm, Node, Fragment = #{fragment := {filemeta, Meta}}) ->
         meta = orddict:store(Meta, {Node, Fragment}, Asm#asm.meta)
     }.
 
+append_segmentinfo(Asm, _Node, #{fragment := {segment, #{size := 0}}}) ->
+    % NOTE
+    % Empty segments are valid but meaningless for coverage.
+    Asm;
 append_segmentinfo(Asm, Node, Fragment = #{fragment := {segment, Info}}) ->
     Offset = maps:get(offset, Info),
     Size = maps:get(size, Info),
     End = Offset + Size,
+    Segs = add_edge(Asm#asm.segs, Offset, End, locality(Node) * Size, {Node, Fragment}),
     Asm#asm{
         % TODO
         % In theory it's possible to have two segments with same offset + size on
         % different nodes but with differing content. We'd need a checksum to
         % be able to disambiguate them though.
-        segs = orddict:store({Offset, locality(Node), -End, Node}, Fragment, Asm#asm.segs)
+        segs = Segs
     }.
 
-coverage([{{Offset, _, _, _}, _Segment} | Rest], Cursor, Sz) when Offset < Cursor ->
-    coverage(Rest, Cursor, Sz);
-coverage([{{Cursor, _Locality, MEnd, Node}, Segment} | Rest], Cursor, Sz) ->
+add_edge(Segs, Offset, End, Weight, Label) ->
     % NOTE
-    % We consider only whole fragments here, so for example from the point of view of
-    % this algo `[{Offset1 = 0, Size1 = 15}, {Offset2 = 10, Size2 = 10}]` has no
-    % coverage.
-    case coverage(Rest, -MEnd, Sz) of
-        Coverage when is_list(Coverage) ->
-            [{Node, Segment} | Coverage];
-        Missing = {missing, _} ->
-            case coverage(Rest, Cursor, Sz) of
-                CoverageAlt when is_list(CoverageAlt) ->
-                    CoverageAlt;
-                {missing, _} ->
-                    Missing
-            end
-    end;
-coverage([{{Offset, _MEnd, _, _}, _Segment} | _], Cursor, _Sz) when Offset > Cursor ->
-    {missing, {segment, Cursor, Offset}};
-coverage([], Cursor, Sz) when Cursor < Sz ->
-    {missing, {segment, Cursor, Sz}};
-coverage([], Cursor, Cursor) ->
-    [].
+    % We are expressing coverage problem as a shortest path problem on weighted directed
+    % graph, where nodes are segments offsets, two nodes are connected with edge if
+    % there is a segment which "covers" these offsets (i.e. it starts at first node's
+    % offset and ends at second node's offst) and weights are segments sizes adjusted
+    % for locality (i.e. weight are always 0 for any local segment).
+    case emqx_wdgraph:find_edge(Offset, End, Segs) of
+        {WeightWas, _Label} when WeightWas =< Weight ->
+            % NOTE
+            % Discarding any edges with higher weight here. This is fine as long as we
+            % optimize for locality.
+            Segs;
+        _ ->
+            emqx_wdgraph:insert_edge(Offset, End, Weight, Label, Segs)
+    end.
+
+coverage(Segs, Size) ->
+    case emqx_wdgraph:find_shortest_path(0, Size, Segs) of
+        Path when is_list(Path) ->
+            Path;
+        {false, LastOffset} ->
+            % NOTE
+            % This is far from being accurate, but needs no hairy specifics in the
+            % `emqx_wdgraph` interface.
+            {missing, {segment, LastOffset, Size}}
+    end.
 
 dominant(Coverage) ->
     % TODO: needs improvement, better defined _dominance_, maybe some score
@@ -334,8 +339,8 @@ missing_coverage_test() ->
     ],
     Asm = append_many(new(100), Segs),
     ?assertEqual(
-        % {incomplete, {missing, {segment, 30, 40}}}, ???
-        {incomplete, {missing, {segment, 20, 40}}},
+        % {incomplete, {missing, {segment, 30, 40}}} would be more accurate
+        {incomplete, {missing, {segment, 30, 100}}},
         status(coverage, Asm)
     ).
 
@@ -362,7 +367,7 @@ missing_coverage_with_redudancy_test() ->
     Asm = append_many(new(100), Segs),
     ?assertEqual(
         % {incomplete, {missing, {segment, 50, 60}}}, ???
-        {incomplete, {missing, {segment, 20, 40}}},
+        {incomplete, {missing, {segment, 60, 100}}},
         status(coverage, Asm)
     ).
 
