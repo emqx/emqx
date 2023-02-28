@@ -252,7 +252,7 @@ relx_apps(ReleaseType) ->
     , runtime_tools
     , cuttlefish
     , emqx
-%%    , alinkiot
+    , alinkiot
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
