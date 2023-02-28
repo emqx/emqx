@@ -252,7 +252,7 @@ relx_apps(ReleaseType) ->
     , runtime_tools
     , cuttlefish
     , emqx
-    , alinkiot 
+%%    , alinkiot
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
@@ -265,8 +265,7 @@ relx_apps(ReleaseType) ->
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
 relx_apps_per_rel(cloud) ->
-    [ luerl
-    , xmerl
+    [ xmerl
     | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->
@@ -287,10 +286,6 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_sn
     , emqx_coap
     , emqx_stomp
-    , emqx_auth_http
-    , emqx_auth_mysql
-    , emqx_auth_jwt
-    , emqx_auth_mnesia
     , emqx_web_hook
     , emqx_recon
     , emqx_rule_engine
@@ -304,11 +299,6 @@ relx_plugin_apps(ReleaseType) ->
 
 relx_plugin_apps_per_rel(cloud) ->
     [ emqx_lwm2m
-    , emqx_auth_ldap
-    , emqx_auth_pgsql
-    , emqx_auth_redis
-    , emqx_auth_mongo
-    , emqx_lua_hook
     , emqx_exhook
     , emqx_exproto
     , emqx_prometheus
