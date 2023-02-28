@@ -945,7 +945,7 @@ if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
 fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
-if [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then
+if [ "$IS_BOOT_COMMAND" != 'yes' ] && [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then
     die "EMQX_NODE__COOKIE is different from the cookie used by $NAME"
 fi
 [ -z "$COOKIE" ] && COOKIE="$COOKIE_IN_USE"
