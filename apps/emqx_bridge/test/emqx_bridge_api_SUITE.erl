@@ -818,6 +818,35 @@ t_metrics(Config) ->
     ),
     ok.
 
+%% request_timeout in bridge root should match request_timeout in
+%% resource_opts.
+t_inconsistent_webhook_request_timeouts(Config) ->
+    Port = ?config(port, Config),
+    URL1 = ?URL(Port, "path1"),
+    Name = ?BRIDGE_NAME,
+    BadBridgeParams =
+        emqx_map_lib:deep_merge(
+            ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name),
+            #{
+                <<"request_timeout">> => <<"1s">>,
+                <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
+            }
+        ),
+    {ok, 201, RawResponse} = request(
+        post,
+        uri(["bridges"]),
+        BadBridgeParams
+    ),
+    %% note: same value on both fields
+    ?assertMatch(
+        #{
+            <<"request_timeout">> := <<"2s">>,
+            <<"resource_opts">> := #{<<"request_timeout">> := <<"2s">>}
+        },
+        emqx_json:decode(RawResponse, [return_maps])
+    ),
+    ok.
+
 operation_path(node, Oper, BridgeID) ->
     uri(["nodes", node(), "bridges", BridgeID, Oper]);
 operation_path(cluster, Oper, BridgeID) ->
