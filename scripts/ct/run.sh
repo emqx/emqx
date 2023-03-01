@@ -17,7 +17,7 @@ help() {
     echo "--only-up:              Only start the testbed but do not run CT"
     echo "--keep-up:              Keep the testbed running after CT"
     echo "--ci:                   Set this flag in GitHub action to enforce no tests are skipped"
-    echo "--"                     If any, all args after '--' are passed to rebar3 ct
+    echo "--:                     If any, all args after '--' are passed to rebar3 ct"
     echo "                        otherwise it runs the entire app's CT"
 }
 
