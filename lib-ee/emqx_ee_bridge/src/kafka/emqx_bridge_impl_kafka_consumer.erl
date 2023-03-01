@@ -37,6 +37,7 @@
     kafka := #{
         max_batch_bytes := emqx_schema:bytesize(),
         max_rejoin_attempts := non_neg_integer(),
+        offset_commit_interval_seconds := pos_integer(),
         offset_reset_policy := offset_reset_policy(),
         topic := binary()
     },
@@ -90,6 +91,7 @@ on_start(InstanceId, Config) ->
         kafka := #{
             max_batch_bytes := _,
             max_rejoin_attempts := _,
+            offset_commit_interval_seconds := _,
             offset_reset_policy := _,
             topic := _
         },
@@ -248,6 +250,7 @@ start_subscriber(Config, InstanceId, ClientID) ->
         kafka := #{
             max_batch_bytes := MaxBatchBytes,
             max_rejoin_attempts := MaxRejoinAttempts,
+            offset_commit_interval_seconds := OffsetCommitInterval,
             offset_reset_policy := OffsetResetPolicy,
             topic := KafkaTopic
         },
@@ -272,7 +275,10 @@ start_subscriber(Config, InstanceId, ClientID) ->
         {max_bytes, MaxBatchBytes},
         {offset_reset_policy, OffsetResetPolicy}
     ],
-    GroupConfig = [{max_rejoin_attempts, MaxRejoinAttempts}],
+    GroupConfig = [
+        {max_rejoin_attempts, MaxRejoinAttempts},
+        {offset_commit_interval_seconds, OffsetCommitInterval}
+    ],
     GroupSubscriberConfig =
         #{
             client => ClientID,

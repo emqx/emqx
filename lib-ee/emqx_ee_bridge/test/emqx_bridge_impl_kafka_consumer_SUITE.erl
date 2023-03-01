@@ -494,6 +494,7 @@ kafka_config(TestCase, _KafkaType, Config) ->
             "    topic = ~s\n"
             "    max_batch_bytes = 896KB\n"
             "    max_rejoin_attempts = 5\n"
+            "    offset_commit_interval_seconds = 3\n"
             %% todo: matrix this
             "    offset_reset_policy = reset_to_latest\n"
             "  }\n"

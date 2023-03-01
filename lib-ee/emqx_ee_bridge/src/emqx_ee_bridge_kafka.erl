@@ -280,6 +280,11 @@ fields(consumer_kafka_opts) ->
             mk(
                 enum([reset_to_latest, reset_to_earliest, reset_by_subscriber]),
                 #{default => reset_to_latest, desc => ?DESC(consumer_offset_reset_policy)}
+            )},
+        {offset_commit_interval_seconds,
+            mk(
+                pos_integer(),
+                #{default => 5, desc => ?DESC(consumer_offset_commit_interval_seconds)}
             )}
     ].
 
