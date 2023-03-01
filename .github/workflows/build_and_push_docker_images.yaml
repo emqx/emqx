@@ -43,9 +43,10 @@ jobs:
 
       - name: Get profiles to build
         id: get_profile
+        env:
+          INPUTS_PROFILE: ${{ github.event.inputs.profile }}
         run: |
           cd source
-          tag=${{ github.ref }}
           # tag docker-latest-ce or docker-latest-ee
           if git describe --tags --exact --match 'docker-latest-*' 2>/dev/null; then
             echo 'is_latest=true due to docker-latest-* tag'
@@ -57,38 +58,33 @@ jobs:
             echo 'is_latest=false'
             is_latest=false
           fi
-          if git describe --tags --match "[v|e]*" --exact; then
+          # resolve profile
+          if git describe --tags --match "v*" --exact; then
             echo "This is an exact git tag, will publish images"
             is_exact='true'
+            PROFILE=emqx
+          elif git describe --tags --match "e*" --exact; then
+            echo "This is an exact git tag, will publish images"
+            is_exact='true'
+            PROFILE=emqx-enterprise
           else
             echo "This is NOT an exact git tag, will not publish images"
             is_exact='false'
           fi
-          case $tag in
-            refs/tags/v*)
-              PROFILE='emqx'
+
+          case "${PROFILE:-$INPUTS_PROFILE}" in
+            emqx)
               EDITION='Opensource'
               ;;
-            refs/tags/e*)
-              PROFILE=emqx-enterprise
+            emqx-enterprise)
               EDITION='Enterprise'
               ;;
             *)
-              PROFILE=${{ github.event.inputs.profile }}
-              case "$PROFILE" in
-                emqx)
-                  EDITION='Opensource'
-                  ;;
-                emqx-enterprise)
-                  EDITION='Enterprise'
-                  ;;
-                *)
-                  echo "ERROR: Failed to resolve build profile"
-                  exit 1
-                  ;;
-              esac
+              echo "ERROR: Failed to resolve build profile"
+              exit 1
               ;;
           esac
+
           VSN="$(./pkg-vsn.sh "$PROFILE")"
           echo "Building emqx/$PROFILE:$VSN image (latest=$is_latest)"
           echo "Push = $is_exact"
