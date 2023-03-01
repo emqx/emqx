@@ -152,6 +152,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     emqx_config:put_zone_conf(default, [force_shutdown], ?config(shutdown_policy, Config)),
+    emqx_common_test_helpers:stop_apps([]),
     ok.
 
 init_per_group(pub_qos0, Config) ->
