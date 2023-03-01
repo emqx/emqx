@@ -43,6 +43,7 @@ EOF
 logerr() {
     echo "$(tput setaf 1)ERROR: $1$(tput sgr0)"
 }
+
 logwarn() {
     echo "$(tput setaf 3)WARNING: $1$(tput sgr0)"
 }
