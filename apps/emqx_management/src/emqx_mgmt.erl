@@ -141,8 +141,27 @@ node_info() ->
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
         edition => emqx_release:edition_longstr(),
-        role => mria_rlog:role()
+        role => mria_rlog:role(),
+        log_path => log_path(),
+        sys_path => iolist_to_binary(code:root_dir())
     }.
+
+log_path() ->
+    RootDir = code:root_dir(),
+    Configs = logger:get_handler_config(),
+    case get_log_path(Configs) of
+        undefined ->
+            <<"log.file_handler.default.enable is false, not logging to file.">>;
+        Path ->
+            iolist_to_binary(filename:join(RootDir, Path))
+    end.
+
+get_log_path([#{config := #{file := Path}} | _LoggerConfigs]) ->
+    filename:dirname(Path);
+get_log_path([_LoggerConfig | LoggerConfigs]) ->
+    get_log_path(LoggerConfigs);
+get_log_path([]) ->
+    undefined.
 
 get_sys_memory() ->
     case os:type() of
