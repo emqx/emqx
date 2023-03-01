@@ -48,6 +48,11 @@ EOF
 logerr() {
     echo "$(tput setaf 1)ERROR: $1$(tput sgr0)"
 }
+
+logwarn() {
+    echo "$(tput setaf 3)WARNING: $1$(tput sgr0)"
+}
+
 logmsg() {
     echo "INFO: $1"
 }
@@ -274,5 +279,11 @@ else
     if [ "$DOCKER_LATEST" = 'yes' ]; then
         git tag --force "$DOCKER_LATEST_TAG"
         logmsg "$DOCKER_LATEST_TAG is created OK."
+    fi
+    logwarn "Don't forget to push the tags!"
+    if [ "$DOCKER_LATEST" = 'yes' ]; then
+        echo "git push --atomic --force origin $TAG $DOCKER_LATEST_TAG"
+    else
+        echo "git push origin $TAG"
     fi
 fi
