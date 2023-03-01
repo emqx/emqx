@@ -19,6 +19,7 @@
 -export([
     start/0,
     graceful_shutdown/0,
+    brutal_shutdown/0,
     is_ready/0,
 
     node_status/0,
@@ -46,6 +47,10 @@ start() ->
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().
+
+%% only used when failed to boot
+brutal_shutdown() ->
+    init:stop().
 
 set_backtrace_depth() ->
     {ok, Depth} = application:get_env(emqx_machine, backtrace_depth),
