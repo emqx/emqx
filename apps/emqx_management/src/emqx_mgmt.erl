@@ -153,7 +153,7 @@ log_path() ->
         undefined ->
             <<"log.file_handler.default.enable is false, not logging to file.">>;
         Path ->
-            filename:join(RootDir, Path)
+            iolist_to_binary(filename:join(RootDir, Path))
     end.
 
 get_log_path([#{config := #{file := Path}} | _LoggerConfigs]) ->
