@@ -417,9 +417,7 @@ t_failed_creation_then_fix(Config) ->
     ),
     ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name},
     {ok, State} = ?PRODUCER:on_start(ResourceId, ValidConfigAtom),
-    %% To make sure we get unique value
-    timer:sleep(1),
-    Time = erlang:monotonic_time(),
+    Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
     Msg = #{
         clientid => BinTime,
@@ -530,9 +528,7 @@ publish_helper(
     {ok, _} = emqx_bridge:create(
         <<"kafka_producer">>, list_to_binary(Name), Conf
     ),
-    %% To make sure we get unique value
-    timer:sleep(1),
-    Time = erlang:monotonic_time(),
+    Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
     Partition = 0,
     Msg = #{
