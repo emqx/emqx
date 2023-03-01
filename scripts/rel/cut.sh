@@ -19,15 +19,23 @@ RELEASE_GIT_TAG is a 'v*' or 'e*' tag for example:
   e5.0.0-beta.6
 
 options:
-  -h|--help: Print this usage.
-  -b|--base: Specify the current release base branch, can be one of
-             release-50
-             NOTE: this option should be used when --dryrun.
-  --dryrun:  Do not actually create the git tag.
-  --skip-appup: Skip checking appup
-                Useful when you are sure that appup is already updated'
-  --prev-tag: Provide the prev tag to automatically generate changelogs
-              If this option is absent, the tag found by git describe will be used
+  -h|--help:         Print this usage.
+
+  -b|--base:         Specify the current release base branch, can be one of
+                     release-50
+                     NOTE: this option should be used when --dryrun.
+
+  --dryrun:          Do not actually create the git tag.
+
+  --skip-appup:      Skip checking appup
+                     Useful when you are sure that appup is already updated'
+
+  --prev-tag <tag>:  Provide the prev tag to automatically generate changelogs
+                     If this option is absent, the tag found by git describe will be used
+
+  --docker-latest:   Set this option to assign :latest tag on the corresponding docker image
+                     in addition to regular :<version> one
+
 
 NOTE: For 5.0 series the current working branch must be 'release-50' for opensource edition
       and 'release-e50' for enterprise edition.
@@ -45,18 +53,21 @@ logmsg() {
 }
 
 TAG="${1:-}"
+DOCKER_LATEST_TAG=
 
 case "$TAG" in
     v*)
         TAG_PREFIX='v'
         PROFILE='emqx'
         SKIP_APPUP='yes'
+        DOCKER_LATEST_TAG='docker-latest-ce'
         ;;
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
         #TODO change to no when we are ready to support hot-upgrade
         SKIP_APPUP='yes'
+        DOCKER_LATEST_TAG='docker-latest-ee'
         ;;
     -h|--help)
         usage
@@ -72,6 +83,7 @@ esac
 shift 1
 
 DRYRUN='no'
+DOCKER_LATEST='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -97,6 +109,10 @@ while [ "$#" -gt 0 ]; do
         --prev-tag)
             shift
             PREV_TAG="$1"
+            shift
+            ;;
+        --docker-latest)
+            DOCKER_LATEST='yes'
             shift
             ;;
         *)
@@ -180,11 +196,11 @@ assert_release_version() {
 assert_release_version "$TAG"
 
 ## Check if all upstream branches are merged
-if [ -z "${BASE_BR:-}" ]; then
-    ./scripts/rel/sync-remotes.sh
-else
-    ./scripts/rel/sync-remotes.sh --base "$BASE_BR"
-fi
+SYNC_REMOTES_ARGS=
+[ -n "${BASE_BR:-}" ] && SYNC_REMOTES_ARGS="--base $BASE_BR $SYNC_REMOTES_ARGS"
+[ "$DRYRUN" = 'yes' ] && SYNC_REMOTES_ARGS="--dryrun $SYNC_REMOTES_ARGS"
+# shellcheck disable=SC2086
+./scripts/rel/sync-remotes.sh $SYNC_REMOTES_ARGS
 
 ## Check if the Chart versions are in sync
 ./scripts/rel/check-chart-vsn.sh "$PROFILE"
@@ -231,6 +247,9 @@ generate_changelog () {
 
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
+    if [ "$DOCKER_LATEST" = 'yes' ]; then
+        logmsg "Docker latest tag is ready to be created with command: git tag --force $DOCKER_LATEST_TAG"
+    fi
 else
     case "$TAG" in
         *rc*)
@@ -252,4 +271,8 @@ else
     esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
+    if [ "$DOCKER_LATEST" = 'yes' ]; then
+        git tag --force "$DOCKER_LATEST_TAG"
+        logmsg "$DOCKER_LATEST_TAG is created OK."
+    fi
 fi
