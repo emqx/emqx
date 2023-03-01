@@ -140,17 +140,13 @@ stop_http_server(Sock, Acceptor) ->
     gen_tcp:close(Sock).
 
 listen_on_random_port() ->
-    Min = 1024,
-    Max = 65000,
-    rand:seed(exsplus, erlang:timestamp()),
-    Port = rand:uniform(Max - Min) + Min,
-    case
-        gen_tcp:listen(Port, [
-            binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}
-        ])
-    of
-        {ok, Sock} -> {Port, Sock};
-        {error, eaddrinuse} -> listen_on_random_port()
+    SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],
+    case gen_tcp:listen(0, SockOpts) of
+        {ok, Sock} ->
+            {ok, Port} = inet:port(Sock),
+            {Port, Sock};
+        {error, Reason} when Reason /= eaddrinuse ->
+            {error, Reason}
     end.
 
 accept_loop(Sock, HandleFun, Parent) ->
@@ -543,7 +539,9 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% Create broken bridge
-    BadServer = <<"nohost">>,
+    {ListenPort, Sock} = listen_on_random_port(),
+    %% Connecting to this endpoint should always timeout
+    BadServer = iolist_to_binary(io_lib:format("localhost:~B", [ListenPort])),
     BadName = <<"bad_", (atom_to_binary(Type))/binary>>,
     {ok, 201, BadBridge1} = request(
         post,
@@ -555,11 +553,15 @@ do_start_stop_bridges(Type, Config) ->
         <<"name">> := BadName,
         <<"enable">> := true,
         <<"server">> := BadServer,
-        <<"status">> := <<"disconnected">>,
+        <<"status">> := <<"connecting">>,
         <<"node_status">> := [_ | _]
     } = jsx:decode(BadBridge1),
     BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
-    {ok, 500, _} = request(post, operation_path(Type, start, BadBridgeID), <<"">>),
+    ?assertMatch(
+        {ok, SC, _} when SC == 500 orelse SC == 503,
+        request(post, operation_path(Type, start, BadBridgeID), <<"">>)
+    ),
+    ok = gen_tcp:close(Sock),
     ok.
 
 t_enable_disable_bridges(Config) ->

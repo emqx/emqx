@@ -492,11 +492,11 @@ lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, Error
     is_list(Ts)
 ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case emqx_plugin_libs_rule:proc_tmpl(Ts, Data, TransOptions) of
-        [TsInt] when is_integer(TsInt) ->
+    case parse_timestamp(emqx_plugin_libs_rule:proc_tmpl(Ts, Data, TransOptions)) of
+        {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(Data, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
-        BadTs ->
+        {error, BadTs} ->
             lines_to_points(Data, Rest, ResultPointsAcc, [
                 {error, {bad_timestamp, BadTs}} | ErrorPointsAcc
             ])
@@ -505,6 +505,16 @@ lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, Error
     is_integer(Ts)
 ->
     continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
+
+parse_timestamp([TsInt]) when is_integer(TsInt) ->
+    {ok, TsInt};
+parse_timestamp([TsBin]) ->
+    try
+        {ok, binary_to_integer(TsBin)}
+    catch
+        _:_ ->
+            {error, TsBin}
+    end.
 
 continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, Item) of

@@ -8,9 +8,10 @@ set -euo pipefail
 ## this is why a docker network is created, and the containers's names have a dot.
 
 # ensure dir
-cd -P -- "$(dirname -- "$0")/.."
+cd -P -- "$(dirname -- "$0")/../../"
 
-IMAGE="${1}"
+IMAGE1="${1}"
+IMAGE2="${2:-${IMAGE1}}"
 
 NET='emqx.io'
 NODE1="node1.$NET"
@@ -35,7 +36,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  "$IMAGE"
+  "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
@@ -47,7 +48,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  "$IMAGE"
+  "$IMAGE2"
 
 mkdir -p tmp
 cat <<EOF > tmp/haproxy.cfg
@@ -84,14 +85,17 @@ defaults
 ## API
 ##----------------------------------------------------------------
 frontend emqx_dashboard
-   mode tcp
-   option tcplog
-   bind *:18083
-   default_backend emqx_dashboard_back
+    mode tcp
+    option tcplog
+    bind *:18083
+    default_backend emqx_dashboard_back
 
 backend emqx_dashboard_back
+    # Must use a consistent dispatch when EMQX is running on different versions
+    # because the js files for the dashboard is chunked, having the backends sharing
+    # load randomly will cause the browser fail to GET some chunks (or get bad chunks if names clash)
+    balance source
     mode http
-    # balance static-rr
     server emqx-1 $NODE1:18083
     server emqx-2 $NODE2:18083
 
@@ -142,7 +146,7 @@ wait_for_emqx() {
     container="$1"
     wait_limit="$2"
     wait_sec=0
-    while ! docker exec "$container" emqx_ctl status >/dev/null 2>&1; do
+    while ! docker exec "$container" emqx ctl status; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for EMQX"
@@ -178,4 +182,4 @@ wait_for_haproxy 10
 
 echo
 
-docker exec $NODE1 emqx_ctl cluster join "emqx@$NODE2"
+docker exec $NODE1 emqx ctl cluster join "emqx@$NODE2"

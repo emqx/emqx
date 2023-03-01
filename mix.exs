@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.14.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.14.2", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
@@ -69,7 +69,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.35.3", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.36.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},

@@ -208,7 +208,7 @@ desc(_) ->
     undefined.
 
 status() ->
-    hoconsc:enum([connected, disconnected, connecting]).
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
