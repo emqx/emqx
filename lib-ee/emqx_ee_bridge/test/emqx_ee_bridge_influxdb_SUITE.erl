@@ -875,7 +875,7 @@ t_create_disconnected(Config) ->
         end),
         fun(Trace) ->
             ?assertMatch(
-                [#{error := influxdb_client_not_alive}],
+                [#{error := influxdb_client_not_alive, reason := econnrefused}],
                 ?of_kind(influxdb_connector_start_failed, Trace)
             ),
             ok

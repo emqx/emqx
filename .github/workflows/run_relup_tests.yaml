@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   relup_test_plan:
-    runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-ubuntu20.04"
+    runs-on: ubuntu-22.04
+    container: "ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04"
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
       OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
