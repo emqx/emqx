@@ -1063,9 +1063,6 @@ case "${COMMAND}" in
         ;;
 
     attach)
-        assert_node_alive
-
-        shift
         exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
