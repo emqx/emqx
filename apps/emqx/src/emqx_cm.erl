@@ -67,7 +67,8 @@
 %% Test/debug interface
 -export([
     all_channels/0,
-    all_client_ids/0
+    all_client_ids/0,
+    get_session_confs/2
 ]).
 
 %% gen_server callbacks
@@ -355,6 +356,7 @@ get_session_confs(#{zone := Zone, clientid := ClientId}, #{
         max_inflight => MaxInflight,
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout),
+        max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
         mqueue => mqueue_confs(Zone),
         %% TODO: Add conf for allowing/disallowing persistent sessions.
         %% Note that the connection info is already enriched to have

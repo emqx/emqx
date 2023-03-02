@@ -200,7 +200,7 @@
 
 -spec init(options()) -> session().
 init(Opts) ->
-    MaxInflight = maps:get(max_inflight, Opts, 1),
+    MaxInflight = maps:get(max_inflight, Opts),
     QueueOpts = maps:merge(
         #{
             max_len => 1000,
@@ -211,17 +211,17 @@ init(Opts) ->
     #session{
         id = emqx_guid:gen(),
         clientid = maps:get(clientid, Opts, <<>>),
-        is_persistent = maps:get(is_persistent, Opts, false),
-        max_subscriptions = maps:get(max_subscriptions, Opts, infinity),
+        is_persistent = maps:get(is_persistent, Opts),
+        max_subscriptions = maps:get(max_subscriptions, Opts),
         subscriptions = #{},
-        upgrade_qos = maps:get(upgrade_qos, Opts, false),
+        upgrade_qos = maps:get(upgrade_qos, Opts),
         inflight = emqx_inflight:new(MaxInflight),
         mqueue = emqx_mqueue:init(QueueOpts),
         next_pkt_id = 1,
-        retry_interval = maps:get(retry_interval, Opts, 30000),
+        retry_interval = maps:get(retry_interval, Opts),
         awaiting_rel = #{},
-        max_awaiting_rel = maps:get(max_awaiting_rel, Opts, 100),
-        await_rel_timeout = maps:get(await_rel_timeout, Opts, 300000),
+        max_awaiting_rel = maps:get(max_awaiting_rel, Opts),
+        await_rel_timeout = maps:get(await_rel_timeout, Opts),
         created_at = erlang:system_time(millisecond)
     }.
 
