@@ -42,7 +42,7 @@
 -type payload() :: {Seed :: term(), Size :: integer()}.
 
 -type binary_payload() :: {
-    binary(), _ChunkNum :: non_neg_integer(), _ChunkCnt :: non_neg_integer()
+    binary(), _ChunkNum :: non_neg_integer(), _Meta :: #{}
 }.
 
 -type cont(Data) ::
@@ -200,7 +200,10 @@ generate_chunk(Seed, Offset, ChunkSize, Size) ->
      || I <- lists:seq(Offset div 16, To div 16)
     ]),
     ChunkNum = Offset div ChunkSize + 1,
-    ChunkCnt = ceil(Size / ChunkSize),
+    Meta = #{
+        chunk_size => ChunkSize,
+        chunk_count => ceil(Size / ChunkSize)
+    },
     Chunk =
         case Offset + ChunkSize of
             NextOffset when NextOffset > Size ->
@@ -208,7 +211,7 @@ generate_chunk(Seed, Offset, ChunkSize, Size) ->
             _ ->
                 Payload
         end,
-    {Chunk, ChunkNum, ChunkCnt}.
+    {Chunk, ChunkNum, Meta}.
 
 %% @doc First argument is a chunk number, the second one is a seed.
 %% This implementation is hardly efficient, but it was chosen for
