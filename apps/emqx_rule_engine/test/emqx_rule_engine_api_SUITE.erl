@@ -119,12 +119,31 @@ t_crud_rule_api(_Config) ->
         emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}})
     ),
 
+    {400, #{
+        code := 'BAD_REQUEST',
+        message := SelectAndTransformJsonError
+    }} =
+        emqx_rule_engine_api:'/rule_test'(
+            post,
+            test_rule_params(<<"SELECT\n  payload.msg\nFROM\n  \"t/#\"">>, <<"{\"msg\": \"hel">>)
+        ),
     ?assertMatch(
-        {400, #{
-            code := 'BAD_REQUEST',
-            message := <<"{select_and_transform_error,{error,{decode_json_failed,", _/binary>>
-        }},
-        emqx_rule_engine_api:'/rule_test'(post, test_rule_params())
+        #{<<"select_and_transform_error">> := <<"decode_json_failed">>},
+        emqx_json:decode(SelectAndTransformJsonError, [return_maps])
+    ),
+    {400, #{
+        code := 'BAD_REQUEST',
+        message := SelectAndTransformBadArgError
+    }} =
+        emqx_rule_engine_api:'/rule_test'(
+            post,
+            test_rule_params(
+                <<"SELECT\n  payload.msg > 1\nFROM\n  \"t/#\"">>, <<"{\"msg\": \"hello\"}">>
+            )
+        ),
+    ?assertMatch(
+        #{<<"select_and_transform_error">> := <<"badarg">>},
+        emqx_json:decode(SelectAndTransformBadArgError, [return_maps])
     ),
     ok.
 
@@ -221,19 +240,18 @@ t_reset_metrics_on_disable(_Config) ->
     ?assertMatch(#{passed := 0, matched := 0}, Metrics1),
     ok.
 
-test_rule_params() ->
+test_rule_params(Sql, Payload) ->
     #{
         body => #{
             <<"context">> =>
                 #{
                     <<"clientid">> => <<"c_emqx">>,
                     <<"event_type">> => <<"message_publish">>,
-                    <<"payload">> => <<"{\"msg\": \"hel">>,
+                    <<"payload">> => Payload,
                     <<"qos">> => 1,
                     <<"topic">> => <<"t/a">>,
                     <<"username">> => <<"u_emqx">>
                 },
-            <<"sql">> =>
-                <<"SELECT\n  payload.msg\nFROM\n  \"t/#\"">>
+            <<"sql">> => Sql
         }
     }.

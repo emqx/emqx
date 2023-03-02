@@ -423,7 +423,12 @@ param_path_id() ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
+err_msg({RuleError, {_E, R, _S}}) when is_tuple(R) ->
+    emqx_misc:readable_error_msg(emqx_json:encode([{RuleError, element(1, R)}]));
+err_msg({RuleError, {_E, R, _S}}) ->
+    emqx_misc:readable_error_msg(emqx_json:encode([{RuleError, R}]));
+err_msg(Msg) ->
+    emqx_misc:readable_error_msg(Msg).
 
 format_rule_resp(Rules) when is_list(Rules) ->
     [format_rule_resp(R) || R <- Rules];
