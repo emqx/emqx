@@ -400,7 +400,7 @@ schema("/bridges/:id/enable/:enable") ->
                 responses =>
                     #{
                         204 => <<"Success">>,
-                        404 => error_schema('NOT_FOUND', "Bridge not found or operation invalid"),
+                        404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                         503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
                     }
             }
@@ -418,7 +418,7 @@ schema("/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                404 => error_schema('NOT_FOUND', "Bridge not found or operation invalid"),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -438,7 +438,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                404 => error_schema('NOT_FOUND', "Bridge not found or operation invalid"),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
