@@ -311,8 +311,8 @@ t_http_crud_apis(Config) ->
     ),
     ?assertMatch(
         #{
-            <<"code">> := _,
-            <<"message">> := <<"bridge not found">>
+            <<"code">> := <<"NOT_FOUND">>,
+            <<"message">> := _
         },
         jsx:decode(ErrMsg2)
     ),
@@ -320,8 +320,8 @@ t_http_crud_apis(Config) ->
     {ok, 404, ErrMsg3} = request(delete, uri(["bridges", BridgeID]), []),
     ?assertMatch(
         #{
-            <<"code">> := _,
-            <<"message">> := <<"Bridge not found">>
+            <<"code">> := <<"NOT_FOUND">>,
+            <<"message">> := _
         },
         jsx:decode(ErrMsg3)
     ),

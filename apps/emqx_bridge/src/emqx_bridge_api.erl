@@ -46,17 +46,22 @@
 
 -export([lookup_from_local_node/2]).
 
+-define(NOT_FOUND(Reason), {404, error_msg('NOT_FOUND', Reason)}).
+
+-define(BRIDGE_NOT_FOUND(Type, Name),
+    ?NOT_FOUND(
+        <<"Bridge lookup failed: bridge named '", Name/binary, "' of type ",
+            (atom_to_binary(Type))/binary, " does not exist.">>
+    )
+).
+
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
         throw:{invalid_bridge_id, Reason} ->
-            {400,
-                error_msg(
-                    'INVALID_ID',
-                    <<"Invalid bride ID, ", Reason/binary>>
-                )}
+            ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
     end
 ).
 
@@ -338,7 +343,7 @@ schema("/bridges/:id") ->
             responses => #{
                 200 => get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
-                400 => error_schema(['BAD_REQUEST', 'INVALID_ID'], "Update bridge failed")
+                400 => error_schema('BAD_REQUEST', "Update bridge failed")
             }
         },
         delete => #{
@@ -348,7 +353,6 @@ schema("/bridges/:id") ->
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>,
-                400 => error_schema(['INVALID_ID'], "Update bridge failed"),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -379,7 +383,8 @@ schema("/bridges/:id/metrics/reset") ->
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Reset success">>,
-                400 => error_schema(['BAD_REQUEST'], "RPC Call Failed")
+                400 => error_schema(['BAD_REQUEST'], "RPC Call Failed"),
+                404 => error_schema('NOT_FOUND', "Bridge not found")
             }
         }
     };
@@ -395,7 +400,7 @@ schema("/bridges/:id/enable/:enable") ->
                 responses =>
                     #{
                         204 => <<"Success">>,
-                        400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                        404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                         503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
                     }
             }
@@ -413,7 +418,7 @@ schema("/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -433,7 +438,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -493,24 +498,26 @@ schema("/bridges_probe") ->
                         {400, Error}
                 end;
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND', <<"bridge not found">>)}
+                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
 '/bridges/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
-    AlsoDeleteActs =
-        case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
-            <<"true">> -> true;
-            true -> true;
-            _ -> false
-        end,
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
+                AlsoDeleteActs =
+                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+                        <<"true">> -> true;
+                        true -> true;
+                        _ -> false
+                    end,
                 case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
                     {ok, _} ->
                         204;
                     {error, {rules_deps_on_this_bridge, RuleIds}} ->
+                        %% [FIXME] this should be a 400 since '403' is about
+                        %% authorization and not application logic.
                         {403,
                             error_msg(
                                 'FORBIDDEN_REQUEST',
@@ -522,7 +529,7 @@ schema("/bridges_probe") ->
                         {500, error_msg('INTERNAL_ERROR', Reason)}
                 end;
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND', <<"Bridge not found">>)}
+                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     ).
 
@@ -570,7 +577,7 @@ do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, FormatFun([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
-            {404, error_msg('NOT_FOUND', <<"not_found">>)};
+            ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, ErrL} ->
             {500, error_msg('INTERNAL_ERROR', ErrL)}
     end.
@@ -586,13 +593,13 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Id,
         case enable_func(Enable) of
             invalid ->
-                {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
+                ?NOT_FOUND(<<"Invalid operation">>);
             OperFunc ->
                 case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
                     {ok, _} ->
                         {204};
                     {error, {pre_config_update, _, bridge_not_found}} ->
-                        {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
                     {error, {_, _, timeout}} ->
                         {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                     {error, timeout} ->
@@ -611,7 +618,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Id,
         case operation_to_all_func(Op) of
             invalid ->
-                {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
+                ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
                 Nodes = mria_mnesia:running_nodes(),
                 call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
@@ -626,11 +633,13 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Id,
         case node_operation_func(Op) of
             invalid ->
-                {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
+                ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
                 ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
                 case maps:get(enable, ConfMap, false) of
                     false ->
+                        %% [FIXME] `403` is about authorization not application
+                        %% logic.
                         {403,
                             error_msg(
                                 'FORBIDDEN_REQUEST',
@@ -643,7 +652,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                                     TargetNode, BridgeType, BridgeName
                                 ]);
                             {error, _} ->
-                                {400, error_msg('INVALID_NODE', <<"invalid node">>)}
+                                ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
                         end
                 end
         end
