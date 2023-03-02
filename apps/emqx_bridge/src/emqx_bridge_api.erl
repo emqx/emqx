@@ -386,7 +386,6 @@ schema("/bridges/:id/metrics/reset") ->
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Reset success">>,
-                400 => error_schema(['BAD_REQUEST'], "RPC Call Failed"),
                 404 => error_schema('NOT_FOUND', "Bridge not found")
             }
         }
@@ -541,13 +540,11 @@ schema("/bridges_probe") ->
 '/bridges/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case
-            emqx_bridge_resource:reset_metrics(
+        begin
+            ok = emqx_bridge_resource:reset_metrics(
                 emqx_bridge_resource:resource_id(BridgeType, BridgeName)
-            )
-        of
-            ok -> {204};
-            Reason -> {400, error_msg('BAD_REQUEST', Reason)}
+            ),
+            {204}
         end
     ).
 
