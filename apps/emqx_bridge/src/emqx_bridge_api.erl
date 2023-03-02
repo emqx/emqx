@@ -50,8 +50,8 @@
 
 -define(BRIDGE_NOT_FOUND(Type, Name),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", BridgeName/binary, "' of type ",
-            (atom_to_binary(BridgeType))/binary, " does not exist.">>
+        <<"Bridge lookup failed: bridge named '", Name/binary, "' of type ",
+            (atom_to_binary(Type))/binary, " does not exist.">>
     )
 ).
 
