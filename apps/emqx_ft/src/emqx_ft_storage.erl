@@ -18,6 +18,8 @@
 
 -export(
     [
+        child_spec/0,
+
         store_filemeta/2,
         store_segment/2,
         assemble/2,
@@ -64,6 +66,17 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec child_spec() ->
+    [supervisor:child_spec()].
+child_spec() ->
+    try
+        Mod = mod(),
+        Mod:child_spec(storage())
+    catch
+        error:disabled -> [];
+        error:undef -> []
+    end.
+
 -spec store_filemeta(emqx_ft:transfer(), emqx_ft:filemeta()) ->
     ok | {async, pid()} | {error, term()}.
 store_filemeta(Transfer, FileMeta) ->
@@ -99,6 +112,8 @@ with_storage_type(Type, Fun, Args) ->
         #{type := Type} ->
             Mod = mod(Storage),
             apply(Mod, Fun, [Storage | Args]);
+        disabled ->
+            {error, disabled};
         _ ->
             {error, {invalid_storage_type, Type}}
     end.
@@ -108,7 +123,7 @@ with_storage_type(Type, Fun, Args) ->
 %%--------------------------------------------------------------------
 
 storage() ->
-    emqx_config:get([file_transfer, storage]).
+    emqx_ft_conf:storage().
 
 mod() ->
     mod(storage()).
@@ -116,6 +131,8 @@ mod() ->
 mod(Storage) ->
     case Storage of
         #{type := local} ->
-            emqx_ft_storage_fs
+            emqx_ft_storage_fs;
+        disabled ->
+            error(disabled)
         % emqx_ft_storage_dummy
     end.
