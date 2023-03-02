@@ -89,7 +89,8 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.5", override: true, runtime: false}
+      {:gpb, "4.19.5", override: true, runtime: false},
+      {:hackney, github: "benoitc/hackney", tag: "1.18.1", override: true}
     ] ++
       umbrella_apps() ++
       enterprise_apps(profile_info) ++
