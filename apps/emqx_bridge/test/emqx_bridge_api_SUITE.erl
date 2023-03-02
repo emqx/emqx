@@ -403,7 +403,7 @@ t_check_dependent_actions_on_delete(Config) ->
     ),
     #{<<"id">> := RuleId} = jsx:decode(Rule),
     %% delete the bridge should fail because there is a rule depenents on it
-    {ok, 403, _} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 400, _} = request(delete, uri(["bridges", BridgeID]), []),
     %% delete the rule first
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     %% then delete the bridge is OK
@@ -601,9 +601,9 @@ t_enable_disable_bridges(Config) ->
     %% disable it again
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
 
-    {ok, 403, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
+    {ok, 400, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
     ?assertEqual(
-        <<"{\"code\":\"FORBIDDEN_REQUEST\",\"message\":\"forbidden operation: bridge disabled\"}">>,
+        <<"{\"code\":\"BAD_REQUEST\",\"message\":\"Forbidden operation, bridge not enabled\"}">>,
         Res
     ),
 

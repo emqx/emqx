@@ -353,8 +353,11 @@ schema("/bridges/:id") ->
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>,
+                400 => error_schema(
+                    'BAD_REQUEST',
+                    "Can not delete bridge while active rules defined for this bridge"
+                ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
-                403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
@@ -438,8 +441,8 @@ schema("/nodes/:node/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
+                400 => error_schema('BAD_REQUEST', "Forbidden operation, bridge not enabled"),
                 404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
-                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -516,12 +519,11 @@ schema("/bridges_probe") ->
                     {ok, _} ->
                         204;
                     {error, {rules_deps_on_this_bridge, RuleIds}} ->
-                        %% [FIXME] this should be a 400 since '403' is about
-                        %% authorization and not application logic.
-                        {403,
+                        {400,
                             error_msg(
-                                'FORBIDDEN_REQUEST',
-                                {<<"There're some rules dependent on this bridge">>, RuleIds}
+                                'BAD_REQUEST',
+                                {<<"Can not delete bridge while active rules defined for this bridge">>,
+                                    RuleIds}
                             )};
                     {error, timeout} ->
                         {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
@@ -638,12 +640,10 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                 ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
                 case maps:get(enable, ConfMap, false) of
                     false ->
-                        %% [FIXME] `403` is about authorization not application
-                        %% logic.
-                        {403,
+                        {400,
                             error_msg(
-                                'FORBIDDEN_REQUEST',
-                                <<"forbidden operation: bridge disabled">>
+                                'BAD_REQUEST',
+                                <<"Forbidden operation, bridge not enabled">>
                             )};
                     true ->
                         case emqx_misc:safe_to_existing_atom(Node, utf8) of
