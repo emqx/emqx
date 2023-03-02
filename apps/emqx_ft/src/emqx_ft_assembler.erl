@@ -126,6 +126,7 @@ handle_event(internal, _, {assemble, []}, St = #st{}) ->
 handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Result = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
+    ok = maybe_garbage_collect(Result, St),
     {stop, {shutdown, Result}}.
 
 pread(Node, Segment, St) when Node =:= node() ->
@@ -134,6 +135,22 @@ pread(Node, Segment, St) ->
     emqx_ft_storage_fs_proto_v1:pread(Node, St#st.transfer, Segment, 0, segsize(Segment)).
 
 %%
+
+maybe_garbage_collect(ok, St = #st{storage = Storage, transfer = Transfer}) ->
+    Nodes = get_coverage_nodes(St),
+    emqx_ft_storage_fs_gc:collect(Storage, Transfer, Nodes);
+maybe_garbage_collect({error, _}, _St) ->
+    ok.
+
+get_coverage_nodes(St) ->
+    Coverage = emqx_ft_assembly:coverage(St#st.assembly),
+    ordsets:to_list(
+        lists:foldl(
+            fun({Node, _Segment}, Acc) -> ordsets:add_element(Node, Acc) end,
+            ordsets:new(),
+            Coverage
+        )
+    ).
 
 segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).

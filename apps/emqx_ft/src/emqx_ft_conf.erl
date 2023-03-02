@@ -20,6 +20,11 @@
 
 -behaviour(emqx_config_handler).
 
+%% Accessors
+-export([storage/0]).
+-export([gc_interval/1]).
+-export([segments_ttl/1]).
+
 %% Load/Unload
 -export([
     load/0,
@@ -31,6 +36,30 @@
     pre_config_update/3,
     post_config_update/5
 ]).
+
+-type milliseconds() :: non_neg_integer().
+-type seconds() :: non_neg_integer().
+
+%%--------------------------------------------------------------------
+%% Accessors
+%%--------------------------------------------------------------------
+
+-spec storage() -> _Storage | disabled.
+storage() ->
+    emqx_config:get([file_transfer, storage], disabled).
+
+-spec gc_interval(_Storage) -> milliseconds().
+gc_interval(_Storage) ->
+    % TODO: config wiring
+    application:get_env(emqx_ft, gc_interval, timer:minutes(10)).
+
+-spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
+segments_ttl(_Storage) ->
+    % TODO: config wiring
+    {
+        application:get_env(emqx_ft, min_segments_ttl, 60),
+        application:get_env(emqx_ft, max_segments_ttl, 72 * 3600)
+    }.
 
 %%--------------------------------------------------------------------
 %% API

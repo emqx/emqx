@@ -61,5 +61,5 @@ init([]) ->
         modules => [emqx_ft_responder_sup]
     },
 
-    ChildSpecs = [Responder, AssemblerSup, FileReaderSup],
+    ChildSpecs = [Responder, AssemblerSup, FileReaderSup | emqx_ft_storage:child_spec()],
     {ok, {SupFlags, ChildSpecs}}.
