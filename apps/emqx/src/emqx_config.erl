@@ -87,6 +87,10 @@
     remove_handlers/0
 ]).
 
+-ifdef(TEST).
+-export([erase_schema_mod_and_names/0]).
+-endif.
+
 -include("logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -500,6 +504,11 @@ save_schema_mod_and_names(SchemaMod) ->
         mods => maps:merge(OldMods, NewMods),
         names => lists:usort(OldNames ++ RootNames)
     }).
+
+-ifdef(TEST).
+erase_schema_mod_and_names() ->
+    persistent_term:erase(?PERSIS_SCHEMA_MODS).
+-endif.
 
 -spec get_schema_mod() -> #{binary() => atom()}.
 get_schema_mod() ->

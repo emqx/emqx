@@ -16,6 +16,8 @@
 
 -module(emqx_common_test_helpers).
 
+-include("emqx_authentication.hrl").
+
 -type special_config_handler() :: fun().
 
 -type apps() :: list(atom()).
@@ -283,6 +285,14 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
+    %% to avoid inter-suite flakiness
+    application:unset_env(emqx, init_config_load_done),
+    persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
+    emqx_config:erase_schema_mod_and_names(),
+    ok = emqx_config:delete_override_conf_files(),
+    application:unset_env(emqx, local_override_conf_file),
+    application:unset_env(emqx, cluster_override_conf_file),
+    application:unset_env(gen_rpc, port_discovery),
     ok.
 
 proj_root() ->
