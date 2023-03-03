@@ -47,8 +47,18 @@
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
--define(SSL_FILE_OPT_NAMES, [<<"keyfile">>, <<"certfile">>, <<"cacertfile">>]).
--define(SSL_FILE_OPT_NAMES_A, [keyfile, certfile, cacertfile]).
+-define(SSL_FILE_OPT_NAMES, [
+    [<<"keyfile">>],
+    [<<"certfile">>],
+    [<<"cacertfile">>],
+    [<<"ocsp">>, <<"issuer_pem">>]
+]).
+-define(SSL_FILE_OPT_NAMES_A, [
+    [keyfile],
+    [certfile],
+    [cacertfile],
+    [ocsp, issuer_pem]
+]).
 
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
@@ -298,20 +308,20 @@ ensure_ssl_files(Dir, SSL, Opts) ->
     RequiredKeys = maps:get(required_keys, Opts, []),
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->
-            Keys = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A,
-            ensure_ssl_files(Dir, SSL, Keys, Opts);
+            KeyPaths = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A,
+            ensure_ssl_files(Dir, SSL, KeyPaths, Opts);
         {error, _} = Error ->
             Error
     end.
 
 ensure_ssl_files(_Dir, SSL, [], _Opts) ->
     {ok, SSL};
-ensure_ssl_files(Dir, SSL, [Key | Keys], Opts) ->
-    case ensure_ssl_file(Dir, Key, SSL, maps:get(Key, SSL, undefined), Opts) of
+ensure_ssl_files(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
+    case ensure_ssl_file(Dir, KeyPath, SSL, emqx_map_lib:deep_get(KeyPath, SSL, undefined), Opts) of
         {ok, NewSSL} ->
-            ensure_ssl_files(Dir, NewSSL, Keys, Opts);
+            ensure_ssl_files(Dir, NewSSL, KeyPaths, Opts);
         {error, Reason} ->
-            {error, Reason#{which_options => [Key]}}
+            {error, Reason#{which_options => [KeyPath]}}
     end.
 
 %% @doc Compare old and new config, delete the ones in old but not in new.
@@ -321,11 +331,11 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, #{dry_run => DryRun}),
     {ok, OldOpts} = ensure_ssl_files(Dir, OldOpts0, #{dry_run => DryRun}),
     Get = fun
-        (_K, undefined) -> undefined;
-        (K, Opts) -> maps:get(K, Opts, undefined)
+        (_KP, undefined) -> undefined;
+        (KP, Opts) -> emqx_map_lib:deep_get(KP, Opts, undefined)
     end,
     lists:foreach(
-        fun(Key) -> delete_old_file(Get(Key, NewOpts), Get(Key, OldOpts)) end,
+        fun(KeyPath) -> delete_old_file(Get(KeyPath, NewOpts), Get(KeyPath, OldOpts)) end,
         ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A
     ),
     %% try to delete the dir if it is empty
@@ -346,29 +356,33 @@ delete_old_file(_New, Old) ->
             ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
 
-ensure_ssl_file(_Dir, _Key, SSL, undefined, _Opts) ->
+ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
     {ok, SSL};
-ensure_ssl_file(Dir, Key, SSL, MaybePem, Opts) ->
+ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
     case is_valid_string(MaybePem) of
         true ->
             DryRun = maps:get(dry_run, Opts, false),
-            do_ensure_ssl_file(Dir, Key, SSL, MaybePem, DryRun);
+            do_ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, DryRun);
         false ->
             {error, #{reason => invalid_file_path_or_pem_string}}
     end.
 
-do_ensure_ssl_file(Dir, Key, SSL, MaybePem, DryRun) ->
+do_ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, DryRun) ->
     case is_pem(MaybePem) of
         true ->
-            case save_pem_file(Dir, Key, MaybePem, DryRun) of
-                {ok, Path} -> {ok, SSL#{Key => Path}};
-                {error, Reason} -> {error, Reason}
+            case save_pem_file(Dir, KeyPath, MaybePem, DryRun) of
+                {ok, Path} ->
+                    NewSSL = emqx_map_lib:deep_put(KeyPath, SSL, Path),
+                    {ok, NewSSL};
+                {error, Reason} ->
+                    {error, Reason}
             end;
         false ->
             case is_valid_pem_file(MaybePem) of
                 true ->
                     {ok, SSL};
-                {error, enoent} when DryRun -> {ok, SSL};
+                {error, enoent} when DryRun ->
+                    {ok, SSL};
                 {error, Reason} ->
                     {error, #{
                         pem_check => invalid_pem,
@@ -398,8 +412,8 @@ is_pem(MaybePem) ->
 %% To make it simple, the file is always overwritten.
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
-save_pem_file(Dir, Key, Pem, DryRun) ->
-    Path = pem_file_name(Dir, Key, Pem),
+save_pem_file(Dir, KeyPath, Pem, DryRun) ->
+    Path = pem_file_name(Dir, KeyPath, Pem),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
             {ok, Path};
@@ -422,11 +436,14 @@ is_generated_file(Filename) ->
         _ -> false
     end.
 
-pem_file_name(Dir, Key, Pem) ->
+pem_file_name(Dir, KeyPath, Pem) ->
     <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
     Suffix = hex_str(CK),
-    FileName = binary:replace(ensure_bin(Key), <<"file">>, <<"-", Suffix/binary>>),
-    filename:join([pem_dir(Dir), FileName]).
+    Segments = lists:map(fun ensure_bin/1, KeyPath),
+    Filename0 = iolist_to_binary(lists:join(<<"_">>, Segments)),
+    Filename1 = binary:replace(Filename0, <<"file">>, <<>>),
+    Filename = <<Filename1/binary, "-", Suffix/binary>>,
+    filename:join([pem_dir(Dir), Filename]).
 
 pem_dir(Dir) ->
     filename:join([emqx:mutable_certs_dir(), Dir]).
@@ -465,9 +482,9 @@ is_valid_pem_file(Path) ->
 %% so they are forced to upload a cert file, or use an existing file path.
 -spec drop_invalid_certs(map()) -> map().
 drop_invalid_certs(#{enable := False} = SSL) when ?IS_FALSE(False) ->
-    maps:without(?SSL_FILE_OPT_NAMES_A, SSL);
+    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_NAMES_A);
 drop_invalid_certs(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
-    maps:without(?SSL_FILE_OPT_NAMES, SSL);
+    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_NAMES);
 drop_invalid_certs(#{enable := True} = SSL) when ?IS_TRUE(True) ->
     do_drop_invalid_certs(?SSL_FILE_OPT_NAMES_A, SSL);
 drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
@@ -475,14 +492,16 @@ drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
 
 do_drop_invalid_certs([], SSL) ->
     SSL;
-do_drop_invalid_certs([Key | Keys], SSL) ->
-    case maps:get(Key, SSL, undefined) of
+do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
+    case emqx_map_lib:deep_get(KeyPath, SSL, undefined) of
         undefined ->
-            do_drop_invalid_certs(Keys, SSL);
+            do_drop_invalid_certs(KeyPaths, SSL);
         PemOrPath ->
             case is_pem(PemOrPath) orelse is_valid_pem_file(PemOrPath) of
-                true -> do_drop_invalid_certs(Keys, SSL);
-                {error, _} -> do_drop_invalid_certs(Keys, maps:without([Key], SSL))
+                true ->
+                    do_drop_invalid_certs(KeyPaths, SSL);
+                {error, _} ->
+                    do_drop_invalid_certs(KeyPaths, emqx_map_lib:deep_remove(KeyPath, SSL))
             end
     end.
 
@@ -565,9 +584,10 @@ ensure_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
 
 ensure_ssl_file_key(_SSL, []) ->
     ok;
-ensure_ssl_file_key(SSL, RequiredKeys) ->
-    Filter = fun(Key) -> not maps:is_key(Key, SSL) end,
-    case lists:filter(Filter, RequiredKeys) of
+ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
+    NotFoundRef = make_ref(),
+    Filter = fun(KeyPath) -> NotFoundRef =:= emqx_map_lib:deep_get(KeyPath, SSL, NotFoundRef) end,
+    case lists:filter(Filter, RequiredKeyPaths) of
         [] -> ok;
         Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
     end.

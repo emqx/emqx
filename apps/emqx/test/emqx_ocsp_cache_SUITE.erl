@@ -673,7 +673,8 @@ do_t_update_listener(Config) ->
     Keyfile = filename:join([DataDir, "server.key"]),
     Certfile = filename:join([DataDir, "server.pem"]),
     Cacertfile = filename:join([DataDir, "ca.pem"]),
-    IssuerPem = filename:join([DataDir, "ocsp-issuer.pem"]),
+    IssuerPemPath = filename:join([DataDir, "ocsp-issuer.pem"]),
+    {ok, IssuerPem} = file:read_file(IssuerPemPath),
 
     %% no ocsp at first
     ListenerId = "ssl:default",
@@ -701,6 +702,9 @@ do_t_update_listener(Config) ->
                     <<"ocsp">> =>
                         #{
                             <<"enable_ocsp_stapling">> => true,
+                            %% we use the file contents to check that
+                            %% the API converts that to an internally
+                            %% managed file
                             <<"issuer_pem">> => IssuerPem,
                             <<"responder_url">> => <<"http://localhost:9877">>
                         }
@@ -721,6 +725,22 @@ do_t_update_listener(Config) ->
                 }
         },
         ListenerData2
+    ),
+    %% issuer pem should have been uploaded and saved to a new
+    %% location
+    ?assertNotEqual(
+        IssuerPemPath,
+        emqx_map_lib:deep_get(
+            [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
+            ListenerData2
+        )
+    ),
+    ?assertNotEqual(
+        IssuerPem,
+        emqx_map_lib:deep_get(
+            [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
+            ListenerData2
+        )
     ),
     assert_http_get(1, 5_000),
     ok.
