@@ -177,21 +177,21 @@ try_collect_transfer(Storage, Transfer, #{status := incomplete}, Stats) ->
 
 collect_fragments(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, fragment),
-    collect_filepath(Dirname, true, Stats).
+    maybe_collect_directory(Dirname, true, Stats).
 
 collect_tempfiles(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, temporary),
-    collect_filepath(Dirname, true, Stats).
+    maybe_collect_directory(Dirname, true, Stats).
 
 collect_outdated_fragments(Storage, Transfer, Cutoff, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, fragment),
     Filter = fun(_Filepath, #file_info{mtime = ModifiedAt}) -> ModifiedAt < Cutoff end,
-    collect_filepath(Dirname, Filter, Stats).
+    maybe_collect_directory(Dirname, Filter, Stats).
 
 collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, temporary),
     Filter = fun(_Filepath, #file_info{mtime = ModifiedAt}) -> ModifiedAt < Cutoff end,
-    collect_filepath(Dirname, Filter, Stats).
+    maybe_collect_directory(Dirname, Filter, Stats).
 
 collect_transfer_directory(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer),
@@ -206,8 +206,6 @@ collect_parents(Dirname, Until, Stats) ->
         ok ->
             ?tp(garbage_collected_directory, #{path => Dirname}),
             collect_parents(Parent, Until, account_gcstat_directory(Stats));
-        {error, enoent} ->
-            collect_parents(Parent, Until, Stats);
         {error, eexist} ->
             Stats;
         {error, Reason} ->
@@ -222,16 +220,22 @@ collect_parents(Dirname, Until, Stats) ->
 %             Stats
 %     end.
 
+maybe_collect_directory(Dirpath, Filter, Stats) ->
+    case filelib:is_dir(Dirpath) of
+        true ->
+            collect_filepath(Dirpath, Filter, Stats);
+        false ->
+            {true, Stats}
+    end.
+
 -spec collect_filepath(file:name(), Filter, gcstats()) -> {boolean(), gcstats()} when
     Filter :: boolean() | fun((file:name(), file:file_info()) -> boolean()).
 collect_filepath(Filepath, Filter, Stats) ->
-    case file:read_file_info(Filepath, [{time, posix}]) of
+    case file:read_link_info(Filepath, [{time, posix}, raw]) of
         {ok, Fileinfo} ->
             collect_filepath(Filepath, Fileinfo, Filter, Stats);
-        {error, enoent} ->
-            {true, Stats};
         {error, Reason} ->
-            {false, register_gcstat_error({path, Filepath}, Reason, Stats)}
+            {Reason == enoent, register_gcstat_error({path, Filepath}, Reason, Stats)}
     end.
 
 collect_filepath(Filepath, #file_info{type = directory} = Fileinfo, Filter, Stats) ->
@@ -243,10 +247,8 @@ collect_filepath(Filepath, #file_info{type = regular} = Fileinfo, Filter, Stats)
         ok ->
             ?tp(garbage_collected_file, #{path => Filepath}),
             {true, account_gcstat(Fileinfo, Stats)};
-        {error, enoent} ->
-            {true, Stats};
         {error, Reason} ->
-            {false, register_gcstat_error({file, Filepath}, Reason, Stats)}
+            {Reason == enoent, register_gcstat_error({file, Filepath}, Reason, Stats)}
     end;
 collect_filepath(Filepath, Fileinfo, _Filter, Stats) ->
     {false, register_gcstat_error({file, Filepath}, {unexpected, Fileinfo}, Stats)}.
@@ -281,8 +283,6 @@ collect_empty_directory(Dirpath, Stats) ->
         ok ->
             ?tp(garbage_collected_directory, #{path => Dirpath}),
             account_gcstat_directory(Stats);
-        {error, enoent} ->
-            Stats;
         {error, Reason} ->
             register_gcstat_error({directory, Dirpath}, Reason, Stats)
     end.
