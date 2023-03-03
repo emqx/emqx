@@ -56,7 +56,7 @@ end_per_testcase(_TC, _Config) ->
     ok.
 
 mk_root(TC, Config) ->
-    filename:join([?config(priv_dir, Config), <<"file_transfer">>, TC, atom_to_binary(node())]).
+    filename:join([?config(priv_dir, Config), "file_transfer", TC, atom_to_list(node())]).
 
 %%
 
@@ -167,7 +167,6 @@ t_gc_complete_transfers(_Config) ->
 t_gc_incomplete_transfers(_Config) ->
     _ = application:set_env(emqx_ft, min_segments_ttl, 0),
     _ = application:set_env(emqx_ft, max_segments_ttl, 4),
-    ok = emqx_ft_storage_fs_gc:reset(emqx_ft_conf:storage()),
     Storage = emqx_ft_conf:storage(),
     Transfers = [
         {
@@ -239,6 +238,62 @@ t_gc_incomplete_transfers(_Config) ->
             )
         end,
         []
+    ).
+
+t_gc_handling_errors(_Config) ->
+    _ = application:set_env(emqx_ft, min_segments_ttl, 0),
+    _ = application:set_env(emqx_ft, max_segments_ttl, 0),
+    Storage = emqx_ft_conf:storage(),
+    Transfer1 = {<<"client1">>, mk_file_id()},
+    Transfer2 = {<<"client2">>, mk_file_id()},
+    Filemeta = #{name => "oops.pdf"},
+    Size = 420,
+    SegSize = 16,
+    _ = start_transfer(
+        Storage,
+        {Transfer1, Filemeta, emqx_ft_content_gen:new({?LINE, Size}, SegSize)}
+    ),
+    _ = start_transfer(
+        Storage,
+        {Transfer2, Filemeta, emqx_ft_content_gen:new({?LINE, Size}, SegSize)}
+    ),
+    % 1. Throw some chaos in the transfer directory.
+    DirFragment1 = emqx_ft_storage_fs:get_subdir(Storage, Transfer1, fragment),
+    DirTemporary1 = emqx_ft_storage_fs:get_subdir(Storage, Transfer1, temporary),
+    PathShadyLink = filename:join(DirTemporary1, "linked-here"),
+    ok = file:make_symlink(DirFragment1, PathShadyLink),
+    DirTransfer2 = emqx_ft_storage_fs:get_subdir(Storage, Transfer2),
+    PathTripUp = filename:join(DirTransfer2, "trip-up-here"),
+    ok = file:write_file(PathTripUp, <<"HAHA">>),
+    ok = timer:sleep(timer:seconds(1)),
+    % 2. Observe the errors are reported consistently.
+    ?check_trace(
+        ?assertMatch(
+            #gcstats{
+                files = Files,
+                directories = 3,
+                space = Space,
+                errors = #{
+                    % NOTE: dangling symlink looks like `enoent` for some reason
+                    {file, PathShadyLink} := {unexpected, _},
+                    {directory, DirTransfer2} := eexist
+                }
+            } when Files == ?NSEGS(Size, SegSize) * 2 andalso Space > Size * 2,
+            emqx_ft_storage_fs_gc:collect(Storage)
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        errors := #{
+                            {file, PathShadyLink} := {unexpected, _},
+                            {directory, DirTransfer2} := eexist
+                        }
+                    }
+                ],
+                ?of_kind("garbage_collection_errors", Trace)
+            )
+        end
     ).
 
 %%
