@@ -420,6 +420,9 @@ schema("/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
+                400 => error_schema(
+                    'BAD_REQUEST', "Problem with configuration of external service"
+                ),
                 404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -440,7 +443,10 @@ schema("/nodes/:node/bridges/:id/:operation") ->
             ],
             responses => #{
                 204 => <<"Operation success">>,
-                400 => error_schema('BAD_REQUEST', "Forbidden operation, bridge not enabled"),
+                400 => error_schema(
+                    'BAD_REQUEST',
+                    "Problem with configuration of external service or bridge not enabled"
+                ),
                 404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -555,8 +561,8 @@ schema("/bridges_probe") ->
             case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
                 ok ->
                     {204};
-                {error, Error} ->
-                    {400, error_msg('TEST_FAILED', Error)}
+                {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
+                    {400, error_msg('TEST_FAILED', to_hr_reason(Reason))}
             end;
         BadRequest ->
             BadRequest
@@ -577,8 +583,8 @@ do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
             {SuccCode, FormatFun([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
-        {error, ErrL} ->
-            {500, error_msg('INTERNAL_ERROR', ErrL)}
+        {error, Reason} ->
+            {500, error_msg('INTERNAL_ERROR', Reason)}
     end.
 
 lookup_from_local_node(BridgeType, BridgeName) ->
@@ -885,7 +891,7 @@ is_ok(ResL) ->
         )
     of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
-        ErrL -> {error, ErrL}
+        ErrL -> hd(ErrL)
     end.
 
 filter_out_request_body(Conf) ->
@@ -934,8 +940,8 @@ call_operation(NodeOrAll, OperFunc, Args) ->
                         )
                     )
                 )};
-        {error, Reason} ->
-            {500, error_msg('INTERNAL_ERROR', Reason)}
+        {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
+            {400, error_msg('BAD_REQUEST', to_hr_reason(Reason))}
     end.
 
 maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
@@ -968,6 +974,19 @@ maybe_unwrap(RpcMulticallResult) ->
 supported_versions(start_bridge_to_node) -> [2];
 supported_versions(start_bridges_to_all_nodes) -> [2];
 supported_versions(_Call) -> [1, 2].
+
+to_hr_reason(nxdomain) ->
+    <<"Host not found">>;
+to_hr_reason(econnrefused) ->
+    <<"Connection refused">>;
+to_hr_reason({unauthorized_client, _}) ->
+    <<"Unauthorized client">>;
+to_hr_reason({not_authorized, _}) ->
+    <<"Not authorized">>;
+to_hr_reason({malformed_username_or_password, _}) ->
+    <<"Malformed username or password">>;
+to_hr_reason(Reason) ->
+    Reason.
 
 redact(Term) ->
     emqx_misc:redact(Term).
