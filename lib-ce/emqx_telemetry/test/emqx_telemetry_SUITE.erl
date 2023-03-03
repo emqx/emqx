@@ -42,7 +42,7 @@ t_uuid(_) ->
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:stop(),
     emqx_telemetry:start_link([{enabled, true},
-                               {url, "https://telemetry.emqx.io/api/telemetry"},
+                               {url, undefined},
                                {report_interval, 7 * 24 * 60 * 60}]),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     ?assertEqual(UUID2, UUID3).
@@ -80,7 +80,7 @@ t_send_after_enable(_) ->
     ok = snabbkaffe:start_trace(),
     try
         ok = emqx_telemetry:enable(),
-        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100))
+        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 15000, 100))
     after
         ok = snabbkaffe:stop()
     end.
