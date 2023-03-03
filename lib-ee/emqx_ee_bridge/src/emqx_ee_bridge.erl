@@ -190,15 +190,12 @@ pgsql_structs() ->
 
 clickhouse_structs() ->
     [
-        {Type,
+        {clickhouse,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
                 #{
-                    desc => <<Name/binary, "Clickhouse Bridge Config">>,
+                    desc => <<"Clickhouse Bridge Config">>,
                     required => false
                 }
             )}
-     || {Type, Name} <- [
-            {clickhouse, <<"Clickhouse">>}
-        ]
     ].

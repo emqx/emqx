@@ -267,5 +267,5 @@ keytab
 jq
 nif
 TDengine
-Clickhouse
 clickhouse
+FormatType
