@@ -75,7 +75,7 @@
 
           enabled :: undefined | boolean(),
 
-          url :: string(),
+          url :: undefined | string(),
 
           report_interval :: undefined | non_neg_integer(),
 
@@ -89,6 +89,8 @@
 -define(UNIQUE_ID, 9527).
 
 -define(TELEMETRY, emqx_telemetry).
+
+-define(HTTP_TIMEOUT, 10).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -115,19 +117,19 @@ stop() ->
     gen_server:stop(?MODULE).
 
 enable() ->
-    gen_server:call(?MODULE, enable).
+    gen_server:call(?MODULE, enable, infinity).
 
 disable() ->
-    gen_server:call(?MODULE, disable).
+    gen_server:call(?MODULE, disable, infinity).
 
 is_enabled() ->
-    gen_server:call(?MODULE, is_enabled).
+    gen_server:call(?MODULE, is_enabled, infinity).
 
 get_uuid() ->
-    gen_server:call(?MODULE, get_uuid).
+    gen_server:call(?MODULE, get_uuid, infinity).
 
 get_telemetry() ->
-    gen_server:call(?MODULE, get_telemetry).
+    gen_server:call(?MODULE, get_telemetry, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -353,15 +355,18 @@ report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
     case emqx_json:safe_encode(Data) of
         {ok, Bin} ->
-            httpc_request(post, URL, [], Bin),
+            _ = httpc_request(post, URL, [], Bin),
             ?tp(debug, telemetry_data_reported, #{});
         {error, Reason} ->
             %% debug? why?
             ?tp(debug, telemetry_data_encode_error, #{data => Data, reason => Reason})
     end.
 
+%% we might set url = undefined in testcase
+httpc_request(_, undefined, _, _) ->
+    ignore;
 httpc_request(Method, URL, Headers, Body) ->
-    HTTPOptions = [{timeout, timer:seconds(10)}, {ssl, [{verify, verify_none}]}],
+    HTTPOptions = [{timeout, timer:seconds(?HTTP_TIMEOUT)}, {ssl, [{verify, verify_none}]}],
     Options = [],
     httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
