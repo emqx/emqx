@@ -425,6 +425,8 @@ param_path_id() ->
 
 err_msg({RuleError, {_E, Reason, _S}}) ->
     emqx_misc:readable_error_msg(encode_nested_error(RuleError, Reason));
+err_msg({Reason, _Details}) ->
+    emqx_misc:readable_error_msg(Reason);
 err_msg(Msg) ->
     emqx_misc:readable_error_msg(Msg).
 
