@@ -164,7 +164,7 @@ try_collect_transfer(Storage, Transfer, #{status := incomplete}, Stats) ->
     % _and was empty at the start of GC_, as a precaution against races between
     % writers and GCs.
     TTL = get_segments_ttl(Storage, Transfer),
-    Cutoff = erlang:system_time(second) + TTL,
+    Cutoff = erlang:system_time(second) - TTL,
     {FragCleaned, Stats1} = collect_outdated_fragments(Storage, Transfer, Cutoff, Stats),
     {TempCleaned, Stats2} = collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats1),
     % TODO: collect empty directories separately
@@ -222,7 +222,7 @@ collect_parents(Dirname, Stats) ->
 -spec collect_filepath(file:name(), Filter, gcstats()) -> {boolean(), gcstats()} when
     Filter :: boolean() | fun((file:name(), file:file_info()) -> boolean()).
 collect_filepath(Filepath, Filter, Stats) ->
-    case file:read_file_info(Filepath) of
+    case file:read_file_info(Filepath, [{time, posix}]) of
         {ok, Fileinfo} ->
             collect_filepath(Filepath, Fileinfo, Filter, Stats);
         {error, enoent} ->
@@ -238,6 +238,7 @@ collect_filepath(Filepath, #file_info{type = regular} = Fileinfo, Filter, Stats)
         false ->
             {false, Stats};
         ok ->
+            ?tp(garbage_collected_file, #{path => Filepath}),
             {true, account_gcstat(Fileinfo, Stats)};
         {error, enoent} ->
             {true, Stats};
@@ -275,6 +276,7 @@ collect_files(Dirname, Filenames, Filter, Stats) ->
 collect_empty_directory(Dirpath, Stats) ->
     case file:del_dir(Dirpath) of
         ok ->
+            ?tp(garbage_collected_directory, #{path => Dirpath}),
             account_gcstat_directory(Stats);
         {error, enoent} ->
             Stats;
