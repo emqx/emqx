@@ -196,15 +196,18 @@ collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats) ->
 collect_transfer_directory(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer),
     StatsNext = collect_empty_directory(Dirname, Stats),
-    collect_parents(Dirname, StatsNext).
+    collect_parents(Dirname, get_storage_root(Storage), StatsNext).
 
-collect_parents(Dirname, Stats) ->
+collect_parents(Dirname, Until, Stats) ->
     Parent = filename:dirname(Dirname),
-    case file:del_dir(Parent) of
+    case is_same_filepath(Parent, Until) orelse file:del_dir(Parent) of
+        true ->
+            Stats;
         ok ->
-            collect_parents(Parent, account_gcstat_directory(Stats));
+            ?tp(garbage_collected_directory, #{path => Dirname}),
+            collect_parents(Parent, Until, account_gcstat_directory(Stats));
         {error, enoent} ->
-            collect_parents(Parent, Stats);
+            collect_parents(Parent, Until, Stats);
         {error, eexist} ->
             Stats;
         {error, Reason} ->
@@ -288,6 +291,16 @@ filter_filepath(Filter, _, _) when is_boolean(Filter) ->
     Filter;
 filter_filepath(Filter, Filepath, Fileinfo) when is_function(Filter) ->
     Filter(Filepath, Fileinfo).
+
+is_same_filepath(P1, P2) when is_binary(P1) andalso is_binary(P2) ->
+    filename:absname(P1) == filename:absname(P2);
+is_same_filepath(P1, P2) when is_list(P1) andalso is_list(P2) ->
+    filename:absname(P1) == filename:absname(P2);
+is_same_filepath(P1, P2) when is_binary(P1) ->
+    is_same_filepath(P1, filepath_to_binary(P2)).
+
+filepath_to_binary(S) ->
+    unicode:characters_to_binary(S, unicode, file:native_name_encoding()).
 
 get_segments_ttl(Storage, Transfer) ->
     {MinTTL, MaxTTL} = emqx_ft_conf:segments_ttl(Storage),
