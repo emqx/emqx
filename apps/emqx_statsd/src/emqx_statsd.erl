@@ -79,6 +79,7 @@ init(Conf) ->
         sample_time_interval := SampleTimeInterval,
         flush_time_interval := FlushTimeInterval
     } = Conf,
+    FlushTimeInterval1 = flush_interval(FlushTimeInterval, SampleTimeInterval),
     {Host, Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
     Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
     Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
@@ -86,7 +87,7 @@ init(Conf) ->
     {ok,
         ensure_timer(#{
             sample_time_interval => SampleTimeInterval,
-            flush_time_interval => FlushTimeInterval,
+            flush_time_interval => FlushTimeInterval1,
             estatsd_pid => Pid
         })}.
 
@@ -128,6 +129,19 @@ terminate(_Reason, #{estatsd_pid := Pid}) ->
 %%------------------------------------------------------------------------------
 %% Internal function
 %%------------------------------------------------------------------------------
+
+flush_interval(FlushInterval, SampleInterval) when FlushInterval >= SampleInterval ->
+    FlushInterval;
+flush_interval(_FlushInterval, SampleInterval) ->
+    ?SLOG(
+        warning,
+        #{
+            msg =>
+                "Configured flush_time_interval is lower than sample_time_interval, "
+                "setting: flush_time_interval = sample_time_interval."
+        }
+    ),
+    SampleInterval.
 
 ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
     State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
