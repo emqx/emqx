@@ -29,7 +29,8 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
         ref(emqx_ee_bridge_timescale, Method),
         ref(emqx_ee_bridge_matrix, Method),
-        ref(emqx_ee_bridge_tdengine, Method)
+        ref(emqx_ee_bridge_tdengine, Method),
+        ref(emqx_ee_bridge_clickhouse, Method)
     ].
 
 schema_modules() ->
@@ -44,7 +45,8 @@ schema_modules() ->
         emqx_ee_bridge_pgsql,
         emqx_ee_bridge_timescale,
         emqx_ee_bridge_matrix,
-        emqx_ee_bridge_tdengine
+        emqx_ee_bridge_tdengine,
+        emqx_ee_bridge_clickhouse
     ].
 
 examples(Method) ->
@@ -75,7 +77,8 @@ resource_type(redis_cluster) -> emqx_ee_connector_redis;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
-resource_type(tdengine) -> emqx_ee_connector_tdengine.
+resource_type(tdengine) -> emqx_ee_connector_tdengine;
+resource_type(clickhouse) -> emqx_ee_connector_clickhouse.
 
 fields(bridges) ->
     [
@@ -119,7 +122,8 @@ fields(bridges) ->
                     required => false
                 }
             )}
-    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++ pgsql_structs().
+    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++ pgsql_structs() ++
+        clickhouse_structs().
 
 mongodb_structs() ->
     [
@@ -182,4 +186,16 @@ pgsql_structs() ->
             {timescale, <<"Timescale">>},
             {matrix, <<"Matrix">>}
         ]
+    ].
+
+clickhouse_structs() ->
+    [
+        {clickhouse,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
+                #{
+                    desc => <<"Clickhouse Bridge Config">>,
+                    required => false
+                }
+            )}
     ].

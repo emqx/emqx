@@ -9,7 +9,8 @@
         influxdb,
         tdengine,
         wolff,
-        brod
+        brod,
+        clickhouse
     ]},
     {env, []},
     {modules, []},
