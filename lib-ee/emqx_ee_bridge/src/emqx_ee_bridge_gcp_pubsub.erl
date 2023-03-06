@@ -79,6 +79,16 @@ fields(bridge_config) ->
                     desc => ?DESC("max_retries")
                 }
             )},
+        {request_timeout,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    required => false,
+                    deprecated => {since, "e5.0.1"},
+                    default => <<"15s">>,
+                    desc => ?DESC("request_timeout")
+                }
+            )},
         {payload_template,
             sc(
                 binary(),
