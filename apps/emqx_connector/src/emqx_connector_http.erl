@@ -564,7 +564,9 @@ bin(Atom) when is_atom(Atom) ->
 
 reply_delegator(ReplyFunAndArgs, Result) ->
     case Result of
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+        %% The normal reason happens when the HTTP connection times out before
+        %% the request has been fully processed
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout; Reason =:= normal ->
             Result1 = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
         _ ->
