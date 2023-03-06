@@ -1,0 +1,15 @@
+{
+    "TableName": "mqtt_acked",
+    "KeySchema": [
+        { "AttributeName": "topic", "KeyType": "HASH" },
+        { "AttributeName": "clientid", "KeyType": "RANGE" }
+    ],
+    "AttributeDefinitions": [
+        { "AttributeName": "topic", "AttributeType": "S" },
+        { "AttributeName": "clientid", "AttributeType": "S" }
+    ],
+    "ProvisionedThroughput": {
+        "ReadCapacityUnits": 5,
+        "WriteCapacityUnits": 5
+    }
+}
