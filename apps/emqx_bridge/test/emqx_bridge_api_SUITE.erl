@@ -73,7 +73,7 @@ init_per_suite(Config) ->
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_rule_engine, emqx_bridge]
+        [emqx_rule_engine, emqx_bridge, emqx_authn]
     ),
     ok = emqx_common_test_helpers:load_config(
         emqx_rule_engine_schema,
@@ -83,7 +83,8 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge]),
+    emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge, emqx_authn]),
+    mria:clear_table(emqx_authn_mnesia),
     ok.
 
 init_per_testcase(t_broken_bpapi_vsn, Config) ->
@@ -720,9 +721,81 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"econnrefused">>
+            <<"message">> := <<"Connection refused">>
         },
         jsx:decode(ConnRefused)
+    ),
+
+    {ok, 400, HostNotFound} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"nohost:2883">>)
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"Host not found">>
+        },
+        jsx:decode(HostNotFound)
+    ),
+
+    AuthnConfig = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"username">>
+    },
+    Chain = 'mqtt:global',
+    emqx:update_config(
+        [authentication],
+        {create_authenticator, Chain, AuthnConfig}
+    ),
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    AuthenticatorID = <<"password_based:built_in_database">>,
+    {ok, _} = emqx_authentication:add_user(
+        Chain,
+        AuthenticatorID,
+        User
+    ),
+
+    {ok, 400, Unauthorized} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)#{<<"proto_ver">> => <<"v4">>}
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"Unauthorized client">>
+        },
+        jsx:decode(Unauthorized)
+    ),
+
+    {ok, 400, Malformed} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)#{
+            <<"proto_ver">> => <<"v4">>, <<"password">> => <<"mySecret">>, <<"username">> => <<"u">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"Malformed username or password">>
+        },
+        jsx:decode(Malformed)
+    ),
+
+    {ok, 400, NotAuthorized} = request(
+        post,
+        uri(["bridges_probe"]),
+        ?MQTT_BRIDGE(<<"127.0.0.1:1883">>)
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"Not authorized">>
+        },
+        jsx:decode(NotAuthorized)
     ),
 
     {ok, 400, BadReq} = request(
