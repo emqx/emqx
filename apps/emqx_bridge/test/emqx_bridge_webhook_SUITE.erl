@@ -38,16 +38,13 @@ init_per_suite(_Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
     {ok, _} = application:ensure_all_started(emqx_connector),
-    {ok, _} = application:ensure_all_started(emqx_ee_connector),
-    {ok, _} = application:ensure_all_started(emqx_ee_bridge),
     snabbkaffe:fix_ct_logging(),
     [].
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_ee_connector),
     _ = application:stop(emqx_bridge),
     ok.
 
@@ -242,11 +239,6 @@ receive_request_notifications(MessageIDs, ResponseDelay) ->
     end.
 
 remove_message_id(MessageIDs, #{body := IDBin}) ->
-    try
-        ID = erlang:binary_to_integer(IDBin),
-        maps:remove(ID, MessageIDs)
-    catch
-        _:_ ->
-            %% It is acceptable to get the same message more than once
-            MessageIDs
-    end.
+    ID = erlang:binary_to_integer(IDBin),
+    %% It is acceptable to get the same message more than once
+    maps:without([ID], MessageIDs).
