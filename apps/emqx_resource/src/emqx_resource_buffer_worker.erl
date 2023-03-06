@@ -1654,6 +1654,8 @@ do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt)) -> ?QUERY(ReplyTo, [], Sent, 
 %% `request_timeout', all requests will timeout before being sent if
 %% the message rate is low.  Even worse if `pool_size' is high.
 %% We cap `batch_time' at `request_timeout div 2' as a rule of thumb.
+adjust_batch_time(_Id, _RequestTimeout = infinity, BatchTime0) ->
+    BatchTime0;
 adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
     BatchTime = max(0, min(BatchTime0, RequestTimeout div 2)),
     case BatchTime =:= BatchTime0 of
@@ -1688,6 +1690,11 @@ adjust_batch_time_test_() ->
             ?_assertEqual(
                 50,
                 adjust_batch_time(Id, 100, 100)
+            )},
+        {"batch time smaller than request_time/2 (request_time = infinity)",
+            ?_assertEqual(
+                100,
+                adjust_batch_time(Id, infinity, 100)
             )}
     ].
 -endif.
