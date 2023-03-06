@@ -26,6 +26,8 @@
 
 -define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
 
+-define(SERVER_KEY_PASSWORD, "sErve7r8Key$!").
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -45,11 +47,6 @@ init_per_testcase(Case, Config) when
 ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
-    case emqx_config:get([listeners], undefined) of
-        undefined -> ok;
-        Listeners -> emqx_config:put([listeners], maps:remove(quic, Listeners))
-    end,
-
     PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     PureListeners2 = PureListeners#{
@@ -185,6 +182,28 @@ t_wss_conn(_) ->
     {ok, Socket} = ssl:connect({127, 0, 0, 1}, 9998, [{verify, verify_none}], 1000),
     ok = ssl:close(Socket).
 
+t_quic_conn(Config) ->
+    DataDir = ?config(data_dir, Config),
+    generate_quic_tls_certs(Config),
+    SSLOpts = #{
+        password => ?SERVER_KEY_PASSWORD,
+        certfile => filename:join(DataDir, "server-password.pem"),
+        cacertfile => filename:join(DataDir, "ca.pem"),
+        keyfile => filename:join(DataDir, "server-password.key")
+    },
+    emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, 24568, #{ssl_options => SSLOpts}),
+    ct:pal("~p", [emqx_listeners:list()]),
+    {ok, Conn} = quicer:connect(
+        {127, 0, 0, 1},
+        24568,
+        [
+            {verify, verify_none},
+            {alpn, ["mqtt"]}
+        ],
+        1000
+    ),
+    ok = quicer:close_connection(Conn).
+
 t_format_bind(_) ->
     ?assertEqual(
         ":1883",
@@ -269,3 +288,10 @@ remove_default_limiter(Listeners) ->
         end,
         Listeners
     ).
+
+generate_quic_tls_certs(Config) ->
+    DataDir = ?config(data_dir, Config),
+    emqx_common_test_helpers:gen_ca(DataDir, "ca"),
+    emqx_common_test_helpers:gen_host_cert("server-password", "ca", DataDir, #{
+        password => ?SERVER_KEY_PASSWORD
+    }).

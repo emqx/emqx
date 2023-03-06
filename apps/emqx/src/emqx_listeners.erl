@@ -388,7 +388,11 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                 ] ++
                     case maps:get(cacertfile, SSLOpts, undefined) of
                         undefined -> [];
-                        CaCertFile -> [{cacertfile, binary_to_list(CaCertFile)}]
+                        CaCertFile -> [{cacertfile, str(CaCertFile)}]
+                    end ++
+                    case maps:get(password, SSLOpts, undefined) of
+                        undefined -> [];
+                        Password -> [{password, str(Password)}]
                     end ++
                     optional_quic_listener_opts(Opts),
             ConnectionOpts = #{
