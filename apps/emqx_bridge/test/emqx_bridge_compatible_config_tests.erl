@@ -28,6 +28,7 @@ empty_config_test() ->
 webhook_config_test() ->
     Conf1 = parse(webhook_v5011_hocon()),
     Conf2 = parse(full_webhook_v5011_hocon()),
+    Conf3 = parse(full_webhook_v5019_hocon()),
 
     ?assertMatch(
         #{
@@ -57,6 +58,26 @@ webhook_config_test() ->
             }
         },
         check(Conf2)
+    ),
+
+    %% the converter should pick the greater of the two
+    %% request_timeouts and place them in the root and inside
+    %% resource_opts.
+    ?assertMatch(
+        #{
+            <<"bridges">> := #{
+                <<"webhook">> := #{
+                    <<"the_name">> :=
+                        #{
+                            <<"method">> := get,
+                            <<"request_timeout">> := 60_000,
+                            <<"resource_opts">> := #{<<"request_timeout">> := 60_000},
+                            <<"body">> := <<"${payload}">>
+                        }
+                }
+            }
+        },
+        check(Conf3)
     ),
 
     ok.
@@ -124,7 +145,7 @@ bridges{
       max_retries = 3
       method = \"get\"
       pool_size = 4
-      request_timeout = \"5s\"
+      request_timeout = \"15s\"
       ssl {enable = false, verify = \"verify_peer\"}
       url = \"http://localhost:8080\"
     }
@@ -148,6 +169,41 @@ full_webhook_v5011_hocon() ->
     "      pool_size = 4\n"
     "      pool_type = \"random\"\n"
     "      request_timeout = \"5s\"\n"
+    "      ssl {\n"
+    "        ciphers = \"\"\n"
+    "        depth = 10\n"
+    "        enable = false\n"
+    "        reuse_sessions = true\n"
+    "        secure_renegotiate = true\n"
+    "        user_lookup_fun = \"emqx_tls_psk:lookup\"\n"
+    "        verify = \"verify_peer\"\n"
+    "        versions = [\"tlsv1.3\", \"tlsv1.2\", \"tlsv1.1\", \"tlsv1\"]\n"
+    "      }\n"
+    "      url = \"http://localhost:8080\"\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
+    "".
+
+%% does not contain direction
+full_webhook_v5019_hocon() ->
+    ""
+    "\n"
+    "bridges{\n"
+    "  webhook {\n"
+    "    the_name{\n"
+    "      body = \"${payload}\"\n"
+    "      connect_timeout = \"5s\"\n"
+    "      enable_pipelining = 100\n"
+    "      headers {\"content-type\" = \"application/json\"}\n"
+    "      max_retries = 3\n"
+    "      method = \"get\"\n"
+    "      pool_size = 4\n"
+    "      pool_type = \"random\"\n"
+    "      request_timeout = \"1m\"\n"
+    "      resource_opts = {\n"
+    "        request_timeout = \"7s\"\n"
+    "      }\n"
     "      ssl {\n"
     "        ciphers = \"\"\n"
     "        depth = 10\n"
