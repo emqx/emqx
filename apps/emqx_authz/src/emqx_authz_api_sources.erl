@@ -262,8 +262,10 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
     update_authz_file(Body);
-source(put, #{bindings := #{type := Type}, body := Body}) ->
+source(put, #{bindings := #{type := Type}, body := #{<<"type">> := Type} = Body}) ->
     update_config({?CMD_REPLACE, Type}, Body);
+source(put, #{bindings := #{type := _Type}, body := #{<<"type">> := _OtherType}}) ->
+    {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}};
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
