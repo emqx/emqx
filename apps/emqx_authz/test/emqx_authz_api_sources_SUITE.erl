@@ -332,6 +332,7 @@ t_api(_) ->
         uri(["authorization", "sources", "postgresql"]),
         ?SOURCE4#{<<"server">> := <<"fake">>}
     ),
+
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "redis"]),
@@ -341,6 +342,19 @@ t_api(_) ->
                 <<"192.168.1.100:6380">>
             ]
         }
+    ),
+
+    {ok, 400, TypeMismatch} = request(
+        put,
+        uri(["authorization", "sources", "file"]),
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := <<"Type mismatch", _/binary>>
+        },
+        jiffy:decode(TypeMismatch, [return_maps])
     ),
 
     lists:foreach(
