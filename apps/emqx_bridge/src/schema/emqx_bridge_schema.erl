@@ -239,13 +239,6 @@ do_convert_webhook_config(
     case {MReqTRoot, MReqTResource} of
         {{ok, ReqTRoot}, {ok, ReqTResource}} ->
             {_Parsed, ReqTRaw} = max({ReqTRoot, ReqTRootRaw}, {ReqTResource, ReqTResourceRaw}),
-            ?SLOG(
-                debug,
-                #{
-                    msg => adjusting_webhook_bridge_request_time,
-                    new_value => ReqTRaw
-                }
-            ),
             Conf1 = emqx_map_lib:deep_merge(
                 Conf0,
                 #{
