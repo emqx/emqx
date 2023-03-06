@@ -59,6 +59,7 @@ EMQX_DASHBOARD__DEFAULT_PASSWORD       <--> dashboard.default_password
 EMQX_NODE__COOKIE                      <--> node.cookie
 EMQX_LISTENERS__SSL__default__ENABLE   <--> listeners.ssl.default.enable
 ```
+Note: The lowercase use of 'default' is not a typo. It is used to demonstrate that lowercase environment variables are equivalent.
 
 + Prefix `EMQX_` is removed
 + All upper case letters is replaced with lower case letters

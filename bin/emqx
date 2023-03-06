@@ -451,6 +451,20 @@ call_hocon() {
         || die "call_hocon_failed: $*" $?
 }
 
+find_emqx_process() {
+    ## Find the running node from 'ps -ef'
+    ##  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
+    ##  * The running 'remsh' and 'nodetool' processes must be excluded
+    if [ -n "${EMQX_NODE__NAME:-}" ]; then
+        # if node name is provided, filter by node name
+        # shellcheck disable=SC2009
+        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s\-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+    else
+        # shellcheck disable=SC2009
+        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+    fi
+}
+
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
@@ -468,17 +482,7 @@ fi
 # Turn off debug as the ps output can be quite noisy
 set +x
 
-## Find the running node from 'ps -ef'
-##  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
-##  * The running 'remsh' and 'nodetool' processes must be excluded
-if [ -n "${EMQX_NODE__NAME:-}" ]; then
-    # if node name is provided, filter by node name
-    # shellcheck disable=SC2009
-    PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s\-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
-else
-    # shellcheck disable=SC2009
-    PS_LINE="$(ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true)"
-fi
+PS_LINE="$(find_emqx_process)"
 logdebug "PS_LINE=$PS_LINE"
 RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 [ "$RUNNING_NODES_COUNT" -gt 1 ] && logdebug "More than one running node found: count=$RUNNING_NODES_COUNT"
@@ -927,6 +931,7 @@ case "$NAME" in
         NAME_TYPE='-sname'
 esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+HOST_NAME="$(echo "$NAME" | awk -F'@' '{print $2}')"
 if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
     logerr "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
@@ -968,6 +973,59 @@ if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "
       export EMQX_NODE__DB_ROLE=core
     fi
 fi
+
+diagnose_boot_failure_and_die() {
+    local ps_line
+    ps_line="$(find_emqx_process)"
+    if [ -z "$ps_line" ]; then
+        echo "Find more information in the latest log file: ${RUNNER_LOG_DIR}/erlang.log.*"
+        exit 1
+    fi
+    if ! relx_nodetool "ping" > /dev/null; then
+        logerr "$NAME seems to be running, but not responding to pings."
+        echo "Make sure '$HOST_NAME' is a resolvable and reachable hostname."
+        pipe_shutdown
+        exit 2
+    fi
+    if ! relx_nodetool 'eval' 'true = emqx:is_running()' > /dev/null; then
+        logerr "$NAME node is started, but failed to complete the boot sequence in time."
+        echo "Please collect the logs in ${RUNNER_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
+        pipe_shutdown
+        exit 3
+    fi
+}
+
+## Only works when started in daemon mode
+pipe_shutdown() {
+    if [ -d "$PIPE_DIR" ]; then
+        echo "Shutting down $NAME from to_erl pipe."
+        ## can not evaluate init:stop() or erlang:halt() because the shell is restricted
+        echo 'emqx_machine:brutal_shutdown().' | "$BINDIR/to_erl" "$PIPE_DIR"
+    fi
+}
+
+## Call nodetool to stop EMQX
+nodetool_shutdown() {
+    # Wait for the node to completely stop...
+    PID="$(relx_get_pid)"
+    if ! relx_nodetool "stop"; then
+        die "Graceful shutdown failed PID=[$PID]"
+    fi
+    WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"
+    if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
+        msg="dangling after ${WAIT_TIME} seconds"
+        # also log to syslog
+        logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
+        # log to user console
+        set +x
+        logerr "Stop failed, $msg"
+        echo "ERROR: $PID is still around"
+        ps -p "$PID"
+        exit 1
+    fi
+    echo "ok"
+    logger -t "${REL_NAME}[${PID}]" "STOP: OK"
+}
 
 cd "$RUNNER_ROOT_DIR"
 
@@ -1014,33 +1072,15 @@ case "${COMMAND}" in
             echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
             exit 0
         else
-            echo "$EMQX_DESCRIPTION $REL_VSN failed to start in ${WAIT_TIME} seconds."
-            echo "Please find more information in erlang.log.N"
-            echo "Or run 'env DEBUG=1 $0 console' to have logs printed to console."
-            exit 1
+            logerr "${EMQX_DESCRIPTION} ${REL_VSN} using node name '${NAME}' failed ${WAIT_TIME} probes."
+            diagnose_boot_failure_and_die
         fi
         ;;
 
     stop)
-        # Wait for the node to completely stop...
-        PID="$(relx_get_pid)"
-        if ! relx_nodetool "stop"; then
-            die "Graceful shutdown failed PID=[$PID]"
+        if ! nodetool_shutdown; then
+            pipe_shutdown
         fi
-        WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"
-        if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
-            msg="dangling after ${WAIT_TIME} seconds"
-            # also log to syslog
-            logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
-            # log to user console
-            set +x
-            logerr "Stop failed, $msg"
-            echo "ERROR: $PID is still around"
-            ps -p "$PID"
-            exit 1
-        fi
-        echo "ok"
-        logger -t "${REL_NAME}[${PID}]" "STOP: OK"
         ;;
 
     pid)
@@ -1063,9 +1103,6 @@ case "${COMMAND}" in
         ;;
 
     attach)
-        assert_node_alive
-
-        shift
         exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
