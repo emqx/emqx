@@ -537,10 +537,12 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         mountpoint => <<>>,
         zone => default
     },
-    emqx_config:put([listeners, quic, Name], maps:merge(Conf, ExtraSettings)),
-    case emqx_listeners:start_listener(quic, Name, Conf) of
+    Conf2 = maps:merge(Conf, ExtraSettings),
+    emqx_config:put([listeners, quic, Name], Conf2),
+    case emqx_listeners:start_listener(emqx_listeners:listener_id(quic, Name)) of
         ok -> ok;
-        {error, {already_started, _Pid}} -> ok
+        {error, {already_started, _Pid}} -> ok;
+        Other -> throw(Other)
     end.
 
 %%
