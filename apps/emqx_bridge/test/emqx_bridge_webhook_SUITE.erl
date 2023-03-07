@@ -59,7 +59,7 @@ start_http_server(HTTPServerConfig) ->
     ct:pal("Start server\n"),
     process_flag(trap_exit, true),
     Parent = self(),
-    {Port, Sock} = listen_on_random_port(),
+    {ok, {Port, Sock}} = listen_on_random_port(),
     Acceptor = spawn(fun() ->
         accept_loop(Sock, Parent, HTTPServerConfig)
     end),
@@ -76,17 +76,22 @@ listen_on_random_port() ->
     case gen_tcp:listen(0, SockOpts) of
         {ok, Sock} ->
             {ok, Port} = inet:port(Sock),
-            {Port, Sock};
-        {error, Reason} when Reason /= eaddrinuse ->
+            {ok, {Port, Sock}};
+        {error, Reason} when Reason =/= eaddrinuse ->
             {error, Reason}
     end.
 
 accept_loop(Sock, Parent, HTTPServerConfig) ->
     process_flag(trap_exit, true),
-    {ok, Conn} = gen_tcp:accept(Sock),
-    spawn(fun() -> handle_fun_200_ok(Conn, Parent, HTTPServerConfig) end),
-    %%gen_tcp:controlling_process(Conn, Handler),
-    accept_loop(Sock, Parent, HTTPServerConfig).
+    case gen_tcp:accept(Sock) of
+        {ok, Conn} ->
+            spawn(fun() -> handle_fun_200_ok(Conn, Parent, HTTPServerConfig, <<>>) end),
+            %%gen_tcp:controlling_process(Conn, Handler),
+            accept_loop(Sock, Parent, HTTPServerConfig);
+        {error, closed} ->
+            %% socket owner died
+            ok
+    end.
 
 make_response(CodeStr, Str) ->
     B = iolist_to_binary(Str),
@@ -97,17 +102,21 @@ make_response(CodeStr, Str) ->
         )
     ).
 
-handle_fun_200_ok(Conn, Parent, HTTPServerConfig) ->
+handle_fun_200_ok(Conn, Parent, HTTPServerConfig, Acc) ->
     ResponseDelayMS = maps:get(response_delay_ms, HTTPServerConfig, 0),
     ct:pal("Waiting for request~n"),
     case gen_tcp:recv(Conn, 0) of
         {ok, ReqStr} ->
             ct:pal("The http handler got request: ~p", [ReqStr]),
-            Req = parse_http_request(ReqStr),
-            timer:sleep(ResponseDelayMS),
-            Parent ! {http_server, received, Req},
-            gen_tcp:send(Conn, make_response("200 OK", "Request OK")),
-            handle_fun_200_ok(Conn, Parent, HTTPServerConfig);
+            case parse_http_request(<<Acc/binary, ReqStr/binary>>) of
+                {ok, incomplete, NewAcc} ->
+                    handle_fun_200_ok(Conn, Parent, HTTPServerConfig, NewAcc);
+                {ok, Req, NewAcc} ->
+                    timer:sleep(ResponseDelayMS),
+                    Parent ! {http_server, received, Req},
+                    gen_tcp:send(Conn, make_response("200 OK", "Request OK")),
+                    handle_fun_200_ok(Conn, Parent, HTTPServerConfig, NewAcc)
+            end;
         {error, closed} ->
             ct:pal("http connection closed");
         {error, Reason} ->
@@ -116,12 +125,26 @@ handle_fun_200_ok(Conn, Parent, HTTPServerConfig) ->
             gen_tcp:close(Conn)
     end.
 
-parse_http_request(ReqStr0) ->
+parse_http_request(ReqStr) ->
+    try
+        parse_http_request_assertive(ReqStr)
+    catch
+        _:_ ->
+            {ok, incomplete, ReqStr}
+    end.
+
+parse_http_request_assertive(ReqStr0) ->
+    %% find body length
+    [_, LengthStr0] = string:split(ReqStr0, "content-length:"),
+    [LengthStr, _] = string:split(LengthStr0, "\r\n"),
+    Length = binary_to_integer(string:trim(LengthStr, both)),
+    %% split between multiple requests
     [Method, ReqStr1] = string:split(ReqStr0, " ", leading),
     [Path, ReqStr2] = string:split(ReqStr1, " ", leading),
     [_ProtoVsn, ReqStr3] = string:split(ReqStr2, "\r\n", leading),
-    [_HeaderStr, Body] = string:split(ReqStr3, "\r\n\r\n", leading),
-    #{method => Method, path => Path, body => Body}.
+    [_HeaderStr, Rest] = string:split(ReqStr3, "\r\n\r\n", leading),
+    <<Body:Length/binary, Remain/binary>> = Rest,
+    {ok, #{method => Method, path => Path, body => Body}, Remain}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper functions
