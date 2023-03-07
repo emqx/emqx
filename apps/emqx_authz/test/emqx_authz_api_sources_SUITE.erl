@@ -21,7 +21,6 @@
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(MONGO_SINGLE_HOST, "mongo").
@@ -183,7 +182,7 @@ t_api(_) ->
     {ok, 404, ErrResult} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
         #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
-        jsx:decode(ErrResult)
+        emqx_json:decode(ErrResult, [return_maps])
     ),
 
     [
@@ -215,7 +214,9 @@ t_api(_) ->
         ?SOURCE1#{<<"enable">> := false}
     ),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
-    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
+    ?assertMatch(
+        #{<<"type">> := <<"http">>, <<"enable">> := false}, emqx_json:decode(Result3, [return_maps])
+    ),
 
     Keyfile = emqx_common_test_helpers:app_path(
         emqx,
@@ -252,7 +253,7 @@ t_api(_) ->
             <<"total">> := 0,
             <<"nomatch">> := 0
         }
-    } = jiffy:decode(Status4, [return_maps]),
+    } = emqx_json:decode(Status4, [return_maps]),
     ?assertMatch(
         #{
             <<"type">> := <<"mongodb">>,
@@ -264,7 +265,7 @@ t_api(_) ->
                 <<"verify">> := <<"verify_none">>
             }
         },
-        jsx:decode(Result4)
+        emqx_json:decode(Result4, [return_maps])
     ),
 
     {ok, Cacert} = file:read_file(Cacertfile),
@@ -296,7 +297,7 @@ t_api(_) ->
                 <<"verify">> := <<"verify_none">>
             }
         },
-        jsx:decode(Result5)
+        emqx_json:decode(Result5, [return_maps])
     ),
 
     {ok, 200, Status5_1} = request(get, uri(["authorization", "sources", "mongodb", "status"]), []),
@@ -307,7 +308,7 @@ t_api(_) ->
             <<"total">> := 0,
             <<"nomatch">> := 0
         }
-    } = jiffy:decode(Status5_1, [return_maps]),
+    } = emqx_json:decode(Status5_1, [return_maps]),
 
     #{
         ssl := #{
@@ -354,7 +355,7 @@ t_api(_) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := <<"Type mismatch", _/binary>>
         },
-        jiffy:decode(TypeMismatch, [return_maps])
+        emqx_json:decode(TypeMismatch, [return_maps])
     ),
 
     lists:foreach(
@@ -371,6 +372,43 @@ t_api(_) ->
     ?assertEqual([], get_sources(Result6)),
     ?assertEqual([], emqx:get_config([authorization, sources])),
 
+    lists:foreach(
+        fun(#{<<"type">> := Type}) ->
+            {ok, 404, _} = request(
+                get,
+                uri(["authorization", "sources", binary_to_list(Type), "status"]),
+                []
+            ),
+            {ok, 404, _} = request(
+                post,
+                uri(["authorization", "sources", binary_to_list(Type), "move"]),
+                #{<<"position">> => <<"front">>}
+            ),
+            {ok, 404, _} = request(
+                get,
+                uri(["authorization", "sources", binary_to_list(Type)]),
+                []
+            ),
+            {ok, 404, _} = request(
+                delete,
+                uri(["authorization", "sources", binary_to_list(Type)]),
+                []
+            )
+        end,
+        Sources
+    ),
+
+    {ok, 404, _TypeMismatch2} = request(
+        put,
+        uri(["authorization", "sources", "file"]),
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
+    ),
+    {ok, 404, _} = request(
+        put,
+        uri(["authorization", "sources", "built_in_database"]),
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
+    ),
+
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE6),
 
     {ok, Client} = emqtt:start_link(
@@ -382,7 +420,6 @@ t_api(_) ->
         ]
     ),
     emqtt:connect(Client),
-    timer:sleep(50),
 
     emqtt:publish(
         Client,
@@ -392,17 +429,24 @@ t_api(_) ->
         [{qos, 1}]
     ),
 
-    {ok, 200, Status5} = request(get, uri(["authorization", "sources", "file", "status"]), []),
-    #{
-        <<"metrics">> := #{
-            <<"allow">> := 1,
-            <<"deny">> := 0,
-            <<"total">> := 1,
-            <<"nomatch">> := 0
-        }
-    } = jiffy:decode(Status5, [return_maps]),
+    snabbkaffe:retry(
+        10,
+        3,
+        fun() ->
+            {ok, 200, Status5} = request(
+                get, uri(["authorization", "sources", "file", "status"]), []
+            ),
+            #{
+                <<"metrics">> := #{
+                    <<"allow">> := 1,
+                    <<"deny">> := 0,
+                    <<"total">> := 1,
+                    <<"nomatch">> := 0
+                }
+            } = emqx_json:decode(Status5, [return_maps])
+        end
+    ),
 
-    timer:sleep(50),
     emqtt:publish(
         Client,
         <<"t2">>,
@@ -411,17 +455,24 @@ t_api(_) ->
         [{qos, 1}]
     ),
 
-    {ok, 200, Status6} = request(get, uri(["authorization", "sources", "file", "status"]), []),
-    #{
-        <<"metrics">> := #{
-            <<"allow">> := 2,
-            <<"deny">> := 0,
-            <<"total">> := 2,
-            <<"nomatch">> := 0
-        }
-    } = jiffy:decode(Status6, [return_maps]),
+    snabbkaffe:retry(
+        10,
+        3,
+        fun() ->
+            {ok, 200, Status6} = request(
+                get, uri(["authorization", "sources", "file", "status"]), []
+            ),
+            #{
+                <<"metrics">> := #{
+                    <<"allow">> := 2,
+                    <<"deny">> := 0,
+                    <<"total">> := 2,
+                    <<"nomatch">> := 0
+                }
+            } = emqx_json:decode(Status6, [return_maps])
+        end
+    ),
 
-    timer:sleep(50),
     emqtt:publish(
         Client,
         <<"t3">>,
@@ -430,20 +481,26 @@ t_api(_) ->
         [{qos, 1}]
     ),
 
-    timer:sleep(50),
-    {ok, 200, Status7} = request(get, uri(["authorization", "sources", "file", "status"]), []),
-    #{
-        <<"metrics">> := #{
-            <<"allow">> := 3,
-            <<"deny">> := 0,
-            <<"total">> := 3,
-            <<"nomatch">> := 0
-        }
-    } = jiffy:decode(Status7, [return_maps]),
-
+    snabbkaffe:retry(
+        10,
+        3,
+        fun() ->
+            {ok, 200, Status7} = request(
+                get, uri(["authorization", "sources", "file", "status"]), []
+            ),
+            #{
+                <<"metrics">> := #{
+                    <<"allow">> := 3,
+                    <<"deny">> := 0,
+                    <<"total">> := 3,
+                    <<"nomatch">> := 0
+                }
+            } = emqx_json:decode(Status7, [return_maps])
+        end
+    ),
     ok.
 
-t_move_source(_) ->
+t_source_move(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
     ?assertMatch(
         [
@@ -564,7 +621,7 @@ t_aggregate_metrics(_) ->
     ).
 
 get_sources(Result) ->
-    maps:get(<<"sources">>, jsx:decode(Result), []).
+    maps:get(<<"sources">>, emqx_json:decode(Result, [return_maps])).
 
 data_dir() -> emqx:data_dir().
 
