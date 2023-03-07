@@ -47,7 +47,8 @@
 
 -export([
     get_config/2,
-    put_config/2
+    put_config/2,
+    get_tar/1
 ]).
 
 %% internal
@@ -111,6 +112,33 @@ do_ensure_installed(NameVsn) ->
                 path => TarGz,
                 return => Reason
             }}
+    end.
+
+-spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
+get_tar(NameVsn) ->
+    TarGz = pkg_file(NameVsn),
+    case file:read_file(TarGz) of
+        {ok, Content} ->
+            {ok, Content};
+        {error, _} ->
+            case maybe_create_tar(NameVsn, TarGz, install_dir()) of
+                ok ->
+                    file:read_file(TarGz);
+                Err ->
+                    Err
+            end
+    end.
+
+maybe_create_tar(NameVsn, TarGzName, InstallDir) when is_binary(InstallDir) ->
+    maybe_create_tar(NameVsn, TarGzName, binary_to_list(InstallDir));
+maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
+    case filelib:wildcard(filename:join(dir(NameVsn), "**")) of
+        [_ | _] = PluginFiles ->
+            InstallDir1 = string:trim(InstallDir, trailing, "/") ++ "/",
+            PluginFiles1 = [{string:prefix(F, InstallDir1), F} || F <- PluginFiles],
+            erl_tar:create(TarGzName, PluginFiles1, [compressed]);
+        _ ->
+            {error, plugin_not_found}
     end.
 
 write_tar_file_content(BaseDir, TarContent) ->
@@ -393,6 +421,7 @@ do_ensure_started(NameVsn) ->
     tryit(
         "start_plugins",
         fun() ->
+            ok = ensure_exists_and_installed(NameVsn),
             Plugin = do_read_plugin(NameVsn),
             ok = load_code_start_apps(NameVsn, Plugin)
         end
@@ -445,6 +474,36 @@ do_read_plugin({file, InfoFile}, Options) ->
     end;
 do_read_plugin(NameVsn, Options) ->
     do_read_plugin({file, info_file(NameVsn)}, Options).
+
+ensure_exists_and_installed(NameVsn) ->
+    case filelib:is_dir(dir(NameVsn)) of
+        true ->
+            ok;
+        _ ->
+            Nodes = [N || N <- mria:running_nodes(), N /= node()],
+            case get_from_any_node(Nodes, NameVsn, []) of
+                {ok, TarContent} ->
+                    ok = file:write_file(pkg_file(NameVsn), TarContent),
+                    ok = do_ensure_installed(NameVsn);
+                {error, NodeErrors} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_copy_plugin_from_other_nodes",
+                        name_vsn => NameVsn,
+                        node_errors => NodeErrors
+                    }),
+                    {error, plugin_not_found}
+            end
+    end.
+
+get_from_any_node([], _NameVsn, Errors) ->
+    {error, Errors};
+get_from_any_node([Node | T], NameVsn, Errors) ->
+    case emqx_plugins_proto_v1:get_tar(Node, NameVsn, infinity) of
+        {ok, _} = Res ->
+            Res;
+        Err ->
+            get_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+    end.
 
 plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
     case file:read_file(readme_file(NameVsn)) of
