@@ -239,11 +239,6 @@ receive_request_notifications(MessageIDs, ResponseDelay) ->
     end.
 
 remove_message_id(MessageIDs, #{body := IDBin}) ->
-    try
-        ID = erlang:binary_to_integer(IDBin),
-        maps:remove(ID, MessageIDs)
-    catch
-        _:_ ->
-            %% It is acceptable to get the same message more than once
-            MessageIDs
-    end.
+    ID = erlang:binary_to_integer(IDBin),
+    %% It is acceptable to get the same message more than once
+    maps:without([ID], MessageIDs).
