@@ -17,6 +17,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -140,11 +141,7 @@ fields(bridges) ->
                 #{
                     desc => ?DESC("bridges_webhook"),
                     required => false,
-                    converter => fun(X, _HoconOpts) ->
-                        emqx_bridge_compatible_config:upgrade_pre_ee(
-                            X, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
-                        )
-                    end
+                    converter => fun webhook_bridge_converter/2
                 }
             )},
         {mqtt,
@@ -212,3 +209,48 @@ status() ->
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
+
+webhook_bridge_converter(Conf0, _HoconOpts) ->
+    Conf1 = emqx_bridge_compatible_config:upgrade_pre_ee(
+        Conf0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+    ),
+    case Conf1 of
+        undefined ->
+            undefined;
+        _ ->
+            do_convert_webhook_config(Conf1)
+    end.
+
+do_convert_webhook_config(
+    #{<<"request_timeout">> := ReqT, <<"resource_opts">> := #{<<"request_timeout">> := ReqT}} = Conf
+) ->
+    %% ok: same values
+    Conf;
+do_convert_webhook_config(
+    #{
+        <<"request_timeout">> := ReqTRootRaw,
+        <<"resource_opts">> := #{<<"request_timeout">> := ReqTResourceRaw}
+    } = Conf0
+) ->
+    %% different values; we set them to the same, if they are valid
+    %% durations
+    MReqTRoot = emqx_schema:to_duration_ms(ReqTRootRaw),
+    MReqTResource = emqx_schema:to_duration_ms(ReqTResourceRaw),
+    case {MReqTRoot, MReqTResource} of
+        {{ok, ReqTRoot}, {ok, ReqTResource}} ->
+            {_Parsed, ReqTRaw} = max({ReqTRoot, ReqTRootRaw}, {ReqTResource, ReqTResourceRaw}),
+            Conf1 = emqx_map_lib:deep_merge(
+                Conf0,
+                #{
+                    <<"request_timeout">> => ReqTRaw,
+                    <<"resource_opts">> => #{<<"request_timeout">> => ReqTRaw}
+                }
+            ),
+            Conf1;
+        _ ->
+            %% invalid values; let the type checker complain about
+            %% that.
+            Conf0
+    end;
+do_convert_webhook_config(Conf) ->
+    Conf.

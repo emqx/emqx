@@ -97,8 +97,8 @@
 -define(DEFAULT_BATCH_SIZE, 1).
 
 %% milliseconds
--define(DEFAULT_BATCH_TIME, 20).
--define(DEFAULT_BATCH_TIME_RAW, <<"20ms">>).
+-define(DEFAULT_BATCH_TIME, 0).
+-define(DEFAULT_BATCH_TIME_RAW, <<"0ms">>).
 
 %% count
 -define(DEFAULT_INFLIGHT, 100).
