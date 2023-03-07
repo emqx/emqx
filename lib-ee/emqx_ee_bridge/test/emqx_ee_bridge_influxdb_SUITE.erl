@@ -527,7 +527,8 @@ t_start_ok(Config) ->
     SentData = #{
         <<"clientid">> => ClientId,
         <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"payload">> => Payload
+        <<"payload">> => Payload,
+        <<"timestamp">> => erlang:system_time(millisecond)
     },
     ?check_trace(
         begin
@@ -685,7 +686,8 @@ t_const_timestamp(Config) ->
     SentData = #{
         <<"clientid">> => ClientId,
         <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"payload">> => Payload
+        <<"payload">> => Payload,
+        <<"timestamp">> => erlang:system_time(millisecond)
     },
     ?assertEqual(ok, send_message(Config, SentData)),
     case QueryMode of
@@ -740,7 +742,7 @@ t_boolean_variants(Config) ->
             SentData = #{
                 <<"clientid">> => ClientId,
                 <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-                <<"timestamp">> => erlang:system_time(nanosecond),
+                <<"timestamp">> => erlang:system_time(millisecond),
                 <<"payload">> => Payload
             },
             ?assertEqual(ok, send_message(Config, SentData)),
@@ -805,7 +807,7 @@ t_bad_timestamp(Config) ->
     SentData = #{
         <<"clientid">> => ClientId,
         <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"timestamp">> => erlang:system_time(nanosecond),
+        <<"timestamp">> => erlang:system_time(millisecond),
         <<"payload">> => Payload
     },
     ?check_trace(
@@ -949,7 +951,7 @@ t_write_failure(Config) ->
     SentData = #{
         <<"clientid">> => ClientId,
         <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"timestamp">> => erlang:system_time(nanosecond),
+        <<"timestamp">> => erlang:system_time(millisecond),
         <<"payload">> => Payload
     },
     ?check_trace(
