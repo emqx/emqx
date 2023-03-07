@@ -58,7 +58,12 @@
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;
-    T == clickhouse
+    T == clickhouse;
+    T == pgsql;
+    T == timescale;
+    T == matrix;
+    T == tdengine;
+    T == dynamo
 ).
 
 load() ->
