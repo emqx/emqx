@@ -55,6 +55,10 @@
     )
 ).
 
+-define(BRIDGE_NOT_ENABLED,
+    {400, error_msg('BAD_REQUEST', <<"Forbidden operation, bridge not enabled">>)}
+).
+
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id) of
         {BridgeType, BridgeName} ->
@@ -625,8 +629,13 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                Nodes = mria_mnesia:running_nodes(),
-                call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                case maps:get(enable, emqx:get_config([bridges, BridgeType, BridgeName]), false) of
+                    false ->
+                        ?BRIDGE_NOT_ENABLED;
+                    true ->
+                        Nodes = mria_mnesia:running_nodes(),
+                        call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                end
         end
     ).
 
@@ -640,14 +649,9 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
-                case maps:get(enable, ConfMap, false) of
+                case maps:get(enable, emqx:get_config([bridges, BridgeType, BridgeName]), false) of
                     false ->
-                        {400,
-                            error_msg(
-                                'BAD_REQUEST',
-                                <<"Forbidden operation, bridge not enabled">>
-                            )};
+                        ?BRIDGE_NOT_ENABLED;
                     true ->
                         case emqx_misc:safe_to_existing_atom(Node, utf8) of
                             {ok, TargetNode} ->
