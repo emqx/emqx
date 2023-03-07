@@ -1236,11 +1236,17 @@ connpkt(Props) ->
 
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
+    Conf = emqx_cm:get_session_confs(
+        #{zone => default, clientid => <<"fake-test">>}, #{
+            receive_maximum => 0, expiry_interval => 0
+        }
+    ),
+    Session = emqx_session:init(Conf),
     maps:fold(
         fun(Field, Value, Session) ->
             emqx_session:set_field(Field, Value, Session)
         end,
-        emqx_session:init(#{max_inflight => 0}),
+        Session,
         InitFields
     ).
 
