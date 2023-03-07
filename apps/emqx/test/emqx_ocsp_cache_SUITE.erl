@@ -263,7 +263,7 @@ assert_http_get(N, Timeout) when N > 0 ->
     end,
     assert_http_get(N - 1, Timeout).
 
-spawn_openssl_client(TLSVsn, RequestStatus, Config) ->
+openssl_client_command(TLSVsn, RequestStatus, Config) ->
     DataDir = ?config(data_dir, Config),
     ClientCert = filename:join([DataDir, "client.pem"]),
     ClientKey = filename:join([DataDir, "client.key"]),
@@ -274,25 +274,38 @@ spawn_openssl_client(TLSVsn, RequestStatus, Config) ->
             true -> ["-status"];
             false -> []
         end,
+    [
+        Openssl,
+        "s_client",
+        "-connect",
+        "localhost:8883",
+        %% needed to trigger `sni_fun'
+        "-servername",
+        "localhost",
+        TLSVsn,
+        "-CAfile",
+        Cacert,
+        "-cert",
+        ClientCert,
+        "-key",
+        ClientKey
+    ] ++ StatusOpt.
+
+run_openssl_client(TLSVsn, RequestStatus, Config) ->
+    Command0 = openssl_client_command(TLSVsn, RequestStatus, Config),
+    Command = lists:flatten(lists:join(" ", Command0)),
+    os:cmd(Command).
+
+%% fixme: for some reason, the port program doesn't return any output
+%% when running in OTP 25 using `open_port`, but the `os:cmd` version
+%% works fine.
+%% the `open_port' version works fine in OTP 24 for some reason.
+spawn_openssl_client(TLSVsn, RequestStatus, Config) ->
+    [Openssl | Args] = openssl_client_command(TLSVsn, RequestStatus, Config),
     open_port(
         {spawn_executable, Openssl},
         [
-            {args,
-                [
-                    "s_client",
-                    "-connect",
-                    "localhost:8883",
-                    %% needed to trigger `sni_fun'
-                    "-servername",
-                    "localhost",
-                    TLSVsn,
-                    "-CAfile",
-                    Cacert,
-                    "-cert",
-                    ClientCert,
-                    "-key",
-                    ClientKey
-                ] ++ StatusOpt},
+            {args, Args},
             binary,
             stderr_to_stdout
         ]
@@ -331,56 +344,26 @@ kill_pid(OSPid) ->
     os:cmd("kill -9 " ++ integer_to_list(OSPid)).
 
 test_ocsp_connection(TLSVsn, WithRequestStatus = true, Config) ->
-    ClientPort = spawn_openssl_client(TLSVsn, WithRequestStatus, Config),
-    {os_pid, ClientOSPid} = erlang:port_info(ClientPort, os_pid),
-    try
-        timer:sleep(timer:seconds(1)),
-        {messages, Messages} = process_info(self(), messages),
-        OCSPOutput0 = [
-            Output
-         || {_Port, {data, Output}} <- Messages,
-            re:run(Output, "OCSP response:") =/= nomatch
-        ],
-        ?assertMatch(
-            [_],
-            OCSPOutput0,
-            #{all_messages => Messages}
-        ),
-        [OCSPOutput] = OCSPOutput0,
-        ?assertMatch(
-            {match, _},
-            re:run(OCSPOutput, "OCSP Response Status: successful"),
-            #{all_messages => Messages}
-        ),
-        ?assertMatch(
-            {match, _},
-            re:run(OCSPOutput, "Cert Status: good"),
-            #{all_messages => Messages}
-        ),
-        ok
-    after
-        catch kill_pid(ClientOSPid)
-    end;
+    OCSPOutput = run_openssl_client(TLSVsn, WithRequestStatus, Config),
+    ?assertMatch(
+        {match, _},
+        re:run(OCSPOutput, "OCSP Response Status: successful"),
+        #{mailbox => process_info(self(), messages)}
+    ),
+    ?assertMatch(
+        {match, _},
+        re:run(OCSPOutput, "Cert Status: good"),
+        #{mailbox => process_info(self(), messages)}
+    ),
+    ok;
 test_ocsp_connection(TLSVsn, WithRequestStatus = false, Config) ->
-    ClientPort = spawn_openssl_client(TLSVsn, WithRequestStatus, Config),
-    {os_pid, ClientOSPid} = erlang:port_info(ClientPort, os_pid),
-    try
-        timer:sleep(timer:seconds(1)),
-        {messages, Messages} = process_info(self(), messages),
-        OCSPOutput = [
-            Output
-         || {_Port, {data, Output}} <- Messages,
-            re:run(Output, "OCSP response:") =/= nomatch
-        ],
-        ?assertEqual(
-            [],
-            OCSPOutput,
-            #{all_messages => Messages}
-        ),
-        ok
-    after
-        catch kill_pid(ClientOSPid)
-    end.
+    OCSPOutput = run_openssl_client(TLSVsn, WithRequestStatus, Config),
+    ?assertMatch(
+        nomatch,
+        re:run(OCSPOutput, "Cert Status: good", [{capture, none}]),
+        #{mailbox => process_info(self(), messages)}
+    ),
+    ok.
 
 ensure_port_open(Port) ->
     do_ensure_port_open(Port, 10).
