@@ -165,6 +165,9 @@ for dep in ${CT_DEPS}; do
         clickhouse)
             FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
             ;;
+        dynamo)
+            FILES+=( '.ci/docker-compose-file/docker-compose-dynamo.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

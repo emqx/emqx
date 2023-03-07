@@ -18,6 +18,7 @@ services:
       - 15432:5432
       - 15433:5433
       - 16041:6041
+      - 18000:8000
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

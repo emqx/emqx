@@ -47,5 +47,11 @@
     "listen": "0.0.0.0:6041",
     "upstream": "tdengine:6041",
     "enabled": true
+  },
+  {
+    "name": "dynamo",
+    "listen": "0.0.0.0:8000",
+    "upstream": "dynamo:8000",
+    "enabled": true
   }
 ]
