@@ -372,6 +372,43 @@ t_api(_) ->
     ?assertEqual([], get_sources(Result6)),
     ?assertEqual([], emqx:get_config([authorization, sources])),
 
+    lists:foreach(
+        fun(#{<<"type">> := Type}) ->
+            {ok, 404, _} = request(
+                get,
+                uri(["authorization", "sources", binary_to_list(Type), "status"]),
+                []
+            ),
+            {ok, 404, _} = request(
+                post,
+                uri(["authorization", "sources", binary_to_list(Type), "move"]),
+                #{<<"position">> => <<"front">>}
+            ),
+            {ok, 404, _} = request(
+                get,
+                uri(["authorization", "sources", binary_to_list(Type)]),
+                []
+            ),
+            {ok, 404, _} = request(
+                delete,
+                uri(["authorization", "sources", binary_to_list(Type)]),
+                []
+            )
+        end,
+        Sources
+    ),
+
+    {ok, 404, _TypeMismatch2} = request(
+        put,
+        uri(["authorization", "sources", "file"]),
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
+    ),
+    {ok, 404, _} = request(
+        put,
+        uri(["authorization", "sources", "built_in_database"]),
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
+    ),
+
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE6),
 
     {ok, Client} = emqtt:start_link(
@@ -463,7 +500,7 @@ t_api(_) ->
     ),
     ok.
 
-t_move_source(_) ->
+t_source_move(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
     ?assertMatch(
         [
