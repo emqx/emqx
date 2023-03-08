@@ -642,8 +642,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
-                case maps:get(enable, ConfMap, false) of
+                try is_enabled_bridge(BridgeType, BridgeName) of
                     false ->
                         ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>);
                     true ->
@@ -655,9 +654,21 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                             {error, _} ->
                                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
                         end
+                catch
+                    throw:not_found ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
                 end
         end
     ).
+
+is_enabled_bridge(BridgeType, BridgeName) ->
+    try emqx:get_config([bridges, BridgeType, BridgeName]) of
+        ConfMap ->
+            maps:get(enable, ConfMap, false)
+    catch
+        error:{config_not_found, _} ->
+            throw(not_found)
+    end.
 
 node_operation_func(<<"restart">>) -> restart_bridge_to_node;
 node_operation_func(<<"start">>) -> start_bridge_to_node;
