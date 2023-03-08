@@ -1,5 +1,5 @@
 {application,emqx_lwm2m,
- [{description,"EMQ X LwM2M Gateway"},
+ [{description,"EMQX LwM2M Gateway"},
   {vsn, "4.3.8"}, % strict semver, bump manually!
   {modules,[]},
   {registered,[emqx_lwm2m_sup]},

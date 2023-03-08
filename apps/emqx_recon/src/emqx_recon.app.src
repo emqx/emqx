@@ -1,5 +1,5 @@
 {application, emqx_recon,
- [{description, "EMQ X Recon Plugin"},
+ [{description, "EMQX Recon Plugin"},
   {vsn, "4.3.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
@@ -7,7 +7,7 @@
   {mod, {emqx_recon,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx-recon"}
           ]}

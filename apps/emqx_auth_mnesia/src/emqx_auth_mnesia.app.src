@@ -1,5 +1,5 @@
 {application, emqx_auth_mnesia,
- [{description, "EMQ X Authentication with Mnesia"},
+ [{description, "EMQX Authentication with Mnesia"},
   {vsn, "4.3.11"}, % strict semver, bump manually
   {modules, []},
   {registered, []},
@@ -7,7 +7,7 @@
   {mod, {emqx_auth_mnesia_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx-auth-mnesia"}
           ]}

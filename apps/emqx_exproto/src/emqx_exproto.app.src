@@ -1,5 +1,5 @@
 {application, emqx_exproto,
- [{description, "EMQ X Extension for Protocol"},
+ [{description, "EMQX Extension for Protocol"},
   {vsn, "4.3.15"}, %% 4.3.3 is used by ee
   {modules, []},
   {registered, []},
@@ -7,6 +7,6 @@
   {applications, [kernel,stdlib,grpc]},
   {env,[]},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"}]}
  ]}.

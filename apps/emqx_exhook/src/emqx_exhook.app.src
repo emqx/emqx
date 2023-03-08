@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_exhook,
- [{description, "EMQ X Extension for Hook"},
+ [{description, "EMQX Extension for Hook"},
   {vsn, "4.4.6"},
   {modules, []},
   {registered, []},
@@ -8,6 +8,6 @@
   {applications, [kernel,stdlib,grpc]},
   {env,[]},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"}]}
  ]}.

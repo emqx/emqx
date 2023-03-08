@@ -1,5 +1,5 @@
 {application, emqx_plugin_libs,
- [{description, "EMQ X Plugin utility libs"},
+ [{description, "EMQX Plugin utility libs"},
   {vsn, "4.4.7"},
   {modules, []},
   {applications, [kernel,stdlib]},
