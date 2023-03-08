@@ -594,10 +594,27 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("updating bridge (via http): ~p", [Params]),
     Res =
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
-            {ok, Res0} -> {ok, emqx_json:decode(Res0, [return_maps])};
+            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_json:decode(Body0, [return_maps])};
             Error -> Error
         end,
     ct:pal("bridge update result: ~p", [Res]),
+    Res.
+
+probe_bridge_api(Config) ->
+    TypeBin = ?BRIDGE_TYPE_BIN,
+    Name = ?config(kafka_name, Config),
+    KafkaConfig = ?config(kafka_config, Config),
+    Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("probing bridge (via http): ~p", [Params]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
+            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
+            Error -> Error
+        end,
+    ct:pal("bridge probe result: ~p", [Res]),
     Res.
 
 send_message(Config, Payload) ->
@@ -866,6 +883,16 @@ t_start_and_consume_ok(Config) ->
                     #{?snk_kind := kafka_consumer_handle_message, ?snk_span := {complete, _}},
                     20_000
                 ),
+
+            %% Check that the bridge probe API doesn't leak atoms.
+            ProbeRes = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            AtomsBefore = erlang:system_info(atom_count),
+            %% Probe again; shouldn't have created more atoms.
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            AtomsAfter = erlang:system_info(atom_count),
+            ?assertEqual(AtomsBefore, AtomsAfter),
+
             Res
         end,
         fun({_Partition, OffsetReply}, Trace) ->
