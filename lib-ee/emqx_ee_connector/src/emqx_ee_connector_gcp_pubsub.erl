@@ -33,7 +33,7 @@
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
     pubsub_topic := binary(),
-    request_timeout := emqx_schema:duration_ms(),
+    resource_opts := #{request_timeout := emqx_schema:duration_ms(), any() => term()},
     service_account_json := service_account_json(),
     any() => term()
 }.
@@ -71,7 +71,7 @@ on_start(
         payload_template := PayloadTemplate,
         pool_size := PoolSize,
         pubsub_topic := PubSubTopic,
-        request_timeout := RequestTimeout
+        resource_opts := #{request_timeout := RequestTimeout}
     } = Config
 ) ->
     ?SLOG(info, #{

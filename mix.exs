@@ -48,13 +48,13 @@ defmodule EMQXUmbrella.MixProject do
       {:redbug, "2.0.8"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.6", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.7", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.14.2", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.14.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
@@ -649,7 +649,7 @@ defmodule EMQXUmbrella.MixProject do
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
-      do: [{:quicer, github: "emqx/quic", tag: "0.0.111", override: true}],
+      do: [{:quicer, github: "emqx/quic", tag: "0.0.113", override: true}],
       else: []
   end
 

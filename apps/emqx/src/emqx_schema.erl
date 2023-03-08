@@ -1280,7 +1280,18 @@ fields("listener_wss_opts") ->
         true
     );
 fields("listener_quic_ssl_opts") ->
-    server_ssl_opts_schema(#{}, false);
+    %% Mark unsupported TLS options deprecated.
+    lists:map(
+        fun({Name, Schema}) ->
+            case is_quic_ssl_opts(Name) of
+                true ->
+                    {Name, Schema};
+                false ->
+                    {Name, Schema#{deprecated => {since, "5.0.20"}}}
+            end
+        end,
+        server_ssl_opts_schema(#{}, false)
+    );
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
@@ -2841,3 +2852,18 @@ quic_lowlevel_settings_uint(Low, High, Desc) ->
             desc => Desc
         }
     ).
+
+-spec is_quic_ssl_opts(string()) -> boolean().
+is_quic_ssl_opts(Name) ->
+    lists:member(Name, [
+        "cacertfile",
+        "certfile",
+        "keyfile",
+        "verify"
+        %% Followings are planned
+        %% , "password"
+        %% , "hibernate_after"
+        %% , "fail_if_no_peer_cert"
+        %% , "handshake_timeout"
+        %% , "gc_after_handshake"
+    ]).

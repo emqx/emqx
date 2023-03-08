@@ -33,7 +33,8 @@ all() ->
         {group, mstream},
         {group, shutdown},
         {group, misc},
-        t_listener_with_lowlevel_settings
+        t_listener_with_lowlevel_settings,
+        t_listener_inval_settings
     ].
 
 groups() ->
@@ -1885,8 +1886,17 @@ t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
     ok = emqtt:disconnect(C),
     ok = emqtt:disconnect(C0).
 
+t_listener_inval_settings(_Config) ->
+    LPort = select_port(),
+    %% too small
+    LowLevelTunings = #{stream_recv_buffer_default => 1024},
+    ?assertThrow(
+        {error, {failed_to_start, _}},
+        emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
+    ).
+
 t_listener_with_lowlevel_settings(_Config) ->
-    LPort = 24567,
+    LPort = select_port(),
     LowLevelTunings = #{
         max_bytes_per_key => 274877906,
         %% In conf schema we use handshake_idle_timeout
@@ -1897,7 +1907,7 @@ t_listener_with_lowlevel_settings(_Config) ->
         %% tls_client_max_send_buffer,
         tls_server_max_send_buffer => 10240,
         stream_recv_window_default => 1024,
-        stream_recv_buffer_default => 1024,
+        stream_recv_buffer_default => 10240,
         conn_flow_control_window => 1024,
         max_stateless_operations => 16,
         initial_window_packets => 1300,
@@ -1936,8 +1946,7 @@ t_listener_with_lowlevel_settings(_Config) ->
     {ok, _, [_SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
         {<<"test/1/3">>, [{qos, 2}]}
     ]),
-    ok = emqtt:disconnect(C),
-    emqx_listeners:stop_listener(emqx_listeners:listener_id(quic, ?FUNCTION_NAME)).
+    ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------
 %% Helper functions
