@@ -240,7 +240,7 @@ http_common_fields() ->
 mongo_common_fields() ->
     [
         {collection,
-            ?HOCON(atom(), #{
+            ?HOCON(binary(), #{
                 required => true,
                 desc => ?DESC(collection)
             })},
