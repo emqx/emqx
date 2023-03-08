@@ -227,5 +227,6 @@ test_query() ->
     {send_message, #{
         <<"clientid">> => <<"something">>,
         <<"payload">> => #{bool => true},
-        <<"topic">> => <<"connector_test">>
+        <<"topic">> => <<"connector_test">>,
+        <<"timestamp">> => 1678220316257
     }}.
