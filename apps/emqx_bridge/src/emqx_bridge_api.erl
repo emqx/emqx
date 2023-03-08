@@ -920,7 +920,7 @@ bin(S) when is_atom(S) ->
 bin(S) when is_binary(S) ->
     S.
 
-call_operation(NodeOrAll, OperFunc, Args) ->
+call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
     case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
         Ok when Ok =:= ok; is_tuple(Ok), element(1, Ok) =:= ok ->
             204;
@@ -941,6 +941,8 @@ call_operation(NodeOrAll, OperFunc, Args) ->
                         )
                     )
                 )};
+        {error, not_found} ->
+            ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
             ?BAD_REQUEST(to_hr_reason(Reason))
     end.
@@ -950,7 +952,7 @@ maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
 maybe_try_restart(Node, start_bridge_to_node, Args) ->
     call_operation(Node, restart_bridge_to_node, Args);
 maybe_try_restart(_, _, _) ->
-    {501}.
+    501.
 
 do_bpapi_call(all, Call, Args) ->
     maybe_unwrap(
