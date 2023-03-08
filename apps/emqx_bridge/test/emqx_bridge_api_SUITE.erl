@@ -612,6 +612,7 @@ t_enable_disable_bridges(Config) ->
         <<"{\"code\":\"BAD_REQUEST\",\"message\":\"Forbidden operation, bridge not enabled\"}">>,
         Res
     ),
+    {ok, 400, Res} = request(post, operation_path(cluster, start, BridgeID), <<"">>),
 
     %% enable a stopped bridge
     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), <<"">>),

@@ -48,6 +48,10 @@
 
 -define(BAD_REQUEST(Reason), {400, error_msg('BAD_REQUEST', Reason)}).
 
+-define(BRIDGE_NOT_ENABLED,
+    ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
+).
+
 -define(NOT_FOUND(Reason), {404, error_msg('NOT_FOUND', Reason)}).
 
 -define(BRIDGE_NOT_FOUND(BridgeType, BridgeName),
@@ -640,8 +644,16 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                Nodes = mria:running_nodes(),
-                call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                try is_enabled_bridge(BridgeType, BridgeName) of
+                    false ->
+                        ?BRIDGE_NOT_ENABLED;
+                    true ->
+                        Nodes = mria:running_nodes(),
+                        call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                catch
+                    throw:not_found ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+                end
         end
     ).
 
@@ -657,7 +669,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             OperFunc ->
                 try is_enabled_bridge(BridgeType, BridgeName) of
                     false ->
-                        ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>);
+                        ?BRIDGE_NOT_ENABLED;
                     true ->
                         case emqx_misc:safe_to_existing_atom(Node, utf8) of
                             {ok, TargetNode} ->
