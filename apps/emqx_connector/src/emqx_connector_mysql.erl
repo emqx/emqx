@@ -392,13 +392,13 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
 
 on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->
     SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, InsertPart, Tokens),
-    on_sql_query(InstId, query, SQL, [], default_timeout, State).
+    on_sql_query(InstId, query, SQL, no_params, default_timeout, State).
 
 on_sql_query(
     InstId,
     SQLFunc,
     SQLOrKey,
-    Data,
+    Params,
     Timeout,
     #{poolname := PoolName} = State
 ) ->
@@ -409,9 +409,9 @@ on_sql_query(
         {ok, Conn} ->
             ?tp(
                 mysql_connector_send_query,
-                #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Data}
+                #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Params}
             ),
-            do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta);
+            do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta);
         {error, disconnected} ->
             ?SLOG(
                 error,
@@ -423,8 +423,8 @@ on_sql_query(
             {error, {recoverable_error, disconnected}}
     end.
 
-do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
-    try mysql:SQLFunc(Conn, SQLOrKey, Data, Timeout) of
+do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->
+    try mysql:SQLFunc(Conn, SQLOrKey, Params, no_filtermap_fun, Timeout) of
         {error, disconnected} ->
             ?SLOG(
                 error,
@@ -466,7 +466,7 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Data, Timeout, LogMeta) ->
         error:badarg ->
             ?SLOG(
                 error,
-                LogMeta#{msg => "mysql_connector_invalid_params", params => Data}
+                LogMeta#{msg => "mysql_connector_invalid_params", params => Params}
             ),
-            {error, {unrecoverable_error, {invalid_params, Data}}}
+            {error, {unrecoverable_error, {invalid_params, Params}}}
     end.

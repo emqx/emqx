@@ -18,4 +18,7 @@ services:
       - --collation-server=utf8mb4_general_ci
       - --lower-case-table-names=1
       - --max-allowed-packet=128M
+      # Severely limit maximum number of prepared statements the server must permit
+      # so that we hit potential resource exhaustion earlier in tests.
+      - --max-prepared-stmt-count=64
       - --skip-symbolic-links

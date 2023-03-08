@@ -25,6 +25,9 @@ services:
       - --collation-server=utf8mb4_general_ci
       - --lower-case-table-names=1
       - --max-allowed-packet=128M
+      # Severely limit maximum number of prepared statements the server must permit
+      # so that we hit potential resource exhaustion earlier in tests.
+      - --max-prepared-stmt-count=64
       - --ssl-ca=/etc/certs/ca-cert.pem
       - --ssl-cert=/etc/certs/server-cert.pem
       - --ssl-key=/etc/certs/server-key.pem
