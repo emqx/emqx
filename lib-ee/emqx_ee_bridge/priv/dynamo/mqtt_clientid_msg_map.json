@@ -1,0 +1,13 @@
+{
+    "TableName": "mqtt_clientid_msg_map",
+    "KeySchema": [
+        { "AttributeName": "clientid", "KeyType": "HASH" }
+    ],
+    "AttributeDefinitions": [
+        { "AttributeName": "clientid", "AttributeType": "S" }
+    ],
+    "ProvisionedThroughput": {
+        "ReadCapacityUnits": 5,
+        "WriteCapacityUnits": 5
+    }
+}

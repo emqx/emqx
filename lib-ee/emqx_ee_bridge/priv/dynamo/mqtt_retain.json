@@ -1,0 +1,13 @@
+{
+    "TableName": "mqtt_retain",
+    "KeySchema": [
+        { "AttributeName": "topic", "KeyType": "HASH" }
+    ],
+    "AttributeDefinitions": [
+        { "AttributeName": "topic", "AttributeType": "S" }
+    ],
+    "ProvisionedThroughput": {
+        "ReadCapacityUnits": 5,
+        "WriteCapacityUnits": 5
+    }
+}

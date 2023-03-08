@@ -1,0 +1,16 @@
+{
+    "TableName": "mqtt_sub",
+    "KeySchema": [
+        { "AttributeName": "clientid", "KeyType": "HASH" },
+        { "AttributeName": "topic", "KeyType": "RANGE" }
+    ],
+    "AttributeDefinitions": [
+        { "AttributeName": "clientid", "AttributeType": "S" },
+        { "AttributeName": "topic", "AttributeType": "S" }
+    ],
+    "ProvisionedThroughput": {
+        "ReadCapacityUnits": 5,
+        "WriteCapacityUnits": 5
+    }
+}
+
