@@ -23,7 +23,7 @@ services:
       - ./kerberos/krb5.conf:/etc/krb5.conf
     working_dir: /emqx
     tty: true
-    user: "${UID_GID}"
+    user: "${DOCKER_USER:-root}"
 
 networks:
   emqx_bridge:

@@ -154,9 +154,6 @@ for dep in ${CT_DEPS}; do
                      '.ci/docker-compose-file/docker-compose-pgsql-tls.yaml' )
             ;;
         kafka)
-            # Kafka container generates root owned ssl files
-            # the files are shared with EMQX (with a docker volume)
-            NEED_ROOT=yes
             FILES+=( '.ci/docker-compose-file/docker-compose-kafka.yaml' )
             ;;
         tdengine)
@@ -180,34 +177,13 @@ F_OPTIONS=""
 for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
-ORIG_UID_GID="$UID:$UID"
-if [[ "${NEED_ROOT:-}" == 'yes' ]]; then
-    export UID_GID='root:root'
-else
-    # Passing $UID to docker-compose to be used in erlang container
-    # as owner of the main process to avoid git repo permissions issue.
-    # Permissions issue happens because we are mounting local filesystem
-    # where files are owned by $UID to docker container where it's using
-    # root (UID=0) by default, and git is not happy about it.
-    export UID_GID="$ORIG_UID_GID"
-fi
 
-# /emqx is where the source dir is mounted to the Erlang container
-# in .ci/docker-compose-file/docker-compose.yaml
+export DOCKER_USER="$(id -u)"
+
 TTY=''
 if [[ -t 1 ]]; then
     TTY='-t'
 fi
-
-function restore_ownership {
-    if [[ -n ${EMQX_TEST_DO_NOT_RUN_SUDO+x} ]] || ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
-        docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx" >/dev/null 2>&1 || true
-    fi
-}
-
-restore_ownership
-trap restore_ownership EXIT
-
 
 if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
@@ -216,11 +192,10 @@ if [ "$STOP" = 'no' ]; then
     $DC $F_OPTIONS up -d --build --remove-orphans
 fi
 
-echo "Fixing file owners and permissions for $UID_GID"
-# rebar and hex cache directory need to be writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $UID_GID /.cache && chown -R $UID_GID /emqx/.git /emqx/.ci /emqx/_build/default/lib"
-# need to initialize .erlang.cookie manually here because / is not writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID_GID /.erlang.cookie && chmod 0400 /.erlang.cookie"
+# rebar and hex cache directory need to be writable by $DOCKER_USER
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $DOCKER_USER /.cache"
+# need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
@@ -242,7 +217,6 @@ else
         docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "./rebar3 ct $REBAR3CT"
     fi
     RESULT=$?
-    restore_ownership
     if [ $RESULT -ne 0 ]; then
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
