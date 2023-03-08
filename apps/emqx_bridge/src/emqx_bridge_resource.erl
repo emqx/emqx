@@ -126,7 +126,24 @@ stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
 
 start(Type, Name) ->
-    emqx_resource:start(resource_id(Type, Name)).
+    try is_enabled_bridge(Type, Name) of
+        true ->
+            emqx_resource:start(resource_id(Type, Name));
+        false ->
+            {error, not_enabled}
+    catch
+        throw:not_found ->
+            {error, not_found}
+    end.
+
+is_enabled_bridge(Type, Name) ->
+    try emqx:get_config([bridges, Type, Name]) of
+        ConfMap ->
+            maps:get(enable, ConfMap, false)
+    catch
+        error:{config_not_found, _} ->
+            throw(not_found)
+    end.
 
 create(BridgeId, Conf) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
