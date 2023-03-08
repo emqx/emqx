@@ -101,8 +101,7 @@ on_start(InstanceId, Config) ->
     BootstrapHosts = emqx_bridge_impl_kafka:hosts(BootstrapHosts0),
     KafkaType = kafka_consumer,
     %% Note: this is distinct per node.
-    ClientID0 = emqx_bridge_impl_kafka:make_client_id(KafkaType, BridgeName),
-    ClientID = binary_to_atom(ClientID0),
+    ClientID = make_client_id(InstanceId, KafkaType, BridgeName),
     ClientOpts0 =
         case Auth of
             none -> [];
@@ -217,9 +216,9 @@ add_ssl_opts(ClientOpts, #{enable := false}) ->
 add_ssl_opts(ClientOpts, SSL) ->
     [{ssl, emqx_tls_lib:to_client_opts(SSL)} | ClientOpts].
 
--spec make_subscriber_id(atom()) -> emqx_ee_bridge_kafka_consumer_sup:child_id().
+-spec make_subscriber_id(atom() | binary()) -> emqx_ee_bridge_kafka_consumer_sup:child_id().
 make_subscriber_id(BridgeName) ->
-    BridgeNameBin = atom_to_binary(BridgeName),
+    BridgeNameBin = to_bin(BridgeName),
     <<"kafka_subscriber:", BridgeNameBin/binary>>.
 
 ensure_consumer_supervisor_started() ->
@@ -398,7 +397,32 @@ log_when_error(Fun, Log) ->
             })
     end.
 
--spec consumer_group_id(atom()) -> binary().
+-spec consumer_group_id(atom() | binary()) -> binary().
 consumer_group_id(BridgeName0) ->
-    BridgeName = atom_to_binary(BridgeName0),
+    BridgeName = to_bin(BridgeName0),
     <<"emqx-kafka-consumer:", BridgeName/binary>>.
+
+-spec is_dry_run(manager_id()) -> boolean().
+is_dry_run(InstanceId) ->
+    TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
+    case TestIdStart of
+        nomatch ->
+            false;
+        _ ->
+            string:equal(TestIdStart, InstanceId)
+    end.
+
+-spec make_client_id(manager_id(), kafka_consumer, atom() | binary()) -> atom().
+make_client_id(InstanceId, KafkaType, KafkaName) ->
+    case is_dry_run(InstanceId) of
+        false ->
+            ClientID0 = emqx_bridge_impl_kafka:make_client_id(KafkaType, KafkaName),
+            binary_to_atom(ClientID0);
+        true ->
+            %% It is a dry run and we don't want to leak too many
+            %% atoms.
+            probing_brod_consumers
+    end.
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
