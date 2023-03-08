@@ -50,10 +50,10 @@
 
 -define(NOT_FOUND(Reason), {404, error_msg('NOT_FOUND', Reason)}).
 
--define(BRIDGE_NOT_FOUND(Type, Name),
+-define(BRIDGE_NOT_FOUND(BridgeType, BridgeName),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", Name/binary, "' of type ",
-            (atom_to_binary(Type))/binary, " does not exist.">>
+        <<"Bridge lookup failed: bridge named '", BridgeName/binary, "' of type ",
+            (atom_to_binary(BridgeType))/binary, " does not exist.">>
     )
 ).
 
