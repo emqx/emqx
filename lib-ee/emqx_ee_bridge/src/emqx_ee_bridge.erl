@@ -15,7 +15,8 @@
 api_schemas(Method) ->
     [
         ref(emqx_ee_bridge_gcp_pubsub, Method),
-        ref(emqx_ee_bridge_kafka, Method),
+        ref(emqx_ee_bridge_kafka, Method ++ "_consumer"),
+        ref(emqx_ee_bridge_kafka, Method ++ "_producer"),
         ref(emqx_ee_bridge_mysql, Method),
         ref(emqx_ee_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
@@ -147,9 +148,9 @@ kafka_structs() ->
         {Type,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_kafka, Type)),
-                #{desc => <<"EMQX Enterprise Config">>, required => false}
+                #{desc => <<"Kafka ", Name/binary, " Bridge Config">>, required => false}
             )}
-     || Type <- [kafka_producer, kafka_consumer]
+     || {Type, Name} <- [{kafka_producer, <<"Producer">>}, {kafka_consumer, <<"Consumer">>}]
     ].
 
 influxdb_structs() ->
