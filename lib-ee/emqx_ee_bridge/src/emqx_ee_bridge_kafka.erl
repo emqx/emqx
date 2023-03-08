@@ -274,7 +274,9 @@ fields(consumer_kafka_opts) ->
             })},
         {max_rejoin_attempts,
             mk(non_neg_integer(), #{
-                default => 5, desc => ?DESC(consumer_max_rejoin_attempts)
+                hidden => true,
+                default => 5,
+                desc => ?DESC(consumer_max_rejoin_attempts)
             })},
         {offset_reset_policy,
             mk(
