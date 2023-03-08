@@ -119,5 +119,5 @@
 -define(AUTO_RESTART_INTERVAL, 60000).
 -define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
 
--define(TEST_ID_PREFIX, "_test_:").
+-define(TEST_ID_PREFIX, "_test-create-dry-run:").
 -define(RES_METRICS, resource_metrics).
