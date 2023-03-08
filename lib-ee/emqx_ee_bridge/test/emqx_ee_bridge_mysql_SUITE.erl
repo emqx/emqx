@@ -511,6 +511,17 @@ t_bad_sql_parameter(Config) ->
     end,
     ok.
 
+t_nasty_sql_string(Config) ->
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    Payload = list_to_binary(lists:seq(0, 255)),
+    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    Result = send_message(Config, Message),
+    ?assertEqual(ok, Result),
+    ?assertMatch(
+        {ok, [<<"payload">>], [[Payload]]},
+        connect_and_get_payload(Config)
+    ).
+
 t_workload_fits_prepared_statement_limit(Config) ->
     N = 50,
     ?assertMatch(

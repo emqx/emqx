@@ -510,3 +510,10 @@ t_bad_sql_parameter(Config) ->
             )
     end,
     ok.
+
+t_nasty_sql_string(Config) ->
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    Payload = list_to_binary(lists:seq(1, 127)),
+    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    ?assertEqual({ok, 1}, send_message(Config, Message)),
+    ?assertEqual(Payload, connect_and_get_payload(Config)).

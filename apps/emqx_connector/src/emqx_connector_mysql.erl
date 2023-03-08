@@ -391,8 +391,12 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
     end.
 
 on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->
-    SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, InsertPart, Tokens),
-    on_sql_query(InstId, query, SQL, no_params, default_timeout, State).
+    ValuesPart = lists:join($,, [
+        emqx_placeholder:proc_param_str(Tokens, Msg, fun emqx_placeholder:quote_mysql/1)
+     || {_, Msg} <- BatchReqs
+    ]),
+    Query = [InsertPart, <<" values ">> | ValuesPart],
+    on_sql_query(InstId, query, Query, no_params, default_timeout, State).
 
 on_sql_query(
     InstId,

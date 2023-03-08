@@ -172,8 +172,8 @@ detect_sql_type(SQL) ->
 ) -> InsertSQL :: binary().
 proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
     ValuesPart = erlang:iolist_to_binary(
-        lists:join(", ", [
-            emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg)
+        lists:join($,, [
+            proc_sql_param_str(Tokens, Msg)
          || {_, Msg} <- BatchReqs
         ])
     ),
