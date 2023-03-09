@@ -215,6 +215,9 @@ fi
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache /.hex /.mix && chown $DOCKER_USER /.cache /.hex /.mix"
 # need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
+# the user must exist inside the container for `whoami` to work
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "useradd --uid $DOCKER_USER -M -d / emqx" || true
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $DOCKER_USER /var/lib/secret" || true
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
@@ -236,7 +239,7 @@ else
         docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "./rebar3 ct $REBAR3CT"
     fi
     RESULT=$?
-    if [ $RESULT -ne 0 ]; then
+    if [ "$RESULT" -ne 0 ]; then
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
         # shellcheck disable=2086 # no quotes for F_OPTIONS
@@ -246,5 +249,5 @@ else
         # shellcheck disable=2086 # no quotes for F_OPTIONS
         $DC $F_OPTIONS down
     fi
-    exit $RESULT
+    exit "$RESULT"
 fi
