@@ -112,9 +112,10 @@ make_docs() {
             SCHEMA_MODULE='emqx_conf_schema'
             ;;
     esac
+    mkdir -p _build/docgen
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
-        "Dir = filename:join([apps, emqx_dashboard, priv, www, static]), \
+        "Dir = filename:join(['_build', docgen]), \
          I18nFile = filename:join([apps, emqx_dashboard, priv, 'i18n.conf']), \
          ok = emqx_conf:dump_schema(Dir, $SCHEMA_MODULE, I18nFile), \
          halt(0)."
