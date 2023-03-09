@@ -30,13 +30,18 @@
     host_opts/0
 ]).
 
+-export([kafka_producer_converter/2]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"kafka_producer">> => #{
+            %% TODO: rename this to `kafka_producer' after alias
+            %% support is added to hocon; keeping this as just `kafka'
+            %% for backwards compatibility.
+            <<"kafka">> => #{
                 summary => <<"Kafka Producer Bridge">>,
                 value => values(Method)
             }
@@ -171,7 +176,7 @@ fields(producer_opts) ->
         %% Note: there's an implicit convention in `emqx_bridge' that,
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
-        {local_topic, mk(binary(), #{desc => ?DESC(mqtt_topic)})},
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
         {kafka,
             mk(ref(producer_kafka_opts), #{
                 required => true,
@@ -332,10 +337,33 @@ struct_names() ->
 %% internal
 type_field() ->
     {type,
-        mk(enum([kafka_consumer, kafka_producer]), #{required => true, desc => ?DESC("desc_type")})}.
+        %% TODO: rename `kafka' to `kafka_producer' after alias
+        %% support is added to hocon; keeping this as just `kafka' for
+        %% backwards compatibility.
+        mk(enum([kafka_consumer, kafka]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
 ref(Name) ->
     hoconsc:ref(?MODULE, Name).
+
+kafka_producer_converter(undefined, _HoconOpts) ->
+    undefined;
+kafka_producer_converter(
+    #{<<"producer">> := OldOpts0, <<"bootstrap_hosts">> := _} = Config0, _HoconOpts
+) ->
+    %% old schema
+    MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
+    LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
+    KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
+    Config = maps:without([<<"producer">>], Config0),
+    case LocalTopic =:= undefined of
+        true ->
+            Config#{<<"kafka">> => KafkaOpts};
+        false ->
+            Config#{<<"kafka">> => KafkaOpts, <<"local_topic">> => LocalTopic}
+    end;
+kafka_producer_converter(Config, _HoconOpts) ->
+    %% new schema
+    Config.

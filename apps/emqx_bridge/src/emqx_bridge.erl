@@ -55,7 +55,10 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
-    T == kafka_producer;
+    %% TODO: rename this to `kafka_producer' after alias support is
+    %% added to hocon; keeping this as just `kafka' for backwards
+    %% compatibility.
+    T == kafka;
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;

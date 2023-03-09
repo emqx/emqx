@@ -30,16 +30,15 @@
 -include_lib("emqx/include/emqx.hrl").
 -include("emqx_dashboard.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
 -define(HOST, "http://127.0.0.1:18083").
 
 %% -define(API_VERSION, "v5").
 
 -define(BASE_PATH, "/api/v5").
 
--define(APP_DASHBOARD, emqx_dashboard).
--define(APP_MANAGEMENT, emqx_management).
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+-define(BRIDGE_TYPE, "kafka").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -233,7 +232,7 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
     ok.
 
 kafka_bridge_rest_api_helper(Config) ->
-    BridgeType = "kafka_producer",
+    BridgeType = ?BRIDGE_TYPE,
     BridgeName = "my_kafka_bridge",
     BridgeID = emqx_bridge_resource:bridge_id(
         erlang:list_to_binary(BridgeType),
@@ -244,6 +243,7 @@ kafka_bridge_rest_api_helper(Config) ->
         erlang:list_to_binary(BridgeName)
     ),
     UrlEscColon = "%3A",
+    BridgesProbeParts = ["bridges_probe"],
     BridgeIdUrlEnc = BridgeType ++ UrlEscColon ++ BridgeName,
     BridgesParts = ["bridges"],
     BridgesPartsIdDeleteAlsoActions = ["bridges", BridgeIdUrlEnc ++ "?also_delete_dep_actions"],
@@ -277,7 +277,7 @@ kafka_bridge_rest_api_helper(Config) ->
     %% Create new Kafka bridge
     KafkaTopic = "test-topic-one-partition",
     CreateBodyTmp = #{
-        <<"type">> => <<"kafka_producer">>,
+        <<"type">> => <<?BRIDGE_TYPE>>,
         <<"name">> => <<"my_kafka_bridge">>,
         <<"bootstrap_hosts">> => iolist_to_binary(maps:get(<<"bootstrap_hosts">>, Config)),
         <<"enable">> => true,
@@ -300,6 +300,13 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, 201, _Data} = show(http_post(BridgesParts, show(CreateBody))),
     %% Check that the new bridge is in the list of bridges
     true = MyKafkaBridgeExists(),
+    %% Probe should work
+    {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
+    %% no extra atoms should be created when probing
+    AtomsBefore = erlang:system_info(atom_count),
+    {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
+    AtomsAfter = erlang:system_info(atom_count),
+    ?assertEqual(AtomsBefore, AtomsAfter),
     %% Create a rule that uses the bridge
     {ok, 201, _Rule} = http_post(
         ["rules"],
@@ -377,10 +384,10 @@ t_failed_creation_then_fix(Config) ->
     ValidAuthSettings = valid_sasl_plain_settings(),
     WrongAuthSettings = ValidAuthSettings#{"password" := "wrong"},
     Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
-    Type = kafka_producer,
+    Type = ?BRIDGE_TYPE,
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-    ResourceId = emqx_bridge_resource:resource_id("kafka_producer", Name),
-    BridgeId = emqx_bridge_resource:bridge_id("kafka_producer", Name),
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     KafkaTopic = "test-topic-one-partition",
     WrongConf = config(#{
         "authentication" => WrongAuthSettings,
@@ -511,7 +518,7 @@ publish_helper(
         end,
     Hash = erlang:phash2([HostsString, AuthSettings, SSLSettings]),
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-    Type = "kafka_producer",
+    Type = ?BRIDGE_TYPE,
     InstId = emqx_bridge_resource:resource_id(Type, Name),
     KafkaTopic = "test-topic-one-partition",
     Conf = config(
@@ -526,7 +533,7 @@ publish_helper(
         Conf0
     ),
     {ok, _} = emqx_bridge:create(
-        <<"kafka_producer">>, list_to_binary(Name), Conf
+        <<?BRIDGE_TYPE>>, list_to_binary(Name), Conf
     ),
     Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
@@ -600,8 +607,11 @@ hocon_config(Args) ->
 
 %% erlfmt-ignore
 hocon_config_template() ->
+%% TODO: rename the type to `kafka_producer' after alias support is
+%% added to hocon; keeping this as just `kafka' for backwards
+%% compatibility.
 """
-bridges.kafka_producer.{{ bridge_name }} {
+bridges.kafka.{{ bridge_name }} {
   bootstrap_hosts = \"{{ kafka_hosts_string }}\"
   enable = true
   authentication = {{{ authentication }}}

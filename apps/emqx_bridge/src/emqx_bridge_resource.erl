@@ -309,7 +309,9 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% receives a message from the external database.
     BId = bridge_id(Type, Name),
     Conf#{hookpoint => <<"$bridges/", BId/binary>>, bridge_name => Name};
-parse_confs(<<"kafka_producer">> = _Type, Name, Conf) ->
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+parse_confs(<<"kafka">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.

@@ -22,6 +22,10 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+-define(BRIDGE_TYPE, kafka).
+
 callback_mode() -> async_if_possible.
 
 %% @doc Config schema is defined in emqx_ee_bridge_kafka.
@@ -37,12 +41,11 @@ on_start(InstId, Config) ->
         socket_opts := SocketOpts,
         ssl := SSL
     } = Config,
-    BridgeType = kafka_consumer,
+    BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
     Hosts = emqx_bridge_impl_kafka:hosts(Hosts0),
-    KafkaType = kafka_producer,
-    ClientId = emqx_bridge_impl_kafka:make_client_id(KafkaType, BridgeName),
+    ClientId = emqx_bridge_impl_kafka:make_client_id(BridgeType, BridgeName),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
         connect_timeout => ConnTimeout,
@@ -315,7 +318,7 @@ producers_config(BridgeName, ClientId, Input, IsDryRun) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
-    BridgeType = kafka_producer,
+    BridgeType = ?BRIDGE_TYPE,
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
         name => make_producer_name(BridgeName, IsDryRun),
