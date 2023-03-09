@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 ## cut a new 5.x release for EMQX (opensource or enterprise).
-set -x
 
 set -euo pipefail
 
@@ -247,8 +246,9 @@ generate_changelog () {
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    git add changes/"${TAG}".*.md
-    [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
+    ## allow no diff in changelogs
+    git add changes/"${TAG}".*.md >/dev/null 2>&1 || true
+    [ -n "$(git status -s)" ] && git commit -m "docs: Generate changelog for ${TAG}"
 }
 
 if [ "$DRYRUN" = 'yes' ]; then
