@@ -211,8 +211,8 @@ if [ "$STOP" = 'no' ]; then
     set -e
 fi
 
-# rebar and hex cache directory need to be writable by $DOCKER_USER
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $DOCKER_USER /.cache"
+# rebar, mix and hex cache directory need to be writable by $DOCKER_USER
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache /.hex /.mix && chown $DOCKER_USER /.cache /.hex /.mix"
 # need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
 
