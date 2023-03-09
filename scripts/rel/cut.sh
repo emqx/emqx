@@ -246,9 +246,12 @@ generate_changelog () {
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    ## allow no diff in changelogs
-    git add changes/"${TAG}".*.md >/dev/null 2>&1 || true
-    [ -n "$(git status -s)" ] && git commit -m "docs: Generate changelog for ${TAG}"
+    if [ -n "$(git diff --stat)" ]; then
+        git add changes/"${TAG}".*.md
+        git commit -m "docs: Generate changelog for ${TAG}"
+    else
+        logmsg "No changelog update."
+    fi
 }
 
 if [ "$DRYRUN" = 'yes' ]; then
