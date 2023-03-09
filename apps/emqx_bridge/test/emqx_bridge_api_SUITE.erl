@@ -58,6 +58,14 @@
     }
 }).
 
+-define(FORBIDDEN_OPERATION,
+    <<"{\"code\":\"BAD_REQUEST\",\"message\":\"Forbidden operation, bridge not enabled\"}">>
+).
+
+-define(NOT_FOUND_INVALID_OPERATION(OP),
+    <<"{\"code\":\"NOT_FOUND\",\"message\":\"Invalid operation: ", OP/binary, "\"}">>
+).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -602,10 +610,34 @@ t_enable_disable_bridges(Config) ->
     %% disable it again
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
 
-    {ok, 400, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
+    %% do operations on cluster/node when bridge is disabled
+    SupportedOperations = [start, stop, restart],
+    _ = lists:foreach(
+        fun(Operation) ->
+            {ok, 400, ClusterRes} = request(
+                post, operation_path(cluster, Operation, BridgeID), <<"">>
+            ),
+            ?assertEqual(ClusterRes, ?FORBIDDEN_OPERATION)
+        end,
+        SupportedOperations
+    ),
+
+    _ = lists:foreach(
+        fun(Operation) ->
+            {ok, 400, NodeRes} = request(post, operation_path(node, Operation, BridgeID), <<"">>),
+            ?assertEqual(NodeRes, ?FORBIDDEN_OPERATION)
+        end,
+        SupportedOperations
+    ),
+
     ?assertEqual(
-        <<"{\"code\":\"BAD_REQUEST\",\"message\":\"Forbidden operation, bridge not enabled\"}">>,
-        Res
+        request(post, operation_path(cluster, invalid_op, BridgeID), <<"">>),
+        {ok, 404, ?NOT_FOUND_INVALID_OPERATION(<<"invalid_op">>)}
+    ),
+
+    ?assertEqual(
+        request(post, operation_path(node, invalid_op, BridgeID), <<"">>),
+        {ok, 404, ?NOT_FOUND_INVALID_OPERATION(<<"invalid_op">>)}
     ),
 
     %% enable a stopped bridge
