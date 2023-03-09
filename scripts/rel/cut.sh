@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 ## cut a new 5.x release for EMQX (opensource or enterprise).
+set -x
 
 set -euo pipefail
 
