@@ -361,7 +361,7 @@ schema("/bridges/:id") ->
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Can not delete bridge while active rules defined for this bridge"
+                    "Cannot delete bridge while active rules are defined for this bridge"
                 ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -533,7 +533,7 @@ schema("/bridges_probe") ->
                         204;
                     {error, {rules_deps_on_this_bridge, RuleIds}} ->
                         ?BAD_REQUEST(
-                            {<<"Can not delete bridge while active rules defined for this bridge">>,
+                            {<<"Cannot delete bridge while active rules are defined for this bridge">>,
                                 RuleIds}
                         );
                     {error, timeout} ->
