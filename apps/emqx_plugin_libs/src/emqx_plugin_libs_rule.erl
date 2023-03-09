@@ -68,11 +68,6 @@
 
 -compile({no_auto_import, [float/1]}).
 
--define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
-
-%% Space and CRLF
--define(EX_WITHE_CHARS, "\\s").
-
 -type uri_string() :: iodata().
 
 -type tmpl_token() :: list({var, binary()} | {str, binary()}).
