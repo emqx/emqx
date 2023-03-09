@@ -185,11 +185,25 @@ if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
+# ensure directory with secrets is created by current user before running compose
+mkdir -p /tmp/emqx-ci/emqx-shared-secret
+
 if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
+    set +e
     # shellcheck disable=2086 # no quotes for F_OPTIONS
     $DC $F_OPTIONS up -d --build --remove-orphans
+    RESULT=$?
+    if [ $RESULT -ne 0 ]; then
+        mkdir -p _build/test/logs
+        LOG='_build/test/logs/docker-compose.log'
+        echo "Dumping docker-compose log to $LOG"
+        # shellcheck disable=2086 # no quotes for F_OPTIONS
+        $DC $F_OPTIONS logs --no-color --timestamps > "$LOG"
+        exit 1
+    fi
+    set -e
 fi
 
 # rebar and hex cache directory need to be writable by $DOCKER_USER
