@@ -453,7 +453,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                     'BAD_REQUEST',
                     "Problem with configuration of external service or bridge not enabled"
                 ),
-                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
+                404 => error_schema('NOT_FOUND', "Bridge or node not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -968,6 +968,8 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
                 )};
         {error, not_found} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+        {error, {node_not_found, Node}} ->
+            ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
             ?BAD_REQUEST(to_hr_reason(Reason))
     end.
@@ -984,7 +986,12 @@ do_bpapi_call(all, Call, Args) ->
         do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
     );
 do_bpapi_call(Node, Call, Args) ->
-    do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args).
+    case lists:member(Node, mria:running_nodes()) of
+        true ->
+            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args);
+        false ->
+            {error, {node_not_found, Node}}
+    end.
 
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
     case lists:member(SupportedVersion, supported_versions(Call)) of

@@ -486,6 +486,18 @@ t_old_bpapi_vsn(Config) ->
     ok.
 
 t_start_stop_bridges_node(Config) ->
+    {ok, 404, _} =
+        request(
+            post,
+            uri(["nodes", "thisbetterbenotanatomyet", "bridges", "webhook:foo", start]),
+            <<"">>
+        ),
+    {ok, 404, _} =
+        request(
+            post,
+            uri(["nodes", "undefined", "bridges", "webhook:foo", start]),
+            <<"">>
+        ),
     do_start_stop_bridges(node, Config).
 
 t_start_stop_bridges_cluster(Config) ->
