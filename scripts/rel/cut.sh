@@ -236,11 +236,7 @@ fi
 generate_changelog () {
     local from_tag="${PREV_TAG:-}"
     if [[ -z $from_tag ]]; then
-        if [ $PROFILE == "emqx" ]; then
-            from_tag="$(git describe --tags --abbrev=0 --match 'v*')"
-        else
-            from_tag="$(git describe --tags --abbrev=0 --match 'e*')"
-        fi
+        from_tag="$(./scripts/find-prev-rel-tag.sh "$PROFILE")"
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
