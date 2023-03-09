@@ -163,7 +163,7 @@ for dep in ${CT_DEPS}; do
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
-            ;; 
+            ;;
         clickhouse)
             FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
             ;;
@@ -183,7 +183,8 @@ for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
 
-export DOCKER_USER="$(id -u)"
+DOCKER_USER="$(id -u)"
+export DOCKER_USER
 
 TTY=''
 if [[ -t 1 ]]; then
