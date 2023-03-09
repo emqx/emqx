@@ -104,11 +104,11 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([stop, restart]),
+            enum([start, stop, restart]),
             #{
                 in => path,
                 required => true,
-                example => <<"restart">>,
+                example => <<"start">>,
                 desc => ?DESC("desc_param_path_operation_cluster")
             }
         )}.
@@ -116,11 +116,11 @@ param_path_operation_cluster() ->
 param_path_operation_on_node() ->
     {operation,
         mk(
-            enum([stop, restart]),
+            enum([start, stop, restart]),
             #{
                 in => path,
                 required => true,
-                example => <<"stop">>,
+                example => <<"start">>,
                 desc => ?DESC("desc_param_path_operation_on_node")
             }
         )}.
