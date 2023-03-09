@@ -373,9 +373,11 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "certs")
     )
 
+    profile = System.get_env("MIX_ENV")
+
     Mix.Generator.copy_file(
-      "apps/emqx_dashboard/etc/emqx.conf.en.example",
-      Path.join(etc, "emqx-example.conf"),
+      "_build/docgen/#{profile}/emqx.conf.en.example",
+      Path.join(etc, "emqx.conf.example"),
       force: overwrite?
     )
 
