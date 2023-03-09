@@ -558,7 +558,8 @@ schema("/bridges_probe") ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
-            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
+            Params1 = maybe_deobfuscate_bridge_probe(Params),
+            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     {204};
                 {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
@@ -567,6 +568,18 @@ schema("/bridges_probe") ->
         BadRequest ->
             BadRequest
     end.
+
+maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
+    case emqx_bridge:lookup(BridgeType, BridgeName) of
+        {ok, _} ->
+            RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+            deobfuscate(Params, RawConf);
+        _ ->
+            %% A bridge may be probed before it's created, so not finding it here is fine
+            Params
+    end;
+maybe_deobfuscate_bridge_probe(Params) ->
+    Params.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     FormatFun = fun format_bridge_info_without_metrics/1,

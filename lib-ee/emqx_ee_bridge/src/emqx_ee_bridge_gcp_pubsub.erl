@@ -84,6 +84,7 @@ fields(bridge_config) ->
                 emqx_schema:duration_ms(),
                 #{
                     required => false,
+                    deprecated => {since, "e5.0.1"},
                     default => <<"15s">>,
                     desc => ?DESC("request_timeout")
                 }

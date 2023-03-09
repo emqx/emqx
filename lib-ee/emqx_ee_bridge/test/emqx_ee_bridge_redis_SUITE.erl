@@ -540,7 +540,9 @@ resource_configs() ->
             <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
-            <<"start_timeout">> => <<"15s">>
+            <<"start_timeout">> => <<"15s">>,
+            <<"batch_time">> => <<"4s">>,
+            <<"request_timeout">> => <<"30s">>
         }
     }.
 

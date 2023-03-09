@@ -113,6 +113,32 @@ t_kill_exit(_) ->
     ?assertNotEqual(Estatsd, Estatsd1),
     ok.
 
+t_config_update(_) ->
+    OldRawConf = emqx_conf:get_raw([statsd]),
+    {ok, _} = emqx_statsd_config:update(OldRawConf#{<<"enable">> => true}),
+    CommonKeys = [flush_time_interval, sample_time_interval],
+    OldConf = emqx_conf:get([statsd]),
+    OldStatsDState = sys:get_state(emqx_statsd),
+    OldPid = erlang:whereis(emqx_statsd),
+    ?assertEqual(maps:with(CommonKeys, OldConf), maps:with(CommonKeys, OldStatsDState)),
+    NewRawConfExpect = OldRawConf#{
+        <<"flush_time_interval">> := <<"42s">>,
+        <<"sample_time_interval">> := <<"42s">>
+    },
+    try
+        {ok, _} = emqx_statsd_config:update(NewRawConfExpect),
+        NewRawConf = emqx_conf:get_raw([statsd]),
+        NewConf = emqx_conf:get([statsd]),
+        NewStatsDState = sys:get_state(emqx_statsd),
+        NewPid = erlang:whereis(emqx_statsd),
+        ?assertNotEqual(OldRawConf, NewRawConf),
+        ?assertEqual(NewRawConfExpect, NewRawConf),
+        ?assertEqual(maps:with(CommonKeys, NewConf), maps:with(CommonKeys, NewStatsDState)),
+        ?assertNotEqual(OldPid, NewPid)
+    after
+        {ok, _} = emqx_statsd_config:update(OldRawConf)
+    end.
+
 request(Method) -> request(Method, []).
 
 request(Method, Body) ->

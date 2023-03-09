@@ -282,7 +282,6 @@ gcp_pubsub_config(Config) ->
             "bridges.gcp_pubsub.~s {\n"
             "  enable = true\n"
             "  connect_timeout = 1s\n"
-            "  request_timeout = 1s\n"
             "  service_account_json = ~s\n"
             "  payload_template = ~p\n"
             "  pubsub_topic = ~s\n"
