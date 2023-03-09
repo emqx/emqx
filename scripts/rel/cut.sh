@@ -4,9 +4,7 @@
 
 set -euo pipefail
 
-if [ "${DEBUG:-}" = 1 ]; then
-    set -x
-fi
+[ "${DEBUG:-}" = 1 ] && set -x
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
