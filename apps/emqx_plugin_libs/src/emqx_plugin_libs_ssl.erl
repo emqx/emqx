@@ -18,6 +18,7 @@
 
 -export([save_files_return_opts/2,
          save_files_return_opts/3,
+         save_files_return_opts/4,
          save_file/2
         ]).
 
@@ -42,11 +43,18 @@
 -type opt_key() :: keyfile | certfile | cacertfile | verify | versions | ciphers.
 -type opt_value() :: term().
 -type opts() :: [{opt_key(), opt_value()}].
+-type dirname() :: atom() | string() | binary().
 
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
--spec save_files_return_opts(opts_input(), atom() | string() | binary(),
+-spec save_files_return_opts(opts_input(), dirname(),
+                             string() | binary(), dirname()) -> opts().
+save_files_return_opts(Options, SubDir, ResId, ResSubdir) ->
+    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId, ResSubdir]),
+    save_files_return_opts(Options, Dir).
+
+-spec save_files_return_opts(opts_input(), dirname(),
                              string() | binary()) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),

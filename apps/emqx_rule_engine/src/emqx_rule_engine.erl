@@ -493,13 +493,16 @@ delete_resource(ResId) ->
                 case emqx_rule_registry:remove_resource(ResId) of
                     ok ->
                         _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId, ResType]),
-                        ok;
+                        emqx_plugin_libs_ssl:maybe_delete_dir("rules", ResId);
                     {error, _} = R -> R
                 end
             catch
                 throw:Reason -> {error, Reason}
             end;
         not_found ->
+            %% always try to remove the dir as the resource might be created but have
+            %% not been initialized yet.
+            emqx_plugin_libs_ssl:maybe_delete_dir("rules", ResId),
             {error, not_found}
     end.
 
@@ -712,7 +715,9 @@ action_instance_id(ActionName) ->
     iolist_to_binary([atom_to_list(ActionName), "_", integer_to_list(erlang:system_time())]).
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    Params = ?RAISE(Module:OnCreate(ResId, Config), {Module, OnCreate}),
+    Params = ?RAISE(Module:OnCreate(ResId, Config),
+                    emqx_plugin_libs_ssl:maybe_delete_dir("rules", ResId),
+                    {Module, OnCreate}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,
                                  status = #{is_alive => true}},

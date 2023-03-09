@@ -156,7 +156,10 @@ get_description() ->
     case os:getenv("EMQX_DESCRIPTION") of
         false -> Descr0;
         "" -> Descr0;
-        Str -> string:strip(Str, both, $\n)
+        Str ->
+            %% We replace the "EMQ X" to "EMQX" incase the description has been
+            %% loaded to the OS Envs and cannot be changed without reboot.
+            replace_emq_x_to_emqx(string:strip(Str, both, $\n))
     end.
 
 get_release() ->
@@ -183,3 +186,6 @@ start_autocluster() ->
     ekka:callback(reboot,  fun emqx:reboot/0),
     _ = ekka:autocluster(?APP), %% returns 'ok' or a pid or 'any()' as in spec
     ok.
+
+replace_emq_x_to_emqx(Str) ->
+    re:replace(Str, "\\bEMQ X\\b", "EMQX", [{return,list}]).
