@@ -21,11 +21,16 @@ help() {
     echo "                        otherwise it runs the entire app's CT"
 }
 
-if command -v docker-compose; then
+set +e
+if docker compose version; then
+    DC='docker compose'
+elif command -v docker-compose; then
     DC='docker-compose'
 else
-    DC='docker compose'
+    echo 'Neither "docker compose" or "docker-compose" are available, stop.'
+    exit 1
 fi
+set -e
 
 WHICH_APP='novalue'
 CONSOLE='no'
