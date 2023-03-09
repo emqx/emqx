@@ -478,17 +478,13 @@ schema("/bridges_probe") ->
     }.
 
 '/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
-    Conf = filter_out_request_body(Conf0),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
         {error, not_found} ->
-            case emqx_bridge:create(BridgeType, BridgeName, Conf) of
-                {ok, _} ->
-                    lookup_from_all_nodes(BridgeType, BridgeName, 201);
-                {error, Reason} ->
-                    ?BAD_REQUEST(Reason)
-            end
+            Conf = filter_out_request_body(Conf0),
+            {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
+            lookup_from_all_nodes(BridgeType, BridgeName, 201)
     end;
 '/bridges'(get, _Params) ->
     {200,
@@ -507,12 +503,8 @@ schema("/bridges_probe") ->
             {ok, _} ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
-                case emqx_bridge:create(BridgeType, BridgeName, Conf) of
-                    {ok, _} ->
-                        lookup_from_all_nodes(BridgeType, BridgeName, 200);
-                    {error, Reason} ->
-                        ?BAD_REQUEST(Reason)
-                end;
+                {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
+                lookup_from_all_nodes(BridgeType, BridgeName, 200);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
