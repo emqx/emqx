@@ -304,7 +304,7 @@ make_docker() {
 
 ## This function accepts any base docker image,
 ## a emqx zip-image, and a image tag (for the image to be built),
-## to build a docker image which runs EMQ X
+## to build a docker image which runs EMQX
 ##
 ## Export below variables to quickly build an image
 ##

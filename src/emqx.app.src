@@ -1,6 +1,6 @@
 {application, emqx,
  [{id, "emqx"},
-  {description, "EMQ X"},
+  {description, "EMQX"},
   %% Note: this version is not the same as the release version!  This
   %% is simply the emqx `application' version, which is separate from
   %% the emqx `release' version, which in turn is comprised of several
@@ -21,7 +21,7 @@
   {mod, {emqx_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx"}
           ]}
