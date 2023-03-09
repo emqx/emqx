@@ -196,6 +196,9 @@ t_http_crud_apis(Config) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
+    {ok, 404, _} = request(get, uri(["bridges", "foo"]), []),
+    {ok, 404, _} = request(get, uri(["bridges", "webhook:foo"]), []),
+
     %% then we add a webhook bridge, using POST
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
@@ -317,6 +320,17 @@ t_http_crud_apis(Config) ->
         },
         emqx_json:decode(ErrMsg2, [return_maps])
     ),
+
+    %% try delete bad bridge id
+    {ok, 404, BadId} = request(delete, uri(["bridges", "foo"]), []),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"NOT_FOUND">>,
+            <<"message">> := <<"Invalid bridge ID", _/binary>>
+        },
+        emqx_json:decode(BadId, [return_maps])
+    ),
+
     %% Deleting a non-existing bridge should result in an error
     {ok, 404, ErrMsg3} = request(delete, uri(["bridges", BridgeID]), []),
     ?assertMatch(
@@ -403,13 +417,16 @@ t_check_dependent_actions_on_delete(Config) ->
         }
     ),
     #{<<"id">> := RuleId} = emqx_json:decode(Rule, [return_maps]),
-    %% delete the bridge should fail because there is a rule depenents on it
-    {ok, 400, _} = request(delete, uri(["bridges", BridgeID]), []),
+    %% deleting the bridge should fail because there is a rule that depends on it
+    {ok, 400, _} = request(
+        delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions=false", []
+    ),
     %% delete the rule first
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     %% then delete the bridge is OK
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
     ok.
 
 t_cascade_delete_actions(Config) ->
@@ -439,7 +456,9 @@ t_cascade_delete_actions(Config) ->
     ),
     #{<<"id">> := RuleId} = emqx_json:decode(Rule, [return_maps]),
     %% delete the bridge will also delete the actions from the rules
-    {ok, 204, _} = request(delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions", []),
+    {ok, 204, _} = request(
+        delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions=true", []
+    ),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
     ?assertMatch(
@@ -449,6 +468,25 @@ t_cascade_delete_actions(Config) ->
         emqx_json:decode(Rule1, [return_maps])
     ),
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    {ok, 201, _} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        }
+    ),
+
+    {ok, 204, _} = request(delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions", []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
 
 t_broken_bpapi_vsn(Config) ->
@@ -547,6 +585,9 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 204, <<>>} = request(post, operation_path(Type, restart, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{<<"status">> := <<"connected">>}, emqx_json:decode(Bridge4, [return_maps])),
+
+    {ok, 404, _} = request(post, operation_path(Type, invalidop, BridgeID), <<"">>),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
@@ -618,6 +659,11 @@ t_enable_disable_bridges(Config) ->
     ?assertMatch(#{<<"status">> := <<"connected">>}, emqx_json:decode(Bridge3, [return_maps])),
     %% disable it again
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
+
+    %% bad param
+    {ok, 404, _} = request(put, enable_path(foo, BridgeID), <<"">>),
+    {ok, 404, _} = request(put, enable_path(true, "foo"), <<"">>),
+    {ok, 404, _} = request(put, enable_path(true, "webhook:foo"), <<"">>),
 
     {ok, 400, Res} = request(post, operation_path(node, start, BridgeID), <<"">>),
     ?assertEqual(
