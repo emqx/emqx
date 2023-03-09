@@ -13,7 +13,6 @@ services:
     # see https://github.com/emqx/docker-images
     image:  ghcr.io/emqx/certgen:latest
     container_name: ssl_cert_gen
-    user: "${DOCKER_USER:-root}"
     volumes:
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
   kdc:
