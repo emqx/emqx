@@ -1,6 +1,6 @@
 {application, emqx_exproto,
  [{description, "EMQX Extension for Protocol"},
-  {vsn, "4.3.15"}, %% 4.3.3 is used by ee
+  {vsn, "4.3.16"}, %% 4.3.3 is used by ee
   {modules, []},
   {registered, []},
   {mod, {emqx_exproto_app, []}},

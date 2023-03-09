@@ -1,6 +1,6 @@
 {application, emqx_management,
  [{description, "EMQX Management API and CLI"},
-  {vsn, "4.4.13"}, % strict semver, bump manually!
+  {vsn, "4.4.14"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_management_sup]},
   {applications, [kernel,stdlib,emqx_plugin_libs,minirest]},

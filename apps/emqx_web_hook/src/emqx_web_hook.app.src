@@ -1,6 +1,6 @@
 {application, emqx_web_hook,
  [{description, "EMQX WebHook Plugin"},
-  {vsn, "4.3.17"}, % strict semver, bump manually!
+  {vsn, "4.3.18"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_web_hook_sup]},
   {applications, [kernel,stdlib,ehttpc]},
