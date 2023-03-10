@@ -3,6 +3,8 @@ set -euo pipefail
 shopt -s nullglob
 export LANG=C.UTF-8
 
+[ "${DEBUG:-}" = 1 ] && set -x
+
 logerr() {
     echo "$(tput setaf 1)ERROR: $1$(tput sgr0)" 1>&2
 }
@@ -89,7 +91,11 @@ format_one_pr() {
     fi
     indent="- [#${pr_num}](https://github.com/emqx/emqx/pull/${pr_num}) "
     while read -r line; do
-        echo "${indent}${line}"
+        if [ "${line}" != '' ]; then
+            echo "${indent}${line}"
+        else
+            echo ''
+        fi
         indent="  "
     done < "${filename}"
     echo
