@@ -40,6 +40,10 @@ test(#{sql := Sql, context := Context}) ->
                     test_rule(Sql, Select, Context, EventTopics)
             end;
         {error, Reason} ->
+            ?SLOG(debug, #{
+                msg => "rulesql_parse_error",
+                detail => Reason
+            }),
             {error, Reason}
     end.
 
