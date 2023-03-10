@@ -154,11 +154,7 @@ handle_info(
 ) ->
     case maps:get(URL, RefreshTimers, undefined) of
         TRef ->
-            ?tp(crl_refresh_timer, #{url => URL}),
-            ?SLOG(debug, #{
-                msg => "refreshing_crl_response",
-                url => URL
-            }),
+            ?tp(debug, crl_refresh_timer, #{url => URL}),
             case do_http_fetch_and_cache(URL, HTTPTimeoutMS) of
                 {error, Error} ->
                     ?SLOG(error, #{
