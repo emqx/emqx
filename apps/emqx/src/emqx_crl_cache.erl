@@ -51,6 +51,7 @@
 -else.
 -define(MIN_REFRESH_PERIOD, timer:minutes(1)).
 -endif.
+-define(DEFAULT_REFRESH_INTERVAL, timer:minutes(15)).
 
 -record(state, {
     refresh_timers = #{} :: #{binary() => timer:tref()},
@@ -138,49 +139,9 @@ handle_cast({refresh, URL}, State0) ->
             {noreply, ensure_timer(URL, State0)}
     end;
 handle_cast(refresh_config, State0) ->
-    #{
-        urls := URLs,
-        http_timeout := HTTPTimeoutMS,
-        refresh_interval := RefreshIntervalMS
-    } = gather_config(),
-    State = lists:foldl(
-        fun(URL, Acc) -> ensure_timer(URL, Acc, 0) end,
-        State0#state{
-            refresh_interval = RefreshIntervalMS,
-            http_timeout = HTTPTimeoutMS
-        },
-        URLs
-    ),
-    ?tp(crl_cache_refresh_config, #{
-        refresh_interval => RefreshIntervalMS,
-        http_timeout => HTTPTimeoutMS,
-        urls => URLs
-    }),
-    {noreply, State};
-handle_cast({refresh_config, Config}, State0) ->
-    case Config of
-        #{ssl_options := #{crl := #{cache_urls := URLs}}} ->
-            #{
-                http_timeout := HTTPTimeoutMS,
-                refresh_interval := RefreshIntervalMS
-            } = gather_config(),
-            State = lists:foldl(
-                fun(URL, Acc) -> ensure_timer(URL, Acc, 0) end,
-                State0#state{
-                    refresh_interval = RefreshIntervalMS,
-                    http_timeout = HTTPTimeoutMS
-                },
-                URLs
-            ),
-            ?tp(crl_cache_refresh_config, #{
-                refresh_interval => RefreshIntervalMS,
-                http_timeout => HTTPTimeoutMS,
-                urls => URLs
-            }),
-            {noreply, State};
-        _ ->
-            {noreply, State0}
-    end;
+    handle_refresh_config(_ReceivedConfig = undefined, State0);
+handle_cast({refresh_config, ReceivedConfig}, State0) ->
+    handle_refresh_config(ReceivedConfig, State0);
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -304,7 +265,9 @@ collect_urls(TLSListeners) ->
 gather_config() ->
     TLSListeners = emqx_config:get([listeners, ssl], #{}),
     URLs = collect_urls(TLSListeners),
-    RefreshIntervalMS0 = emqx_config:get([crl_cache, refresh_interval], timer:minutes(15)),
+    %% TODO: add a config handler to refresh the config when those
+    %% globals change?
+    RefreshIntervalMS0 = emqx_config:get([crl_cache, refresh_interval], ?DEFAULT_REFRESH_INTERVAL),
     MinimumRefreshInverval = ?MIN_REFRESH_PERIOD,
     RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
     HTTPTimeoutMS = emqx_config:get([crl_cache, http_timeout], ?HTTP_TIMEOUT),
@@ -313,6 +276,38 @@ gather_config() ->
         refresh_interval => RefreshIntervalMS,
         http_timeout => HTTPTimeoutMS
     }.
+
+handle_refresh_config(_ReceivedConfig = undefined, State0) ->
+    #{
+        urls := URLs,
+        http_timeout := HTTPTimeoutMS,
+        refresh_interval := RefreshIntervalMS
+    } = gather_config(),
+    do_handle_refresh_config(URLs, HTTPTimeoutMS, RefreshIntervalMS, State0);
+handle_refresh_config(_ReceivedConfig = #{ssl_options := #{crl := #{cache_urls := URLs}}}, State0) ->
+    #{
+        http_timeout := HTTPTimeoutMS,
+        refresh_interval := RefreshIntervalMS
+    } = gather_config(),
+    do_handle_refresh_config(URLs, HTTPTimeoutMS, RefreshIntervalMS, State0);
+handle_refresh_config(_ReceivedConfig, State0) ->
+    {noreply, State0}.
+
+do_handle_refresh_config(URLs, HTTPTimeoutMS, RefreshIntervalMS, State0) ->
+    State = lists:foldl(
+        fun(URL, Acc) -> ensure_timer(URL, Acc, 0) end,
+        State0#state{
+            refresh_interval = RefreshIntervalMS,
+            http_timeout = HTTPTimeoutMS
+        },
+        URLs
+    ),
+    ?tp(crl_cache_refresh_config, #{
+        refresh_interval => RefreshIntervalMS,
+        http_timeout => HTTPTimeoutMS,
+        urls => URLs
+    }),
+    {noreply, State}.
 
 to_string(B) when is_binary(B) ->
     binary_to_list(B);
