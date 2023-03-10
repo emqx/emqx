@@ -168,8 +168,8 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         L3 = get_tcp_listeners(Node2),
 
         Comment = #{
-            node1 => rpc:call(Node1, mria_mnesia, running_nodes, []),
-            node2 => rpc:call(Node2, mria_mnesia, running_nodes, [])
+            node1 => rpc:call(Node1, mria, running_nodes, []),
+            node2 => rpc:call(Node2, mria, running_nodes, [])
         },
 
         ?assert(length(L1) > length(L2), Comment),

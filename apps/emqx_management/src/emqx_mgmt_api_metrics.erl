@@ -59,7 +59,7 @@ metrics(get, #{query_string := Qs}) ->
                 maps:from_list(
                     emqx_mgmt:get_metrics(Node) ++ [{node, Node}]
                 )
-             || Node <- mria_mnesia:running_nodes()
+             || Node <- mria:running_nodes()
             ],
             {200, Data}
     end.

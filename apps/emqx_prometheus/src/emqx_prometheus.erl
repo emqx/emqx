@@ -599,7 +599,8 @@ emqx_cluster() ->
     ].
 
 emqx_cluster_data() ->
-    #{running_nodes := Running, stopped_nodes := Stopped} = mria_mnesia:cluster_info(),
+    Running = mria:cluster_nodes(running),
+    Stopped = mria:cluster_nodes(stopped),
     [
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}

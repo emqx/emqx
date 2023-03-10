@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_statsd, [
     {description, "EMQX Statsd"},
-    {vsn, "5.0.6"},
+    {vsn, "5.0.7"},
     {registered, []},
     {mod, {emqx_statsd_app, []}},
     {applications, [

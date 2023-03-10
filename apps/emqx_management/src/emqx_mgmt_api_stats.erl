@@ -129,7 +129,7 @@ list(get, #{query_string := Qs}) ->
         _ ->
             Data = [
                 maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}])
-             || Node <- mria_mnesia:running_nodes()
+             || Node <- mria:running_nodes()
             ],
             {200, Data}
     end.

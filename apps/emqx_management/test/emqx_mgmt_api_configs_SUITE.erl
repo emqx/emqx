@@ -212,7 +212,7 @@ t_dashboard(_Config) ->
 
 t_configs_node({'init', Config}) ->
     Node = node(),
-    meck:expect(mria_mnesia, running_nodes, fun() -> [Node, bad_node, other_node] end),
+    meck:expect(mria, running_nodes, fun() -> [Node, bad_node, other_node] end),
     meck:expect(
         emqx_management_proto_v2,
         get_full_config,
@@ -224,7 +224,7 @@ t_configs_node({'init', Config}) ->
     ),
     Config;
 t_configs_node({'end', _}) ->
-    meck:unload([mria_mnesia, emqx_management_proto_v2]);
+    meck:unload([mria, emqx_management_proto_v2]);
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 

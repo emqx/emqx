@@ -471,7 +471,7 @@ fill_server_hooks_info([], _Name, _Default, MetricsL) ->
 -spec call_cluster(fun(([node()]) -> emqx_rpc:erpc_multicall(A))) ->
     [{node(), A | {error, _Err}}].
 call_cluster(Fun) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     Ret = Fun(Nodes),
     lists:zip(Nodes, lists:map(fun emqx_rpc:unwrap_erpc/1, Ret)).
 

@@ -279,7 +279,7 @@ configs(get, Params, _Req) ->
     QS = maps:get(query_string, Params, #{}),
     Node = maps:get(<<"node">>, QS, node()),
     case
-        lists:member(Node, mria_mnesia:running_nodes()) andalso
+        lists:member(Node, mria:running_nodes()) andalso
             emqx_management_proto_v2:get_full_config(Node)
     of
         false ->
