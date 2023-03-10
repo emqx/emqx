@@ -263,26 +263,44 @@ fields(producer_buffer) ->
 fields(consumer_opts) ->
     [
         {kafka,
-            mk(ref(consumer_kafka_opts), #{required => true, desc => ?DESC(consumer_kafka_opts)})},
-        {mqtt, mk(ref(consumer_mqtt_opts), #{required => true, desc => ?DESC(consumer_mqtt_opts)})}
-    ];
-fields(consumer_mqtt_opts) ->
-    [
-        {topic,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(consumer_mqtt_topic)
-            })},
-        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
-        {payload,
+            mk(ref(consumer_kafka_opts), #{required => false, desc => ?DESC(consumer_kafka_opts)})},
+        {topic_mapping,
             mk(
-                enum([full_message, message_value]),
-                #{default => full_message, desc => ?DESC(consumer_mqtt_payload)}
+                hoconsc:array(ref(consumer_topic_mapping)),
+                #{
+                    required => true,
+                    desc => ?DESC(consumer_topic_mapping),
+                    validator =>
+                        fun
+                            ([]) ->
+                                {error, "There must be at least one Kafka-MQTT topic mapping"};
+                            ([_ | _]) ->
+                                ok
+                        end
+                }
+            )},
+        {key_encoding_mode,
+            mk(enum([force_utf8, base64]), #{
+                default => force_utf8, desc => ?DESC(consumer_encoding_mode)
+            })},
+        {value_encoding_mode,
+            mk(enum([force_utf8, base64]), #{
+                default => force_utf8, desc => ?DESC(consumer_encoding_mode)
+            })}
+    ];
+fields(consumer_topic_mapping) ->
+    [
+        {kafka_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_kafka_topic)})},
+        {mqtt_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_mqtt_topic)})},
+        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
+        {payload_template,
+            mk(
+                string(),
+                #{default => <<"${.}">>, desc => ?DESC(consumer_mqtt_payload)}
             )}
     ];
 fields(consumer_kafka_opts) ->
     [
-        {topic, mk(binary(), #{desc => ?DESC(consumer_kafka_topic)})},
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{
                 default => "896KB", desc => ?DESC(consumer_max_batch_bytes)
@@ -330,7 +348,7 @@ struct_names() ->
         producer_opts,
         consumer_opts,
         consumer_kafka_opts,
-        consumer_mqtt_opts
+        consumer_topic_mapping
     ].
 
 %% -------------------------------------------------------------------------------------------------

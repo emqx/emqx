@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -53,7 +54,8 @@ sasl_only_tests() ->
 only_once_tests() ->
     [
         t_bridge_rule_action_source,
-        t_cluster_group
+        t_cluster_group,
+        t_multiple_topic_mappings
     ].
 
 init_per_suite(Config) ->
@@ -284,6 +286,32 @@ init_per_testcase(TestCase, Config) when
 init_per_testcase(t_cluster_group = TestCase, Config0) ->
     Config = emqx_misc:merge_opts(Config0, [{num_partitions, 6}]),
     common_init_per_testcase(TestCase, Config);
+init_per_testcase(t_multiple_topic_mappings = TestCase, Config0) ->
+    KafkaTopicBase =
+        <<
+            (atom_to_binary(TestCase))/binary,
+            (integer_to_binary(erlang:unique_integer()))/binary
+        >>,
+    MQTTTopicBase =
+        <<"mqtt/", (atom_to_binary(TestCase))/binary,
+            (integer_to_binary(erlang:unique_integer()))/binary, "/">>,
+    TopicMapping =
+        [
+            #{
+                kafka_topic => <<KafkaTopicBase/binary, "-1">>,
+                mqtt_topic => <<MQTTTopicBase/binary, "1">>,
+                qos => 1,
+                payload_template => <<"${.}">>
+            },
+            #{
+                kafka_topic => <<KafkaTopicBase/binary, "-2">>,
+                mqtt_topic => <<MQTTTopicBase/binary, "2">>,
+                qos => 2,
+                payload_template => <<"v = ${.value}">>
+            }
+        ],
+    Config = [{topic_mapping, TopicMapping} | Config0],
+    common_init_per_testcase(TestCase, Config);
 init_per_testcase(TestCase, Config) ->
     common_init_per_testcase(TestCase, Config).
 
@@ -295,23 +323,35 @@ common_init_per_testcase(TestCase, Config0) ->
             (atom_to_binary(TestCase))/binary,
             (integer_to_binary(erlang:unique_integer()))/binary
         >>,
-    Config = [{kafka_topic, KafkaTopic} | Config0],
-    KafkaType = ?config(kafka_type, Config),
+    KafkaType = ?config(kafka_type, Config0),
+    UniqueNum = integer_to_binary(erlang:unique_integer()),
+    MQTTTopic = proplists:get_value(mqtt_topic, Config0, <<"mqtt/topic/", UniqueNum/binary>>),
+    MQTTQoS = proplists:get_value(mqtt_qos, Config0, 0),
+    DefaultTopicMapping = [
+        #{
+            kafka_topic => KafkaTopic,
+            mqtt_topic => MQTTTopic,
+            qos => MQTTQoS,
+            payload_template => <<"${.}">>
+        }
+    ],
+    TopicMapping = proplists:get_value(topic_mapping, Config0, DefaultTopicMapping),
+    Config = [
+        {kafka_topic, KafkaTopic},
+        {topic_mapping, TopicMapping}
+        | Config0
+    ],
     {Name, ConfigString, KafkaConfig} = kafka_config(
         TestCase, KafkaType, Config
     ),
-    ensure_topic(Config),
-    #{
-        producers := Producers,
-        clientid := KafkaProducerClientId
-    } = start_producer(TestCase, Config),
+    ensure_topics(Config),
+    ProducersConfigs = start_producers(TestCase, Config),
     ok = snabbkaffe:start_trace(),
     [
         {kafka_name, Name},
         {kafka_config_string, ConfigString},
         {kafka_config, KafkaConfig},
-        {kafka_producers, Producers},
-        {kafka_producer_clientid, KafkaProducerClientId}
+        {kafka_producers, ProducersConfigs}
         | Config
     ].
 
@@ -323,11 +363,17 @@ end_per_testcase(_Testcase, Config) ->
         false ->
             ProxyHost = ?config(proxy_host, Config),
             ProxyPort = ?config(proxy_port, Config),
-            Producers = ?config(kafka_producers, Config),
-            KafkaProducerClientId = ?config(kafka_producer_clientid, Config),
+            ProducersConfigs = ?config(kafka_producers, Config),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             delete_all_bridges(),
-            ok = wolff:stop_and_delete_supervised_producers(Producers),
+            #{clientid := KafkaProducerClientId, producers := ProducersMapping} =
+                ProducersConfigs,
+            lists:foreach(
+                fun(Producers) ->
+                    ok = wolff:stop_and_delete_supervised_producers(Producers)
+                end,
+                maps:values(ProducersMapping)
+            ),
             ok = wolff:stop_and_delete_supervised_client(KafkaProducerClientId),
             emqx_common_test_helpers:call_janitor(),
             ok = snabbkaffe:stop(),
@@ -338,8 +384,8 @@ end_per_testcase(_Testcase, Config) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-start_producer(TestCase, Config) ->
-    KafkaTopic = ?config(kafka_topic, Config),
+start_producers(TestCase, Config) ->
+    TopicMapping = ?config(topic_mapping, Config),
     KafkaClientId =
         <<"test-client-", (atom_to_binary(TestCase))/binary,
             (integer_to_binary(erlang:unique_integer()))/binary>>,
@@ -381,9 +427,27 @@ start_producer(TestCase, Config) ->
         ssl => SSL
     },
     {ok, Clients} = wolff:ensure_supervised_client(KafkaClientId, Hosts, ClientConfig),
+    ProducersData0 =
+        #{
+            clients => Clients,
+            clientid => KafkaClientId,
+            producers => #{}
+        },
+    lists:foldl(
+        fun(#{kafka_topic := KafkaTopic}, #{producers := ProducersMapping0} = Acc) ->
+            Producers = do_start_producer(KafkaClientId, KafkaTopic),
+            ProducersMapping = ProducersMapping0#{KafkaTopic => Producers},
+            Acc#{producers := ProducersMapping}
+        end,
+        ProducersData0,
+        TopicMapping
+    ).
+
+do_start_producer(KafkaClientId, KafkaTopic) ->
+    Name = binary_to_atom(<<KafkaTopic/binary, "_test_producer">>),
     ProducerConfig =
         #{
-            name => test_producer,
+            name => Name,
             partitioner => roundrobin,
             partition_count_refresh_interval_seconds => 1_000,
             replayq_max_total_bytes => 10_000,
@@ -396,14 +460,10 @@ start_producer(TestCase, Config) ->
             telemetry_meta_data => #{}
         },
     {ok, Producers} = wolff:ensure_supervised_producers(KafkaClientId, KafkaTopic, ProducerConfig),
-    #{
-        producers => Producers,
-        clients => Clients,
-        clientid => KafkaClientId
-    }.
+    Producers.
 
-ensure_topic(Config) ->
-    KafkaTopic = ?config(kafka_topic, Config),
+ensure_topics(Config) ->
+    TopicMapping = ?config(topic_mapping, Config),
     KafkaHost = ?config(kafka_host, Config),
     KafkaPort = ?config(kafka_port, Config),
     UseTLS = ?config(use_tls, Config),
@@ -418,6 +478,7 @@ ensure_topic(Config) ->
             assignments => [],
             configs => []
         }
+     || #{kafka_topic := KafkaTopic} <- TopicMapping
     ],
     RequestConfig = #{timeout => 5_000},
     ConnConfig0 =
@@ -464,8 +525,16 @@ shared_secret(rig_keytab) ->
     filename:join([shared_secret_path(), "rig.keytab"]).
 
 publish(Config, Messages) ->
-    Producers = ?config(kafka_producers, Config),
-    ct:pal("publishing: ~p", [Messages]),
+    %% pick the first topic if not specified
+    #{producers := ProducersMapping} = ?config(kafka_producers, Config),
+    [{KafkaTopic, Producers} | _] = maps:to_list(ProducersMapping),
+    ct:pal("publishing to ~p:\n ~p", [KafkaTopic, Messages]),
+    {_Partition, _OffsetReply} = wolff:send_sync(Producers, Messages, 10_000).
+
+publish(Config, KafkaTopic, Messages) ->
+    #{producers := ProducersMapping} = ?config(kafka_producers, Config),
+    #{KafkaTopic := Producers} = ProducersMapping,
+    ct:pal("publishing to ~p:\n ~p", [KafkaTopic, Messages]),
     {_Partition, _OffsetReply} = wolff:send_sync(Producers, Messages, 10_000).
 
 kafka_config(TestCase, _KafkaType, Config) ->
@@ -480,7 +549,16 @@ kafka_config(TestCase, _KafkaType, Config) ->
     >>,
     MQTTTopic = proplists:get_value(mqtt_topic, Config, <<"mqtt/topic/", UniqueNum/binary>>),
     MQTTQoS = proplists:get_value(mqtt_qos, Config, 0),
-    MQTTPayload = proplists:get_value(mqtt_payload, Config, full_message),
+    DefaultTopicMapping = [
+        #{
+            kafka_topic => KafkaTopic,
+            mqtt_topic => MQTTTopic,
+            qos => MQTTQoS,
+            payload_template => <<"${.}">>
+        }
+    ],
+    TopicMapping0 = proplists:get_value(topic_mapping, Config, DefaultTopicMapping),
+    TopicMappingStr = topic_mapping(TopicMapping0),
     ConfigString =
         io_lib:format(
             "bridges.kafka_consumer.~s {\n"
@@ -491,18 +569,15 @@ kafka_config(TestCase, _KafkaType, Config) ->
             "  metadata_request_timeout = 5s\n"
             "~s"
             "  kafka {\n"
-            "    topic = ~s\n"
             "    max_batch_bytes = 896KB\n"
             "    max_rejoin_attempts = 5\n"
             "    offset_commit_interval_seconds = 3\n"
             %% todo: matrix this
             "    offset_reset_policy = reset_to_latest\n"
             "  }\n"
-            "  mqtt {\n"
-            "    topic = \"~s\"\n"
-            "    qos = ~b\n"
-            "    payload = ~p\n"
-            "  }\n"
+            "~s"
+            "  key_encoding_mode = force_utf8\n"
+            "  value_encoding_mode = force_utf8\n"
             "  ssl {\n"
             "    enable = ~p\n"
             "    verify = verify_none\n"
@@ -514,14 +589,34 @@ kafka_config(TestCase, _KafkaType, Config) ->
                 KafkaHost,
                 KafkaPort,
                 authentication(AuthType),
-                KafkaTopic,
-                MQTTTopic,
-                MQTTQoS,
-                MQTTPayload,
+                TopicMappingStr,
                 UseTLS
             ]
         ),
     {Name, ConfigString, parse_and_check(ConfigString, Name)}.
+
+topic_mapping(TopicMapping0) ->
+    Template0 = <<
+        "{kafka_topic = \"{{ kafka_topic }}\","
+        " mqtt_topic = \"{{ mqtt_topic }}\","
+        " qos = {{ qos }},"
+        " payload_template = \"{{{ payload_template }}}\" }"
+    >>,
+    Template = bbmustache:parse_binary(Template0),
+    Entries =
+        lists:map(
+            fun(Params) ->
+                bbmustache:compile(Template, Params, [{key_type, atom}])
+            end,
+            TopicMapping0
+        ),
+    iolist_to_binary(
+        [
+            "  topic_mapping = [",
+            lists:join(<<",\n">>, Entries),
+            "]\n"
+        ]
+    ).
 
 authentication(Type) when
     Type =:= scram_sha_256;
@@ -577,6 +672,29 @@ delete_all_bridges() ->
         end,
         emqx_bridge:list()
     ).
+
+create_bridge_api(Config) ->
+    create_bridge_api(Config, _Overrides = #{}).
+
+create_bridge_api(Config, Overrides) ->
+    TypeBin = ?BRIDGE_TYPE_BIN,
+    Name = ?config(kafka_name, Config),
+    KafkaConfig0 = ?config(kafka_config, Config),
+    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("creating bridge (via http): ~p", [Params]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
+            {ok, {Status, Headers, Body0}} ->
+                {ok, {Status, Headers, emqx_json:decode(Body0, [return_maps])}};
+            Error ->
+                Error
+        end,
+    ct:pal("bridge create result: ~p", [Res]),
+    Res.
 
 update_bridge_api(Config) ->
     update_bridge_api(Config, _Overrides = #{}).
@@ -702,15 +820,24 @@ wait_until_subscribers_are_ready(N, Timeout) ->
 %% flaky about when they decide truly consuming the messages...
 %% `Period' should be greater than the `sleep_timeout' of the consumer
 %% (default 1 s).
-ping_until_healthy(_Config, _Period, Timeout) when Timeout =< 0 ->
-    ct:fail("kafka subscriber did not stabilize!");
 ping_until_healthy(Config, Period, Timeout) ->
+    #{producers := ProducersMapping} = ?config(kafka_producers, Config),
+    [KafkaTopic | _] = maps:keys(ProducersMapping),
+    ping_until_healthy(Config, KafkaTopic, Period, Timeout).
+
+ping_until_healthy(_Config, _KafkaTopic, _Period, Timeout) when Timeout =< 0 ->
+    ct:fail("kafka subscriber did not stabilize!");
+ping_until_healthy(Config, KafkaTopic, Period, Timeout) ->
     TimeA = erlang:monotonic_time(millisecond),
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
-    publish(Config, [#{key => <<"probing">>, value => Payload}]),
+    publish(Config, KafkaTopic, [#{key => <<"probing">>, value => Payload}]),
     Res =
         ?block_until(
-            #{?snk_kind := kafka_consumer_handle_message, ?snk_span := {complete, _}},
+            #{
+                ?snk_kind := kafka_consumer_handle_message,
+                ?snk_span := {complete, _},
+                message := #kafka_message{value = Payload}
+            },
             Period
         ),
     case Res of
@@ -925,6 +1052,132 @@ t_start_and_consume_ok(Config) ->
                 }
             ),
             ?assertEqual(1, emqx_resource_metrics:received_get(ResourceId)),
+            ok
+        end
+    ),
+    ok.
+
+t_multiple_topic_mappings(Config) ->
+    TopicMapping = ?config(topic_mapping, Config),
+    MQTTTopics = [MQTTTopic || #{mqtt_topic := MQTTTopic} <- TopicMapping],
+    KafkaTopics = [KafkaTopic || #{kafka_topic := KafkaTopic} <- TopicMapping],
+    NumMQTTTopics = length(MQTTTopics),
+    NPartitions = ?config(num_partitions, Config),
+    ResourceId = resource_id(Config),
+    Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, _}},
+                create_bridge_api(Config)
+            ),
+            wait_until_subscribers_are_ready(NPartitions, 40_000),
+            lists:foreach(
+                fun(KafkaTopic) ->
+                    ping_until_healthy(Config, KafkaTopic, _Period = 1_500, _Timeout = 24_000)
+                end,
+                KafkaTopics
+            ),
+
+            {ok, C} = emqtt:start_link([{proto_ver, v5}]),
+            on_exit(fun() -> emqtt:stop(C) end),
+            {ok, _} = emqtt:connect(C),
+            lists:foreach(
+                fun(MQTTTopic) ->
+                    %% we use the hightest QoS so that we can check what
+                    %% the subscription was.
+                    QoS2Granted = 2,
+                    {ok, _, [QoS2Granted]} = emqtt:subscribe(C, MQTTTopic, ?QOS_2)
+                end,
+                MQTTTopics
+            ),
+
+            {ok, SRef0} =
+                snabbkaffe:subscribe(
+                    ?match_event(#{
+                        ?snk_kind := kafka_consumer_handle_message, ?snk_span := {complete, _}
+                    }),
+                    NumMQTTTopics,
+                    _Timeout0 = 20_000
+                ),
+            lists:foreach(
+                fun(KafkaTopic) ->
+                    publish(Config, KafkaTopic, [
+                        #{
+                            key => <<"mykey">>,
+                            value => Payload,
+                            headers => [{<<"hkey">>, <<"hvalue">>}]
+                        }
+                    ])
+                end,
+                KafkaTopics
+            ),
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+
+            %% Check that the bridge probe API doesn't leak atoms.
+            ProbeRes = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            AtomsBefore = erlang:system_info(atom_count),
+            %% Probe again; shouldn't have created more atoms.
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            AtomsAfter = erlang:system_info(atom_count),
+            ?assertEqual(AtomsBefore, AtomsAfter),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% two messages processed with begin/end events
+            ?assertMatch([_, _, _, _ | _], ?of_kind(kafka_consumer_handle_message, Trace)),
+            Published = receive_published(#{n => NumMQTTTopics}),
+            lists:foreach(
+                fun(
+                    #{
+                        mqtt_topic := MQTTTopic,
+                        qos := MQTTQoS
+                    }
+                ) ->
+                    [Msg] = [
+                        Msg
+                     || Msg = #{topic := T} <- Published,
+                        T =:= MQTTTopic
+                    ],
+                    ?assertMatch(
+                        #{
+                            qos := MQTTQoS,
+                            topic := MQTTTopic,
+                            payload := _
+                        },
+                        Msg
+                    )
+                end,
+                TopicMapping
+            ),
+            %% check that we observed the different payload templates
+            %% as configured.
+            Payloads =
+                lists:sort([
+                    case emqx_json:safe_decode(P, [return_maps]) of
+                        {ok, Decoded} -> Decoded;
+                        {error, _} -> P
+                    end
+                 || #{payload := P} <- Published
+                ]),
+            ?assertMatch(
+                [
+                    #{
+                        <<"headers">> := #{<<"hkey">> := <<"hvalue">>},
+                        <<"key">> := <<"mykey">>,
+                        <<"offset">> := Offset,
+                        <<"topic">> := KafkaTopic,
+                        <<"ts">> := TS,
+                        <<"ts_type">> := <<"create">>,
+                        <<"value">> := Payload
+                    },
+                    <<"v = ", Payload/binary>>
+                ] when is_integer(Offset) andalso is_integer(TS) andalso is_binary(KafkaTopic),
+                Payloads
+            ),
+            ?assertEqual(2, emqx_resource_metrics:received_get(ResourceId)),
             ok
         end
     ),

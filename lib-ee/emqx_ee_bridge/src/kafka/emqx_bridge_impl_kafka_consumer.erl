@@ -41,31 +41,59 @@
         offset_reset_policy := offset_reset_policy(),
         topic := binary()
     },
-    mqtt := #{
-        topic := emqx_types:topic(),
-        qos := emqx_types:qos(),
-        payload := mqtt_payload()
-    },
+    topic_mapping := nonempty_list(
+        #{
+            kafka_topic := kafka_topic(),
+            mqtt_topic := emqx_types:topic(),
+            qos := emqx_types:qos(),
+            payload_template := string()
+        }
+    ),
     ssl := _,
     any() => term()
 }.
 -type subscriber_id() :: emqx_ee_bridge_kafka_consumer_sup:child_id().
+-type kafka_topic() :: brod:topic().
 -type state() :: #{
-    kafka_topic := binary(),
+    kafka_topics := nonempty_list(kafka_topic()),
     subscriber_id := subscriber_id(),
     kafka_client_id := brod:client_id()
 }.
 -type offset_reset_policy() :: reset_to_latest | reset_to_earliest | reset_by_subscriber.
--type mqtt_payload() :: full_message | message_value.
--type consumer_state() :: #{
-    resource_id := resource_id(),
-    mqtt := #{
-        payload := mqtt_payload(),
-        topic => emqx_types:topic(),
-        qos => emqx_types:qos()
-    },
+%% -type mqtt_payload() :: full_message | message_value.
+-type encoding_mode() :: force_utf8 | base64.
+-type consumer_init_data() :: #{
     hookpoint := binary(),
-    kafka_topic := binary()
+    key_encoding_mode := encoding_mode(),
+    resource_id := resource_id(),
+    topic_mapping := #{
+        kafka_topic() := #{
+            payload_template := emqx_plugin_libs_rule:tmpl_token(),
+            mqtt_topic => emqx_types:topic(),
+            qos => emqx_types:qos()
+        }
+    },
+    value_encoding_mode := encoding_mode()
+}.
+-type consumer_state() :: #{
+    hookpoint := binary(),
+    kafka_topic := binary(),
+    key_encoding_mode := encoding_mode(),
+    resource_id := resource_id(),
+    topic_mapping := #{
+        kafka_topic() := #{
+            payload_template := emqx_plugin_libs_rule:tmpl_token(),
+            mqtt_topic => emqx_types:topic(),
+            qos => emqx_types:qos()
+        }
+    },
+    value_encoding_mode := encoding_mode()
+}.
+-type subscriber_init_info() :: #{
+    topic => brod:topic(),
+    parition => brod:partition(),
+    group_id => brod:group_id(),
+    commit_fun => brod_group_subscriber_v2:commit_fun()
 }.
 
 %%-------------------------------------------------------------------------------------
@@ -92,11 +120,10 @@ on_start(InstanceId, Config) ->
             max_batch_bytes := _,
             max_rejoin_attempts := _,
             offset_commit_interval_seconds := _,
-            offset_reset_policy := _,
-            topic := _
+            offset_reset_policy := _
         },
-        mqtt := #{topic := _, qos := _, payload := _},
-        ssl := SSL
+        ssl := SSL,
+        topic_mapping := _
     } = Config,
     BootstrapHosts = emqx_bridge_impl_kafka:hosts(BootstrapHosts0),
     KafkaType = kafka_consumer,
@@ -145,22 +172,19 @@ on_get_status(_InstanceID, State) ->
     #{
         subscriber_id := SubscriberId,
         kafka_client_id := ClientID,
-        kafka_topic := KafkaTopic
+        kafka_topics := KafkaTopics
     } = State,
-    case brod:get_partitions_count(ClientID, KafkaTopic) of
-        {ok, NPartitions} ->
-            do_get_status(ClientID, KafkaTopic, SubscriberId, NPartitions);
-        _ ->
-            disconnected
-    end.
+    do_get_status(ClientID, KafkaTopics, SubscriberId).
 
 %%-------------------------------------------------------------------------------------
 %% `brod_group_subscriber' API
 %%-------------------------------------------------------------------------------------
 
--spec init(_, consumer_state()) -> {ok, consumer_state()}.
-init(_GroupData, State) ->
-    ?tp(kafka_consumer_subscriber_init, #{group_data => _GroupData, state => State}),
+-spec init(subscriber_init_info(), consumer_init_data()) -> {ok, consumer_state()}.
+init(GroupData, State0) ->
+    ?tp(kafka_consumer_subscriber_init, #{group_data => GroupData, state => State0}),
+    #{topic := KafkaTopic} = GroupData,
+    State = State0#{kafka_topic => KafkaTopic},
     {ok, State}.
 
 -spec handle_message(#kafka_message{}, consumer_state()) -> {ok, commit, consumer_state()}.
@@ -173,33 +197,29 @@ handle_message(Message, State) ->
 
 do_handle_message(Message, State) ->
     #{
-        resource_id := ResourceId,
         hookpoint := Hookpoint,
         kafka_topic := KafkaTopic,
-        mqtt := #{
-            topic := MQTTTopic,
-            payload := MQTTPayload,
-            qos := MQTTQoS
-        }
+        key_encoding_mode := KeyEncodingMode,
+        resource_id := ResourceId,
+        topic_mapping := TopicMapping,
+        value_encoding_mode := ValueEncodingMode
     } = State,
+    #{
+        mqtt_topic := MQTTTopic,
+        qos := MQTTQoS,
+        payload_template := PayloadTemplate
+    } = maps:get(KafkaTopic, TopicMapping),
     FullMessage = #{
+        headers => maps:from_list(Message#kafka_message.headers),
+        key => encode(Message#kafka_message.key, KeyEncodingMode),
         offset => Message#kafka_message.offset,
-        key => Message#kafka_message.key,
-        value => Message#kafka_message.value,
+        topic => KafkaTopic,
         ts => Message#kafka_message.ts,
         ts_type => Message#kafka_message.ts_type,
-        headers => maps:from_list(Message#kafka_message.headers),
-        topic => KafkaTopic
+        value => encode(Message#kafka_message.value, ValueEncodingMode)
     },
-    Payload =
-        case MQTTPayload of
-            full_message ->
-                FullMessage;
-            message_value ->
-                Message#kafka_message.value
-        end,
-    EncodedPayload = emqx_json:encode(Payload),
-    MQTTMessage = emqx_message:make(ResourceId, MQTTQoS, MQTTTopic, EncodedPayload),
+    Payload = render(FullMessage, PayloadTemplate),
+    MQTTMessage = emqx_message:make(ResourceId, MQTTQoS, MQTTTopic, Payload),
     _ = emqx:publish(MQTTMessage),
     emqx:run_hook(Hookpoint, [FullMessage]),
     emqx_resource_metrics:received_inc(ResourceId),
@@ -251,21 +271,20 @@ start_consumer(Config, InstanceId, ClientID) ->
             max_batch_bytes := MaxBatchBytes,
             max_rejoin_attempts := MaxRejoinAttempts,
             offset_commit_interval_seconds := OffsetCommitInterval,
-            offset_reset_policy := OffsetResetPolicy,
-            topic := KafkaTopic
+            offset_reset_policy := OffsetResetPolicy
         },
-        mqtt := #{topic := MQTTTopic, qos := MQTTQoS, payload := MQTTPayload}
+        key_encoding_mode := KeyEncodingMode,
+        topic_mapping := TopicMapping0,
+        value_encoding_mode := ValueEncodingMode
     } = Config,
     ok = ensure_consumer_supervisor_started(),
+    TopicMapping = convert_topic_mapping(TopicMapping0),
     InitialState = #{
-        resource_id => emqx_bridge_resource:resource_id(kafka_consumer, BridgeName),
-        mqtt => #{
-            payload => MQTTPayload,
-            topic => MQTTTopic,
-            qos => MQTTQoS
-        },
+        key_encoding_mode => KeyEncodingMode,
         hookpoint => Hookpoint,
-        kafka_topic => KafkaTopic
+        resource_id => emqx_bridge_resource:resource_id(kafka_consumer, BridgeName),
+        topic_mapping => TopicMapping,
+        value_encoding_mode => ValueEncodingMode
     },
     %% note: the group id should be the same for all nodes in the
     %% cluster, so that the load gets distributed between all
@@ -279,11 +298,12 @@ start_consumer(Config, InstanceId, ClientID) ->
         {max_rejoin_attempts, MaxRejoinAttempts},
         {offset_commit_interval_seconds, OffsetCommitInterval}
     ],
+    KafkaTopics = maps:keys(TopicMapping),
     GroupSubscriberConfig =
         #{
             client => ClientID,
             group_id => GroupID,
-            topics => [KafkaTopic],
+            topics => KafkaTopics,
             cb_module => ?MODULE,
             init_data => InitialState,
             message_type => message,
@@ -304,14 +324,13 @@ start_consumer(Config, InstanceId, ClientID) ->
             {ok, #{
                 subscriber_id => SubscriberId,
                 kafka_client_id => ClientID,
-                kafka_topic => KafkaTopic
+                kafka_topics => KafkaTopics
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer",
                 instance_id => InstanceId,
                 kafka_hosts => emqx_bridge_impl_kafka:hosts(BootstrapHosts0),
-                kafka_topic => KafkaTopic,
                 reason => emqx_misc:redact(Reason2)
             }),
             stop_client(ClientID),
@@ -343,6 +362,19 @@ stop_client(ClientID) ->
         }
     ),
     ok.
+
+do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
+    case brod:get_partitions_count(ClientID, KafkaTopic) of
+        {ok, NPartitions} ->
+            case do_get_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
+                connected -> do_get_status(ClientID, RestTopics, SubscriberId);
+                disconnected -> disconnected
+            end;
+        _ ->
+            disconnected
+    end;
+do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
+    connected.
 
 -spec do_get_status(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
     connected | disconnected.
@@ -423,6 +455,45 @@ make_client_id(InstanceId, KafkaType, KafkaName) ->
             %% atoms.
             probing_brod_consumers
     end.
+
+convert_topic_mapping(TopicMappingList) ->
+    lists:foldl(
+        fun(Fields, Acc) ->
+            #{
+                kafka_topic := KafkaTopic,
+                mqtt_topic := MQTTTopic,
+                qos := QoS,
+                payload_template := PayloadTemplate0
+            } = Fields,
+            PayloadTemplate = emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate0),
+            Acc#{
+                KafkaTopic => #{
+                    payload_template => PayloadTemplate,
+                    mqtt_topic => MQTTTopic,
+                    qos => QoS
+                }
+            }
+        end,
+        #{},
+        TopicMappingList
+    ).
+
+render(FullMessage, PayloadTemplate) ->
+    Opts = #{
+        return => full_binary,
+        var_trans => fun
+            (undefined) ->
+                <<>>;
+            (X) ->
+                emqx_plugin_libs_rule:bin(X)
+        end
+    },
+    emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, FullMessage, Opts).
+
+encode(Value, force_utf8) ->
+    Value;
+encode(Value, base64) ->
+    base64:encode(Value).
 
 to_bin(B) when is_binary(B) -> B;
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
