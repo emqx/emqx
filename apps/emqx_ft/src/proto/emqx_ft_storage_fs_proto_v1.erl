@@ -22,8 +22,10 @@
 
 -export([multilist/3]).
 -export([pread/5]).
--export([ready_transfers/1]).
--export([get_ready_transfer/3]).
+
+%% TODO: These should be defined in a separate BPAPI
+-export([list_exports/1]).
+-export([read_export_file/3]).
 
 -type offset() :: emqx_ft:offset().
 -type transfer() :: emqx_ft:transfer().
@@ -44,19 +46,16 @@ multilist(Nodes, Transfer, What) ->
 pread(Node, Transfer, Frag, Offset, Size) ->
     erpc:call(Node, emqx_ft_storage_fs_proxy, pread_local, [Transfer, Frag, Offset, Size]).
 
--spec ready_transfers([node()]) ->
-    [
-        {ok, [{emqx_ft_storage:ready_transfer_id(), emqx_ft_storage:ready_transfer_info()}]}
-        | {error, term()}
-        | {exit, term()}
-        | {throw, term()}
-    ].
-ready_transfers(Nodes) ->
-    erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, ready_transfers_local, []).
+%%
 
--spec get_ready_transfer(node(), pid(), emqx_ft_storage:ready_transfer_id()) ->
-    {ok, emqx_ft_storage:ready_transfer_data()}
+-spec list_exports([node()]) ->
+    emqx_rpc:erpc_multicall([emqx_ft_storage:export_info()]).
+list_exports(Nodes) ->
+    erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, list_exports_local, []).
+
+-spec read_export_file(node(), file:name(), pid()) ->
+    {ok, emqx_ft_storage:export_data()}
     | {error, term()}
     | no_return().
-get_ready_transfer(Node, CallerPid, ReadyTransferId) ->
-    erpc:call(Node, emqx_ft_storage_fs_proxy, get_ready_transfer_local, [CallerPid, ReadyTransferId]).
+read_export_file(Node, Filepath, CallerPid) ->
+    erpc:call(Node, emqx_ft_storage_fs_proxy, read_export_file_local, [Filepath, CallerPid]).

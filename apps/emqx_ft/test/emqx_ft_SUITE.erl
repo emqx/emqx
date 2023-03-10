@@ -58,8 +58,9 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            Root = emqx_ft_test_helpers:ft_root(Config, node()),
-            emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
+            emqx_ft_test_helpers:load_config(#{
+                storage => emqx_ft_test_helpers:local_storage(Config)
+            });
         (_) ->
             ok
     end.
@@ -108,8 +109,9 @@ mk_cluster_specs(Config) ->
         {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
         {env_handler, fun
             (emqx_ft) ->
-                Root = emqx_ft_test_helpers:ft_root(Config, node()),
-                emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
+                emqx_ft_test_helpers:load_config(#{
+                    storage => emqx_ft_test_helpers:local_storage(Config)
+                });
             (_) ->
                 ok
         end}
@@ -194,11 +196,10 @@ t_simple_transfer(Config) ->
         emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
     ),
 
-    [ReadyTransferId] = list_ready_transfers(?config(clientid, Config)),
-    {ok, TableQH} = emqx_ft_storage:get_ready_transfer(ReadyTransferId),
+    [Export] = list_exports(?config(clientid, Config)),
     ?assertEqual(
-        iolist_to_binary(Data),
-        iolist_to_binary(qlc:eval(TableQH))
+        {ok, iolist_to_binary(Data)},
+        read_export(Export)
     ).
 
 t_meta_conflict(Config) ->
@@ -424,11 +425,10 @@ t_switch_node(Config) ->
 
     %% Now check consistency of the file
 
-    [ReadyTransferId] = list_ready_transfers(ClientId),
-    {ok, TableQH} = emqx_ft_storage:get_ready_transfer(ReadyTransferId),
+    [Export] = list_exports(ClientId),
     ?assertEqual(
-        iolist_to_binary(Data),
-        iolist_to_binary(qlc:eval(TableQH))
+        {ok, iolist_to_binary(Data)},
+        read_export(Export)
     ).
 
 t_assemble_crash(Config) ->
@@ -501,27 +501,30 @@ t_unreliable_migrating_client(Config) ->
     ],
     _Context = run_commands(Commands, Context),
 
-    ReadyTransferIds = list_ready_transfers(?config(clientid, Config)),
+    Exports = list_exports(?config(clientid, Config)),
 
     % NOTE
     % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
     % twice. This is currently expected, files must be identical anyway.
-    Node1Bin = atom_to_binary(Node1),
-    NodeSelfBin = atom_to_binary(NodeSelf),
+    Node1Str = atom_to_list(Node1),
+    NodeSelfStr = atom_to_list(NodeSelf),
     ?assertMatch(
-        [#{<<"node">> := Node1Bin}, #{<<"node">> := NodeSelfBin}],
-        lists:sort(ReadyTransferIds)
+        [#{"node" := Node1Str}, #{"node" := NodeSelfStr}],
+        lists:map(
+            fun(#{uri := URIString}) ->
+                #{query := QS} = uri_string:parse(URIString),
+                uri_string:dissect_query(QS)
+            end,
+            lists:sort(Exports)
+        )
     ),
 
     [
-        begin
-            {ok, TableQH} = emqx_ft_storage:get_ready_transfer(Id),
-            ?assertEqual(
-                Payload,
-                iolist_to_binary(qlc:eval(TableQH))
-            )
-        end
-     || Id <- ReadyTransferIds
+        ?assertEqual(
+            {ok, Payload},
+            read_export(Export)
+        )
+     || Export <- Exports
     ].
 
 run_commands(Commands, Context) ->
@@ -620,10 +623,10 @@ meta(FileName, Data) ->
         size => byte_size(FullData)
     }.
 
-list_ready_transfers(ClientId) ->
-    {ok, ReadyTransfers} = emqx_ft_storage:ready_transfers(),
-    [
-        Id
-     || {#{<<"clientid">> := CId} = Id, _Info} <- ReadyTransfers,
-        CId == ClientId
-    ].
+list_exports(ClientId) ->
+    {ok, Exports} = emqx_ft_storage:exports(),
+    [Export || Export = #{transfer := {CId, _}} <- Exports, CId == ClientId].
+
+read_export(#{path := AbsFilepath}) ->
+    % TODO: only works for the local filesystem exporter right now
+    file:read_file(AbsFilepath).
