@@ -29,14 +29,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
-
 terminate(_Reason, _State) ->
     stop_http().
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 stop(Pid) ->
     ok = gen_server:stop(Pid).
