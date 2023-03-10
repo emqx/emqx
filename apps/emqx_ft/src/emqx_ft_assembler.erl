@@ -22,13 +22,13 @@
 -export([callback_mode/0]).
 -export([init/1]).
 -export([handle_event/4]).
+-export([terminate/3]).
 
 -record(st, {
     storage :: _Storage,
     transfer :: emqx_ft:transfer(),
     assembly :: emqx_ft_assembly:t(),
-    file :: {file:filename(), io:device(), term()} | undefined,
-    hash
+    export :: _Export | undefined
 }).
 
 -define(NAME(Transfer), {n, l, {?MODULE, Transfer}}).
@@ -47,11 +47,11 @@ callback_mode() ->
     handle_event_function.
 
 init({Storage, Transfer, Size}) ->
+    _ = erlang:process_flag(trap_exit, true),
     St = #st{
         storage = Storage,
         transfer = Transfer,
-        assembly = emqx_ft_assembly:new(Size),
-        hash = crypto:hash_init(sha256)
+        assembly = emqx_ft_assembly:new(Size)
     },
     {ok, idle, St}.
 
@@ -61,10 +61,10 @@ handle_event(info, kickoff, idle, St) ->
     % We could wait for this message and handle it at the end of the assembling rather than at
     % the beginning, however it would make error handling much more messier.
     {next_state, list_local_fragments, St, ?internal([])};
-handle_event(internal, _, list_local_fragments, St = #st{assembly = Asm}) ->
+handle_event(internal, _, list_local_fragments, St = #st{}) ->
     % TODO: what we do with non-transients errors here (e.g. `eacces`)?
     {ok, Fragments} = emqx_ft_storage_fs:list(St#st.storage, St#st.transfer, fragment),
-    NAsm = emqx_ft_assembly:update(emqx_ft_assembly:append(Asm, node(), Fragments)),
+    NAsm = emqx_ft_assembly:update(emqx_ft_assembly:append(St#st.assembly, node(), Fragments)),
     NSt = St#st{assembly = NAsm},
     case emqx_ft_assembly:status(NAsm) of
         complete ->
@@ -110,8 +110,8 @@ handle_event(internal, _, start_assembling, St = #st{assembly = Asm}) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Coverage = emqx_ft_assembly:coverage(Asm),
     % TODO: better error handling
-    {ok, Handle} = emqx_ft_storage_fs:open_file(St#st.storage, St#st.transfer, Filemeta),
-    {next_state, {assemble, Coverage}, St#st{file = Handle}, ?internal([])};
+    {ok, Export} = export_start(Filemeta, St),
+    {next_state, {assemble, Coverage}, St#st{export = Export}, ?internal([])};
 handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO
     % Currently, race is possible between getting segment info from the remote node and
@@ -119,15 +119,17 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO: pipelining
     % TODO: better error handling
     {ok, Content} = pread(Node, Segment, St),
-    {ok, NHandle} = emqx_ft_storage_fs:write(St#st.file, Content),
-    {next_state, {assemble, Rest}, St#st{file = NHandle}, ?internal([])};
+    {ok, NExport} = export_write(St#st.export, Content),
+    {next_state, {assemble, Rest}, St#st{export = NExport}, ?internal([])};
 handle_event(internal, _, {assemble, []}, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
-handle_event(internal, _, complete, St = #st{assembly = Asm, file = Handle}) ->
-    Filemeta = emqx_ft_assembly:filemeta(Asm),
-    Result = emqx_ft_storage_fs:complete(St#st.storage, St#st.transfer, Filemeta, Handle),
+handle_event(internal, _, complete, St = #st{}) ->
+    Result = export_complete(St#st.export),
     ok = maybe_garbage_collect(Result, St),
-    {stop, {shutdown, Result}}.
+    {stop, {shutdown, Result}, St#st{export = undefined}}.
+
+terminate(_Reason, _StateName, #st{export = Export}) ->
+    Export /= undefined andalso export_discard(Export).
 
 pread(Node, Segment, St) when Node =:= node() ->
     emqx_ft_storage_fs:pread(St#st.storage, St#st.transfer, Segment, 0, segsize(Segment));
@@ -136,8 +138,33 @@ pread(Node, Segment, St) ->
 
 %%
 
-maybe_garbage_collect(ok, St = #st{storage = Storage, transfer = Transfer}) ->
-    Nodes = emqx_ft_assembly:nodes(St#st.assembly),
+export_start(Filemeta, #st{storage = Storage, transfer = Transfer}) ->
+    {ExporterMod, Exporter} = emqx_ft_storage_fs:exporter(Storage),
+    case ExporterMod:start_export(Exporter, Transfer, Filemeta) of
+        {ok, Export} ->
+            {ok, {ExporterMod, Export}};
+        {error, _} = Error ->
+            Error
+    end.
+
+export_write({ExporterMod, Export}, Content) ->
+    case ExporterMod:write(Export, Content) of
+        {ok, ExportNext} ->
+            {ok, {ExporterMod, ExportNext}};
+        {error, _} = Error ->
+            Error
+    end.
+
+export_complete({ExporterMod, Export}) ->
+    ExporterMod:complete(Export).
+
+export_discard({ExporterMod, Export}) ->
+    ExporterMod:discard(Export).
+
+%%
+
+maybe_garbage_collect(ok, #st{storage = Storage, transfer = Transfer, assembly = Asm}) ->
+    Nodes = emqx_ft_assembly:nodes(Asm),
     emqx_ft_storage_fs_gc:collect(Storage, Transfer, Nodes);
 maybe_garbage_collect({error, _}, _St) ->
     ok.
