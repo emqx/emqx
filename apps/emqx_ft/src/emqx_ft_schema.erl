@@ -66,9 +66,30 @@ fields(local_storage) ->
             desc => ?DESC("local_storage_root"),
             required => false
         }},
+        {exporter, #{
+            type => hoconsc:union([
+                ?REF(local_storage_exporter)
+            ]),
+            desc => ?DESC("local_storage_exporter"),
+            required => true
+        }},
         {gc, #{
-            type => hoconsc:ref(?MODULE, local_storage_gc),
+            type => ?REF(local_storage_gc),
             desc => ?DESC("local_storage_gc"),
+            required => false
+        }}
+    ];
+fields(local_storage_exporter) ->
+    [
+        {type, #{
+            type => local,
+            default => local,
+            required => false,
+            desc => ?DESC("local_storage_exporter_type")
+        }},
+        {root, #{
+            type => binary(),
+            desc => ?DESC("local_storage_exporter_root"),
             required => false
         }}
     ];
@@ -101,12 +122,15 @@ desc(file_transfer) ->
     "File transfer settings";
 desc(local_storage) ->
     "File transfer local storage settings";
+desc(local_storage_exporter) ->
+    "Exporter settings for the File transfer local storage backend";
 desc(local_storage_gc) ->
     "Garbage collection settings for the File transfer local storage backend".
 
 schema(filemeta) ->
     #{
         roots => [
+            % TODO nonempty
             {name, hoconsc:mk(string(), #{required => true})},
             {size, hoconsc:mk(non_neg_integer())},
             {expire_at, hoconsc:mk(non_neg_integer())},

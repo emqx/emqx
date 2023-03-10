@@ -308,27 +308,17 @@ is_same_filepath(P1, P2) when is_binary(P1) ->
 filepath_to_binary(S) ->
     unicode:characters_to_binary(S, unicode, file:native_name_encoding()).
 
-get_segments_ttl(Storage, Transfer) ->
+get_segments_ttl(Storage, TransferInfo) ->
     {MinTTL, MaxTTL} = emqx_ft_conf:segments_ttl(Storage),
-    clamp(MinTTL, MaxTTL, try_get_filemeta_ttl(Storage, Transfer)).
+    clamp(MinTTL, MaxTTL, try_get_filemeta_ttl(TransferInfo)).
 
-try_get_filemeta_ttl(Storage, Transfer) ->
-    case emqx_ft_storage_fs:read_filemeta(Storage, Transfer) of
-        {ok, Filemeta} ->
-            maps:get(segments_ttl, Filemeta, undefined);
-        {error, _} ->
-            undefined
-    end.
+try_get_filemeta_ttl(#{filemeta := Filemeta}) ->
+    maps:get(segments_ttl, Filemeta, undefined);
+try_get_filemeta_ttl(#{}) ->
+    undefined.
 
 clamp(Min, Max, V) ->
     min(Max, max(Min, V)).
-
-% try_collect(_Subject, ok = Result, Then, _Stats) ->
-%     Then(Result);
-% try_collect(_Subject, {ok, Result}, Then, _Stats) ->
-%     Then(Result);
-% try_collect(Subject, {error, _} = Error, _Then, Stats) ->
-%     register_gcstat_error(Subject, Error, Stats).
 
 %%
 

@@ -30,7 +30,7 @@ start_additional_node(Config, Name) ->
             {configure_gen_rpc, true},
             {env_handler, fun
                 (emqx_ft) ->
-                    load_config(#{storage => #{type => local, root => ft_root(Config, node())}});
+                    load_config(#{storage => local_storage(Config)});
                 (_) ->
                     ok
             end}
@@ -43,6 +43,13 @@ stop_additional_node(Node) ->
     ok = emqx_common_test_helpers:stop_slave(Node),
     ok.
 
+local_storage(Config) ->
+    #{
+        type => local,
+        root => root(Config, node(), [transfers]),
+        exporter => #{type => local, root => root(Config, node(), [exports])}
+    }.
+
 load_config(Config) ->
     emqx_common_test_helpers:load_config(emqx_ft_schema, #{file_transfer => Config}).
 
@@ -50,10 +57,8 @@ tcp_port(Node) ->
     {_, Port} = rpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
 
-ft_root(Config, Node) ->
-    filename:join([
-        ?config(priv_dir, Config), <<"file_transfer">>, atom_to_binary(Node)
-    ]).
+root(Config, Node, Tail) ->
+    filename:join([?config(priv_dir, Config), "file_transfer", Node | Tail]).
 
 upload_file(ClientId, FileId, Data, Node) ->
     Port = tcp_port(Node),

@@ -41,7 +41,14 @@ init_per_testcase(TC, Config) ->
         emqx_ft,
         fun(emqx_ft) ->
             emqx_ft_test_helpers:load_config(#{
-                storage => #{type => local, root => mk_root(TC, Config)}
+                storage => #{
+                    type => local,
+                    root => emqx_ft_test_helpers:root(Config, node(), [TC, transfers]),
+                    exporter => #{
+                        type => local,
+                        root => emqx_ft_test_helpers:root(Config, node(), [TC, exports])
+                    }
+                }
             })
         end
     ),
@@ -52,9 +59,6 @@ end_per_testcase(_TC, _Config) ->
     ok = snabbkaffe:stop(),
     ok = application:stop(emqx_ft),
     ok.
-
-mk_root(TC, Config) ->
-    filename:join([?config(priv_dir, Config), "file_transfer", TC, atom_to_list(node())]).
 
 %%
 

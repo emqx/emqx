@@ -56,7 +56,16 @@ t_update_config(_Config) ->
         {ok, _},
         emqx_conf:update(
             [file_transfer],
-            #{<<"storage">> => #{<<"type">> => <<"local">>, <<"root">> => <<"/tmp/path">>}},
+            #{
+                <<"storage">> => #{
+                    <<"type">> => <<"local">>,
+                    <<"root">> => <<"/tmp/path">>,
+                    <<"exporter">> => #{
+                        <<"type">> => <<"local">>,
+                        <<"root">> => <<"/tmp/exports">>
+                    }
+                }
+            },
             #{}
         )
     ),
