@@ -4,9 +4,7 @@
 
 set -euo pipefail
 
-if [ "${DEBUG:-}" = 1 ]; then
-    set -x
-fi
+[ "${DEBUG:-}" = 1 ] && set -x
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
@@ -238,16 +236,16 @@ fi
 generate_changelog () {
     local from_tag="${PREV_TAG:-}"
     if [[ -z $from_tag ]]; then
-        if [ $PROFILE == "emqx" ]; then
-            from_tag="$(git describe --tags --abbrev=0 --match 'v*')"
-        else
-            from_tag="$(git describe --tags --abbrev=0 --match 'e*')"
-        fi
+        from_tag="$(./scripts/find-prev-rel-tag.sh "$PROFILE")"
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    git add changes/"${TAG}".*.md
-    [ -n "$(git status -s)" ] && git commit -m "chore: Generate changelog for ${TAG}"
+    if [ -n "$(git diff --stat)" ]; then
+        git add changes/"${TAG}".*.md
+        git commit -m "docs: Generate changelog for ${TAG}"
+    else
+        logmsg "No changelog update."
+    fi
 }
 
 if [ "$DRYRUN" = 'yes' ]; then
