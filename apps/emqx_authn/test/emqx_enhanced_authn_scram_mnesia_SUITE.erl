@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_authn.hrl").
@@ -37,9 +38,11 @@ all() ->
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([emqx_authn]),
-    Config.
+    IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
+    [{idle_timeout, IdleTimeout} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, Config)),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
 init_per_testcase(_Case, Config) ->
@@ -99,6 +102,8 @@ t_authenticate(_Config) ->
 
     init_auth(Username, Password, Algorithm),
 
+    ok = emqx_config:put([mqtt, idle_timeout], 500),
+
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = esasl_scram:client_first_message(Username),
@@ -114,6 +119,9 @@ t_authenticate(_Config) ->
     ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+
+    %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
+    ok = ct:sleep(1000),
 
     ?AUTH_PACKET(
         ?RC_CONTINUE_AUTHENTICATION,
@@ -149,6 +157,28 @@ t_authenticate(_Config) ->
     ok = esasl_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
     ).
+
+t_authenticate_bad_props(_Config) ->
+    Algorithm = sha512,
+    Username = <<"u">>,
+    Password = <<"p">>,
+
+    init_auth(Username, Password, Algorithm),
+
+    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+
+    ConnectPacket = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>
+            }
+        }
+    ),
+
+    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+
+    ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
 t_authenticate_bad_username(_Config) ->
     Algorithm = sha512,

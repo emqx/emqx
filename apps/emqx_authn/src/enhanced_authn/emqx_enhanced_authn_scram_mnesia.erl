@@ -168,7 +168,7 @@ authenticate(
     },
     State
 ) ->
-    case ensure_auth_method(AuthMethod, State) of
+    case ensure_auth_method(AuthMethod, AuthData, State) of
         true ->
             case AuthCache of
                 #{next_step := client_final} ->
@@ -304,11 +304,13 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-ensure_auth_method(<<"SCRAM-SHA-256">>, #{algorithm := sha256}) ->
+ensure_auth_method(_AuthMethod, undefined, _State) ->
+    false;
+ensure_auth_method(<<"SCRAM-SHA-256">>, _AuthData, #{algorithm := sha256}) ->
     true;
-ensure_auth_method(<<"SCRAM-SHA-512">>, #{algorithm := sha512}) ->
+ensure_auth_method(<<"SCRAM-SHA-512">>, _AuthData, #{algorithm := sha512}) ->
     true;
-ensure_auth_method(_, _) ->
+ensure_auth_method(_AuthMethod, _AuthData, _State) ->
     false.
 
 check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = State) ->
