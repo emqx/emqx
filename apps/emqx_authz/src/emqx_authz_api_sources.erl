@@ -356,7 +356,7 @@ lookup_from_local_node(Type) ->
     end.
 
 lookup_from_all_nodes(Type) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, Type)) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),

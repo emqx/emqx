@@ -214,7 +214,7 @@ get_chan_info(GwName, ClientId, ChanPid) ->
 
 -spec lookup_by_clientid(gateway_name(), emqx_types:clientid()) -> [pid()].
 lookup_by_clientid(GwName, ClientId) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case
         emqx_gateway_cm_proto_v1:lookup_by_clientid(
             Nodes, GwName, ClientId

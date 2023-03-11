@@ -483,7 +483,7 @@ err_msg_str(Reason) ->
     io_lib:format("~p", [Reason]).
 
 list_listeners() ->
-    [list_listeners(Node) || Node <- mria_mnesia:running_nodes()].
+    [list_listeners(Node) || Node <- mria:running_nodes()].
 
 list_listeners(Node) ->
     wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).

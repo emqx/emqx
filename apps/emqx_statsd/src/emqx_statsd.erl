@@ -53,9 +53,9 @@
 -define(SAMPLE_TIMEOUT, sample_timeout).
 
 %% Remove after 5.1.x
-start() -> check_multicall_result(emqx_statsd_proto_v1:start(mria_mnesia:running_nodes())).
-stop() -> check_multicall_result(emqx_statsd_proto_v1:stop(mria_mnesia:running_nodes())).
-restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria_mnesia:running_nodes())).
+start() -> check_multicall_result(emqx_statsd_proto_v1:start(mria:running_nodes())).
+stop() -> check_multicall_result(emqx_statsd_proto_v1:stop(mria:running_nodes())).
+restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria:running_nodes())).
 
 do_start() ->
     emqx_statsd_sup:ensure_child_started(?APP).
