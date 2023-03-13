@@ -46,12 +46,18 @@
 
 -export([lookup_from_local_node/2]).
 
+-define(BAD_REQUEST(Reason), {400, error_msg('BAD_REQUEST', Reason)}).
+
+-define(BRIDGE_NOT_ENABLED,
+    ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
+).
+
 -define(NOT_FOUND(Reason), {404, error_msg('NOT_FOUND', Reason)}).
 
--define(BRIDGE_NOT_FOUND(Type, Name),
+-define(BRIDGE_NOT_FOUND(BridgeType, BridgeName),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", Name/binary, "' of type ",
-            (atom_to_binary(Type))/binary, " does not exist.">>
+        <<"Bridge lookup failed: bridge named '", BridgeName/binary, "' of type ",
+            (atom_to_binary(BridgeType))/binary, " does not exist.">>
     )
 ).
 
@@ -98,11 +104,11 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([stop, restart]),
+            enum([start, stop, restart]),
             #{
                 in => path,
                 required => true,
-                example => <<"restart">>,
+                example => <<"start">>,
                 desc => ?DESC("desc_param_path_operation_cluster")
             }
         )}.
@@ -110,11 +116,11 @@ param_path_operation_cluster() ->
 param_path_operation_on_node() ->
     {operation,
         mk(
-            enum([stop, restart]),
+            enum([start, stop, restart]),
             #{
                 in => path,
                 required => true,
-                example => <<"stop">>,
+                example => <<"start">>,
                 desc => ?DESC("desc_param_path_operation_on_node")
             }
         )}.
@@ -355,7 +361,7 @@ schema("/bridges/:id") ->
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Can not delete bridge while active rules defined for this bridge"
+                    "Cannot delete bridge while active rules are defined for this bridge"
                 ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -447,7 +453,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                     'BAD_REQUEST',
                     "Problem with configuration of external service or bridge not enabled"
                 ),
-                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
+                404 => error_schema('NOT_FOUND', "Bridge or node not found or invalid operation"),
                 501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
@@ -472,15 +478,13 @@ schema("/bridges_probe") ->
     }.
 
 '/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
-    Conf = filter_out_request_body(Conf0),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
         {error, not_found} ->
-            case ensure_bridge_created(BridgeType, BridgeName, Conf) of
-                ok -> lookup_from_all_nodes(BridgeType, BridgeName, 201);
-                {error, Error} -> {400, Error}
-            end
+            Conf = filter_out_request_body(Conf0),
+            {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
+            lookup_from_all_nodes(BridgeType, BridgeName, 201)
     end;
 '/bridges'(get, _Params) ->
     {200,
@@ -499,12 +503,8 @@ schema("/bridges_probe") ->
             {ok, _} ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
-                case ensure_bridge_created(BridgeType, BridgeName, Conf) of
-                    ok ->
-                        lookup_from_all_nodes(BridgeType, BridgeName, 200);
-                    {error, Error} ->
-                        {400, Error}
-                end;
+                {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
+                lookup_from_all_nodes(BridgeType, BridgeName, 200);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
@@ -524,12 +524,10 @@ schema("/bridges_probe") ->
                     {ok, _} ->
                         204;
                     {error, {rules_deps_on_this_bridge, RuleIds}} ->
-                        {400,
-                            error_msg(
-                                'BAD_REQUEST',
-                                {<<"Can not delete bridge while active rules defined for this bridge">>,
-                                    RuleIds}
-                            )};
+                        ?BAD_REQUEST(
+                            {<<"Cannot delete bridge while active rules are defined for this bridge">>,
+                                RuleIds}
+                        );
                     {error, timeout} ->
                         {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                     {error, Reason} ->
@@ -561,7 +559,7 @@ schema("/bridges_probe") ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
             case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
-                    {204};
+                    204;
                 {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
                     {400, error_msg('TEST_FAILED', to_hr_reason(Reason))}
             end;
@@ -615,7 +613,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             OperFunc ->
                 case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
                     {ok, _} ->
-                        {204};
+                        204;
                     {error, {pre_config_update, _, bridge_not_found}} ->
                         ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
                     {error, {_, _, timeout}} ->
@@ -638,8 +636,16 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                Nodes = mria:running_nodes(),
-                call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                try is_enabled_bridge(BridgeType, BridgeName) of
+                    false ->
+                        ?BRIDGE_NOT_ENABLED;
+                    true ->
+                        Nodes = mria:running_nodes(),
+                        call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
+                catch
+                    throw:not_found ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+                end
         end
     ).
 
@@ -653,14 +659,9 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
-                case maps:get(enable, ConfMap, false) of
+                try is_enabled_bridge(BridgeType, BridgeName) of
                     false ->
-                        {400,
-                            error_msg(
-                                'BAD_REQUEST',
-                                <<"Forbidden operation, bridge not enabled">>
-                            )};
+                        ?BRIDGE_NOT_ENABLED;
                     true ->
                         case emqx_misc:safe_to_existing_atom(Node, utf8) of
                             {ok, TargetNode} ->
@@ -670,9 +671,21 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                             {error, _} ->
                                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
                         end
+                catch
+                    throw:not_found ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
                 end
         end
     ).
+
+is_enabled_bridge(BridgeType, BridgeName) ->
+    try emqx:get_config([bridges, BridgeType, BridgeName]) of
+        ConfMap ->
+            maps:get(enable, ConfMap, false)
+    catch
+        error:{config_not_found, _} ->
+            throw(not_found)
+    end.
 
 node_operation_func(<<"restart">>) -> restart_bridge_to_node;
 node_operation_func(<<"start">>) -> start_bridge_to_node;
@@ -687,12 +700,6 @@ operation_to_all_func(_) -> invalid.
 enable_func(<<"true">>) -> enable;
 enable_func(<<"false">>) -> disable;
 enable_func(_) -> invalid.
-
-ensure_bridge_created(BridgeType, BridgeName, Conf) ->
-    case emqx_bridge:create(BridgeType, BridgeName, Conf) of
-        {ok, _} -> ok;
-        {error, Reason} -> {error, error_msg('BAD_REQUEST', Reason)}
-    end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
     lists:foldl(
@@ -930,12 +937,10 @@ bin(S) when is_atom(S) ->
 bin(S) when is_binary(S) ->
     S.
 
-call_operation(NodeOrAll, OperFunc, Args) ->
+call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
     case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
-        ok ->
-            {204};
-        {ok, _} ->
-            {204};
+        Ok when Ok =:= ok; is_tuple(Ok), element(1, Ok) =:= ok ->
+            204;
         {error, not_implemented} ->
             %% Should only happen if we call `start` on a node that is
             %% still on an older bpapi version that doesn't support it.
@@ -953,8 +958,12 @@ call_operation(NodeOrAll, OperFunc, Args) ->
                         )
                     )
                 )};
+        {error, not_found} ->
+            ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+        {error, {node_not_found, Node}} ->
+            ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-            {400, error_msg('BAD_REQUEST', to_hr_reason(Reason))}
+            ?BAD_REQUEST(to_hr_reason(Reason))
     end.
 
 maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
@@ -962,14 +971,19 @@ maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
 maybe_try_restart(Node, start_bridge_to_node, Args) ->
     call_operation(Node, restart_bridge_to_node, Args);
 maybe_try_restart(_, _, _) ->
-    {501}.
+    501.
 
 do_bpapi_call(all, Call, Args) ->
     maybe_unwrap(
         do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
     );
 do_bpapi_call(Node, Call, Args) ->
-    do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args).
+    case lists:member(Node, mria:running_nodes()) of
+        true ->
+            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args);
+        false ->
+            {error, {node_not_found, Node}}
+    end.
 
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
     case lists:member(SupportedVersion, supported_versions(Call)) of
