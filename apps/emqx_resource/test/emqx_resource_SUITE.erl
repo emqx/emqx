@@ -250,8 +250,15 @@ t_batch_query_counter(_) ->
             ok
         end,
         fun(Trace) ->
-            QueryTrace = ?of_kind(call_batch_query, Trace),
-            ?assertMatch([#{batch := BatchReq} | _] when length(BatchReq) > 1, QueryTrace)
+            QueryTrace = [
+                Event
+             || Event = #{
+                    ?snk_kind := call_batch_query,
+                    batch := BatchReq
+                } <- Trace,
+                length(BatchReq) > 1
+            ],
+            ?assertMatch([_ | _], QueryTrace)
         end
     ),
     {ok, NMsgs} = emqx_resource:query(?ID, get_counter),
@@ -602,19 +609,18 @@ t_query_counter_async_inflight_batch(_) ->
                 5_000
             ),
         fun(Trace) ->
-            QueryTrace = ?of_kind(call_batch_query_async, Trace),
-            ?assertMatch(
-                [
-                    #{
-                        batch := [
-                            {query, _, {inc_counter, 1}, _, _},
-                            {query, _, {inc_counter, 1}, _, _}
-                        ]
-                    }
-                    | _
-                ],
-                QueryTrace
-            )
+            QueryTrace = [
+                Event
+             || Event = #{
+                    ?snk_kind := call_batch_query_async,
+                    batch := [
+                        {query, _, {inc_counter, 1}, _, _},
+                        {query, _, {inc_counter, 1}, _, _}
+                    ]
+                } <-
+                    Trace
+            ],
+            ?assertMatch([_ | _], QueryTrace)
         end
     ),
     tap_metrics(?LINE),
