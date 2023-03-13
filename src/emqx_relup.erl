@@ -124,7 +124,7 @@ maybe_start_schema_registry(_) ->
     ok.
 -endif.
 
--compile([{nowarn_unused_function, [{do_when_vsn_lte, 4}]}]).
+-ifdef(EMQX_ENTERPRISE).
 do_when_vsn_lte(SrcVsnStr, TargetVsn, ActionName, Action) ->
     try
         case list_to_integer(SrcVsnStr) of
@@ -139,3 +139,4 @@ do_when_vsn_lte(SrcVsnStr, TargetVsn, ActionName, Action) ->
             ?INFO("~p failed: ~p", [ActionName, {Err, Reason, ST}]),
             ok
     end.
+-endif.
