@@ -36,6 +36,7 @@
     list_all/0,
     list_group/1,
     ets_lookup/1,
+    ets_lookup/2,
     get_metrics/1,
     reset_metrics/1
 ]).
@@ -229,14 +230,25 @@ set_resource_status_connecting(ResId) ->
 -spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup(ResId) ->
     case safe_call(ResId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> ets_lookup(ResId);
+        {error, timeout} -> ets_lookup(ResId, [metrics]);
         Result -> Result
     end.
 
-%% @doc Lookup the group and data of a resource
+%% @doc Lookup the group and data of a resource from the cache
 -spec ets_lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 ets_lookup(ResId) ->
+    ets_lookup(ResId, []).
+
+%% @doc Lookup the group and data of a resource from the cache
+-spec ets_lookup(resource_id(), [Option]) ->
+    {ok, resource_group(), resource_data()} | {error, not_found}
+when
+    Option :: metrics.
+ets_lookup(ResId, Options) ->
+    NeedMetrics = lists:member(metrics, Options),
     case read_cache(ResId) of
+        {Group, Data} when NeedMetrics ->
+            {ok, Group, data_record_to_external_map_with_metrics(Data)};
         {Group, Data} ->
             {ok, Group, data_record_to_external_map(Data)};
         not_found ->
@@ -253,7 +265,7 @@ reset_metrics(ResId) ->
     emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId).
 
 %% @doc Returns the data for all resources
--spec list_all() -> [resource_data()] | [].
+-spec list_all() -> [resource_data()].
 list_all() ->
     try
         [

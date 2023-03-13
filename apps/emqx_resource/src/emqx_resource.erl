@@ -309,7 +309,7 @@ set_resource_status_connecting(ResId) ->
 -spec get_instance(resource_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
-    emqx_resource_manager:lookup(ResId).
+    emqx_resource_manager:ets_lookup(ResId, [metrics]).
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
