@@ -11,7 +11,8 @@
         wolff,
         brod,
         clickhouse,
-        erlcloud
+        erlcloud,
+        rocketmq
     ]},
     {env, []},
     {modules, []},
