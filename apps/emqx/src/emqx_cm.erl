@@ -19,6 +19,7 @@
 
 -behaviour(gen_server).
 
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -297,9 +298,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                 register_channel(ClientId, Self, ConnInfo),
 
                 {ok, #{
-                    session => Session1,
+                    session => clean_session(Session1),
                     present => true,
-                    pendings => Pendings
+                    pendings => clean_pendings(Pendings)
                 }};
             {living, ConnMod, ChanPid, Session} ->
                 ok = emqx_session:resume(ClientInfo, Session),
@@ -316,9 +317,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                         ),
                         register_channel(ClientId, Self, ConnInfo),
                         {ok, #{
-                            session => Session1,
+                            session => clean_session(Session1),
                             present => true,
-                            pendings => Pendings
+                            pendings => clean_pendings(Pendings)
                         }};
                     {error, _} ->
                         CreateSess()
@@ -732,3 +733,14 @@ get_connected_client_count() ->
         undefined -> 0;
         Size -> Size
     end.
+
+clean_session(Session) ->
+    emqx_session:filter_queue(fun is_banned_msg/1, Session).
+
+clean_pendings(Pendings) ->
+    lists:filter(fun is_banned_msg/1, Pendings).
+
+is_banned_msg(#message{from = ClientId}) ->
+    [] =:= emqx_banned:look_up({clientid, ClientId});
+is_banned_msg({deliver, _Topic, Msg}) ->
+    is_banned_msg(Msg).
