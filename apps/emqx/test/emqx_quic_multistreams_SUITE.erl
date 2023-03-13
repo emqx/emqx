@@ -1906,8 +1906,9 @@ t_listener_with_lowlevel_settings(_Config) ->
         %% not use since we are server
         %% tls_client_max_send_buffer,
         tls_server_max_send_buffer => 10240,
-        stream_recv_window_default => 1024,
-        stream_recv_buffer_default => 10240,
+        stream_recv_window_default => 16384 * 2,
+        %% there is one debug assertion: stream_recv_window_default > stream_recv_buffer_default
+        stream_recv_buffer_default => 16384,
         conn_flow_control_window => 1024,
         max_stateless_operations => 16,
         initial_window_packets => 1300,
