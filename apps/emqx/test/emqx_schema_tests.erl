@@ -472,3 +472,43 @@ password_converter_test() ->
     ?assertEqual(<<"123">>, emqx_schema:password_converter(<<"123">>, #{})),
     ?assertThrow("must_quote", emqx_schema:password_converter(foobar, #{})),
     ok.
+
+url_type_test_() ->
+    [
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server/">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://192.168.0.1/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://192.168.0.1">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), "http://some.server/")
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server:9090/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"https://some.server:9090/">>},
+            typerefl:from_string(emqx_schema:url(), <<"https://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"https://some.server:9090/path?q=uery">>},
+            typerefl:from_string(emqx_schema:url(), <<"https://some.server:9090/path?q=uery">>)
+        ),
+        ?_assertEqual(
+            {error, {unsupported_scheme, <<"postgres">>}},
+            typerefl:from_string(emqx_schema:url(), <<"postgres://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {error, empty_host_not_allowed},
+            typerefl:from_string(emqx_schema:url(), <<"">>)
+        )
+    ].
