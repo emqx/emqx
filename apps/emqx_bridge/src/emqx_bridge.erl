@@ -226,21 +226,21 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     Result.
 
 list() ->
-    lists:foldl(
-        fun({Type, NameAndConf}, Bridges) ->
-            lists:foldl(
-                fun({Name, RawConf}, Acc) ->
+    maps:fold(
+        fun(Type, NameAndConf, Bridges) ->
+            maps:fold(
+                fun(Name, RawConf, Acc) ->
                     case lookup(Type, Name, RawConf) of
                         {error, not_found} -> Acc;
                         {ok, Res} -> [Res | Acc]
                     end
                 end,
                 Bridges,
-                maps:to_list(NameAndConf)
+                NameAndConf
             )
         end,
         [],
-        maps:to_list(emqx:get_raw_config([bridges], #{}))
+        emqx:get_raw_config([bridges], #{})
     ).
 
 lookup(Id) ->
