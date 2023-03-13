@@ -74,6 +74,10 @@ spec:
         secret:
           secretName: {{ .Values.emqxLicenseSecretName }}
       {{- end }}
+      {{- if and (.Values.containerSecurityContext.enabled) (.Values.containerSecurityContext.readOnlyRootFilesystem) }}
+      - name: emqx-home
+        emptyDir: {}
+      {{- end }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
       {{- end }}
@@ -138,6 +142,10 @@ spec:
             subPath: "emqx.lic"
             readOnly: true
           {{- end }}
+          {{- if and (.Values.containerSecurityContext.enabled) (.Values.containerSecurityContext.readOnlyRootFilesystem) }}
+          - name: emqx-home
+            mountPath: "/home/emqx"
+          {{- end}}
           readinessProbe:
             httpGet:
               path: /status
