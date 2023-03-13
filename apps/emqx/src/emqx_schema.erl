@@ -43,6 +43,7 @@
 -type cipher() :: map().
 -type port_number() :: 1..65536.
 -type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
+-type url() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -56,6 +57,7 @@
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
+-typerefl_from_string({url/0, emqx_schema, to_url}).
 
 -export([
     validate_heap_size/1,
@@ -81,7 +83,8 @@
     to_bar_separated_list/1,
     to_ip_port/1,
     to_erl_cipher_suite/1,
-    to_comma_separated_atoms/1
+    to_comma_separated_atoms/1,
+    to_url/1
 ]).
 
 -export([
@@ -108,7 +111,8 @@
     bar_separated_list/0,
     ip_port/0,
     cipher/0,
-    comma_separated_atoms/0
+    comma_separated_atoms/0,
+    url/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -1306,16 +1310,9 @@ fields("ocsp") ->
             )},
         {"responder_url",
             sc(
-                binary(),
+                url(),
                 #{
                     required => false,
-                    validator => fun ocsp_responder_url_validator/1,
-                    converter => fun
-                        (undefined, _Opts) ->
-                            undefined;
-                        (URL, _Opts) ->
-                            uri_string:normalize(URL)
-                    end,
                     desc => ?DESC("server_ssl_opts_schema_ocsp_responder_url")
                 }
             )},
@@ -2507,6 +2504,15 @@ to_comma_separated_binary(Str) ->
 
 to_comma_separated_atoms(Str) ->
     {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
+
+to_url(Str) ->
+    case emqx_http_lib:uri_parse(Str) of
+        {ok, URIMap} ->
+            URIString = emqx_http_lib:normalize(URIMap),
+            {ok, iolist_to_binary(URIString)};
+        Error ->
+            Error
+    end.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
