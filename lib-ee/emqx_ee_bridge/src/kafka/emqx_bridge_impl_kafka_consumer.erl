@@ -61,7 +61,7 @@
 }.
 -type offset_reset_policy() :: reset_to_latest | reset_to_earliest | reset_by_subscriber.
 %% -type mqtt_payload() :: full_message | message_value.
--type encoding_mode() :: force_utf8 | base64.
+-type encoding_mode() :: none | base64.
 -type consumer_init_data() :: #{
     hookpoint := binary(),
     key_encoding_mode := encoding_mode(),
@@ -490,7 +490,7 @@ render(FullMessage, PayloadTemplate) ->
     },
     emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, FullMessage, Opts).
 
-encode(Value, force_utf8) ->
+encode(Value, none) ->
     Value;
 encode(Value, base64) ->
     base64:encode(Value).

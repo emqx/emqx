@@ -76,6 +76,68 @@ kafka_producer_test() ->
 
     ok.
 
+kafka_consumer_test() ->
+    Conf1 = parse(kafka_consumer_hocon()),
+    ?assertMatch(
+        #{
+            <<"bridges">> :=
+                #{
+                    <<"kafka_consumer">> :=
+                        #{
+                            <<"my_consumer">> := _
+                        }
+                }
+        },
+        check(Conf1)
+    ),
+
+    %% Bad: can't repeat kafka topics.
+    BadConf1 = emqx_map_lib:deep_put(
+        [<<"bridges">>, <<"kafka_consumer">>, <<"my_consumer">>, <<"topic_mapping">>],
+        Conf1,
+        [
+            #{
+                <<"kafka_topic">> => <<"t1">>,
+                <<"mqtt_topic">> => <<"mqtt/t1">>,
+                <<"qos">> => 1,
+                <<"payload_template">> => <<"${.}">>
+            },
+            #{
+                <<"kafka_topic">> => <<"t1">>,
+                <<"mqtt_topic">> => <<"mqtt/t2">>,
+                <<"qos">> => 2,
+                <<"payload_template">> => <<"v = ${.value}">>
+            }
+        ]
+    ),
+    ?assertThrow(
+        {_, [
+            #{
+                path := "bridges.kafka_consumer.my_consumer.topic_mapping",
+                reason := "Kafka topics must not be repeated in a bridge"
+            }
+        ]},
+        check(BadConf1)
+    ),
+
+    %% Bad: there must be at least 1 mapping.
+    BadConf2 = emqx_map_lib:deep_put(
+        [<<"bridges">>, <<"kafka_consumer">>, <<"my_consumer">>, <<"topic_mapping">>],
+        Conf1,
+        []
+    ),
+    ?assertThrow(
+        {_, [
+            #{
+                path := "bridges.kafka_consumer.my_consumer.topic_mapping",
+                reason := "There must be at least one Kafka-MQTT topic mapping"
+            }
+        ]},
+        check(BadConf2)
+    ),
+
+    ok.
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================
@@ -179,3 +241,47 @@ kafka_producer_new_hocon() ->
     "  }\n"
     "}\n"
     "".
+
+%% erlfmt-ignore
+kafka_consumer_hocon() ->
+"""
+bridges.kafka_consumer.my_consumer {
+  enable = true
+  bootstrap_hosts = \"kafka-1.emqx.net:9292\"
+  connect_timeout = 5s
+  min_metadata_refresh_interval = 3s
+  metadata_request_timeout = 5s
+  authentication = {
+    mechanism = plain
+    username = emqxuser
+    password = password
+  }
+  kafka {
+    max_batch_bytes = 896KB
+    max_rejoin_attempts = 5
+    offset_commit_interval_seconds = 3
+    offset_reset_policy = reset_to_latest
+  }
+  topic_mapping = [
+    {
+      kafka_topic = \"kafka-topic-1\"
+      mqtt_topic = \"mqtt/topic/1\"
+      qos = 1
+      payload_template = \"${.}\"
+    },
+    {
+      kafka_topic = \"kafka-topic-2\"
+      mqtt_topic = \"mqtt/topic/2\"
+      qos = 2
+      payload_template = \"v = ${.value}\"
+    }
+  ]
+  key_encoding_mode = none
+  value_encoding_mode = none
+  ssl {
+    enable = false
+    verify = verify_none
+    server_name_indication = \"auto\"
+  }
+}
+""".

@@ -109,7 +109,7 @@ values(consumer) ->
             offset_reset_policy => <<"reset_to_latest">>,
             offset_commit_interval_seconds => 5
         },
-        key_encoding_mode => <<"force_utf8">>,
+        key_encoding_mode => <<"none">>,
         topic_mapping => [
             #{
                 kafka_topic => <<"kafka-topic-1">>,
@@ -124,7 +124,7 @@ values(consumer) ->
                 payload_template => <<"v = ${.value}">>
             }
         ],
-        value_encoding_mode => <<"force_utf8">>
+        value_encoding_mode => <<"none">>
     }.
 
 %% -------------------------------------------------------------------------------------------------
@@ -334,22 +334,16 @@ fields(consumer_opts) ->
                 #{
                     required => true,
                     desc => ?DESC(consumer_topic_mapping),
-                    validator =>
-                        fun
-                            ([]) ->
-                                {error, "There must be at least one Kafka-MQTT topic mapping"};
-                            ([_ | _]) ->
-                                ok
-                        end
+                    validator => fun consumer_topic_mapping_validator/1
                 }
             )},
         {key_encoding_mode,
-            mk(enum([force_utf8, base64]), #{
-                default => force_utf8, desc => ?DESC(consumer_encoding_mode)
+            mk(enum([none, base64]), #{
+                default => none, desc => ?DESC(consumer_encoding_mode)
             })},
         {value_encoding_mode,
-            mk(enum([force_utf8, base64]), #{
-                default => force_utf8, desc => ?DESC(consumer_encoding_mode)
+            mk(enum([none, base64]), #{
+                default => none, desc => ?DESC(consumer_encoding_mode)
             })}
     ];
 fields(consumer_topic_mapping) ->
@@ -449,3 +443,16 @@ kafka_producer_converter(
 kafka_producer_converter(Config, _HoconOpts) ->
     %% new schema
     Config.
+
+consumer_topic_mapping_validator(_TopicMapping = []) ->
+    {error, "There must be at least one Kafka-MQTT topic mapping"};
+consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
+    NumEntries = length(TopicMapping),
+    KafkaTopics = [KT || #{<<"kafka_topic">> := KT} <- TopicMapping],
+    DistinctKafkaTopics = length(lists:usort(KafkaTopics)),
+    case DistinctKafkaTopics =:= NumEntries of
+        true ->
+            ok;
+        false ->
+            {error, "Kafka topics must not be repeated in a bridge"}
+    end.
