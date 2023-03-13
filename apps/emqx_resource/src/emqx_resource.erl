@@ -112,6 +112,8 @@
 
 -export([apply_reply_fun/2]).
 
+-export_type([resource_data/0]).
+
 -optional_callbacks([
     on_query/3,
     on_batch_query/3,
