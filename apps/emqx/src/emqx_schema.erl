@@ -2664,7 +2664,7 @@ servers_validator(Opts, Required) ->
         case str(Str0) of
             "" ->
                 %% Empty string is not allowed even if the field is not required
-                %% remove field from config if it's empty
+                %% we should remove field from config if it's empty
                 throw("cannot_be_empty");
             "undefined" when Required ->
                 %% when the filed is not set in config file

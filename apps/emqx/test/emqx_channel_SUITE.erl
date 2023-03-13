@@ -1243,8 +1243,8 @@ session(InitFields) when is_map(InitFields) ->
     ),
     Session = emqx_session:init(Conf),
     maps:fold(
-        fun(Field, Value, Session) ->
-            emqx_session:set_field(Field, Value, Session)
+        fun(Field, Value, SessionAcc) ->
+            emqx_session:set_field(Field, Value, SessionAcc)
         end,
         Session,
         InitFields
