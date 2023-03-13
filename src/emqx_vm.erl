@@ -380,7 +380,7 @@ read_otp_version() ->
     Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILT_ON"]),
     case file:read_file(Filename) of
         {ok, BuiltOn} ->
-            %% running on EQMX release
+            %% running on EMQX release
             BuiltOn;
         {error, enoent} ->
             OtpMajor = erlang:system_info(otp_release),
