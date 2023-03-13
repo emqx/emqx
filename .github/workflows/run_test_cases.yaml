@@ -157,7 +157,7 @@ jobs:
         working-directory: source
         env:
           DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
-          MONGO_TAG: "5"
+          MONGO_TAG: "6"
           MYSQL_TAG: "8"
           PGSQL_TAG: "13"
           REDIS_TAG: "7.0"

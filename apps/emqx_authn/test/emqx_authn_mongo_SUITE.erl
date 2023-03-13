@@ -24,13 +24,20 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(MONGO_HOST, "mongo").
--define(MONGO_CLIENT, 'emqx_authn_mongo_SUITE_client').
-
 -define(PATH, [authentication]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, mongo},
+        {group, mongo_v5}
+    ].
+
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {mongo, TCs},
+        {mongo_v5, TCs}
+    ].
 
 init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -39,24 +46,25 @@ init_per_testcase(_TestCase, Config) ->
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = mc_worker_api:connect(mongo_config()),
-    Config.
+    {ok, Pid} = mc_worker_api:connect(mongo_config(Config)),
+    [{mongo_client, Pid} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
-    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
+end_per_testcase(_TestCase, Config) ->
+    ok = mc_worker_api:disconnect(?config(mongo_client, Config)).
 
-init_per_suite(Config) ->
+init_per_group(Group, Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
+    {MongoHost, MongoPort} = address(Group),
+    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource]),
-            Config;
+            [{mongo_host, MongoHost}, {mongo_port, MongoPort} | Config];
         false ->
-            {skip, no_mongo}
+            {skip, {no_mongo, MongoHost, MongoPort}}
     end.
 
-end_per_suite(_Config) ->
+end_per_group(_Group, _Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -68,8 +76,8 @@ end_per_suite(_Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_create(_Config) ->
-    AuthConfig = raw_mongo_auth_config(),
+t_create(Config) ->
+    AuthConfig = raw_mongo_auth_config(Config),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -78,8 +86,8 @@ t_create(_Config) ->
 
     {ok, [#{provider := emqx_authn_mongodb}]} = emqx_authentication:list_authenticators(?GLOBAL).
 
-t_create_invalid(_Config) ->
-    AuthConfig = raw_mongo_auth_config(),
+t_create_invalid(Config) ->
+    AuthConfig = raw_mongo_auth_config(Config),
 
     InvalidConfigs =
         [
@@ -89,10 +97,10 @@ t_create_invalid(_Config) ->
         ],
 
     lists:foreach(
-        fun(Config) ->
+        fun(InvalidConfig) ->
             {error, _} = emqx:update_config(
                 ?PATH,
-                {create_authenticator, ?GLOBAL, Config}
+                {create_authenticator, ?GLOBAL, InvalidConfig}
             ),
 
             ?assertEqual(
@@ -103,23 +111,26 @@ t_create_invalid(_Config) ->
         InvalidConfigs
     ).
 
-t_authenticate(_Config) ->
-    ok = init_seeds(),
+t_authenticate(Config) ->
+    ok = init_seeds(Config),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            test_user_auth(Config, Sample)
         end,
         user_seeds()
     ),
-    ok = drop_seeds().
+    ok = drop_seeds(Config).
 
-test_user_auth(#{
-    credentials := Credentials0,
-    config_params := SpecificConfigParams,
-    result := Result
-}) ->
-    AuthConfig = maps:merge(raw_mongo_auth_config(), SpecificConfigParams),
+test_user_auth(
+    Config,
+    #{
+        credentials := Credentials0,
+        config_params := SpecificConfigParams,
+        result := Result
+    }
+) ->
+    AuthConfig = maps:merge(raw_mongo_auth_config(Config), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -137,9 +148,9 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
-t_destroy(_Config) ->
-    ok = init_seeds(),
-    AuthConfig = raw_mongo_auth_config(),
+t_destroy(Config) ->
+    ok = init_seeds(Config),
+    AuthConfig = raw_mongo_auth_config(Config),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -174,11 +185,11 @@ t_destroy(_Config) ->
         )
     ),
 
-    ok = drop_seeds().
+    ok = drop_seeds(Config).
 
-t_update(_Config) ->
-    ok = init_seeds(),
-    CorrectConfig = raw_mongo_auth_config(),
+t_update(Config) ->
+    ok = init_seeds(Config),
+    CorrectConfig = raw_mongo_auth_config(Config),
     IncorrectConfig =
         CorrectConfig#{<<"filter">> => #{<<"wrongfield">> => <<"wrongvalue">>}},
 
@@ -210,13 +221,13 @@ t_update(_Config) ->
             protocol => mqtt
         }
     ),
-    ok = drop_seeds().
+    ok = drop_seeds(Config).
 
-t_is_superuser(_Config) ->
-    Config = raw_mongo_auth_config(),
+t_is_superuser(Config) ->
+    AuthConfig = raw_mongo_auth_config(Config),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
     Checks = [
@@ -234,37 +245,43 @@ t_is_superuser(_Config) ->
         {true, true}
     ],
 
-    lists:foreach(fun test_is_superuser/1, Checks).
+    lists:foreach(
+        fun(Check) -> test_is_superuser(Config, Check) end,
+        Checks
+    ).
 
-test_is_superuser({Value, ExpectedValue}) ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"users">>, #{}),
+test_is_superuser(Config, {Value, ExpectedValue}) ->
+    Username = <<"user">>,
+    Client = ?config(mongo_client, Config),
 
     UserData = #{
-        username => <<"user">>,
+        username => Username,
         password_hash => <<"plainsalt">>,
         salt => <<"salt">>,
         is_superuser => Value
     },
 
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"users">>, [UserData]),
+    {{true, _}, _} = mc_worker_api:insert(Client, <<"users">>, [UserData]),
 
     Credentials = #{
         listener => 'tcp:default',
         protocol => mqtt,
-        username => <<"user">>,
+        username => Username,
         password => <<"plain">>
     },
 
     ?assertEqual(
         {ok, #{is_superuser => ExpectedValue}},
         emqx_access_control:authenticate(Credentials)
-    ).
+    ),
+
+    {true, _} = mc_worker_api:delete(Client, <<"users">>, #{}).
 
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-raw_mongo_auth_config() ->
+raw_mongo_auth_config(Config) ->
     #{
         <<"mechanism">> => <<"password_based">>,
         <<"password_hash_algorithm">> => #{
@@ -277,7 +294,7 @@ raw_mongo_auth_config() ->
         <<"mongo_type">> => <<"single">>,
         <<"database">> => <<"mqtt">>,
         <<"collection">> => <<"users">>,
-        <<"server">> => mongo_server(),
+        <<"server">> => mongo_server(Config),
         <<"w_mode">> => <<"unsafe">>,
 
         <<"filter">> => #{<<"username">> => <<"${username}">>},
@@ -449,25 +466,27 @@ user_seeds() ->
         }
     ].
 
-init_seeds() ->
+init_seeds(Config) ->
     Users = [Values || #{data := Values} <- user_seeds()],
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"users">>, Users),
+    {{true, _}, _} = mc_worker_api:insert(?config(mongo_client, Config), <<"users">>, Users),
     ok.
 
-drop_seeds() ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"users">>, #{}),
+drop_seeds(Config) ->
+    {true, _} = mc_worker_api:delete(?config(mongo_client, Config), <<"users">>, #{}),
     ok.
 
-mongo_server() ->
-    iolist_to_binary(io_lib:format("~s", [?MONGO_HOST])).
+mongo_server(Config) ->
+    iolist_to_binary([?config(mongo_host, Config)]).
 
-mongo_config() ->
+mongo_config(Config) ->
     [
         {database, <<"mqtt">>},
-        {host, ?MONGO_HOST},
-        {port, ?MONGO_DEFAULT_PORT},
-        {register, ?MONGO_CLIENT}
+        {host, ?config(mongo_host, Config)},
+        {port, ?config(mongo_port, Config)}
     ].
+
+address(mongo) -> {"mongo", ?MONGO_DEFAULT_PORT};
+address(mongo_v5) -> {"mongo_v5", ?MONGO_DEFAULT_PORT}.
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

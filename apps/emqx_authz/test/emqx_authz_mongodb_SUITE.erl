@@ -18,36 +18,40 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authz.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(MONGO_HOST, "mongo").
--define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
-
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, mongo},
+        {group, mongo_v5}
+    ].
 
 groups() ->
-    [].
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {mongo, TCs},
+        {mongo_v5, TCs}
+    ].
 
-init_per_suite(Config) ->
+init_per_group(Group, Config) ->
     ok = stop_apps([emqx_resource]),
-    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
+    {MongoHost, MongoPort} = address(Group),
+    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                 [emqx_conf, emqx_authz],
                 fun set_special_configs/1
             ),
             ok = start_apps([emqx_resource]),
-            Config;
+            [{mongo_host, MongoHost}, {mongo_port, MongoPort} | Config];
         false ->
             {skip, no_mongo}
     end.
 
-end_per_suite(_Config) ->
+end_per_group(_Group, _Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = stop_apps([emqx_resource]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
@@ -58,19 +62,19 @@ set_special_configs(_) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = mc_worker_api:connect(mongo_config()),
+    {ok, Pid} = mc_worker_api:connect(mongo_config(Config)),
     ok = emqx_authz_test_lib:reset_authorizers(),
-    Config.
+    [{mongo_client, Pid} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
-    ok = reset_samples(),
-    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
+end_per_testcase(_TestCase, Config) ->
+    ok = reset_samples(?config(mongo_client, Config)),
+    ok = mc_worker_api:disconnect(?config(mongo_client, Config)).
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_topic_rules(_Config) ->
+t_topic_rules(Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         username => <<"username">>,
@@ -79,13 +83,17 @@ t_topic_rules(_Config) ->
         listener => {tcp, default}
     },
 
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
+    SetupFun = fun(Samples) ->
+        setup_client_samples(Config, ClientInfo, Samples)
+    end,
 
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2),
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupFun),
 
-    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, fun setup_client_samples/2).
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupFun),
 
-t_complex_filter(_) ->
+    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupFun).
+
+t_complex_filter(Config) ->
     %% atom and string values also supported
     ClientInfo = #{
         clientid => clientid,
@@ -108,8 +116,9 @@ t_complex_filter(_) ->
         }
     ],
 
-    ok = setup_samples(Samples),
+    ok = setup_samples(Config, Samples),
     ok = setup_config(
+        Config,
         #{
             <<"filter">> => #{
                 <<"x">> => #{
@@ -126,7 +135,7 @@ t_complex_filter(_) ->
         [{allow, publish, <<"t">>}]
     ).
 
-t_mongo_error(_Config) ->
+t_mongo_error(Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         username => <<"username">>,
@@ -135,8 +144,9 @@ t_mongo_error(_Config) ->
         listener => {tcp, default}
     },
 
-    ok = setup_samples([]),
+    ok = setup_samples(Config, []),
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"$badoperator">> => <<"$badoperator">>}}
     ),
 
@@ -145,7 +155,7 @@ t_mongo_error(_Config) ->
         [{deny, publish, <<"t">>}]
     ).
 
-t_lookups(_Config) ->
+t_lookups(Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         cn => <<"cn">>,
@@ -163,8 +173,9 @@ t_lookups(_Config) ->
         <<"permission">> => <<"allow">>
     },
 
-    ok = setup_samples([ByClientid]),
+    ok = setup_samples(Config, [ByClientid]),
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"clientid">> => <<"${clientid}">>}}
     ),
 
@@ -183,8 +194,9 @@ t_lookups(_Config) ->
         <<"permission">> => <<"allow">>
     },
 
-    ok = setup_samples([ByPeerhost]),
+    ok = setup_samples(Config, [ByPeerhost]),
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"peerhost">> => <<"${peerhost}">>}}
     ),
 
@@ -203,8 +215,9 @@ t_lookups(_Config) ->
         <<"permission">> => <<"allow">>
     },
 
-    ok = setup_samples([ByCN]),
+    ok = setup_samples(Config, [ByCN]),
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"CN">> => ?PH_CERT_CN_NAME}}
     ),
 
@@ -223,8 +236,9 @@ t_lookups(_Config) ->
         <<"permission">> => <<"allow">>
     },
 
-    ok = setup_samples([ByDN]),
+    ok = setup_samples(Config, [ByDN]),
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"DN">> => ?PH_CERT_SUBJECT}}
     ),
 
@@ -236,7 +250,7 @@ t_lookups(_Config) ->
         ]
     ).
 
-t_bad_filter(_Config) ->
+t_bad_filter(Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         cn => <<"cn">>,
@@ -248,6 +262,7 @@ t_bad_filter(_Config) ->
     },
 
     ok = setup_config(
+        Config,
         #{<<"filter">> => #{<<"$in">> => #{<<"a">> => 1}}}
     ),
 
@@ -266,12 +281,13 @@ t_bad_filter(_Config) ->
 populate_records(AclRecords, AdditionalData) ->
     [maps:merge(Record, AdditionalData) || Record <- AclRecords].
 
-setup_samples(AclRecords) ->
-    ok = reset_samples(),
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, AclRecords),
+setup_samples(Config, AclRecords) ->
+    Client = ?config(mongo_client, Config),
+    ok = reset_samples(Client),
+    {{true, _}, _} = mc_worker_api:insert(Client, <<"acl">>, AclRecords),
     ok.
 
-setup_client_samples(ClientInfo, Samples) ->
+setup_client_samples(Config, ClientInfo, Samples) ->
     #{username := Username} = ClientInfo,
     Records = lists:map(
         fun(Sample) ->
@@ -290,20 +306,20 @@ setup_client_samples(ClientInfo, Samples) ->
         end,
         Samples
     ),
-    setup_samples(Records),
-    setup_config(#{<<"filter">> => #{<<"username">> => <<"${username}">>}}).
+    setup_samples(Config, Records),
+    setup_config(Config, #{<<"filter">> => #{<<"username">> => <<"${username}">>}}).
 
-reset_samples() ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),
+reset_samples(Client) ->
+    {true, _} = mc_worker_api:delete(Client, <<"acl">>, #{}),
     ok.
 
-setup_config(SpecialParams) ->
+setup_config(Config, SpecialParams) ->
     emqx_authz_test_lib:setup_config(
-        raw_mongo_authz_config(),
+        raw_mongo_authz_config(Config),
         SpecialParams
     ).
 
-raw_mongo_authz_config() ->
+raw_mongo_authz_config(Config) ->
     #{
         <<"type">> => <<"mongodb">>,
         <<"enable">> => <<"true">>,
@@ -311,21 +327,23 @@ raw_mongo_authz_config() ->
         <<"mongo_type">> => <<"single">>,
         <<"database">> => <<"mqtt">>,
         <<"collection">> => <<"acl">>,
-        <<"server">> => mongo_server(),
+        <<"server">> => mongo_server(Config),
 
         <<"filter">> => #{<<"username">> => <<"${username}">>}
     }.
 
-mongo_server() ->
-    iolist_to_binary(io_lib:format("~s", [?MONGO_HOST])).
+mongo_server(Config) ->
+    iolist_to_binary(?config(mongo_host, Config)).
 
-mongo_config() ->
+mongo_config(Config) ->
     [
         {database, <<"mqtt">>},
-        {host, ?MONGO_HOST},
-        {port, ?MONGO_DEFAULT_PORT},
-        {register, ?MONGO_CLIENT}
+        {host, ?config(mongo_host, Config)},
+        {port, ?config(mongo_port, Config)}
     ].
+
+address(mongo) -> {"mongo", ?MONGO_DEFAULT_PORT};
+address(mongo_v5) -> {"mongo_v5", ?MONGO_DEFAULT_PORT}.
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

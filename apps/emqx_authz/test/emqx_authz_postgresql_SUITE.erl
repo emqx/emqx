@@ -81,11 +81,15 @@ t_topic_rules(_Config) ->
         listener => {tcp, default}
     },
 
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
+    SetupFun = fun(Samples) ->
+        setup_client_samples(ClientInfo, Samples)
+    end,
 
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2),
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupFun),
 
-    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, fun setup_client_samples/2).
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupFun),
+
+    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupFun).
 
 t_lookups(_Config) ->
     ClientInfo = #{
