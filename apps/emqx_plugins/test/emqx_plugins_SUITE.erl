@@ -559,8 +559,8 @@ group_t_copy_plugin_to_a_new_node({'end', Config}) ->
     ok = rpc:call(CopyToNode, emqx_config, delete_override_conf_files, []),
     rpc:call(CopyToNode, ekka, leave, []),
     rpc:call(CopyFromNode, ekka, leave, []),
-    {ok, _} = emqx_common_test_helpers:stop_slave(CopyToNode),
-    {ok, _} = emqx_common_test_helpers:stop_slave(CopyFromNode),
+    ok = emqx_common_test_helpers:stop_slave(CopyToNode),
+    ok = emqx_common_test_helpers:stop_slave(CopyFromNode),
     ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
     ok = file:del_dir_r(proplists:get_value(from_install_dir, Config));
 group_t_copy_plugin_to_a_new_node(Config) ->

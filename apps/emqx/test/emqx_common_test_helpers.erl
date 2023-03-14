@@ -67,7 +67,8 @@
     emqx_cluster/2,
     start_epmd/0,
     start_slave/2,
-    stop_slave/1
+    stop_slave/1,
+    listener_port/2
 ]).
 
 -export([clear_screen/0]).
@@ -588,6 +589,12 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     %% Whether to execute `emqx_config:init_load(SchemaMod)`
     %% default: true
     load_schema => boolean(),
+    %% If we want to exercise the scenario where a node joins an
+    %% existing cluster where there has already been some
+    %% configuration changes (via cluster rpc), then we need to enable
+    %% autocluster so that the joining node will restart the
+    %% `emqx_conf' app and correctly catch up the config.
+    start_autocluster => boolean(),
     %% Eval by emqx_config:put/2
     conf => [{KeyPath :: list(), Val :: term()}],
     %% Fast option to config listener port
@@ -725,9 +732,24 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% we need a fresh data dir for each peer node to avoid unintended
     %% successes due to sharing of data in the cluster.
     PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
+    %% If we want to exercise the scenario where a node joins an
+    %% existing cluster where there has already been some
+    %% configuration changes (via cluster rpc), then we need to enable
+    %% autocluster so that the joining node will restart the
+    %% `emqx_conf' app and correctly catch up the config.
+    StartAutocluster = maps:get(start_autocluster, Opts, false),
 
     %% Load env before doing anything to avoid overriding
     lists:foreach(fun(App) -> rpc:call(Node, ?MODULE, load, [App]) end, LoadApps),
+    %% Ensure a clean mnesia directory for each run to avoid
+    %% inter-test flakiness.
+    MnesiaDataDir = filename:join([
+        PrivDataDir,
+        node(),
+        integer_to_list(erlang:unique_integer()),
+        "mnesia"
+    ]),
+    erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]),
 
     %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
     %% in emqx_common_test_helpers:start_apps(...)
@@ -792,13 +814,10 @@ setup_node(Node, Opts) when is_map(Opts) ->
         undefined ->
             ok;
         _ ->
+            StartAutocluster andalso
+                (ok = rpc:call(Node, emqx_machine_boot, start_autocluster, [])),
             case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->
-                    %% fix cluster rpc, as the conf app is not
-                    %% restarted with the current test procedure.
-                    StartApps andalso
-                        lists:member(emqx_conf, Apps) andalso
-                        (ok = erpc:call(Node, emqx_cluster_rpc, reset, [])),
                     ok;
                 ignore ->
                     ok;
@@ -872,6 +891,9 @@ base_port(Number) ->
 gen_rpc_port(BasePort) ->
     BasePort - 1.
 
+listener_port(Opts, Type) when is_map(Opts) ->
+    BasePort = maps:get(base_port, Opts),
+    listener_port(BasePort, Type);
 listener_port(BasePort, tcp) ->
     BasePort;
 listener_port(BasePort, ssl) ->
@@ -1057,7 +1079,7 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %% noise in the logs.
 call_janitor() ->
     Janitor = get_or_spawn_janitor(),
-    exit(Janitor, normal),
+    ok = emqx_test_janitor:stop(Janitor),
     ok.
 
 get_or_spawn_janitor() ->
