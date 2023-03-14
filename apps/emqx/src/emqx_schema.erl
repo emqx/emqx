@@ -2818,7 +2818,7 @@ is_port_number(Port) ->
 
 parse_port(Port) ->
     case string:to_integer(string:strip(Port)) of
-        {P, ""} when P < 0 -> throw("port_number_too_small");
+        {P, ""} when P < 0 -> throw("port_number_must_be_positive");
         {P, ""} when P > 65535 -> throw("port_number_too_large");
         {P, ""} -> P;
         _ -> throw("bad_port_number")
