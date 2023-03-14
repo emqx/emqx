@@ -36,10 +36,30 @@
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.0-2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        {group, copy_plugin},
+        {group, create_tar_copy_plugin},
+        emqx_common_test_helpers:all(?MODULE)
+    ].
+
+groups() ->
+    [
+        {copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]},
+        {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
+    ].
+
+init_per_group(copy_plugin, Config) ->
+    Config;
+init_per_group(create_tar_copy_plugin, Config) ->
+    [{remove_tar, true} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_suite(Config) ->
     WorkDir = proplists:get_value(data_dir, Config),
+    filelib:ensure_path(WorkDir),
     OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
     emqx_common_test_helpers:start_apps([emqx_conf]),
     emqx_plugins:put_config(install_dir, WorkDir),
@@ -71,15 +91,7 @@ end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
 get_demo_plugin_package() ->
-    get_demo_plugin_package(
-        #{
-            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
-            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
-            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
-            tag => ?EMQX_PLUGIN_TEMPLATE_TAG,
-            shdir => emqx_plugins:install_dir()
-        }
-    ).
+    get_demo_plugin_package(emqx_plugins:install_dir()).
 
 get_demo_plugin_package(
     #{
@@ -98,7 +110,17 @@ get_demo_plugin_package(
         TargetName
     ]),
     ok = file:write_file(Pkg, PluginBin),
-    Opts#{package => Pkg}.
+    Opts#{package => Pkg};
+get_demo_plugin_package(Dir) ->
+    get_demo_plugin_package(
+        #{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG,
+            shdir => Dir
+        }
+    ).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
@@ -478,6 +500,106 @@ t_elixir_plugin(Config) ->
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
     ok.
+
+group_t_copy_plugin_to_a_new_node({init, Config}) ->
+    WorkDir = proplists:get_value(data_dir, Config),
+    FromInstallDir = filename:join(WorkDir, atom_to_list(plugins_copy_from)),
+    file:del_dir_r(FromInstallDir),
+    ok = filelib:ensure_path(FromInstallDir),
+    ToInstallDir = filename:join(WorkDir, atom_to_list(plugins_copy_to)),
+    file:del_dir_r(ToInstallDir),
+    ok = filelib:ensure_path(ToInstallDir),
+    #{package := Package, release_name := PluginName} = get_demo_plugin_package(FromInstallDir),
+    [{CopyFrom, CopyFromOpts}, {CopyTo, CopyToOpts}] =
+        emqx_common_test_helpers:emqx_cluster(
+            [
+                {core, plugins_copy_from},
+                {core, plugins_copy_to}
+            ],
+            #{
+                apps => [emqx_conf, emqx_plugins],
+                env => [
+                    {emqx, init_config_load_done, false},
+                    {emqx, boot_modules, []}
+                ],
+                load_schema => false
+            }
+        ),
+    CopyFromNode = emqx_common_test_helpers:start_slave(
+        CopyFrom, maps:remove(join_to, CopyFromOpts)
+    ),
+    ok = rpc:call(CopyFromNode, emqx_plugins, put_config, [install_dir, FromInstallDir]),
+    CopyToNode = emqx_common_test_helpers:start_slave(CopyTo, maps:remove(join_to, CopyToOpts)),
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [install_dir, ToInstallDir]),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = rpc:call(CopyFromNode, emqx_plugins, ensure_installed, [NameVsn]),
+    ok = rpc:call(CopyFromNode, emqx_plugins, ensure_started, [NameVsn]),
+    ok = rpc:call(CopyFromNode, emqx_plugins, ensure_enabled, [NameVsn]),
+    case proplists:get_bool(remove_tar, Config) of
+        true ->
+            %% Test the case when a plugin is installed, but its original tar file is removed
+            %% and must be re-created
+            ok = file:delete(filename:join(FromInstallDir, NameVsn ++ ?PACKAGE_SUFFIX));
+        false ->
+            ok
+    end,
+    [
+        {from_install_dir, FromInstallDir},
+        {to_install_dir, ToInstallDir},
+        {copy_from_node, CopyFromNode},
+        {copy_to_node, CopyToNode},
+        {name_vsn, NameVsn},
+        {plugin_name, PluginName}
+        | Config
+    ];
+group_t_copy_plugin_to_a_new_node({'end', Config}) ->
+    CopyFromNode = proplists:get_value(copy_from_node, Config),
+    CopyToNode = proplists:get_value(copy_to_node, Config),
+    ok = rpc:call(CopyFromNode, emqx_config, delete_override_conf_files, []),
+    ok = rpc:call(CopyToNode, emqx_config, delete_override_conf_files, []),
+    rpc:call(CopyToNode, ekka, leave, []),
+    rpc:call(CopyFromNode, ekka, leave, []),
+    {ok, _} = emqx_common_test_helpers:stop_slave(CopyToNode),
+    {ok, _} = emqx_common_test_helpers:stop_slave(CopyFromNode),
+    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
+    ok = file:del_dir_r(proplists:get_value(from_install_dir, Config));
+group_t_copy_plugin_to_a_new_node(Config) ->
+    CopyFromNode = proplists:get_value(copy_from_node, Config),
+    CopyToNode = proplists:get_value(copy_to_node, Config),
+    CopyToDir = proplists:get_value(to_install_dir, Config),
+    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config, [[states], []]),
+    NameVsn = proplists:get_value(name_vsn, Config),
+    PluginName = proplists:get_value(plugin_name, Config),
+    PluginApp = list_to_atom(PluginName),
+    ?assertMatch([#{enable := true, name_vsn := NameVsn}], CopyFromPluginsState),
+    ?assert(
+        proplists:is_defined(
+            PluginApp,
+            rpc:call(CopyFromNode, application, which_applications, [])
+        )
+    ),
+    ?assertEqual([], filelib:wildcard(filename:join(CopyToDir, "**"))),
+    %% Check that a new node doesn't have this plugin before it joins the cluster
+    ?assertEqual([], rpc:call(CopyToNode, emqx_conf, get, [[plugins, states], []])),
+    ?assertMatch({error, _}, rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])),
+    ?assertNot(
+        proplists:is_defined(
+            PluginApp,
+            rpc:call(CopyToNode, application, which_applications, [])
+        )
+    ),
+    ok = rpc:call(CopyToNode, ekka, join, [CopyFromNode]),
+    %% Mimic cluster-override conf copying
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [[states], CopyFromPluginsState]),
+    %% Plugin copying is triggered upon app restart on a new node.
+    %% This is similar to emqx_conf, which copies cluster-override conf upon start,
+    %% see: emqx_conf_app:init_conf/0
+    ok = rpc:call(CopyToNode, application, stop, [emqx_plugins]),
+    {ok, _} = rpc:call(CopyToNode, application, ensure_all_started, [emqx_plugins]),
+    ?assertMatch(
+        {ok, #{running_status := running, config_status := enabled}},
+        rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
+    ).
 
 make_tar(Cwd, NameWithVsn) ->
     make_tar(Cwd, NameWithVsn, NameWithVsn).

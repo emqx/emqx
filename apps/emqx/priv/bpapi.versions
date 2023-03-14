@@ -25,6 +25,7 @@
 {emqx_mgmt_trace,2}.
 {emqx_persistent_session,1}.
 {emqx_plugin_libs,1}.
+{emqx_plugins,1}.
 {emqx_prometheus,1}.
 {emqx_resource,1}.
 {emqx_retainer,1}.
