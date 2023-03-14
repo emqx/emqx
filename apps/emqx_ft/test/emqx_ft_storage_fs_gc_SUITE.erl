@@ -37,16 +37,22 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(TC, Config) ->
-    _ = application:unset_env(emqx_ft, gc_interval),
-    _ = application:unset_env(emqx_ft, min_segments_ttl),
-    _ = application:unset_env(emqx_ft, max_segments_ttl),
     ok = emqx_common_test_helpers:start_app(
         emqx_ft,
         fun(emqx_ft) ->
-            ok = emqx_config:put([file_transfer, storage], #{
-                type => local,
-                root => mk_root(TC, Config)
-            })
+            emqx_common_test_helpers:load_config(
+                emqx_ft_schema,
+                iolist_to_binary([
+                    "file_transfer {"
+                    "  storage = {"
+                    "    type = \"local\","
+                    "    root = \"",
+                    mk_root(TC, Config),
+                    "\""
+                    "  }"
+                    "}"
+                ])
+            )
         end
     ),
     Config.
@@ -64,7 +70,7 @@ mk_root(TC, Config) ->
 
 t_gc_triggers_periodically(_Config) ->
     Interval = 500,
-    ok = application:set_env(emqx_ft, gc_interval, Interval),
+    ok = emqx_config:put([file_transfer, storage, gc, interval], Interval),
     ok = emqx_ft_storage_fs_gc:reset(emqx_ft_conf:storage()),
     ?check_trace(
         timer:sleep(Interval * 3),
@@ -165,8 +171,8 @@ t_gc_complete_transfers(_Config) ->
     ).
 
 t_gc_incomplete_transfers(_Config) ->
-    _ = application:set_env(emqx_ft, min_segments_ttl, 0),
-    _ = application:set_env(emqx_ft, max_segments_ttl, 4),
+    ok = emqx_config:put([file_transfer, storage, gc, minimum_segments_ttl], 0),
+    ok = emqx_config:put([file_transfer, storage, gc, maximum_segments_ttl], 4),
     Storage = emqx_ft_conf:storage(),
     Transfers = [
         {
@@ -195,7 +201,7 @@ t_gc_incomplete_transfers(_Config) ->
     ?check_trace(
         begin
             % 2. Enable periodic GC every 0.5 seconds.
-            ok = application:set_env(emqx_ft, gc_interval, 500),
+            ok = emqx_config:put([file_transfer, storage, gc, interval], 500),
             ok = emqx_ft_storage_fs_gc:reset(Storage),
             % 3. First we need the first transfer to be collected.
             {ok, _} = ?block_until(
@@ -241,8 +247,8 @@ t_gc_incomplete_transfers(_Config) ->
     ).
 
 t_gc_handling_errors(_Config) ->
-    _ = application:set_env(emqx_ft, min_segments_ttl, 0),
-    _ = application:set_env(emqx_ft, max_segments_ttl, 0),
+    ok = emqx_config:put([file_transfer, storage, gc, minimum_segments_ttl], 0),
+    ok = emqx_config:put([file_transfer, storage, gc, maximum_segments_ttl], 0),
     Storage = emqx_ft_conf:storage(),
     Transfer1 = {<<"client1">>, mk_file_id()},
     Transfer2 = {<<"client2">>, mk_file_id()},
