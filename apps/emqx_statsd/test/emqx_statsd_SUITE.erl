@@ -33,6 +33,26 @@
     "tags {\"t1\" = \"good\", test = 100}\n"
     "}\n"
 >>).
+-define(BAD_CONF, <<
+    "\n"
+    "statsd {\n"
+    "enable = true\n"
+    "flush_time_interval = 4s\n"
+    "sample_time_interval = 4s\n"
+    "server = \"\"\n"
+    "tags {\"t1\" = \"good\", test = 100}\n"
+    "}\n"
+>>).
+
+-define(DEFAULT_CONF, <<
+    "\n"
+    "statsd {\n"
+    "enable = true\n"
+    "flush_time_interval = 4s\n"
+    "sample_time_interval = 4s\n"
+    "tags {\"t1\" = \"good\", test = 100}\n"
+    "}\n"
+>>).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps(
@@ -54,6 +74,33 @@ set_special_configs(_) ->
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
+
+t_server_validator(_) ->
+    Server0 = emqx_conf:get_raw([statsd, server]),
+    ?assertThrow(
+        #{
+            kind := validation_error,
+            path := "statsd.server",
+            reason := "cannot_be_empty",
+            value := ""
+        },
+        emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BAD_CONF, #{
+            raw_with_default => true
+        })
+    ),
+    %% default
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?DEFAULT_CONF, #{
+        raw_with_default => true
+    }),
+    undefined = emqx_conf:get_raw([statsd, server], undefined),
+    ?assertMatch("127.0.0.1:8125", emqx_conf:get([statsd, server])),
+    %% recover
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF, #{
+        raw_with_default => true
+    }),
+    Server2 = emqx_conf:get_raw([statsd, server]),
+    ?assertMatch(Server0, Server2),
+    ok.
 
 t_statsd(_) ->
     {ok, Socket} = gen_udp:open(8126, [{active, true}]),
@@ -137,7 +184,16 @@ t_config_update(_) ->
         ?assertNotEqual(OldPid, NewPid)
     after
         {ok, _} = emqx_statsd_config:update(OldRawConf)
-    end.
+    end,
+    %% bad server url
+    BadRawConf = OldRawConf#{<<"server">> := <<"">>},
+    {error, #{
+        kind := validation_error,
+        path := "statsd.server",
+        reason := "cannot_be_empty",
+        value := ""
+    }} = emqx_statsd_config:update(BadRawConf),
+    ok.
 
 request(Method) -> request(Method, []).
 

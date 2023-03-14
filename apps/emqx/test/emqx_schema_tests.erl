@@ -455,10 +455,11 @@ servers_validator_test() ->
     NotRequired = emqx_schema:servers_validator(#{}, false),
     ?assertThrow("cannot_be_empty", Required("")),
     ?assertThrow("cannot_be_empty", Required(<<>>)),
+    ?assertThrow("cannot_be_empty", NotRequired("")),
+    ?assertThrow("cannot_be_empty", NotRequired(<<>>)),
     ?assertThrow("cannot_be_empty", Required(undefined)),
-    ?assertEqual(ok, NotRequired("")),
-    ?assertEqual(ok, NotRequired(<<>>)),
     ?assertEqual(ok, NotRequired(undefined)),
+    ?assertEqual(ok, NotRequired("undefined")),
     ok.
 
 converter_invalid_input_test() ->
