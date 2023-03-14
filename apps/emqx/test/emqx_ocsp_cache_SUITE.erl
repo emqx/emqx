@@ -147,6 +147,7 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
+    _Heir = spawn_dummy_heir(),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     [
         {cache_pid, CachePid}
@@ -164,6 +165,7 @@ init_per_testcase(_TestCase, Config) ->
             {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
         end
     ),
+    _Heir = spawn_dummy_heir(),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     DataDir = ?config(data_dir, Config),
     Type = ssl,
@@ -224,6 +226,17 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+%% The real cache makes `emqx_kernel_sup' the heir to its ETS table.
+%% In some tests, we don't start the full supervision tree, so we need
+%% this dummy process.
+spawn_dummy_heir() ->
+    spawn_link(fun() ->
+        true = register(emqx_kernel_sup, self()),
+        receive
+            stop -> ok
+        end
+    end).
 
 does_module_exist(Mod) ->
     case erlang:module_loaded(Mod) of
@@ -508,11 +521,13 @@ t_request_ocsp_response_restart_cache(Config) ->
             ok
         end,
         fun(Trace) ->
+            %% Only one fetch because the cache table was preserved by
+            %% its heir ("emqx_kernel_sup").
             ?assertMatch(
-                [_, _],
+                [_],
                 ?of_kind(ocsp_http_fetch_and_cache, Trace)
             ),
-            assert_http_get(2),
+            assert_http_get(1),
             ok
         end
     ).
