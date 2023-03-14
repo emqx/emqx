@@ -28,6 +28,9 @@
 -define(MYSQL_DATABASE, "mqtt").
 -define(MYSQL_USERNAME, "root").
 -define(MYSQL_PASSWORD, "public").
+-define(MYSQL_POOL_SIZE, 4).
+
+-define(WORKER_POOL_SIZE, 4).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -168,11 +171,13 @@ mysql_config(BridgeType, Config) ->
             "  database = ~p\n"
             "  username = ~p\n"
             "  password = ~p\n"
+            "  pool_size = ~b\n"
             "  sql = ~p\n"
             "  resource_opts = {\n"
             "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
+            "    worker_pool_size = ~b\n"
             "  }\n"
             "  ssl = {\n"
             "    enable = ~w\n"
@@ -185,9 +190,11 @@ mysql_config(BridgeType, Config) ->
                 ?MYSQL_DATABASE,
                 ?MYSQL_USERNAME,
                 ?MYSQL_PASSWORD,
+                ?MYSQL_POOL_SIZE,
                 ?SQL_BRIDGE,
                 BatchSize,
                 QueryMode,
+                ?WORKER_POOL_SIZE,
                 TlsEnabled
             ]
         ),
@@ -265,27 +272,26 @@ connect_direct_mysql(Config) ->
     {ok, Pid} = mysql:start_link(Opts ++ SslOpts),
     Pid.
 
+query_direct_mysql(Config, Query) ->
+    Pid = connect_direct_mysql(Config),
+    try
+        mysql:query(Pid, Query)
+    after
+        mysql:stop(Pid)
+    end.
+
 % These funs connect and then stop the mysql connection
 connect_and_create_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_CREATE_TABLE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_CREATE_TABLE).
 
 connect_and_drop_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_DROP_TABLE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_DROP_TABLE).
 
 connect_and_clear_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_DELETE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_DELETE).
 
 connect_and_get_payload(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    Result = mysql:query(DirectPid, ?SQL_SELECT),
-    mysql:stop(DirectPid),
-    Result.
+    query_direct_mysql(Config, ?SQL_SELECT).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -504,6 +510,50 @@ t_bad_sql_parameter(Config) ->
             ?assertEqual({error, {unrecoverable_error, {invalid_params, [bad_parameter]}}}, Result)
     end,
     ok.
+
+t_nasty_sql_string(Config) ->
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    Payload = list_to_binary(lists:seq(0, 255)),
+    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    Result = send_message(Config, Message),
+    ?assertEqual(ok, Result),
+    ?assertMatch(
+        {ok, [<<"payload">>], [[Payload]]},
+        connect_and_get_payload(Config)
+    ).
+
+t_workload_fits_prepared_statement_limit(Config) ->
+    N = 50,
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    Results = lists:append(
+        emqx_misc:pmap(
+            fun(_) ->
+                [
+                    begin
+                        Payload = integer_to_binary(erlang:unique_integer()),
+                        Timestamp = erlang:system_time(millisecond),
+                        send_message(Config, #{payload => Payload, timestamp => Timestamp})
+                    end
+                 || _ <- lists:seq(1, N)
+                ]
+            end,
+            lists:seq(1, ?WORKER_POOL_SIZE * ?MYSQL_POOL_SIZE),
+            _Timeout = 10_000
+        )
+    ),
+    ?assertEqual(
+        [],
+        [R || R <- Results, R /= ok]
+    ),
+    {ok, _, [[_Var, Count]]} =
+        query_direct_mysql(Config, "SHOW GLOBAL STATUS LIKE 'Prepared_stmt_count'"),
+    ?assertEqual(
+        ?MYSQL_POOL_SIZE,
+        binary_to_integer(Count)
+    ).
 
 t_unprepared_statement_query(Config) ->
     ?assertMatch(

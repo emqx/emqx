@@ -68,11 +68,6 @@
 
 -compile({no_auto_import, [float/1]}).
 
--define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
-
-%% Space and CRLF
--define(EX_WITHE_CHARS, "\\s").
-
 -type uri_string() :: iodata().
 
 -type tmpl_token() :: list({var, binary()} | {str, binary()}).
@@ -172,8 +167,8 @@ detect_sql_type(SQL) ->
 ) -> InsertSQL :: binary().
 proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
     ValuesPart = erlang:iolist_to_binary(
-        lists:join(", ", [
-            emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg)
+        lists:join($,, [
+            proc_sql_param_str(Tokens, Msg)
          || {_, Msg} <- BatchReqs
         ])
     ),
