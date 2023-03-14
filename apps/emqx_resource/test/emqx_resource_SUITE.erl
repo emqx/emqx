@@ -263,7 +263,11 @@ t_batch_query_counter(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{batch_size => BatchSize, query_mode => sync}
+        #{
+            batch_size => BatchSize,
+            batch_time => 100,
+            query_mode => sync
+        }
     ),
 
     ?check_trace(
@@ -622,6 +626,7 @@ t_query_counter_async_inflight_batch(_) ->
         #{
             query_mode => async,
             batch_size => BatchSize,
+            batch_time => 100,
             async_inflight_window => WindowSize,
             worker_pool_size => 1,
             resume_interval => 300
@@ -1157,7 +1162,8 @@ t_unblock_only_required_buffer_workers(_) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 5
+            batch_size => 5,
+            batch_time => 100
         }
     ),
     lists:foreach(
@@ -1171,7 +1177,8 @@ t_unblock_only_required_buffer_workers(_) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 5
+            batch_size => 5,
+            batch_time => 100
         }
     ),
     %% creation of `?ID1` should not have unblocked `?ID`'s buffer workers
@@ -1202,6 +1209,7 @@ t_retry_batch(_Config) ->
         #{
             query_mode => async,
             batch_size => 5,
+            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 1_000
         }
@@ -1571,7 +1579,6 @@ t_retry_async_inflight_full(_Config) ->
             query_mode => async,
             async_inflight_window => AsyncInflightWindow,
             batch_size => 1,
-            batch_time => 20,
             worker_pool_size => 1,
             resume_interval => ResumeInterval
         }
@@ -2086,7 +2093,6 @@ t_expiration_async_after_reply(_Config) ->
         #{
             query_mode => async,
             batch_size => 1,
-            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 1_000
         }
@@ -2309,7 +2315,6 @@ t_expiration_retry(_Config) ->
         #{
             query_mode => sync,
             batch_size => 1,
-            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 300
         }
@@ -2499,7 +2504,6 @@ t_recursive_flush(_Config) ->
         #{
             query_mode => async,
             batch_size => 1,
-            batch_time => 10_000,
             worker_pool_size => 1
         }
     ),
