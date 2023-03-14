@@ -50,48 +50,42 @@ The EMQX broker runs as Linux user `emqx` in the docker container.
 
 All EMQX Configuration in [`etc/emqx.conf`](https://github.com/emqx/emqx/blob/master/apps/emqx/etc/emqx.conf) can be configured via environment variables.
 
-By default, the environment variables with `EMQX_` prefix are mapped to key-value pairs in configuration files.
-
-You can change the prefix by overriding `HOCON_ENV_OVERRIDE_PREFIX`.
+The environment variables with `EMQX_` prefix are mapped to key-value pairs in configuration files.
 
 Example:
 
 ```bash
-EMQX_LISTENERS__SSL__DEFAULT__ACCEPTORS <--> listeners.ssl.default.acceptors
-EMQX_ZONES__DEFAULT__MQTT__MAX_PACKET_SIZE <--> zones.default.mqtt.max_packet_size
+EMQX_DASHBOARD__DEFAULT_PASSWORD       <--> dashboard.default_password
+EMQX_NODE__COOKIE                      <--> node.cookie
+EMQX_LISTENERS__SSL__default__ENABLE   <--> listeners.ssl.default.enable
 ```
+Note: The lowercase use of 'default' is not a typo. It is used to demonstrate that lowercase environment variables are equivalent.
 
 + Prefix `EMQX_` is removed
 + All upper case letters is replaced with lower case letters
 + `__` is replaced with `.`
 
-If `HOCON_ENV_OVERRIDE_PREFIX=DEV_` is set:
-
-```bash
-DEV_LISTENER__SSL__EXTERNAL__ACCEPTORS <--> listener.ssl.external.acceptors
-DEV_MQTT__MAX_PACKET_SIZE              <--> mqtt.max_packet_size
-DEV_LISTENERS__TCP__DEFAULT__BIND      <--> listeners.tcp.default.bind
-```
-
 For example, set MQTT TCP port to 1883
 
 ```console
-$ docker run -d --name emqx -e DEV_LISTENERS__TCP__DEFAULT__BIND=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest
+$ docker run -d --name emqx -e EMQX_DASHBOARD__DEFAULT_PASSWORD=mysecret -p 18083:18083 -p 1883:1883 emqx/emqx:latest
 ```
 
-Please read more about EMQX configuration in the [official documentation](https://www.emqx.io/docs/en/v5.0/admin/cfg.html).
+Please read more about EMQX configuration in the [official documentation](https://www.emqx.io/docs/en/v5.0/configuration/configuration.html)
 
 #### EMQX node name configuration
 
-| Options                    | Default            | Mapped                    | Description                           |
-| ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
-| `EMQX_NAME`                | container name     | none                      | EMQX node short name                  |
-| `EMQX_HOST`                | container IP       | none                      | EMQX node host, IP or FQDN            |
+A node name consists of two parts, `EMQX_NAME` part and `EMQX_HOST` part connected by a the symbol `@`. For example: `emqx@127.0.0.1`.
 
-These environment variables are used during container startup phase only in [docker-entrypoint.sh](./docker-entrypoint.sh).
+Environment variables `EMQX_NODE_NAME` or `EMQX_NODE__NAME` can be used to set a EMQX node name.
+If neither of them is set, EMQX will resolve its node name from the running environment or other environment varialbes used for node discovery.
 
-If `EMQX_NAME` and `EMQX_HOST` are set, and `EMQX_NODE_NAME` is not set, `EMQX_NODE_NAME=$EMQX_NAME@$EMQX_HOST`.
-Otherwise `EMQX_NODE_NAME` is taken verbatim.
+When running in docker, by default, `EMQX_NAME` and `EMQX_HOST` are resolved as below:
+
+| Options      | Default         | Description                  |
+| -------------| --------------- | -----------------------------|
+| `EMQX_NAME`  | container name  | EMQX node short name         |
+| `EMQX_HOST`  | container IP    | EMQX node host, IP or FQDN   |
 
 ### Cluster
 
@@ -108,8 +102,7 @@ Let's create a static node list cluster from docker-compose.
     emqx1:
       image: emqx/emqx:latest
       environment:
-      - "EMQX_NAME=emqx"
-      - "EMQX_HOST=node1.emqx.io"
+      - "EMQX_NODE_NAME=emqx@node1.emqx.io"
       - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io, emqx@node2.emqx.io]"
       networks:
@@ -120,8 +113,7 @@ Let's create a static node list cluster from docker-compose.
     emqx2:
       image: emqx/emqx:latest
       environment:
-      - "EMQX_NAME=emqx"
-      - "EMQX_HOST=node2.emqx.io"
+      - "EMQX_NODE_NAME=emqx@node2.emqx.io"
       - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io, emqx@node2.emqx.io]"
       networks:
@@ -174,8 +166,7 @@ services:
     image: emqx/emqx:latest
     restart: always
     environment:
-      EMQX_NAME: foo_emqx
-      EMQX_HOST: 127.0.0.1
+      EMQX_NODE_NAME: foo_emqx@127.0.0.1
     volumes:
       - vol-emqx-data:/opt/emqx/data
       - vol-emqx-etc:/opt/emqx/etc

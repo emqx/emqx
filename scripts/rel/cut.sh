@@ -35,11 +35,10 @@ options:
                      in addition to regular :<version> one
 
 
-NOTE: For 5.0 series the current working branch must be 'release-50' for opensource edition
-      and 'release-e50' for enterprise edition.
+NOTE: For 5.0 series the current working branch must be 'release-50'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-50]----(v5.0.12 | e5.0.0)
+          \`---[release-50]----(v5.0.20 | e5.0.1)
 EOF
 }
 

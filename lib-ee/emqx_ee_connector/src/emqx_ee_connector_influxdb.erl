@@ -239,7 +239,7 @@ do_start_client(
     Precision = maps:get(precision, Config, ms),
     case influxdb:start_client(ClientConfig) of
         {ok, Client} ->
-            case influxdb:is_alive(Client) of
+            case influxdb:is_alive(Client, true) of
                 true ->
                     State = #{
                         client => Client,
@@ -252,13 +252,15 @@ do_start_client(
                         state => redact_auth(State)
                     }),
                     {ok, State};
-                false ->
-                    ?tp(influxdb_connector_start_failed, #{error => influxdb_client_not_alive}),
+                {false, Reason} ->
+                    ?tp(influxdb_connector_start_failed, #{
+                        error => influxdb_client_not_alive, reason => Reason
+                    }),
                     ?SLOG(warning, #{
-                        msg => "starting influxdb connector failed",
+                        msg => "failed_to_start_influxdb_connector",
                         connector => InstId,
                         client => redact_auth(Client),
-                        reason => "client is not alive"
+                        reason => Reason
                     }),
                     %% no leak
                     _ = influxdb:stop_client(Client),
@@ -276,7 +278,7 @@ do_start_client(
         {error, Reason} ->
             ?tp(influxdb_connector_start_failed, #{error => Reason}),
             ?SLOG(warning, #{
-                msg => "starting influxdb connector failed",
+                msg => "failed_to_start_influxdb_connector",
                 connector => InstId,
                 reason => Reason
             }),

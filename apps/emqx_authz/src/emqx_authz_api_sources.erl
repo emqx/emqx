@@ -47,7 +47,7 @@
 -export([
     sources/2,
     source/2,
-    move_source/2,
+    source_move/2,
     aggregate_metrics/1
 ]).
 
@@ -164,7 +164,7 @@ schema("/authorization/sources/:type/status") ->
     };
 schema("/authorization/sources/:type/move") ->
     #{
-        'operationId' => move_source,
+        'operationId' => source_move,
         post =>
             #{
                 description => ?DESC(authorization_sources_type_move_post),
@@ -230,8 +230,6 @@ sources(get, _) ->
         get_raw_sources()
     ),
     {200, #{sources => Sources}};
-sources(post, #{body := #{<<"type">> := <<"file">>} = Body}) ->
-    create_authz_file(Body);
 sources(post, #{body := Body}) ->
     update_config(?CMD_PREPEND, Body).
 
@@ -240,75 +238,99 @@ source(Method, #{bindings := #{type := Type} = Bindings} = Req) when
 ->
     source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
 source(get, #{bindings := #{type := Type}}) ->
-    case get_raw_source(Type) of
-        [] ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not found: ", Type/binary>>}};
-        [#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}] ->
-            case file:read_file(Path) of
-                {ok, Rules} ->
-                    {200, #{
-                        type => file,
-                        enable => Enable,
-                        rules => Rules
-                    }};
-                {error, Reason} ->
-                    {500, #{
-                        code => <<"INTERNAL_ERROR">>,
-                        message => bin(Reason)
-                    }}
-            end;
-        [Source] ->
-            {200, Source}
-    end;
-source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
-    update_authz_file(Body);
-source(put, #{bindings := #{type := Type}, body := Body}) ->
-    update_config({?CMD_REPLACE, Type}, Body);
+    with_source(
+        Type,
+        fun
+            (#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}) ->
+                case file:read_file(Path) of
+                    {ok, Rules} ->
+                        {200, #{
+                            type => file,
+                            enable => Enable,
+                            rules => Rules
+                        }};
+                    {error, Reason} ->
+                        {500, #{
+                            code => <<"INTERNAL_ERROR">>,
+                            message => bin(Reason)
+                        }}
+                end;
+            (Source) ->
+                {200, Source}
+        end
+    );
+source(put, #{bindings := #{type := Type}, body := #{<<"type">> := Type} = Body}) ->
+    with_source(
+        Type,
+        fun(_) ->
+            update_config({?CMD_REPLACE, Type}, Body)
+        end
+    );
+source(put, #{bindings := #{type := Type}, body := #{<<"type">> := _OtherType}}) ->
+    with_source(
+        Type,
+        fun(_) ->
+            {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}}
+        end
+    );
 source(delete, #{bindings := #{type := Type}}) ->
-    update_config({?CMD_DELETE, Type}, #{}).
+    with_source(
+        Type,
+        fun(_) ->
+            update_config({?CMD_DELETE, Type}, #{})
+        end
+    ).
 
 source_status(get, #{bindings := #{type := Type}}) ->
-    lookup_from_all_nodes(Type).
+    with_source(
+        atom_to_binary(Type, utf8),
+        fun(_) -> lookup_from_all_nodes(Type) end
+    ).
 
-move_source(Method, #{bindings := #{type := Type} = Bindings} = Req) when
+source_move(Method, #{bindings := #{type := Type} = Bindings} = Req) when
     is_atom(Type)
 ->
-    move_source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
-move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
-    case parse_position(Position) of
-        {ok, NPosition} ->
-            try emqx_authz:move(Type, NPosition) of
-                {ok, _} ->
-                    {204};
-                {error, {not_found_source, _Type}} ->
-                    {404, #{
-                        code => <<"NOT_FOUND">>,
-                        message => <<"source ", Type/binary, " not found">>
-                    }};
-                {error, {emqx_conf_schema, _}} ->
-                    {400, #{
-                        code => <<"BAD_REQUEST">>,
-                        message => <<"BAD_SCHEMA">>
-                    }};
+    source_move(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
+source_move(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
+    with_source(
+        Type,
+        fun(_Source) ->
+            case parse_position(Position) of
+                {ok, NPosition} ->
+                    try emqx_authz:move(Type, NPosition) of
+                        {ok, _} ->
+                            {204};
+                        {error, {not_found_source, _Type}} ->
+                            {404, #{
+                                code => <<"NOT_FOUND">>,
+                                message => <<"source ", Type/binary, " not found">>
+                            }};
+                        {error, {emqx_conf_schema, _}} ->
+                            {400, #{
+                                code => <<"BAD_REQUEST">>,
+                                message => <<"BAD_SCHEMA">>
+                            }};
+                        {error, Reason} ->
+                            {400, #{
+                                code => <<"BAD_REQUEST">>,
+                                message => bin(Reason)
+                            }}
+                    catch
+                        error:{unknown_authz_source_type, Unknown} ->
+                            NUnknown = bin(Unknown),
+                            {400, #{
+                                code => <<"BAD_REQUEST">>,
+                                message => <<"Unknown authz Source Type: ", NUnknown/binary>>
+                            }}
+                    end;
                 {error, Reason} ->
                     {400, #{
                         code => <<"BAD_REQUEST">>,
                         message => bin(Reason)
                     }}
-            catch
-                error:{unknown_authz_source_type, Unknown} ->
-                    NUnknown = bin(Unknown),
-                    {400, #{
-                        code => <<"BAD_REQUEST">>,
-                        message => <<"Unknown authz Source Type: ", NUnknown/binary>>
-                    }}
-            end;
-        {error, Reason} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message => bin(Reason)
-            }}
-    end.
+            end
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -334,7 +356,7 @@ lookup_from_local_node(Type) ->
     end.
 
 lookup_from_all_nodes(Type) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, Type)) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
@@ -484,6 +506,15 @@ get_raw_source(Type) ->
         get_raw_sources()
     ).
 
+-spec with_source(binary(), fun((map()) -> term())) -> term().
+with_source(Type, ContF) ->
+    case get_raw_source(Type) of
+        [] ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Not found: ", Type/binary>>}};
+        [Source] ->
+            ContF(Source)
+    end.
+
 update_config(Cmd, Sources) ->
     case emqx_authz:update(Cmd, Sources) of
         {ok, _} ->
@@ -628,13 +659,3 @@ status_metrics_example() ->
                 }
         }
     }.
-
-create_authz_file(Body) ->
-    do_update_authz_file(?CMD_PREPEND, Body).
-
-update_authz_file(Body) ->
-    do_update_authz_file({?CMD_REPLACE, <<"file">>}, Body).
-
-do_update_authz_file(Cmd, Body) ->
-    %% API update will placed in `authz` subdirectory inside EMQX's `data_dir`
-    update_config(Cmd, Body).

@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  clickhouse:
+    container_name: clickhouse
+    image: clickhouse/clickhouse-server:23.1.2.9-alpine
+    restart: always
+    volumes:
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
+    expose:
+      - "8123"
+    ports:
+      - "8123:8123"
+    networks:
+      - emqx_bridge

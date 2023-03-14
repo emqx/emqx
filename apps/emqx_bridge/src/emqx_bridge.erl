@@ -57,7 +57,13 @@
     T == influxdb_api_v2;
     T == redis_single;
     T == redis_sentinel;
-    T == redis_cluster
+    T == redis_cluster;
+    T == clickhouse;
+    T == pgsql;
+    T == timescale;
+    T == matrix;
+    T == tdengine;
+    T == dynamo
 ).
 
 load() ->

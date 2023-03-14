@@ -1,0 +1,13 @@
+{
+    "TableName": "mqtt_topic_msg_map",
+    "KeySchema": [
+        { "AttributeName": "topic", "KeyType": "HASH" }
+    ],
+    "AttributeDefinitions": [
+        { "AttributeName": "topic", "AttributeType": "S" }
+    ],
+    "ProvisionedThroughput": {
+        "ReadCapacityUnits": 5,
+        "WriteCapacityUnits": 5
+    }
+}

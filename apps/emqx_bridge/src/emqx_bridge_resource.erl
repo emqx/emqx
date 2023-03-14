@@ -79,7 +79,7 @@ parse_bridge_id(BridgeId) ->
             {to_type_atom(Type), validate_name(Name)};
         _ ->
             invalid_bridge_id(
-                <<"should be of forst {type}:{name}, but got ", BridgeId/binary>>
+                <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
             )
     end.
 

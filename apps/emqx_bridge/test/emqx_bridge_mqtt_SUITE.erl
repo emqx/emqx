@@ -359,9 +359,13 @@ t_mqtt_conn_bridge_egress(_) ->
     ?assertMatch(<<ResourceID:Size/binary, _/binary>>, Msg#message.from),
 
     %% verify the metrics of the bridge
-    ?assertMetrics(
-        #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
-        BridgeIDEgress
+    ?retry(
+        _Interval = 200,
+        _Attempts = 5,
+        ?assertMetrics(
+            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
+            BridgeIDEgress
+        )
     ),
 
     %% delete the bridge
@@ -402,9 +406,13 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
     ?assertMatch(#{<<"payload">> := Payload}, jsx:decode(Msg#message.payload)),
 
     %% verify the metrics of the bridge
-    ?assertMetrics(
-        #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
-        BridgeIDEgress
+    ?retry(
+        _Interval = 200,
+        _Attempts = 5,
+        ?assertMetrics(
+            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
+            BridgeIDEgress
+        )
     ),
 
     %% delete the bridge

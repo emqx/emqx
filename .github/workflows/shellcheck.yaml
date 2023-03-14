@@ -1,10 +1,11 @@
 name: Shellcheck
 
-on: [pull_request, push]
+on:
+  pull_request:
 
 jobs:
   shellcheck:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
         uses: actions/checkout@v3

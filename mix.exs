@@ -53,8 +53,8 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-7", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.14.3", override: true},
+      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.14.4", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
@@ -89,7 +89,8 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.5", override: true, runtime: false}
+      {:gpb, "4.19.5", override: true, runtime: false},
+      {:hackney, github: "benoitc/hackney", tag: "1.18.1", override: true}
     ] ++
       umbrella_apps() ++
       enterprise_apps(profile_info) ++
@@ -130,7 +131,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.7", override: true},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.9", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
@@ -372,9 +373,11 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "certs")
     )
 
+    profile = System.get_env("MIX_ENV")
+
     Mix.Generator.copy_file(
-      "apps/emqx_dashboard/etc/emqx.conf.en.example",
-      Path.join(etc, "emqx-example.conf"),
+      "_build/docgen/#{profile}/emqx.conf.en.example",
+      Path.join(etc, "emqx.conf.example"),
       force: overwrite?
     )
 

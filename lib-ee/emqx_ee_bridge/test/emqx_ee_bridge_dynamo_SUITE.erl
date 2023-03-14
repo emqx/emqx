@@ -1,0 +1,422 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-module(emqx_ee_bridge_dynamo_SUITE).
+
+-compile(nowarn_export_all).
+-compile(export_all).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+% DB defaults
+-define(TABLE, "mqtt").
+-define(TABLE_BIN, to_bin(?TABLE)).
+-define(USERNAME, "root").
+-define(PASSWORD, "public").
+-define(HOST, "dynamo").
+-define(PORT, 8000).
+-define(SCHEMA, "http://").
+-define(BATCH_SIZE, 10).
+-define(PAYLOAD, <<"HELLO">>).
+
+-define(GET_CONFIG(KEY__, CFG__), proplists:get_value(KEY__, CFG__)).
+
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
+all() ->
+    [
+        {group, with_batch},
+        {group, without_batch},
+        {group, flaky}
+    ].
+
+groups() ->
+    TCs0 = emqx_common_test_helpers:all(?MODULE),
+
+    %% due to the poorly implemented driver or other reasons
+    %% if we mix these cases with others, this suite will become flaky.
+    Flaky = [t_get_status, t_write_failure, t_write_timeout],
+    TCs = TCs0 -- Flaky,
+
+    [
+        {with_batch, TCs},
+        {without_batch, TCs},
+        {flaky, Flaky}
+    ].
+
+init_per_group(with_batch, Config0) ->
+    Config = [{batch_size, ?BATCH_SIZE} | Config0],
+    common_init(Config);
+init_per_group(without_batch, Config0) ->
+    Config = [{batch_size, 1} | Config0],
+    common_init(Config);
+init_per_group(flaky, Config0) ->
+    Config = [{batch_size, 1} | Config0],
+    common_init(Config);
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ok;
+end_per_group(Group, Config) when Group =:= flaky ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    timer:sleep(1000),
+    ok;
+end_per_group(_Group, _Config) ->
+    ok.
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite(),
+    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
+    ok.
+
+init_per_testcase(_Testcase, Config) ->
+    create_table(Config),
+    Config.
+
+end_per_testcase(_Testcase, Config) ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ok = snabbkaffe:stop(),
+    delete_table(Config),
+    delete_bridge(Config),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+common_init(ConfigT) ->
+    Host = os:getenv("DYNAMO_HOST", "toxiproxy"),
+    Port = list_to_integer(os:getenv("DYNAMO_PORT", "8000")),
+
+    Config0 = [
+        {host, Host},
+        {port, Port},
+        {query_mode, sync},
+        {proxy_name, "dynamo"}
+        | ConfigT
+    ],
+
+    BridgeType = proplists:get_value(bridge_type, Config0, <<"dynamo">>),
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
+        true ->
+            % Setup toxiproxy
+            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+            % Ensure EE bridge module is loaded
+            _ = application:load(emqx_ee_bridge),
+            _ = emqx_ee_bridge:module_info(),
+            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            emqx_mgmt_api_test_util:init_suite(),
+            % setup dynamo
+            setup_dynamo(Config0),
+            {Name, TDConf} = dynamo_config(BridgeType, Config0),
+            Config =
+                [
+                    {dynamo_config, TDConf},
+                    {dynamo_bridge_type, BridgeType},
+                    {dynamo_name, Name},
+                    {proxy_host, ProxyHost},
+                    {proxy_port, ProxyPort}
+                    | Config0
+                ],
+            Config;
+        false ->
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_dynamo);
+                _ ->
+                    {skip, no_dynamo}
+            end
+    end.
+
+dynamo_config(BridgeType, Config) ->
+    Port = integer_to_list(?GET_CONFIG(port, Config)),
+    Url = "http://" ++ ?GET_CONFIG(host, Config) ++ ":" ++ Port,
+    Name = atom_to_binary(?MODULE),
+    BatchSize = ?GET_CONFIG(batch_size, Config),
+    QueryMode = ?GET_CONFIG(query_mode, Config),
+    ConfigString =
+        io_lib:format(
+            "bridges.~s.~s {\n"
+            "  enable = true\n"
+            "  url = ~p\n"
+            "  database = ~p\n"
+            "  username = ~p\n"
+            "  password = ~p\n"
+            "  resource_opts = {\n"
+            "    request_timeout = 500ms\n"
+            "    batch_size = ~b\n"
+            "    query_mode = ~s\n"
+            "  }\n"
+            "}",
+            [
+                BridgeType,
+                Name,
+                Url,
+                ?TABLE,
+                ?USERNAME,
+                ?PASSWORD,
+                BatchSize,
+                QueryMode
+            ]
+        ),
+    {Name, parse_and_check(ConfigString, BridgeType, Name)}.
+
+parse_and_check(ConfigString, BridgeType, Name) ->
+    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
+    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
+    #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
+    Config.
+
+create_bridge(Config) ->
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    TDConfig = ?config(dynamo_config, Config),
+    emqx_bridge:create(BridgeType, Name, TDConfig).
+
+delete_bridge(Config) ->
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    emqx_bridge:remove(BridgeType, Name).
+
+create_bridge_http(Params) ->
+    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
+        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+send_message(Config, Payload) ->
+    Name = ?config(dynamo_name, Config),
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
+    emqx_bridge:send_message(BridgeID, Payload).
+
+query_resource(Config, Request) ->
+    Name = ?config(dynamo_name, Config),
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+
+%% create a table, use the lib-ee/emqx_ee_bridge/priv/dynamo/mqtt_msg.json as template
+create_table(Config) ->
+    directly_setup_dynamo(),
+    delete_table(Config),
+    ?assertMatch(
+        {ok, _},
+        erlcloud_ddb2:create_table(
+            ?TABLE_BIN,
+            [{<<"id">>, s}],
+            <<"id">>,
+            [{provisioned_throughput, {5, 5}}]
+        )
+    ).
+
+delete_table(_Config) ->
+    erlcloud_ddb2:delete_table(?TABLE_BIN).
+
+setup_dynamo(Config) ->
+    Host = ?GET_CONFIG(host, Config),
+    Port = ?GET_CONFIG(port, Config),
+    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, Host, Port, ?SCHEMA).
+
+directly_setup_dynamo() ->
+    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, ?HOST, ?PORT, ?SCHEMA).
+
+directly_query(Query) ->
+    directly_setup_dynamo(),
+    emqx_ee_connector_dynamo:execute(Query, ?TABLE_BIN).
+
+directly_get_payload(Key) ->
+    case directly_query({get_item, {<<"id">>, Key}}) of
+        {ok, Values} ->
+            proplists:get_value(<<"payload">>, Values, {error, {invalid_item, Values}});
+        Error ->
+            Error
+    end.
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
+
+t_setup_via_config_and_publish(Config) ->
+    ?assertNotEqual(undefined, get(aws_config)),
+    create_table(Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    MsgId = emqx_misc:gen_id(),
+    SentData = #{id => MsgId, payload => ?PAYLOAD},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertMatch(
+                    {ok, _}, send_message(Config, SentData)
+                ),
+                #{?snk_kind := dynamo_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                ?PAYLOAD,
+                directly_get_payload(MsgId)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(dynamo_connector_query_return, Trace0),
+            ?assertMatch([#{result := {ok, _}}], Trace),
+            ok
+        end
+    ),
+    ok.
+
+t_setup_via_http_api_and_publish(Config) ->
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    PgsqlConfig0 = ?config(dynamo_config, Config),
+    PgsqlConfig = PgsqlConfig0#{
+        <<"name">> => Name,
+        <<"type">> => BridgeType
+    },
+    ?assertMatch(
+        {ok, _},
+        create_bridge_http(PgsqlConfig)
+    ),
+    MsgId = emqx_misc:gen_id(),
+    SentData = #{id => MsgId, payload => ?PAYLOAD},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertMatch(
+                    {ok, _}, send_message(Config, SentData)
+                ),
+                #{?snk_kind := dynamo_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                ?PAYLOAD,
+                directly_get_payload(MsgId)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(dynamo_connector_query_return, Trace0),
+            ?assertMatch([#{result := {ok, _}}], Trace),
+            ok
+        end
+    ),
+    ok.
+
+t_get_status(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+
+    Name = ?config(dynamo_name, Config),
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
+    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+        case emqx_resource_manager:health_check(ResourceID) of
+            {ok, Status} when Status =:= disconnected orelse Status =:= connecting ->
+                ok;
+            {error, timeout} ->
+                ok;
+            Other ->
+                ?assert(
+                    false, lists:flatten(io_lib:format("invalid health check result:~p~n", [Other]))
+                )
+        end
+    end),
+    ok.
+
+t_write_failure(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    {ok, _} = create_bridge(Config),
+    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
+    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+        ?assertMatch(
+            {error, {resource_error, #{reason := timeout}}}, send_message(Config, SentData)
+        )
+    end),
+    ok.
+
+t_write_timeout(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    {ok, _} = create_bridge(Config),
+    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
+    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
+        ?assertMatch(
+            {error, {resource_error, #{reason := timeout}}},
+            query_resource(Config, {send_message, SentData})
+        )
+    end),
+    ok.
+
+t_simple_query(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    Request = {get_item, {<<"id">>, <<"not_exists">>}},
+    Result = query_resource(Config, Request),
+    case ?GET_CONFIG(batch_size, Config) of
+        ?BATCH_SIZE ->
+            ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result);
+        1 ->
+            ?assertMatch({ok, []}, Result)
+    end,
+    ok.
+
+t_missing_data(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    Result = send_message(Config, #{}),
+    ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result),
+    ok.
+
+t_bad_parameter(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    Request = {insert_item, bad_parameter},
+    Result = query_resource(Config, Request),
+    ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result),
+    ok.
+
+to_bin(List) when is_list(List) ->
+    unicode:characters_to_binary(List, utf8);
+to_bin(Bin) when is_binary(Bin) ->
+    Bin.

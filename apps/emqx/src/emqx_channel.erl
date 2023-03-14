@@ -224,6 +224,8 @@ set_session(Session, Channel = #channel{conninfo = ConnInfo, clientinfo = Client
     Channel#channel{session = Session1}.
 
 -spec stats(channel()) -> emqx_types:stats().
+stats(#channel{session = undefined}) ->
+    emqx_pd:get_counters(?CHANNEL_METRICS);
 stats(#channel{session = Session}) ->
     lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
 

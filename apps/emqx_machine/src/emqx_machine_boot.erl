@@ -21,6 +21,7 @@
 -export([stop_apps/0, ensure_apps_started/0]).
 -export([sorted_reboot_apps/0]).
 -export([start_autocluster/0]).
+-export([stop_port_apps/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
@@ -60,6 +61,20 @@ stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
     _ = emqx_alarm_handler:unload(),
     lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
+
+%% Those port apps are terminated after the main apps
+%% Don't need to stop when reboot.
+stop_port_apps() ->
+    Loaded = application:loaded_applications(),
+    lists:foreach(
+        fun(App) ->
+            case lists:keymember(App, 1, Loaded) of
+                true -> stop_one_app(App);
+                false -> ok
+            end
+        end,
+        [os_mon, jq]
+    ).
 
 stop_one_app(App) ->
     ?SLOG(debug, #{msg => "stopping_app", app => App}),

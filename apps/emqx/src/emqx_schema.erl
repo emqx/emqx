@@ -2608,7 +2608,7 @@ non_empty_string(_) -> {error, invalid_string}.
 servers_sc(Meta0, ParseOpts) ->
     %% if this filed has a default value
     %% then it is not NOT required
-    %% NOTE: maps:is_key is not the solution beause #{default => undefined} is legit
+    %% NOTE: maps:is_key is not the solution because #{default => undefined} is legit
     HasDefault = (maps:get(default, Meta0, undefined) =/= undefined),
     Required = maps:get(required, Meta0, not HasDefault),
     Meta = #{
@@ -2661,17 +2661,18 @@ normalize_host_port_str(Str) ->
 %% NOTE: Validator is called after converter.
 servers_validator(Opts, Required) ->
     fun(Str0) ->
-        Str = str(Str0),
-        case Str =:= "" orelse Str =:= "undefined" of
-            true when Required ->
-                %% it's a required field
-                %% but value is set to an empty string (from environment override)
-                %% or when the filed is not set in config file
+        case str(Str0) of
+            "" ->
+                %% Empty string is not allowed even if the field is not required
+                %% we should remove field from config if it's empty
+                throw("cannot_be_empty");
+            "undefined" when Required ->
+                %% when the filed is not set in config file
                 %% NOTE: assuming nobody is going to name their server "undefined"
                 throw("cannot_be_empty");
-            true ->
+            "undefined" ->
                 ok;
-            _ ->
+            Str ->
                 %% it's valid as long as it can be parsed
                 _ = parse_servers(Str, Opts),
                 ok
@@ -2816,20 +2817,17 @@ is_port_number(Port) ->
     end.
 
 parse_port(Port) ->
-    try
-        P = list_to_integer(string:strip(Port)),
-        true = (P > 0),
-        true = (P =< 65535),
-        P
-    catch
-        _:_ ->
-            throw("bad_port_number")
+    case string:to_integer(string:strip(Port)) of
+        {P, ""} when P < 0 -> throw("port_number_must_be_positive");
+        {P, ""} when P > 65535 -> throw("port_number_too_large");
+        {P, ""} -> P;
+        _ -> throw("bad_port_number")
     end.
 
 quic_feature_toggle(Desc) ->
     sc(
         %% true, false are for user facing
-        %% 0, 1 are for internal represtation
+        %% 0, 1 are for internal representation
         typerefl:alias("boolean", typerefl:union([true, false, 0, 1])),
         #{
             desc => Desc,

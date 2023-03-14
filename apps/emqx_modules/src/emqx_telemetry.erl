@@ -266,7 +266,7 @@ uptime() ->
     element(1, erlang:statistics(wall_clock)).
 
 nodes_uuid() ->
-    Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
+    Nodes = lists:delete(node(), mria:running_nodes()),
     lists:foldl(
         fun(Node, Acc) ->
             case emqx_telemetry_proto_v1:get_node_uuid(Node) of

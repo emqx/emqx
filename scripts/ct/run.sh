@@ -17,7 +17,7 @@ help() {
     echo "--only-up:              Only start the testbed but do not run CT"
     echo "--keep-up:              Keep the testbed running after CT"
     echo "--ci:                   Set this flag in GitHub action to enforce no tests are skipped"
-    echo "--"                     If any, all args after '--' are passed to rebar3 ct
+    echo "--:                     If any, all args after '--' are passed to rebar3 ct"
     echo "                        otherwise it runs the entire app's CT"
 }
 
@@ -161,6 +161,12 @@ for dep in ${CT_DEPS}; do
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
+            ;; 
+        clickhouse)
+            FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
+            ;;
+        dynamo)
+            FILES+=( '.ci/docker-compose-file/docker-compose-dynamo.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"
@@ -194,7 +200,7 @@ if [[ -t 1 ]]; then
 fi
 
 function restore_ownership {
-    if ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
+    if [[ -n ${EMQX_TEST_DO_NOT_RUN_SUDO+x} ]] || ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
         docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx" >/dev/null 2>&1 || true
     fi
 }

@@ -19,6 +19,7 @@
 
 -behaviour(gen_server).
 
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -67,7 +68,8 @@
 %% Test/debug interface
 -export([
     all_channels/0,
-    all_client_ids/0
+    all_client_ids/0,
+    get_session_confs/2
 ]).
 
 %% gen_server callbacks
@@ -296,9 +298,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                 register_channel(ClientId, Self, ConnInfo),
 
                 {ok, #{
-                    session => Session1,
+                    session => clean_session(Session1),
                     present => true,
-                    pendings => Pendings
+                    pendings => clean_pendings(Pendings)
                 }};
             {living, ConnMod, ChanPid, Session} ->
                 ok = emqx_session:resume(ClientInfo, Session),
@@ -315,9 +317,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                         ),
                         register_channel(ClientId, Self, ConnInfo),
                         {ok, #{
-                            session => Session1,
+                            session => clean_session(Session1),
                             present => true,
-                            pendings => Pendings
+                            pendings => clean_pendings(Pendings)
                         }};
                     {error, _} ->
                         CreateSess()
@@ -355,6 +357,7 @@ get_session_confs(#{zone := Zone, clientid := ClientId}, #{
         max_inflight => MaxInflight,
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout),
+        max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
         mqueue => mqueue_confs(Zone),
         %% TODO: Add conf for allowing/disallowing persistent sessions.
         %% Note that the connection info is already enriched to have
@@ -730,3 +733,14 @@ get_connected_client_count() ->
         undefined -> 0;
         Size -> Size
     end.
+
+clean_session(Session) ->
+    emqx_session:filter_queue(fun is_banned_msg/1, Session).
+
+clean_pendings(Pendings) ->
+    lists:filter(fun is_banned_msg/1, Pendings).
+
+is_banned_msg(#message{from = ClientId}) ->
+    [] =:= emqx_banned:look_up({clientid, ClientId});
+is_banned_msg({deliver, _Topic, Msg}) ->
+    is_banned_msg(Msg).

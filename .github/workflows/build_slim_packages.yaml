@@ -30,15 +30,14 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - ["emqx", "24.3.4.2-2", "el7"]
-        - ["emqx", "24.3.4.2-2", "ubuntu20.04"]
-        - ["emqx", "25.1.2-2", "ubuntu22.04"]
-        - ["emqx-enterprise", "24.3.4.2-2", "ubuntu20.04"]
-        - ["emqx-enterprise", "25.1.2-2", "ubuntu22.04"]
+          - ["emqx", "24.3.4.2-2", "el7", "erlang"]
+          - ["emqx", "25.1.2-2", "ubuntu22.04", "elixir"]
+          - ["emqx-enterprise", "24.3.4.2-2", "amzn2", "erlang"]
+          - ["emqx-enterprise", "25.1.2-2", "ubuntu20.04", "erlang"]
         builder:
-        - 5.0-28
+          - 5.0-29
         elixir:
-        - 1.13.4
+          - '1.13.4'
 
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
@@ -55,18 +54,22 @@ jobs:
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: build and test tgz package
+      if: matrix.profile[3] == 'erlang'
       run: |
         make ${EMQX_NAME}-tgz
         ./scripts/pkg-tests.sh ${EMQX_NAME}-tgz
     - name: build and test deb/rpm packages
+      if: matrix.profile[3] == 'erlang'
       run: |
         make ${EMQX_NAME}-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
     - name: build and test tgz package (Elixir)
+      if: matrix.profile[3] == 'elixir'
       run: |
         make ${EMQX_NAME}-elixir-tgz
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-tgz
     - name: build and test deb/rpm packages (Elixir)
+      if: matrix.profile[3] == 'elixir'
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
@@ -79,7 +82,7 @@ jobs:
         name: "${{ matrix.profile[0] }}_schema_dump"
         path: |
           scripts/spellcheck
-          _build/${{ matrix.profile[0] }}/lib/emqx_dashboard/priv/www/static/schema.json
+          _build/docgen/${{ matrix.profile[0] }}/schema.json
 
   windows:
     runs-on: windows-2019
@@ -215,4 +218,4 @@ jobs:
         path: /tmp/
     - name: Run spellcheck
       run: |
-        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema.json

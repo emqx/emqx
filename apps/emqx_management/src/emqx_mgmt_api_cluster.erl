@@ -101,7 +101,7 @@ cluster_info(get, _) ->
     ClusterName = application:get_env(ekka, cluster_name, emqxcl),
     Info = #{
         name => ClusterName,
-        nodes => mria_mnesia:running_nodes(),
+        nodes => mria:running_nodes(),
         self => node()
     },
     {200, Info}.

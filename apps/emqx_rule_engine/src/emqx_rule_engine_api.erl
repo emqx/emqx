@@ -529,7 +529,7 @@ get_rule_metrics(Id) ->
     end,
     [
         Format(Node, emqx_plugin_libs_proto_v1:get_metrics(Node, rule_metrics, Id))
-     || Node <- mria_mnesia:running_nodes()
+     || Node <- mria:running_nodes()
     ].
 
 aggregate_metrics(AllMetrics) ->

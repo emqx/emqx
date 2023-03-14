@@ -63,7 +63,12 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 t_session_init(_) ->
-    Session = emqx_session:init(#{max_inflight => 64}),
+    Conf = emqx_cm:get_session_confs(
+        #{zone => default, clientid => <<"fake-test">>}, #{
+            receive_maximum => 64, expiry_interval => 0
+        }
+    ),
+    Session = emqx_session:init(Conf),
     ?assertEqual(#{}, emqx_session:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session:info(subscriptions_cnt, Session)),
     ?assertEqual(infinity, emqx_session:info(subscriptions_max, Session)),
@@ -459,11 +464,17 @@ mqueue(Opts) ->
 
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
+    Conf = emqx_cm:get_session_confs(
+        #{zone => default, clientid => <<"fake-test">>}, #{
+            receive_maximum => 0, expiry_interval => 0
+        }
+    ),
+    Session = emqx_session:init(Conf),
     maps:fold(
-        fun(Field, Value, Session) ->
-            emqx_session:set_field(Field, Value, Session)
+        fun(Field, Value, SessionAcc) ->
+            emqx_session:set_field(Field, Value, SessionAcc)
         end,
-        emqx_session:init(#{max_inflight => 0}),
+        Session,
         InitFields
     ).
 

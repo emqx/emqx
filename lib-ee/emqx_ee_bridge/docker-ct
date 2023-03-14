@@ -8,3 +8,5 @@ redis
 redis_cluster
 pgsql
 tdengine
+clickhouse
+dynamo

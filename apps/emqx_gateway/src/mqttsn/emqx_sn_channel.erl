@@ -389,7 +389,12 @@ process_connect(
         clientinfo = ClientInfo
     }
 ) ->
-    SessFun = fun(_, _) -> emqx_session:init(#{max_inflight => 1}) end,
+    SessFun = fun(ClientInfoT, _) ->
+        Conf = emqx_cm:get_session_confs(
+            ClientInfoT, #{receive_maximum => 1, expiry_interval => 0}
+        ),
+        emqx_session:init(Conf)
+    end,
     case
         emqx_gateway_ctx:open_session(
             Ctx,

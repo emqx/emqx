@@ -462,7 +462,8 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "apps/emqx_dashboard/etc/emqx.conf.en.example", "etc/emqx-example.conf"}
+        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.en.example",
+            "etc/emqx.conf.example"}
     ] ++
         lists:map(
             fun
@@ -598,3 +599,6 @@ list_dir(Dir) ->
         false ->
             []
     end.
+
+name(ce) -> "emqx";
+name(ee) -> "emqx-enterprise".

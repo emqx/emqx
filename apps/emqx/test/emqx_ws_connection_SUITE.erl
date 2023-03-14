@@ -612,7 +612,10 @@ channel(InitFields) ->
         peercert => undefined,
         mountpoint => undefined
     },
-    Session = emqx_session:init(#{max_inflight => 0}),
+    Conf = emqx_cm:get_session_confs(ClientInfo, #{
+        receive_maximum => 0, expiry_interval => 0
+    }),
+    Session = emqx_session:init(Conf),
     maps:fold(
         fun(Field, Value, Channel) ->
             emqx_channel:set_field(Field, Value, Channel)

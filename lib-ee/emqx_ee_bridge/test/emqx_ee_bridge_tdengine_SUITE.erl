@@ -426,6 +426,32 @@ t_bad_sql_parameter(Config) ->
     end,
     ok.
 
+t_nasty_sql_string(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    % NOTE
+    % Column `payload` has BINARY type, so we would certainly like to test it
+    % with `lists:seq(1, 127)`, but:
+    % 1. There's no way to insert zero byte in an SQL string, seems that TDengine's
+    %    parser[1] has no escaping sequence for it so a zero byte probably confuses
+    %    interpreter somewhere down the line.
+    % 2. Bytes > 127 come back as U+FFFDs (i.e. replacement characters) in UTF-8 for
+    %    some reason.
+    %
+    % [1]: https://github.com/taosdata/TDengine/blob/066cb34a/source/libs/parser/src/parUtil.c#L279-L301
+    Payload = list_to_binary(lists:seq(1, 127)),
+    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    ?assertMatch(
+        {ok, #{<<"code">> := 0, <<"rows">> := 1}},
+        send_message(Config, Message)
+    ),
+    ?assertEqual(
+        Payload,
+        connect_and_get_payload(Config)
+    ).
+
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8);
 to_bin(Bin) when is_binary(Bin) ->

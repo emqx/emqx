@@ -920,6 +920,15 @@ do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
         %% return `{error, {recoverable_error, Reason}}`
         EXPR
     catch
+        %% For convenience and to make the code in the callbacks cleaner an
+        %% error exception with the two following formats are translated to the
+        %% corresponding return values. The receiver of the return values
+        %% recognizes these special return formats and use them to decided if a
+        %% request should be retried.
+        error:{unrecoverable_error, Msg} ->
+            {error, {unrecoverable_error, Msg}};
+        error:{recoverable_error, Msg} ->
+            {error, {recoverable_error, Msg}};
         ERR:REASON:STACKTRACE ->
             ?RESOURCE_ERROR(exception, #{
                 name => NAME,

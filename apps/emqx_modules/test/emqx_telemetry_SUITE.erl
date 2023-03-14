@@ -856,7 +856,7 @@ stop_slave(Node) ->
     %emqx_cluster_rpc:fast_forward_to_commit(Node, 100),
     rpc:call(Node, ?MODULE, leave_cluster, []),
     ok = slave:stop(Node),
-    ?assertEqual([node()], mria_mnesia:running_nodes()),
+    ?assertEqual([node()], mria:running_nodes()),
     ?assertEqual([], nodes()),
     _ = application:stop(mria),
     ok = application:start(mria).
