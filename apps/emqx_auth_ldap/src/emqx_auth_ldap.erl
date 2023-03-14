@@ -59,13 +59,15 @@ check(ClientInfo = #{username := Username, password := Password}, AuthResult,
     case CheckResult of
         ok ->
             ?LOG_SENSITIVE(debug,
-                           "[LDAP] Auth from ldap succeeded, Client: ~p",
+                           "[LDAP] Auth succeeded, Client: ~p",
                            [ClientInfo]),
             {stop, AuthResult#{auth_result => success, anonymous => false}};
         {error, not_found} ->
-            ok;
+            ?LOG_SENSITIVE(debug,
+                           "[LDAP] Auth ignored, Client: ~p",
+                           [ClientInfo]);
         {error, ResultCode} ->
-            ?LOG_SENSITIVE(error, "[LDAP] Auth from ldap failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[LDAP] Auth failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

@@ -54,7 +54,9 @@ check_acl(ClientInfo = #{ clientid := Clientid }, PubSub, Topic, _NoMatchAction,
                            [Topic, PubSub, ClientInfo]),
             {stop, deny};
         _ ->
-            ok
+            ?LOG_SENSITIVE(debug,
+                           "[Mnesia] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                           [Topic, PubSub, ClientInfo])
     end.
 
 description() -> "Acl with Mnesia".

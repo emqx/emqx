@@ -35,7 +35,9 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) 
             maps:from_list(emqx_auth_mongo:replvars(Selector, ClientInfo))
         end, SelectorList),
     case emqx_auth_mongo:query_multi(Pool, Coll, SelectorMapList) of
-        [] -> ok;
+        [] -> ?LOG_SENSITIVE(debug,
+                    "[MongoDB] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                    [Topic, PubSub, ClientInfo]);
         Rows ->
             try match(ClientInfo, Topic, topics(PubSub, Rows)) of
                 matched ->
@@ -50,7 +52,7 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) 
                     {stop, deny}
             catch
                 _Err:Reason->
-                    ?LOG(error, "[MongoDB] Check mongo ~p ACL failed, got ACL config: ~p, error: :~p",
+                    ?LOG(error, "[MongoDB] ACL ignored, check mongo ~p ACL failed, got ACL config: ~p, error: ~p",
                                 [PubSub, Rows, Reason]),
                     ignore
             end

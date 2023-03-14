@@ -1,7 +1,10 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.5",
+  [{"4.4.6",
+    [{load_module,emqx_auth_mongo,brutal_purge,soft_purge,[]},
+     {load_module,emqx_acl_mongo,brutal_purge,soft_purge,[]}]},
+   {"4.4.5",
     [{load_module,emqx_acl_mongo,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mongo,brutal_purge,soft_purge,[]}]},
    {"4.4.4",
@@ -22,7 +25,10 @@
      {load_module,emqx_auth_mongo,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mongo,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
- [{"4.4.5",
+  [{"4.4.6",
+    [{load_module,emqx_auth_mongo,brutal_purge,soft_purge,[]},
+     {load_module,emqx_acl_mongo,brutal_purge,soft_purge,[]}]},
+   {"4.4.5",
     [{load_module,emqx_acl_mongo,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mongo,brutal_purge,soft_purge,[]}]},
    {"4.4.4",
