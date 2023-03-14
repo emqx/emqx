@@ -155,11 +155,11 @@ rewrite(Topic, MP, Dest, Binds) ->
     NewTopic.
 
 fill_client_binds(#{clientid := ClientId, username := Username}) ->
-    filter_client_binds([{"%c", ClientId}, {"%u", Username}]);
+    filter_client_binds([{"%c", bin(ClientId)}, {"%u", bin(Username)}]);
 
 fill_client_binds(#message{from = ClientId, headers = Headers}) ->
     Username = maps:get(username, Headers, undefined),
-    filter_client_binds([{"%c", ClientId}, {"%u", Username}]).
+    filter_client_binds([{"%c", bin(ClientId)}, {"%u", bin(Username)}]).
 
 filter_client_binds(Binds) ->
     lists:filter(fun({_, undefined}) -> false;
@@ -184,3 +184,7 @@ validate_topic(Type, Topic) ->
         error:Reason ->
             {error, Reason}
     end.
+
+bin(S) when is_binary(S) -> S;
+bin(S) when is_list(S) -> list_to_binary(S);
+bin(S) when is_atom(S) -> atom_to_binary(S, utf8).
