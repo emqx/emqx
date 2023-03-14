@@ -65,13 +65,44 @@ fields(local_storage) ->
             type => binary(),
             desc => ?DESC("local_storage_root"),
             required => false
+        }},
+        {gc, #{
+            type => hoconsc:ref(?MODULE, local_storage_gc),
+            desc => ?DESC("local_storage_gc"),
+            required => false
+        }}
+    ];
+fields(local_storage_gc) ->
+    [
+        {interval, #{
+            type => emqx_schema:duration_ms(),
+            desc => ?DESC("storage_gc_interval"),
+            required => false,
+            default => "1h"
+        }},
+        {maximum_segments_ttl, #{
+            type => emqx_schema:duration_s(),
+            desc => ?DESC("storage_gc_max_segments_ttl"),
+            required => false,
+            default => "24h"
+        }},
+        {minimum_segments_ttl, #{
+            type => emqx_schema:duration_s(),
+            % desc => ?DESC("storage_gc_min_segments_ttl"),
+            required => false,
+            default => "5m",
+            % NOTE
+            % This setting does not seem to be useful to an end-user.
+            hidden => true
         }}
     ].
 
 desc(file_transfer) ->
     "File transfer settings";
 desc(local_storage) ->
-    "File transfer local storage settings".
+    "File transfer local storage settings";
+desc(local_storage_gc) ->
+    "Garbage collection settings for the File transfer local storage backend".
 
 schema(filemeta) ->
     #{
