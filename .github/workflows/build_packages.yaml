@@ -213,8 +213,6 @@ jobs:
           - ubuntu18.04
           - debian11
           - debian10
-          - raspbian10
-          - raspbian9
           - el9
           - el8
           - el7
@@ -231,10 +229,6 @@ jobs:
           build_machine: ubuntu-22.04
         - arch: amd64
           build_machine: aws-arm64
-        - arch: amd64
-          os: raspbian9
-        - arch: amd64
-          os: raspbian10
         include:
           - profile: emqx
             otp: 25.1.2-2
@@ -266,6 +260,11 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
+    - name: tmp fix for el9
+      if: matrix.os == 'el9'
+      run: |
+        set -eu
+        dnf install -y krb5-devel
     - name: build emqx packages
       working-directory: source
       env:
@@ -378,8 +377,6 @@ jobs:
         push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-arm64.deb"
         push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-amd64.deb"
         push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-arm64.deb"
-        push "raspbian/stretch" "packages/$PROFILE/$PROFILE-$VERSION-raspbian9-arm64.deb"
-        push "raspbian/buster" "packages/$PROFILE/$PROFILE-$VERSION-raspbian10-arm64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-amd64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-arm64.deb"
         push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"
