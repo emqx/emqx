@@ -190,6 +190,7 @@ end_per_group(_, Config) ->
 
 init_per_testcase(_, Config) ->
     emqx_common_test_helpers:start_apps([]),
+    start_emqx_quic(?config(port, Config)),
     Config.
 
 t_quic_sock(Config) ->
@@ -1255,7 +1256,8 @@ t_multi_streams_shutdown_pub_data_stream(Config) ->
             }}
         ],
         PubRecvs
-    ).
+    ),
+    emqtt:stop(C).
 
 t_multi_streams_shutdown_sub_data_stream(Config) ->
     PubQos = ?config(pub_qos, Config),
@@ -1302,7 +1304,8 @@ t_multi_streams_shutdown_sub_data_stream(Config) ->
     #{data_stream_socks := [_PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
     timer:sleep(500),
     %% Still alive
-    ?assert(is_list(emqtt:info(C))).
+    ?assert(is_list(emqtt:info(C))),
+    emqtt:stop(C).
 
 t_multi_streams_shutdown_ctrl_stream(Config) ->
     PubQos = ?config(pub_qos, Config),
@@ -1406,7 +1409,8 @@ t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
     quicer:shutdown_stream(Ctrlstream, ?config(stream_shutdown_flag, Config), 500, 100),
     timer:sleep(200),
     %% Client should not be closed
-    ?assert(is_list(emqtt:info(C))).
+    ?assert(is_list(emqtt:info(C))),
+    emqtt:stop(C).
 
 t_multi_streams_emqx_ctrl_kill(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1526,6 +1530,7 @@ t_multi_streams_remote_shutdown(Config) ->
     {ok, C} = emqtt:start_link([
         {proto_ver, v5},
         {reconnect, false},
+        {clientid, atom_to_binary(?FUNCTION_NAME)},
         %% speedup test
         {connect_timeout, 5}
         | Config
@@ -1563,7 +1568,6 @@ t_multi_streams_remote_shutdown(Config) ->
     {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
 
     ok = stop_emqx(),
-    start_emqx_quic(?config(port, Config)),
     %% Client should be closed
     assert_client_die(C).
 
@@ -1620,10 +1624,9 @@ t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     ok = stop_emqx(),
 
     timer:sleep(200),
-
     start_emqx_quic(?config(port, Config)),
-    %% Client should be closed
-    ?assert(is_list(emqtt:info(C))).
+    ?assert(is_list(emqtt:info(C))),
+    emqtt:stop(C).
 
 t_conn_silent_close(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1906,8 +1909,9 @@ t_listener_with_lowlevel_settings(_Config) ->
         %% not use since we are server
         %% tls_client_max_send_buffer,
         tls_server_max_send_buffer => 10240,
-        stream_recv_window_default => 1024,
-        stream_recv_buffer_default => 10240,
+        stream_recv_window_default => 16384 * 2,
+        %% there is one debug assertion: stream_recv_window_default > stream_recv_buffer_default
+        stream_recv_buffer_default => 16384,
         conn_flow_control_window => 1024,
         max_stateless_operations => 16,
         initial_window_packets => 1300,
