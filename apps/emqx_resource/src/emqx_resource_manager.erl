@@ -36,8 +36,8 @@
     lookup/1,
     list_all/0,
     list_group/1,
-    ets_lookup/1,
-    ets_lookup/2,
+    lookup_cached/1,
+    lookup_cached/2,
     get_metrics/1,
     reset_metrics/1
 ]).
@@ -231,21 +231,21 @@ set_resource_status_connecting(ResId) ->
 -spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup(ResId) ->
     case safe_call(ResId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> ets_lookup(ResId, [metrics]);
+        {error, timeout} -> lookup_cached(ResId, [metrics]);
         Result -> Result
     end.
 
 %% @doc Lookup the group and data of a resource from the cache
--spec ets_lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
-ets_lookup(ResId) ->
-    ets_lookup(ResId, []).
+-spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
+lookup_cached(ResId) ->
+    lookup_cached(ResId, []).
 
 %% @doc Lookup the group and data of a resource from the cache
--spec ets_lookup(resource_id(), [Option]) ->
+-spec lookup_cached(resource_id(), [Option]) ->
     {ok, resource_group(), resource_data()} | {error, not_found}
 when
     Option :: metrics.
-ets_lookup(ResId, Options) ->
+lookup_cached(ResId, Options) ->
     NeedMetrics = lists:member(metrics, Options),
     case read_cache(ResId) of
         {Group, Data} when NeedMetrics ->
