@@ -432,7 +432,7 @@ log_when_error(Fun, Log) ->
 -spec consumer_group_id(atom() | binary()) -> binary().
 consumer_group_id(BridgeName0) ->
     BridgeName = to_bin(BridgeName0),
-    <<"emqx-kafka-consumer:", BridgeName/binary>>.
+    <<"emqx-kafka-consumer-", BridgeName/binary>>.
 
 -spec is_dry_run(manager_id()) -> boolean().
 is_dry_run(InstanceId) ->
