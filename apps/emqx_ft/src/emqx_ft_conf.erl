@@ -50,16 +50,24 @@ storage() ->
 
 -spec gc_interval(_Storage) -> milliseconds().
 gc_interval(_Storage) ->
-    % TODO: config wiring
-    application:get_env(emqx_ft, gc_interval, timer:minutes(10)).
+    Conf = assert_storage(local),
+    emqx_map_lib:deep_get([gc, interval], Conf).
 
 -spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
 segments_ttl(_Storage) ->
-    % TODO: config wiring
+    Conf = assert_storage(local),
     {
-        application:get_env(emqx_ft, min_segments_ttl, 60),
-        application:get_env(emqx_ft, max_segments_ttl, 72 * 3600)
+        emqx_map_lib:deep_get([gc, minimum_segments_ttl], Conf),
+        emqx_map_lib:deep_get([gc, maximum_segments_ttl], Conf)
     }.
+
+assert_storage(Type) ->
+    case storage() of
+        Conf = #{type := Type} ->
+            Conf;
+        Conf ->
+            error({inapplicable, Conf})
+    end.
 
 %%--------------------------------------------------------------------
 %% API
