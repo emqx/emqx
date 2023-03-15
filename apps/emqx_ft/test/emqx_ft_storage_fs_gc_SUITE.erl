@@ -40,19 +40,9 @@ init_per_testcase(TC, Config) ->
     ok = emqx_common_test_helpers:start_app(
         emqx_ft,
         fun(emqx_ft) ->
-            emqx_common_test_helpers:load_config(
-                emqx_ft_schema,
-                iolist_to_binary([
-                    "file_transfer {"
-                    "  storage = {"
-                    "    type = \"local\","
-                    "    root = \"",
-                    mk_root(TC, Config),
-                    "\""
-                    "  }"
-                    "}"
-                ])
-            )
+            emqx_ft_test_helpers:load_config(#{
+                storage => #{type => local, root => mk_root(TC, Config)}
+            })
         end
     ),
     Config.
