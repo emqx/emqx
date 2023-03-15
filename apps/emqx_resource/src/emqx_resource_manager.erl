@@ -666,6 +666,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     #{
         id => Data#data.id,
+        error => Data#data.error,
         mod => Data#data.mod,
         callback_mode => Data#data.callback_mode,
         query_mode => Data#data.query_mode,

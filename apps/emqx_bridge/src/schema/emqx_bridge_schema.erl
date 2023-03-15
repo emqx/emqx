@@ -106,6 +106,12 @@ common_bridge_fields() ->
 status_fields() ->
     [
         {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })},
         {"node_status",
             mk(
                 hoconsc:array(ref(?MODULE, "node_status")),
@@ -190,7 +196,13 @@ fields("node_metrics") ->
 fields("node_status") ->
     [
         node_name(),
-        {"status", mk(status(), #{})}
+        {"status", mk(status(), #{})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })}
     ].
 
 desc(bridges) ->

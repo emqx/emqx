@@ -748,7 +748,7 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
 
 format_bridge_info_with_metrics([FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
-    NodeStatus = collect_status(Bridges),
+    NodeStatus = node_status(Bridges),
     NodeMetrics = collect_metrics(Bridges),
     redact(Res#{
         status => aggregate_status(NodeStatus),
@@ -765,8 +765,8 @@ format_bridge_metrics(Bridges) ->
     Res = format_bridge_info_with_metrics(Bridges),
     maps:with([metrics, node_metrics], Res).
 
-collect_status(Bridges) ->
-    [maps:with([node, status], B) || B <- Bridges].
+node_status(Bridges) ->
+    [maps:with([node, status, status_reason], B) || B <- Bridges].
 
 aggregate_status(AllStatus) ->
     Head = fun([A | _]) -> A end,
@@ -837,52 +837,63 @@ format_resource(
         )
     ).
 
-format_resource_data(#{status := Status, metrics := Metrics}) ->
-    #{status => Status, metrics => format_metrics(Metrics)};
-format_resource_data(#{status := Status}) ->
-    #{status => Status}.
+format_resource_data(ResData) ->
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, metrics, error], ResData)).
 
-format_metrics(#{
-    counters := #{
-        'dropped' := Dropped,
-        'dropped.other' := DroppedOther,
-        'dropped.expired' := DroppedExpired,
-        'dropped.queue_full' := DroppedQueueFull,
-        'dropped.resource_not_found' := DroppedResourceNotFound,
-        'dropped.resource_stopped' := DroppedResourceStopped,
-        'matched' := Matched,
-        'retried' := Retried,
-        'late_reply' := LateReply,
-        'failed' := SentFailed,
-        'success' := SentSucc,
-        'received' := Rcvd
+format_resource_data(error, undefined, Result) ->
+    Result;
+format_resource_data(error, Error, Result) ->
+    Result#{status_reason => emqx_misc:readable_error_msg(Error)};
+format_resource_data(
+    metrics,
+    #{
+        counters := #{
+            'dropped' := Dropped,
+            'dropped.other' := DroppedOther,
+            'dropped.expired' := DroppedExpired,
+            'dropped.queue_full' := DroppedQueueFull,
+            'dropped.resource_not_found' := DroppedResourceNotFound,
+            'dropped.resource_stopped' := DroppedResourceStopped,
+            'matched' := Matched,
+            'retried' := Retried,
+            'late_reply' := LateReply,
+            'failed' := SentFailed,
+            'success' := SentSucc,
+            'received' := Rcvd
+        },
+        gauges := Gauges,
+        rate := #{
+            matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+        }
     },
-    gauges := Gauges,
-    rate := #{
-        matched := #{current := Rate, last5m := Rate5m, max := RateMax}
-    }
-}) ->
+    Result
+) ->
     Queued = maps:get('queuing', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
-    ?METRICS(
-        Dropped,
-        DroppedOther,
-        DroppedExpired,
-        DroppedQueueFull,
-        DroppedResourceNotFound,
-        DroppedResourceStopped,
-        Matched,
-        Queued,
-        Retried,
-        LateReply,
-        SentFailed,
-        SentInflight,
-        SentSucc,
-        Rate,
-        Rate5m,
-        RateMax,
-        Rcvd
-    ).
+    Result#{
+        metrics =>
+            ?METRICS(
+                Dropped,
+                DroppedOther,
+                DroppedExpired,
+                DroppedQueueFull,
+                DroppedResourceNotFound,
+                DroppedResourceStopped,
+                Matched,
+                Queued,
+                Retried,
+                LateReply,
+                SentFailed,
+                SentInflight,
+                SentSucc,
+                Rate,
+                Rate5m,
+                RateMax,
+                Rcvd
+            )
+    };
+format_resource_data(K, V, Result) ->
+    Result#{K => V}.
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_bridge_conf(Type, RawConf),
@@ -924,6 +935,7 @@ filter_out_request_body(Conf) ->
         <<"type">>,
         <<"name">>,
         <<"status">>,
+        <<"error">>,
         <<"node_status">>,
         <<"node_metrics">>,
         <<"metrics">>,
