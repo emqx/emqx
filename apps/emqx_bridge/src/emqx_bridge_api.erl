@@ -568,7 +568,7 @@ schema("/bridges_probe") ->
                 ok ->
                     204;
                 {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-                    {400, error_msg('TEST_FAILED', to_hr_reason(Reason))}
+                    {400, error_msg('TEST_FAILED', emqx_misc:readable_error_msg(Reason))}
             end;
         BadRequest ->
             BadRequest
@@ -979,7 +979,7 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, {node_not_found, Node}} ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-            ?BAD_REQUEST(to_hr_reason(Reason))
+            ?BAD_REQUEST(emqx_misc:readable_error_msg(Reason))
     end.
 
 maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
@@ -1017,19 +1017,6 @@ maybe_unwrap(RpcMulticallResult) ->
 supported_versions(start_bridge_to_node) -> [2, 3];
 supported_versions(start_bridges_to_all_nodes) -> [2, 3];
 supported_versions(_Call) -> [1, 2, 3].
-
-to_hr_reason(nxdomain) ->
-    <<"Host not found">>;
-to_hr_reason(econnrefused) ->
-    <<"Connection refused">>;
-to_hr_reason({unauthorized_client, _}) ->
-    <<"Unauthorized client">>;
-to_hr_reason({not_authorized, _}) ->
-    <<"Not authorized">>;
-to_hr_reason({malformed_username_or_password, _}) ->
-    <<"Malformed username or password">>;
-to_hr_reason(Reason) ->
-    Reason.
 
 redact(Term) ->
     emqx_misc:redact(Term).
