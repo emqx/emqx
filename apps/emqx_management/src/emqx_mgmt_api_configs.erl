@@ -49,7 +49,6 @@
         <<"authorization">>,
         <<"authentication">>,
         <<"rpc">>,
-        <<"db">>,
         <<"connectors">>,
         <<"slow_subs">>,
         <<"psk_authentication">>,
