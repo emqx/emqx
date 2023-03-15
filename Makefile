@@ -80,7 +80,7 @@ ct: $(REBAR) merge-config
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do dialyzer, xref
+	@$(REBAR) as check do xref, dialyzer
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then ./scripts/check-i18n-style.sh; fi
 
