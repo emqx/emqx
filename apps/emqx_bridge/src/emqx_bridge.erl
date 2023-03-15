@@ -411,7 +411,9 @@ get_matched_bridge_id(BType, Conf, Topic, BName, Acc) when ?EGRESS_DIR_BRIDGES(B
             do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc)
     end;
 get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
-    do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc).
+    do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
+get_matched_bridge_id(_BType, _Conf, _Topic, _BName, Acc) ->
+    Acc.
 
 do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
