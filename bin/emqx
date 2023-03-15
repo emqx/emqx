@@ -441,9 +441,8 @@ call_nodetool() {
 # Control a node
 relx_nodetool() {
     command="$1"; shift
-    ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS" \
-    call_nodetool "$NAME_TYPE" "$NAME" \
-                                -setcookie "$COOKIE" "$command" "$@"
+    ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS -setcookie $COOKIE" \
+             call_nodetool "$NAME_TYPE" "$NAME" "$command" "$@"
 }
 
 call_hocon() {
