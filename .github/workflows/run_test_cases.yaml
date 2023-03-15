@@ -16,7 +16,7 @@ on:
 
 jobs:
   build-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       prepare: ${{ steps.matrix.outputs.prepare }}
       host: ${{ steps.matrix.outputs.host }}
@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v3
@@ -100,7 +100,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
 
     steps:
       - uses: AutoModality/action-clean@v1
@@ -156,7 +156,7 @@ jobs:
       - name: run tests
         working-directory: source
         env:
-          DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+          DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
           MONGO_TAG: "5"
           MYSQL_TAG: "8"
           PGSQL_TAG: "13"
@@ -186,7 +186,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.build-matrix.outputs.host) }}
 
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     defaults:
       run:
         shell: bash
@@ -262,7 +262,7 @@ jobs:
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Coveralls Finished
         env:

@@ -11,7 +11,7 @@ on:
 
 jobs:
   elixir_release_build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         profile:
