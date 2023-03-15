@@ -14,15 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_proto_v2).
+-module(emqx_bridge_proto_v3).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
 
     list_bridges/1,
+    list_bridges_on_nodes/1,
     restart_bridge_to_node/3,
     start_bridge_to_node/3,
     stop_bridge_to_node/3,
@@ -37,14 +37,16 @@
 -define(TIMEOUT, 15000).
 
 introduced_in() ->
-    "5.0.17".
-
-deprecated_since() ->
     "5.0.21".
 
 -spec list_bridges(node()) -> list() | emqx_rpc:badrpc().
 list_bridges(Node) ->
     rpc:call(Node, emqx_bridge, list, [], ?TIMEOUT).
+
+-spec list_bridges_on_nodes([node()]) ->
+    emqx_rpc:erpc_multicall([emqx_resource:resource_data()]).
+list_bridges_on_nodes(Nodes) ->
+    erpc:multicall(Nodes, emqx_bridge, list, [], ?TIMEOUT).
 
 -type key() :: atom() | binary() | [byte()].
 

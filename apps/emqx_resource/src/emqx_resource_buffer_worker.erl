@@ -885,7 +885,7 @@ handle_async_worker_down(Data0, Pid) ->
 
 call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM0}),
-    case emqx_resource_manager:ets_lookup(Id) of
+    case emqx_resource_manager:lookup_cached(Id) of
         {ok, _Group, #{status := stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
         {ok, _Group, Resource} ->

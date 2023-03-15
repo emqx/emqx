@@ -112,6 +112,8 @@
 
 -export([apply_reply_fun/2]).
 
+-export_type([resource_data/0]).
+
 -optional_callbacks([
     on_query/3,
     on_batch_query/3,
@@ -258,7 +260,7 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    case emqx_resource_manager:ets_lookup(ResId) of
+    case emqx_resource_manager:lookup_cached(ResId) of
         {ok, _Group, #{query_mode := QM, mod := Module}} ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
@@ -309,7 +311,7 @@ set_resource_status_connecting(ResId) ->
 -spec get_instance(resource_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
-    emqx_resource_manager:lookup(ResId).
+    emqx_resource_manager:lookup_cached(ResId, [metrics]).
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->

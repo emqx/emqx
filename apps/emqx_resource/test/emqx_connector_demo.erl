@@ -75,8 +75,7 @@ on_start(InstId, #{name := Name} = Opts) ->
 on_stop(_InstId, #{stop_error := true}) ->
     {error, stop_error};
 on_stop(_InstId, #{pid := Pid}) ->
-    erlang:exit(Pid, shutdown),
-    ok.
+    stop_counter_process(Pid).
 
 on_query(_InstId, get_state, State) ->
     {ok, State};
@@ -246,6 +245,15 @@ spawn_counter_process(Name, Register) ->
     Pid = spawn_link(?MODULE, counter_loop, []),
     true = maybe_register(Name, Pid, Register),
     Pid.
+
+stop_counter_process(Pid) ->
+    true = erlang:is_process_alive(Pid),
+    true = erlang:exit(Pid, shutdown),
+    receive
+        {'EXIT', Pid, shutdown} -> ok
+    after 5000 ->
+        {error, timeout}
+    end.
 
 counter_loop() ->
     counter_loop(#{

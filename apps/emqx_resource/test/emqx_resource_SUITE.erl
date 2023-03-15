@@ -72,115 +72,156 @@ t_check_config(_) ->
     {error, _} = emqx_resource:check_config(?TEST_RESOURCE, #{invalid => config}).
 
 t_create_remove(_) ->
-    {error, _} = emqx_resource:check_and_create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{unknown => test_resource}
-    ),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {error, _},
+                emqx_resource:check_and_create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{unknown => test_resource}
+                )
+            ),
 
-    {ok, _} = emqx_resource:create(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource}
+                )
+            ),
 
-    {ok, _} = emqx_resource:recreate(
-        ?ID,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{}
-    ),
-    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:recreate(
+                    ?ID,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    #{}
+                )
+            ),
 
-    ?assert(is_process_alive(Pid)),
+            {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
 
-    ok = emqx_resource:remove(?ID),
-    {error, _} = emqx_resource:remove(?ID),
+            ?assert(is_process_alive(Pid)),
 
-    ?assertNot(is_process_alive(Pid)).
+            ?assertEqual(ok, emqx_resource:remove(?ID)),
+            ?assertMatch({error, _}, emqx_resource:remove(?ID)),
+
+            ?assertNot(is_process_alive(Pid))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_create_remove_local(_) ->
-    {error, _} = emqx_resource:check_and_create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{unknown => test_resource}
-    ),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {error, _},
+                emqx_resource:check_and_create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{unknown => test_resource}
+                )
+            ),
 
-    {ok, _} = emqx_resource:create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource}
+                )
+            ),
 
-    emqx_resource:recreate_local(
-        ?ID,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{}
-    ),
-    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
+            emqx_resource:recreate_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                #{}
+            ),
 
-    ?assert(is_process_alive(Pid)),
+            {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
 
-    emqx_resource:set_resource_status_connecting(?ID),
+            ?assert(is_process_alive(Pid)),
 
-    emqx_resource:recreate_local(
-        ?ID,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{}
-    ),
+            emqx_resource:set_resource_status_connecting(?ID),
 
-    ok = emqx_resource:remove_local(?ID),
-    {error, _} = emqx_resource:remove_local(?ID),
+            emqx_resource:recreate_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                #{}
+            ),
 
-    ?assertMatch(
-        ?RESOURCE_ERROR(not_found),
-        emqx_resource:query(?ID, get_state)
-    ),
-    ?assertNot(is_process_alive(Pid)).
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            ?assertMatch({error, _}, emqx_resource:remove_local(?ID)),
+
+            ?assertMatch(
+                ?RESOURCE_ERROR(not_found),
+                emqx_resource:query(?ID, get_state)
+            ),
+
+            ?assertNot(is_process_alive(Pid))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_do_not_start_after_created(_) ->
-    ct:pal("creating resource"),
-    {ok, _} = emqx_resource:create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{start_after_created => false}
-    ),
-    %% the resource should remain `disconnected` after created
-    timer:sleep(200),
-    ?assertMatch(
-        ?RESOURCE_ERROR(stopped),
-        emqx_resource:query(?ID, get_state)
-    ),
-    ?assertMatch(
-        {ok, _, #{status := stopped}},
-        emqx_resource:get_instance(?ID)
-    ),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    #{start_after_created => false}
+                )
+            ),
+            %% the resource should remain `disconnected` after created
+            timer:sleep(200),
+            ?assertMatch(
+                ?RESOURCE_ERROR(stopped),
+                emqx_resource:query(?ID, get_state)
+            ),
+            ?assertMatch(
+                {ok, _, #{status := stopped}},
+                emqx_resource:get_instance(?ID)
+            ),
 
-    %% start the resource manually..
-    ct:pal("starting resource manually"),
-    ok = emqx_resource:start(?ID),
-    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
-    ?assert(is_process_alive(Pid)),
+            %% start the resource manually..
+            ?assertEqual(ok, emqx_resource:start(?ID)),
+            {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
+            ?assert(is_process_alive(Pid)),
 
-    %% restart the resource
-    ct:pal("restarting resource"),
-    ok = emqx_resource:restart(?ID),
-    ?assertNot(is_process_alive(Pid)),
-    {ok, #{pid := Pid2}} = emqx_resource:query(?ID, get_state),
-    ?assert(is_process_alive(Pid2)),
+            %% restart the resource
+            ?assertEqual(ok, emqx_resource:restart(?ID)),
+            ?assertNot(is_process_alive(Pid)),
+            {ok, #{pid := Pid2}} = emqx_resource:query(?ID, get_state),
+            ?assert(is_process_alive(Pid2)),
 
-    ct:pal("removing resource"),
-    ok = emqx_resource:remove_local(?ID),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
 
-    ?assertNot(is_process_alive(Pid2)).
+            ?assertNot(is_process_alive(Pid2))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_query(_) ->
     {ok, _} = emqx_resource:create_local(
@@ -222,7 +263,11 @@ t_batch_query_counter(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{batch_size => BatchSize, query_mode => sync}
+        #{
+            batch_size => BatchSize,
+            batch_time => 100,
+            query_mode => sync
+        }
     ),
 
     ?check_trace(
@@ -581,6 +626,7 @@ t_query_counter_async_inflight_batch(_) ->
         #{
             query_mode => async,
             batch_size => BatchSize,
+            batch_time => 100,
             async_inflight_window => WindowSize,
             worker_pool_size => 1,
             resume_interval => 300
@@ -771,153 +817,210 @@ t_query_counter_async_inflight_batch(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy_timeout(_) ->
-    {ok, _} = emqx_resource:create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => <<"bad_not_atom_name">>, register => true},
-        %% the ?TEST_RESOURCE always returns the `Mod:on_get_status/2` 300ms later.
-        #{health_check_interval => 200}
-    ),
-    ?assertMatch(
-        {error, {resource_error, #{reason := timeout}}},
-        emqx_resource:query(?ID, get_state, #{timeout => 1_000})
-    ),
-    ?assertMatch({ok, _Group, #{status := disconnected}}, emqx_resource_manager:ets_lookup(?ID)),
-    ok = emqx_resource:remove_local(?ID).
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => <<"bad_not_atom_name">>, register => true},
+                    %% the ?TEST_RESOURCE always returns the `Mod:on_get_status/2` 300ms later.
+                    #{health_check_interval => 200}
+                )
+            ),
+            ?assertMatch(
+                {error, {resource_error, #{reason := timeout}}},
+                emqx_resource:query(?ID, get_state, #{timeout => 1_000})
+            ),
+            ?assertMatch(
+                {ok, _Group, #{status := disconnected}}, emqx_resource_manager:lookup(?ID)
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_healthy(_) ->
-    {ok, _} = emqx_resource:create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource}
-    ),
-    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
-    timer:sleep(300),
-    emqx_resource:set_resource_status_connecting(?ID),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource}
+                )
+            ),
+            {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
+            timer:sleep(300),
+            emqx_resource:set_resource_status_connecting(?ID),
 
-    {ok, connected} = emqx_resource:health_check(?ID),
-    ?assertMatch(
-        [#{status := connected}],
-        emqx_resource:list_instances_verbose()
-    ),
+            ?assertEqual({ok, connected}, emqx_resource:health_check(?ID)),
+            ?assertMatch(
+                [#{status := connected}],
+                emqx_resource:list_instances_verbose()
+            ),
 
-    erlang:exit(Pid, shutdown),
+            erlang:exit(Pid, shutdown),
 
-    ?assertEqual({ok, disconnected}, emqx_resource:health_check(?ID)),
+            ?assertEqual({ok, disconnected}, emqx_resource:health_check(?ID)),
 
-    ?assertMatch(
-        [#{status := disconnected}],
-        emqx_resource:list_instances_verbose()
-    ),
+            ?assertMatch(
+                [#{status := disconnected}],
+                emqx_resource:list_instances_verbose()
+            ),
 
-    ok = emqx_resource:remove_local(?ID).
+            ?assertEqual(ok, emqx_resource:remove_local(?ID))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_stop_start(_) ->
-    {error, _} = emqx_resource:check_and_create(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{unknown => test_resource}
-    ),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {error, _},
+                emqx_resource:check_and_create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{unknown => test_resource}
+                )
+            ),
 
-    {ok, _} = emqx_resource:check_and_create(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{<<"name">> => <<"test_resource">>}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:check_and_create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{<<"name">> => <<"test_resource">>}
+                )
+            ),
 
-    %% add some metrics to test their persistence
-    WorkerID0 = <<"worker:0">>,
-    WorkerID1 = <<"worker:1">>,
-    emqx_resource_metrics:inflight_set(?ID, WorkerID0, 2),
-    emqx_resource_metrics:inflight_set(?ID, WorkerID1, 3),
-    ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
+            %% add some metrics to test their persistence
+            WorkerID0 = <<"worker:0">>,
+            WorkerID1 = <<"worker:1">>,
+            emqx_resource_metrics:inflight_set(?ID, WorkerID0, 2),
+            emqx_resource_metrics:inflight_set(?ID, WorkerID1, 3),
+            ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
 
-    {ok, _} = emqx_resource:check_and_recreate(
-        ?ID,
-        ?TEST_RESOURCE,
-        #{<<"name">> => <<"test_resource">>},
-        #{}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:check_and_recreate(
+                    ?ID,
+                    ?TEST_RESOURCE,
+                    #{<<"name">> => <<"test_resource">>},
+                    #{}
+                )
+            ),
 
-    {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
+            {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
 
-    ?assert(is_process_alive(Pid0)),
+            ?assert(is_process_alive(Pid0)),
 
-    %% metrics are reset when recreating
-    %% depending on timing, might show the request we just did.
-    ct:sleep(500),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+            %% metrics are reset when recreating
+            %% depending on timing, might show the request we just did.
+            ct:sleep(500),
+            ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
 
-    ok = emqx_resource:stop(?ID),
+            ok = emqx_resource:stop(?ID),
 
-    ?assertNot(is_process_alive(Pid0)),
+            ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch(
-        ?RESOURCE_ERROR(stopped),
-        emqx_resource:query(?ID, get_state)
-    ),
+            ?assertMatch(
+                ?RESOURCE_ERROR(stopped),
+                emqx_resource:query(?ID, get_state)
+            ),
 
-    ok = emqx_resource:restart(?ID),
-    timer:sleep(300),
+            ?assertEqual(ok, emqx_resource:restart(?ID)),
+            timer:sleep(300),
 
-    {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
+            {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
 
-    ?assert(is_process_alive(Pid1)),
+            ?assert(is_process_alive(Pid1)),
 
-    %% now stop while resetting the metrics
-    ct:sleep(500),
-    emqx_resource_metrics:inflight_set(?ID, WorkerID0, 1),
-    emqx_resource_metrics:inflight_set(?ID, WorkerID1, 4),
-    ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
-    ok = emqx_resource:stop(?ID),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+            %% now stop while resetting the metrics
+            ct:sleep(500),
+            emqx_resource_metrics:inflight_set(?ID, WorkerID0, 1),
+            emqx_resource_metrics:inflight_set(?ID, WorkerID1, 4),
+            ?assertEqual(5, emqx_resource_metrics:inflight_get(?ID)),
+            ?assertEqual(ok, emqx_resource:stop(?ID)),
+            ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID))
+        end,
 
-    ok.
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_stop_start_local(_) ->
-    {error, _} = emqx_resource:check_and_create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{unknown => test_resource}
-    ),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {error, _},
+                emqx_resource:check_and_create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{unknown => test_resource}
+                )
+            ),
 
-    {ok, _} = emqx_resource:check_and_create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{<<"name">> => <<"test_resource">>}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:check_and_create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{<<"name">> => <<"test_resource">>}
+                )
+            ),
 
-    {ok, _} = emqx_resource:check_and_recreate_local(
-        ?ID,
-        ?TEST_RESOURCE,
-        #{<<"name">> => <<"test_resource">>},
-        #{}
-    ),
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:check_and_recreate_local(
+                    ?ID,
+                    ?TEST_RESOURCE,
+                    #{<<"name">> => <<"test_resource">>},
+                    #{}
+                )
+            ),
 
-    {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
+            {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
 
-    ?assert(is_process_alive(Pid0)),
+            ?assert(is_process_alive(Pid0)),
 
-    ok = emqx_resource:stop(?ID),
+            ?assertEqual(ok, emqx_resource:stop(?ID)),
 
-    ?assertNot(is_process_alive(Pid0)),
+            ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch(
-        ?RESOURCE_ERROR(stopped),
-        emqx_resource:query(?ID, get_state)
-    ),
+            ?assertMatch(
+                ?RESOURCE_ERROR(stopped),
+                emqx_resource:query(?ID, get_state)
+            ),
 
-    ok = emqx_resource:restart(?ID),
+            ?assertEqual(ok, emqx_resource:restart(?ID)),
 
-    {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
+            {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
 
-    ?assert(is_process_alive(Pid1)).
+            ?assert(is_process_alive(Pid1))
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
+    ).
 
 t_list_filter(_) ->
     {ok, _} = emqx_resource:create_local(
@@ -1031,16 +1134,24 @@ t_auto_retry(_) ->
     ?assertEqual(ok, Res).
 
 t_health_check_disconnected(_) ->
-    _ = emqx_resource:create_local(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource, create_error => true},
-        #{auto_retry_interval => 100}
-    ),
-    ?assertEqual(
-        {ok, disconnected},
-        emqx_resource:health_check(?ID)
+    ?check_trace(
+        begin
+            _ = emqx_resource:create_local(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource, create_error => true},
+                #{auto_retry_interval => 100}
+            ),
+            ?assertEqual(
+                {ok, disconnected},
+                emqx_resource:health_check(?ID)
+            )
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
+        end
     ).
 
 t_unblock_only_required_buffer_workers(_) ->
@@ -1051,7 +1162,8 @@ t_unblock_only_required_buffer_workers(_) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 5
+            batch_size => 5,
+            batch_time => 100
         }
     ),
     lists:foreach(
@@ -1065,7 +1177,8 @@ t_unblock_only_required_buffer_workers(_) ->
         #{name => test_resource},
         #{
             query_mode => async,
-            batch_size => 5
+            batch_size => 5,
+            batch_time => 100
         }
     ),
     %% creation of `?ID1` should not have unblocked `?ID`'s buffer workers
@@ -1096,6 +1209,7 @@ t_retry_batch(_Config) ->
         #{
             query_mode => async,
             batch_size => 5,
+            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 1_000
         }
@@ -1465,7 +1579,6 @@ t_retry_async_inflight_full(_Config) ->
             query_mode => async,
             async_inflight_window => AsyncInflightWindow,
             batch_size => 1,
-            batch_time => 20,
             worker_pool_size => 1,
             resume_interval => ResumeInterval
         }
@@ -1980,7 +2093,6 @@ t_expiration_async_after_reply(_Config) ->
         #{
             query_mode => async,
             batch_size => 1,
-            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 1_000
         }
@@ -2203,7 +2315,6 @@ t_expiration_retry(_Config) ->
         #{
             query_mode => sync,
             batch_size => 1,
-            batch_time => 100,
             worker_pool_size => 1,
             resume_interval => 300
         }
@@ -2393,7 +2504,6 @@ t_recursive_flush(_Config) ->
         #{
             query_mode => async,
             batch_size => 1,
-            batch_time => 10_000,
             worker_pool_size => 1
         }
     ),
