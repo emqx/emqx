@@ -63,7 +63,8 @@
     T == timescale;
     T == matrix;
     T == tdengine;
-    T == dynamo
+    T == dynamo;
+    T == cassandra
 ).
 
 load() ->

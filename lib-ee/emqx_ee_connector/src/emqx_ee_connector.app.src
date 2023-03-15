@@ -11,7 +11,8 @@
         wolff,
         brod,
         clickhouse,
-        erlcloud
+        erlcloud,
+        ecql
     ]},
     {env, []},
     {modules, []},

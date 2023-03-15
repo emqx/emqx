@@ -53,5 +53,17 @@
     "listen": "0.0.0.0:8000",
     "upstream": "dynamo:8000",
     "enabled": true
+  },
+  {
+    "name": "cassa_tcp",
+    "listen": "0.0.0.0:9042",
+    "upstream": "cassa_tcp:9042",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tls",
+    "listen": "0.0.0.0:9043",
+    "upstream": "cassa_tls:9043",
+    "enabled": false
   }
 ]
