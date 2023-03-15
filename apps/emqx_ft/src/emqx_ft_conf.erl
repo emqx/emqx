@@ -20,6 +20,11 @@
 
 -behaviour(emqx_config_handler).
 
+%% Accessors
+-export([storage/0]).
+-export([gc_interval/1]).
+-export([segments_ttl/1]).
+
 %% Load/Unload
 -export([
     load/0,
@@ -31,6 +36,38 @@
     pre_config_update/3,
     post_config_update/5
 ]).
+
+-type milliseconds() :: non_neg_integer().
+-type seconds() :: non_neg_integer().
+
+%%--------------------------------------------------------------------
+%% Accessors
+%%--------------------------------------------------------------------
+
+-spec storage() -> _Storage | disabled.
+storage() ->
+    emqx_config:get([file_transfer, storage], disabled).
+
+-spec gc_interval(_Storage) -> milliseconds().
+gc_interval(_Storage) ->
+    Conf = assert_storage(local),
+    emqx_map_lib:deep_get([gc, interval], Conf).
+
+-spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
+segments_ttl(_Storage) ->
+    Conf = assert_storage(local),
+    {
+        emqx_map_lib:deep_get([gc, minimum_segments_ttl], Conf),
+        emqx_map_lib:deep_get([gc, maximum_segments_ttl], Conf)
+    }.
+
+assert_storage(Type) ->
+    case storage() of
+        Conf = #{type := Type} ->
+            Conf;
+        Conf ->
+            error({inapplicable, Conf})
+    end.
 
 %%--------------------------------------------------------------------
 %% API

@@ -109,7 +109,7 @@ t_assemble_complete_local_transfer(Config) ->
     ok = emqx_ft_storage_fs:store_filemeta(Storage, Transfer, Meta),
     _ = emqx_ft_content_gen:consume(
         Gen,
-        fun({Content, SegmentNum, _SegmentCount}) ->
+        fun({Content, SegmentNum, _Meta}) ->
             Offset = (SegmentNum - 1) * SegmentSize,
             ?assertEqual(
                 ok,

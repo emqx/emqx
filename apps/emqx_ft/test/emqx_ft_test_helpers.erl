@@ -30,9 +30,7 @@ start_additional_node(Config, Name) ->
             {configure_gen_rpc, true},
             {env_handler, fun
                 (emqx_ft) ->
-                    ok = emqx_config:put([file_transfer, storage], #{
-                        type => local, root => ft_root(Config, node())
-                    });
+                    load_config(#{storage => #{type => local, root => ft_root(Config, node())}});
                 (_) ->
                     ok
             end}
@@ -44,6 +42,9 @@ stop_additional_node(Node) ->
     ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
     {ok, _} = emqx_common_test_helpers:stop_slave(Node),
     ok.
+
+load_config(Config) ->
+    emqx_common_test_helpers:load_config(emqx_ft_schema, #{file_transfer => Config}).
 
 tcp_port(Node) ->
     {_, Port} = rpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),

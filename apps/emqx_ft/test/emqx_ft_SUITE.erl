@@ -58,9 +58,8 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            ok = emqx_config:put([file_transfer, storage], #{
-                type => local, root => emqx_ft_test_helpers:ft_root(Config, node())
-            });
+            Root = emqx_ft_test_helpers:ft_root(Config, node()),
+            emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
         (_) ->
             ok
     end.
@@ -109,10 +108,8 @@ mk_cluster_specs(Config) ->
         {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
         {env_handler, fun
             (emqx_ft) ->
-                ok = emqx_config:put([file_transfer, storage], #{
-                    type => local,
-                    root => emqx_ft_test_helpers:ft_root(Config, node())
-                });
+                Root = emqx_ft_test_helpers:ft_root(Config, node()),
+                emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
             (_) ->
                 ok
         end}

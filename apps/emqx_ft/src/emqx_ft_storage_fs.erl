@@ -14,6 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% Filesystem storage backend
+%%
+%% NOTE
+%% If you plan to change storage layout please consult `emqx_ft_storage_fs_gc`
+%% to see how much it would break or impair GC.
+
 -module(emqx_ft_storage_fs).
 
 -behaviour(emqx_ft_storage).
@@ -21,13 +27,21 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+-export([child_spec/1]).
+
 -export([store_filemeta/3]).
 -export([store_segment/3]).
+-export([read_filemeta/2]).
 -export([list/3]).
 -export([pread/5]).
 -export([assemble/3]).
 
 -export([transfers/1]).
+
+% GC API
+% TODO: This is quickly becomes hairy.
+-export([get_subdir/2]).
+-export([get_subdir/3]).
 
 -export([ready_transfers_local/1]).
 -export([get_ready_transfer_local/3]).
@@ -40,6 +54,7 @@
 -export([write/2]).
 -export([discard/1]).
 
+-export_type([storage/0]).
 -export_type([filefrag/1]).
 -export_type([filefrag/0]).
 -export_type([transferinfo/0]).
@@ -79,7 +94,9 @@
 -define(MANIFEST, "MANIFEST.json").
 -define(SEGMENT, "SEG").
 
--type storage() :: emqx_ft_storage:storage().
+-type storage() :: #{
+    root => file:name()
+}.
 
 -type file_error() ::
     file:posix()
@@ -88,13 +105,25 @@
     %% System limit (e.g. number of ports) reached.
     | system_limit.
 
+%% Related resources childspecs
+-spec child_spec(storage()) ->
+    [supervisor:child_spec()].
+child_spec(Storage) ->
+    [
+        #{
+            id => emqx_ft_storage_fs_gc,
+            start => {emqx_ft_storage_fs_gc, start_link, [Storage]},
+            restart => permanent
+        }
+    ].
+
 %% Store manifest in the backing filesystem.
 %% Atomic operation.
 -spec store_filemeta(storage(), transfer(), filemeta()) ->
     % Quota? Some lower level errors?
     ok | {error, conflict} | {error, file_error()}.
 store_filemeta(Storage, Transfer, Meta) ->
-    Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], ?MANIFEST),
+    Filepath = mk_filepath(Storage, Transfer, get_subdirs_for(fragment), ?MANIFEST),
     case read_file(Filepath, fun decode_filemeta/1) of
         {ok, Meta} ->
             _ = touch_file(Filepath),
@@ -119,8 +148,15 @@ store_filemeta(Storage, Transfer, Meta) ->
     % Quota? Some lower level errors?
     ok | {error, file_error()}.
 store_segment(Storage, Transfer, Segment = {_Offset, Content}) ->
-    Filepath = mk_filepath(Storage, Transfer, [?FRAGDIR], mk_segment_filename(Segment)),
+    Filename = mk_segment_filename(Segment),
+    Filepath = mk_filepath(Storage, Transfer, get_subdirs_for(fragment), Filename),
     write_file_atomic(Storage, Transfer, Filepath, Content).
+
+-spec read_filemeta(storage(), transfer()) ->
+    {ok, filefrag({filemeta, filemeta()})} | {error, corrupted} | {error, file_error()}.
+read_filemeta(Storage, Transfer) ->
+    Filepath = mk_filepath(Storage, Transfer, get_subdirs_for(fragment), ?MANIFEST),
+    read_file(Filepath, fun decode_filemeta/1).
 
 -spec list(storage(), transfer(), _What :: fragment | result) ->
     % Some lower level errors? {error, notfound}?
@@ -142,11 +178,6 @@ list(Storage, Transfer, What) ->
         {error, _} = Error ->
             Error
     end.
-
-get_subdirs_for(fragment) ->
-    [?FRAGDIR];
-get_subdirs_for(result) ->
-    [?RESULTDIR].
 
 get_filefrag_fun_for(fragment) ->
     fun mk_filefrag/2;
@@ -329,6 +360,23 @@ read_transferinfo(Storage, Transfer, Acc) ->
             Acc
     end.
 
+-spec get_subdir(storage(), transfer()) ->
+    file:name().
+get_subdir(Storage, Transfer) ->
+    mk_filedir(Storage, Transfer, []).
+
+-spec get_subdir(storage(), transfer(), fragment | temporary | result) ->
+    file:name().
+get_subdir(Storage, Transfer, What) ->
+    mk_filedir(Storage, Transfer, get_subdirs_for(What)).
+
+get_subdirs_for(fragment) ->
+    [?FRAGDIR];
+get_subdirs_for(temporary) ->
+    [?TEMPDIR];
+get_subdirs_for(result) ->
+    [?RESULTDIR].
+
 %%
 
 -type handle() :: {file:name(), io:device(), crypto:hash_state()}.
@@ -341,7 +389,7 @@ open_file(Storage, Transfer, Filemeta) ->
     _ = filelib:ensure_dir(TempFilepath),
     case file:open(TempFilepath, [write, raw, binary]) of
         {ok, Handle} ->
-            _ = file:truncate(Handle),
+            % TODO: preserve filemeta
             {ok, {TempFilepath, Handle, init_checksum(Filemeta)}};
         {error, _} = Error ->
             Error
@@ -359,8 +407,8 @@ write({Filepath, IoDevice, Ctx}, IoData) ->
 
 -spec complete(storage(), transfer(), filemeta(), handle()) ->
     ok | {error, {checksum, _Algo, _Computed}} | {error, file_error()}.
-complete(Storage, Transfer, Filemeta, Handle = {Filepath, IoDevice, Ctx}) ->
-    TargetFilepath = mk_filepath(Storage, Transfer, [?RESULTDIR], maps:get(name, Filemeta)),
+complete(Storage, Transfer, Filemeta = #{name := Filename}, Handle = {Filepath, IoDevice, Ctx}) ->
+    TargetFilepath = mk_filepath(Storage, Transfer, get_subdirs_for(result), Filename),
     case verify_checksum(Ctx, Filemeta) of
         ok ->
             ok = file:close(IoDevice),
@@ -491,7 +539,7 @@ write_file_atomic(Storage, Transfer, Filepath, Content) when is_binary(Content) 
 
 mk_temp_filepath(Storage, Transfer, Filename) ->
     Unique = erlang:unique_integer([positive]),
-    filename:join(mk_filedir(Storage, Transfer, [?TEMPDIR]), mk_filename([Unique, ".", Filename])).
+    filename:join(get_subdir(Storage, Transfer, temporary), mk_filename([Unique, ".", Filename])).
 
 mk_filename(Comps) ->
     lists:append(lists:map(fun mk_filename_component/1, Comps)).
@@ -516,9 +564,9 @@ filtermap_files(Fun, Dirname, Filenames) ->
     lists:filtermap(fun(Filename) -> Fun(Dirname, Filename) end, Filenames).
 
 mk_filefrag(Dirname, Filename = ?MANIFEST) ->
-    mk_filefrag(Dirname, Filename, filemeta, fun read_filemeta/2);
+    mk_filefrag(Dirname, Filename, filemeta, fun read_frag_filemeta/2);
 mk_filefrag(Dirname, Filename = ?SEGMENT ++ _) ->
-    mk_filefrag(Dirname, Filename, segment, fun read_segmentinfo/2);
+    mk_filefrag(Dirname, Filename, segment, fun read_frag_segmentinfo/2);
 mk_filefrag(_Dirname, _Filename) ->
     ?tp(warning, "rogue_file_found", #{
         directory => _Dirname,
@@ -554,10 +602,10 @@ mk_filefrag(Dirname, Filename, Tag, Fun) ->
             false
     end.
 
-read_filemeta(_Filename, Filepath) ->
+read_frag_filemeta(_Filename, Filepath) ->
     read_file(Filepath, fun decode_filemeta/1).
 
-read_segmentinfo(Filename, _Filepath) ->
+read_frag_segmentinfo(Filename, _Filepath) ->
     break_segment_filename(Filename).
 
 filename_to_binary(S) when is_list(S) -> unicode:characters_to_binary(S);
