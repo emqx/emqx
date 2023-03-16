@@ -82,7 +82,7 @@ jobs:
         name: "${{ matrix.profile[0] }}_schema_dump"
         path: |
           scripts/spellcheck
-          _build/docgen/${{ matrix.profile[0] }}/schema.json
+          _build/docgen/${{ matrix.profile[0] }}/schema-en.json
 
   windows:
     runs-on: windows-2019
@@ -218,4 +218,4 @@ jobs:
         path: /tmp/
     - name: Run spellcheck
       run: |
-        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema.json
+        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema-en.json
