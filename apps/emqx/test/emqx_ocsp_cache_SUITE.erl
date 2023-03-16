@@ -912,6 +912,24 @@ do_t_validations(_Config) ->
 
     ok.
 
+t_unknown_error_fetching_ocsp_response(_Config) ->
+    ListenerID = <<"ssl:test_ocsp">>,
+    TestPid = self(),
+    ok = meck:expect(
+        emqx_ocsp_cache,
+        http_get,
+        fun(_RequestURI, _HTTPTimeout) ->
+            TestPid ! error_raised,
+            meck:exception(error, something_went_wrong)
+        end
+    ),
+    ?assertEqual(error, emqx_ocsp_cache:fetch_response(ListenerID)),
+    receive
+        error_raised -> ok
+    after 200 -> ct:fail("should have tried to fetch ocsp response")
+    end,
+    ok.
+
 t_openssl_client(Config) ->
     TLSVsn = ?config(tls_vsn, Config),
     WithStatusRequest = ?config(status_request, Config),

@@ -300,7 +300,17 @@ with_refresh_params(ListenerID, Conf, ErrorRet, Fn) ->
         error ->
             ErrorRet;
         {ok, Params} ->
-            Fn(Params)
+            try
+                Fn(Params)
+            catch
+                Kind:Error ->
+                    ?SLOG(error, #{
+                        msg => "error_fetching_ocsp_response",
+                        listener_id => ListenerID,
+                        error => {Kind, Error}
+                    }),
+                    ErrorRet
+            end
     end.
 
 get_refresh_params(ListenerID, undefined = _Conf) ->
