@@ -55,35 +55,6 @@
 -define(MIN_REFRESH_INTERVAL, timer:minutes(1)).
 -endif.
 
--define(WITH_LISTENER_CONFIG(ListenerID, ConfPath, Pattern, ErrorResp, Action),
-    case emqx_listeners:parse_listener_id(ListenerID) of
-        {ok, #{type := Type, name := Name}} ->
-            case emqx_config:get_listener_conf(Type, Name, ConfPath, not_found) of
-                not_found ->
-                    ?SLOG(error, #{
-                        msg => "listener_config_missing",
-                        listener_id => ListenerID
-                    }),
-                    (ErrorResp);
-                Pattern ->
-                    Action;
-                OtherConfig ->
-                    ?SLOG(error, #{
-                        msg => "listener_config_inconsistent",
-                        listener_id => ListenerID,
-                        config => OtherConfig
-                    }),
-                    (ErrorResp)
-            end;
-        _Err ->
-            ?SLOG(error, #{
-                msg => "listener_id_not_found",
-                listener_id => ListenerID
-            }),
-            (ErrorResp)
-    end
-).
-
 %% Allow usage of OTP certificate record fields (camelCase).
 -elvis([
     {elvis_style, atom_naming_convention, #{
@@ -231,22 +202,45 @@ http_fetch(ListenerID) ->
     %% TODO: configurable call timeout?
     gen_server:call(?MODULE, {http_fetch, ListenerID}, ?CALL_TIMEOUT).
 
+with_listener_config(ListenerID, ConfPath, ErrorResp, Fn) ->
+    case emqx_listeners:parse_listener_id(ListenerID) of
+        {ok, #{type := Type, name := Name}} ->
+            case emqx_config:get_listener_conf(Type, Name, ConfPath, not_found) of
+                not_found ->
+                    ?SLOG(error, #{
+                        msg => "listener_config_missing",
+                        listener_id => ListenerID
+                    }),
+                    ErrorResp;
+                Config ->
+                    Fn(Config)
+            end;
+        _Err ->
+            ?SLOG(error, #{
+                msg => "listener_id_not_found",
+                listener_id => ListenerID
+            }),
+            ErrorResp
+    end.
+
 cache_key(ListenerID) ->
-    ?WITH_LISTENER_CONFIG(
-        ListenerID,
-        [ssl_options],
-        #{certfile := ServerCertPemPath},
-        error,
-        begin
+    with_listener_config(ListenerID, [ssl_options], error, fun
+        (#{certfile := ServerCertPemPath}) ->
             #'Certificate'{
                 tbsCertificate =
                     #'TBSCertificate'{
                         signature = Signature
                     }
             } = read_server_cert(ServerCertPemPath),
-            {ok, {ocsp_response, Signature}}
-        end
-    ).
+            {ok, {ocsp_response, Signature}};
+        (OtherConfig) ->
+            ?SLOG(error, #{
+                msg => "listener_config_inconsistent",
+                listener_id => ListenerID,
+                config => OtherConfig
+            }),
+            error
+    end).
 
 do_lookup(ListenerID) ->
     CacheKey = cache_key(ListenerID),
@@ -311,25 +305,31 @@ with_refresh_params(ListenerID, Conf, ErrorRet, Fn) ->
 
 get_refresh_params(ListenerID, undefined = _Conf) ->
     %% during normal periodic refreshes, we read from the emqx config.
-    ?WITH_LISTENER_CONFIG(
-        ListenerID,
-        [ssl_options],
-        #{
-            ocsp := #{
-                issuer_pem := IssuerPemPath,
-                responder_url := ResponderURL,
-                refresh_http_timeout := HTTPTimeout
-            },
-            certfile := ServerCertPemPath
-        },
-        error,
-        {ok, #{
-            issuer_pem => IssuerPemPath,
-            responder_url => ResponderURL,
-            refresh_http_timeout => HTTPTimeout,
-            server_certfile => ServerCertPemPath
-        }}
-    );
+    with_listener_config(ListenerID, [ssl_options], error, fun
+        (
+            #{
+                ocsp := #{
+                    issuer_pem := IssuerPemPath,
+                    responder_url := ResponderURL,
+                    refresh_http_timeout := HTTPTimeout
+                },
+                certfile := ServerCertPemPath
+            }
+        ) ->
+            {ok, #{
+                issuer_pem => IssuerPemPath,
+                responder_url => ResponderURL,
+                refresh_http_timeout => HTTPTimeout,
+                server_certfile => ServerCertPemPath
+            }};
+        (OtherConfig) ->
+            ?SLOG(error, #{
+                msg => "listener_config_inconsistent",
+                listener_id => ListenerID,
+                config => OtherConfig
+            }),
+            error
+    end);
 get_refresh_params(_ListenerID, #{
     ssl_options := #{
         ocsp := #{
