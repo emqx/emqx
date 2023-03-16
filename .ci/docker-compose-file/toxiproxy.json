@@ -95,5 +95,17 @@
     "listen": "0.0.0.0:9142",
     "upstream": "cassandra:9142",
     "enabled": true
+  },
+  {
+    "name": "minio_tcp",
+    "listen": "0.0.0.0:19000",
+    "upstream": "minio:9000",
+    "enabled": true
+  },
+  {
+    "name": "minio_tls",
+    "listen": "0.0.0.0:19100",
+    "upstream": "minio-tls:9100",
+    "enabled": true
   }
 ]

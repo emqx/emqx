@@ -13,18 +13,34 @@ services:
     volumes:
       - "./toxiproxy.json:/config/toxiproxy.json"
     ports:
+      # Toxiproxy management API
       - 8474:8474
+      # InfluxDB
       - 8086:8086
+      # InfluxDB TLS
       - 8087:8087
+      # MySQL
       - 13306:3306
+      # MySQL TLS
       - 13307:3307
+      # PostgreSQL
       - 15432:5432
+      # PostgreSQL TLS
       - 15433:5433
+      # TDEngine
       - 16041:6041
+      # DynamoDB
       - 18000:8000
+      # RocketMQ
       - 19876:9876
+      # Cassandra
       - 19042:9042
+      # Cassandra TLS
       - 19142:9142
+      # S3
+      - 19000:19000
+      # S3 TLS
+      - 19100:19100
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"
