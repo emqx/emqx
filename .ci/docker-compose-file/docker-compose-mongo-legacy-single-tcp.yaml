@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  mongo_server_v5:
+    container_name: mongo_v5
+    image: mongo:5
+    restart: always
+    networks:
+      - emqx_bridge
+    ports:
+      - "27517:27017"
+    command:
+      --ipv6
+      --bind_ip_all
+
+

@@ -129,6 +129,7 @@ for dep in ${CT_DEPS}; do
             ;;
         mongo)
             FILES+=( '.ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-mongo-legacy-single-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-mongo-single-tls.yaml' )
             ;;
         mongo_rs_sharded)
@@ -161,7 +162,7 @@ for dep in ${CT_DEPS}; do
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
-            ;; 
+            ;;
         clickhouse)
             FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
             ;;

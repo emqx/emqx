@@ -71,7 +71,7 @@ test_no_topic_rules(ClientInfo, SetupSamples) ->
     %% No rules
 
     ok = reset_authorizers(deny, false),
-    ok = SetupSamples(ClientInfo, []),
+    ok = SetupSamples([]),
 
     ok = test_samples(
         ClientInfo,
@@ -115,7 +115,7 @@ test_allow_topic_rules(ClientInfo, SetupSamples) ->
     ],
 
     ok = reset_authorizers(deny, false),
-    ok = SetupSamples(ClientInfo, Samples),
+    ok = SetupSamples(Samples),
 
     ok = test_samples(
         ClientInfo,
@@ -205,7 +205,7 @@ test_deny_topic_rules(ClientInfo, SetupSamples) ->
     ],
 
     ok = reset_authorizers(allow, false),
-    ok = SetupSamples(ClientInfo, Samples),
+    ok = SetupSamples(Samples),
 
     ok = test_samples(
         ClientInfo,

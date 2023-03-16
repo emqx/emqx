@@ -72,15 +72,15 @@ test_topic_rules(Key) ->
         listener => {tcp, default}
     },
 
-    SetupSamples = fun(CInfo, Samples) ->
-        setup_client_samples(CInfo, Samples, Key)
+    SetupFun = fun(Samples) ->
+        setup_client_samples(ClientInfo, Samples, Key)
     end,
 
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupSamples),
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupFun),
 
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupSamples),
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupFun),
 
-    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupSamples).
+    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupFun).
 
 t_normalize_rules(_Config) ->
     ClientInfo = #{
