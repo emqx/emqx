@@ -47,13 +47,13 @@
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
--define(SSL_FILE_OPT_NAMES, [
+-define(SSL_FILE_OPT_PATHS, [
     [<<"keyfile">>],
     [<<"certfile">>],
     [<<"cacertfile">>],
     [<<"ocsp">>, <<"issuer_pem">>]
 ]).
--define(SSL_FILE_OPT_NAMES_A, [
+-define(SSL_FILE_OPT_PATHS_A, [
     [keyfile],
     [certfile],
     [cacertfile],
@@ -308,7 +308,7 @@ ensure_ssl_files(Dir, SSL, Opts) ->
     RequiredKeys = maps:get(required_keys, Opts, []),
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->
-            KeyPaths = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A,
+            KeyPaths = ?SSL_FILE_OPT_PATHS ++ ?SSL_FILE_OPT_PATHS_A,
             ensure_ssl_files(Dir, SSL, KeyPaths, Opts);
         {error, _} = Error ->
             Error
@@ -336,7 +336,7 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     end,
     lists:foreach(
         fun(KeyPath) -> delete_old_file(Get(KeyPath, NewOpts), Get(KeyPath, OldOpts)) end,
-        ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A
+        ?SSL_FILE_OPT_PATHS ++ ?SSL_FILE_OPT_PATHS_A
     ),
     %% try to delete the dir if it is empty
     _ = file:del_dir(pem_dir(Dir)),
@@ -482,13 +482,13 @@ is_valid_pem_file(Path) ->
 %% so they are forced to upload a cert file, or use an existing file path.
 -spec drop_invalid_certs(map()) -> map().
 drop_invalid_certs(#{enable := False} = SSL) when ?IS_FALSE(False) ->
-    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_NAMES_A);
+    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_PATHS_A);
 drop_invalid_certs(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
-    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_NAMES);
+    lists:foldl(fun emqx_map_lib:deep_remove/2, SSL, ?SSL_FILE_OPT_PATHS);
 drop_invalid_certs(#{enable := True} = SSL) when ?IS_TRUE(True) ->
-    do_drop_invalid_certs(?SSL_FILE_OPT_NAMES_A, SSL);
+    do_drop_invalid_certs(?SSL_FILE_OPT_PATHS_A, SSL);
 drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
-    do_drop_invalid_certs(?SSL_FILE_OPT_NAMES, SSL).
+    do_drop_invalid_certs(?SSL_FILE_OPT_PATHS, SSL).
 
 do_drop_invalid_certs([], SSL) ->
     SSL;
