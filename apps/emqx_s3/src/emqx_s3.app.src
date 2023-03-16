@@ -1,0 +1,14 @@
+{application, emqx_s3, [
+    {description, "EMQX S3"},
+    {vsn, "5.0.6"},
+    {modules, []},
+    {registered, [emqx_s3_sup]},
+    {applications, [
+        kernel,
+        stdlib,
+        gproc,
+        erlcloud,
+        ehttpc
+    ]},
+    {mod, {emqx_s3_app, []}}
+]}.

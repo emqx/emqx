@@ -401,7 +401,8 @@ relx_apps(ReleaseType, Edition) ->
             emqx_psk,
             emqx_slow_subs,
             emqx_plugins,
-            emqx_ft
+            emqx_ft,
+            emqx_s3
         ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
