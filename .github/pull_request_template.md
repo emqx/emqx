@@ -5,8 +5,12 @@ Please convert it to a draft if any of the following conditions are not met. Rev
 
 - [ ] Added tests for the changes
 - [ ] Changed lines covered in coverage report
-- [ ] Change log has been added to `changes/` dir
-- [ ] `appup` files updated (execute `scripts/update-appup.sh emqx`)
+- [ ] Change log has been added to `changes/{ce,ee}/(feat|perf|fix)-<PR-id>.en.md` and `.zh.md` files
 - [ ] For internal contributor: there is a jira ticket to track this change
 - [ ] If there should be document changes, a PR to emqx-docs.git is sent, or a jira ticket is created to follow up
-- [ ] In case of non-backward compatible changes, reviewer should check this item as a write-off, and add details in **Backward Compatibility** section
+- [ ] Schema changes are backward compatible
+
+## Checklist for CI (.github/workflows) changes
+
+- [ ] If changed package build workflow, pass [this action](https://github.com/emqx/emqx/actions/workflows/build_packages.yaml) (manual trigger)
+- [ ] Change log has been added to `changes/` dir for user-facing artifacts update
