@@ -24,13 +24,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_conf/include/emqx_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
 
 -define(OTHER_CLUSTER_NAME_ATOM, test_emqx_cluster).
 -define(OTHER_CLUSTER_NAME_STRING, "test_emqx_cluster").
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<
     "\n"
@@ -53,6 +53,8 @@
     "  ]\n"
     "}\n"
 >>).
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -89,7 +91,7 @@ init_per_testcase(_, Config) ->
     timer:sleep(200),
     Config.
 
-end_per_testcase(_, Config) ->
+end_per_testcase(_, _Config) ->
     case erlang:whereis(node()) of
         undefined ->
             ok;
@@ -97,7 +99,8 @@ end_per_testcase(_, Config) ->
             erlang:unlink(P),
             erlang:exit(P, kill)
     end,
-    Config.
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 load_cfg(Cfg) ->
     ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, Cfg).
@@ -300,6 +303,12 @@ t_cluster_name(_) ->
 
     emqx_common_test_helpers:stop_apps([emqx, emqx_exhook]),
     emqx_common_test_helpers:start_apps([emqx, emqx_exhook], SetEnvFun),
+    on_exit(fun() ->
+        emqx_common_test_helpers:stop_apps([emqx, emqx_exhook]),
+        load_cfg(?CONF_DEFAULT),
+        emqx_common_test_helpers:start_apps([emqx_exhook]),
+        mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT])
+    end),
 
     ?assertEqual(?OTHER_CLUSTER_NAME_STRING, emqx_sys:cluster_name()),
 
