@@ -75,7 +75,8 @@
 -export([with_mock/4]).
 -export([
     on_exit/1,
-    call_janitor/0
+    call_janitor/0,
+    call_janitor/1
 ]).
 
 %% Toxiproxy API
@@ -1078,8 +1079,11 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %% stop the janitor gracefully to ensure proper cleanup order and less
 %% noise in the logs.
 call_janitor() ->
+    call_janitor(15_000).
+
+call_janitor(Timeout) ->
     Janitor = get_or_spawn_janitor(),
-    ok = emqx_test_janitor:stop(Janitor),
+    ok = emqx_test_janitor:stop(Janitor, Timeout),
     ok.
 
 get_or_spawn_janitor() ->

@@ -360,7 +360,6 @@ common_init_per_testcase(TestCase, Config0) ->
 end_per_testcase(_Testcase, Config) ->
     case proplists:get_bool(skip_does_not_apply, Config) of
         true ->
-            ok = snabbkaffe:stop(),
             ok;
         false ->
             ProxyHost = ?config(proxy_host, Config),
@@ -1046,12 +1045,19 @@ setup_and_start_listeners(Node, NodeOpts) ->
 
 cluster(Config) ->
     PrivDataDir = ?config(priv_dir, Config),
+    PeerModule =
+        case os:getenv("IS_CI") of
+            false ->
+                slave;
+            _ ->
+                ct_slave
+        end,
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
             {apps, [emqx_conf, emqx_bridge, emqx_rule_engine]},
             {listener_ports, []},
-            {peer_mod, slave},
+            {peer_mod, PeerModule},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
