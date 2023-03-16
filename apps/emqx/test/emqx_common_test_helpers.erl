@@ -262,12 +262,13 @@ app_schema(App) ->
     end.
 
 mustache_vars(App, Opts) ->
-    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, []),
-    [
-        {platform_data_dir, app_path(App, "data")},
-        {platform_etc_dir, app_path(App, "etc")},
-        {platform_log_dir, app_path(App, "log")}
-    ] ++ ExtraMustacheVars.
+    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
+    Defaults = #{
+        platform_data_dir => app_path(App, "data"),
+        platform_etc_dir => app_path(App, "etc"),
+        platform_log_dir => app_path(App, "log")
+    },
+    maps:merge(Defaults, ExtraMustacheVars).
 
 render_config_file(ConfigFile, Vars0) ->
     Temp =
@@ -275,7 +276,7 @@ render_config_file(ConfigFile, Vars0) ->
             {ok, T} -> T;
             {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
         end,
-    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- Vars0],
+    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],
     Targ = bbmustache:render(Temp, Vars),
     NewName = ConfigFile ++ ".rendered",
     ok = file:write_file(NewName, Targ),

@@ -487,7 +487,8 @@ esockd_opts(ListenerId, Type, Opts0) ->
             tcp ->
                 Opts3#{tcp_options => tcp_opts(Opts0)};
             ssl ->
-                OptsWithSNI = inject_sni_fun(ListenerId, Opts0),
+                OptsWithCRL = inject_crl_config(Opts0),
+                OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
                 SSLOpts = ssl_opts(OptsWithSNI),
                 Opts3#{ssl_options => SSLOpts, tcp_options => tcp_opts(Opts0)}
         end
@@ -793,4 +794,18 @@ quic_listener_optional_settings() ->
 inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
     emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
 inject_sni_fun(_ListenerId, Conf) ->
+    Conf.
+
+inject_crl_config(
+    Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}
+) ->
+    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
+    Conf#{
+        ssl_options := SSLOpts#{
+            %% `crl_check => true' doesn't work
+            crl_check => peer,
+            crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
+        }
+    };
+inject_crl_config(Conf) ->
     Conf.
