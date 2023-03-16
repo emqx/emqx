@@ -2554,6 +2554,132 @@ do_t_recursive_flush() ->
     ),
     ok.
 
+%% Check that we raise an alarm if a bad request timeout config is
+%% issued.  Request timeout should be greater than health check
+%% timeout.
+t_bad_request_timeout_alarm(_Config) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+
+    %% 1) Same values.
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            request_timeout => 1_000,
+            health_check_interval => 1_000,
+            worker_pool_size => 2
+        }
+    ),
+    ExpectedMessage =
+        <<"Request timeout should be greater than health check timeout: ", ?ID/binary>>,
+    ?assertMatch(
+        [
+            #{
+                message := ExpectedMessage,
+                details := #{reason := bad_request_timeout, resource_id := ?ID},
+                deactivate_at := infinity
+            }
+        ],
+        emqx_alarm:get_alarms(activated)
+    ),
+    %% The unexpected termination of one of the buffer workers should
+    %% not turn the alarm off.
+    [Pid, _ | _] = emqx_resource_buffer_worker_sup:worker_pids(?ID),
+    MRef = monitor(process, Pid),
+    exit(Pid, kill),
+    receive
+        {'DOWN', MRef, process, Pid, _} ->
+            ok
+    after 300 ->
+        ct:fail("buffer worker didn't die")
+    end,
+    ?assertMatch(
+        [
+            #{
+                message := ExpectedMessage,
+                details := #{reason := bad_request_timeout, resource_id := ?ID},
+                deactivate_at := infinity
+            }
+        ],
+        emqx_alarm:get_alarms(activated)
+    ),
+    ok = emqx_resource:remove_local(?ID),
+    ?assertEqual([], emqx_alarm:get_alarms(activated)),
+
+    %% 2) Request timeout < health check interval.
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            request_timeout => 999,
+            health_check_interval => 1_000,
+            worker_pool_size => 2
+        }
+    ),
+    ?assertMatch(
+        [
+            #{
+                message := ExpectedMessage,
+                details := #{reason := bad_request_timeout, resource_id := ?ID},
+                deactivate_at := infinity
+            }
+        ],
+        emqx_alarm:get_alarms(activated)
+    ),
+    ok = emqx_resource:remove_local(?ID),
+    ?assertEqual([], emqx_alarm:get_alarms(activated)),
+
+    %% 2) Request timeout < health check interval.
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            request_timeout => 999,
+            health_check_interval => 1_000,
+            worker_pool_size => 2
+        }
+    ),
+    ?assertMatch(
+        [
+            #{
+                message := ExpectedMessage,
+                details := #{reason := bad_request_timeout, resource_id := ?ID},
+                deactivate_at := infinity
+            }
+        ],
+        emqx_alarm:get_alarms(activated)
+    ),
+    ok = emqx_resource:remove_local(?ID),
+    ?assertEqual([], emqx_alarm:get_alarms(activated)),
+
+    %% 3) Request timeout > health check interval.
+    {ok, _} = emqx_resource:create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            request_timeout => 1_001,
+            health_check_interval => 1_000,
+            worker_pool_size => 2
+        }
+    ),
+    ?assertEqual([], emqx_alarm:get_alarms(activated)),
+    ok = emqx_resource:remove_local(?ID),
+    ?assertEqual([], emqx_alarm:get_alarms(activated)),
+
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

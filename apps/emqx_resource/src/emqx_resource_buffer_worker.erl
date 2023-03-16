@@ -56,6 +56,8 @@
 
 -export([clear_disk_queue_dir/2]).
 
+-export([deactivate_bad_request_timeout_alarm/1]).
+
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -define(COLLECT_REQ_LIMIT, 1000).
@@ -88,6 +90,8 @@
 -type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
+-type request_timeout() :: infinity | timer:time().
+-type health_check_interval() :: timer:time().
 -type state() :: blocked | running.
 -type inflight_key() :: integer().
 -type data() :: #{
@@ -199,6 +203,7 @@ init({Id, Index, Opts}) ->
     RequestTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     BatchTime0 = maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
     BatchTime = adjust_batch_time(Id, RequestTimeout, BatchTime0),
+    maybe_toggle_bad_request_timeout_alarm(Id, RequestTimeout, HealthCheckInterval),
     Data = #{
         id => Id,
         index => Index,
@@ -1678,6 +1683,39 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
             ok
     end,
     BatchTime.
+
+%% The request timeout should be greater than the health check
+%% timeout, health timeout defines how often the buffer worker tries
+%% to unblock. If request timeout is <= health check timeout and the
+%% buffer worker is ever blocked, than all queued requests will
+%% basically fail without being attempted.
+-spec maybe_toggle_bad_request_timeout_alarm(
+    resource_id(), request_timeout(), health_check_interval()
+) -> ok.
+maybe_toggle_bad_request_timeout_alarm(Id, _RequestTimeout = infinity, _HealthCheckInterval) ->
+    deactivate_bad_request_timeout_alarm(Id),
+    ok;
+maybe_toggle_bad_request_timeout_alarm(Id, RequestTimeout, HealthCheckInterval) ->
+    case RequestTimeout > HealthCheckInterval of
+        true ->
+            deactivate_bad_request_timeout_alarm(Id),
+            ok;
+        false ->
+            _ = emqx_alarm:activate(
+                bad_request_timeout_alarm_id(Id),
+                #{resource_id => Id, reason => bad_request_timeout},
+                <<"Request timeout should be greater than health check timeout: ", Id/binary>>
+            ),
+            ok
+    end.
+
+-spec deactivate_bad_request_timeout_alarm(resource_id()) -> ok.
+deactivate_bad_request_timeout_alarm(Id) ->
+    _ = emqx_alarm:ensure_deactivated(bad_request_timeout_alarm_id(Id)),
+    ok.
+
+bad_request_timeout_alarm_id(Id) ->
+    <<"bad_request_timeout:", Id/binary>>.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
