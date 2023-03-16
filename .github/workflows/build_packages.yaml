@@ -24,7 +24,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
-    container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-24.3.4.2-2-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -221,7 +221,7 @@ jobs:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.0-29
+          - 5.0-32
         elixir:
           - 1.13.4
         exclude:
@@ -235,7 +235,7 @@ jobs:
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.0-29
+            builder: 5.0-32
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
@@ -243,7 +243,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.0-29
+            builder: 5.0-32
             elixir: 1.13.4
             release_with: elixir
 
@@ -339,7 +339,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v1-node16
+    - uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

@@ -233,9 +233,16 @@ if [ -d "${CHECKS_DIR}" ]; then
 fi
 
 generate_changelog () {
-    local from_tag="${PREV_TAG:-}"
+    local from_tag num_en num_zh
+    from_tag="${PREV_TAG:-}"
     if [[ -z $from_tag ]]; then
         from_tag="$(./scripts/find-prev-rel-tag.sh "$PROFILE")"
+    fi
+    num_en=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.en.md')
+    num_zh=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.zh.md')
+    if [ "$num_en" -ne "$num_zh" ]; then
+        echo "Number of English and Chinese changelog files added since ${from_tag} do not match."
+        exit 1
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"

@@ -16,7 +16,7 @@ on:
 
 jobs:
   build-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       prepare: ${{ steps.matrix.outputs.prepare }}
       host: ${{ steps.matrix.outputs.host }}
@@ -31,12 +31,12 @@ jobs:
           MATRIX="$(echo "${APPS}" | jq -c '
             [
               (.[] | select(.profile == "emqx") | . + {
-                builder: "5.0-29",
+                builder: "5.0-32",
                 otp: "25.1.2-2",
                 elixir: "1.13.4"
               }),
               (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.0-29",
+                builder: "5.0-32",
                 otp: ["24.3.4.2-2", "25.1.2-2"][],
                 elixir: "1.13.4"
               })
@@ -63,12 +63,17 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v3
         with:
           path: source
+      - uses: actions/cache@v3
+        id: cache
+        with:
+          path: "$HOME/.cache/rebar3/rebar3_${{ matrix.otp }}_plt"
+          key: rebar3-dialyzer-plt-${{ matrix.otp }}
       - name: get_all_deps
         working-directory: source
         env:
@@ -100,7 +105,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
 
     steps:
       - uses: AutoModality/action-clean@v1
@@ -156,7 +161,7 @@ jobs:
       - name: run tests
         working-directory: source
         env:
-          DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+          DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
           MONGO_TAG: "5"
           MYSQL_TAG: "8"
           PGSQL_TAG: "13"
@@ -186,7 +191,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.build-matrix.outputs.host) }}
 
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     defaults:
       run:
         shell: bash
@@ -225,7 +230,7 @@ jobs:
       - ct
       - ct_docker
     runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-24.3.4.2-2-ubuntu22.04"
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
@@ -262,7 +267,7 @@ jobs:
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Coveralls Finished
         env:
