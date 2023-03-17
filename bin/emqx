@@ -819,7 +819,7 @@ case "$1" in
         # or other supervision services
 
         # set before generate_config
-        export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+#        export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
 
         #generate app.config and vm.args
         generate_config
