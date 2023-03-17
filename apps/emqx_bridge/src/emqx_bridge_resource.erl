@@ -16,6 +16,7 @@
 -module(emqx_bridge_resource).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([
     bridge_to_resource_type/1,
@@ -45,7 +46,12 @@
 ]).
 
 %% bi-directional bridge with producer/consumer or ingress/egress configs
--define(IS_BI_DIR_BRIDGE(TYPE), TYPE =:= <<"mqtt">>; TYPE =:= <<"kafka">>).
+-define(IS_BI_DIR_BRIDGE(TYPE),
+    (TYPE) =:= <<"mqtt">>
+).
+-define(IS_INGRESS_BRIDGE(TYPE),
+    (TYPE) =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
+).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
@@ -219,7 +225,7 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpPath0 = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+    TmpPath0 = iolist_to_binary([?TEST_ID_PREFIX, emqx_misc:gen_id(8)]),
     TmpPath = emqx_misc:safe_filename(TmpPath0),
     Conf = emqx_map_lib:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
@@ -297,12 +303,16 @@ parse_confs(
                 max_retries => Retry
             }
     };
-parse_confs(Type, Name, Conf) when ?IS_BI_DIR_BRIDGE(Type) ->
+parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
     BId = bridge_id(Type, Name),
     Conf#{hookpoint => <<"$bridges/", BId/binary>>, bridge_name => Name};
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+parse_confs(<<"kafka">> = _Type, Name, Conf) ->
+    Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
 

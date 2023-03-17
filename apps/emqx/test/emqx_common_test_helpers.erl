@@ -37,6 +37,7 @@
     deps_path/2,
     flush/0,
     flush/1,
+    load/1,
     render_and_load_app_config/1,
     render_and_load_app_config/2
 ]).
@@ -66,14 +67,16 @@
     emqx_cluster/2,
     start_epmd/0,
     start_slave/2,
-    stop_slave/1
+    stop_slave/1,
+    listener_port/2
 ]).
 
 -export([clear_screen/0]).
 -export([with_mock/4]).
 -export([
     on_exit/1,
-    call_janitor/0
+    call_janitor/0,
+    call_janitor/1
 ]).
 
 %% Toxiproxy API
@@ -587,6 +590,12 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     %% Whether to execute `emqx_config:init_load(SchemaMod)`
     %% default: true
     load_schema => boolean(),
+    %% If we want to exercise the scenario where a node joins an
+    %% existing cluster where there has already been some
+    %% configuration changes (via cluster rpc), then we need to enable
+    %% autocluster so that the joining node will restart the
+    %% `emqx_conf' app and correctly catch up the config.
+    start_autocluster => boolean(),
     %% Eval by emqx_config:put/2
     conf => [{KeyPath :: list(), Val :: term()}],
     %% Fast option to config listener port
@@ -637,25 +646,53 @@ emqx_cluster(Specs0, CommonOpts) ->
 %% Lower level starting API
 
 -spec start_slave(shortname(), node_opts()) -> nodename().
-start_slave(Name, Opts) ->
-    {ok, Node} = ct_slave:start(
-        list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
-        [
-            {kill_if_fail, true},
-            {monitor_master, true},
-            {init_timeout, 10000},
-            {startup_timeout, 10000},
-            {erl_flags, erl_flags()}
-        ]
-    ),
-
+start_slave(Name, Opts) when is_list(Opts) ->
+    start_slave(Name, maps:from_list(Opts));
+start_slave(Name, Opts) when is_map(Opts) ->
+    SlaveMod = maps:get(peer_mod, Opts, ct_slave),
+    Node = node_name(Name),
+    DoStart =
+        fun() ->
+            case SlaveMod of
+                ct_slave ->
+                    ct_slave:start(
+                        Node,
+                        [
+                            {kill_if_fail, true},
+                            {monitor_master, true},
+                            {init_timeout, 10000},
+                            {startup_timeout, 10000},
+                            {erl_flags, erl_flags()}
+                        ]
+                    );
+                slave ->
+                    slave:start_link(host(), Name, ebin_path())
+            end
+        end,
+    case DoStart() of
+        {ok, _} ->
+            ok;
+        {error, started_not_connected, _} ->
+            ok;
+        Other ->
+            throw(Other)
+    end,
     pong = net_adm:ping(Node),
+    put_peer_mod(Node, SlaveMod),
     setup_node(Node, Opts),
+    ok = snabbkaffe:forward_trace(Node),
     Node.
 
 %% Node stopping
-stop_slave(Node) ->
-    ct_slave:stop(Node).
+stop_slave(Node0) ->
+    Node = node_name(Node0),
+    SlaveMod = get_peer_mod(Node),
+    erase_peer_mod(Node),
+    case SlaveMod:stop(Node) of
+        ok -> ok;
+        {ok, _} -> ok;
+        {error, not_started, _} -> ok
+    end.
 
 %% EPMD starting
 start_epmd() ->
@@ -693,9 +730,27 @@ setup_node(Node, Opts) when is_map(Opts) ->
         {Type, listener_port(BasePort, Type)}
      || Type <- [tcp, ssl, ws, wss]
     ]),
+    %% we need a fresh data dir for each peer node to avoid unintended
+    %% successes due to sharing of data in the cluster.
+    PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
+    %% If we want to exercise the scenario where a node joins an
+    %% existing cluster where there has already been some
+    %% configuration changes (via cluster rpc), then we need to enable
+    %% autocluster so that the joining node will restart the
+    %% `emqx_conf' app and correctly catch up the config.
+    StartAutocluster = maps:get(start_autocluster, Opts, false),
 
     %% Load env before doing anything to avoid overriding
-    [ok = rpc:call(Node, application, load, [App]) || App <- LoadApps],
+    lists:foreach(fun(App) -> rpc:call(Node, ?MODULE, load, [App]) end, LoadApps),
+    %% Ensure a clean mnesia directory for each run to avoid
+    %% inter-test flakiness.
+    MnesiaDataDir = filename:join([
+        PrivDataDir,
+        node(),
+        integer_to_list(erlang:unique_integer()),
+        "mnesia"
+    ]),
+    erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]),
 
     %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
     %% in emqx_common_test_helpers:start_apps(...)
@@ -721,7 +776,19 @@ setup_node(Node, Opts) when is_map(Opts) ->
             %% Otherwise, configuration gets loaded and all preset env in EnvHandler is lost
             LoadSchema andalso
                 begin
+                    %% to avoid sharing data between executions and/or
+                    %% nodes.  these variables might notbe in the
+                    %% config file (e.g.: emqx_ee_conf_schema).
+                    NodeDataDir = filename:join([
+                        PrivDataDir,
+                        node(),
+                        integer_to_list(erlang:unique_integer())
+                    ]),
+                    os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
+                    os:putenv("EMQX_NODE__COOKIE", atom_to_list(erlang:get_cookie())),
                     emqx_config:init_load(SchemaMod),
+                    os:unsetenv("EMQX_NODE__DATA_DIR"),
+                    os:unsetenv("EMQX_NODE__COOKIE"),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 
@@ -748,6 +815,8 @@ setup_node(Node, Opts) when is_map(Opts) ->
         undefined ->
             ok;
         _ ->
+            StartAutocluster andalso
+                (ok = rpc:call(Node, emqx_machine_boot, start_autocluster, [])),
             case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->
                     ok;
@@ -762,8 +831,27 @@ setup_node(Node, Opts) when is_map(Opts) ->
 
 %% Helpers
 
+put_peer_mod(Node, SlaveMod) ->
+    put({?MODULE, Node}, SlaveMod),
+    ok.
+
+get_peer_mod(Node) ->
+    case get({?MODULE, Node}) of
+        undefined -> ct_slave;
+        SlaveMod -> SlaveMod
+    end.
+
+erase_peer_mod(Node) ->
+    erase({?MODULE, Node}).
+
 node_name(Name) ->
-    list_to_atom(lists:concat([Name, "@", host()])).
+    case string:tokens(atom_to_list(Name), "@") of
+        [_Name, _Host] ->
+            %% the name already has a @
+            Name;
+        _ ->
+            list_to_atom(atom_to_list(Name) ++ "@" ++ host())
+    end.
 
 gen_node_name(Num) ->
     list_to_atom("autocluster_node" ++ integer_to_list(Num)).
@@ -804,6 +892,9 @@ base_port(Number) ->
 gen_rpc_port(BasePort) ->
     BasePort - 1.
 
+listener_port(Opts, Type) when is_map(Opts) ->
+    BasePort = maps:get(base_port, Opts),
+    listener_port(BasePort, Type);
 listener_port(BasePort, tcp) ->
     BasePort;
 listener_port(BasePort, ssl) ->
@@ -988,8 +1079,11 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
 %% stop the janitor gracefully to ensure proper cleanup order and less
 %% noise in the logs.
 call_janitor() ->
+    call_janitor(15_000).
+
+call_janitor(Timeout) ->
     Janitor = get_or_spawn_janitor(),
-    exit(Janitor, normal),
+    ok = emqx_test_janitor:stop(Janitor, Timeout),
     ok.
 
 get_or_spawn_janitor() ->

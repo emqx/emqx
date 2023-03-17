@@ -55,6 +55,10 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
+    %% TODO: rename this to `kafka_producer' after alias support is
+    %% added to hocon; keeping this as just `kafka' for backwards
+    %% compatibility.
+    T == kafka;
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;
@@ -137,11 +141,11 @@ load_hook(Bridges) ->
         maps:to_list(Bridges)
     ).
 
-do_load_hook(Type, #{local_topic := _}) when ?EGRESS_DIR_BRIDGES(Type) ->
+do_load_hook(Type, #{local_topic := LocalTopic}) when
+    ?EGRESS_DIR_BRIDGES(Type) andalso is_binary(LocalTopic)
+->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
 do_load_hook(mqtt, #{egress := #{local := #{topic := _}}}) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-do_load_hook(kafka, #{producer := #{mqtt := #{topic := _}}}) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
 do_load_hook(_Type, _Conf) ->
     ok.
@@ -223,6 +227,7 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     ]),
     ok = unload_hook(),
     ok = load_hook(NewConf),
+    ?tp(bridge_post_config_update_done, #{}),
     Result.
 
 list() ->
@@ -407,8 +412,8 @@ get_matched_bridge_id(BType, Conf, Topic, BName, Acc) when ?EGRESS_DIR_BRIDGES(B
     end;
 get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
     do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
-get_matched_bridge_id(kafka, #{producer := #{mqtt := #{topic := Filter}}}, Topic, BName, Acc) ->
-    do_get_matched_bridge_id(Topic, Filter, kafka, BName, Acc).
+get_matched_bridge_id(_BType, _Conf, _Topic, _BName, Acc) ->
+    Acc.
 
 do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
