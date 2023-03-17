@@ -172,7 +172,7 @@ on_stop(InstId, #{poolname := PoolName}) ->
     emqx_resource:resource_id(),
     request(),
     state()
-) -> emqx_resource:query_result().
+) -> ok | {ok, ecql:cql_result()} | {error, {recoverable_error | unrecoverable_error, term()}}.
 on_query(
     InstId,
     Request,
@@ -397,12 +397,10 @@ assign_type_for_params([], Acc) ->
 assign_type_for_params([Param | More], Acc) ->
     assign_type_for_params(More, [may_assign_type(Param) | Acc]).
 
-may_assign_type(V) when is_boolean(V) ->
-    {int,
-        if
-            V -> 1;
-            true -> 0
-        end};
+may_assign_type(true) ->
+    {int, 1};
+may_assign_type(false) ->
+    {int, 0};
 may_assign_type(V) when is_binary(V); is_list(V); is_atom(V) -> V;
 may_assign_type(V) when is_integer(V) ->
     %% The max value of signed int(4) is 2147483647

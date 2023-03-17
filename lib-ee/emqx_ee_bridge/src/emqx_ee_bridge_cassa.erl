@@ -25,7 +25,7 @@
     desc/1
 ]).
 
--define(DEFAULT_SQL, <<
+-define(DEFAULT_CQL, <<
     "insert into mqtt_msg(topic, msgid, sender, qos, payload, arrived, retain) "
     "values (${topic}, ${id}, ${clientid}, ${qos}, ${payload}, ${timestamp}, ${flags.retain})"
 >>).
@@ -55,7 +55,7 @@ values(post, Type) ->
         pool_size => 8,
         username => <<"root">>,
         password => <<"public">>,
-        sql => ?DEFAULT_SQL,
+        sql => ?DEFAULT_CQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
             worker_pool_size => 8,
@@ -83,7 +83,7 @@ fields("config") ->
         {sql,
             mk(
                 binary(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_CQL, format => <<"sql">>}
             )},
         {local_topic,
             mk(
