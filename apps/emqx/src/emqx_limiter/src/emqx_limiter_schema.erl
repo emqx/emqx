@@ -35,6 +35,12 @@
 ]).
 
 -define(KILOBYTE, 1024).
+-define(BUCKET_KEYS, [
+    {bytes_in, bucket_infinity},
+    {message_in, bucket_infinity},
+    {connection, bucket_limit},
+    {message_routing, bucket_infinity}
+]).
 
 -type limiter_type() ::
     bytes_in
@@ -126,10 +132,16 @@ fields(client_fields) ->
             })}
      || Type <- types()
     ];
-fields(bucket_opts) ->
+fields(bucket_infinity) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
         {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => <<"infinity">>})},
+        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})}
+    ];
+fields(bucket_limit) ->
+    [
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"1000/s">>})},
+        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => <<"1000">>})},
         {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})}
     ];
 fields(client_opts) ->
@@ -179,9 +191,9 @@ fields(client_opts) ->
             )}
     ];
 fields(listener_fields) ->
-    bucket_fields([bytes_in, message_in, connection, message_routing], listener_client_fields);
+    bucket_fields(?BUCKET_KEYS, listener_client_fields);
 fields(listener_client_fields) ->
-    client_fields([bytes_in, message_in, connection, message_routing]);
+    client_fields(?BUCKET_KEYS);
 fields(Type) ->
     bucket_field(Type).
 
@@ -189,8 +201,10 @@ desc(limiter) ->
     "Settings for the rate limiter.";
 desc(node_opts) ->
     "Settings for the limiter of the node level.";
-desc(bucket_opts) ->
+desc(bucket_infinity) ->
     "Settings for the bucket.";
+desc(bucket_limit) ->
+    desc(bucket_infinity);
 desc(client_opts) ->
     "Settings for the client in bucket level.";
 desc(client_fields) ->
@@ -337,7 +351,7 @@ apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
 bucket_field(Type) when is_atom(Type) ->
-    fields(bucket_opts) ++
+    fields(bucket_infinity) ++
         [
             {client,
                 ?HOCON(
@@ -351,11 +365,11 @@ bucket_field(Type) when is_atom(Type) ->
 bucket_fields(Types, ClientRef) ->
     [
         {Type,
-            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
+            ?HOCON(?R_REF(?MODULE, Opts), #{
                 desc => ?DESC(?MODULE, Type),
                 required => false
             })}
-     || Type <- Types
+     || {Type, Opts} <- Types
     ] ++
         [
             {client,
@@ -375,5 +389,5 @@ client_fields(Types) ->
                 desc => ?DESC(Type),
                 required => false
             })}
-     || Type <- Types
+     || {Type, _} <- Types
     ].
