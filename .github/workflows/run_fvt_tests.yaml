@@ -233,15 +233,15 @@ jobs:
 
             echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
 
-            echo "::set-output name=vsn::$vsn"
-            echo "::set-output name=profile::$profile"
-            echo "::set-output name=broker::$broker"
-            echo "::set-output name=old_vsns::$old_vsns"
+            echo "vsn=$vsn" >> $GITHUB_OUTPUT
+            echo "profile=$profile" >> $GITHUB_OUTPUT
+            echo "broker=$broker" >> $GITHUB_OUTPUT
+            echo "old_vsns=$old_vsns" >> $GITHUB_OUTPUT
         - name: Generate matrix
           id: generate-matrix
           run: |
             matrix=$(echo -n "$OLD_VSNS" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
-            echo "::set-output name=matrix::$matrix"
+            echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
     relup_test_build:
         needs: relup_test_plan
