@@ -117,7 +117,7 @@ fi
 
 while read -r file; do
    PRS+=("$file")
-done < <(git diff --name-status "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}" | grep -E '^A.*' | awk '{print $2}')
+done < <(git diff --diff-filter=A --name-only "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}")
 
 TEMPLATE_FEAT_CHANGES="$(section 'feat')"
 TEMPLATE_PERF_CHANGES="$(section 'perf')"
