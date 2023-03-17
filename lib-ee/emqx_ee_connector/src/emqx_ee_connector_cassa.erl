@@ -127,7 +127,6 @@ on_start(
         {pool_size, PoolSize}
     ],
 
-    %% FIXME: how to set tls options
     SslOpts =
         case maps:get(enable, SSL) of
             true ->

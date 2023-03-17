@@ -37,6 +37,15 @@
 -define(CASSA_PASSWORD, "public").
 -define(BATCH_SIZE, 10).
 
+%% cert files for client
+-define(CERT_ROOT,
+    filename:join([emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"])
+).
+
+-define(CAFILE, filename:join(?CERT_ROOT, ["ca.crt"])).
+-define(CERTFILE, filename:join(?CERT_ROOT, ["client.pem"])).
+-define(KEYFILE, filename:join(?CERT_ROOT, ["client.key"])).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -196,6 +205,10 @@ cassa_config(BridgeType, Config) ->
             "  }\n"
             "  ssl = {\n"
             "    enable = ~w\n"
+            "    cacertfile = \"~s\"\n"
+            "    certfile = \"~s\"\n"
+            "    keyfile = \"~s\"\n"
+            "    server_name_indication = disable\n"
             "  }\n"
             "}",
             [
@@ -208,7 +221,10 @@ cassa_config(BridgeType, Config) ->
                 ?SQL_BRIDGE,
                 BatchSize,
                 QueryMode,
-                TlsEnabled
+                TlsEnabled,
+                ?CAFILE,
+                ?CERTFILE,
+                ?KEYFILE
             ]
         ),
     {Name, parse_and_check(ConfigString, BridgeType, Name)}.
@@ -257,12 +273,18 @@ connect_direct_cassa(Config) ->
         password => ?CASSA_PASSWORD,
         keyspace => ?CASSA_KEYSPACE
     },
-
     SslOpts =
         case ?config(enable_tls, Config) of
             true ->
                 Opts#{
-                    ssl => emqx_tls_lib:to_client_opts(#{enable => true})
+                    ssl => emqx_tls_lib:to_client_opts(
+                        #{
+                            enable => true,
+                            cacertfile => ?CAFILE,
+                            certfile => ?CERTFILE,
+                            keyfile => ?KEYFILE
+                        }
+                    )
                 };
             false ->
                 Opts
@@ -272,6 +294,8 @@ connect_direct_cassa(Config) ->
 
 % These funs connect and then stop the cassandra connection
 connect_and_create_table(Config) ->
+    %% XXX: drop first
+    _ = connect_and_drop_table(Config),
     Con = connect_direct_cassa(Config),
     {ok, _} = ecql:query(Con, ?SQL_CREATE_TABLE),
     ok = ecql:close(Con).

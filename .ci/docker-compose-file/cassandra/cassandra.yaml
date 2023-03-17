@@ -1046,7 +1046,7 @@ server_encryption_options:
 client_encryption_options:
     enabled: true
     # If enabled and optional is set to true encrypted and unencrypted connections are handled.
-    optional: true
+    optional: false
     keystore: /certs/server.jks
     keystore_password: my_password
     require_client_auth: true
@@ -1055,7 +1055,6 @@ client_encryption_options:
     truststore_password: my_password
     # More advanced defaults below:
     protocol: TLS
-    algorithm: SunX509
     store_type: JKS
     cipher_suites: [TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]
 
