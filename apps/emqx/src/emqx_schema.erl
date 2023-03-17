@@ -1903,10 +1903,7 @@ base_listener(Bind) ->
                     listener_fields
                 ),
                 #{
-                    desc => ?DESC(base_listener_limiter),
-                    default => #{
-                        <<"connection">> => #{<<"rate">> => <<"1000/s">>, <<"capacity">> => 1000}
-                    }
+                    desc => ?DESC(base_listener_limiter)
                 }
             )},
         {"enable_authn",
