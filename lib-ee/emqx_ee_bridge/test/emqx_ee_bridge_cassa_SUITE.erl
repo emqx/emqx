@@ -76,7 +76,7 @@ init_per_group(tcp, Config) ->
     ];
 init_per_group(tls, Config) ->
     Host = os:getenv("CASSA_TLS_HOST", "toxiproxy"),
-    Port = list_to_integer(os:getenv("CASSA_TLS_PORT", "9043")),
+    Port = list_to_integer(os:getenv("CASSA_TLS_PORT", "9142")),
     [
         {cassa_host, Host},
         {cassa_port, Port},
@@ -132,6 +132,7 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 
 common_init(Config0) ->
+    ct:pal("commit_init: ~p~n", [Config0]),
     BridgeType = proplists:get_value(bridge_type, Config0, <<"cassandra">>),
     Host = ?config(cassa_host, Config0),
     Port = ?config(cassa_port, Config0),
@@ -251,8 +252,7 @@ query_resource(Config, Request) ->
 
 connect_direct_cassa(Config) ->
     Opts = #{
-        host => ?config(cassa_host, Config),
-        port => ?config(cassa_port, Config),
+        nodes => [{?config(cassa_host, Config), ?config(cassa_port, Config)}],
         username => ?CASSA_USERNAME,
         password => ?CASSA_PASSWORD,
         keyspace => ?CASSA_KEYSPACE
@@ -262,8 +262,7 @@ connect_direct_cassa(Config) ->
         case ?config(enable_tls, Config) of
             true ->
                 Opts#{
-                    ssl => true,
-                    ssl_opts => emqx_tls_lib:to_client_opts(#{enable => true})
+                    ssl => emqx_tls_lib:to_client_opts(#{enable => true})
                 };
             false ->
                 Opts

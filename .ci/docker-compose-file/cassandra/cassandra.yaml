@@ -638,7 +638,7 @@ native_transport_port: 9042
 # for native_transport_port. Setting native_transport_port_ssl to a different value
 # from native_transport_port will use encryption for native_transport_port_ssl while
 # keeping native_transport_port unencrypted.
-# native_transport_port_ssl: 9142
+native_transport_port_ssl: 9142
 # The maximum threads for handling requests when the native transport is used.
 # This is similar to rpc_max_threads though the default differs slightly (and
 # there is no native_transport_min_threads, idle threads will always be stopped
@@ -1044,20 +1044,20 @@ server_encryption_options:
 
 # enable or disable client/server encryption.
 client_encryption_options:
-    enabled: false
+    enabled: true
     # If enabled and optional is set to true encrypted and unencrypted connections are handled.
-    optional: false
-    keystore: conf/.keystore
-    keystore_password: cassandra
-    # require_client_auth: false
+    optional: true
+    keystore: /certs/server.jks
+    keystore_password: my_password
+    require_client_auth: true
     # Set trustore and truststore_password if require_client_auth is true
-    # truststore: conf/.truststore
-    # truststore_password: cassandra
+    truststore: /certs/truststore.jks
+    truststore_password: my_password
     # More advanced defaults below:
-    # protocol: TLS
-    # algorithm: SunX509
-    # store_type: JKS
-    # cipher_suites: [TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]
+    protocol: TLS
+    algorithm: SunX509
+    store_type: JKS
+    cipher_suites: [TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]
 
 # internode_compression controls whether traffic between nodes is
 # compressed.
