@@ -4,6 +4,7 @@
 {emqx_authz,1}.
 {emqx_bridge,1}.
 {emqx_bridge,2}.
+{emqx_bridge,3}.
 {emqx_broker,1}.
 {emqx_cm,1}.
 {emqx_conf,1}.
@@ -25,6 +26,7 @@
 {emqx_mgmt_trace,2}.
 {emqx_persistent_session,1}.
 {emqx_plugin_libs,1}.
+{emqx_plugins,1}.
 {emqx_prometheus,1}.
 {emqx_resource,1}.
 {emqx_retainer,1}.

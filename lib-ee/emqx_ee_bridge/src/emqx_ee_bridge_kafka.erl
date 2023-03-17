@@ -30,27 +30,102 @@
     host_opts/0
 ]).
 
+-export([kafka_producer_converter/2]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 
 conn_bridge_examples(Method) ->
     [
         #{
+            %% TODO: rename this to `kafka_producer' after alias
+            %% support is added to hocon; keeping this as just `kafka'
+            %% for backwards compatibility.
             <<"kafka">> => #{
-                summary => <<"Kafka Bridge">>,
-                value => values(Method)
+                summary => <<"Kafka Producer Bridge">>,
+                value => values({Method, producer})
+            }
+        },
+        #{
+            <<"kafka_consumer">> => #{
+                summary => <<"Kafka Consumer Bridge">>,
+                value => values({Method, consumer})
             }
         }
     ].
 
-values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
-values(post) ->
+values({get, KafkaType}) ->
+    maps:merge(values({post, KafkaType}), ?METRICS_EXAMPLE);
+values({post, KafkaType}) ->
+    maps:merge(values(common_config), values(KafkaType));
+values({put, KafkaType}) ->
+    values({post, KafkaType});
+values(common_config) ->
     #{
-        bootstrap_hosts => <<"localhost:9092">>
+        authentication => #{
+            mechanism => <<"plain">>,
+            username => <<"username">>,
+            password => <<"password">>
+        },
+        bootstrap_hosts => <<"localhost:9092">>,
+        connect_timeout => <<"5s">>,
+        enable => true,
+        metadata_request_timeout => <<"4s">>,
+        min_metadata_refresh_interval => <<"3s">>,
+        socket_opts => #{
+            sndbuf => <<"1024KB">>,
+            recbuf => <<"1024KB">>,
+            nodelay => true
+        }
     };
-values(put) ->
-    values(post).
+values(producer) ->
+    #{
+        kafka => #{
+            topic => <<"kafka-topic">>,
+            message => #{
+                key => <<"${.clientid}">>,
+                value => <<"${.}">>,
+                timestamp => <<"${.timestamp}">>
+            },
+            max_batch_bytes => <<"896KB">>,
+            compression => <<"no_compression">>,
+            partition_strategy => <<"random">>,
+            required_acks => <<"all_isr">>,
+            partition_count_refresh_interval => <<"60s">>,
+            max_inflight => 10,
+            buffer => #{
+                mode => <<"hybrid">>,
+                per_partition_limit => <<"2GB">>,
+                segment_bytes => <<"100MB">>,
+                memory_overload_protection => true
+            }
+        },
+        local_topic => <<"mqtt/local/topic">>
+    };
+values(consumer) ->
+    #{
+        kafka => #{
+            max_batch_bytes => <<"896KB">>,
+            offset_reset_policy => <<"reset_to_latest">>,
+            offset_commit_interval_seconds => 5
+        },
+        key_encoding_mode => <<"none">>,
+        topic_mapping => [
+            #{
+                kafka_topic => <<"kafka-topic-1">>,
+                mqtt_topic => <<"mqtt/topic/1">>,
+                qos => 1,
+                payload_template => <<"${.}">>
+            },
+            #{
+                kafka_topic => <<"kafka-topic-2">>,
+                mqtt_topic => <<"mqtt/topic/2">>,
+                qos => 2,
+                payload_template => <<"v = ${.value}">>
+            }
+        ],
+        value_encoding_mode => <<"none">>
+    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -60,14 +135,22 @@ host_opts() ->
 
 namespace() -> "bridge_kafka".
 
-roots() -> ["config"].
+roots() -> ["config_consumer", "config_producer"].
 
-fields("post") ->
-    [type_field(), name_field() | fields("config")];
-fields("put") ->
-    fields("config");
-fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+fields("post_" ++ Type) ->
+    [type_field(), name_field() | fields("config_" ++ Type)];
+fields("put_" ++ Type) ->
+    fields("config_" ++ Type);
+fields("get_" ++ Type) ->
+    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+fields("config_producer") ->
+    fields(kafka_producer);
+fields("config_consumer") ->
+    fields(kafka_consumer);
+fields(kafka_producer) ->
+    fields("config") ++ fields(producer_opts);
+fields(kafka_consumer) ->
+    fields("config") ++ fields(consumer_opts);
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -104,8 +187,6 @@ fields("config") ->
             mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
                 default => none, desc => ?DESC("authentication")
             })},
-        {producer, mk(hoconsc:union([none, ref(producer_opts)]), #{desc => ?DESC(producer_opts)})},
-        %{consumer, mk(hoconsc:union([none, ref(consumer_opts)]), #{desc => ?DESC(consumer_opts)})},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(auth_username_password) ->
@@ -156,15 +237,16 @@ fields(socket_opts) ->
     ];
 fields(producer_opts) ->
     [
-        {mqtt, mk(ref(producer_mqtt_opts), #{desc => ?DESC(producer_mqtt_opts)})},
+        %% Note: there's an implicit convention in `emqx_bridge' that,
+        %% for egress bridges with this config, the published messages
+        %% will be forwarded to such bridges.
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
         {kafka,
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 desc => ?DESC(producer_kafka_opts)
             })}
     ];
-fields(producer_mqtt_opts) ->
-    [{topic, mk(binary(), #{desc => ?DESC(mqtt_topic)})}];
 fields(producer_kafka_opts) ->
     [
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
@@ -241,28 +323,72 @@ fields(producer_buffer) ->
                 default => false,
                 desc => ?DESC(buffer_memory_overload_protection)
             })}
+    ];
+fields(consumer_opts) ->
+    [
+        {kafka,
+            mk(ref(consumer_kafka_opts), #{required => false, desc => ?DESC(consumer_kafka_opts)})},
+        {topic_mapping,
+            mk(
+                hoconsc:array(ref(consumer_topic_mapping)),
+                #{
+                    required => true,
+                    desc => ?DESC(consumer_topic_mapping),
+                    validator => fun consumer_topic_mapping_validator/1
+                }
+            )},
+        {key_encoding_mode,
+            mk(enum([none, base64]), #{
+                default => none, desc => ?DESC(consumer_encoding_mode)
+            })},
+        {value_encoding_mode,
+            mk(enum([none, base64]), #{
+                default => none, desc => ?DESC(consumer_encoding_mode)
+            })}
+    ];
+fields(consumer_topic_mapping) ->
+    [
+        {kafka_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_kafka_topic)})},
+        {mqtt_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_mqtt_topic)})},
+        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
+        {payload_template,
+            mk(
+                string(),
+                #{default => <<"${.}">>, desc => ?DESC(consumer_mqtt_payload)}
+            )}
+    ];
+fields(consumer_kafka_opts) ->
+    [
+        {max_batch_bytes,
+            mk(emqx_schema:bytesize(), #{
+                default => "896KB", desc => ?DESC(consumer_max_batch_bytes)
+            })},
+        {max_rejoin_attempts,
+            mk(non_neg_integer(), #{
+                hidden => true,
+                default => 5,
+                desc => ?DESC(consumer_max_rejoin_attempts)
+            })},
+        {offset_reset_policy,
+            mk(
+                enum([reset_to_latest, reset_to_earliest, reset_by_subscriber]),
+                #{default => reset_to_latest, desc => ?DESC(consumer_offset_reset_policy)}
+            )},
+        {offset_commit_interval_seconds,
+            mk(
+                pos_integer(),
+                #{default => 5, desc => ?DESC(consumer_offset_commit_interval_seconds)}
+            )}
     ].
-
-% fields(consumer_opts) ->
-%     [
-%         {kafka, mk(ref(consumer_kafka_opts), #{required => true, desc => ?DESC(consumer_kafka_opts)})},
-%         {mqtt, mk(ref(consumer_mqtt_opts), #{required => true, desc => ?DESC(consumer_mqtt_opts)})}
-%     ];
-% fields(consumer_mqtt_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_mqtt_topic)})}
-%     ];
-
-% fields(consumer_mqtt_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_mqtt_topic)})}
-%     ];
-% fields(consumer_kafka_opts) ->
-%     [ {topic, mk(string(), #{desc => ?DESC(consumer_kafka_topic)})}
-%     ].
 
 desc("config") ->
     ?DESC("desc_config");
-desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for Kafka using `", string:to_upper(Method), "` method."];
+desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+    ["Configuration for Kafka using `GET` method."];
+desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+    ["Configuration for Kafka using `PUT` method."];
+desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+    ["Configuration for Kafka using `POST` method."];
 desc(Name) ->
     lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
     ?DESC(Name).
@@ -272,20 +398,61 @@ struct_names() ->
         auth_gssapi_kerberos,
         auth_username_password,
         kafka_message,
+        kafka_producer,
+        kafka_consumer,
         producer_buffer,
         producer_kafka_opts,
-        producer_mqtt_opts,
         socket_opts,
-        producer_opts
+        producer_opts,
+        consumer_opts,
+        consumer_kafka_opts,
+        consumer_topic_mapping
     ].
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
 type_field() ->
-    {type, mk(enum([kafka]), #{required => true, desc => ?DESC("desc_type")})}.
+    {type,
+        %% TODO: rename `kafka' to `kafka_producer' after alias
+        %% support is added to hocon; keeping this as just `kafka' for
+        %% backwards compatibility.
+        mk(enum([kafka_consumer, kafka]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
 ref(Name) ->
     hoconsc:ref(?MODULE, Name).
+
+kafka_producer_converter(undefined, _HoconOpts) ->
+    undefined;
+kafka_producer_converter(
+    #{<<"producer">> := OldOpts0, <<"bootstrap_hosts">> := _} = Config0, _HoconOpts
+) ->
+    %% old schema
+    MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
+    LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
+    KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
+    Config = maps:without([<<"producer">>], Config0),
+    case LocalTopic =:= undefined of
+        true ->
+            Config#{<<"kafka">> => KafkaOpts};
+        false ->
+            Config#{<<"kafka">> => KafkaOpts, <<"local_topic">> => LocalTopic}
+    end;
+kafka_producer_converter(Config, _HoconOpts) ->
+    %% new schema
+    Config.
+
+consumer_topic_mapping_validator(_TopicMapping = []) ->
+    {error, "There must be at least one Kafka-MQTT topic mapping"};
+consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
+    NumEntries = length(TopicMapping),
+    KafkaTopics = [KT || #{<<"kafka_topic">> := KT} <- TopicMapping],
+    DistinctKafkaTopics = length(lists:usort(KafkaTopics)),
+    case DistinctKafkaTopics =:= NumEntries of
+        true ->
+            ok;
+        false ->
+            {error, "Kafka topics must not be repeated in a bridge"}
+    end.

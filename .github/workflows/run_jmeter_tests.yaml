@@ -10,7 +10,7 @@ on:
 
 jobs:
   build_emqx_for_jmeter_tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
@@ -44,7 +44,7 @@ jobs:
         path: ./emqx.tar
 
   advanced_feat:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -136,7 +136,7 @@ jobs:
         path: ./jmeter_logs
 
   pgsql_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -245,7 +245,7 @@ jobs:
         path: ./jmeter_logs
 
   mysql_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -351,7 +351,7 @@ jobs:
         path: ./jmeter_logs
 
   JWT_authn:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -449,7 +449,7 @@ jobs:
         path: ./jmeter_logs
 
   built_in_database_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -541,7 +541,7 @@ jobs:
         path: ./jmeter_logs
 
   delete-artifact:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
     steps:
     - uses: geekyeggo/delete-artifact@v2

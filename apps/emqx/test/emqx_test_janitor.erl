@@ -30,6 +30,8 @@
 %% API
 -export([
     start_link/0,
+    stop/1,
+    stop/2,
     push_on_exit_callback/2
 ]).
 
@@ -39,6 +41,12 @@
 
 start_link() ->
     gen_server:start_link(?MODULE, self(), []).
+
+stop(Server) ->
+    stop(Server, 15_000).
+
+stop(Server, Timeout) ->
+    gen_server:call(Server, terminate, Timeout).
 
 push_on_exit_callback(Server, Callback) when is_function(Callback, 0) ->
     gen_server:call(Server, {push, Callback}).
@@ -52,10 +60,13 @@ init(Parent) ->
     {ok, #{callbacks => [], owner => Parent}}.
 
 terminate(_Reason, #{callbacks := Callbacks}) ->
-    lists:foreach(fun(Fun) -> Fun() end, Callbacks).
+    lists:foreach(fun(Fun) -> catch Fun() end, Callbacks).
 
 handle_call({push, Callback}, _From, State = #{callbacks := Callbacks}) ->
     {reply, ok, State#{callbacks := [Callback | Callbacks]}};
+handle_call(terminate, _From, State = #{callbacks := Callbacks}) ->
+    lists:foreach(fun(Fun) -> Fun() end, Callbacks),
+    {stop, normal, ok, State};
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
 

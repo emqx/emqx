@@ -106,7 +106,14 @@ fields(topology) ->
         {socket_timeout_ms, duration("socket_timeout")},
         {server_selection_timeout_ms, duration("server_selection_timeout")},
         {wait_queue_timeout_ms, duration("wait_queue_timeout")},
-        {heartbeat_frequency_ms, fun heartbeat_frequency_ms/1},
+        {heartbeat_frequency_ms,
+            hoconsc:mk(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"200s">>,
+                    desc => ?DESC("heartbeat_period")
+                }
+            )},
         {min_heartbeat_frequency_ms, duration("min_heartbeat_period")}
     ].
 
@@ -406,12 +413,6 @@ duration(Desc) ->
         required => false,
         desc => ?DESC(Desc)
     }.
-
-heartbeat_frequency_ms(type) -> emqx_schema:duration_ms();
-heartbeat_frequency_ms(desc) -> ?DESC("heartbeat_period");
-heartbeat_frequency_ms(default) -> 200000;
-heartbeat_frequency_ms(validator) -> [?MIN(1)];
-heartbeat_frequency_ms(_) -> undefined.
 
 max_overflow(type) -> non_neg_integer();
 max_overflow(desc) -> ?DESC("max_overflow");

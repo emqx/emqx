@@ -25,7 +25,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 t_copy_conf_override_on_restarts(_Config) ->
-    net_kernel:start(['master@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
     Cluster = cluster([core, core, core]),
@@ -165,11 +164,10 @@ cluster(Specs) ->
         {env, Env},
         {apps, [emqx_conf]},
         {load_schema, false},
-        {join_to, false},
+        {join_to, true},
         {env_handler, fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
-                io:format("~p~p~n", [node(), application:get_all_env(emqx)]),
                 ok;
             (_) ->
                 ok

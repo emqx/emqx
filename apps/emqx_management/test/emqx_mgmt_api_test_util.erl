@@ -24,12 +24,15 @@ init_suite() ->
     init_suite([]).
 
 init_suite(Apps) ->
-    init_suite(Apps, fun set_special_configs/1).
+    init_suite(Apps, fun set_special_configs/1, #{}).
 
-init_suite(Apps, SetConfigs) ->
+init_suite(Apps, SetConfigs) when is_function(SetConfigs) ->
+    init_suite(Apps, SetConfigs, #{}).
+
+init_suite(Apps, SetConfigs, Opts) ->
     mria:start(),
     application:load(emqx_management),
-    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], SetConfigs),
+    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], SetConfigs, Opts),
     emqx_common_test_http:create_default_app().
 
 end_suite() ->

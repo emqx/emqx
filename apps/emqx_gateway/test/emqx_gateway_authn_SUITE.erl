@@ -77,7 +77,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_gateway_auth_ct:stop(),
     emqx_config:erase(gateway),
-    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_conf, emqx_authn, emqx_gateway]),
     Config.
 
 init_per_testcase(_Case, Config) ->

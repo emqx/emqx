@@ -323,8 +323,6 @@ get_plugins() ->
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
-    %% TODO what happens when a new node join in?
-    %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:describe(NameVsn) of
         {error, #{error := "bad_info_file", return := {enoent, _}}} ->
@@ -456,8 +454,8 @@ delete_package(Name) ->
 
 %% for RPC plugin update
 ensure_action(Name, start) ->
-    _ = emqx_plugins:ensure_enabled(Name),
     _ = emqx_plugins:ensure_started(Name),
+    _ = emqx_plugins:ensure_enabled(Name),
     ok;
 ensure_action(Name, stop) ->
     _ = emqx_plugins:ensure_stopped(Name),

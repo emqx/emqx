@@ -7,7 +7,7 @@ export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v1.1.9
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.4
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.5-beta.1
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -80,7 +80,7 @@ ct: $(REBAR) merge-config
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do dialyzer, xref
+	@$(REBAR) as check do xref, dialyzer
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then ./scripts/check-i18n-style.sh; fi
 
@@ -107,7 +107,7 @@ endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
 .PHONY: ct-suite
-ct-suite: $(REBAR)
+ct-suite: $(REBAR) merge-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)

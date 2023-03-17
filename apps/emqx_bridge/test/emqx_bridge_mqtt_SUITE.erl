@@ -19,7 +19,6 @@
 -compile(export_all).
 
 -import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
--import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -164,9 +163,9 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ok = snabbkaffe:start_trace(),
     Config.
+
 end_per_testcase(_, _Config) ->
     clear_resources(),
-    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -710,13 +709,6 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         }
     ),
 
-    on_exit(fun() ->
-        %% delete the bridge
-        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-        {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-        ok
-    end),
-
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
@@ -826,13 +818,6 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
             }
         }
     ),
-
-    on_exit(fun() ->
-        %% delete the bridge
-        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-        {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-        ok
-    end),
 
     Self = self(),
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,

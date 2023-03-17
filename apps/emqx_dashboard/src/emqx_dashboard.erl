@@ -132,9 +132,11 @@ stop_listeners(Listeners) ->
 get_i18n() ->
     application:get_env(emqx_dashboard, i18n).
 
-init_i18n(File, Lang) ->
+init_i18n(File, Lang) when is_atom(Lang) ->
+    init_i18n(File, atom_to_list(Lang));
+init_i18n(File, Lang) when is_list(Lang) ->
     Cache = hocon_schema:new_desc_cache(File),
-    application:set_env(emqx_dashboard, i18n, #{lang => atom_to_binary(Lang), cache => Cache}).
+    application:set_env(emqx_dashboard, i18n, #{lang => Lang, cache => Cache}).
 
 clear_i18n() ->
     case application:get_env(emqx_dashboard, i18n) of

@@ -38,10 +38,11 @@ init_per_suite(_Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
     {ok, _} = application:ensure_all_started(emqx_connector),
-    snabbkaffe:fix_ct_logging(),
     [].
 
 end_per_suite(_Config) ->
+    ok = emqx_config:put([bridges], #{}),
+    ok = emqx_config:put_raw([bridges], #{}),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
