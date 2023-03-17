@@ -115,9 +115,9 @@ if [ "$PROFILE" == "emqx-enterprise" ]; then
     changes_dir+=("$top_dir/changes/ee")
 fi
 
-while read -d "" -r file; do
+while read -r file; do
    PRS+=("$file")
-done < <(git diff --name-only -z -a "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}")
+done < <(git diff --name-status "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}" | grep -E '^A.*' | awk '{print $2}')
 
 TEMPLATE_FEAT_CHANGES="$(section 'feat')"
 TEMPLATE_PERF_CHANGES="$(section 'perf')"
