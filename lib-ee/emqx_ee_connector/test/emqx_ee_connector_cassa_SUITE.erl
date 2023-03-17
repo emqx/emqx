@@ -24,7 +24,9 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(CASSANDRA_HOST, "127.0.0.1").
+%% Cassandra server defined at `.ci/docker-compose-file/docker-compose-cassandra-tcp.yaml`
+%% You can change it to `127.0.0.1`, if you run this SUITE locally
+-define(CASSANDRA_HOST, "cassa_tcp").
 -define(CASSANDRA_RESOURCE_MOD, emqx_ee_connector_cassa).
 
 %% This test SUITE requires a running cassandra instance. If you don't want to
