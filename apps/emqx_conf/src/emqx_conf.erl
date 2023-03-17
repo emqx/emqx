@@ -146,17 +146,17 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
             gen_api_schema_json(Dir, I18nFile, Lang),
-            gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
+            gen_example_conf(Dir, I18nFile, SchemaModule, Lang),
+            gen_schema_json(Dir, I18nFile, SchemaModule, Lang)
         end,
-        [en, zh]
-    ),
-    gen_schema_json(Dir, I18nFile, SchemaModule).
+        ["en", "zh"]
+    ).
 
 %% for scripts/spellcheck.
-gen_schema_json(Dir, I18nFile, SchemaModule) ->
-    SchemaJsonFile = filename:join([Dir, "schema.json"]),
+gen_schema_json(Dir, I18nFile, SchemaModule, Lang) ->
+    SchemaJsonFile = filename:join([Dir, "schema-" ++ Lang ++ ".json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    Opts = #{desc_file => I18nFile, lang => "en"},
+    Opts = #{desc_file => I18nFile, lang => Lang},
     JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData).
@@ -178,17 +178,15 @@ gen_api_schema_json_bridge(Dir, Lang) ->
     ok = do_gen_api_schema_json(File, emqx_bridge_api, SchemaInfo).
 
 schema_filename(Dir, Prefix, Lang) ->
-    Filename = Prefix ++ atom_to_list(Lang) ++ ".json",
+    Filename = Prefix ++ Lang ++ ".json",
     filename:join([Dir, Filename]).
 
-gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
-    Lang = atom_to_list(Lang0),
+gen_config_md(Dir, I18nFile, SchemaModule, Lang) ->
     SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
     ok = gen_doc(SchemaMdFile, SchemaModule, I18nFile, Lang).
 
-gen_example_conf(Dir, I18nFile, SchemaModule, Lang0) ->
-    Lang = atom_to_list(Lang0),
+gen_example_conf(Dir, I18nFile, SchemaModule, Lang) ->
     SchemaMdFile = filename:join([Dir, "emqx.conf." ++ Lang ++ ".example"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
     ok = gen_example(SchemaMdFile, SchemaModule, I18nFile, Lang).
