@@ -31,16 +31,17 @@ defmodule EMQXUmbrella.MixProject do
 
   def project() do
     profile_info = check_profile!()
+    version = pkg_vsn()
 
     [
       app: :emqx_mix,
-      version: pkg_vsn(),
-      deps: deps(profile_info),
+      version: version,
+      deps: deps(profile_info, version),
       releases: releases()
     ]
   end
 
-  defp deps(profile_info) do
+  defp deps(profile_info, version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
@@ -61,7 +62,9 @@ defmodule EMQXUmbrella.MixProject do
       {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.8.5", override: true},
+      # maybe forbid to fetch quicer
+      {:emqtt,
+       github: "emqx/emqtt", tag: "1.8.5", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -92,9 +95,13 @@ defmodule EMQXUmbrella.MixProject do
       {:gpb, "4.19.5", override: true, runtime: false},
       {:hackney, github: "benoitc/hackney", tag: "1.18.1", override: true}
     ] ++
-      umbrella_apps() ++
-      enterprise_apps(profile_info) ++
+      emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+  end
+
+  defp emqx_apps(profile_info, version) do
+    apps = umbrella_apps() ++ enterprise_apps(profile_info)
+    set_emqx_app_system_env(apps, profile_info, version)
   end
 
   defp umbrella_apps() do
@@ -143,6 +150,46 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info) do
     []
+  end
+
+  defp set_emqx_app_system_env(apps, profile_info, version) do
+    system_env = emqx_app_system_env(profile_info, version) ++ maybe_no_quic_env()
+
+    Enum.map(
+      apps,
+      fn {app, opts} ->
+        {app,
+         Keyword.update(
+           opts,
+           :system_env,
+           system_env,
+           &Keyword.merge(&1, system_env)
+         )}
+      end
+    )
+  end
+
+  def emqx_app_system_env(profile_info, version) do
+    erlc_options(profile_info, version)
+    |> dump_as_erl()
+    |> then(&[{"ERL_COMPILER_OPTIONS", &1}])
+  end
+
+  defp erlc_options(%{edition_type: edition_type}, version) do
+    [
+      :debug_info,
+      {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
+      {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
+      {:d, :snk_kind, :msg}
+    ]
+  end
+
+  def maybe_no_quic_env() do
+    if not enable_quicer?() do
+      [{"BUILD_WITHOUT_QUIC", "true"}]
+    else
+      []
+    end
   end
 
   defp releases() do
@@ -804,4 +851,13 @@ defmodule EMQXUmbrella.MixProject do
         |> List.first()
     end
   end
+
+  defp dump_as_erl(term) do
+    term
+    |> then(&:io_lib.format("~0p", [&1]))
+    |> :erlang.iolist_to_binary()
+  end
+
+  defp erlang_edition(:community), do: :ce
+  defp erlang_edition(:enterprise), do: :ee
 end
