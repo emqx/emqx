@@ -1159,8 +1159,8 @@ gen_host_cert(H, CaName, Path, Opts) ->
                 ]
             )
         ),
-    os:cmd(CSR_Cmd),
-    os:cmd(CERT_Cmd),
+    ct:pal(os:cmd(CSR_Cmd)),
+    ct:pal(os:cmd(CERT_Cmd)),
     file:delete(HEXT).
 
 filename(Path, F, A) ->
