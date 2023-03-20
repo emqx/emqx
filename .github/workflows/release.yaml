@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: aws-actions/configure-aws-credentials@v1-node16
+      - uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -69,9 +69,9 @@ jobs:
         with:
           asset_paths: '["packages/*"]'
       - name: update to emqx.io
-        if: github.event_name == 'release' || inputs.publish_release_artefacts
+        if: startsWith(github.ref_name, 'v') && (github.event_name == 'release' || inputs.publish_release_artefacts)
         run: |
-          set -e -x -u
+          set -eux
           curl -w %{http_code} \
                --insecure \
                -H "Content-Type: application/json" \

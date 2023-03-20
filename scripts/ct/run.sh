@@ -21,11 +21,16 @@ help() {
     echo "                        otherwise it runs the entire app's CT"
 }
 
-if command -v docker-compose; then
+set +e
+if docker compose version; then
+    DC='docker compose'
+elif command -v docker-compose; then
     DC='docker-compose'
 else
-    DC='docker compose'
+    echo 'Neither "docker compose" or "docker-compose" are available, stop.'
+    exit 1
 fi
+set -e
 
 WHICH_APP='novalue'
 CONSOLE='no'
@@ -154,14 +159,11 @@ for dep in ${CT_DEPS}; do
                      '.ci/docker-compose-file/docker-compose-pgsql-tls.yaml' )
             ;;
         kafka)
-            # Kafka container generates root owned ssl files
-            # the files are shared with EMQX (with a docker volume)
-            NEED_ROOT=yes
             FILES+=( '.ci/docker-compose-file/docker-compose-kafka.yaml' )
             ;;
         tdengine)
             FILES+=( '.ci/docker-compose-file/docker-compose-tdengine-restful.yaml' )
-            ;; 
+            ;;
         clickhouse)
             FILES+=( '.ci/docker-compose-file/docker-compose-clickhouse.yaml' )
             ;;
@@ -183,47 +185,43 @@ F_OPTIONS=""
 for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
-ORIG_UID_GID="$UID:$UID"
-if [[ "${NEED_ROOT:-}" == 'yes' ]]; then
-    export UID_GID='root:root'
-else
-    # Passing $UID to docker-compose to be used in erlang container
-    # as owner of the main process to avoid git repo permissions issue.
-    # Permissions issue happens because we are mounting local filesystem
-    # where files are owned by $UID to docker container where it's using
-    # root (UID=0) by default, and git is not happy about it.
-    export UID_GID="$ORIG_UID_GID"
-fi
 
-# /emqx is where the source dir is mounted to the Erlang container
-# in .ci/docker-compose-file/docker-compose.yaml
+DOCKER_USER="$(id -u)"
+export DOCKER_USER
+
 TTY=''
 if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
-function restore_ownership {
-    if [[ -n ${EMQX_TEST_DO_NOT_RUN_SUDO+x} ]] || ! sudo chown -R "$ORIG_UID_GID" . >/dev/null 2>&1; then
-        docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $ORIG_UID_GID /emqx" >/dev/null 2>&1 || true
-    fi
-}
-
-restore_ownership
-trap restore_ownership EXIT
-
+# ensure directory with secrets is created by current user before running compose
+mkdir -p /tmp/emqx-ci/emqx-shared-secret
 
 if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
+    set +e
     # shellcheck disable=2086 # no quotes for F_OPTIONS
     $DC $F_OPTIONS up -d --build --remove-orphans
+    RESULT=$?
+    if [ $RESULT -ne 0 ]; then
+        mkdir -p _build/test/logs
+        LOG='_build/test/logs/docker-compose.log'
+        echo "Dumping docker-compose log to $LOG"
+        # shellcheck disable=2086 # no quotes for F_OPTIONS
+        $DC $F_OPTIONS logs --no-color --timestamps > "$LOG"
+        exit 1
+    fi
+    set -e
 fi
 
-echo "Fixing file owners and permissions for $UID_GID"
-# rebar and hex cache directory need to be writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $UID_GID /.cache && chown -R $UID_GID /emqx/.git /emqx/.ci /emqx/_build/default/lib"
-# need to initialize .erlang.cookie manually here because / is not writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID_GID /.erlang.cookie && chmod 0400 /.erlang.cookie"
+# rebar, mix and hex cache directory need to be writable by $DOCKER_USER
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache /.hex /.mix && chown $DOCKER_USER /.cache /.hex /.mix"
+# need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
+# the user must exist inside the container for `whoami` to work
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "useradd --uid $DOCKER_USER -M -d / emqx" || true
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $DOCKER_USER /var/lib/secret" || true
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
@@ -245,8 +243,7 @@ else
         docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "./rebar3 ct $REBAR3CT"
     fi
     RESULT=$?
-    restore_ownership
-    if [ $RESULT -ne 0 ]; then
+    if [ "$RESULT" -ne 0 ]; then
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
         # shellcheck disable=2086 # no quotes for F_OPTIONS
@@ -256,5 +253,5 @@ else
         # shellcheck disable=2086 # no quotes for F_OPTIONS
         $DC $F_OPTIONS down
     fi
-    exit $RESULT
+    exit "$RESULT"
 fi

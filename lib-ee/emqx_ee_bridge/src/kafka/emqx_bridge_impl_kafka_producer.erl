@@ -22,44 +22,39 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+-define(BRIDGE_TYPE, kafka).
+
 callback_mode() -> async_if_possible.
 
 %% @doc Config schema is defined in emqx_ee_bridge_kafka.
 on_start(InstId, Config) ->
     #{
-        bridge_name := BridgeName,
+        authentication := Auth,
         bootstrap_hosts := Hosts0,
+        bridge_name := BridgeName,
         connect_timeout := ConnTimeout,
+        kafka := KafkaConfig = #{message := MessageTemplate, topic := KafkaTopic},
         metadata_request_timeout := MetaReqTimeout,
         min_metadata_refresh_interval := MinMetaRefreshInterval,
         socket_opts := SocketOpts,
-        authentication := Auth,
         ssl := SSL
     } = Config,
-    %% TODO: change this to `kafka_producer` after refactoring for kafka_consumer
-    BridgeType = kafka,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    _ = maybe_install_wolff_telemetry_handlers(ResourceID),
-    %% it's a bug if producer config is not found
-    %% the caller should not try to start a producer if
-    %% there is no producer config
-    ProducerConfigWrapper = get_required(producer, Config, no_kafka_producer_config),
-    ProducerConfig = get_required(kafka, ProducerConfigWrapper, no_kafka_producer_parameters),
-    MessageTemplate = get_required(message, ProducerConfig, no_kafka_message_template),
-    Hosts = hosts(Hosts0),
-    ClientId = make_client_id(BridgeName),
+    BridgeType = ?BRIDGE_TYPE,
+    ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    _ = maybe_install_wolff_telemetry_handlers(ResourceId),
+    Hosts = emqx_bridge_impl_kafka:hosts(Hosts0),
+    ClientId = emqx_bridge_impl_kafka:make_client_id(BridgeType, BridgeName),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
         connect_timeout => ConnTimeout,
         client_id => ClientId,
         request_timeout => MetaReqTimeout,
         extra_sock_opts => socket_opts(SocketOpts),
-        sasl => sasl(Auth),
+        sasl => emqx_bridge_impl_kafka:sasl(Auth),
         ssl => ssl(SSL)
     },
-    #{
-        topic := KafkaTopic
-    } = ProducerConfig,
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
         {ok, _} ->
             ?SLOG(info, #{
@@ -85,7 +80,7 @@ on_start(InstId, Config) ->
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    WolffProducerConfig = producers_config(BridgeName, ClientId, ProducerConfig, IsDryRun),
+    WolffProducerConfig = producers_config(BridgeName, ClientId, KafkaConfig, IsDryRun),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
             {ok, #{
@@ -93,7 +88,7 @@ on_start(InstId, Config) ->
                 client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -265,12 +260,6 @@ do_get_status(Client, KafkaTopic) ->
             disconnected
     end.
 
-%% Parse comma separated host:port list into a [{Host,Port}] list
-hosts(Hosts) when is_binary(Hosts) ->
-    hosts(binary_to_list(Hosts));
-hosts(Hosts) when is_list(Hosts) ->
-    kpro:parse_endpoints(Hosts).
-
 %% Extra socket options, such as sndbuf size etc.
 socket_opts(Opts) when is_map(Opts) ->
     socket_opts(maps:to_list(Opts));
@@ -297,16 +286,6 @@ adjust_socket_buffer(Bytes, Opts) ->
         {value, {buffer, Bytes1}, Acc1} ->
             [{buffer, max(Bytes1, Bytes)} | Acc1]
     end.
-
-sasl(none) ->
-    undefined;
-sasl(#{mechanism := Mechanism, username := Username, password := Password}) ->
-    {Mechanism, Username, emqx_secret:wrap(Password)};
-sasl(#{
-    kerberos_principal := Principal,
-    kerberos_keytab_file := KeyTabFile
-}) ->
-    {callback, brod_gssapi, {gssapi, KeyTabFile, Principal}}.
 
 ssl(#{enable := true} = SSL) ->
     emqx_tls_lib:to_client_opts(SSL);
@@ -339,8 +318,7 @@ producers_config(BridgeName, ClientId, Input, IsDryRun) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
-    %% TODO: change this once we add kafka source
-    BridgeType = kafka,
+    BridgeType = ?BRIDGE_TYPE,
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
         name => make_producer_name(BridgeName, IsDryRun),
@@ -365,12 +343,6 @@ partitioner(key_dispatch) -> first_key_dispatch.
 
 replayq_dir(ClientId) ->
     filename:join([emqx:data_dir(), "kafka", ClientId]).
-
-%% Client ID is better to be unique to make it easier for Kafka side trouble shooting.
-make_client_id(BridgeName) when is_atom(BridgeName) ->
-    make_client_id(atom_to_list(BridgeName));
-make_client_id(BridgeName) ->
-    iolist_to_binary([BridgeName, ":", atom_to_list(node())]).
 
 %% Producer name must be an atom which will be used as a ETS table name for
 %% partition worker lookup.
@@ -399,11 +371,6 @@ with_log_at_error(Fun, Log) ->
                 reason => E
             })
     end.
-
-get_required(Field, Config, Throw) ->
-    Value = maps:get(Field, Config, none),
-    Value =:= none andalso throw(Throw),
-    Value.
 
 %% we *must* match the bridge id in the event metadata with that in
 %% the handler config; otherwise, multiple kafka producer bridges will

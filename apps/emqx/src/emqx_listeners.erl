@@ -484,8 +484,12 @@ esockd_opts(ListenerId, Type, Opts0) ->
     },
     maps:to_list(
         case Type of
-            tcp -> Opts3#{tcp_options => tcp_opts(Opts0)};
-            ssl -> Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}
+            tcp ->
+                Opts3#{tcp_options => tcp_opts(Opts0)};
+            ssl ->
+                OptsWithSNI = inject_sni_fun(ListenerId, Opts0),
+                SSLOpts = ssl_opts(OptsWithSNI),
+                Opts3#{ssl_options => SSLOpts, tcp_options => tcp_opts(Opts0)}
         end
     ).
 
@@ -785,3 +789,8 @@ quic_listener_optional_settings() ->
         max_binding_stateless_operations,
         stateless_operation_expiration_ms
     ].
+
+inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
+    emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
+inject_sni_fun(_ListenerId, Conf) ->
+    Conf.

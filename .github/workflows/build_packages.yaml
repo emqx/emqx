@@ -24,7 +24,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
-    container: ghcr.io/emqx/emqx-builder/5.0-29:1.13.4-24.3.4.2-2-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-24.3.4.2-2-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -213,8 +213,6 @@ jobs:
           - ubuntu18.04
           - debian11
           - debian10
-          - raspbian10
-          - raspbian9
           - el9
           - el8
           - el7
@@ -223,7 +221,7 @@ jobs:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.0-29
+          - 5.0-32
         elixir:
           - 1.13.4
         exclude:
@@ -231,17 +229,13 @@ jobs:
           build_machine: ubuntu-22.04
         - arch: amd64
           build_machine: aws-arm64
-        - arch: amd64
-          os: raspbian9
-        - arch: amd64
-          os: raspbian10
         include:
           - profile: emqx
             otp: 25.1.2-2
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.0-29
+            builder: 5.0-32
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
@@ -249,7 +243,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.0-29
+            builder: 5.0-32
             elixir: 1.13.4
             release_with: elixir
 
@@ -266,6 +260,11 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
+    - name: tmp fix for el9
+      if: matrix.os == 'el9'
+      run: |
+        set -eu
+        dnf install -y krb5-devel
     - name: build emqx packages
       working-directory: source
       env:
@@ -340,7 +339,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v1-node16
+    - uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -378,8 +377,6 @@ jobs:
         push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-arm64.deb"
         push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-amd64.deb"
         push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-arm64.deb"
-        push "raspbian/stretch" "packages/$PROFILE/$PROFILE-$VERSION-raspbian9-arm64.deb"
-        push "raspbian/buster" "packages/$PROFILE/$PROFILE-$VERSION-raspbian10-arm64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-amd64.deb"
         push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-arm64.deb"
         push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"

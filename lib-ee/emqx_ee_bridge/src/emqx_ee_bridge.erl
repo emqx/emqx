@@ -15,7 +15,8 @@
 api_schemas(Method) ->
     [
         ref(emqx_ee_bridge_gcp_pubsub, Method),
-        ref(emqx_ee_bridge_kafka, Method),
+        ref(emqx_ee_bridge_kafka, Method ++ "_consumer"),
+        ref(emqx_ee_bridge_kafka, Method ++ "_producer"),
         ref(emqx_ee_bridge_mysql, Method),
         ref(emqx_ee_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
@@ -66,7 +67,10 @@ examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
-resource_type(kafka) -> emqx_bridge_impl_kafka;
+resource_type(kafka_consumer) -> emqx_bridge_impl_kafka_consumer;
+%% TODO: rename this to `kafka_producer' after alias support is added
+%% to hocon; keeping this as just `kafka' for backwards compatibility.
+resource_type(kafka) -> emqx_bridge_impl_kafka_producer;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_ee_connector_gcp_pubsub;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
@@ -88,14 +92,6 @@ resource_type(cassandra) -> emqx_ee_connector_cassa.
 
 fields(bridges) ->
     [
-        {kafka,
-            mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_kafka, "config")),
-                #{
-                    desc => <<"Kafka Bridge Config">>,
-                    required => false
-                }
-            )},
         {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
@@ -144,8 +140,8 @@ fields(bridges) ->
                     required => false
                 }
             )}
-    ] ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++ pgsql_structs() ++
-        clickhouse_structs().
+    ] ++ kafka_structs() ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++
+        pgsql_structs() ++ clickhouse_structs().
 
 mongodb_structs() ->
     [
@@ -158,6 +154,27 @@ mongodb_structs() ->
                 }
             )}
      || Type <- [mongodb_rs, mongodb_sharded, mongodb_single]
+    ].
+
+kafka_structs() ->
+    [
+        %% TODO: rename this to `kafka_producer' after alias support
+        %% is added to hocon; keeping this as just `kafka' for
+        %% backwards compatibility.
+        {kafka,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_kafka, kafka_producer)),
+                #{
+                    desc => <<"Kafka Producer Bridge Config">>,
+                    required => false,
+                    converter => fun emqx_ee_bridge_kafka:kafka_producer_converter/2
+                }
+            )},
+        {kafka_consumer,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_kafka, kafka_consumer)),
+                #{desc => <<"Kafka Consumer Bridge Config">>, required => false}
+            )}
     ].
 
 influxdb_structs() ->

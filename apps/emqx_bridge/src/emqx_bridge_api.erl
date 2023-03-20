@@ -487,11 +487,18 @@ schema("/bridges_probe") ->
             lookup_from_all_nodes(BridgeType, BridgeName, 201)
     end;
 '/bridges'(get, _Params) ->
-    {200,
-        zip_bridges([
-            [format_resp(Data, Node) || Data <- emqx_bridge_proto_v1:list_bridges(Node)]
-         || Node <- mria:running_nodes()
-        ])}.
+    Nodes = mria:running_nodes(),
+    NodeReplies = emqx_bridge_proto_v3:list_bridges_on_nodes(Nodes),
+    case is_ok(NodeReplies) of
+        {ok, NodeBridges} ->
+            AllBridges = [
+                format_resource(Data, Node)
+             || {Node, Bridges} <- lists:zip(Nodes, NodeBridges), Data <- Bridges
+            ],
+            {200, zip_bridges([AllBridges])};
+        {error, Reason} ->
+            {500, error_msg('INTERNAL_ERROR', Reason)}
+    end.
 
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
@@ -589,7 +596,7 @@ lookup_from_all_nodes_metrics(BridgeType, BridgeName, SuccCode) ->
 
 do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
     Nodes = mria:running_nodes(),
-    case is_ok(emqx_bridge_proto_v1:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
+    case is_ok(emqx_bridge_proto_v3:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, FormatFun([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
@@ -600,7 +607,7 @@ do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
 
 lookup_from_local_node(BridgeType, BridgeName) ->
     case emqx_bridge:lookup(BridgeType, BridgeName) of
-        {ok, Res} -> {ok, format_resp(Res)};
+        {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error
     end.
 
@@ -809,10 +816,7 @@ aggregate_metrics(
 aggregate_metrics(#{}, Metrics) ->
     Metrics.
 
-format_resp(Data) ->
-    format_resp(Data, node()).
-
-format_resp(
+format_resource(
     #{
         type := Type,
         name := BridgeName,
@@ -988,7 +992,7 @@ do_bpapi_call(Node, Call, Args) ->
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
     case lists:member(SupportedVersion, supported_versions(Call)) of
         true ->
-            apply(emqx_bridge_proto_v2, Call, Args);
+            apply(emqx_bridge_proto_v3, Call, Args);
         false ->
             {error, not_implemented}
     end.
@@ -998,9 +1002,9 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> [2];
-supported_versions(start_bridges_to_all_nodes) -> [2];
-supported_versions(_Call) -> [1, 2].
+supported_versions(start_bridge_to_node) -> [2, 3];
+supported_versions(start_bridges_to_all_nodes) -> [2, 3];
+supported_versions(_Call) -> [1, 2, 3].
 
 to_hr_reason(nxdomain) ->
     <<"Host not found">>;
