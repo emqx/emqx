@@ -18,7 +18,12 @@
 
 -export([save_files_return_opts/2,
          save_files_return_opts/3,
+         save_files_return_opts/4,
          save_file/2
+        ]).
+
+-export([maybe_delete_dir/1,
+         maybe_delete_dir/2
         ]).
 
 -type file_input_key() :: binary(). %% <<"file">> | <<"filename">>
@@ -38,11 +43,18 @@
 -type opt_key() :: keyfile | certfile | cacertfile | verify | versions | ciphers.
 -type opt_value() :: term().
 -type opts() :: [{opt_key(), opt_value()}].
+-type dirname() :: atom() | string() | binary().
 
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
--spec save_files_return_opts(opts_input(), atom() | string() | binary(),
+-spec save_files_return_opts(opts_input(), dirname(),
+                             string() | binary(), dirname()) -> opts().
+save_files_return_opts(Options, SubDir, ResId, ResSubdir) ->
+    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId, ResSubdir]),
+    save_files_return_opts(Options, Dir).
+
+-spec save_files_return_opts(opts_input(), dirname(),
                              string() | binary()) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
     Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
@@ -140,6 +152,20 @@ maybe_save_file(FileName, Content, Dir) ->
                logger:error("failed_to_save_ssl_file ~s: ~0p", [FullFilename, Reason]),
                error({"failed_to_save_ssl_file", FullFilename, Reason})
      end.
+
+maybe_delete_dir(SubDir, ResId) ->
+    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
+    maybe_delete_dir(Dir).
+
+maybe_delete_dir(Dir) ->
+    case file:del_dir_r(Dir) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            logger:error("Delete Resource dir ~p failed for reason: ~p", [Dir, Reason])
+    end.
 
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).

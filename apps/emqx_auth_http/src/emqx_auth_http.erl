@@ -39,7 +39,7 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
     Username = maps:get(username, ClientInfo, undefined),
     case authenticate(AuthParms, ClientInfo) of
         {ok, 200, <<"ignore">>} ->
-            ok;
+            ?LOG(debug, "Auth ignored, path: ~ts, username: ~ts", [Path, Username]);
         {ok, 200, Body}  ->
             ?LOG(debug, "Auth succeeded from path: ~ts, username: ~ts", [Path, Username]),
             IsSuperuser = is_superuser(SuperParams, ClientInfo),

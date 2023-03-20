@@ -1,5 +1,5 @@
 {application, emqx_mini_plugin,
- [{description, "An EMQ X plugin for testcase"},
+ [{description, "An EMQX plugin for testcase"},
   {vsn, "0.1"},
   {modules, []},
   {registered, []},

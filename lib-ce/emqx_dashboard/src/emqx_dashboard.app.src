@@ -1,13 +1,13 @@
 {application, emqx_dashboard,
  [{description, "EMQX Web Dashboard"},
-  {vsn, "4.4.14"}, % strict semver, bump manually!
+  {vsn, "4.4.15"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_dashboard_sup]},
   {applications, [kernel,stdlib,mnesia,minirest]},
   {mod, {emqx_dashboard_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx-dashboard"}
           ]}

@@ -79,7 +79,7 @@ jobs:
         TARGET: emqx/${{ needs.build.outputs.imgname }}
         EMQX_TAG: ${{ needs.build.outputs.version }}
       run: |
-        docker-compose \
+        docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
           up -d --build
     - uses: actions/checkout@v3
@@ -180,7 +180,7 @@ jobs:
         EMQX_TAG: ${{ needs.build.outputs.version }}
         MYSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
-        docker-compose \
+        docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
           -f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
           up -d --build
@@ -287,7 +287,7 @@ jobs:
         EMQX_TAG: ${{ needs.build.outputs.version }}
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
-        docker-compose \
+        docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-broker-cluster.yaml \
           -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
           up -d --build
@@ -383,7 +383,7 @@ jobs:
         EMQX_TAG: ${{ needs.build.outputs.version }}
         MYSQL_TAG: 8
       run: |
-        docker-compose \
+        docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-broker-cluster.yaml \
           -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
           -f .ci/docker-compose-file/docker-compose-enterprise-tomcat-tcp.yaml \

@@ -60,19 +60,17 @@ check(ClientInfo = #{ clientid := Clientid
     MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, X}, Password, InterTime}) when X =:= Clientid-> Password;
                               ({?TABLE, {username, X}, Password, InterTime}) when X =:= Username andalso X =/= undefined -> Password
                            end),
+    Info = maps:without([password], ClientInfo),
     case ets:select(?TABLE, MatchSpec) of
         [] ->
-            ok;
+            ?LOG(debug, "[Mnesia] Auth ignored, Client: ~p", [Info]);
         List ->
             case match_password(NPassword, HashType, List)  of
                 false ->
-                    Info = maps:without([password], ClientInfo),
                     ?LOG(info, "[Mnesia] Auth from mnesia failed: ~p", [Info]),
                     {stop, AuthResult#{anonymous => false, auth_result => password_error}};
                 _ ->
-                    ?LOG_SENSITIVE(debug,
-                                   "[Mnesia] Auth from mnesia succeeded, Client: ~p",
-                                   [ClientInfo]),
+                    ?LOG(debug,"[Mnesia] Auth from mnesia succeeded, Client: ~p", [Info]),
                     {stop, AuthResult#{anonymous => false, auth_result => success}}
             end
     end.

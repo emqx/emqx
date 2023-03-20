@@ -32,7 +32,10 @@ do_check_acl(_Pool, #{username := <<$$, _/binary>>}, _PubSub, _Topic, _NoMatchAc
     ok;
 do_check_acl(Pool, ClientInfo, PubSub, Topic, _NoMatchAction, #{acl_query := {AclSql, AclParams}}) ->
     case emqx_auth_pgsql_cli:equery(Pool, AclSql, AclParams, ClientInfo) of
-        {ok, _, []} -> ok;
+        {ok, _, []} ->
+            ?LOG_SENSITIVE(debug,
+                "[Postgres] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                [Topic, PubSub, ClientInfo]);
         {ok, _, Rows} ->
             Rules = filter(PubSub, compile(Rows)),
             case match(ClientInfo, Topic, Rules) of

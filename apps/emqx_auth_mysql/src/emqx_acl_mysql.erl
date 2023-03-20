@@ -28,7 +28,10 @@
 
 check_acl(ClientInfo, PubSub, Topic, NoMatchAction, #{pool := Pool} = State) ->
     case do_check_acl(Pool, ClientInfo, PubSub, Topic, NoMatchAction, State) of
-        ok -> ok;
+        ok ->
+            ?LOG_SENSITIVE(debug,
+                "[MySQL] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                [Topic, PubSub, ClientInfo]);
         {stop, allow} ->
             ?LOG_SENSITIVE(debug,
                            "[MySQL] Allow Topic: ~p, Action: ~p for Client: ~p",

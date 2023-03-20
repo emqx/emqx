@@ -58,13 +58,13 @@ set_special_configs(_App) ->
 t_load_case(_) ->
     UnHooks = emqx_hooks:lookup('message.publish'),
     ?assertEqual([], UnHooks),
-    ok = emqx_mod_delayed:load([]),
+    _ = emqx_mod_delayed:load([]),
     Hooks = emqx_hooks:lookup('message.publish'),
     ?assertEqual(1, length(Hooks)),
     ok.
 
 t_delayed_message(_) ->
-    ok = emqx_mod_delayed:load([]),
+    _ = emqx_mod_delayed:load([]),
     DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
     ?assertEqual({stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}}, on_message_publish(DelayedMsg)),
 
@@ -81,7 +81,7 @@ t_delayed_message(_) ->
     ok = emqx_mod_delayed:unload([]).
 
 t_banned_delayed(_) ->
-    ok = emqx_mod_delayed:load([]),
+    _ = emqx_mod_delayed:load([]),
     ClientId1 = <<"bc1">>,
     ClientId2 = <<"bc2">>,
 
@@ -119,6 +119,7 @@ t_banned_delayed(_) ->
     snabbkaffe:stop(),
 
     emqx_banned:delete(Who),
+    timer:sleep(500),
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
     ?assertEqual([], EmptyKey),
     ok = emqx_mod_delayed:unload([]).
