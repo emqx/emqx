@@ -137,20 +137,10 @@ pread(Node, Segment, St) ->
 %%
 
 maybe_garbage_collect(ok, St = #st{storage = Storage, transfer = Transfer}) ->
-    Nodes = get_coverage_nodes(St),
+    Nodes = emqx_ft_assembly:nodes(St#st.assembly),
     emqx_ft_storage_fs_gc:collect(Storage, Transfer, Nodes);
 maybe_garbage_collect({error, _}, _St) ->
     ok.
-
-get_coverage_nodes(St) ->
-    Coverage = emqx_ft_assembly:coverage(St#st.assembly),
-    ordsets:to_list(
-        lists:foldl(
-            fun({Node, _Segment}, Acc) -> ordsets:add_element(Node, Acc) end,
-            ordsets:new(),
-            Coverage
-        )
-    ).
 
 segsize(#{fragment := {segment, Info}}) ->
     maps:get(size, Info).
