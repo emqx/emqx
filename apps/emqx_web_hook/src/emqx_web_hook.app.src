@@ -1,13 +1,13 @@
 {application, emqx_web_hook,
- [{description, "EMQ X WebHook Plugin"},
-  {vsn, "4.3.16"}, % strict semver, bump manually!
+ [{description, "EMQX WebHook Plugin"},
+  {vsn, "4.3.18"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_web_hook_sup]},
   {applications, [kernel,stdlib,ehttpc]},
   {mod, {emqx_web_hook_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx-web-hook"}
           ]}

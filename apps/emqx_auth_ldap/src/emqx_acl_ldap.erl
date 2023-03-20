@@ -28,7 +28,9 @@
 
 check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) ->
     case do_check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) of
-        ok -> ok;
+        ok -> ?LOG_SENSITIVE(debug,
+                    "[LDAP] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                    [Topic, PubSub, ClientInfo]);
         {stop, allow} ->
             ?LOG_SENSITIVE(debug,
                            "[LDAP] Allow Topic: ~p, Action: ~p for Client: ~p",

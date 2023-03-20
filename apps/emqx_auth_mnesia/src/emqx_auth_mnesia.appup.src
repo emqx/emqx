@@ -1,7 +1,10 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.10",
+  [{"4.3.11",
+    [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]},
+     {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]}]},
+   {"4.3.10",
     [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]}]},
    {"4.3.9",
@@ -47,7 +50,10 @@
      {load_module,emqx_acl_mnesia_cli,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mnesia_app,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.3.10",
+  [{"4.3.11",
+    [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]},
+     {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]}]},
+   {"4.3.10",
     [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]}]},
    {"4.3.9",

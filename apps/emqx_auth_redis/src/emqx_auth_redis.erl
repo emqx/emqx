@@ -47,14 +47,15 @@ check(ClientInfo = #{password := Password}, AuthResult,
                 end,
     case CheckPass of
         ok ->
+            ?LOG_SENSITIVE(debug, "[Redis] Auth succeeded, Client: ~p", [ClientInfo]),
             IsSuperuser = is_superuser(Pool, Type, SuperCmd, ClientInfo, Timeout),
             {stop, AuthResult#{is_superuser => IsSuperuser,
                                anonymous    => false,
                                auth_result  => success}};
         {error, not_found} ->
-            ok;
+            ?LOG_SENSITIVE(debug, "[Redis] Auth ignored, Client: ~p", [ClientInfo]);
         {error, ResultCode} ->
-            ?LOG_SENSITIVE(error, "[Redis] Auth from redis failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[Redis] Auth failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

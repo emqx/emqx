@@ -33,7 +33,7 @@ jobs:
         env:
           LDAP_TAG: ${{ matrix.ldap_tag }}
         run: |
-          docker-compose \
+          docker compose \
             -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build
@@ -88,9 +88,9 @@ jobs:
         run: |
           docker rm -f $(docker ps -qa) || true
           docker network rm $(docker network ls -q) || true
-      - name: docker-compose up
+      - name: docker compose up
         run: |
-          docker-compose \
+          docker compose \
             -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
             -f .ci/docker-compose-file/docker-compose-mongo-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
@@ -164,10 +164,10 @@ jobs:
         run: |
           docker rm -f $(docker ps -qa) || true
           docker network rm $(docker network ls -q) || true
-      - name: docker-compose up
+      - name: docker compose up
         timeout-minutes: 5
         run: |
-          docker-compose \
+          docker compose \
             -f .ci/docker-compose-file/docker-compose-mysql-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build
@@ -254,9 +254,9 @@ jobs:
         run: |
           docker rm -f $(docker ps -qa) || true
           docker network rm $(docker network ls -q) || true
-      - name: docker-compose up
+      - name: docker compose up
         run: |
-          docker-compose \
+          docker compose \
             -f .ci/docker-compose-file/docker-compose-pgsql-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build
@@ -339,9 +339,9 @@ jobs:
         run: |
           docker rm -f $(docker ps -qa) || true
           docker network rm $(docker network ls -q) || true
-      - name: docker-compose up
+      - name: docker compose up
         run: |
-          docker-compose \
+          docker compose \
             -f .ci/docker-compose-file/docker-compose-redis-${{ matrix.node_type }}-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build

@@ -41,15 +41,15 @@ check(ClientInfo, AuthResult, State) ->
 check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
     case maps:find(From, ClientInfo) of
         error ->
-            ok;
+            ?LOG(debug, "Auth ignored, ~p not found in Client: ~p", [From, ClientInfo]);
         {ok, undefined} ->
-            ok;
+            ?LOG(debug, "Auth ignored, ~p undefined, Client: ~p", [From, ClientInfo]);
         {ok, Token} ->
             case emqx_auth_jwt_svr:verify(Token) of
                 {error, not_found} ->
-                    ok;
+                    ?LOG_SENSITIVE(debug, "Auth ignored, ~p not_found, Client: ~p", [Token, ClientInfo]);
                 {error, not_token} ->
-                    ok;
+                    ?LOG_SENSITIVE(debug, "Auth ignored, ~p not_token, Client: ~p", [Token, ClientInfo]);
                 {error, Reason} ->
                     ?LOG_SENSITIVE(debug,
                                    "Auth from JWT failed, Client: ~p, Reason: ~p",

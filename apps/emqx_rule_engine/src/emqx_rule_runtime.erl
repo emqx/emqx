@@ -265,6 +265,8 @@ take_action(#action_instance{id = Id, name = ActName, fallbacks = Fallbacks} = A
         emqx_rule_metrics:inc_actions_taken(Id),
         apply_action_func(Selected, Envs, Apply, ActName)
     of
+        badact_quiet ->
+            handle_action_failure(OnFailed, Id, Fallbacks, Selected, Envs, badact_quiet);
         {badact, Reason} ->
             handle_action_failure(OnFailed, Id, Fallbacks, Selected, Envs, Reason);
         Result -> Result
@@ -320,11 +322,13 @@ wait_action_on(Id, RetryN) ->
     end.
 
 handle_action_failure(continue, _Id, Fallbacks, Selected, Envs = #{metadata := Metadata}, Reason) ->
-    ?LOG_RULE_ACTION(error, Metadata, "Continue next action, reason: ~0p", [Reason]),
+    Reason =/= badact_quiet andalso
+        ?LOG_RULE_ACTION(error, Metadata, "Continue next action, reason: ~0p", [Reason]),
     _ = take_actions(Fallbacks, Selected, Envs, continue),
     failed;
 handle_action_failure(stop, Id, Fallbacks, Selected, Envs = #{metadata := Metadata}, Reason) ->
-    ?LOG_RULE_ACTION(error, Metadata, "Skip all actions, reason: ~0p", [Reason]),
+    Reason =/= badact_quiet andalso
+        ?LOG_RULE_ACTION(error, Metadata, "Skip all actions, reason: ~0p", [Reason]),
     _ = take_actions(Fallbacks, Selected, Envs, continue),
     error({take_action_failed, {Id, Reason}}).
 

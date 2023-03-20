@@ -30,7 +30,10 @@ check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _Config)
 check_acl(ClientInfo, PubSub, Topic, _AclResult,
           #{acl_cmd := AclCmd, timeout := Timeout, type := Type, pool := Pool}) ->
     case emqx_auth_redis_cli:q(Pool, Type, AclCmd, ClientInfo, Timeout) of
-        {ok, []} -> ok;
+        {ok, []} ->
+            ?LOG_SENSITIVE(debug,
+                "[Redis] ACL ignored, Topic: ~p, Action: ~p for Client: ~p",
+                [Topic, PubSub, ClientInfo]);
         {ok, Rules} ->
             case match(ClientInfo, PubSub, Topic, Rules) of
                 allow ->
