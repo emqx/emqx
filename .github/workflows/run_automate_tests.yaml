@@ -38,12 +38,12 @@ jobs:
           git config --global credential.helper store
           make deps-emqx-ee
           make clean
-          echo "::set-output name=imgname::emqx-ee"
-          echo "::set-output name=version::$(./pkg-vsn.sh)"
+          echo "imgname=emqx-ee" >> $GITHUB_OUTPUT
+          echo "version=$(./pkg-vsn.sh)" >> $GITHUB_OUTPUT
         else
           make emqx-docker
-          echo "::set-output name=imgname::emqx"
-          echo "::set-output name=version::$(./pkg-vsn.sh)"
+          echo "imgname=emqx" >> $GITHUB_OUTPUT
+          echo "version=$(./pkg-vsn.sh)" >> $GITHUB_OUTPUT
         fi
     - name: build docker image
       run: |

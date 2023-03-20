@@ -30,7 +30,7 @@ jobs:
             -d "{\"title\": \"Sync code from opensource $GITHUB_REF to entperprise $EE_REF\", \"head\": \"$GITHUB_REF\", \"base\":\"$EE_REF\"}" \
             https://api.github.com/repos/${{ github.repository_owner }}/emqx-enterprise/pulls)
           echo $R | jq
-          echo "::set-output name=url::$(echo $R | jq '.url')"
+          echo "url=$(echo $R | jq '.url')" >> $GITHUB_OUTPUT
       - name: request reviewers for a pull request
         if: steps.create_pull_request.outputs.url != 'null'
         run: |
