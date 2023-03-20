@@ -162,7 +162,7 @@ gen_schema_json(Dir, I18nFile, SchemaModule, Lang) ->
     ok = file:write_file(SchemaJsonFile, IoData).
 
 gen_api_schema_json(Dir, I18nFile, Lang) ->
-    emqx_dashboard:init_i18n(I18nFile, Lang),
+    emqx_dashboard:init_i18n(I18nFile, list_to_binary(Lang)),
     gen_api_schema_json_hotconf(Dir, Lang),
     gen_api_schema_json_bridge(Dir, Lang),
     emqx_dashboard:clear_i18n().

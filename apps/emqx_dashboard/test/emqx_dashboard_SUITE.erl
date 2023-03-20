@@ -155,6 +155,18 @@ t_rest_api(_Config) ->
     emqx_dashboard_admin:add_user(<<"admin">>, Password, <<"administrator">>),
     ok.
 
+t_swagger_json(_Config) ->
+    Url = ?HOST ++ "/api-docs/swagger.json",
+    %% with auth
+    Auth = auth_header_(<<"admin">>, <<"public_www1">>),
+    {ok, 200, Body1} = request_api(get, Url, Auth),
+    ?assert(jsx:is_json(Body1)),
+    %% without auth
+    {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
+        httpc:request(get, {Url, []}, [], [{body_format, binary}]),
+    ?assertEqual(Body1, Body2),
+    ok.
+
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
     emqx_dashboard_cli:admins(["add", "username", "password_ww2"]),

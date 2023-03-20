@@ -57,6 +57,8 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `persistence.size` | PVC Storage Request for EMQX volume | 20Mi |
 | `initContainers` | Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts. | `{}` |
 | `resources` | CPU/Memory resource requests/limits | {} |
+| `extraVolumeMounts` | Additional volumeMounts to the default backend container. | [] |
+| `extraVolumes` | Additional volumes to the default backend pod.| [] |
 | `nodeSelector` | Node labels for pod assignment | `{}` |
 | `tolerations` | Toleration labels for pod assignment | `[]` |
 | `affinity` | Map of node/pod affinities | `{}` |

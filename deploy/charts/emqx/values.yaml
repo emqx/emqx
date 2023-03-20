@@ -62,6 +62,17 @@ resources: {}
   #   cpu: 500m
   #   memory: 512Mi
 
+extraVolumeMounts: []
+## Additional volumeMounts to the default backend container.
+#  - name: my-owner-acl
+#    mountPath: /opt/emqx/etc/acl.conf
+#    subPath: acl.conf
+
+extraVolumes: []
+## Additional volumes to the default backend pod.
+#  - name: my-owner-acl
+#    secret:  fake-acl-conf
+
 # Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
 initContainers: {}
   # - name: sysctl
