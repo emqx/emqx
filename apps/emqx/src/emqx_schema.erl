@@ -230,7 +230,7 @@ roots(low) ->
         {"crl_cache",
             sc(
                 ref("crl_cache"),
-                #{}
+                #{hidden => true}
             )}
     ].
 
@@ -809,7 +809,6 @@ fields("crl_cache") ->
             sc(
                 duration(),
                 #{
-                    hidden => true,
                     default => <<"15m">>,
                     desc => ?DESC("crl_cache_refresh_interval")
                 }
@@ -818,7 +817,6 @@ fields("crl_cache") ->
             sc(
                 duration(),
                 #{
-                    hidden => true,
                     default => <<"15s">>,
                     desc => ?DESC("crl_cache_refresh_http_timeout")
                 }
@@ -827,7 +825,6 @@ fields("crl_cache") ->
             sc(
                 pos_integer(),
                 #{
-                    hidden => true,
                     default => 100,
                     desc => ?DESC("crl_cache_capacity")
                 }
