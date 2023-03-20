@@ -51,7 +51,7 @@
 -type bytes() :: non_neg_integer().
 
 %% MQTT Client ID
--type clientid() :: emqx_types:clientid().
+-type clientid() :: binary().
 
 -type fileid() :: binary().
 -type transfer() :: {clientid(), fileid()}.
@@ -327,7 +327,7 @@ assemble(Transfer, FinalSize) ->
 
 transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
-    {ClientId, FileId}.
+    {clientid_to_binary(ClientId), FileId}.
 
 on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
     ?SLOG(debug, #{
@@ -421,3 +421,8 @@ parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:
     end;
 parse_checksum(_Checksum) ->
     {error, invalid_checksum}.
+
+clientid_to_binary(A) when is_atom(A) ->
+    atom_to_binary(A);
+clientid_to_binary(B) when is_binary(B) ->
+    B.
