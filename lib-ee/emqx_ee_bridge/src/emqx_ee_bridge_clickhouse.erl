@@ -41,9 +41,7 @@ conn_bridge_examples(Method) ->
         }
     ].
 
-values(get, Type) ->
-    maps:merge(values(post, Type), ?METRICS_EXAMPLE);
-values(post, Type) ->
+values(_Method, Type) ->
     #{
         enable => true,
         type => Type,
@@ -65,9 +63,7 @@ values(post, Type) ->
             query_mode => async,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
-    };
-values(put, Type) ->
-    values(post, Type).
+    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
