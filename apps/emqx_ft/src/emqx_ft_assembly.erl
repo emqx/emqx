@@ -22,6 +22,7 @@
 
 -export([status/1]).
 -export([filemeta/1]).
+-export([nodes/1]).
 -export([coverage/1]).
 -export([properties/1]).
 
@@ -107,6 +108,24 @@ filemeta(Asm) ->
 -spec coverage(t()) -> coverage() | undefined.
 coverage(#asm{coverage = Coverage}) ->
     Coverage.
+
+-spec nodes(t()) -> [node()].
+nodes(#asm{meta = Meta, segs = Segs}) ->
+    S1 = orddict:fold(
+        fun(_Meta, {Node, _Fragment}, Acc) ->
+            ordsets:add_element(Node, Acc)
+        end,
+        ordsets:new(),
+        Meta
+    ),
+    S2 = emqx_wdgraph:fold(
+        fun(_Offset, {_End, _, {Node, _Fragment}}, Acc) ->
+            ordsets:add_element(Node, Acc)
+        end,
+        ordsets:new(),
+        Segs
+    ),
+    ordsets:to_list(ordsets:union(S1, S2)).
 
 properties(#asm{properties = Properties}) ->
     Properties.
