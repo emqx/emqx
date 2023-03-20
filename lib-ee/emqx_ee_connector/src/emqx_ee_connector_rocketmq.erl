@@ -31,10 +31,6 @@
     default_port => 9876
 }).
 
--ifdef(TEST).
--export([execute/2]).
--endif.
-
 %%=====================================================================
 %% Hocon schema
 roots() ->
