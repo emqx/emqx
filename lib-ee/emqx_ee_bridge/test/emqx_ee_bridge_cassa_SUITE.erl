@@ -294,8 +294,6 @@ connect_direct_cassa(Config) ->
 
 % These funs connect and then stop the cassandra connection
 connect_and_create_table(Config) ->
-    %% XXX: drop first
-    _ = connect_and_drop_table(Config),
     Con = connect_direct_cassa(Config),
     {ok, _} = ecql:query(Con, ?SQL_CREATE_TABLE),
     ok = ecql:close(Con).
