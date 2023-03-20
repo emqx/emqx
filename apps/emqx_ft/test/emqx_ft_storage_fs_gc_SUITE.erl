@@ -45,9 +45,11 @@ init_per_testcase(TC, Config) ->
             })
         end
     ),
+    ok = snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_TC, _Config) ->
+    ok = snabbkaffe:stop(),
     ok = application:stop(emqx_ft),
     ok.
 
@@ -126,20 +128,29 @@ t_gc_complete_transfers(_Config) ->
         emqx_ft_storage_fs_gc:collect(Storage)
     ),
     % 2. Complete just the first transfer
-    ?assertEqual(
-        ok,
-        complete_transfer(Storage, T1, S1)
+    {ok, {ok, Event}} = ?wait_async_action(
+        ?assertEqual(ok, complete_transfer(Storage, T1, S1)),
+        #{?snk_kind := garbage_collection},
+        1000
     ),
     ?assertMatch(
-        #gcstats{
-            files = Files,
-            directories = 2,
-            space = Space,
-            errors = #{} = Es
+        #{
+            stats := #gcstats{
+                files = Files,
+                directories = 2,
+                space = Space,
+                errors = #{} = Es
+            }
         } when Files == ?NSEGS(S1, SS1) andalso Space > S1 andalso map_size(Es) == 0,
-        emqx_ft_storage_fs_gc:collect(Storage)
+        Event
     ),
     % 3. Complete rest of transfers
+    {ok, Sub} = snabbkaffe_collector:subscribe(
+        ?match_event(#{?snk_kind := garbage_collection}),
+        2,
+        1000,
+        0
+    ),
     ?assertEqual(
         [ok, ok],
         emqx_misc:pmap(
@@ -147,18 +158,19 @@ t_gc_complete_transfers(_Config) ->
             [{T2, S2}, {T3, S3}]
         )
     ),
-    ?assertMatch(
-        #gcstats{
-            files = Files,
-            directories = 4,
-            space = Space,
-            errors = #{} = Es
-        } when
-            Files == (?NSEGS(S2, SS2) + ?NSEGS(S3, SS3)) andalso
-                Space > (S2 + S3) andalso
-                map_size(Es) == 0,
-        emqx_ft_storage_fs_gc:collect(Storage)
-    ).
+    {ok, Events} = snabbkaffe_collector:receive_events(Sub),
+    CFiles = lists:sum([Stats#gcstats.files || #{stats := Stats} <- Events]),
+    CDirectories = lists:sum([Stats#gcstats.directories || #{stats := Stats} <- Events]),
+    CSpace = lists:sum([Stats#gcstats.space || #{stats := Stats} <- Events]),
+    CErrors = lists:foldl(
+        fun maps:merge/2,
+        #{},
+        [Stats#gcstats.errors || #{stats := Stats} <- Events]
+    ),
+    ?assertEqual(?NSEGS(S2, SS2) + ?NSEGS(S3, SS3), CFiles),
+    ?assertEqual(2 + 2, CDirectories),
+    ?assertMatch(Space when Space > S2 + S3, CSpace),
+    ?assertMatch(Errors when map_size(Errors) == 0, CErrors).
 
 t_gc_incomplete_transfers(_Config) ->
     ok = emqx_config:put([file_transfer, storage, gc, minimum_segments_ttl], 0),
@@ -188,52 +200,47 @@ t_gc_incomplete_transfers(_Config) ->
     ],
     % 1. Start transfers, send all the segments but don't trigger completion.
     _ = emqx_misc:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
-    ?check_trace(
-        begin
-            % 2. Enable periodic GC every 0.5 seconds.
-            ok = emqx_config:put([file_transfer, storage, gc, interval], 500),
-            ok = emqx_ft_storage_fs_gc:reset(Storage),
-            % 3. First we need the first transfer to be collected.
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
-                5000,
-                0
-            ),
-            % 4. Then the second one.
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
-                5000,
-                0
-            ),
-            % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4 * 2,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
-                5000,
-                0
-            )
-        end,
-        []
+    % 2. Enable periodic GC every 0.5 seconds.
+    ok = emqx_config:put([file_transfer, storage, gc, interval], 500),
+    ok = emqx_ft_storage_fs_gc:reset(Storage),
+    % 3. First we need the first transfer to be collected.
+    {ok, _} = ?block_until(
+        #{
+            ?snk_kind := garbage_collection,
+            stats := #gcstats{
+                files = Files,
+                directories = 4,
+                space = Space
+            }
+        } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
+        5000,
+        0
+    ),
+    % 4. Then the second one.
+    {ok, _} = ?block_until(
+        #{
+            ?snk_kind := garbage_collection,
+            stats := #gcstats{
+                files = Files,
+                directories = 4,
+                space = Space
+            }
+        } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
+        5000,
+        0
+    ),
+    % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
+    {ok, _} = ?block_until(
+        #{
+            ?snk_kind := garbage_collection,
+            stats := #gcstats{
+                files = Files,
+                directories = 4 * 2,
+                space = Space
+            }
+        } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
+        5000,
+        0
     ).
 
 t_gc_handling_errors(_Config) ->

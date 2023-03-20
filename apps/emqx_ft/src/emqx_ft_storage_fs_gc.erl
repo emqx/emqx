@@ -80,11 +80,15 @@ handle_call(Call, From, St) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Call, from => From}),
     {noreply, St}.
 
-% TODO
-% handle_cast({collect, Transfer, [Node | Rest]}, St) ->
-%     ok = do_collect_transfer(Transfer, Node, St),
-%     ok = collect(self(), Transfer, Rest),
-%     {noreply, St};
+handle_cast({collect, Transfer, [Node | Rest]}, St) ->
+    ok = do_collect_transfer(Transfer, Node, St),
+    case Rest of
+        [_ | _] ->
+            gen_server:cast(self(), {collect, Transfer, Rest});
+        [] ->
+            ok
+    end,
+    {noreply, St};
 handle_cast(reset, St) ->
     {noreply, reset_timer(St)};
 handle_cast(Cast, St) ->
@@ -95,10 +99,13 @@ handle_info({timeout, TRef, collect}, St = #st{next_gc_timer = TRef}) ->
     StNext = do_collect_garbage(St),
     {noreply, start_timer(StNext#st{next_gc_timer = undefined})}.
 
-% do_collect_transfer(Transfer, Node, St = #st{storage = Storage}) when Node == node() ->
-%     Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
-%     ok = maybe_report(Stats, St),
-%     ok.
+do_collect_transfer(Transfer, Node, St = #st{storage = Storage}) when Node == node() ->
+    Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
+    ok = maybe_report(Stats, St),
+    ok;
+do_collect_transfer(_Transfer, _Node, _St = #st{}) ->
+    % TODO
+    ok.
 
 maybe_collect_garbage(_CalledAt, St = #st{last_gc = undefined}) ->
     do_collect_garbage(St);
@@ -149,21 +156,13 @@ collect_garbage(Storage, Transfers, Stats) ->
         )
     ).
 
-try_collect_transfer(Storage, Transfer, #{status := complete}, Stats) ->
-    % File transfer is complete.
-    % We should be good to delete fragments and temporary files with their respective
-    % directories altogether.
-    % TODO: file expiration
-    {_, Stats1} = collect_fragments(Storage, Transfer, Stats),
-    {_, Stats2} = collect_tempfiles(Storage, Transfer, Stats1),
-    Stats2;
-try_collect_transfer(Storage, Transfer, #{status := incomplete}, Stats) ->
-    % File transfer is still incomplete.
+try_collect_transfer(Storage, Transfer, TransferInfo = #{}, Stats) ->
+    % File transfer might still be incomplete.
     % Any outdated fragments and temporary files should be collectable. As a kind of
     % heuristic we only delete transfer directory itself only if it is also outdated
     % _and was empty at the start of GC_, as a precaution against races between
     % writers and GCs.
-    TTL = get_segments_ttl(Storage, Transfer),
+    TTL = get_segments_ttl(Storage, TransferInfo),
     Cutoff = erlang:system_time(second) - TTL,
     {FragCleaned, Stats1} = collect_outdated_fragments(Storage, Transfer, Cutoff, Stats),
     {TempCleaned, Stats2} = collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats1),
@@ -173,7 +172,14 @@ try_collect_transfer(Storage, Transfer, #{status := incomplete}, Stats) ->
             collect_transfer_directory(Storage, Transfer, Stats2);
         false ->
             Stats2
-    end.
+    end;
+try_collect_transfer(Storage, Transfer, complete, Stats) ->
+    % File transfer is complete.
+    % We should be good to delete fragments and temporary files with their respective
+    % directories altogether.
+    {_, Stats1} = collect_fragments(Storage, Transfer, Stats),
+    {_, Stats2} = collect_tempfiles(Storage, Transfer, Stats1),
+    Stats2.
 
 collect_fragments(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, fragment),
