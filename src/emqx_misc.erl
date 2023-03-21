@@ -507,6 +507,9 @@ safe_io_device() ->
             standard_error
     end.
 
+is_sensitive_key(ws_cookie) -> true;
+is_sensitive_key("ws_cookie") -> true;
+is_sensitive_key(<<"ws_cookie">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
