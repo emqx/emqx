@@ -98,6 +98,20 @@ init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:expect(emqx_bpapi, supported_version, 1, 1),
     meck:expect(emqx_bpapi, supported_version, 2, 1),
     init_per_testcase(common, Config);
+init_per_testcase(StartStop, Config) when
+    StartStop == t_start_stop_bridges_cluster;
+    StartStop == t_start_stop_bridges_node
+->
+    meck:new(emqx_bridge_resource, [passthrough]),
+    meck:expect(
+        emqx_bridge_resource,
+        stop,
+        fun
+            (_, <<"bridge_not_found">>) -> {error, not_found};
+            (Type, Name) -> meck:passthrough([Type, Name])
+        end
+    ),
+    init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
@@ -108,6 +122,12 @@ end_per_testcase(t_broken_bpapi_vsn, Config) ->
     end_per_testcase(common, Config);
 end_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:unload([emqx_bpapi]),
+    end_per_testcase(common, Config);
+end_per_testcase(StartStop, Config) when
+    StartStop == t_start_stop_bridges_cluster;
+    StartStop == t_start_stop_bridges_node
+->
+    meck:unload([emqx_bridge_resource]),
     end_per_testcase(common, Config);
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),
@@ -625,6 +645,16 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 404, _} = request(post, operation_path(Type, start, <<"wreckbook_fugazi">>), <<"">>),
     %% Looks ok but doesn't exist
     {ok, 404, _} = request(post, operation_path(Type, start, <<"webhook:cptn_hook">>), <<"">>),
+
+    %%
+    {ok, 201, _Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, <<"bridge_not_found">>)
+    ),
+    {ok, 503, _} = request(
+        post, operation_path(Type, stop, <<"webhook:bridge_not_found">>), <<"">>
+    ),
 
     %% Create broken bridge
     {ListenPort, Sock} = listen_on_random_port(),

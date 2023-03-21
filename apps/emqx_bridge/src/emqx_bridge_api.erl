@@ -980,7 +980,15 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
                 bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason]))
             );
         {error, not_found} ->
-            ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+            BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+            ?SLOG(warning, #{
+                msg => "bridge_inconsistent_in_cluster_for_call_operation",
+                reason => not_found,
+                type => BridgeType,
+                name => BridgeName,
+                bridge => BridgeId
+            }),
+            ?SERVICE_UNAVAILABLE(<<"Bridge not found on remote node: ", BridgeId/binary>>);
         {error, {node_not_found, Node}} ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
