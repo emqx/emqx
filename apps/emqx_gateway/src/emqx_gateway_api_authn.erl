@@ -185,13 +185,13 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_authn),
-                summary => <<"Get Authenticator Configuration">>,
+                summary => <<"Get authenticator configuration">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(
                         #{
                             200 => schema_authn(),
-                            204 => <<"Authenticator doesn't initiated">>
+                            204 => <<"Authenticator not initialized">>
                         }
                     )
             },
@@ -199,7 +199,7 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_authn),
-                summary => <<"Update Authenticator Configuration">>,
+                summary => <<"Update authenticator configuration">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_authn(),
                 responses =>
@@ -209,7 +209,7 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_authn),
-                summary => <<"Create an Authenticator for a Gateway">>,
+                summary => <<"Create authenticator for gateway">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_authn(),
                 responses =>
@@ -219,7 +219,7 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_authn),
-                summary => <<"Delete the Gateway Authenticator">>,
+                summary => <<"Delete gateway authenticator">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
@@ -232,7 +232,7 @@ schema("/gateways/:name/authentication/users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_users),
-                summary => <<"List users for a Gateway Authenticator">>,
+                summary => <<"List users for gateway authenticator">>,
                 parameters => params_gateway_name_in_path() ++
                     params_paging_in_qs() ++
                     params_fuzzy_in_qs(),
@@ -250,7 +250,7 @@ schema("/gateways/:name/authentication/users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_user),
-                summary => <<"Add User for a Gateway Authenticator">>,
+                summary => <<"Add user for gateway authenticator">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(emqx_authn_api, request_user_create),
@@ -274,7 +274,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_user),
-                summary => <<"Get User Info for a Gateway Authenticator">>,
+                summary => <<"Get user info for gateway authenticator">>,
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 responses =>
@@ -291,7 +291,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_user),
-                summary => <<"Update User Info for a Gateway Authenticator">>,
+                summary => <<"Update user info for gateway authenticator">>,
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -312,7 +312,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_user),
-                summary => <<"Delete User for a Gateway Authenticator">>,
+                summary => <<"Delete user for gateway authenticator">>,
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 responses =>

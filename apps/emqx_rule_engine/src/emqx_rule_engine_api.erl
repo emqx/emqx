@@ -180,7 +180,7 @@ schema("/rules") ->
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit)
             ],
-            summary => <<"List Rules">>,
+            summary => <<"List rules">>,
             responses => #{
                 200 =>
                     [
@@ -193,7 +193,7 @@ schema("/rules") ->
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api2"),
-            summary => <<"Create a Rule">>,
+            summary => <<"Create a rule">>,
             'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
@@ -207,7 +207,7 @@ schema("/rule_events") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api3"),
-            summary => <<"List Events">>,
+            summary => <<"List rule events">>,
             responses => #{
                 200 => mk(ref(emqx_rule_api_schema, "rule_events"), #{})
             }
@@ -219,7 +219,7 @@ schema("/rules/:id") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4"),
-            summary => <<"Get a Rule">>,
+            summary => <<"Get rule">>,
             parameters => param_path_id(),
             responses => #{
                 404 => error_schema('NOT_FOUND', "Rule not found"),
@@ -229,7 +229,7 @@ schema("/rules/:id") ->
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api5"),
-            summary => <<"Update a Rule">>,
+            summary => <<"Update rule">>,
             parameters => param_path_id(),
             'requestBody' => rule_creation_schema(),
             responses => #{
@@ -240,7 +240,7 @@ schema("/rules/:id") ->
         delete => #{
             tags => [<<"rules">>],
             description => ?DESC("api6"),
-            summary => <<"Delete a Rule">>,
+            summary => <<"Delete rule">>,
             parameters => param_path_id(),
             responses => #{
                 204 => <<"Delete rule successfully">>
@@ -253,7 +253,7 @@ schema("/rules/:id/metrics") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4_1"),
-            summary => <<"Get a Rule's Metrics">>,
+            summary => <<"Get rule metrics">>,
             parameters => param_path_id(),
             responses => #{
                 404 => error_schema('NOT_FOUND', "Rule not found"),
@@ -267,7 +267,7 @@ schema("/rules/:id/metrics/reset") ->
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api7"),
-            summary => <<"Reset a Rule Metrics">>,
+            summary => <<"Reset rule metrics">>,
             parameters => param_path_id(),
             responses => #{
                 404 => error_schema('NOT_FOUND', "Rule not found"),
@@ -281,7 +281,7 @@ schema("/rule_test") ->
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api8"),
-            summary => <<"Test a Rule">>,
+            summary => <<"Test a rule">>,
             'requestBody' => rule_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
