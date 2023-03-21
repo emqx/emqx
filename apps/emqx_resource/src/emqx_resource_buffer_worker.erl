@@ -56,8 +56,6 @@
 
 -export([clear_disk_queue_dir/2]).
 
--export([deactivate_bad_request_timeout_alarm/1]).
-
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -define(COLLECT_REQ_LIMIT, 1000).
@@ -203,7 +201,8 @@ init({Id, Index, Opts}) ->
     RequestTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     BatchTime0 = maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
     BatchTime = adjust_batch_time(Id, RequestTimeout, BatchTime0),
-    maybe_toggle_bad_request_timeout_alarm(Id, RequestTimeout, HealthCheckInterval),
+    DefaultResumeInterval = default_resume_interval(RequestTimeout, HealthCheckInterval),
+    ResumeInterval = maps:get(resume_interval, Opts, DefaultResumeInterval),
     Data = #{
         id => Id,
         index => Index,
@@ -212,7 +211,7 @@ init({Id, Index, Opts}) ->
         batch_size => BatchSize,
         batch_time => BatchTime,
         queue => Queue,
-        resume_interval => maps:get(resume_interval, Opts, HealthCheckInterval),
+        resume_interval => ResumeInterval,
         tref => undefined
     },
     ?tp(buffer_worker_init, #{id => Id, index => Index}),
@@ -1684,38 +1683,16 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
     end,
     BatchTime.
 
-%% The request timeout should be greater than the health check
-%% timeout, health timeout defines how often the buffer worker tries
-%% to unblock. If request timeout is <= health check timeout and the
-%% buffer worker is ever blocked, than all queued requests will
-%% basically fail without being attempted.
--spec maybe_toggle_bad_request_timeout_alarm(
-    resource_id(), request_timeout(), health_check_interval()
-) -> ok.
-maybe_toggle_bad_request_timeout_alarm(Id, _RequestTimeout = infinity, _HealthCheckInterval) ->
-    deactivate_bad_request_timeout_alarm(Id),
-    ok;
-maybe_toggle_bad_request_timeout_alarm(Id, RequestTimeout, HealthCheckInterval) ->
-    case RequestTimeout > HealthCheckInterval of
-        true ->
-            deactivate_bad_request_timeout_alarm(Id),
-            ok;
-        false ->
-            _ = emqx_alarm:activate(
-                bad_request_timeout_alarm_id(Id),
-                #{resource_id => Id, reason => bad_request_timeout},
-                <<"Request timeout should be greater than health check timeout: ", Id/binary>>
-            ),
-            ok
-    end.
-
--spec deactivate_bad_request_timeout_alarm(resource_id()) -> ok.
-deactivate_bad_request_timeout_alarm(Id) ->
-    _ = emqx_alarm:ensure_deactivated(bad_request_timeout_alarm_id(Id)),
-    ok.
-
-bad_request_timeout_alarm_id(Id) ->
-    <<"bad_request_timeout:", Id/binary>>.
+%% The request timeout should be greater than the resume interval, as
+%% it defines how often the buffer worker tries to unblock. If request
+%% timeout is <= resume interval and the buffer worker is ever
+%% blocked, than all queued requests will basically fail without being
+%% attempted.
+-spec default_resume_interval(request_timeout(), health_check_interval()) -> timer:time().
+default_resume_interval(_RequestTimeout = infinity, HealthCheckInterval) ->
+    max(1, HealthCheckInterval);
+default_resume_interval(RequestTimeout, HealthCheckInterval) ->
+    max(1, min(HealthCheckInterval, RequestTimeout div 3)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

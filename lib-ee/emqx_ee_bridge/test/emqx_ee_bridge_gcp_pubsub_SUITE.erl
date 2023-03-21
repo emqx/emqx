@@ -520,6 +520,7 @@ wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
         #{measurements := #{gauge_set := Value}} ->
+            ct:pal("events: ~p", [Events]),
             ct:fail(
                 "gauge ~p didn't reach expected value ~p; last value: ~p",
                 [GaugeName, ExpectedValue, Value]
@@ -972,7 +973,13 @@ t_publish_econnrefused(Config) ->
     ResourceId = ?config(resource_id, Config),
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc.
-    {ok, _} = create_bridge(Config, #{<<"pipelining">> => 1}),
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"pipelining">> => 1,
+            <<"resource_opts">> => #{<<"resume_interval">> => <<"15s">>}
+        }
+    ),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     assert_empty_metrics(ResourceId),
@@ -986,7 +993,10 @@ t_publish_timeout(Config) ->
     %% requests are done separately.
     {ok, _} = create_bridge(Config, #{
         <<"pipelining">> => 1,
-        <<"resource_opts">> => #{<<"batch_size">> => 1}
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 1,
+            <<"resume_interval">> => <<"15s">>
+        }
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
