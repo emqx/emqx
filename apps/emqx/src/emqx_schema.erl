@@ -1492,7 +1492,7 @@ fields("broker") ->
         {"perf",
             sc(
                 ref("broker_perf"),
-                #{}
+                #{hidden => true}
             )},
         {"shared_subscription_group",
             sc(
