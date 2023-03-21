@@ -438,7 +438,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
         'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Stop/Restart bridge">>,
+            summary => <<"Stop/restart bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
