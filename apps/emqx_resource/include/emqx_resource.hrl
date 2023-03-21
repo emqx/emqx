@@ -41,6 +41,7 @@
     callback_mode := callback_mode(),
     query_mode := query_mode(),
     config := resource_config(),
+    error := term(),
     state := resource_state(),
     status := resource_status(),
     metrics => emqx_metrics_worker:metrics()
