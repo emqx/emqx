@@ -3019,9 +3019,9 @@ is_quic_ssl_opts(Name) ->
         "cacertfile",
         "certfile",
         "keyfile",
-        "verify"
+        "verify",
+        "password"
         %% Followings are planned
-        %% , "password"
         %% , "hibernate_after"
         %% , "fail_if_no_peer_cert"
         %% , "handshake_timeout"
