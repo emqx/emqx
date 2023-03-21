@@ -39,10 +39,9 @@ fields("resource_opts_sync_only") ->
             )}
     ];
 fields("creation_opts_sync_only") ->
-    Fields0 = fields("creation_opts"),
-    Fields1 = lists:keydelete(async_inflight_window, 1, Fields0),
+    Fields = fields("creation_opts"),
     QueryMod = {query_mode, fun query_mode_sync_only/1},
-    lists:keyreplace(query_mode, 1, Fields1, QueryMod);
+    lists:keyreplace(query_mode, 1, Fields, QueryMod);
 fields("resource_opts") ->
     [
         {resource_opts,
@@ -60,7 +59,7 @@ fields("creation_opts") ->
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
         {request_timeout, fun request_timeout/1},
-        {async_inflight_window, fun async_inflight_window/1},
+        {inflight_window, fun inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
@@ -136,11 +135,12 @@ enable_queue(deprecated) -> {since, "v5.0.14"};
 enable_queue(desc) -> ?DESC("enable_queue");
 enable_queue(_) -> undefined.
 
-async_inflight_window(type) -> pos_integer();
-async_inflight_window(desc) -> ?DESC("async_inflight_window");
-async_inflight_window(default) -> ?DEFAULT_INFLIGHT;
-async_inflight_window(required) -> false;
-async_inflight_window(_) -> undefined.
+inflight_window(type) -> pos_integer();
+inflight_window(aliases) -> [async_inflight_window];
+inflight_window(desc) -> ?DESC("inflight_window");
+inflight_window(default) -> ?DEFAULT_INFLIGHT;
+inflight_window(required) -> false;
+inflight_window(_) -> undefined.
 
 batch_size(type) -> pos_integer();
 batch_size(desc) -> ?DESC("batch_size");
