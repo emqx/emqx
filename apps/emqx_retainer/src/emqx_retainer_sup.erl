@@ -20,11 +20,22 @@
 
 -include("emqx_retainer.hrl").
 
--export([start_link/1]).
+-export([ start_link/1
+        , ensure_worker_pool_started/0
+        , worker_pool_spec/0
+        ]).
+
 -export([init/1]).
 
 start_link(Env) ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
+
+ensure_worker_pool_started() ->
+    try
+        supervisor:start_child(?MODULE, worker_pool_spec())
+    catch
+        _:_ -> ignore
+    end.
 
 init([Env]) ->
     Retainer = #{
@@ -35,19 +46,22 @@ init([Env]) ->
         type => worker,
         modules => [emqx_retainer]
     },
-    WorkerPool = #{
+    WorkerPool = worker_pool_spec(),
+    ChildSpecs = case is_managed_by_modules() of
+        false -> [Retainer, WorkerPool];
+        true -> []
+    end,
+	{ok, {{one_for_one, 10, 3600}, ChildSpecs}}.
+
+worker_pool_spec() ->
+    #{
       id => ?POOL,
       start => {emqx_pool_sup, start_link, [?POOL, random, {emqx_pool, start_link, []}]},
       restart => permanent,
       shutdown => 5000,
       type => supervisor,
       modules => [emqx_pool_sup]
-    },
-    ChildSpecs = case is_managed_by_modules() of
-        false -> [Retainer, WorkerPool];
-        true -> [WorkerPool]
-    end,
-	{ok, {{one_for_one, 10, 3600}, ChildSpecs}}.
+    }.
 
 -ifdef(EMQX_ENTERPRISE).
 
@@ -69,3 +83,4 @@ is_managed_by_modules() ->
     false.
 
 -endif.
+
