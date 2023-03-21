@@ -819,7 +819,7 @@ t_bridges_probe(Config) ->
         emqx_json:decode(ConnRefused, [return_maps])
     ),
 
-    {ok, 400, HostNotFound} = request(
+    {ok, 400, CouldNotResolveHost} = request(
         post,
         uri(["bridges_probe"]),
         ?MQTT_BRIDGE(<<"nohost:2883">>)
@@ -827,9 +827,9 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Host not found">>
+            <<"message">> := <<"Could not resolve host">>
         },
-        emqx_json:decode(HostNotFound, [return_maps])
+        emqx_json:decode(CouldNotResolveHost, [return_maps])
     ),
 
     AuthnConfig = #{
@@ -873,7 +873,7 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Malformed username or password">>
+            <<"message">> := <<"Bad username or password">>
         },
         emqx_json:decode(Malformed, [return_maps])
     ),

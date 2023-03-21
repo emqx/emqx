@@ -550,7 +550,7 @@ readable_error_msg(Error) ->
     end.
 
 to_hr_error(nxdomain) ->
-    <<"Host not found">>;
+    <<"Could not resolve host">>;
 to_hr_error(econnrefused) ->
     <<"Connection refused">>;
 to_hr_error({unauthorized_client, _}) ->
@@ -558,7 +558,7 @@ to_hr_error({unauthorized_client, _}) ->
 to_hr_error({not_authorized, _}) ->
     <<"Not authorized">>;
 to_hr_error({malformed_username_or_password, _}) ->
-    <<"Malformed username or password">>;
+    <<"Bad username or password">>;
 to_hr_error(Error) ->
     iolist_to_binary(io_lib:format("~0p", [Error])).
 
