@@ -14,8 +14,8 @@ specifying a topic filter and a set of conditions that need to be met. If a
 message matches the topic filter and all the conditions are met, the rule is
 triggered. The rule can then transform the message and route it to a different
 topic, or send it to another service (defined by an EMQX bridge). The rule
-engine's message data transformation is designed to work well with JSON
-formatted data.
+engine's message data transformation is designed to work well with structured data
+such as JSON, avro, and protobuf.
 
 
 A rule consists of the three parts **MATCH**, **TRANSFORM** and **ACTIONS** that are
