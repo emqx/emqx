@@ -301,7 +301,7 @@ schema("/bridges") ->
         'operationId' => '/bridges',
         get => #{
             tags => [<<"bridges">>],
-            summary => <<"List Bridges">>,
+            summary => <<"List bridges">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -312,7 +312,7 @@ schema("/bridges") ->
         },
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Create Bridge">>,
+            summary => <<"Create bridge">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_schema:post_request(),
@@ -329,7 +329,7 @@ schema("/bridges/:id") ->
         'operationId' => '/bridges/:id',
         get => #{
             tags => [<<"bridges">>],
-            summary => <<"Get Bridge">>,
+            summary => <<"Get bridge">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
@@ -339,7 +339,7 @@ schema("/bridges/:id") ->
         },
         put => #{
             tags => [<<"bridges">>],
-            summary => <<"Update Bridge">>,
+            summary => <<"Update bridge">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -354,7 +354,7 @@ schema("/bridges/:id") ->
         },
         delete => #{
             tags => [<<"bridges">>],
-            summary => <<"Delete Bridge">>,
+            summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
             responses => #{
@@ -373,7 +373,7 @@ schema("/bridges/:id/metrics") ->
         'operationId' => '/bridges/:id/metrics',
         get => #{
             tags => [<<"bridges">>],
-            summary => <<"Get Bridge Metrics">>,
+            summary => <<"Get bridge metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
@@ -387,7 +387,7 @@ schema("/bridges/:id/metrics/reset") ->
         'operationId' => '/bridges/:id/metrics/reset',
         put => #{
             tags => [<<"bridges">>],
-            summary => <<"Reset Bridge Metrics">>,
+            summary => <<"Reset bridge metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
@@ -402,7 +402,7 @@ schema("/bridges/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"bridges">>],
-                summary => <<"Enable or Disable Bridge">>,
+                summary => <<"Enable or disable bridge">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
@@ -418,7 +418,7 @@ schema("/bridges/:id/:operation") ->
         'operationId' => '/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Stop or Restart Bridge">>,
+            summary => <<"Stop or restart bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -440,7 +440,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
         'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Stop/Restart Bridge">>,
+            summary => <<"Stop/Restart bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
