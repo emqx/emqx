@@ -24,7 +24,7 @@ IsQuicSupp = fun() ->
 end,
 
 Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}},
-Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.113"}}}.
+Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.114"}}}.
 
 Dialyzer = fun(Config) ->
                    {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
