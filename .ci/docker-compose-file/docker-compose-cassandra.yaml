@@ -22,9 +22,9 @@ services:
       - -c
       - |
         /opt/cassandra/bin/cassandra -f -R > /cassandra.log &
-        /opt/cassandra/bin/cqlsh -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"
-        while [[ $$? -ne 0 ]];do sleep 5; /opt/cassandra/bin/cqlsh -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"; done
-        /opt/cassandra/bin/cqlsh -e "describe keyspaces;"
+        /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"
+        while [[ $$? -ne 0 ]];do sleep 5; /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"; done
+        /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "describe keyspaces;"
         tail -f /cassandra.log
     networks:
       - emqx_bridge

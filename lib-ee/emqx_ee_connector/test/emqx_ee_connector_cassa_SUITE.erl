@@ -37,6 +37,11 @@
 %%
 %% sudo docker run --rm -d --name cassandra --network host cassandra:3.11.14
 
+%% Cassandra default username & password once enable `authenticator: PasswordAuthenticator`
+%% in cassandra config
+-define(CASSA_USERNAME, <<"cassandra">>).
+-define(CASSA_PASSWORD, <<"cassandra">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -62,8 +67,8 @@ init_per_suite(Config) ->
             {ok, Conn} =
                 ecql:connect([
                     {nodes, cassandra_servers()},
-                    {username, <<"admin">>},
-                    {password, <<"public">>},
+                    {username, ?CASSA_USERNAME},
+                    {password, ?CASSA_PASSWORD},
                     {keyspace, "mqtt"}
                 ]),
             ecql:close(Conn),
@@ -175,8 +180,8 @@ cassandra_config() ->
         #{
             auto_reconnect => true,
             keyspace => <<"mqtt">>,
-            username => <<"default">>,
-            password => <<"public">>,
+            username => ?CASSA_USERNAME,
+            password => ?CASSA_PASSWORD,
             pool_size => 8,
             servers => iolist_to_binary(
                 io_lib:format(

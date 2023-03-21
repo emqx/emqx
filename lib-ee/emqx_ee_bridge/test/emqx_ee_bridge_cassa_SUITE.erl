@@ -33,8 +33,8 @@
 
 % DB defaults
 -define(CASSA_KEYSPACE, "mqtt").
--define(CASSA_USERNAME, "root").
--define(CASSA_PASSWORD, "public").
+-define(CASSA_USERNAME, "cassandra").
+-define(CASSA_PASSWORD, "cassandra").
 -define(BATCH_SIZE, 10).
 
 %% cert files for client

@@ -171,7 +171,7 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-dynamo.yaml' )
             ;;
         cassandra)
-            FILES+=( '.ci/docker-compose-file/docker-compose-cassandra-tcp.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"
