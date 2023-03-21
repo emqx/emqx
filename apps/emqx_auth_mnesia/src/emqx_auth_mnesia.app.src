@@ -1,6 +1,6 @@
 {application, emqx_auth_mnesia,
  [{description, "EMQX Authentication with Mnesia"},
-  {vsn, "4.3.12"}, % strict semver, bump manually
+  {vsn, "4.3.13"}, % strict semver, bump manually
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,mnesia]},
