@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import time
+import math
 from optparse import OptionParser
 
 job_black_list = [
@@ -43,28 +44,42 @@ fetch check runs of a commit.
 @note, only works for public repos
 '''
 def fetch_check_runs(token: str, repo: str, ref: str):
+    all_checks = []
+    page = 1
+    total_pages = 1
+    per_page = 100
     failed_checks = []
-    url = f'https://api.github.com/repos/{repo}/commits/{ref}/check-runs?per_page=100'
-    headers = {'Accept': 'application/vnd.github.v3+json',
-               'Authorization': f'Bearer {token}'
-               }
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        for crun in r.json()['check_runs']:
-            if crun['status'] == 'completed' and crun['conclusion'] != 'success':
-                print('Failed check: ', crun['name'])
-                failed_checks.append(
-                    {'id': crun['id'], 'name': crun['name'], 'url': crun['url']})
-            else:
-                # pretty print crun
-                # print(json.dumps(crun, indent=4))
-                print('successed:', crun['id'], crun['name'],
-                      crun['status'], crun['conclusion'])
-    else:
-        print(f'Failed to fetch check runs {r.status_code}')
-        sys.exit(1)
-    return failed_checks
+    while page <= total_pages:
+        print(f'Fetching check runs for page {page} of {total_pages} pages')
+        url = f'https://api.github.com/repos/{repo}/commits/{ref}/check-runs?per_page={per_page}&page={page}'
+        headers = {'Accept': 'application/vnd.github.v3+json',
+                    'Authorization': f'Bearer {token}'
+                  }
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            resp = r.json()
+            all_checks.extend(resp['check_runs'])
 
+            page += 1
+            if 'total_count' in resp and resp['total_count'] > per_page:
+                total_pages = math.ceil(resp['total_count'] / per_page)
+        else:
+            print(f'Failed to fetch check runs {r.status_code}')
+            sys.exit(1)
+
+
+    for crun in all_checks:
+        if crun['status'] == 'completed' and crun['conclusion'] != 'success':
+            print('Failed check: ', crun['name'])
+            failed_checks.append(
+                {'id': crun['id'], 'name': crun['name'], 'url': crun['url']})
+        else:
+            # pretty print crun
+            # print(json.dumps(crun, indent=4))
+            print('successed:', crun['id'], crun['name'],
+                    crun['status'], crun['conclusion'])
+
+    return failed_checks
 
 '''
 rerquest a check-run
@@ -72,7 +87,7 @@ rerquest a check-run
 def trigger_build(failed_checks: list, repo: str, token: str):
     reruns = []
     for crun in failed_checks:
-        if crun['name'] in job_black_list:
+        if crun['name'].strip() in job_black_list:
             print(f'Skip black listed job {crun["name"]}')
             continue
 
@@ -101,7 +116,7 @@ def trigger_build(failed_checks: list, repo: str, token: str):
         else:
             # Only complain but not exit.
             print(
-                f'Failed to trigger build for {crun["name"]} : {r.status_code} : {r.text}')
+                f'Failed to trigger rerun for {run_id}, {crun["name"]}: {r.status_code} : {r.text}')
 
 
 def main():
