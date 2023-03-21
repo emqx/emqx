@@ -28,8 +28,10 @@
 
 -export([ submit/1
         , submit/2
+        , submit/3
         , async_submit/1
         , async_submit/2
+        , async_submit/3
         ]).
 
 -ifdef(TEST).
@@ -56,7 +58,7 @@
 %% @doc Start pool.
 -spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
+    gen_server:start_link({local, emqx_misc:proc_name(Pool, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
 
 %% @doc Submit work to the pool.
@@ -68,9 +70,9 @@ submit(Task) ->
 submit(Fun, Args) ->
     call({submit, {Fun, Args}}).
 
-%% @private
-call(Req) ->
-    gen_server:call(worker(), Req, infinity).
+-spec(submit(atom(), fun(), list(any())) -> any()).
+submit(Pool, Fun, Args) ->
+    call(Pool, {submit, {Fun, Args}}).
 
 %% @doc Submit work to the pool asynchronously.
 -spec(async_submit(task()) -> ok).
@@ -81,13 +83,29 @@ async_submit(Task) ->
 async_submit(Fun, Args) ->
     cast({async_submit, {Fun, Args}}).
 
+-spec(async_submit(atom(), fun(), list(any())) -> ok).
+async_submit(Pool, Fun, Args) ->
+    cast(Pool, {async_submit, {Fun, Args}}).
+
+%% @private
+call(Req) ->
+    gen_server:call(worker(), Req, infinity).
+
+call(Pool, Req) ->
+    gen_server:call(worker(Pool), Req, infinity).
+
 %% @private
 cast(Msg) ->
     gen_server:cast(worker(), Msg).
+cast(Pool, Msg) ->
+    gen_server:cast(worker(Pool), Msg).
 
 %% @private
 worker() ->
     gproc_pool:pick_worker(?POOL).
+
+worker(Pool) ->
+    gproc_pool:pick_worker(Pool).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
