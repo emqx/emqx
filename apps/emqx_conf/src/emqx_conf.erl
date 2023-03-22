@@ -156,7 +156,11 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
 gen_schema_json(Dir, I18nFile, SchemaModule, Lang) ->
     SchemaJsonFile = filename:join([Dir, "schema-" ++ Lang ++ ".json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    Opts = #{desc_file => I18nFile, lang => Lang},
+    %% EMQX_SCHEMA_FULL_DUMP is quite a hidden API
+    %% it is used to dump the full schema for EMQX developers and supporters
+    IncludeHidden = (os:getenv("EMQX_SCHEMA_FULL_DUMP") =:= "1"),
+    IncludeHidden andalso io:format(user, "===< Including hidden fields~n", []),
+    Opts = #{desc_file => I18nFile, lang => Lang, include_hidden_fields => IncludeHidden},
     JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData).
