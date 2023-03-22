@@ -24,7 +24,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
-    container: ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-24.3.4.2-2-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-24.3.4.2-3-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -151,7 +151,7 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.3.4.2-2
+          - 24.3.4.2-3
         os:
           - macos-11
           - macos-12
@@ -203,7 +203,7 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.3.4.2-2
+          - 24.3.4.2-3
         arch:
           - amd64
           - arm64
@@ -221,7 +221,7 @@ jobs:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.0-32
+          - 5.0-33
         elixir:
           - 1.13.4
         exclude:
@@ -231,19 +231,19 @@ jobs:
           build_machine: aws-arm64
         include:
           - profile: emqx
-            otp: 25.1.2-2
+            otp: 25.1.2-3
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.0-32
+            builder: 5.0-33
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
-            otp: 25.1.2-2
+            otp: 25.1.2-3
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.0-32
+            builder: 5.0-33
             elixir: 1.13.4
             release_with: elixir
 

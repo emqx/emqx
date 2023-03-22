@@ -25,7 +25,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-24.3.4.2-2-ubuntu22.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-24.3.4.2-3-ubuntu22.04"
 
     outputs:
       PROFILE: ${{ steps.get_profile.outputs.PROFILE }}
@@ -121,9 +121,9 @@ jobs:
         # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
         #       only support latest otp and elixir, not a matrix
         builder:
-          - 5.0-32 # update to latest
+          - 5.0-33 # update to latest
         otp:
-          - 24.3.4.2-2 # switch to 25 once ready to release 5.1
+          - 24.3.4.2-3 # switch to 25 once ready to release 5.1
         elixir:
           - 'no_elixir'
           - '1.13.4' # update to latest
