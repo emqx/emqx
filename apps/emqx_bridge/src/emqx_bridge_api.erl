@@ -176,22 +176,19 @@ param_path_enable() ->
             }
         )}.
 
-bridge_info_array_example(Method, WithMetrics) ->
-    [Config || #{value := Config} <- maps:values(bridge_info_examples(Method, WithMetrics))].
+bridge_info_array_example(Method) ->
+    lists:map(fun(#{value := Config}) -> Config end, maps:values(bridge_info_examples(Method))).
 
 bridge_info_examples(Method) ->
-    bridge_info_examples(Method, false).
-
-bridge_info_examples(Method, WithMetrics) ->
     maps:merge(
         #{
             <<"webhook_example">> => #{
                 summary => <<"WebHook">>,
-                value => info_example(webhook, Method, WithMetrics)
+                value => info_example(webhook, Method)
             },
             <<"mqtt_example">> => #{
                 summary => <<"MQTT Bridge">>,
-                value => info_example(mqtt, Method, WithMetrics)
+                value => info_example(mqtt, Method)
             }
         },
         ee_bridge_examples(Method)
@@ -204,35 +201,21 @@ ee_bridge_examples(Method) ->
 ee_bridge_examples(_Method) -> #{}.
 -endif.
 
-info_example(Type, Method, WithMetrics) ->
+info_example(Type, Method) ->
     maps:merge(
         info_example_basic(Type),
-        method_example(Type, Method, WithMetrics)
+        method_example(Type, Method)
     ).
 
-method_example(Type, Method, WithMetrics) when Method == get; Method == post ->
+method_example(Type, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
     SName = SType ++ "_example",
-    TypeNameExam = #{
+    #{
         type => bin(SType),
         name => bin(SName)
-    },
-    maybe_with_metrics_example(TypeNameExam, Method, WithMetrics);
-method_example(_Type, put, _WithMetrics) ->
-    #{}.
-
-maybe_with_metrics_example(TypeNameExam, get, true) ->
-    TypeNameExam#{
-        metrics => ?EMPTY_METRICS,
-        node_metrics => [
-            #{
-                node => node(),
-                metrics => ?EMPTY_METRICS
-            }
-        ]
     };
-maybe_with_metrics_example(TypeNameExam, _, _) ->
-    TypeNameExam.
+method_example(_Type, put) ->
+    #{}.
 
 info_example_basic(webhook) ->
     #{
@@ -321,7 +304,7 @@ schema("/bridges") ->
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_schema:get_response()),
-                    bridge_info_array_example(get, true)
+                    bridge_info_array_example(get)
                 )
             }
         },
@@ -602,7 +585,7 @@ maybe_deobfuscate_bridge_probe(Params) ->
     Params.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    FormatFun = fun format_bridge_info_without_metrics/1,
+    FormatFun = fun format_bridge_info/1,
     do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun).
 
 lookup_from_all_nodes_metrics(BridgeType, BridgeName, SuccCode) ->
@@ -727,7 +710,7 @@ zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info_with_metrics(Bridges) | Acc]
+            [format_bridge_info(Bridges) | Acc]
         end,
         [],
         BridgesFirstNode
@@ -761,24 +744,20 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
         BridgesAllNodes
     ).
 
-format_bridge_info_with_metrics([FirstBridge | _] = Bridges) ->
-    Res = maps:remove(node, FirstBridge),
+format_bridge_info([FirstBridge | _] = Bridges) ->
+    Res = maps:without([node, metrics], FirstBridge),
     NodeStatus = node_status(Bridges),
-    NodeMetrics = collect_metrics(Bridges),
     redact(Res#{
         status => aggregate_status(NodeStatus),
-        node_status => NodeStatus,
-        metrics => aggregate_metrics(NodeMetrics),
-        node_metrics => NodeMetrics
+        node_status => NodeStatus
     }).
 
-format_bridge_info_without_metrics(Bridges) ->
-    Res = format_bridge_info_with_metrics(Bridges),
-    maps:without([metrics, node_metrics], Res).
-
 format_bridge_metrics(Bridges) ->
-    Res = format_bridge_info_with_metrics(Bridges),
-    maps:with([metrics, node_metrics], Res).
+    NodeMetrics = collect_metrics(Bridges),
+    #{
+        metrics => aggregate_metrics(NodeMetrics),
+        node_metrics => NodeMetrics
+    }.
 
 node_status(Bridges) ->
     [maps:with([node, status, status_reason], B) || B <- Bridges].

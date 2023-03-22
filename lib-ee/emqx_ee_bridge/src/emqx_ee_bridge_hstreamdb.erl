@@ -5,7 +5,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -33,9 +32,7 @@ conn_bridge_examples(Method) ->
         }
     ].
 
-values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
-values(post) ->
+values(_Method) ->
     #{
         type => hstreamdb,
         name => <<"demo">>,
@@ -44,9 +41,7 @@ values(post) ->
         direction => egress,
         local_topic => <<"local/topic/#">>,
         payload => <<"${payload}">>
-    };
-values(put) ->
-    values(post).
+    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

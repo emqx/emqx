@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_redis).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -46,7 +45,7 @@ conn_bridge_examples(Method) ->
     ].
 
 values(Protocol, get) ->
-    maps:merge(values(Protocol, post), ?METRICS_EXAMPLE);
+    values(Protocol, post);
 values("single", post) ->
     SpecificOpts = #{
         server => <<"127.0.0.1:6379">>,

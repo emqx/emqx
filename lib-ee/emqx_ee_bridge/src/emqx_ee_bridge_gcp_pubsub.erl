@@ -4,7 +4,6 @@
 
 -module(emqx_ee_bridge_gcp_pubsub).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -146,9 +145,7 @@ conn_bridge_examples(Method) ->
         }
     ].
 
-values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
-values(post) ->
+values(_Method) ->
     #{
         pubsub_topic => <<"mytopic">>,
         service_account_json =>
@@ -176,9 +173,7 @@ values(post) ->
                     <<"https://oauth2.googleapis.com/token">>,
                 type => <<"service_account">>
             }
-    };
-values(put) ->
-    values(post).
+    }.
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns

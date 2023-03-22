@@ -210,8 +210,7 @@ t_check_values(_Config) ->
     lists:foreach(
         fun(Method) ->
             lists:foreach(
-                fun({RedisType, #{value := Value0}}) ->
-                    Value = maps:without(maps:keys(?METRICS_EXAMPLE), Value0),
+                fun({RedisType, #{value := Value}}) ->
                     MethodBin = atom_to_binary(Method),
                     Type = string:slice(RedisType, length("redis_")),
                     RefName = binary_to_list(<<MethodBin/binary, "_", Type/binary>>),
