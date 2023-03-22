@@ -140,7 +140,7 @@ simple_sync_query(Id, Request) ->
     QueryOpts = simple_query_opts(),
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
-    Result = call_query(sync, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    Result = call_query(force_sync, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
@@ -152,7 +152,7 @@ simple_async_query(Id, Request, QueryOpts0) ->
     QueryOpts = maps:merge(simple_query_opts(), QueryOpts0),
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
-    Result = call_query(async, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    Result = call_query(async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
@@ -377,7 +377,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     } = Data0,
     ?tp(buffer_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
     QueryOpts = #{simple_query => false},
-    Result = call_query(sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
+    Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     ReplyResult =
         case QueryOrBatch of
             ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) ->
@@ -566,7 +566,7 @@ do_flush(
     %% unwrap when not batching (i.e., batch size == 1)
     [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
-    Result = call_query(configured, Id, Index, Ref, Request, QueryOpts),
+    Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
     case reply_caller(Id, Reply, QueryOpts) of
         %% Failed; remove the request from the queue, as we cannot pop
@@ -651,7 +651,7 @@ do_flush(#{queue := Q1} = Data0, #{
         inflight_tid := InflightTID
     } = Data0,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
-    Result = call_query(configured, Id, Index, Ref, Batch, QueryOpts),
+    Result = call_query(async_if_possible, Id, Index, Ref, Batch, QueryOpts),
     case batch_reply_caller(Id, Result, Batch, QueryOpts) of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
@@ -883,17 +883,13 @@ handle_async_worker_down(Data0, Pid) ->
     mark_inflight_items_as_retriable(Data, WorkerMRef),
     {keep_state, Data}.
 
-call_query(QM0, Id, Index, Ref, Query, QueryOpts) ->
-    ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM0}),
+-spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
+call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
+    ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
     case emqx_resource_manager:lookup_cached(Id) of
         {ok, _Group, #{status := stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
         {ok, _Group, Resource} ->
-            QM =
-                case QM0 =:= configured of
-                    true -> maps:get(query_mode, Resource);
-                    false -> QM0
-                end,
             do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource);
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
@@ -1511,9 +1507,9 @@ inc_sent_success(Id, _HasBeenSent = true) ->
 inc_sent_success(Id, _HasBeenSent) ->
     emqx_resource_metrics:success_inc(Id).
 
-call_mode(sync, _) -> sync;
-call_mode(async, always_sync) -> sync;
-call_mode(async, async_if_possible) -> async.
+call_mode(force_sync, _) -> sync;
+call_mode(async_if_possible, always_sync) -> sync;
+call_mode(async_if_possible, async_if_possible) -> async.
 
 assert_ok_result(ok) ->
     true;

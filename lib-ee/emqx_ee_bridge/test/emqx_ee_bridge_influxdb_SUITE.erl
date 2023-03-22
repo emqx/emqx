@@ -532,10 +532,12 @@ t_start_ok(Config) ->
     },
     ?check_trace(
         begin
-            ?assertEqual(ok, send_message(Config, SentData)),
             case QueryMode of
-                async -> ct:sleep(500);
-                sync -> ok
+                async ->
+                    ?assertMatch(ok, send_message(Config, SentData)),
+                    ct:sleep(500);
+                sync ->
+                    ?assertMatch({ok, 204, _}, send_message(Config, SentData))
             end,
             PersistedData = query_by_clientid(ClientId, Config),
             Expected = #{
@@ -689,10 +691,12 @@ t_const_timestamp(Config) ->
         <<"payload">> => Payload,
         <<"timestamp">> => erlang:system_time(millisecond)
     },
-    ?assertEqual(ok, send_message(Config, SentData)),
     case QueryMode of
-        async -> ct:sleep(500);
-        sync -> ok
+        async ->
+            ?assertMatch(ok, send_message(Config, SentData)),
+            ct:sleep(500);
+        sync ->
+            ?assertMatch({ok, 204, _}, send_message(Config, SentData))
     end,
     PersistedData = query_by_clientid(ClientId, Config),
     Expected = #{foo => <<"123">>},
@@ -745,7 +749,12 @@ t_boolean_variants(Config) ->
                 <<"timestamp">> => erlang:system_time(millisecond),
                 <<"payload">> => Payload
             },
-            ?assertEqual(ok, send_message(Config, SentData)),
+            case QueryMode of
+                sync ->
+                    ?assertMatch({ok, 204, _}, send_message(Config, SentData));
+                async ->
+                    ?assertMatch(ok, send_message(Config, SentData))
+            end,
             case QueryMode of
                 async -> ct:sleep(500);
                 sync -> ok
@@ -841,10 +850,9 @@ t_bad_timestamp(Config) ->
                     );
                 {sync, false} ->
                     ?assertEqual(
-                        {error,
-                            {unrecoverable_error, [
-                                {error, {bad_timestamp, <<"bad_timestamp">>}}
-                            ]}},
+                        {error, [
+                            {error, {bad_timestamp, <<"bad_timestamp">>}}
+                        ]},
                         Return
                     );
                 {sync, true} ->
@@ -964,7 +972,7 @@ t_write_failure(Config) ->
                                 {error, {resource_error, #{reason := timeout}}},
                                 send_message(Config, SentData)
                             ),
-                            #{?snk_kind := buffer_worker_flush_nack},
+                            #{?snk_kind := handle_async_reply, action := nack},
                             1_000
                         );
                 async ->
@@ -978,13 +986,13 @@ t_write_failure(Config) ->
         fun(Trace0) ->
             case QueryMode of
                 sync ->
-                    Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
+                    Trace = ?of_kind(handle_async_reply, Trace0),
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
                         {error, {error, {closed, "The connection was lost."}}} =:= Result orelse
                             {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, {error, econnrefused}}} =:= Result,
+                            {error, {recoverable_error, econnrefused}} =:= Result,
                         #{got => Result}
                     );
                 async ->
@@ -1006,7 +1014,6 @@ t_write_failure(Config) ->
     ok.
 
 t_missing_field(Config) ->
-    QueryMode = ?config(query_mode, Config),
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
     {ok, _} =
@@ -1034,8 +1041,7 @@ t_missing_field(Config) ->
             {ok, _} =
                 snabbkaffe:block_until(
                     ?match_n_events(NEvents, #{
-                        ?snk_kind := influxdb_connector_send_query_error,
-                        mode := QueryMode
+                        ?snk_kind := influxdb_connector_send_query_error
                     }),
                     _Timeout1 = 10_000
                 ),

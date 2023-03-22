@@ -2561,6 +2561,84 @@ do_t_recursive_flush() ->
     ),
     ok.
 
+t_call_mode_uncoupled_from_query_mode(_Config) ->
+    DefaultOpts = #{
+        batch_size => 1,
+        batch_time => 5,
+        worker_pool_size => 1
+    },
+    ?check_trace(
+        begin
+            %% We check that we can call the buffer workers with async
+            %% calls, even if the underlying connector itself only
+            %% supports sync calls.
+            emqx_connector_demo:set_callback_mode(always_sync),
+            {ok, _} = emqx_resource:create(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                DefaultOpts#{query_mode => async}
+            ),
+            ?tp_span(
+                async_query_sync_driver,
+                #{},
+                ?assertMatch(
+                    {ok, {ok, _}},
+                    ?wait_async_action(
+                        emqx_resource:query(?ID, {inc_counter, 1}),
+                        #{?snk_kind := buffer_worker_flush_ack},
+                        500
+                    )
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            %% And we check the converse: a connector that allows async
+            %% calls can be called synchronously, but the underlying
+            %% call should be async.
+            emqx_connector_demo:set_callback_mode(async_if_possible),
+            {ok, _} = emqx_resource:create(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                DefaultOpts#{query_mode => sync}
+            ),
+            ?tp_span(
+                sync_query_async_driver,
+                #{},
+                ?assertEqual(ok, emqx_resource:query(?ID, {inc_counter, 2}))
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            ?tp(sync_query_async_driver, #{}),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace1 = trace_between_span(Trace0, async_query_sync_driver),
+            ct:pal("async query calling sync driver\n  ~p", [Trace1]),
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := async_query, request := {inc_counter, 1}},
+                    #{?snk_kind := call_query, call_mode := sync},
+                    Trace1
+                )
+            ),
+
+            Trace2 = trace_between_span(Trace0, sync_query_async_driver),
+            ct:pal("sync query calling async driver\n  ~p", [Trace2]),
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := sync_query, request := {inc_counter, 2}},
+                    #{?snk_kind := call_query_async},
+                    Trace2
+                )
+            ),
+
+            ok
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -2742,3 +2820,8 @@ assert_async_retry_fail_then_succeed_inflight(Trace) ->
         )
     ),
     ok.
+
+trace_between_span(Trace0, Marker) ->
+    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := {complete, _}}, Trace0),
+    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := start}, Trace1),
+    Trace2.
