@@ -39,7 +39,7 @@ conn_bridge_examples(Method) ->
     ].
 
 values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
+    values(post);
 values(post) ->
     #{
         enable => true,
