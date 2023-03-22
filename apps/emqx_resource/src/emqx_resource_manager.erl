@@ -388,6 +388,7 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 handle_event(enter, _OldState, connected = State, Data) ->
     ok = log_state_consistency(State, Data),
     _ = emqx_alarm:deactivate(Data#data.id),
+    ?tp(resource_connected_enter, #{}),
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
