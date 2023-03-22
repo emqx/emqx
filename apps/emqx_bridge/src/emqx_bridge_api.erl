@@ -56,8 +56,8 @@
 
 -define(BRIDGE_NOT_FOUND(BridgeType, BridgeName),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", BridgeName/binary, "' of type ",
-            (atom_to_binary(BridgeType))/binary, " does not exist.">>
+        <<"Bridge lookup failed: bridge named '", (BridgeName)/binary, "' of type ",
+            (bin(BridgeType))/binary, " does not exist.">>
     )
 ).
 
@@ -475,10 +475,10 @@ schema("/bridges_probe") ->
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
             AllBridges = [
-                format_resource(Data, Node)
-             || {Node, Bridges} <- lists:zip(Nodes, NodeBridges), Data <- Bridges
+                [format_resource(Data, Node) || Data <- Bridges]
+             || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
-            {200, zip_bridges([AllBridges])};
+            {200, zip_bridges(AllBridges)};
         {error, Reason} ->
             {500, error_msg('INTERNAL_ERROR', Reason)}
     end.
