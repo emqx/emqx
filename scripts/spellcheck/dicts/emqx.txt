@@ -271,3 +271,4 @@ nif
 TDengine
 clickhouse
 FormatType
+Keyspace
