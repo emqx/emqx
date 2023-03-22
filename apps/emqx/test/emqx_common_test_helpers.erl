@@ -202,7 +202,6 @@ start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
-    mnesia:clear_table(emqx_admin),
     ok = emqx_ratelimiter_SUITE:load_conf(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
 
