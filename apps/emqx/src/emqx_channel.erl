@@ -2128,17 +2128,23 @@ publish_will_msg(
     ClientInfo = #{mountpoint := MountPoint},
     Msg = #message{topic = Topic}
 ) ->
-    case emqx_access_control:authorize(ClientInfo, publish, Topic) of
-        allow ->
-            NMsg = emqx_mountpoint:mount(MountPoint, Msg),
-            _ = emqx_broker:publish(NMsg),
-            ok;
-        deny ->
+    PublishingDisallowed = emqx_access_control:authorize(ClientInfo, publish, Topic) =/= allow,
+    ClientBanned = emqx_banned:check(ClientInfo),
+    case PublishingDisallowed orelse ClientBanned of
+        true ->
             ?tp(
                 warning,
                 last_will_testament_publish_denied,
-                #{topic => Topic}
+                #{
+                    topic => Topic,
+                    client_banned => ClientBanned,
+                    publishing_disallowed => PublishingDisallowed
+                }
             ),
+            ok;
+        false ->
+            NMsg = emqx_mountpoint:mount(MountPoint, Msg),
+            _ = emqx_broker:publish(NMsg),
             ok
     end.
 
