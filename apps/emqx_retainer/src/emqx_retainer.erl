@@ -69,7 +69,7 @@ on_session_subscribed(_, _, #{share := ShareName}) when ShareName =/= undefined 
     ok;
 on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}) ->
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> emqx_pool:async_submit(fun ?MODULE:dispatch/2, [self(), Topic]);
+        true -> emqx_pool:async_submit(?POOL, fun ?MODULE:dispatch/2, [self(), Topic]);
         _ -> ok
     end.
 

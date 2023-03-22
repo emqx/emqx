@@ -1,27 +1,25 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.3",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]}]},
-   {"4.4.2",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-             {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}
-            ]},
-   {"4.4.1",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-             {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}
-            ]},
+  [{<<"4\\.4\\.[1-5]">>,
+    [{load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]},
+     {apply,{emqx_retainer_sup,ensure_worker_pool_started,[]}},
+     {load_module,emqx_retainer,brutal_purge,soft_purge,[]}
+    ]},
    {"4.4.0",
-    [{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-     {load_module,emqx_retainer_cli,brutal_purge,soft_purge,[]},
-     {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]},
+     {apply,{emqx_retainer_sup,ensure_worker_pool_started,[]}},
+     {load_module,emqx_retainer,brutal_purge,soft_purge,[]},
+     {load_module,emqx_retainer_cli,brutal_purge,soft_purge,[]}
+    ]},
    {<<".*">>,[]}],
-  [{"4.4.3",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]}]},
-   {"4.4.2",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-             {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}
-            ]},
-   {"4.4.1",[{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-             {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}
-            ]},
+  [{<<"4\\.4\\.[1-5]">>,
+    [{load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]},
+     {load_module,emqx_retainer,brutal_purge,soft_purge,[]}
+    ]},
    {"4.4.0",
-    [{load_module,emqx_retainer,brutal_purge,soft_purge,[]},
-     {load_module,emqx_retainer_cli,brutal_purge,soft_purge,[]},
-     {load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_retainer_sup,brutal_purge,soft_purge,[]},
+     {load_module,emqx_retainer,brutal_purge,soft_purge,[]},
+     {load_module,emqx_retainer_cli,brutal_purge,soft_purge,[]}
+    ]},
    {<<".*">>,[]}]}.

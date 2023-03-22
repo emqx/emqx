@@ -60,7 +60,7 @@ check(ClientInfo = #{ clientid := Clientid
     MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, X}, Password, InterTime}) when X =:= Clientid-> Password;
                               ({?TABLE, {username, X}, Password, InterTime}) when X =:= Username andalso X =/= undefined -> Password
                            end),
-    Info = maps:without([password], ClientInfo),
+    Info = maps:without([password, ws_cookie], ClientInfo),
     case ets:select(?TABLE, MatchSpec) of
         [] ->
             ?LOG(debug, "[Mnesia] Auth ignored, Client: ~p", [Info]);

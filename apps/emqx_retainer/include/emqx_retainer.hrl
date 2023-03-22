@@ -16,5 +16,6 @@
 
 -define(APP, emqx_retainer).
 -define(TAB, ?APP).
+-define(POOL, retainer_worker_pool).
 -record(retained, {topic, msg, expiry_time}).
 
