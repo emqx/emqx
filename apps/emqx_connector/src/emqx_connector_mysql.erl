@@ -437,7 +437,7 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
             ),
-            %% kill the poll worker to trigger reconnection
+            %% kill the pool worker to trigger reconnection
             _ = exit(Conn, restart),
             {error, {recoverable_error, disconnected}};
         {error, not_prepared} = Error ->
