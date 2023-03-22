@@ -23,7 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"bridges: {}">>).
--define(BRIDGE_TYPE, <<"webhook">>).
+-define(BRIDGE_TYPE_HTTP, <<"webhook">>).
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(URL(PORT, PATH),
     list_to_binary(
@@ -48,7 +48,7 @@
 }).
 -define(MQTT_BRIDGE(SERVER), ?MQTT_BRIDGE(SERVER, <<"mqtt_egress_test_bridge">>)).
 
--define(HTTP_BRIDGE(URL, TYPE, NAME), ?BRIDGE(NAME, TYPE)#{
+-define(HTTP_BRIDGE(URL, NAME), ?BRIDGE(NAME, ?BRIDGE_TYPE_HTTP)#{
     <<"url">> => URL,
     <<"local_topic">> => <<"emqx_webhook/#">>,
     <<"method">> => <<"post">>,
@@ -57,6 +57,7 @@
         <<"content-type">> => <<"application/json">>
     }
 }).
+-define(HTTP_BRIDGE(URL), ?HTTP_BRIDGE(URL, ?BRIDGE_NAME)).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -97,6 +98,20 @@ init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:expect(emqx_bpapi, supported_version, 1, 1),
     meck:expect(emqx_bpapi, supported_version, 2, 1),
     init_per_testcase(common, Config);
+init_per_testcase(StartStop, Config) when
+    StartStop == t_start_stop_bridges_cluster;
+    StartStop == t_start_stop_bridges_node
+->
+    meck:new(emqx_bridge_resource, [passthrough]),
+    meck:expect(
+        emqx_bridge_resource,
+        stop,
+        fun
+            (_, <<"bridge_not_found">>) -> {error, not_found};
+            (Type, Name) -> meck:passthrough([Type, Name])
+        end
+    ),
+    init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
@@ -107,6 +122,12 @@ end_per_testcase(t_broken_bpapi_vsn, Config) ->
     end_per_testcase(common, Config);
 end_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:unload([emqx_bpapi]),
+    end_per_testcase(common, Config);
+end_per_testcase(StartStop, Config) when
+    StartStop == t_start_stop_bridges_cluster;
+    StartStop == t_start_stop_bridges_node
+->
+    meck:unload([emqx_bridge_resource]),
     end_per_testcase(common, Config);
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),
@@ -206,12 +227,12 @@ t_http_crud_apis(Config) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
 
     %ct:pal("---bridge: ~p", [Bridge]),
     #{
-        <<"type">> := ?BRIDGE_TYPE,
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
         <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := _,
@@ -219,7 +240,7 @@ t_http_crud_apis(Config) ->
         <<"url">> := URL1
     } = emqx_json:decode(Bridge, [return_maps]),
 
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
     emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
@@ -243,11 +264,11 @@ t_http_crud_apis(Config) ->
     {ok, 200, Bridge2} = request(
         put,
         uri(["bridges", BridgeID]),
-        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL2, Name)
     ),
     ?assertMatch(
         #{
-            <<"type">> := ?BRIDGE_TYPE,
+            <<"type">> := ?BRIDGE_TYPE_HTTP,
             <<"name">> := Name,
             <<"enable">> := true,
             <<"status">> := _,
@@ -262,7 +283,7 @@ t_http_crud_apis(Config) ->
     ?assertMatch(
         [
             #{
-                <<"type">> := ?BRIDGE_TYPE,
+                <<"type">> := ?BRIDGE_TYPE_HTTP,
                 <<"name">> := Name,
                 <<"enable">> := true,
                 <<"status">> := _,
@@ -279,7 +300,7 @@ t_http_crud_apis(Config) ->
     {ok, 200, Bridge3Str} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(
         #{
-            <<"type">> := ?BRIDGE_TYPE,
+            <<"type">> := ?BRIDGE_TYPE_HTTP,
             <<"name">> := Name,
             <<"enable">> := true,
             <<"status">> := _,
@@ -311,7 +332,7 @@ t_http_crud_apis(Config) ->
     {ok, 404, ErrMsg2} = request(
         put,
         uri(["bridges", BridgeID]),
-        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL2, Name)
     ),
     ?assertMatch(
         #{
@@ -340,6 +361,34 @@ t_http_crud_apis(Config) ->
         },
         emqx_json:decode(ErrMsg3, [return_maps])
     ),
+
+    %% Create non working bridge
+    BrokenURL = ?URL(Port + 1, "/foo"),
+    {ok, 201, BrokenBridge} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(BrokenURL, Name)
+    ),
+    #{
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
+        <<"name">> := Name,
+        <<"enable">> := true,
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := <<"Connection refused">>,
+        <<"node_status">> := [
+            #{<<"status">> := <<"disconnected">>, <<"status_reason">> := <<"Connection refused">>}
+            | _
+        ],
+        <<"url">> := BrokenURL
+    } = emqx_json:decode(BrokenBridge, [return_maps]),
+    {ok, 200, FixedBridgeResponse} = request(put, uri(["bridges", BridgeID]), ?HTTP_BRIDGE(URL1)),
+    #{
+        <<"status">> := <<"connected">>,
+        <<"node_status">> := [FixedNodeStatus = #{<<"status">> := <<"connected">>} | _]
+    } = FixedBridge = emqx_json:decode(FixedBridgeResponse, [return_maps]),
+    ?assert(not maps:is_key(<<"status_reason">>, FixedBridge)),
+    ?assert(not maps:is_key(<<"status_reason">>, FixedNodeStatus)),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     ok.
 
 t_http_bridges_local_topic(Config) ->
@@ -356,16 +405,16 @@ t_http_bridges_local_topic(Config) ->
     {ok, 201, _} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name1)
+        ?HTTP_BRIDGE(URL1, Name1)
     ),
     %% and we create another one without local_topic
     {ok, 201, _} = request(
         post,
         uri(["bridges"]),
-        maps:remove(<<"local_topic">>, ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name2))
+        maps:remove(<<"local_topic">>, ?HTTP_BRIDGE(URL1, Name2))
     ),
-    BridgeID1 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name1),
-    BridgeID2 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name2),
+    BridgeID1 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name1),
+    BridgeID2 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name2),
     %% Send an message to emqx and the message should be forwarded to the HTTP server.
     %% This is to verify we can have 2 bridges with and without local_topic fields
     %% at the same time.
@@ -400,11 +449,11 @@ t_check_dependent_actions_on_delete(Config) ->
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
     Name = <<"t_http_crud_apis">>,
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     {ok, 201, _} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     {ok, 201, Rule} = request(
         post,
@@ -438,11 +487,11 @@ t_cascade_delete_actions(Config) ->
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
     Name = <<"t_http_crud_apis">>,
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     {ok, 201, _} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     {ok, 201, Rule} = request(
         post,
@@ -472,7 +521,7 @@ t_cascade_delete_actions(Config) ->
     {ok, 201, _} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     {ok, 201, _} = request(
         post,
@@ -496,9 +545,9 @@ t_broken_bpapi_vsn(Config) ->
     {ok, 201, _Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% still works since we redirect to 'restart'
     {ok, 501, <<>>} = request(post, operation_path(cluster, start, BridgeID), <<"">>),
     {ok, 501, <<>>} = request(post, operation_path(node, start, BridgeID), <<"">>),
@@ -511,9 +560,9 @@ t_old_bpapi_vsn(Config) ->
     {ok, 201, _Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     {ok, 204, <<>>} = request(post, operation_path(cluster, stop, BridgeID), <<"">>),
     {ok, 204, <<>>} = request(post, operation_path(node, stop, BridgeID), <<"">>),
     %% still works since we redirect to 'restart'
@@ -551,18 +600,18 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
-        <<"type">> := ?BRIDGE_TYPE,
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
         <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"url">> := URL1
     } = emqx_json:decode(Bridge, [return_maps]),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% stop it
     {ok, 204, <<>>} = request(post, operation_path(Type, stop, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
@@ -596,6 +645,16 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 404, _} = request(post, operation_path(Type, start, <<"wreckbook_fugazi">>), <<"">>),
     %% Looks ok but doesn't exist
     {ok, 404, _} = request(post, operation_path(Type, start, <<"webhook:cptn_hook">>), <<"">>),
+
+    %%
+    {ok, 201, _Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, <<"bridge_not_found">>)
+    ),
+    {ok, 503, _} = request(
+        post, operation_path(Type, stop, <<"webhook:bridge_not_found">>), <<"">>
+    ),
 
     %% Create broken bridge
     {ListenPort, Sock} = listen_on_random_port(),
@@ -633,18 +692,18 @@ t_enable_disable_bridges(Config) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
-        <<"type">> := ?BRIDGE_TYPE,
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
         <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"url">> := URL1
     } = emqx_json:decode(Bridge, [return_maps]),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% disable it
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
@@ -690,18 +749,18 @@ t_reset_bridges(Config) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
-        <<"type">> := ?BRIDGE_TYPE,
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
         <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"url">> := URL1
     } = emqx_json:decode(Bridge, [return_maps]),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     {ok, 204, <<>>} = request(put, uri(["bridges", BridgeID, "metrics/reset"]), []),
 
     %% delete the bridge
@@ -748,20 +807,20 @@ t_bridges_probe(Config) ->
     {ok, 204, <<>>} = request(
         post,
         uri(["bridges_probe"]),
-        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL)
     ),
 
     %% second time with same name is ok since no real bridge created
     {ok, 204, <<>>} = request(
         post,
         uri(["bridges_probe"]),
-        ?HTTP_BRIDGE(URL, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL)
     ),
 
     {ok, 400, NxDomain} = request(
         post,
         uri(["bridges_probe"]),
-        ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>)
     ),
     ?assertMatch(
         #{
@@ -790,7 +849,7 @@ t_bridges_probe(Config) ->
         emqx_json:decode(ConnRefused, [return_maps])
     ),
 
-    {ok, 400, HostNotFound} = request(
+    {ok, 400, CouldNotResolveHost} = request(
         post,
         uri(["bridges_probe"]),
         ?MQTT_BRIDGE(<<"nohost:2883">>)
@@ -798,9 +857,9 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Host not found">>
+            <<"message">> := <<"Could not resolve host">>
         },
-        emqx_json:decode(HostNotFound, [return_maps])
+        emqx_json:decode(CouldNotResolveHost, [return_maps])
     ),
 
     AuthnConfig = #{
@@ -844,7 +903,7 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Malformed username or password">>
+            <<"message">> := <<"Bad username or password">>
         },
         emqx_json:decode(Malformed, [return_maps])
     ),
@@ -882,12 +941,12 @@ t_metrics(Config) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+        ?HTTP_BRIDGE(URL1, Name)
     ),
 
     %ct:pal("---bridge: ~p", [Bridge]),
     #{
-        <<"type">> := ?BRIDGE_TYPE,
+        <<"type">> := ?BRIDGE_TYPE_HTTP,
         <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := _,
@@ -895,7 +954,7 @@ t_metrics(Config) ->
         <<"url">> := URL1
     } = emqx_json:decode(Bridge, [return_maps]),
 
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
 
     %% check for empty bridge metrics
     {ok, 200, Bridge1Str} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
@@ -963,7 +1022,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
     Name = ?BRIDGE_NAME,
     BadBridgeParams =
         emqx_map_lib:deep_merge(
-            ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name),
+            ?HTTP_BRIDGE(URL1, Name),
             #{
                 <<"request_timeout">> => <<"1s">>,
                 <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}

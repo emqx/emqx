@@ -74,7 +74,7 @@ schema("/login") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(login_api),
-            summary => <<"Dashboard Auth">>,
+            summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password]),
             responses => #{
                 200 => fields([token, version, license]),
