@@ -262,7 +262,7 @@ i18n_file() ->
     end.
 
 listeners() ->
-    emqx_conf:get([dashboard, listeners], []).
+    emqx_conf:get([dashboard, listeners], #{}).
 
 api_key_authorize(Req, Key, Secret) ->
     Path = cowboy_req:path(Req),
