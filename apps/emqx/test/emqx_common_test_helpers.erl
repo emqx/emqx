@@ -723,7 +723,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
     LoadSchema = maps:get(load_schema, Opts, true),
     SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
-    LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
+    LoadApps = maps:get(load_apps, Opts, Apps),
     Env = maps:get(env, Opts, []),
     Conf = maps:get(conf, Opts, []),
     ListenerPorts = maps:get(listener_ports, Opts, [
@@ -741,12 +741,13 @@ setup_node(Node, Opts) when is_map(Opts) ->
     StartAutocluster = maps:get(start_autocluster, Opts, false),
 
     %% Load env before doing anything to avoid overriding
-    lists:foreach(fun(App) -> rpc:call(Node, ?MODULE, load, [App]) end, LoadApps),
+    [ok = erpc:call(Node, ?MODULE, load, [App]) || App <- [gen_rpc, ekka, mria, emqx | LoadApps]],
+
     %% Ensure a clean mnesia directory for each run to avoid
     %% inter-test flakiness.
     MnesiaDataDir = filename:join([
         PrivDataDir,
-        node(),
+        Node,
         integer_to_list(erlang:unique_integer()),
         "mnesia"
     ]),
