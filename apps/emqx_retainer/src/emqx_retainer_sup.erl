@@ -37,6 +37,7 @@ ensure_worker_pool_started() ->
         _:_ -> ignore
     end.
 
+-dialyzer({no_match, [init/1]}).
 init([Env]) ->
     Retainer = #{
         id => retainer,
