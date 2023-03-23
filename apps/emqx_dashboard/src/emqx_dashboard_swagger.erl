@@ -457,7 +457,18 @@ trans_description(Spec, Hocon) ->
             Spec;
         Desc ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
-            Spec#{description => Desc1}
+            maybe_add_summary_from_label(Spec#{description => Desc1}, Hocon)
+    end.
+
+maybe_add_summary_from_label(Spec, Hocon) ->
+    Label =
+        case desc_struct(Hocon) of
+            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, undefined);
+            _ -> undefined
+        end,
+    case Label of
+        undefined -> Spec;
+        _ -> Spec#{summary => Label}
     end.
 
 get_i18n(Key, Struct, Default) ->
