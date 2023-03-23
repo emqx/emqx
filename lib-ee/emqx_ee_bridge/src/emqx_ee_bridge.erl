@@ -142,7 +142,7 @@ fields(bridges) ->
                     desc => <<"RocketMQ Bridge Config">>,
                     required => false
                 }
-             )},
+            )},
         {cassandra,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_cassa, "config")),
