@@ -174,7 +174,6 @@ end_per_group(cluster, Config) ->
     );
 end_per_group(_, _Config) ->
     emqx_mgmt_api_test_util:end_suite(?SUITE_APPS),
-    mria:clear_table(emqx_authn_mnesia),
     ok.
 
 init_per_testcase(t_broken_bpapi_vsn, Config) ->
@@ -1070,6 +1069,10 @@ t_bridges_probe(Config) ->
         Config
     ),
 
+    emqx_common_test_helpers:on_exit(fun() ->
+        delete_user_auth(Chain, AuthenticatorID, User, Config)
+    end),
+
     ?assertMatch(
         {ok, 400, #{
             <<"code">> := <<"TEST_FAILED">>,
@@ -1289,6 +1292,10 @@ get_raw_config(Path, Config) ->
 add_user_auth(Chain, AuthenticatorID, User, Config) ->
     Node = ?config(api_node, Config),
     erpc:call(Node, emqx_authentication, add_user, [Chain, AuthenticatorID, User]).
+
+delete_user_auth(Chain, AuthenticatorID, User, Config) ->
+    Node = ?config(api_node, Config),
+    erpc:call(Node, emqx_authentication, delete_user, [Chain, AuthenticatorID, User]).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
