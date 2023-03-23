@@ -134,8 +134,8 @@ on_start(
             false ->
                 []
         end,
-
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    %% use InstaId of binary type as Pool name, which is supported in ecpool.
+    PoolName = InstId,
     Prepares = parse_prepare_cql(Config),
     InitState = #{poolname => PoolName, prepare_statement => #{}},
     State = maps:merge(InitState, Prepares),
