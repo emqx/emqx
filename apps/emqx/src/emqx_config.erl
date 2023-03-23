@@ -23,6 +23,7 @@
     init_load/1,
     init_load/2,
     init_load/3,
+    reload_etc_conf_on_local_node/0,
     read_override_conf/1,
     read_override_confs/0,
     delete_override_conf_files/0,
@@ -339,6 +340,70 @@ init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConfAll).
+
+reload_etc_conf_on_local_node() ->
+    ConfFiles = application:get_env(emqx, config_files, []),
+    RawConf = parse_hocon(ConfFiles),
+    case filter_readonly_conf(RawConf) of
+        {ok, ReloadedConf} ->
+            maps:fold(
+                fun(Key, Conf, Acc) ->
+                    case emqx:update_config([Key], Conf, #{persistent => false}) of
+                        {ok, _} ->
+                            Acc;
+                        Error ->
+                            ?SLOG(error, #{
+                                msg => "Failed_to_reload_etc_config",
+                                key => Key,
+                                error => Error
+                            }),
+                            [{Key, Error} | Acc]
+                    end
+                end,
+                [],
+                ReloadedConf
+            );
+        {error, Error} ->
+            ?SLOG(error, #{msg => "Failed_to_reload_etc_config", error => Error}),
+            {error, Error}
+    end.
+
+filter_readonly_conf(RawConf) ->
+    SchemaMod = emqx_conf:schema_module(),
+    ReadOnlyKeys = [node, cluster, rpc],
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, fill_defaults(RawConf), #{}),
+    case
+        lists:foldl(
+            fun(Key, Acc) ->
+                Prev = get([Key], #{}),
+                New = maps:get(Key, CheckedConf, #{}),
+                case Prev =:= New of
+                    true -> Acc;
+                    false -> [{Key, changed(New, Prev)} | Acc]
+                end
+            end,
+            [],
+            ReadOnlyKeys
+        )
+    of
+        [] ->
+            {ok, maps:without([atom_to_binary(K) || K <- ReadOnlyKeys], RawConf)};
+        Error ->
+            {error, Error}
+    end.
+
+changed(New, Prev) ->
+    Diff = emqx_map_lib:diff_maps(New, Prev),
+    maps:fold(
+        fun(Key, Value, Acc) ->
+            case Value =:= #{} of
+                true -> Acc;
+                false -> Acc#{Key => Value}
+            end
+        end,
+        #{},
+        maps:remove(identical, Diff)
+    ).
 
 %% @doc Read merged cluster + local overrides.
 read_override_confs() ->

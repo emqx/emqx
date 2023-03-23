@@ -20,6 +20,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(AUTHN_TRACE_TAG, "AUTHN").
+-define(GLOBAL, 'mqtt:global').
 
 -define(TRACE_AUTHN_PROVIDER(Msg), ?TRACE_AUTHN_PROVIDER(Msg, #{})).
 -define(TRACE_AUTHN_PROVIDER(Msg, Meta), ?TRACE_AUTHN_PROVIDER(debug, Msg, Meta)).

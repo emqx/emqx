@@ -121,7 +121,9 @@ pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
             {error, not_found}
     end;
 pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
-    {ok, RawConf#{<<"enable">> => Status}}.
+    {ok, RawConf#{<<"enable">> => Status}};
+pre_config_update(_, NewConf, _OldConf) ->
+    {ok, NewConf}.
 
 -spec post_config_update(
     list(atom()),
@@ -133,7 +135,7 @@ pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
 post_config_update(
-    _,
+    _Path,
     {add_topic_metrics, Topic},
     _NewConfig,
     _OldConfig,
@@ -144,7 +146,7 @@ post_config_update(
         {error, Reason} -> {error, Reason}
     end;
 post_config_update(
-    _,
+    _Path,
     {remove_topic_metrics, Topic},
     _NewConfig,
     _OldConfig,
@@ -156,15 +158,20 @@ post_config_update(
     end;
 post_config_update(
     _,
-    {set_telemetry_status, Status},
-    _NewConfig,
+    {set_telemetry_status, _Status},
+    NewConfig,
     _OldConfig,
     _AppEnvs
 ) ->
-    case Status of
-        true -> emqx_telemetry:enable();
-        false -> emqx_telemetry:disable()
-    end.
+    update_telemetry(NewConfig);
+post_config_update([topic_metrics], _UpdateReq, NewConfig, _OldConfig, _AppEnvs) ->
+    ok = emqx_topic_metrics:deregister_all(),
+    lists:foreach(fun emqx_topic_metrics:register/1, NewConfig);
+post_config_update([telemetry], _UpdateReq, NewConfig, _OldConfig, _AppEnvs) ->
+    update_telemetry(NewConfig).
+
+update_telemetry(#{enable := true}) -> emqx_telemetry:enable();
+update_telemetry(#{enable := false}) -> emqx_telemetry:disable().
 
 %%--------------------------------------------------------------------
 %%  Private

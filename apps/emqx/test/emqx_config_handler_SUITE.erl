@@ -132,7 +132,7 @@ t_root_key_update(_Config) ->
     ?assertEqual(
         {ok, #{
             config => 0.81,
-            post_config_update => #{?MODULE => ok},
+            post_config_update => #{},
             raw_config => <<"81%">>
         }},
         emqx:update_config(SubKey, "81%", Opts)
@@ -358,11 +358,11 @@ t_update_sub(_Config) ->
     %% update sub key
     #{<<"os">> := OS1} = emqx:get_raw_config(PathKey),
     {ok, Res} = emqx:update_config(PathKey ++ [os, cpu_check_interval], <<"120s">>, Opts),
-    ?assertMatch(
+    ?assertEqual(
         #{
-            config := 120000,
-            post_config_update := #{?MODULE := ok},
-            raw_config := <<"120s">>
+            config => 120000,
+            post_config_update => #{},
+            raw_config => <<"120s">>
         },
         Res
     ),
@@ -375,7 +375,7 @@ t_update_sub(_Config) ->
     ?assertEqual(
         {ok, #{
             config => 0.81,
-            post_config_update => #{?MODULE => ok},
+            post_config_update => #{},
             raw_config => <<"81%">>
         }},
         emqx:update_config(SubKey, "81%", Opts)

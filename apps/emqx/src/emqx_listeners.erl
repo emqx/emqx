@@ -54,6 +54,7 @@
 ]).
 
 -export([pre_config_update/3, post_config_update/5]).
+-export([create_listener/3, remove_listener/3, update_listener/3]).
 
 -export([format_bind/1]).
 
@@ -61,7 +62,8 @@
 -export([certs_dir/2]).
 -endif.
 
--define(CONF_KEY_PATH, [listeners, '?', '?']).
+-define(ROOT_KEY, listeners).
+-define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 
 -spec id_example() -> atom().
@@ -192,7 +194,10 @@ max_conns(_, _, _) ->
 start() ->
     %% The ?MODULE:start/0 will be called by emqx_app when emqx get started,
     %% so we install the config handler here.
+    %% callback when http api request
     ok = emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
+    %% callback when reload from config file
+    ok = emqx_config_handler:add_handler([?ROOT_KEY], ?MODULE),
     foreach_listeners(fun start_listener/3).
 
 -spec start_listener(atom()) -> ok | {error, term()}.
@@ -269,6 +274,7 @@ stop() ->
     %% The ?MODULE:stop/0 will be called by emqx_app when emqx is going to shutdown,
     %% so we uninstall the config handler here.
     _ = emqx_config_handler:remove_handler(?CONF_KEY_PATH),
+    _ = emqx_config_handler:remove_handler(?ROOT_KEY),
     foreach_listeners(fun stop_listener/3).
 
 -spec stop_listener(atom()) -> ok | {error, term()}.
@@ -430,28 +436,19 @@ pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
 pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     NewConf = emqx_map_lib:deep_merge(RawConf, Updated),
     {ok, NewConf};
-pre_config_update(_Path, _Request, RawConf) ->
-    {ok, RawConf}.
+pre_config_update([listeners], RawConf, RawConf) ->
+    {ok, RawConf};
+pre_config_update([listeners], NewConf, _RawConf) ->
+    {ok, convert_certs(NewConf)}.
 
 post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
-    start_listener(Type, Name, NewConf);
+    create_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
-    try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
-    case NewConf of
-        #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
-        _ -> ok
-    end;
+    update_listener(Type, Name, {OldConf, NewConf});
 post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
     ok;
 post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
-    case stop_listener(Type, Name, OldConf) of
-        ok ->
-            _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
-            CertsDir = certs_dir(Type, Name),
-            clear_certs(CertsDir, OldConf);
-        Err ->
-            Err
-    end;
+    remove_listener(Type, Name, OldConf);
 post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
     #{enabled := NewEnabled} = NewConf,
     #{enabled := OldEnabled} = OldConf,
@@ -461,8 +458,59 @@ post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldCo
         {false, true} -> stop_listener(Type, Name, OldConf);
         {false, false} -> stop_listener(Type, Name, OldConf)
     end;
-post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
-    ok.
+post_config_update([listeners], _Request, OldConf, OldConf, _AppEnvs) ->
+    ok;
+post_config_update([listeners], _Request, NewConf, OldConf, _AppEnvs) ->
+    #{added := Added, removed := Removed, changed := Updated} = diff_confs(NewConf, OldConf),
+    perform_listener_changes([
+        {fun ?MODULE:remove_listener/3, Removed},
+        {fun ?MODULE:update_listener/3, Updated},
+        {fun ?MODULE:create_listener/3, Added}
+    ]).
+
+create_listener(Type, Name, NewConf) ->
+    Res = start_listener(Type, Name, NewConf),
+    recreate_authenticator(Res, Type, Name, NewConf).
+
+recreate_authenticator(ok, Type, Name, Conf) ->
+    Chain = listener_id(Type, Name),
+    _ = emqx_authentication:delete_chain(Chain),
+    case maps:get(authentication, Conf, []) of
+        [] -> ok;
+        AuthN -> emqx_authentication:create_authenticator(Chain, AuthN)
+    end;
+recreate_authenticator(Error, _Type, _Name, _NewConf) ->
+    Error.
+
+remove_listener(Type, Name, OldConf) ->
+    case stop_listener(Type, Name, OldConf) of
+        ok ->
+            _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
+            clear_certs(certs_dir(Type, Name), OldConf);
+        Err ->
+            Err
+    end.
+
+update_listener(Type, Name, {OldConf, NewConf}) ->
+    try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
+    Res = restart_listener(Type, Name, {OldConf, NewConf}),
+    recreate_authenticator(Res, Type, Name, NewConf).
+
+perform_listener_changes([]) ->
+    ok;
+perform_listener_changes([{Action, MapConf} | Tasks]) ->
+    case perform_listener_changes(Action, maps:to_list(MapConf)) of
+        ok -> perform_listener_changes(Tasks);
+        {error, Reason} -> {error, Reason}
+    end.
+
+perform_listener_changes(_Action, []) ->
+    ok;
+perform_listener_changes(Action, [{{Type, Name}, Diff} | MapConf]) ->
+    case Action(Type, Name, Diff) of
+        ok -> perform_listener_changes(Action, MapConf);
+        {error, Reason} -> {error, Reason}
+    end.
 
 esockd_opts(ListenerId, Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
@@ -635,6 +683,25 @@ del_limiter_bucket(Id, #{limiter := Limiters}) ->
 del_limiter_bucket(_Id, _Cfg) ->
     ok.
 
+diff_confs(NewConfs, OldConfs) ->
+    emqx_map_lib:diff_maps(
+        flatten_confs(NewConfs),
+        flatten_confs(OldConfs)
+    ).
+
+flatten_confs(Conf0) ->
+    maps:from_list(
+        lists:flatmap(
+            fun({Type, Conf}) ->
+                do_flatten_confs(Type, Conf)
+            end,
+            maps:to_list(Conf0)
+        )
+    ).
+
+do_flatten_confs(Type, Conf0) ->
+    [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
+
 enable_authn(Opts) ->
     maps:get(enable_authn, Opts, true).
 
@@ -695,6 +762,24 @@ parse_bind(#{<<"bind">> := Bind}) ->
 %% The relative dir for ssl files.
 certs_dir(Type, Name) ->
     iolist_to_binary(filename:join(["listeners", Type, Name])).
+
+convert_certs(ListenerConf) ->
+    maps:fold(
+        fun(Type, Listeners, Acc) ->
+            NewListeners =
+                maps:fold(
+                    fun(Name, Conf, Acc1) ->
+                        CertsDir = certs_dir(Type, Name),
+                        Acc1#{Name => convert_certs(CertsDir, Conf)}
+                    end,
+                    #{},
+                    Listeners
+                ),
+            Acc#{Type => NewListeners}
+        end,
+        #{},
+        ListenerConf
+    ).
 
 convert_certs(CertsDir, Conf) ->
     case emqx_tls_lib:ensure_ssl_files(CertsDir, get_ssl_options(Conf)) of

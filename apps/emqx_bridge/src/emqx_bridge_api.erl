@@ -318,7 +318,8 @@ schema("/bridges") ->
             ),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "Bridge already exists")
+                400 => error_schema('ALREADY_EXISTS', "Bridge already exists"),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation")
             }
         }
     };

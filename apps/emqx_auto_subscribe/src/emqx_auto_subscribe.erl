@@ -40,10 +40,12 @@
 
 load() ->
     ok = emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
+    ok = emqx_conf:add_handler([auto_subscribe], ?MODULE),
     update_hook().
 
 unload() ->
-    emqx_conf:remove_handler([auto_subscribe, topics]).
+    emqx_conf:remove_handler([auto_subscribe, topics]),
+    emqx_conf:remove_handler([auto_subscribe]).
 
 max_limit() ->
     ?MAX_AUTO_SUBSCRIBE.
@@ -67,9 +69,11 @@ update(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
 update(_Topics) ->
     {error, quota_exceeded}.
 
-post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
+post_config_update([auto_subscribe, topics], _Req, NewTopics, _OldConf, _AppEnvs) ->
     Config = emqx_conf:get([auto_subscribe], #{}),
-    update_hook(Config#{topics => NewTopics}).
+    update_hook(Config#{topics => NewTopics});
+post_config_update([auto_subscribe], _Req, NewConf, _OldConf, _AppEnvs) ->
+    update_hook(NewConf).
 
 %%--------------------------------------------------------------------
 %% hook

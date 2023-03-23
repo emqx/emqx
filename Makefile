@@ -223,6 +223,13 @@ run: $(PROFILE) quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
+.PHONY: lm
+lm: $(PROFILE) quicklm
+
+.PHONY: quicklm
+quicklm:
+	./_build/$(PROFILE)/rel/emqx/bin/emqx eval "c:lm()."
+
 ## Take the currently set PROFILE
 docker:
 	@$(BUILD) $(PROFILE) docker

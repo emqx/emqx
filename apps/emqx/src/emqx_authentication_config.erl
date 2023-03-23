@@ -61,8 +61,8 @@
 
 -spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
     {ok, map() | list()} | {error, term()}.
-pre_config_update(_, UpdateReq, OldConfig) ->
-    try do_pre_config_update(UpdateReq, to_list(OldConfig)) of
+pre_config_update(Paths, UpdateReq, OldConfig) ->
+    try do_pre_config_update(Paths, UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
         {ok, NewConfig} -> {ok, NewConfig}
     catch
@@ -70,9 +70,9 @@ pre_config_update(_, UpdateReq, OldConfig) ->
             {error, Reason}
     end.
 
-do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
+do_pre_config_update(_, {create_authenticator, ChainName, Config}, OldConfig) ->
     NewId = authenticator_id(Config),
-    case lists:filter(fun(OldConfig0) -> authenticator_id(OldConfig0) =:= NewId end, OldConfig) of
+    case filter_authenticator(NewId, OldConfig) of
         [] ->
             CertsDir = certs_dir(ChainName, Config),
             NConfig = convert_certs(CertsDir, Config),
@@ -80,7 +80,7 @@ do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
         [_] ->
             {error, {already_exists, {authenticator, NewId}}}
     end;
-do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
+do_pre_config_update(_, {delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
     NewConfig = lists:filter(
         fun(OldConfig0) ->
             AuthenticatorID =/= authenticator_id(OldConfig0)
@@ -88,7 +88,7 @@ do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldCon
         OldConfig
     ),
     {ok, NewConfig};
-do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
+do_pre_config_update(_, {update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     CertsDir = certs_dir(ChainName, AuthenticatorID),
     NewConfig = lists:map(
         fun(OldConfig0) ->
@@ -100,7 +100,7 @@ do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config},
         OldConfig
     ),
     {ok, NewConfig};
-do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
+do_pre_config_update(_, {move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} ->
             {error, Reason};
@@ -125,7 +125,18 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
                             {ok, BeforeNFound ++ [FoundRelated, Found | AfterNFound]}
                     end
             end
-    end.
+    end;
+do_pre_config_update(_, OldConfig, OldConfig) ->
+    {ok, OldConfig};
+do_pre_config_update(Paths, NewConfig, _OldConfig) ->
+    ChainName = chain_name(Paths),
+    {ok, [
+        begin
+            CertsDir = certs_dir(ChainName, New),
+            convert_certs(CertsDir, New)
+        end
+     || New <- to_list(NewConfig)
+    ]}.
 
 -spec post_config_update(
     list(atom()),
@@ -135,13 +146,16 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
     emqx_config:app_envs()
 ) ->
     ok | {ok, map()} | {error, term()}.
-post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    do_post_config_update(UpdateReq, to_list(NewConfig), OldConfig, AppEnvs).
+post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    do_post_config_update(Paths, UpdateReq, to_list(NewConfig), OldConfig, AppEnvs).
 
-do_post_config_update({create_authenticator, ChainName, Config}, NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update(
+    _, {create_authenticator, ChainName, Config}, NewConfig, _OldConfig, _AppEnvs
+) ->
     NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
     emqx_authentication:create_authenticator(ChainName, NConfig);
 do_post_config_update(
+    _,
     {delete_authenticator, ChainName, AuthenticatorID},
     _NewConfig,
     OldConfig,
@@ -156,6 +170,7 @@ do_post_config_update(
             {error, Reason}
     end;
 do_post_config_update(
+    _,
     {update_authenticator, ChainName, AuthenticatorID, Config},
     NewConfig,
     _OldConfig,
@@ -168,12 +183,49 @@ do_post_config_update(
             emqx_authentication:update_authenticator(ChainName, AuthenticatorID, NConfig)
     end;
 do_post_config_update(
+    _,
     {move_authenticator, ChainName, AuthenticatorID, Position},
     _NewConfig,
     _OldConfig,
     _AppEnvs
 ) ->
-    emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position).
+    emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position);
+do_post_config_update(_, _UpdateReq, OldConfig, OldConfig, _AppEnvs) ->
+    ok;
+do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
+    ChainName = chain_name(Paths),
+    OldConfig = to_list(OldConfig0),
+    NewConfig = to_list(NewConfig0),
+    OldIds = lists:map(fun authenticator_id/1, OldConfig),
+    NewIds = lists:map(fun authenticator_id/1, NewConfig),
+    %% delete authenticators that are not in the new config
+    lists:foreach(
+        fun(Conf) ->
+            Id = authenticator_id(Conf),
+            case lists:member(Id, NewIds) of
+                true ->
+                    ok;
+                false ->
+                    _ = emqx_authentication:delete_authenticator(ChainName, Id),
+                    CertsDir = certs_dir(ChainName, Conf),
+                    ok = clear_certs(CertsDir, Conf)
+            end
+        end,
+        OldConfig
+    ),
+    %% create new authenticators and update existing ones
+    lists:foreach(
+        fun(Conf) ->
+            Id = authenticator_id(Conf),
+            case lists:member(Id, OldIds) of
+                true ->
+                    emqx_authentication:update_authenticator(ChainName, Id, Conf);
+                false ->
+                    emqx_authentication:create_authenticator(ChainName, Conf)
+            end
+        end,
+        NewConfig
+    ).
 
 to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];
@@ -209,13 +261,14 @@ clear_certs(CertsDir, Config) ->
     ok = emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 get_authenticator_config(AuthenticatorID, AuthenticatorsConfig) ->
-    case
-        lists:filter(fun(C) -> AuthenticatorID =:= authenticator_id(C) end, AuthenticatorsConfig)
-    of
+    case filter_authenticator(AuthenticatorID, AuthenticatorsConfig) of
         [C] -> C;
         [] -> {error, not_found};
         _ -> error({duplicated_authenticator_id, AuthenticatorsConfig})
     end.
+
+filter_authenticator(ID, Authenticators) ->
+    lists:filter(fun(A) -> ID =:= authenticator_id(A) end, Authenticators).
 
 split_by_id(ID, AuthenticatorsConfig) ->
     case
@@ -283,3 +336,8 @@ dir(ChainName, ID) when is_binary(ID) ->
     emqx_misc:safe_filename(iolist_to_binary([to_bin(ChainName), "-", ID]));
 dir(ChainName, Config) when is_map(Config) ->
     dir(ChainName, authenticator_id(Config)).
+
+chain_name([authentication]) ->
+    ?GLOBAL;
+chain_name([listeners, Type, Name, authentication]) ->
+    binary_to_existing_atom(<<(atom_to_binary(Type))/binary, ":", (atom_to_binary(Name))/binary>>).

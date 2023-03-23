@@ -114,6 +114,9 @@ del_license_hook() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, check, []}),
     ok.
 
+do_update({'$set', NewConf}, PrevConf) ->
+    #{<<"key">> := NewKey} = NewConf,
+    do_update({key, NewKey}, PrevConf);
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
         {ok, _License} ->
@@ -121,9 +124,9 @@ do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
         {error, Reason} ->
             erlang:throw(Reason)
     end;
-%% We don't do extra action when update license's watermark.
-do_update(_Other, Conf) ->
-    Conf.
+do_update(NewConf, _PrevConf) ->
+    #{<<"key">> := NewKey} = NewConf,
+    do_update({key, NewKey}, NewConf).
 
 check_max_clients_exceeded(MaxClients) ->
     emqx_license_resources:connection_count() > MaxClients * 1.1.

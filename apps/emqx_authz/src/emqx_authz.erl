@@ -101,6 +101,7 @@ init() ->
     ok = register_metrics(),
     ok = init_metrics(client_info_source()),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
+    emqx_conf:add_handler(?ROOT_KEY, ?MODULE),
     Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
     NSources = create_sources(Sources),
@@ -109,6 +110,7 @@ init() ->
 deinit() ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authorize}),
     emqx_conf:remove_handler(?CONF_KEY_PATH),
+    emqx_conf:remove_handler(?ROOT_KEY),
     emqx_authz_utils:cleanup_resources().
 
 lookup() ->
@@ -139,53 +141,60 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(_, Cmd, Sources) ->
-    {ok, do_pre_config_update(Cmd, Sources)}.
+pre_config_update(Paths, Cmd, Sources) ->
+    {ok, do_pre_config_update(Paths, Cmd, Sources)}.
 
-do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
+do_pre_config_update(?CONF_KEY_PATH, {?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);
-do_pre_config_update({?CMD_PREPEND, Source}, Sources) ->
+do_pre_config_update(?CONF_KEY_PATH, {?CMD_PREPEND, Source}, Sources) ->
     NSource = maybe_write_files(Source),
     NSources = [NSource] ++ Sources,
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({?CMD_APPEND, Source}, Sources) ->
+do_pre_config_update(?CONF_KEY_PATH, {?CMD_APPEND, Source}, Sources) ->
     NSource = maybe_write_files(Source),
     NSources = Sources ++ [NSource],
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
+do_pre_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, Source}, Sources) ->
     NSource = maybe_write_files(Source),
     {_Old, Front, Rear} = take(Type, Sources),
     NSources = Front ++ [NSource | Rear],
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
+do_pre_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _Source}, Sources) ->
     {_Old, Front, Rear} = take(Type, Sources),
     NSources = Front ++ Rear,
     NSources;
-do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
+do_pre_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, Sources}, _OldSources) ->
     %% overwrite the entire config!
     NSources = lists:map(fun maybe_write_files/1, Sources),
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({Op, Source}, Sources) ->
-    throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
+do_pre_config_update(?CONF_KEY_PATH, {Op, Source}, Sources) ->
+    throw({bad_request, #{op => Op, source => Source, sources => Sources}});
+do_pre_config_update(?ROOT_KEY, AuthZ, AuthZ) ->
+    AuthZ;
+do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
+    #{<<"sources">> := NewSources} = NewConf,
+    #{<<"sources">> := OldSources} = OldConf,
+    NewSources1 = do_pre_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, NewSources}, OldSources),
+    NewConf#{<<"sources">> := NewSources1}.
 
 post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
     ok;
-post_config_update(_, Cmd, NewSources, _OldSource, _AppEnvs) ->
-    Actions = do_post_config_update(Cmd, NewSources),
+post_config_update(Path, Cmd, NewSources, _OldSource, _AppEnvs) ->
+    Actions = do_post_config_update(Path, Cmd, NewSources),
     ok = update_authz_chain(Actions),
     ok = emqx_authz_cache:drain_cache().
 
-do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
     InitedSources = lookup(),
     do_move(Cmd, InitedSources);
-do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
-    InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
-    %% create metrics
+do_post_config_update(?CONF_KEY_PATH, {?CMD_PREPEND, RawNewSource}, Sources) ->
     TypeName = type(RawNewSource),
+    InitedNewSource = create_source(get_source_by_type(TypeName, Sources)),
+    %% create metrics
     ok = emqx_metrics_worker:create_metrics(
         authz_metrics,
         TypeName,
@@ -193,16 +202,16 @@ do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
         [total]
     ),
     [InitedNewSource] ++ lookup();
-do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {?CMD_APPEND, RawNewSource}, Sources) ->
     InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
     lookup() ++ [InitedNewSource];
-do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
     OldSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldSources),
     NewSource = get_source_by_type(type(RawNewSource), Sources),
     InitedSources = update_source(type(RawNewSource), OldSource, NewSource),
     Front ++ [InitedSources] ++ Rear;
-do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     %% delete metrics
@@ -210,12 +219,15 @@ do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     ok = ensure_resource_deleted(OldSource),
     clear_certs(OldSource),
     Front ++ Rear;
-do_post_config_update({?CMD_REPLACE, _RawNewSources}, Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
     %% overwrite the entire config!
-    OldInitedSources = lookup(),
-    lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
-    lists:foreach(fun clear_certs/1, OldInitedSources),
-    create_sources(Sources).
+    PrevSources = lookup(),
+    lists:foreach(fun ensure_resource_deleted/1, PrevSources),
+    lists:foreach(fun clear_certs/1, PrevSources),
+    create_sources(Sources);
+do_post_config_update(?ROOT_KEY, _RequestReq, NewConf) ->
+    #{sources := NewSources} = NewConf,
+    do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, NewSources}, NewSources).
 
 %% @doc do source move
 do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
@@ -479,7 +491,9 @@ write_acl_file(#{<<"rules">> := Rules} = Source) ->
     NRules = check_acl_file_rules(Rules),
     Path = ?MODULE:acl_conf_file(),
     {ok, _Filename} = write_file(Path, NRules),
-    maps:without([<<"rules">>], Source#{<<"path">> => Path}).
+    maps:without([<<"rules">>], Source#{<<"path">> => Path});
+write_acl_file(Source) ->
+    Source.
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->

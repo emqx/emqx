@@ -18,16 +18,36 @@
 -export([
     load/0,
     admins/1,
+    conf/1,
     unload/0
 ]).
 
--define(CMD, cluster_call).
+-define(CLUSTER_CALL, cluster_call).
+-define(CONF, conf).
 
 load() ->
-    emqx_ctl:register_command(?CMD, {?MODULE, admins}, []).
+    emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, []),
+    emqx_ctl:register_command(?CONF, {?MODULE, conf}, []).
 
 unload() ->
-    emqx_ctl:unregister_command(?CMD).
+    emqx_ctl:unregister_command(?CLUSTER_CALL),
+    emqx_ctl:unregister_command(?CONF).
+
+conf(["reload"]) ->
+    ConfFiles = lists:flatten(lists:join(",", application:get_env(emqx, config_files, []))),
+    case emqx_config:reload_etc_conf_on_local_node() of
+        [] ->
+            emqx_ctl:print("reload ~s success~n", [ConfFiles]);
+        Error ->
+            emqx_ctl:print("reload ~s failed:~n", [ConfFiles]),
+            print(Error)
+    end;
+conf(_) ->
+    emqx_ctl:usage(
+        [
+            {"conf reload", "reload etc/emqx.conf on local node"}
+        ]
+    ).
 
 admins(["status"]) ->
     status();
@@ -43,7 +63,7 @@ admins(["skip", Node0]) ->
     status();
 admins(["tnxid", TnxId0]) ->
     TnxId = list_to_integer(TnxId0),
-    emqx_ctl:print("~p~n", [emqx_cluster_rpc:query(TnxId)]);
+    print(emqx_cluster_rpc:query(TnxId));
 admins(["fast_forward"]) ->
     status(),
     Nodes = mria:running_nodes(),
@@ -91,3 +111,6 @@ status() ->
         Status
     ),
     emqx_ctl:print("-----------------------------------------------\n").
+
+print(Json) ->
+    emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
