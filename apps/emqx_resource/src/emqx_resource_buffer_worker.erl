@@ -193,7 +193,7 @@ init({Id, Index, Opts}) ->
     Queue = replayq:open(QueueOpts),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Queue)),
     emqx_resource_metrics:inflight_set(Id, Index, 0),
-    InflightWinSize = maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
+    InflightWinSize = maps:get(inflight_window, Opts, ?DEFAULT_INFLIGHT),
     InflightTID = inflight_new(InflightWinSize, Id, Index),
     HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
     RequestTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),

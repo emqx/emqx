@@ -73,7 +73,7 @@
     max_queue_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
-    async_inflight_window => pos_integer()
+    inflight_window => pos_integer()
 }.
 -type query_result() ::
     ok
