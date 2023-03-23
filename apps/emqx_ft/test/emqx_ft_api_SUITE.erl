@@ -60,7 +60,7 @@ end_per_testcase(_Case, _Config) ->
 t_list_ready_transfers(Config) ->
     ClientId = client_id(Config),
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, <<"data">>, node()),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, "f1", <<"data">>),
 
     {ok, 200, #{<<"files">> := Files}} =
         request(get, uri(["file_transfer", "files"]), fun json/1),
@@ -73,7 +73,7 @@ t_list_ready_transfers(Config) ->
 t_download_transfer(Config) ->
     ClientId = client_id(Config),
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, <<"data">>, node()),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, "f1", <<"data">>),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},

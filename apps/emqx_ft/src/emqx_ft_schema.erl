@@ -130,8 +130,11 @@ desc(local_storage_gc) ->
 schema(filemeta) ->
     #{
         roots => [
-            % TODO nonempty
-            {name, hoconsc:mk(string(), #{required => true})},
+            {name,
+                hoconsc:mk(string(), #{
+                    required => true,
+                    validator => validator(filename)
+                })},
             {size, hoconsc:mk(non_neg_integer())},
             {expire_at, hoconsc:mk(non_neg_integer())},
             {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
@@ -139,6 +142,9 @@ schema(filemeta) ->
             {user_data, hoconsc:mk(json_value())}
         ]
     }.
+
+validator(filename) ->
+    fun emqx_ft_fs_util:is_filename_safe/1.
 
 converter(checksum) ->
     fun

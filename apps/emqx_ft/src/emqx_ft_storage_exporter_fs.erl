@@ -343,7 +343,16 @@ mk_result_reldir(Transfer = {ClientId, FileId}) ->
         Bucket2:?BUCKET2_LEN/binary,
         BucketRest/binary
     >> = binary:encode_hex(Hash),
-    [Bucket1, Bucket2, BucketRest, ClientId, FileId].
+    [
+        Bucket1,
+        Bucket2,
+        BucketRest,
+        emqx_ft_fs_util:escape_filename(ClientId),
+        emqx_ft_fs_util:escape_filename(FileId)
+    ].
+
+dirnames_to_transfer(ClientId, FileId) ->
+    {emqx_ft_fs_util:unescape_filename(ClientId), emqx_ft_fs_util:unescape_filename(FileId)}.
 
 mk_transfer_hash(Transfer) ->
     crypto:hash(?BUCKET_HASH, term_to_binary(Transfer)).
