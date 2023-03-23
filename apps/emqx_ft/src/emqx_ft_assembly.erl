@@ -37,10 +37,7 @@
     status :: status(),
     coverage :: coverage() | undefined,
     properties :: properties() | undefined,
-    meta :: orddict:orddict(
-        filemeta(),
-        {node(), filefrag({filemeta, filemeta()})}
-    ),
+    meta :: #{filemeta() => {node(), filefrag({filemeta, filemeta()})}},
     segs :: emqx_wdgraph:t(emqx_ft:offset(), {node(), filefrag({segment, segmentinfo()})}),
     size :: emqx_ft:bytes()
 }).
@@ -63,7 +60,7 @@
 new(Size) ->
     #asm{
         status = {incomplete, {missing, filemeta}},
-        meta = orddict:new(),
+        meta = #{},
         segs = emqx_wdgraph:new(),
         size = Size
     }.
@@ -111,7 +108,7 @@ coverage(#asm{coverage = Coverage}) ->
 
 -spec nodes(t()) -> [node()].
 nodes(#asm{meta = Meta, segs = Segs}) ->
-    S1 = orddict:fold(
+    S1 = maps:fold(
         fun(_Meta, {Node, _Fragment}, Acc) ->
             ordsets:add_element(Node, Acc)
         end,
@@ -131,7 +128,7 @@ properties(#asm{properties = Properties}) ->
     Properties.
 
 status(meta, #asm{meta = Meta}) ->
-    status(meta, orddict:to_list(Meta));
+    status(meta, maps:to_list(Meta));
 status(meta, [{Meta, {_Node, _Frag}}]) ->
     {complete, Meta};
 status(meta, []) ->
@@ -150,7 +147,7 @@ status(coverage, #asm{segs = Segments, size = Size}) ->
 
 append_filemeta(Asm, Node, Fragment = #{fragment := {filemeta, Meta}}) ->
     Asm#asm{
-        meta = orddict:store(Meta, {Node, Fragment}, Asm#asm.meta)
+        meta = maps:put(Meta, {Node, Fragment}, Asm#asm.meta)
     }.
 
 append_segmentinfo(Asm, _Node, #{fragment := {segment, #{size := 0}}}) ->
