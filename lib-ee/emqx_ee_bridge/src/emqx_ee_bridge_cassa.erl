@@ -36,7 +36,7 @@
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"cassa">> => #{
+            <<"cassandra">> => #{
                 summary => <<"Cassandra Bridge">>,
                 value => values(Method, cassandra)
             }
@@ -54,7 +54,7 @@ values(_Method, Type) ->
         pool_size => 8,
         username => <<"root">>,
         password => <<"public">>,
-        sql => ?DEFAULT_CQL,
+        cql => ?DEFAULT_CQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
             worker_pool_size => 8,
@@ -77,10 +77,10 @@ roots() -> [].
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {sql,
+        {cql,
             mk(
                 binary(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_CQL, format => <<"sql">>}
+                #{desc => ?DESC("cql_template"), default => ?DEFAULT_CQL, format => <<"sql">>}
             )},
         {local_topic,
             mk(
@@ -102,7 +102,7 @@ fields("config") ->
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts_sync_only");
 fields("post") ->
-    fields("post", cassa);
+    fields("post", cassandra);
 fields("put") ->
     fields("config");
 fields("get") ->

@@ -33,7 +33,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
-    %% TODO: now_supported_now
+    %% TODO: not_supported_now
     %%on_batch_query/3,
     on_get_status/2
 ]).
@@ -41,7 +41,7 @@
 %% callbacks of ecpool
 -export([
     connect/1,
-    prepare_sql_to_conn/2
+    prepare_cql_to_conn/2
 ]).
 
 %% callbacks for query executing
@@ -55,7 +55,7 @@
 -type state() ::
     #{
         poolname := atom(),
-        prepare_sql := prepares(),
+        prepare_cql := prepares(),
         params_tokens := params_tokens(),
         %% returned by ecql:prepare/2
         prepare_statement := binary()
@@ -109,9 +109,6 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
-    {ok, _} = application:ensure_all_started(ecpool),
-    {ok, _} = application:ensure_all_started(ecql),
-
     ?SLOG(info, #{
         msg => "starting_cassandra_connector",
         connector => InstId,
@@ -139,7 +136,7 @@ on_start(
         end,
 
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    Prepares = parse_prepare_sql(Config),
+    Prepares = parse_prepare_cql(Config),
     InitState = #{poolname => PoolName, prepare_statement => #{}},
     State = maps:merge(InitState, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
@@ -177,30 +174,30 @@ on_query(
     Request,
     #{poolname := PoolName} = State
 ) ->
-    {Type, PreparedKeyOrSQL, Params} = parse_request_to_sql(Request),
+    {Type, PreparedKeyOrSQL, Params} = parse_request_to_cql(Request),
     ?tp(
         debug,
-        cassandra_connector_received_sql_query,
+        cassandra_connector_received_cql_query,
         #{
             connector => InstId,
             type => Type,
             params => Params,
-            prepared_key_or_sql => PreparedKeyOrSQL,
+            prepared_key_or_cql => PreparedKeyOrSQL,
             state => State
         }
     ),
-    {PreparedKeyOrSQL1, Data} = proc_sql_params(Type, PreparedKeyOrSQL, Params, State),
-    Res = exec_sql_query(InstId, PoolName, Type, PreparedKeyOrSQL1, Data),
+    {PreparedKeyOrSQL1, Data} = proc_cql_params(Type, PreparedKeyOrSQL, Params, State),
+    Res = exec_cql_query(InstId, PoolName, Type, PreparedKeyOrSQL1, Data),
     handle_result(Res).
 
-parse_request_to_sql({send_message, Params}) ->
+parse_request_to_cql({send_message, Params}) ->
     {prepared_query, _Key = send_message, Params};
-parse_request_to_sql({query, SQL}) ->
-    parse_request_to_sql({query, SQL, #{}});
-parse_request_to_sql({query, SQL, Params}) ->
+parse_request_to_cql({query, SQL}) ->
+    parse_request_to_cql({query, SQL, #{}});
+parse_request_to_cql({query, SQL, Params}) ->
     {query, SQL, Params}.
 
-proc_sql_params(
+proc_cql_params(
     prepared_query,
     PreparedKey0,
     Params,
@@ -209,11 +206,11 @@ proc_sql_params(
     PreparedKey = maps:get(PreparedKey0, Prepares),
     Tokens = maps:get(PreparedKey0, ParamsTokens),
     {PreparedKey, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))};
-proc_sql_params(query, SQL, Params, _State) ->
+proc_cql_params(query, SQL, Params, _State) ->
     {SQL1, Tokens} = emqx_plugin_libs_rule:preproc_sql(SQL, '?'),
     {SQL1, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))}.
 
-exec_sql_query(InstId, PoolName, Type, PreparedKey, Data) when
+exec_cql_query(InstId, PoolName, Type, PreparedKey, Data) when
     Type == query; Type == prepared_query
 ->
     case ecpool:pick_and_do(PoolName, {?MODULE, Type, [PreparedKey, Data]}, no_handover) of
@@ -239,7 +236,7 @@ on_get_status(_InstId, #{poolname := Pool} = State) ->
                     %% return new state with prepared statements
                     {connected, NState};
                 false ->
-                    %% do not log error, it is logged in prepare_sql_to_conn
+                    %% do not log error, it is logged in prepare_cql_to_conn
                     connecting
             end;
         false ->
@@ -249,14 +246,14 @@ on_get_status(_InstId, #{poolname := Pool} = State) ->
 do_get_status(Conn) ->
     ok == element(1, ecql:query(Conn, "SELECT count(1) AS T FROM system.local")).
 
-do_check_prepares(#{prepare_sql := Prepares}) when is_map(Prepares) ->
+do_check_prepares(#{prepare_cql := Prepares}) when is_map(Prepares) ->
     ok;
-do_check_prepares(State = #{poolname := PoolName, prepare_sql := {error, Prepares}}) ->
+do_check_prepares(State = #{poolname := PoolName, prepare_cql := {error, Prepares}}) ->
     %% retry to prepare
-    case prepare_sql(Prepares, PoolName) of
+    case prepare_cql(Prepares, PoolName) of
         {ok, Sts} ->
             %% remove the error
-            {ok, State#{prepare_sql => Prepares, prepare_statement := Sts}};
+            {ok, State#{prepare_cql => Prepares, prepare_statement := Sts}};
         _Error ->
             false
     end.
@@ -295,83 +292,83 @@ conn_opts([Opt | Opts], Acc) ->
 %% prepare
 
 %% XXX: hardcode
-%% note: the `sql` param is passed by emqx_ee_bridge_cassa
-parse_prepare_sql(#{sql := SQL}) ->
-    parse_prepare_sql([{send_message, SQL}], #{}, #{});
-parse_prepare_sql(_) ->
-    #{prepare_sql => #{}, params_tokens => #{}}.
+%% note: the `cql` param is passed by emqx_ee_bridge_cassa
+parse_prepare_cql(#{cql := SQL}) ->
+    parse_prepare_cql([{send_message, SQL}], #{}, #{});
+parse_prepare_cql(_) ->
+    #{prepare_cql => #{}, params_tokens => #{}}.
 
-parse_prepare_sql([{Key, H} | T], Prepares, Tokens) ->
+parse_prepare_cql([{Key, H} | T], Prepares, Tokens) ->
     {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H, '?'),
-    parse_prepare_sql(
+    parse_prepare_cql(
         T, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}
     );
-parse_prepare_sql([], Prepares, Tokens) ->
+parse_prepare_cql([], Prepares, Tokens) ->
     #{
-        prepare_sql => Prepares,
+        prepare_cql => Prepares,
         params_tokens => Tokens
     }.
 
-init_prepare(State = #{prepare_sql := Prepares, poolname := PoolName}) ->
+init_prepare(State = #{prepare_cql := Prepares, poolname := PoolName}) ->
     case maps:size(Prepares) of
         0 ->
             State;
         _ ->
-            case prepare_sql(Prepares, PoolName) of
+            case prepare_cql(Prepares, PoolName) of
                 {ok, Sts} ->
                     State#{prepare_statement := Sts};
                 Error ->
                     ?tp(
                         error,
-                        cassandra_prepare_sql_failed,
+                        cassandra_prepare_cql_failed,
                         #{prepares => Prepares, reason => Error}
                     ),
-                    %% mark the prepare_sqlas failed
-                    State#{prepare_sql => {error, Prepares}}
+                    %% mark the prepare_cql as failed
+                    State#{prepare_cql => {error, Prepares}}
             end
     end.
 
-prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
-    prepare_sql(maps:to_list(Prepares), PoolName);
-prepare_sql(Prepares, PoolName) ->
-    case do_prepare_sql(Prepares, PoolName) of
+prepare_cql(Prepares, PoolName) when is_map(Prepares) ->
+    prepare_cql(maps:to_list(Prepares), PoolName);
+prepare_cql(Prepares, PoolName) ->
+    case do_prepare_cql(Prepares, PoolName) of
         {ok, _Sts} = Ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Prepares]}),
+            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_cql_to_conn, [Prepares]}),
             Ok;
         Error ->
             Error
     end.
 
-do_prepare_sql(Prepares, PoolName) ->
-    do_prepare_sql(ecpool:workers(PoolName), Prepares, PoolName, #{}).
+do_prepare_cql(Prepares, PoolName) ->
+    do_prepare_cql(ecpool:workers(PoolName), Prepares, PoolName, #{}).
 
-do_prepare_sql([{_Name, Worker} | T], Prepares, PoolName, _LastSts) ->
+do_prepare_cql([{_Name, Worker} | T], Prepares, PoolName, _LastSts) ->
     {ok, Conn} = ecpool_worker:client(Worker),
-    case prepare_sql_to_conn(Conn, Prepares) of
+    case prepare_cql_to_conn(Conn, Prepares) of
         {ok, Sts} ->
-            do_prepare_sql(T, Prepares, PoolName, Sts);
+            do_prepare_cql(T, Prepares, PoolName, Sts);
         Error ->
             Error
     end;
-do_prepare_sql([], _Prepares, _PoolName, LastSts) ->
+do_prepare_cql([], _Prepares, _PoolName, LastSts) ->
     {ok, LastSts}.
 
-prepare_sql_to_conn(Conn, Prepares) ->
-    prepare_sql_to_conn(Conn, Prepares, #{}).
+prepare_cql_to_conn(Conn, Prepares) ->
+    prepare_cql_to_conn(Conn, Prepares, #{}).
 
-prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) -> {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Conn) ->
-    ?SLOG(info, #{msg => "cassandra_prepare_sql", name => Key, prepare_sql => SQL}),
+prepare_cql_to_conn(Conn, [], Statements) when is_pid(Conn) -> {ok, Statements};
+prepare_cql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Conn) ->
+    ?SLOG(info, #{msg => "cassandra_prepare_cql", name => Key, prepare_cql => SQL}),
     case ecql:prepare(Conn, Key, SQL) of
         {ok, Statement} ->
-            prepare_sql_to_conn(Conn, PrepareList, Statements#{Key => Statement});
+            prepare_cql_to_conn(Conn, PrepareList, Statements#{Key => Statement});
         {error, Error} = Other ->
             ?SLOG(error, #{
-                msg => "cassandra_prepare_sql_failed",
+                msg => "cassandra_prepare_cql_failed",
                 worker_pid => Conn,
                 name => Key,
-                prepare_sql => SQL,
+                prepare_cql => SQL,
                 error => Error
             }),
             Other
@@ -394,19 +391,19 @@ assign_type_for_params(Params) ->
 assign_type_for_params([], Acc) ->
     lists:reverse(Acc);
 assign_type_for_params([Param | More], Acc) ->
-    assign_type_for_params(More, [may_assign_type(Param) | Acc]).
+    assign_type_for_params(More, [maybe_assign_type(Param) | Acc]).
 
-may_assign_type(true) ->
+maybe_assign_type(true) ->
     {int, 1};
-may_assign_type(false) ->
+maybe_assign_type(false) ->
     {int, 0};
-may_assign_type(V) when is_binary(V); is_list(V); is_atom(V) -> V;
-may_assign_type(V) when is_integer(V) ->
+maybe_assign_type(V) when is_binary(V); is_list(V); is_atom(V) -> V;
+maybe_assign_type(V) when is_integer(V) ->
     %% The max value of signed int(4) is 2147483647
     case V > 2147483647 orelse V < -2147483647 of
         true -> {bigint, V};
         false -> {int, V}
     end;
-may_assign_type(V) when is_float(V) -> {double, V};
-may_assign_type(V) ->
+maybe_assign_type(V) when is_float(V) -> {double, V};
+maybe_assign_type(V) ->
     V.

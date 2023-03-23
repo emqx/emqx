@@ -14,9 +14,9 @@ services:
       CASSANDRA_RPC_ADDRESS: "0.0.0.0"
     volumes:
       - ./certs:/certs
-    ports:
-      - "9042:9042"
-      - "9142:9142"
+    #ports:
+    #  - "9042:9042"
+    #  - "9142:9142"
     command:
       - /bin/bash
       - -c

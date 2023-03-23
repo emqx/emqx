@@ -27,9 +27,9 @@
     ");\n"
     ""
 ).
--define(SQL_DROP_TABLE, "DROP TABLE mqtt_msg_test").
--define(SQL_DELETE, "TRUNCATE mqtt_msg_test").
--define(SQL_SELECT, "SELECT payload FROM mqtt_msg_test").
+-define(SQL_DROP_TABLE, "DROP TABLE mqtt.mqtt_msg_test").
+-define(SQL_DELETE, "TRUNCATE mqtt.mqtt_msg_test").
+-define(SQL_SELECT, "SELECT payload FROM mqtt.mqtt_msg_test").
 
 % DB defaults
 -define(CASSA_KEYSPACE, "mqtt").
@@ -45,6 +45,20 @@
 -define(CAFILE, filename:join(?CERT_ROOT, ["ca.crt"])).
 -define(CERTFILE, filename:join(?CERT_ROOT, ["client.pem"])).
 -define(KEYFILE, filename:join(?CERT_ROOT, ["client.key"])).
+
+%% How to run it locally:
+%%  1. Start all deps services
+%%    sudo docker compose -f .ci/docker-compose-file/docker-compose.yaml \
+%%                        -f .ci/docker-compose-file/docker-compose-cassandra.yaml \
+%%                        -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+%%                        up --build
+%%
+%%  2. Run use cases with special environment variables
+%%    CASSA_TCP_HOST=127.0.0.1 CASSA_TCP_PORT=19042 \
+%%    CASSA_TLS_HOST=127.0.0.1 CASSA_TLS_PORT=19142 \
+%%    PROXY_HOST=127.0.0.1 ./rebar3 as test ct -c -v --name ct@127.0.0.1 \
+%%    --suite lib-ee/emqx_ee_bridge/test/emqx_ee_bridge_cassa_SUITE.erl
+%%
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -197,7 +211,7 @@ cassa_config(BridgeType, Config) ->
             "  keyspace = ~p\n"
             "  username = ~p\n"
             "  password = ~p\n"
-            "  sql = ~p\n"
+            "  cql = ~p\n"
             "  resource_opts = {\n"
             "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
@@ -238,8 +252,8 @@ parse_and_check(ConfigString, BridgeType, Name) ->
 create_bridge(Config) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     Name = ?config(cassa_name, Config),
-    PGConfig = ?config(cassa_config, Config),
-    emqx_bridge:create(BridgeType, Name, PGConfig).
+    BridgeConfig = ?config(cassa_config, Config),
+    emqx_bridge:create(BridgeType, Name, BridgeConfig).
 
 delete_bridge(Config) ->
     BridgeType = ?config(cassa_bridge_type, Config),
@@ -251,6 +265,14 @@ create_bridge_http(Params) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+bridges_probe_http(Params) ->
+    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
+        {ok, _} -> ok;
         Error -> Error
     end.
 
@@ -294,25 +316,33 @@ connect_direct_cassa(Config) ->
 
 % These funs connect and then stop the cassandra connection
 connect_and_create_table(Config) ->
-    Con = connect_direct_cassa(Config),
-    {ok, _} = ecql:query(Con, ?SQL_CREATE_TABLE),
-    ok = ecql:close(Con).
+    with_direct_conn(Config, fun(Conn) ->
+        {ok, _} = ecql:query(Conn, ?SQL_CREATE_TABLE)
+    end).
 
 connect_and_drop_table(Config) ->
-    Con = connect_direct_cassa(Config),
-    {ok, _} = ecql:query(Con, ?SQL_DROP_TABLE),
-    ok = ecql:close(Con).
+    with_direct_conn(Config, fun(Conn) ->
+        {ok, _} = ecql:query(Conn, ?SQL_DROP_TABLE)
+    end).
 
 connect_and_clear_table(Config) ->
-    Con = connect_direct_cassa(Config),
-    ok = ecql:query(Con, ?SQL_DELETE),
-    ok = ecql:close(Con).
+    with_direct_conn(Config, fun(Conn) ->
+        ok = ecql:query(Conn, ?SQL_DELETE)
+    end).
 
 connect_and_get_payload(Config) ->
-    Con = connect_direct_cassa(Config),
-    {ok, {_Keyspace, _ColsSpec, [[Result]]}} = ecql:query(Con, ?SQL_SELECT),
-    ok = ecql:close(Con),
-    Result.
+    with_direct_conn(Config, fun(Conn) ->
+        {ok, {_Keyspace, _ColsSpec, [[Result]]}} = ecql:query(Conn, ?SQL_SELECT),
+        Result
+    end).
+
+with_direct_conn(Config, Fn) ->
+    Conn = connect_direct_cassa(Config),
+    try
+        Fn(Conn)
+    after
+        ok = ecql:close(Conn)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -358,14 +388,14 @@ t_setup_via_config_and_publish(Config) ->
 t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     Name = ?config(cassa_name, Config),
-    PgsqlConfig0 = ?config(cassa_config, Config),
-    PgsqlConfig = PgsqlConfig0#{
+    BridgeConfig0 = ?config(cassa_config, Config),
+    BridgeConfig = BridgeConfig0#{
         <<"name">> => Name,
         <<"type">> => BridgeType
     },
     ?assertMatch(
         {ok, _},
-        create_bridge_http(PgsqlConfig)
+        create_bridge_http(BridgeConfig)
     ),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{
@@ -419,6 +449,18 @@ t_get_status(Config) ->
             emqx_resource_manager:health_check(ResourceID)
         )
     end),
+    ok.
+
+t_bridges_probe_via_http(Config) ->
+    BridgeType = ?config(cassa_bridge_type, Config),
+    Name = ?config(cassa_name, Config),
+    BridgeConfig0 = ?config(cassa_config, Config),
+    BridgeConfig = BridgeConfig0#{
+        <<"name">> => Name,
+        <<"type">> => BridgeType
+    },
+    ?assertMatch(ok, bridges_probe_http(BridgeConfig)),
+
     ok.
 
 t_create_disconnected(Config) ->
