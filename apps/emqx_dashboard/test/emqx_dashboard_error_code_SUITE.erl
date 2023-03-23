@@ -29,24 +29,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:load(emqx_dashboard),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
-
-end_per_suite(Config) ->
-    end_suite(),
-    Config.
-
-end_suite() ->
-    application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_all_code(_) ->
     HrlDef = ?ERROR_CODES,
