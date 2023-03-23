@@ -33,10 +33,12 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_dashboard),
     mria:start(),
+    mnesia:clear_table(?ADMIN),
     emqx_common_test_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
     Config.
 
 end_per_suite(Config) ->
+    mnesia:clear_table(?ADMIN),
     emqx_common_test_helpers:stop_apps([emqx_dashboard]),
     Config.
 
