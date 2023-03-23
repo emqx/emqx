@@ -60,14 +60,17 @@ tcp_port(Node) ->
 root(Config, Node, Tail) ->
     filename:join([?config(priv_dir, Config), "file_transfer", Node | Tail]).
 
-upload_file(ClientId, FileId, Data, Node) ->
+upload_file(ClientId, FileId, Name, Data) ->
+    upload_file(ClientId, FileId, Name, Data, node()).
+
+upload_file(ClientId, FileId, Name, Data, Node) ->
     Port = tcp_port(Node),
     Size = byte_size(Data),
 
     {ok, C1} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, Port}]),
     {ok, _} = emqtt:connect(C1),
     Meta = #{
-        name => FileId,
+        name => unicode:characters_to_binary(Name),
         expire_at => erlang:system_time(_Unit = second) + 3600,
         size => Size
     },

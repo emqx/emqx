@@ -250,12 +250,12 @@ transfers(Storage) ->
         )}.
 
 transfers(Storage, ClientId, AccIn) ->
-    Dirname = mk_client_filedir(Storage, ClientId),
+    Dirname = filename:join(get_storage_root(Storage), ClientId),
     case file:list_dir(Dirname) of
         {ok, FileIds} ->
             lists:foldl(
                 fun(FileId, Acc) ->
-                    Transfer = {filename_to_binary(ClientId), filename_to_binary(FileId)},
+                    Transfer = dirnames_to_transfer(ClientId, FileId),
                     read_transferinfo(Storage, Transfer, Acc)
                 end,
                 AccIn,
@@ -327,10 +327,15 @@ break_segment_filename(Filename) ->
     end.
 
 mk_filedir(Storage, {ClientId, FileId}, SubDirs) ->
-    filename:join([get_storage_root(Storage), ClientId, FileId | SubDirs]).
+    filename:join([
+        get_storage_root(Storage),
+        emqx_ft_fs_util:escape_filename(ClientId),
+        emqx_ft_fs_util:escape_filename(FileId)
+        | SubDirs
+    ]).
 
-mk_client_filedir(Storage, ClientId) ->
-    filename:join([get_storage_root(Storage), ClientId]).
+dirnames_to_transfer(ClientId, FileId) ->
+    {emqx_ft_fs_util:unescape_filename(ClientId), emqx_ft_fs_util:unescape_filename(FileId)}.
 
 mk_filepath(Storage, Transfer, SubDirs, Filename) ->
     filename:join(mk_filedir(Storage, Transfer, SubDirs), Filename).
@@ -432,6 +437,3 @@ read_frag_filemeta(_Filename, Filepath) ->
 
 read_frag_segmentinfo(Filename, _Filepath) ->
     break_segment_filename(Filename).
-
-filename_to_binary(S) when is_list(S) -> unicode:characters_to_binary(S);
-filename_to_binary(B) when is_binary(B) -> B.
