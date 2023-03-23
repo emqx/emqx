@@ -250,7 +250,9 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      is_superuser => false
                     }, Options),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
-    #channel{conninfo   = NConnInfo,
+    #channel{%% We remove the peercert because it duplicates to what's stored in the socket,
+             %% Saving a copy here causes unnecessary wast of memory (about 1KB per connection).
+             conninfo   = maps:put(peercert, undefined, NConnInfo),
              clientinfo = NClientInfo,
              topic_aliases = #{inbound => #{},
                                outbound => #{}
