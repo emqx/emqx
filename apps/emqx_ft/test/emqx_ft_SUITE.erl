@@ -165,6 +165,29 @@ t_invalid_fileid(Config) ->
         emqtt:publish(C, <<"$file//init">>, <<>>, 1)
     ).
 
+t_invalid_filename(Config) ->
+    C = ?config(client, Config),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f1">>), emqx_json:encode(meta(".", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("..", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("../nice", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f3">>), emqx_json:encode(meta("/etc/passwd", <<>>)), 1)
+    ),
+    ?assertRCName(
+        success,
+        emqtt:publish(C, mk_init_topic(<<"f4">>), emqx_json:encode(meta("146%", <<>>)), 1)
+    ).
+
 t_simple_transfer(Config) ->
     C = ?config(client, Config),
 
@@ -200,6 +223,24 @@ t_simple_transfer(Config) ->
     ?assertEqual(
         {ok, iolist_to_binary(Data)},
         read_export(Export)
+    ).
+
+t_nasty_clientids_fileids(_Config) ->
+    Transfers = [
+        {<<".">>, <<".">>},
+        {<<"🌚"/utf8>>, <<"🌝"/utf8>>},
+        {<<"../..">>, <<"😤"/utf8>>},
+        {<<"/etc/passwd">>, <<"whitehat">>},
+        {<<"; rm -rf / ;">>, <<"whitehat">>}
+    ],
+
+    ok = lists:foreach(
+        fun({ClientId, FileId}) ->
+            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "justfile", ClientId),
+            [Export] = list_exports(ClientId),
+            ?assertEqual({ok, ClientId}, read_export(Export))
+        end,
+        Transfers
     ).
 
 t_meta_conflict(Config) ->
