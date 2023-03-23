@@ -59,7 +59,7 @@ t_object(_config) ->
                 <<"application/json">> =>
                     #{
                         <<"schema">> => #{
-                            required => [<<"timeout">>, <<"per_page">>],
+                            required => [<<"per_page">>, <<"timeout">>],
                             <<"properties">> => [
                                 {<<"per_page">>, #{
                                     description => <<"good per page desc">>,

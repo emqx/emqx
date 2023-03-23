@@ -61,7 +61,7 @@ t_object(_Config) ->
                             #{
                                 <<"schema">> =>
                                     #{
-                                        required => [<<"timeout">>, <<"per_page">>],
+                                        required => [<<"per_page">>, <<"timeout">>],
                                         <<"properties">> => [
                                             {<<"per_page">>, #{
                                                 description => <<"good per page desc">>,
