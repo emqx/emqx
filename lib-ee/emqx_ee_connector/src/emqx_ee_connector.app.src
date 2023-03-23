@@ -12,6 +12,7 @@
         brod,
         clickhouse,
         erlcloud,
+        rocketmq,
         ecql
     ]},
     {env, []},

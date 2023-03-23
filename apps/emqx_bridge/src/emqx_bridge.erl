@@ -68,6 +68,7 @@
     T == matrix;
     T == tdengine;
     T == dynamo;
+    T == rocketmq;
     T == cassandra
 ).
 

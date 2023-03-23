@@ -1,17 +1,18 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_clickhouse).
+-module(emqx_ee_bridge_rocketmq).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    values/1
 ]).
 
 -export([
@@ -21,119 +22,99 @@
     desc/1
 ]).
 
--define(DEFAULT_SQL,
-    <<"INSERT INTO mqtt_test(payload, arrived) VALUES ('${payload}', ${timestamp})">>
-).
-
--define(DEFAULT_BATCH_VALUE_SEPARATOR, <<", ">>).
+-define(DEFAULT_TEMPLATE, <<>>).
+-define(DEFFAULT_REQ_TIMEOUT, <<"15s">>).
 
 %% -------------------------------------------------------------------------------------------------
-%% Callback used by HTTP API
-%% -------------------------------------------------------------------------------------------------
+%% api
 
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"clickhouse">> => #{
-                summary => <<"Clickhouse Bridge">>,
-                value => values(Method, "clickhouse")
+            <<"rocketmq">> => #{
+                summary => <<"RocketMQ Bridge">>,
+                value => values(Method)
             }
         }
     ].
 
-values(_Method, Type) ->
+values(get) ->
+    values(post);
+values(post) ->
     #{
         enable => true,
-        type => Type,
+        type => rocketmq,
         name => <<"foo">>,
-        server => <<"127.0.0.1:8123">>,
-        database => <<"mqtt">>,
-        pool_size => 8,
-        username => <<"default">>,
-        password => <<"public">>,
-        sql => ?DEFAULT_SQL,
-        batch_value_separator => ?DEFAULT_BATCH_VALUE_SEPARATOR,
+        server => <<"127.0.0.1:9876">>,
+        topic => <<"TopicTest">>,
+        template => ?DEFAULT_TEMPLATE,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
-            worker_pool_size => 8,
+            worker_pool_size => 1,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
+            query_mode => sync,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
-    }.
+    };
+values(put) ->
+    values(post).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-%% -------------------------------------------------------------------------------------------------
-
-namespace() -> "bridge_clickhouse".
+namespace() -> "bridge_rocketmq".
 
 roots() -> [].
 
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {sql,
+        {template,
             mk(
                 binary(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        {batch_value_separator,
-            mk(
-                binary(),
-                #{desc => ?DESC("batch_value_separator"), default => ?DEFAULT_BATCH_VALUE_SEPARATOR}
+                #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
             )},
         {local_topic,
             mk(
                 binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
+                #{desc => ?DESC("local_topic"), required => false}
             )},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),
                 #{
                     required => false,
-                    default => #{},
+                    default => #{<<"request_timeout">> => ?DEFFAULT_REQ_TIMEOUT},
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
                 }
             )}
     ] ++
-        emqx_ee_connector_clickhouse:fields(config);
+        (emqx_ee_connector_rocketmq:fields(config) --
+            emqx_connector_schema_lib:prepare_statement_fields());
 fields("creation_opts") ->
-    Opts = emqx_resource_schema:fields("creation_opts"),
-    [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
+    emqx_resource_schema:fields("creation_opts_sync_only");
 fields("post") ->
-    fields("post", clickhouse);
+    [type_field(), name_field() | fields("config")];
 fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post").
 
-fields("post", Type) ->
-    [type_field(Type), name_field() | fields("config")].
-
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for Clickhouse using `", string:to_upper(Method), "` method."];
+    ["Configuration for RocketMQ using `", string:to_upper(Method), "` method."];
 desc("creation_opts" = Name) ->
     emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
-%% internal
-%% -------------------------------------------------------------------------------------------------
-is_hidden_opts(Field) ->
-    lists:member(Field, [
-        async_inflight_window
-    ]).
 
-type_field(Type) ->
-    {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.
+type_field() ->
+    {type, mk(enum([rocketmq]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

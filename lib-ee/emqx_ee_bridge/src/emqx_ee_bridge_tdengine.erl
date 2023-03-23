@@ -5,7 +5,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -40,9 +39,7 @@ conn_bridge_examples(Method) ->
         }
     ].
 
-values(get) ->
-    maps:merge(values(post), ?METRICS_EXAMPLE);
-values(post) ->
+values(_Method) ->
     #{
         enable => true,
         type => tdengine,
@@ -63,9 +60,7 @@ values(post) ->
             query_mode => sync,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
-    };
-values(put) ->
-    values(post).
+    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

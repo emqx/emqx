@@ -33,6 +33,7 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_tdengine, Method),
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
+        ref(emqx_ee_bridge_rocketmq, Method),
         ref(emqx_ee_bridge_cassa, Method)
     ].
 
@@ -51,6 +52,7 @@ schema_modules() ->
         emqx_ee_bridge_tdengine,
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
+        emqx_ee_bridge_rocketmq,
         emqx_ee_bridge_cassa
     ].
 
@@ -88,6 +90,7 @@ resource_type(matrix) -> emqx_connector_pgsql;
 resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
+resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
 resource_type(cassandra) -> emqx_ee_connector_cassa.
 
 fields(bridges) ->
@@ -132,6 +135,14 @@ fields(bridges) ->
                     required => false
                 }
             )},
+        {rocketmq,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_rocketmq, "config")),
+                #{
+                    desc => <<"RocketMQ Bridge Config">>,
+                    required => false
+                }
+             )},
         {cassandra,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_cassa, "config")),

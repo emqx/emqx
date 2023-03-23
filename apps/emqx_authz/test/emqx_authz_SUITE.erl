@@ -26,6 +26,8 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -65,6 +67,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_subscribe_deny_disconnect_publishes_last_will_testament;
+    TestCase =:= t_publish_last_will_testament_banned_client_connecting;
     TestCase =:= t_publish_deny_disconnect_publishes_last_will_testament
 ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
@@ -76,11 +79,15 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_subscribe_deny_disconnect_publishes_last_will_testament;
+    TestCase =:= t_publish_last_will_testament_banned_client_connecting;
     TestCase =:= t_publish_deny_disconnect_publishes_last_will_testament
 ->
     {ok, _} = emqx:update_config([authorization, deny_action], ignore),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
+    emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 set_special_configs(emqx_authz) ->
@@ -393,6 +400,64 @@ t_publish_last_will_testament_denied_topic(_Config) ->
     after 1_000 ->
         ok
     end,
+
+    ok.
+
+%% client is allowed by ACL to publish to its LWT topic, is connected,
+%% and then gets banned and kicked out while connected.  Should not
+%% publish LWT.
+t_publish_last_will_testament_banned_client_connecting(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
+    Username = <<"some_client">>,
+    ClientId = <<"some_clientid">>,
+    LWTPayload = <<"should not be published">>,
+    LWTTopic = <<"some_client/lwt">>,
+    ok = emqx:subscribe(<<"some_client/lwt">>),
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientId},
+        {username, Username},
+        {will_topic, LWTTopic},
+        {will_payload, LWTPayload}
+    ]),
+    ?assertMatch({ok, _}, emqtt:connect(C)),
+
+    %% Now we ban the client while it is connected.
+    Now = erlang:system_time(second),
+    Who = {username, Username},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+    on_exit(fun() -> emqx_banned:delete(Who) end),
+    %% Now kick it as we do in the ban API.
+    process_flag(trap_exit, true),
+    ?check_trace(
+        begin
+            ok = emqx_cm:kick_session(ClientId),
+            receive
+                {deliver, LWTTopic, #message{payload = LWTPayload}} ->
+                    error(lwt_should_not_be_published_to_forbidden_topic)
+            after 2_000 -> ok
+            end,
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        client_banned := true,
+                        publishing_disallowed := false
+                    }
+                ],
+                ?of_kind(last_will_testament_publish_denied, Trace)
+            ),
+            ok
+        end
+    ),
+    ok = snabbkaffe:stop(),
 
     ok.
 

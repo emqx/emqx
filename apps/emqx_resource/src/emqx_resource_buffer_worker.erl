@@ -88,6 +88,8 @@
 -type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
+-type request_timeout() :: infinity | timer:time().
+-type health_check_interval() :: timer:time().
 -type state() :: blocked | running.
 -type inflight_key() :: integer().
 -type data() :: #{
@@ -199,6 +201,8 @@ init({Id, Index, Opts}) ->
     RequestTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     BatchTime0 = maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
     BatchTime = adjust_batch_time(Id, RequestTimeout, BatchTime0),
+    DefaultResumeInterval = default_resume_interval(RequestTimeout, HealthCheckInterval),
+    ResumeInterval = maps:get(resume_interval, Opts, DefaultResumeInterval),
     Data = #{
         id => Id,
         index => Index,
@@ -207,7 +211,7 @@ init({Id, Index, Opts}) ->
         batch_size => BatchSize,
         batch_time => BatchTime,
         queue => Queue,
-        resume_interval => maps:get(resume_interval, Opts, HealthCheckInterval),
+        resume_interval => ResumeInterval,
         tref => undefined
     },
     ?tp(buffer_worker_init, #{id => Id, index => Index}),
@@ -1678,6 +1682,17 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
             ok
     end,
     BatchTime.
+
+%% The request timeout should be greater than the resume interval, as
+%% it defines how often the buffer worker tries to unblock. If request
+%% timeout is <= resume interval and the buffer worker is ever
+%% blocked, than all queued requests will basically fail without being
+%% attempted.
+-spec default_resume_interval(request_timeout(), health_check_interval()) -> timer:time().
+default_resume_interval(_RequestTimeout = infinity, HealthCheckInterval) ->
+    max(1, HealthCheckInterval);
+default_resume_interval(RequestTimeout, HealthCheckInterval) ->
+    max(1, min(HealthCheckInterval, RequestTimeout div 3)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
