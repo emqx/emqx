@@ -299,6 +299,7 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
+    ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
