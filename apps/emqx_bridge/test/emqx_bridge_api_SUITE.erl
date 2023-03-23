@@ -322,6 +322,33 @@ t_http_crud_apis(Config) ->
         end
     ),
 
+    %% Test bad updates
+    {ok, 400, PutFail1} = request(
+        put,
+        uri(["bridges", BridgeID]),
+        maps:remove(<<"url">>, ?HTTP_BRIDGE(URL2, Name))
+    ),
+    ?assertMatch(
+        #{<<"reason">> := <<"required_field">>},
+        emqx_json:decode(maps:get(<<"message">>, emqx_json:decode(PutFail1, [return_maps])), [
+            return_maps
+        ])
+    ),
+    {ok, 400, PutFail2} = request(
+        put,
+        uri(["bridges", BridgeID]),
+        maps:put(<<"curl">>, URL2, maps:remove(<<"url">>, ?HTTP_BRIDGE(URL2, Name)))
+    ),
+    ?assertMatch(
+        #{
+            <<"reason">> := <<"unknown_fields">>,
+            <<"unknown">> := <<"curl">>
+        },
+        emqx_json:decode(maps:get(<<"message">>, emqx_json:decode(PutFail2, [return_maps])), [
+            return_maps
+        ])
+    ),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
@@ -387,6 +414,9 @@ t_http_crud_apis(Config) ->
     ?assert(not maps:is_key(<<"status_reason">>, FixedBridge)),
     ?assert(not maps:is_key(<<"status_reason">>, FixedNodeStatus)),
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+
+    %% Try create bridge with bad characters as name
+    {ok, 400, _} = request(post, uri(["bridges"]), ?HTTP_BRIDGE(URL1, <<"隋达"/utf8>>)),
     ok.
 
 t_http_bridges_local_topic(Config) ->
