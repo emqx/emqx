@@ -17,15 +17,12 @@
 
 -behaviour(minirest_api).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2, enum/1, array/1]).
 
 -define(NODE_METRICS_MODULE, emqx_mgmt_api_metrics).
 -define(NODE_STATS_MODULE, emqx_mgmt_api_stats).
-
--define(SOURCE_ERROR, 'SOURCE_ERROR').
 
 %% Swagger specs from hocon schema
 -export([
@@ -88,7 +85,7 @@ schema("/nodes/:node") ->
                             ref(node_info),
                             #{desc => <<"Get node info successfully">>}
                         ),
-                        400 => node_error()
+                        404 => not_found()
                     }
             }
     };
@@ -106,7 +103,7 @@ schema("/nodes/:node/metrics") ->
                             ref(?NODE_METRICS_MODULE, node_metrics),
                             #{desc => <<"Get node metrics successfully">>}
                         ),
-                        400 => node_error()
+                        404 => not_found()
                     }
             }
     };
@@ -124,7 +121,7 @@ schema("/nodes/:node/stats") ->
                             ref(?NODE_STATS_MODULE, node_stats_data),
                             #{desc => <<"Get node stats successfully">>}
                         ),
-                        400 => node_error()
+                        404 => not_found()
                     }
             }
     }.
@@ -136,7 +133,7 @@ fields(node_name) ->
     [
         {node,
             mk(
-                atom(),
+                binary(),
                 #{
                     in => path,
                     description => <<"Node name">>,
@@ -250,55 +247,46 @@ nodes(get, _Params) ->
     list_nodes(#{}).
 
 node(get, #{bindings := #{node := NodeName}}) ->
-    get_node(NodeName).
+    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun get_node/1)).
 
 node_metrics(get, #{bindings := #{node := NodeName}}) ->
-    get_metrics(NodeName).
+    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_metrics/1)).
 
 node_stats(get, #{bindings := #{node := NodeName}}) ->
-    get_stats(NodeName).
+    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_stats/1)).
 
 %%--------------------------------------------------------------------
 %% api apply
 
 list_nodes(#{}) ->
-    NodesInfo = [format(Node, NodeInfo) || {Node, NodeInfo} <- emqx_mgmt:list_nodes()],
+    NodesInfo = [format(NodeInfo) || {_Node, NodeInfo} <- emqx_mgmt:list_nodes()],
     {200, NodesInfo}.
 
 get_node(Node) ->
-    case emqx_mgmt:lookup_node(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
-        NodeInfo ->
-            {200, format(Node, NodeInfo)}
-    end.
-
-get_metrics(Node) ->
-    case emqx_mgmt:get_metrics(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
-        Metrics ->
-            {200, Metrics}
-    end.
-
-get_stats(Node) ->
-    case emqx_mgmt:get_stats(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
-        Stats ->
-            {200, Stats}
-    end.
+    format(emqx_mgmt:lookup_node(Node)).
 
 %%--------------------------------------------------------------------
 %% internal function
 
-format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
+format(Info = #{memory_total := Total, memory_used := Used}) ->
     Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
         memory_used := emqx_mgmt_util:kmg(Used)
     };
-format(_Node, Info) when is_map(Info) ->
+format(Info) when is_map(Info) ->
     Info.
 
-node_error() ->
-    emqx_dashboard_swagger:error_codes([?SOURCE_ERROR], <<"Node error">>).
+to_ok_result({error, _} = Error) ->
+    Error;
+to_ok_result({ok, _} = Ok) ->
+    Ok;
+to_ok_result(Result) ->
+    {ok, Result}.
+
+to_ok_result_fun(Fun) when is_function(Fun) ->
+    fun(Arg) ->
+        to_ok_result(Fun(Arg))
+    end.
+
+not_found() ->
+    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>).
