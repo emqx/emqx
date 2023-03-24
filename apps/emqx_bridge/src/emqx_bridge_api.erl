@@ -481,8 +481,7 @@ schema("/bridges_probe") ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
         {error, not_found} ->
             Conf = filter_out_request_body(Conf0),
-            {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
-            lookup_from_all_nodes(BridgeType, BridgeName, 201)
+            create_bridge(BridgeType, BridgeName, Conf)
     end;
 '/bridges'(get, _Params) ->
     Nodes = mria:running_nodes(),
@@ -508,8 +507,7 @@ schema("/bridges_probe") ->
             {ok, _} ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
-                {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
-                lookup_from_all_nodes(BridgeType, BridgeName, 200);
+                update_bridge(BridgeType, BridgeName, Conf);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
@@ -607,6 +605,20 @@ lookup_from_local_node(BridgeType, BridgeName) ->
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error
+    end.
+
+create_bridge(BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(BridgeType, BridgeName, Conf, 201).
+
+update_bridge(BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
+
+create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+    case emqx_bridge:create(BridgeType, BridgeName, Conf) of
+        {ok, _} ->
+            lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
+        {error, #{kind := validation_error} = Reason} ->
+            ?BAD_REQUEST(map_to_json(Reason))
     end.
 
 '/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
@@ -929,7 +941,7 @@ filter_out_request_body(Conf) ->
         <<"type">>,
         <<"name">>,
         <<"status">>,
-        <<"error">>,
+        <<"status_reason">>,
         <<"node_status">>,
         <<"node_metrics">>,
         <<"metrics">>,
@@ -1032,4 +1044,9 @@ deobfuscate(NewConf, OldConf) ->
         end,
         #{},
         NewConf
+    ).
+
+map_to_json(M) ->
+    emqx_json:encode(
+        emqx_map_lib:jsonable_map(M, fun(K, V) -> {K, emqx_map_lib:binary_string(V)} end)
     ).
