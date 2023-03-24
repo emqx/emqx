@@ -10,19 +10,36 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../../"
 
-IMAGE1="${1}"
-IMAGE2="${2:-${IMAGE1}}"
+HAPROXY_PORTS=(-p 18083:18083 -p 8883:8883 -p 8084:8084)
 
 NET='emqx.io'
 NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
 
-## clean up
-docker rm -f haproxy >/dev/null 2>&1 || true
-docker rm -f "$NODE1" >/dev/null 2>&1 || true
-docker rm -f "$NODE2" >/dev/null 2>&1 || true
-docker network rm "$NET" >/dev/null 2>&1 || true
+cleanup() {
+    docker rm -f haproxy >/dev/null 2>&1 || true
+    docker rm -f "$NODE1" >/dev/null 2>&1 || true
+    docker rm -f "$NODE2" >/dev/null 2>&1 || true
+    docker network rm "$NET" >/dev/null 2>&1 || true
+}
+
+while getopts ":Pc" opt
+do
+    case $opt in
+        # -P option is treated similarly to docker run -P:
+        # publish ports to random available host ports
+        P) HAPROXY_PORTS=(-p 18083 -p 8883 -p 8084);;
+        c) cleanup; exit 0;;
+        *) ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+IMAGE1="${1}"
+IMAGE2="${2:-${IMAGE1}}"
+
+cleanup
 
 docker network create "$NET"
 
@@ -128,18 +145,18 @@ backend emqx_wss_back
 EOF
 
 
-docker run -d --name haproxy \
-    --net "$NET" \
-    -v "$(pwd)/tmp/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg" \
-    -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
-    -w /usr/local/etc/haproxy \
-    -p 18083:18083 \
-    -p 8883:8883 \
-    -p 8084:8084 \
-    "haproxy:2.4" \
-    bash -c 'set -euo pipefail;
-             cat certs/cert.pem certs/key.pem > /tmp/emqx.pem;
-             haproxy -f haproxy.cfg'
+haproxy_cid=$(docker run -d --name haproxy \
+                     --net "$NET" \
+                     -v "$(pwd)/tmp/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg" \
+                     -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
+                     -w /usr/local/etc/haproxy \
+                     "${HAPROXY_PORTS[@]}" \
+                     "haproxy:2.4" \
+                     bash -c 'set -euo pipefail;
+                              cat certs/cert.pem certs/key.pem > /tmp/emqx.pem;
+                              haproxy -f haproxy.cfg')
+
+haproxy_ssl_port=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "8084/tcp") 0).HostPort}}' "$haproxy_cid")
 
 wait_limit=60
 wait_for_emqx() {
@@ -165,7 +182,7 @@ wait_for_haproxy() {
                 -CAfile apps/emqx/etc/certs/cacert.pem \
                 -cert apps/emqx/etc/certs/cert.pem \
                 -key apps/emqx/etc/certs/key.pem \
-                localhost:8084 </dev/null; do
+                localhost:"$haproxy_ssl_port" </dev/null; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for haproxy"
