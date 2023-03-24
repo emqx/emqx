@@ -68,7 +68,7 @@ t_nodes_api(_) ->
 
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode"]),
     ?assertMatch(
-        {error, {_, 400, _}},
+        {error, {_, 404, _}},
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
 
@@ -94,7 +94,7 @@ t_node_stats_api(_) ->
 
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode", "stats"]),
     ?assertMatch(
-        {error, {_, 400, _}},
+        {error, {_, 404, _}},
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
 
@@ -112,7 +112,7 @@ t_node_metrics_api(_) ->
 
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode", "metrics"]),
     ?assertMatch(
-        {error, {_, 400, _}},
+        {error, {_, 404, _}},
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
 

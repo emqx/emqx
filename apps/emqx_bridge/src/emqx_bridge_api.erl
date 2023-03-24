@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_lib.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -46,13 +47,9 @@
 
 -export([lookup_from_local_node/2]).
 
--define(BAD_REQUEST(Reason), {400, error_msg('BAD_REQUEST', Reason)}).
-
 -define(BRIDGE_NOT_ENABLED,
     ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
 ).
-
--define(NOT_FOUND(Reason), {404, error_msg('NOT_FOUND', Reason)}).
 
 -define(BRIDGE_NOT_FOUND(BridgeType, BridgeName),
     ?NOT_FOUND(
