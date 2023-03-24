@@ -338,11 +338,11 @@ fields(consumer_opts) ->
             )},
         {key_encoding_mode,
             mk(enum([none, base64]), #{
-                default => none, desc => ?DESC(consumer_encoding_mode)
+                default => none, desc => ?DESC(consumer_key_encoding_mode)
             })},
         {value_encoding_mode,
             mk(enum([none, base64]), #{
-                default => none, desc => ?DESC(consumer_encoding_mode)
+                default => none, desc => ?DESC(consumer_value_encoding_mode)
             })}
     ];
 fields(consumer_topic_mapping) ->
