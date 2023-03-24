@@ -75,7 +75,8 @@ groups() ->
        %% t_keepalive,
        %% t_redelivery_on_reconnect,
        %% subscribe_failure_test,
-       t_dollar_topics
+       t_dollar_topics,
+       t_sub_non_utf8_topic
       ]},
      {mqttv5, [non_parallel_tests],
       [t_basic_with_props_v5
@@ -274,6 +275,40 @@ t_dollar_topics(_) ->
     ?assertEqual(0, length(recv_msgs(1))),
     ok = emqtt:disconnect(C),
     ct:pal("$ topics test succeeded").
+
+t_sub_non_utf8_topic(_) ->
+    {ok, Socket} = gen_tcp:connect({127,0,0,1}, 1883, [{active, true}, binary]),
+    ConnPacket = emqx_frame:serialize(#mqtt_packet{
+                    header = #mqtt_packet_header{type = 1},
+                    variable = #mqtt_packet_connect{
+                        clientid = <<"abcdefg">>
+                    }
+                }),
+    %% gen_tcp:send(Socket, <<16,19,0,4,77,81,84,84,4,2,0,0,0,7,97,98,99,100,101,102,103>>).
+    ok = gen_tcp:send(Socket, ConnPacket),
+    receive
+        {tcp, _, _ConnAck = <<32,2,0,0>>} -> ok
+    after
+        3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
+    end,
+    %% gen_tcp:send(Socket, <<130,18,25,178,0,13,128,10,10,12,178,159,162,47,115,1,1,1,1,1>>).
+    SubHeader = <<130,18,25,178>>,
+    SubTopicLen = <<0,13>>,
+    %% this is not a valid utf8 topic
+    SubTopic = <<128,10,10,12,178,159,162,47,115,1,1,1,1>>,
+    SubQoS = <<1>>,
+    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
+    ok = gen_tcp:send(Socket, SubPacket),
+    receive
+        {tcp_closed, _} -> ok
+    after
+        3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    timer:sleep(1000),
+    ListenerCounts = esockd:get_shutdown_count({'mqtt:tcp',{{0,0,0,0},1883}}),
+    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
+    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5

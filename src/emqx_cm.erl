@@ -84,6 +84,10 @@
         , get_connected_client_count/0
         ]).
 
+-ifdef(TEST).
+-export([request_stepdown/3]).
+-endif.
+
 -type(chan_pid() :: pid()).
 
 %% Tables for channel management.

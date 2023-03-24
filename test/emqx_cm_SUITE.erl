@@ -314,16 +314,19 @@ flush_emqx_pool() ->
 
 t_discard_session_race(_) ->
     ClientId = rand_client_id(),
+    ConnMod = emqx_ws_connection,
     ?check_trace(
        begin
          #{conninfo := ConnInfo0} = ?ChanInfo,
-         ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
+         ConnInfo = ConnInfo0#{conn_mod := ConnMod},
          {Pid, Ref} = spawn_monitor(fun() -> receive stop -> exit(normal) end end),
          ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
          Pid ! stop,
          receive {'DOWN', Ref, process, Pid, normal} -> ok end,
-         ok = emqx_cm:discard_session(ClientId),
-         {ok, _} = ?block_until(#{?snk_kind := "session_already_gone", pid := Pid}, 1000)
+         %% Here we simulate the situation where we are going to emqx_cm:discard_session/1
+         %% but the session has died.
+         emqx_cm:request_stepdown(discard, ConnMod, Pid),
+         {ok, _} = ?block_until(#{?snk_kind := "session_already_gone", stale_pid := Pid}, 2000)
        end,
        fun(_, _) ->
                true
