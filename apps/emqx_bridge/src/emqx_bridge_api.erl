@@ -929,7 +929,7 @@ filter_out_request_body(Conf) ->
         <<"type">>,
         <<"name">>,
         <<"status">>,
-        <<"error">>,
+        <<"status_reason">>,
         <<"node_status">>,
         <<"node_metrics">>,
         <<"metrics">>,
