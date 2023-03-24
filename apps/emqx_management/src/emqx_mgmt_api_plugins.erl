@@ -48,6 +48,9 @@
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
 -define(TAGS, [<<"Plugins">>]).
+%% Plugin NameVsn must follow the pattern <app_name>-<vsn>,
+%% app_name must be a snake_case (no '-' allowed).
+-define(VSN_WILDCARD, "-*.tar.gz").
 
 namespace() -> "plugins".
 
@@ -334,7 +337,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
-                    case filelib:wildcard(AppDir ++ "*.tar.gz") of
+                    case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
                         [] ->
                             do_install_package(FileName, Bin);
                         OtherVsn ->
