@@ -119,6 +119,7 @@ schema("/configs_reset/:rootname") ->
                     "- For a config entry that has default value, this resets it to the default value;\n"
                     "- For a config entry that has no default value, an error 400 will be returned"
                 >>,
+            summary => <<"Reset config entry">>,
             %% We only return "200" rather than the new configs that has been changed, as
             %% the schema of the changed configs is depends on the request parameter
             %% `conf_path`, it cannot be defined here.
