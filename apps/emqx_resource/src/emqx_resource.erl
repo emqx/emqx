@@ -265,7 +265,7 @@ query(ResId, Request, Opts) ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
                 {true, _} ->
-                    %% only Kafka so far
+                    %% only Kafka producer so far
                     Opts1 = Opts#{is_buffer_supported => true},
                     emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
                 {false, sync} ->
