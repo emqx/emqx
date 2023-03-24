@@ -388,6 +388,7 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 handle_event(enter, _OldState, connected = State, Data) ->
     ok = log_state_consistency(State, Data),
     _ = emqx_alarm:deactivate(Data#data.id),
+    ?tp(resource_connected_enter, #{}),
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
@@ -522,7 +523,7 @@ start_resource(Data, From) ->
                 id => Data#data.id,
                 reason => Reason
             }),
-            _ = maybe_alarm(disconnected, Data#data.id),
+            _ = maybe_alarm(disconnected, Data#data.id, Data#data.error),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
             UpdatedData = Data#data{status = disconnected, error = Reason},
@@ -597,7 +598,7 @@ with_health_check(Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
-    _ = maybe_alarm(Status, ResId),
+    _ = maybe_alarm(Status, ResId, Err),
     ok = maybe_resume_resource_workers(ResId, Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
@@ -616,15 +617,20 @@ update_state(Data, _DataWas) ->
 health_check_interval(Opts) ->
     maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
-maybe_alarm(connected, _ResId) ->
+maybe_alarm(connected, _ResId, _Error) ->
     ok;
-maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>) ->
+maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error) ->
     ok;
-maybe_alarm(_Status, ResId) ->
+maybe_alarm(_Status, ResId, Error) ->
+    HrError =
+        case Error of
+            undefined -> <<"Unknown reason">>;
+            _Else -> emqx_misc:readable_error_msg(Error)
+        end,
     emqx_alarm:activate(
         ResId,
         #{resource_id => ResId, reason => resource_down},
-        <<"resource down: ", ResId/binary>>
+        <<"resource down: ", HrError/binary>>
     ).
 
 maybe_resume_resource_workers(ResId, connected) ->
@@ -666,6 +672,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     #{
         id => Data#data.id,
+        error => Data#data.error,
         mod => Data#data.mod,
         callback_mode => Data#data.callback_mode,
         query_mode => Data#data.query_mode,

@@ -48,6 +48,9 @@
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
 -define(TAGS, [<<"Plugins">>]).
+%% Plugin NameVsn must follow the pattern <app_name>-<vsn>,
+%% app_name must be a snake_case (no '-' allowed).
+-define(VSN_WILDCARD, "-*.tar.gz").
 
 namespace() -> "plugins".
 
@@ -68,10 +71,10 @@ schema("/plugins") ->
     #{
         'operationId' => list_plugins,
         get => #{
+            summary => <<"List all installed plugins">>,
             description =>
-                "List all install plugins.<br/>"
                 "Plugins are launched in top-down order.<br/>"
-                "Using `POST /plugins/{name}/move` to change the boot order.",
+                "Use `POST /plugins/{name}/move` to change the boot order.",
             tags => ?TAGS,
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
@@ -82,8 +85,9 @@ schema("/plugins/install") ->
     #{
         'operationId' => upload_install,
         post => #{
+            summary => <<"Install a new plugin">>,
             description =>
-                "Install a plugin(plugin-vsn.tar.gz)."
+                "Upload a plugin tarball (plugin-vsn.tar.gz)."
                 "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
                 "to develop plugin.",
             tags => ?TAGS,
@@ -112,7 +116,8 @@ schema("/plugins/:name") ->
     #{
         'operationId' => plugin,
         get => #{
-            description => "Describe a plugin according `release.json` and `README.md`.",
+            summary => <<"Get a plugin description">>,
+            description => "Describs plugin according to its `release.json` and `README.md`.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -121,7 +126,8 @@ schema("/plugins/:name") ->
             }
         },
         delete => #{
-            description => "Uninstall a plugin package.",
+            summary => <<"Delete a plugin">>,
+            description => "Uninstalls a previously uploaded plugin package.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -134,6 +140,7 @@ schema("/plugins/:name/:action") ->
     #{
         'operationId' => update_plugin,
         put => #{
+            summary => <<"Trigger action on an installed plugin">>,
             description =>
                 "start/stop a installed plugin.<br/>"
                 "- **start**: start the plugin.<br/>"
@@ -153,6 +160,7 @@ schema("/plugins/:name/move") ->
     #{
         'operationId' => update_boot_order,
         post => #{
+            summary => <<"Move plugin within plugin hiearchy">>,
             description => "Setting the boot order of plugins.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -329,7 +337,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
-                    case filelib:wildcard(AppDir ++ "*.tar.gz") of
+                    case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
                         [] ->
                             do_install_package(FileName, Bin);
                         OtherVsn ->

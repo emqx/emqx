@@ -50,6 +50,7 @@ schema("/publish") ->
     #{
         'operationId' => publish,
         post => #{
+            summary => <<"Publish a message">>,
             description => ?DESC(publish_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
@@ -65,6 +66,7 @@ schema("/publish/bulk") ->
     #{
         'operationId' => publish_batch,
         post => #{
+            summary => <<"Publish a batch of messages">>,
             description => ?DESC(publish_bulk_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),

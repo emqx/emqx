@@ -30,12 +30,12 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "24.3.4.2-2", "el7", "erlang"]
-          - ["emqx", "25.1.2-2", "ubuntu22.04", "elixir"]
-          - ["emqx-enterprise", "24.3.4.2-2", "amzn2", "erlang"]
-          - ["emqx-enterprise", "25.1.2-2", "ubuntu20.04", "erlang"]
+          - ["emqx", "24.3.4.2-3", "el7", "erlang"]
+          - ["emqx", "25.1.2-3", "ubuntu22.04", "elixir"]
+          - ["emqx-enterprise", "24.3.4.2-3", "amzn2", "erlang"]
+          - ["emqx-enterprise", "25.1.2-3", "ubuntu20.04", "erlang"]
         builder:
-          - 5.0-32
+          - 5.0-33
         elixir:
           - '1.13.4'
 
@@ -132,7 +132,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.3.4.2-2
+        - 24.3.4.2-3
         os:
         - macos-11
         - macos-12-arm64

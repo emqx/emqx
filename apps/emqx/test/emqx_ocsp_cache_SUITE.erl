@@ -76,7 +76,7 @@ init_per_testcase(t_openssl_client, Config) ->
         [],
         Handler,
         #{
-            extra_mustache_vars => [{test_data_dir, DataDir}],
+            extra_mustache_vars => #{test_data_dir => DataDir},
             conf_file_path => ConfFilePath
         }
     ),

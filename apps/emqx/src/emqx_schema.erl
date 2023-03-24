@@ -226,6 +226,11 @@ roots(low) ->
             sc(
                 ref("trace"),
                 #{}
+            )},
+        {"crl_cache",
+            sc(
+                ref("crl_cache"),
+                #{hidden => true}
             )}
     ].
 
@@ -791,6 +796,37 @@ fields("listeners") ->
                 #{
                     desc => ?DESC(fields_listeners_quic),
                     required => {false, recursively}
+                }
+            )}
+    ];
+fields("crl_cache") ->
+    %% Note: we make the refresh interval and HTTP timeout global (not
+    %% per-listener) because multiple SSL listeners might point to the
+    %% same URL.  If they had diverging timeout options, it would be
+    %% confusing.
+    [
+        {"refresh_interval",
+            sc(
+                duration(),
+                #{
+                    default => <<"15m">>,
+                    desc => ?DESC("crl_cache_refresh_interval")
+                }
+            )},
+        {"http_timeout",
+            sc(
+                duration(),
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC("crl_cache_refresh_http_timeout")
+                }
+            )},
+        {"capacity",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC("crl_cache_capacity")
                 }
             )}
     ];
@@ -2065,6 +2101,8 @@ desc("shared_subscription_group") ->
     "Per group dispatch strategy for shared subscription";
 desc("ocsp") ->
     "Per listener OCSP Stapling configuration.";
+desc("crl_cache") ->
+    "Global CRL cache options.";
 desc(_) ->
     undefined.
 
@@ -2264,13 +2302,22 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             hidden => true,
                             validator => fun ocsp_inner_validator/1
                         }
+                    )},
+                {"enable_crl_check",
+                    sc(
+                        boolean(),
+                        #{
+                            default => false,
+                            desc => ?DESC("server_ssl_opts_schema_enable_crl_check")
+                        }
                     )}
             ]
         ].
 
 mqtt_ssl_listener_ssl_options_validator(Conf) ->
     Checks = [
-        fun ocsp_outer_validator/1
+        fun ocsp_outer_validator/1,
+        fun crl_outer_validator/1
     ],
     case emqx_misc:pipeline(Checks, Conf, not_used) of
         {ok, _, _} ->
@@ -2303,6 +2350,18 @@ ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->
     assert_required_field(
         Conf, <<"issuer_pem">>, "The issuer PEM path is required for OCSP stapling"
     ),
+    ok.
+
+crl_outer_validator(
+    #{<<"enable_crl_check">> := true} = SSLOpts
+) ->
+    case maps:get(<<"verify">>, SSLOpts) of
+        verify_peer ->
+            ok;
+        _ ->
+            {error, "verify must be verify_peer when CRL check is enabled"}
+    end;
+crl_outer_validator(_SSLOpts) ->
     ok.
 
 %% @doc Make schema for SSL client.
