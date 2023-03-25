@@ -56,7 +56,8 @@
     safe_to_existing_atom/1,
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
-    safe_filename/1
+    safe_filename/1,
+    diff_lists/3
 ]).
 
 -export([
@@ -734,3 +735,133 @@ safe_filename(Filename) when is_binary(Filename) ->
     binary:replace(Filename, <<":">>, <<"-">>, [global]);
 safe_filename(Filename) when is_list(Filename) ->
     lists:flatten(string:replace(Filename, ":", "-", all)).
+
+-spec diff_lists(list(T), list(T), Func) ->
+    #{
+        added := list(T),
+        identical := list(T),
+        removed := list(T),
+        changed := list({Old :: T, New :: T})
+    }
+when
+    Func :: fun((T) -> any()),
+    T :: any().
+
+diff_lists(New, Old, KeyFunc) when is_list(New) andalso is_list(Old) ->
+    Removed =
+        lists:foldl(
+            fun(E, RemovedAcc) ->
+                SearchFunc = fun(OldE) -> KeyFunc(OldE) =:= KeyFunc(E) end,
+                case lists:search(SearchFunc, New) of
+                    false -> [E | RemovedAcc];
+                    _ -> RemovedAcc
+                end
+            end,
+            [],
+            Old
+        ),
+    {Added, Identical, Changed} =
+        lists:foldl(
+            fun(E, Acc) ->
+                {Added0, Identical0, Changed0} = Acc,
+                SearchFunc = fun(OldE) -> KeyFunc(OldE) =:= KeyFunc(E) end,
+                case lists:search(SearchFunc, Old) of
+                    false ->
+                        {[E | Added0], Identical0, Changed0};
+                    {value, E} ->
+                        {Added0, [E | Identical0], Changed0};
+                    {value, E1} ->
+                        {Added0, Identical0, [{E1, E} | Changed0]}
+                end
+            end,
+            {[], [], []},
+            New
+        ),
+    #{
+        removed => lists:reverse(Removed),
+        added => lists:reverse(Added),
+        identical => lists:reverse(Identical),
+        changed => lists:reverse(Changed)
+    }.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+diff_lists_test() ->
+    KeyFunc = fun(#{name := Name}) -> Name end,
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [],
+            identical => [],
+            changed => []
+        },
+        diff_lists([], [], KeyFunc)
+    ),
+    %% test removed list
+    ?assertEqual(
+        #{
+            removed => [#{name => a, value => 1}],
+            added => [],
+            identical => [],
+            changed => []
+        },
+        diff_lists([], [#{name => a, value => 1}], KeyFunc)
+    ),
+    %% test added list
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [#{name => a, value => 1}],
+            identical => [],
+            changed => []
+        },
+        diff_lists([#{name => a, value => 1}], [], KeyFunc)
+    ),
+    %% test identical list
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [],
+            identical => [#{name => a, value => 1}],
+            changed => []
+        },
+        diff_lists([#{name => a, value => 1}], [#{name => a, value => 1}], KeyFunc)
+    ),
+    Old = [
+        #{name => a, value => 1},
+        #{name => b, value => 4},
+        #{name => e, value => 2},
+        #{name => d, value => 4}
+    ],
+    New = [
+        #{name => a, value => 1},
+        #{name => b, value => 2},
+        #{name => e, value => 2},
+        #{name => c, value => 3}
+    ],
+    Diff = diff_lists(New, Old, KeyFunc),
+    ?assertEqual(
+        #{
+            added => [
+                #{name => c, value => 3}
+            ],
+            identical => [
+                #{name => a, value => 1},
+                #{name => e, value => 2}
+            ],
+            removed => [
+                #{name => d, value => 4}
+            ],
+            changed => [{#{name => b, value => 4}, #{name => b, value => 2}}]
+        },
+        Diff
+    ),
+    %% test key function crash
+    ?assertError(
+        {case_clause, _},
+        diff_lists(#{value => 2}, #{value => 3}, KeyFunc)
+    ),
+    ok.
+
+-endif.

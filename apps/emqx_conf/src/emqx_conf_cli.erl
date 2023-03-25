@@ -42,10 +42,24 @@ conf(["reload"]) ->
             emqx_ctl:print("reload ~s failed:~n", [ConfFiles]),
             print(Error)
     end;
+conf(["print"]) ->
+    print_hocon(emqx:get_raw_config([]));
+conf(["print", "--only-keys"]) ->
+    print(maps:keys(emqx:get_raw_config([])));
+conf(["print", "--with-default"]) ->
+    print_hocon(emqx_config:fill_defaults(emqx:get_raw_config([])));
+conf(["print", "--with-default", Key]) ->
+    print_hocon(emqx_config:fill_defaults(#{Key => emqx:get_raw_config([Key])}));
+conf(["print", Key]) ->
+    print_hocon(#{Key => emqx:get_raw_config([Key])});
 conf(_) ->
     emqx_ctl:usage(
         [
-            {"conf reload", "reload etc/emqx.conf on local node"}
+            {"conf reload", "reload etc/emqx.conf on local node"},
+            {"conf print", "print all configures on local node"},
+            {"conf print --without-default",
+                "print all configures on local node without default values"},
+            {"conf print <key>", "print the value of the key"}
         ]
     ).
 
@@ -114,3 +128,6 @@ status() ->
 
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
+
+print_hocon(Hocon) ->
+    emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]).

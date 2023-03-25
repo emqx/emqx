@@ -214,14 +214,30 @@ remove_config([RootName | _] = KeyPath, Opts) ->
 
 -spec reset_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-reset_config([RootName | _] = KeyPath, Opts) ->
+reset_config([RootName | SubKeys] = KeyPath, Opts) ->
     case emqx_config:get_default_value(KeyPath) of
         {ok, Default} ->
-            emqx_config_handler:update_config(
-                emqx_config:get_schema_mod(RootName),
-                KeyPath,
-                {{update, Default}, Opts}
-            );
+            Mod = emqx_config:get_schema_mod(RootName),
+            case SubKeys =:= [] of
+                true ->
+                    emqx_config_handler:update_config(
+                        Mod,
+                        KeyPath,
+                        {{update, Default}, Opts}
+                    );
+                false ->
+                    NewConf =
+                        emqx_map_lib:deep_put(
+                            SubKeys,
+                            emqx_config:get_raw([RootName], #{}),
+                            Default
+                        ),
+                    emqx_config_handler:update_config(
+                        Mod,
+                        [RootName],
+                        {{update, NewConf}, Opts}
+                    )
+            end;
         {error, _} = Error ->
             Error
     end.

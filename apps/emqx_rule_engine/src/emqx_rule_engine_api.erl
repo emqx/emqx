@@ -329,8 +329,7 @@ param_path_id() ->
                     {400, #{code => 'BAD_REQUEST', message => <<"rule id already exists">>}};
                 not_found ->
                     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
-                        {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
-                            [Rule] = get_one_rule(AllRules, Id),
+                        {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
                             {201, format_rule_resp(Rule)};
                         {error, Reason} ->
                             ?SLOG(error, #{
@@ -370,8 +369,7 @@ param_path_id() ->
     Params = filter_out_request_body(Params0),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
-        {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
-            [Rule] = get_one_rule(AllRules, Id),
+        {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
             {200, format_rule_resp(Rule)};
         {error, Reason} ->
             ?SLOG(error, #{
@@ -588,9 +586,6 @@ aggregate_metrics(AllMetrics) ->
         InitMetrics,
         AllMetrics
     ).
-
-get_one_rule(AllRules, Id) ->
-    [R || R = #{id := Id0} <- AllRules, Id0 == Id].
 
 add_metadata(Params) ->
     Params#{

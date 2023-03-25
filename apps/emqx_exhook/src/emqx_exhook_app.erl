@@ -22,8 +22,7 @@
 
 -export([
     start/2,
-    stop/1,
-    prep_stop/1
+    stop/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -33,10 +32,6 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
     {ok, Sup}.
-
-prep_stop(State) ->
-    emqx_ctl:unregister_command(exhook),
-    State.
 
 stop(_State) ->
     ok.

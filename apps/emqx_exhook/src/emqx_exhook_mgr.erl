@@ -181,10 +181,14 @@ pre_config_update(_, {enable, Name, Enable}, OldConf) ->
     of
         not_found -> throw(not_found);
         NewConf -> {ok, lists:map(fun maybe_write_certs/1, NewConf)}
-    end.
+    end;
+pre_config_update(_, NewConf, _OldConf) when NewConf =:= #{} ->
+    {ok, NewConf#{<<"servers">> => []}};
+pre_config_update(_, NewConf = #{<<"servers">> := Servers}, _OldConf) ->
+    {ok, NewConf#{<<"servers">> => lists:map(fun maybe_write_certs/1, Servers)}}.
 
 post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
-    Result = call({update_config, UpdateReq, NewConf}),
+    Result = call({update_config, UpdateReq, NewConf, OldConf}),
     try_clear_ssl_files(UpdateReq, NewConf, OldConf),
     {ok, Result}.
 
@@ -197,6 +201,7 @@ post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
 init([]) ->
     process_flag(trap_exit, true),
     emqx_conf:add_handler([exhook, servers], ?MODULE),
+    emqx_conf:add_handler([exhook], ?MODULE),
     ServerL = emqx:get_config([exhook, servers]),
     Servers = load_all_servers(ServerL),
     Servers2 = reorder(ServerL, Servers),
@@ -222,22 +227,16 @@ handle_call(
     OrderServers = sort_name_by_order(Infos, Servers),
     {reply, OrderServers, State};
 handle_call(
-    {update_config, {move, _Name, _Position}, NewConfL},
+    {update_config, {move, _Name, _Position}, NewConfL, _},
     _From,
     #{servers := Servers} = State
 ) ->
     Servers2 = reorder(NewConfL, Servers),
     {reply, ok, State#{servers := Servers2}};
-handle_call({update_config, {delete, ToDelete}, _}, _From, State) ->
-    emqx_exhook_metrics:on_server_deleted(ToDelete),
-
-    #{servers := Servers} = State2 = do_unload_server(ToDelete, State),
-
-    Servers2 = maps:remove(ToDelete, Servers),
-
-    {reply, ok, update_servers(Servers2, State2)};
+handle_call({update_config, {delete, ToDelete}, _, _}, _From, State) ->
+    {reply, ok, remove_server(ToDelete, State)};
 handle_call(
-    {update_config, {add, RawConf}, NewConfL},
+    {update_config, {add, RawConf}, NewConfL, _},
     _From,
     #{servers := Servers} = State
 ) ->
@@ -246,14 +245,68 @@ handle_call(
     Servers2 = Servers#{Name => Server},
     Servers3 = reorder(NewConfL, Servers2),
     {reply, Result, State#{servers := Servers3}};
+handle_call({update_config, {update, Name, _Conf}, NewConfL, _}, _From, State) ->
+    {Result, State2} = restart_server(Name, NewConfL, State),
+    {reply, Result, State2};
+handle_call({update_config, {enable, Name, _Enable}, NewConfL, _}, _From, State) ->
+    {Result, State2} = restart_server(Name, NewConfL, State),
+    {reply, Result, State2};
+handle_call({update_config, _, ConfL, ConfL}, _From, State) ->
+    {reply, ok, State};
+handle_call({update_config, _, #{servers := NewConfL}, #{servers := OldConfL}}, _From, State) ->
+    #{
+        removed := Removed,
+        added := Added,
+        changed := Updated
+    } = emqx_misc:diff_lists(NewConfL, OldConfL, fun(#{name := Name}) -> Name end),
+    %% remove servers
+    State2 = lists:foldl(
+        fun(Conf, Acc) ->
+            ToDelete = maps:get(name, Conf),
+            remove_server(ToDelete, Acc)
+        end,
+        State,
+        Removed
+    ),
+    %% update servers
+    {UpdateRes, State3} =
+        lists:foldl(
+            fun({_Old, Conf}, {ResAcc, StateAcc}) ->
+                Name = maps:get(name, Conf),
+                case restart_server(Name, NewConfL, StateAcc) of
+                    {ok, StateAcc1} -> {ResAcc, StateAcc1};
+                    {Err, StateAcc1} -> {[Err | ResAcc], StateAcc1}
+                end
+            end,
+            {[], State2},
+            Updated
+        ),
+    %% Add servers
+    {AddRes, State4} =
+        lists:foldl(
+            fun(Conf, {ResAcc, StateAcc}) ->
+                case do_load_server(options_to_server(Conf)) of
+                    {ok, Server} ->
+                        #{servers := Servers} = StateAcc,
+                        Name = maps:get(name, Conf),
+                        Servers2 = Servers#{Name => Server},
+                        {ResAcc, update_servers(Servers2, StateAcc)};
+                    {Err, StateAcc1} ->
+                        {[Err | ResAcc], StateAcc1}
+                end
+            end,
+            {[], State3},
+            Added
+        ),
+    %% update order
+    #{servers := Servers4} = State4,
+    State5 = State4#{servers => reorder(NewConfL, Servers4)},
+    case lists:append([UpdateRes, AddRes]) of
+        [] -> {reply, ok, State5};
+        _ -> {reply, {error, #{added => AddRes, updated => UpdateRes}}, State5}
+    end;
 handle_call({lookup, Name}, _From, State) ->
     {reply, where_is_server(Name, State), State};
-handle_call({update_config, {update, Name, _Conf}, NewConfL}, _From, State) ->
-    {Result, State2} = restart_server(Name, NewConfL, State),
-    {reply, Result, State2};
-handle_call({update_config, {enable, Name, _Enable}, NewConfL}, _From, State) ->
-    {Result, State2} = restart_server(Name, NewConfL, State),
-    {reply, Result, State2};
 handle_call({server_info, Name}, _From, State) ->
     case where_is_server(Name, State) of
         not_found ->
@@ -287,6 +340,12 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+remove_server(ToDelete, State) ->
+    emqx_exhook_metrics:on_server_deleted(ToDelete),
+    #{servers := Servers} = State2 = do_unload_server(ToDelete, State),
+    Servers2 = maps:remove(ToDelete, Servers),
+    update_servers(Servers2, State2).
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -310,6 +369,8 @@ terminate(Reason, State = #{servers := Servers}) ->
         Servers
     ),
     ?tp(info, exhook_mgr_terminated, #{reason => Reason, servers => Servers}),
+    emqx_conf:remove_handler([exhook, servers]),
+    emqx_conf:remove_handler([exhook]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -612,8 +673,16 @@ try_clear_ssl_files({Op, Name, _}, NewConfs, OldConfs) when
     NewSSL = find_server_ssl_cfg(Name, NewConfs),
     OldSSL = find_server_ssl_cfg(Name, OldConfs),
     emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), NewSSL, OldSSL);
-try_clear_ssl_files(_Req, _NewConf, _OldConf) ->
-    ok.
+%% replace the whole config from the file
+try_clear_ssl_files(_Req, #{servers := NewServers}, #{servers := OldServers}) ->
+    lists:map(
+        fun(#{name := Name} = Conf) ->
+            NewSSL = find_server_ssl_cfg(Name, NewServers),
+            OldSSL = maps:get(ssl, Conf, undefined),
+            emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), NewSSL, OldSSL)
+        end,
+        OldServers
+    ).
 
 search_server_cfg(Name, Confs) ->
     lists:search(
