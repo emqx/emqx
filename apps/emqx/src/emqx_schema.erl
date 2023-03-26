@@ -1321,6 +1321,8 @@ fields("listener_wss_opts") ->
     );
 fields("listener_quic_ssl_opts") ->
     %% Mark unsupported TLS options deprecated.
+    Schema0 = server_ssl_opts_schema(#{}, false),
+    Schema1 = lists:keydelete("ocsp", 1, Schema0),
     lists:map(
         fun({Name, Schema}) ->
             case is_quic_ssl_opts(Name) of
@@ -1330,7 +1332,7 @@ fields("listener_quic_ssl_opts") ->
                     {Name, Schema#{deprecated => {since, "5.0.20"}}}
             end
         end,
-        server_ssl_opts_schema(#{}, false)
+        Schema1
     );
 fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
@@ -2296,6 +2298,8 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         ref("ocsp"),
                         #{
                             required => false,
+                            %% TODO: remove after e5.0.2
+                            hidden => true,
                             validator => fun ocsp_inner_validator/1
                         }
                     )},

@@ -677,15 +677,9 @@ do_t_update_listener(Config) ->
     %% no ocsp at first
     ListenerId = "ssl:default",
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
-    ?assertMatch(
-        #{
-            <<"ssl_options">> :=
-                #{
-                    <<"ocsp">> :=
-                        #{<<"enable_ocsp_stapling">> := false}
-                }
-        },
-        ListenerData0
+    ?assertEqual(
+        undefined,
+        emqx_map_lib:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
     ),
     assert_no_http_get(),
 

@@ -246,8 +246,8 @@ generate_changelog () {
     fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    if [ -n "$(git diff --stat)" ]; then
-        git add changes/"${TAG}".*.md
+    git add changes/"${TAG}".*.md
+    if [ -n "$(git diff --staged --stat)" ]; then
         git commit -m "docs: Generate changelog for ${TAG}"
     else
         logmsg "No changelog update."
