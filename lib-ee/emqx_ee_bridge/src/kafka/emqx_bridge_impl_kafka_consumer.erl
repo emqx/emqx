@@ -290,7 +290,13 @@ start_consumer(Config, InstanceId, ClientID) ->
     %% cluster, so that the load gets distributed between all
     %% consumers and we don't repeat messages in the same cluster.
     GroupID = consumer_group_id(BridgeName),
+    BeginOffset =
+        case OffsetResetPolicy of
+            reset_to_latest -> latest;
+            reset_to_earliest -> earliest
+        end,
     ConsumerConfig = [
+        {begin_offset, BeginOffset},
         {max_bytes, MaxBatchBytes},
         {offset_reset_policy, OffsetResetPolicy}
     ],

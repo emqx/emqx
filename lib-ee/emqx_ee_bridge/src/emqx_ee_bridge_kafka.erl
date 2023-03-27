@@ -370,7 +370,7 @@ fields(consumer_kafka_opts) ->
             })},
         {offset_reset_policy,
             mk(
-                enum([reset_to_latest, reset_to_earliest, reset_by_subscriber]),
+                enum([reset_to_latest, reset_to_earliest]),
                 #{default => reset_to_latest, desc => ?DESC(consumer_offset_reset_policy)}
             )},
         {offset_commit_interval_seconds,
