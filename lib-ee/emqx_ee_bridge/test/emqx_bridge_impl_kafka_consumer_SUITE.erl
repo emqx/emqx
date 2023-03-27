@@ -575,7 +575,7 @@ kafka_config(TestCase, _KafkaType, Config) ->
             "    max_rejoin_attempts = 5\n"
             "    offset_commit_interval_seconds = 3\n"
             %% todo: matrix this
-            "    offset_reset_policy = reset_to_latest\n"
+            "    offset_reset_policy = latest\n"
             "  }\n"
             "~s"
             "  key_encoding_mode = none\n"
@@ -1944,7 +1944,7 @@ t_begin_offset_earliest(Config) ->
             ),
 
             {ok, _} = create_bridge(Config, #{
-                <<"kafka">> => #{<<"offset_reset_policy">> => <<"reset_to_earliest">>}
+                <<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}
             }),
 
             #{num_published => NumMessages}
