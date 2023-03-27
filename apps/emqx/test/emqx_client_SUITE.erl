@@ -390,4 +390,10 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
+    %% verify that the peercert won't be stored in the conninfo
+    [ChannPid] = emqx_cm:lookup_channels(CN),
+    SysState = sys:get_state(ChannPid),
+    ChannelRecord = lists:keyfind(channel, 1, tuple_to_list(SysState)),
+    ConnInfo = lists:nth(2, tuple_to_list(ChannelRecord)),
+    ?assertMatch(#{peercert := undefined}, ConnInfo),
     emqtt:disconnect(Client).
