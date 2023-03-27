@@ -86,8 +86,7 @@ t_assemble_empty_transfer(Config) ->
     ),
     Status = complete_assemble(Storage, Transfer, 0),
     ?assertEqual({shutdown, ok}, Status),
-    {ok, [_Result = #{size := _Size = 0}]} =
-        emqx_ft_storage_fs:exports_local(Storage, Transfer),
+    {ok, [_Result = #{size := _Size = 0}]} = list_exports(Config, Transfer),
     % ?assertEqual(
     %     {error, eof},
     %     emqx_ft_storage_fs:pread(Storage, Transfer, Result, 0, Size)
@@ -138,10 +137,9 @@ t_assemble_complete_local_transfer(Config) ->
                 meta := #{}
             }
         ]},
-        emqx_ft_storage_fs:exports_local(Storage, Transfer)
+        list_exports(Config, Transfer)
     ),
-    {ok, [#{path := AssemblyFilename}]} =
-        emqx_ft_storage_fs:exports_local(Storage, Transfer),
+    {ok, [#{path := AssemblyFilename}]} = list_exports(Config, Transfer),
     ?assertMatch(
         {ok, #file_info{type = regular, size = TransferSize}},
         file:read_file_info(AssemblyFilename)
@@ -193,8 +191,7 @@ complete_assemble(Storage, Transfer, Size, Timeout) ->
 %%
 
 t_list_transfers(Config) ->
-    Storage = storage(Config),
-    {ok, Exports} = emqx_ft_storage_fs:exports_local(Storage),
+    {ok, Exports} = list_exports(Config),
     ?assertMatch(
         [
             #{
@@ -236,6 +233,17 @@ inspect_file(Filename) ->
 
 mk_fileid() ->
     integer_to_binary(erlang:system_time(millisecond)).
+
+list_exports(Config) ->
+    {emqx_ft_storage_exporter_fs, Options} = exporter(Config),
+    emqx_ft_storage_exporter_fs:list_local(Options).
+
+list_exports(Config, Transfer) ->
+    {emqx_ft_storage_exporter_fs, Options} = exporter(Config),
+    emqx_ft_storage_exporter_fs:list_local(Options, Transfer).
+
+exporter(Config) ->
+    emqx_ft_storage_exporter:exporter(storage(Config)).
 
 storage(Config) ->
     #{

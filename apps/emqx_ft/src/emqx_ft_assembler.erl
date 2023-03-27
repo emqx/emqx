@@ -106,11 +106,15 @@ handle_event(internal, _, {list_remote_fragments, Nodes}, St) ->
         {error, _} = Error ->
             {stop, {shutdown, Error}}
     end;
-handle_event(internal, _, start_assembling, St = #st{assembly = Asm}) ->
-    Filemeta = emqx_ft_assembly:filemeta(Asm),
-    Coverage = emqx_ft_assembly:coverage(Asm),
+handle_event(internal, _, start_assembling, St = #st{}) ->
+    Filemeta = emqx_ft_assembly:filemeta(St#st.assembly),
+    Coverage = emqx_ft_assembly:coverage(St#st.assembly),
     % TODO: better error handling
-    {ok, Export} = export_start(Filemeta, St),
+    {ok, Export} = emqx_ft_storage_exporter:start_export(
+        St#st.storage,
+        St#st.transfer,
+        Filemeta
+    ),
     {next_state, {assemble, Coverage}, St#st{export = Export}, ?internal([])};
 handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO
@@ -119,47 +123,22 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #st{}) ->
     % TODO: pipelining
     % TODO: better error handling
     {ok, Content} = pread(Node, Segment, St),
-    {ok, NExport} = export_write(St#st.export, Content),
+    {ok, NExport} = emqx_ft_storage_exporter:write(St#st.export, Content),
     {next_state, {assemble, Rest}, St#st{export = NExport}, ?internal([])};
 handle_event(internal, _, {assemble, []}, St = #st{}) ->
     {next_state, complete, St, ?internal([])};
 handle_event(internal, _, complete, St = #st{}) ->
-    Result = export_complete(St#st.export),
+    Result = emqx_ft_storage_exporter:complete(St#st.export),
     ok = maybe_garbage_collect(Result, St),
     {stop, {shutdown, Result}, St#st{export = undefined}}.
 
 terminate(_Reason, _StateName, #st{export = Export}) ->
-    Export /= undefined andalso export_discard(Export).
+    Export /= undefined andalso emqx_ft_storage_exporter:discard(Export).
 
 pread(Node, Segment, St) when Node =:= node() ->
     emqx_ft_storage_fs:pread(St#st.storage, St#st.transfer, Segment, 0, segsize(Segment));
 pread(Node, Segment, St) ->
     emqx_ft_storage_fs_proto_v1:pread(Node, St#st.transfer, Segment, 0, segsize(Segment)).
-
-%%
-
-export_start(Filemeta, #st{storage = Storage, transfer = Transfer}) ->
-    {ExporterMod, Exporter} = emqx_ft_storage_fs:exporter(Storage),
-    case ExporterMod:start_export(Exporter, Transfer, Filemeta) of
-        {ok, Export} ->
-            {ok, {ExporterMod, Export}};
-        {error, _} = Error ->
-            Error
-    end.
-
-export_write({ExporterMod, Export}, Content) ->
-    case ExporterMod:write(Export, Content) of
-        {ok, ExportNext} ->
-            {ok, {ExporterMod, ExportNext}};
-        {error, _} = Error ->
-            Error
-    end.
-
-export_complete({ExporterMod, Export}) ->
-    ExporterMod:complete(Export).
-
-export_discard({ExporterMod, Export}) ->
-    ExporterMod:discard(Export).
 
 %%
 
