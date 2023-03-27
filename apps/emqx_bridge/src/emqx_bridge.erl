@@ -68,7 +68,8 @@
     T == matrix;
     T == tdengine;
     T == dynamo;
-    T == rocketmq
+    T == rocketmq;
+    T == cassandra
 ).
 
 load() ->

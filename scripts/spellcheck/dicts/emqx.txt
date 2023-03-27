@@ -272,3 +272,4 @@ TDengine
 clickhouse
 FormatType
 RocketMQ
+Keyspace

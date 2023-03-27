@@ -83,5 +83,17 @@
     "listen": "0.0.0.0:9876",
     "upstream": "rocketmq_namesrv:9876",
     "enabled": true
+  },
+  {
+    "name": "cassa_tcp",
+    "listen": "0.0.0.0:9042",
+    "upstream": "cassandra:9042",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tls",
+    "listen": "0.0.0.0:9142",
+    "upstream": "cassandra:9142",
+    "enabled": true
   }
 ]
