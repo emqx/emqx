@@ -19,12 +19,16 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+-define(BASE_PATH, "/api/v5").
+
 %% API
 -export([spec/1, spec/2]).
 -export([namespace/0, namespace/1, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
 -export([file_schema/1]).
+-export([base_path/0]).
+-export([relative_uri/1]).
 
 -export([filter_check_request/2, filter_check_request_and_translate_body/2]).
 
@@ -176,6 +180,14 @@ error_codes(Codes = [_ | _], MsgDesc) ->
                 desc => MsgDesc
             })}
     ].
+
+-spec base_path() -> uri_string:uri_string().
+base_path() ->
+    ?BASE_PATH.
+
+-spec relative_uri(uri_string:uri_string()) -> uri_string:uri_string().
+relative_uri(Uri) ->
+    base_path() ++ Uri.
 
 file_schema(FileName) ->
     #{
