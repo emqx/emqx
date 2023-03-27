@@ -274,7 +274,18 @@ init_per_testcase(TestCase, Config) when
             [{skip_does_not_apply, true}]
     end;
 init_per_testcase(TestCase, Config) when
-    TestCase =:= t_failed_creation_then_fixed;
+    TestCase =:= t_failed_creation_then_fixed
+->
+    %% test with one partiton only for this case because
+    %% the wait probe may not be always sent to the same partition
+    HasProxy = proplists:get_value(has_proxy, Config, true),
+    case HasProxy of
+        false ->
+            [{skip_does_not_apply, true}];
+        true ->
+            common_init_per_testcase(TestCase, [{num_partitions, 1} | Config])
+    end;
+init_per_testcase(TestCase, Config) when
     TestCase =:= t_on_get_status;
     TestCase =:= t_receive_after_recovery
 ->
