@@ -26,6 +26,7 @@
 
         exports/0,
 
+        with_storage_type/2,
         with_storage_type/3
     ]
 ).
@@ -33,7 +34,9 @@
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
+-export_type([export_info/0]).
 -export_type([export_data/0]).
+-export_type([reader/0]).
 
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
 
@@ -46,6 +49,7 @@
 }.
 
 -type export_data() :: binary() | qlc:query_handle().
+-type reader() :: pid().
 
 %%--------------------------------------------------------------------
 %% Behaviour
@@ -106,11 +110,17 @@ exports() ->
     Mod = mod(),
     Mod:exports(storage()).
 
--spec with_storage_type(atom(), atom(), list(term())) -> any().
+-spec with_storage_type(atom(), atom() | function()) -> any().
+with_storage_type(Type, Fun) ->
+    with_storage_type(Type, Fun, []).
+
+-spec with_storage_type(atom(), atom() | function(), list(term())) -> any().
 with_storage_type(Type, Fun, Args) ->
     Storage = storage(),
     case Storage of
-        #{type := Type} ->
+        #{type := Type} when is_function(Fun) ->
+            apply(Fun, [Storage | Args]);
+        #{type := Type} when is_atom(Fun) ->
             Mod = mod(Storage),
             apply(Mod, Fun, [Storage | Args]);
         disabled ->

@@ -24,7 +24,7 @@
 
 -include_lib("emqx/include/asserts.hrl").
 
--import(emqx_mgmt_api_test_util, [uri/1]).
+-import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -111,7 +111,7 @@ t_download_transfer(Config) ->
     {ok, 200, #{<<"files">> := [File]}} =
         request(get, uri(["file_transfer", "files"]), fun json/1),
 
-    {ok, 200, Response} = request(get, uri([]) ++ maps:get(<<"uri">>, File)),
+    {ok, 200, Response} = request(get, host() ++ maps:get(<<"uri">>, File)),
 
     ?assertEqual(
         <<"data">>,
