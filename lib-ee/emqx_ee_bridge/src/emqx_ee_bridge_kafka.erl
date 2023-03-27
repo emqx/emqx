@@ -364,7 +364,7 @@ fields(consumer_kafka_opts) ->
             })},
         {max_rejoin_attempts,
             mk(non_neg_integer(), #{
-                hidden => true,
+                importance => ?IMPORTANCE_HIDDEN,
                 default => 5,
                 desc => ?DESC(consumer_max_rejoin_attempts)
             })},
