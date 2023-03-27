@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(ee_connector_clickhouse_SUITE).
+-module(emqx_ee_connector_clickhouse_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
