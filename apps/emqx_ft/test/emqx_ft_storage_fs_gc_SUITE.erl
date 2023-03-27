@@ -104,6 +104,10 @@ t_gc_triggers_manually(_Config) ->
 
 t_gc_complete_transfers(_Config) ->
     Storage = emqx_ft_conf:storage(),
+    ok = emqx_config:put([file_transfer, storage, gc, minimum_segments_ttl], 0),
+    ok = emqx_config:put([file_transfer, storage, gc, maximum_segments_ttl], 3),
+    ok = emqx_config:put([file_transfer, storage, gc, interval], 500),
+    ok = emqx_ft_storage_fs_gc:reset(Storage),
     Transfers = [
         {
             T1 = {<<"client1">>, mk_file_id()},
@@ -174,7 +178,20 @@ t_gc_complete_transfers(_Config) ->
     ?assertEqual(?NSEGS(S2, SS2) + ?NSEGS(S3, SS3), CFiles),
     ?assertEqual(2 + 2, CDirectories),
     ?assertMatch(Space when Space > S2 + S3, CSpace),
-    ?assertMatch(Errors when map_size(Errors) == 0, CErrors).
+    ?assertMatch(Errors when map_size(Errors) == 0, CErrors),
+    % 4. Ensure that empty transfer directories will be eventually collected
+    {ok, _} = ?block_until(
+        #{
+            ?snk_kind := garbage_collection,
+            stats := #gcstats{
+                files = 0,
+                directories = 6,
+                space = 0
+            }
+        },
+        5000,
+        0
+    ).
 
 t_gc_incomplete_transfers(_Config) ->
     ok = emqx_config:put([file_transfer, storage, gc, minimum_segments_ttl], 0),
