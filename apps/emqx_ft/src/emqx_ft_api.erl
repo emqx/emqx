@@ -30,18 +30,12 @@
 ]).
 
 -export([
-    fields/1,
     roots/0
 ]).
 
 %% API callbacks
 -export([
-    '/file_transfer/files'/2,
-    '/file_transfer/file'/2
-]).
-
--export([
-    mk_file_uri/3
+    '/file_transfer/files'/2
 ]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -53,8 +47,7 @@ api_spec() ->
 
 paths() ->
     [
-        "/file_transfer/files",
-        "/file_transfer/file"
+        "/file_transfer/files"
     ].
 
 schema("/file_transfer/files") ->
@@ -71,31 +64,6 @@ schema("/file_transfer/files") ->
                 )
             }
         }
-    };
-schema("/file_transfer/file") ->
-    % TODO
-    % This is conceptually another API, because this logic is inherent only to the
-    % local filesystem exporter. Ideally, we won't even publish it if `emqx_ft` is
-    % configured with another exporter. Accordingly, things that look too specific
-    % for this module (i.e. `parse_filepath/1`) should go away in another API module.
-    #{
-        'operationId' => '/file_transfer/file',
-        get => #{
-            tags => [<<"file_transfer">>],
-            summary => <<"Download a particular file">>,
-            description => ?DESC("file_get"),
-            parameters => [
-                ref(file_node),
-                ref(file_ref)
-            ],
-            responses => #{
-                200 => <<"Operation success">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Not found">>),
-                503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
-                )
-            }
-        }
     }.
 
 '/file_transfer/files'(get, #{}) ->
@@ -106,76 +74,11 @@ schema("/file_transfer/file") ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
 
-'/file_transfer/file'(get, #{query_string := Query}) ->
-    try
-        Node = parse_node(maps:get(<<"node">>, Query)),
-        Filepath = parse_filepath(maps:get(<<"fileref">>, Query)),
-        case emqx_ft_storage_fs_proto_v1:read_export_file(Node, Filepath, self()) of
-            {ok, ReaderPid} ->
-                FileData = emqx_ft_storage_fs_reader:table(ReaderPid),
-                {200,
-                    #{
-                        <<"content-type">> => <<"application/data">>,
-                        <<"content-disposition">> => <<"attachment">>
-                    },
-                    FileData};
-            {error, enoent} ->
-                {404, error_msg('NOT_FOUND', <<"Not found">>)};
-            {error, Error} ->
-                ?SLOG(warning, #{msg => "get_ready_transfer_fail", error => Error}),
-                {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
-        end
-    catch
-        throw:{invalid, Param} ->
-            {404,
-                error_msg(
-                    'NOT_FOUND',
-                    iolist_to_binary(["Invalid query parameter: ", Param])
-                )};
-        error:{erpc, noconnection} ->
-            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
-    end.
-
 error_msg(Code, Msg) ->
     #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
 
--spec fields(hocon_schema:name()) -> hocon_schema:fields().
-fields(file_ref) ->
-    [
-        {fileref,
-            hoconsc:mk(binary(), #{
-                in => query,
-                desc => <<"File reference">>,
-                example => <<"file1">>,
-                required => true
-            })}
-    ];
-fields(file_node) ->
-    [
-        {node,
-            hoconsc:mk(binary(), #{
-                in => query,
-                desc => <<"Node under which the file is located">>,
-                example => atom_to_list(node()),
-                required => true
-            })}
-    ].
-
 roots() ->
-    [
-        file_node,
-        file_ref
-    ].
-
-mk_file_uri(_Options, Node, Filepath) ->
-    % TODO: qualify with `?BASE_PATH`
-    [
-        "/file_transfer/file?",
-        uri_string:compose_query([
-            {"node", atom_to_list(Node)},
-            {"fileref", Filepath}
-        ])
-    ].
+    [].
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -207,33 +110,3 @@ format_export_info(
 
 format_timestamp(Timestamp) ->
     iolist_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
-
-parse_node(NodeBin) ->
-    case emqx_misc:safe_to_existing_atom(NodeBin) of
-        {ok, Node} ->
-            Node;
-        {error, _} ->
-            throw({invalid, NodeBin})
-    end.
-
-parse_filepath(PathBin) ->
-    case filename:pathtype(PathBin) of
-        relative ->
-            ok;
-        absolute ->
-            throw({invalid, PathBin})
-    end,
-    PathComponents = filename:split(PathBin),
-    case lists:any(fun is_special_component/1, PathComponents) of
-        false ->
-            filename:join(PathComponents);
-        true ->
-            throw({invalid, PathBin})
-    end.
-
-is_special_component(<<".", _/binary>>) ->
-    true;
-is_special_component([$. | _]) ->
-    true;
-is_special_component(_) ->
-    false.

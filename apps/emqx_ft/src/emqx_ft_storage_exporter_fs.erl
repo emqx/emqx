@@ -30,6 +30,7 @@
 -export([start_reader/3]).
 
 -export([list/1]).
+% TODO
 % -export([list/2]).
 
 -export_type([export/0]).
@@ -228,7 +229,7 @@ mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo) ->
         #{
             transfer => Transfer,
             name => Filename,
-            uri => mk_export_uri(Options, RelFilepath),
+            uri => mk_export_uri(RelFilepath),
             timestamp => Fileinfo#file_info.mtime,
             size => Fileinfo#file_info.size,
             path => filename:join(Root, RelFilepath)
@@ -247,15 +248,14 @@ try_read_filemeta(Filepath, Info) ->
             Info
     end.
 
-mk_export_uri(Options, RelFilepath) ->
-    % emqx_ft_storage_exporter_fs_api:mk_export_uri(Options, RelFilepath).
-    emqx_ft_api:mk_file_uri(Options, node(), RelFilepath).
+mk_export_uri(RelFilepath) ->
+    emqx_ft_storage_exporter_fs_api:mk_export_uri(node(), RelFilepath).
 
 -spec start_reader(options(), file:name(), _Caller :: pid()) ->
     {ok, reader()} | {error, enoent}.
-start_reader(Options, Filepath, CallerPid) ->
+start_reader(Options, RelFilepath, CallerPid) ->
     Root = get_storage_root(Options),
-    case filelib:safe_relative_path(Filepath, Root) of
+    case filelib:safe_relative_path(RelFilepath, Root) of
         SafeFilepath when SafeFilepath /= unsafe ->
             AbsFilepath = filename:join(Root, SafeFilepath),
             emqx_ft_storage_fs_reader:start_supervised(CallerPid, AbsFilepath);
@@ -269,7 +269,7 @@ start_reader(Options, Filepath, CallerPid) ->
     {ok, [exportinfo(), ...]} | {error, file_error()}.
 list(_Options) ->
     Nodes = mria_mnesia:running_nodes(),
-    Results = emqx_ft_storage_fs_proto_v1:list_exports(Nodes),
+    Results = emqx_ft_storage_exporter_fs_proto_v1:list_exports(Nodes),
     {GoodResults, BadResults} = lists:partition(
         fun
             ({_Node, {ok, {ok, _}}}) -> true;

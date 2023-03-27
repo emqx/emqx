@@ -44,12 +44,7 @@
 -export([get_subdir/2]).
 -export([get_subdir/3]).
 
--export([exporter/1]).
-
-% Exporter-specific API
 -export([exports/1]).
--export([exports_local/1]).
--export([exports_local/2]).
 
 -export_type([storage/0]).
 -export_type([filefrag/1]).
@@ -214,24 +209,8 @@ assemble(Storage, Transfer, Size) ->
 
 %%
 
--spec exporter(storage()) -> {module(), _ExporterOptions}.
-exporter(Storage) ->
-    case maps:get(exporter, Storage) of
-        #{type := local} = Options ->
-            {emqx_ft_storage_exporter_fs, Options}
-    end.
-
 exports(Storage) ->
-    {ExporterMod, ExporterOpts} = exporter(Storage),
-    ExporterMod:list(ExporterOpts).
-
-exports_local(Storage) ->
-    {ExporterMod, ExporterOpts} = exporter(Storage),
-    ExporterMod:list_local(ExporterOpts).
-
-exports_local(Storage, Transfer) ->
-    {ExporterMod, ExporterOpts} = exporter(Storage),
-    ExporterMod:list_local(ExporterOpts, Transfer).
+    emqx_ft_storage_exporter:list(Storage).
 
 %%
 

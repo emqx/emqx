@@ -22,9 +22,7 @@
 
 -export([
     list_local/2,
-    pread_local/4,
-    list_exports_local/0,
-    read_export_file_local/2
+    pread_local/4
 ]).
 
 list_local(Transfer, What) ->
@@ -32,19 +30,3 @@ list_local(Transfer, What) ->
 
 pread_local(Transfer, Frag, Offset, Size) ->
     emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
-
-list_exports_local() ->
-    case emqx_ft_storage:with_storage_type(local, exporter, []) of
-        {emqx_ft_storage_exporter_fs, Options} ->
-            emqx_ft_storage_exporter_fs:list_local(Options);
-        InvalidExporter ->
-            {error, {invalid_exporter, InvalidExporter}}
-    end.
-
-read_export_file_local(Filepath, CallerPid) ->
-    case emqx_ft_storage:with_storage_type(local, exporter, []) of
-        {emqx_ft_storage_exporter_fs, Options} ->
-            emqx_ft_storage_exporter_fs:start_reader(Options, Filepath, CallerPid);
-        InvalidExporter ->
-            {error, {invalid_exporter, InvalidExporter}}
-    end.
