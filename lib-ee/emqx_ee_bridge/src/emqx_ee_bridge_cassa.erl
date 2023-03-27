@@ -53,7 +53,7 @@ values(_Method, Type) ->
         keyspace => <<"mqtt">>,
         pool_size => 8,
         username => <<"root">>,
-        password => <<"public">>,
+        password => <<"******">>,
         cql => ?DEFAULT_CQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
