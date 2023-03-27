@@ -145,6 +145,16 @@ on_start(InstanceId, Config) ->
                 instance_id => InstanceId,
                 kafka_hosts => BootstrapHosts
             });
+        {error, already_present = Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_start_kafka_consumer_client",
+                instance_id => InstanceId,
+                kafka_hosts => BootstrapHosts,
+                reason => emqx_misc:redact(Reason)
+            }),
+            throw(
+                "Kafka client failed to start properly.  Please check the connection parameters."
+            );
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer_client",
