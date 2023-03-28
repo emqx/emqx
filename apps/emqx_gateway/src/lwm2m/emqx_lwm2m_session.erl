@@ -15,11 +15,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_lwm2m_session).
 
+-include("src/coap/include/emqx_coap.hrl").
+-include("src/lwm2m/include/emqx_lwm2m.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include("src/coap/include/emqx_coap.hrl").
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -513,13 +514,17 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
             true ->
                 Acc;
             false ->
-                case emqx_lwm2m_xml_object_db:find_objectid(binary_to_integer(ObjId)) of
+                ObjId1 = binary_to_integer(ObjId),
+                case emqx_lwm2m_xml_object_db:find_objectid(ObjId1) of
                     {error, no_xml_definition} ->
-                        ?SLOG(warning, #{
-                            msg => "ignore_observer_resource",
-                            reason => no_xml_definition,
-                            object_id => ObjId
-                        }),
+                        ?tp(
+                            warning,
+                            ignore_observer_resource,
+                            #{
+                                reason => no_xml_definition,
+                                object_id => ObjId1
+                            }
+                        ),
                         Acc;
                     _ ->
                         observe_object(AlternatePath, ObjectPath, Acc)
