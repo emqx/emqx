@@ -397,6 +397,7 @@ fields("node") ->
                 #{
                     default => <<"emqx@127.0.0.1">>,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(node_name)
                 }
             )},
@@ -409,6 +410,7 @@ fields("node") ->
                     'readOnly' => true,
                     sensitive => true,
                     desc => ?DESC(node_cookie),
+                    importance => ?IMPORTANCE_HIGH,
                     converter => fun emqx_schema:password_converter/2
                 }
             )},
@@ -419,6 +421,7 @@ fields("node") ->
                     mapping => "vm_args.+P",
                     desc => ?DESC(process_limit),
                     default => 2097152,
+                    importance => ?IMPORTANCE_MEDIUM,
                     'readOnly' => true
                 }
             )},
@@ -429,6 +432,7 @@ fields("node") ->
                     mapping => "vm_args.+Q",
                     desc => ?DESC(max_ports),
                     default => 1048576,
+                    importance => ?IMPORTANCE_HIGH,
                     'readOnly' => true
                 }
             )},
@@ -439,6 +443,7 @@ fields("node") ->
                     mapping => "vm_args.+zdbbl",
                     desc => ?DESC(dist_buffer_size),
                     default => 8192,
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -449,6 +454,7 @@ fields("node") ->
                     mapping => "vm_args.+e",
                     desc => ?DESC(max_ets_tables),
                     default => 262144,
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -459,6 +465,10 @@ fields("node") ->
                     required => true,
                     'readOnly' => true,
                     mapping => "emqx.data_dir",
+                    %% for now, it's tricky to use a different data_dir
+                    %% otherwise data paths in cluster config may differ
+                    %% TODO: change configurable data file paths to relative
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_data_dir)
                 }
             )},
@@ -467,7 +477,7 @@ fields("node") ->
                 hoconsc:array(string()),
                 #{
                     mapping => "emqx.config_files",
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     required => false,
                     'readOnly' => true
                 }
@@ -479,6 +489,7 @@ fields("node") ->
                     mapping => "emqx_machine.global_gc_interval",
                     default => <<"15m">>,
                     desc => ?DESC(node_global_gc_interval),
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -489,6 +500,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
                     default => crash_dump_file_default(),
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -499,6 +511,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS",
                     default => <<"30s">>,
                     desc => ?DESC(node_crash_dump_seconds),
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -509,6 +522,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES",
                     default => <<"100MB">>,
                     desc => ?DESC(node_crash_dump_bytes),
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -519,6 +533,7 @@ fields("node") ->
                     mapping => "vm_args.-kernel net_ticktime",
                     default => <<"2m">>,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(node_dist_net_ticktime)
                 }
             )},
@@ -529,6 +544,7 @@ fields("node") ->
                     mapping => "emqx_machine.backtrace_depth",
                     default => 23,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(node_backtrace_depth)
                 }
             )},
@@ -539,6 +555,7 @@ fields("node") ->
                     mapping => "emqx_machine.applications",
                     default => [],
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(node_applications)
                 }
             )},
@@ -548,13 +565,17 @@ fields("node") ->
                 #{
                     desc => ?DESC(node_etc_dir),
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
                     deprecated => {since, "5.0.8"}
                 }
             )},
         {"cluster_call",
             sc(
                 ?R_REF("cluster_call"),
-                #{'readOnly' => true}
+                #{
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {"db_backend",
             sc(
@@ -563,6 +584,7 @@ fields("node") ->
                     mapping => "mria.db_backend",
                     default => rlog,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_backend)
                 }
             )},
@@ -573,6 +595,7 @@ fields("node") ->
                     mapping => "mria.node_role",
                     default => core,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(db_role)
                 }
             )},
@@ -583,6 +606,7 @@ fields("node") ->
                     mapping => "mria.rlog_rpc_module",
                     default => gen_rpc,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_rpc_module)
                 }
             )},
@@ -593,6 +617,7 @@ fields("node") ->
                     mapping => "mria.tlog_push_mode",
                     default => async,
                     'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(db_tlog_push_mode)
                 }
             )},
@@ -601,7 +626,7 @@ fields("node") ->
                 hoconsc:enum([gen_rpc, distr]),
                 #{
                     mapping => "mria.shard_transport",
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => gen_rpc,
                     desc => ?DESC(db_default_shard_transport)
                 }
@@ -611,7 +636,7 @@ fields("node") ->
                 map(shard, hoconsc:enum([gen_rpc, distr])),
                 #{
                     desc => ?DESC(db_shard_transports),
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     mapping => "emqx_machine.custom_shard_transports",
                     default => #{}
                 }

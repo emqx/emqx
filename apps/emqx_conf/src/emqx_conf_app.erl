@@ -28,7 +28,18 @@
 -define(DEFAULT_INIT_TXN_ID, -1).
 
 start(_StartType, _StartArgs) ->
-    init_conf(),
+    try
+        ok = init_conf()
+    catch
+        C:E:St ->
+            ?SLOG(critical, #{
+                msg => failed_to_init_config,
+                exception => C,
+                reason => E,
+                stacktrace => St
+            }),
+            init:stop()
+    end,
     ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
 
@@ -85,9 +96,9 @@ init_load() ->
 
 init_conf() ->
     {ok, TnxId} = copy_override_conf_from_core_node(),
-    emqx_app:set_init_tnx_id(TnxId),
-    init_load(),
-    emqx_app:set_init_config_load_done().
+    _ = emqx_app:set_init_tnx_id(TnxId),
+    ok = init_load(),
+    ok = emqx_app:set_init_config_load_done().
 
 cluster_nodes() ->
     maps:get(running_nodes, ekka_cluster:info()) -- [node()].

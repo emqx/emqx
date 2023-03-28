@@ -90,7 +90,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_dist_collector)
                 }
             )},
@@ -100,7 +100,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(mnesia_collector)
                 }
             )},
@@ -110,7 +110,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_statistics_collector)
                 }
             )},
@@ -120,7 +120,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_system_info_collector)
                 }
             )},
@@ -130,7 +130,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_memory_collector)
                 }
             )},
@@ -140,7 +140,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_msacc_collector)
                 }
             )}

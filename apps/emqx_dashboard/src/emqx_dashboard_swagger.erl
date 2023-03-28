@@ -830,36 +830,8 @@ to_bin(X) ->
     X.
 
 parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
-    {Props, Required, Refs} =
-        lists:foldl(
-            fun({Name, Hocon}, {Acc, RequiredAcc, RefsAcc}) ->
-                NameBin = to_bin(Name),
-                case hoconsc:is_schema(Hocon) of
-                    true ->
-                        HoconType = hocon_schema:field_schema(Hocon, type),
-                        Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
-                        SchemaToSpec = schema_converter(Options),
-                        Init = trans_desc(Init0, Hocon, SchemaToSpec, NameBin),
-                        {Prop, Refs1} = SchemaToSpec(HoconType, Module),
-                        NewRequiredAcc =
-                            case is_required(Hocon) of
-                                true -> [NameBin | RequiredAcc];
-                                false -> RequiredAcc
-                            end,
-                        {
-                            [{NameBin, maps:merge(Prop, Init)} | Acc],
-                            NewRequiredAcc,
-                            Refs1 ++ RefsAcc
-                        };
-                    false ->
-                        {SubObject, SubRefs} = parse_object(Hocon, Module, Options),
-                        {[{NameBin, SubObject} | Acc], RequiredAcc, SubRefs ++ RefsAcc}
-                end
-            end,
-            {[], [], []},
-            PropList
-        ),
-    Object = #{<<"type">> => object, <<"properties">> => lists:reverse(Props)},
+    {Props, Required, Refs} = parse_object_loop(PropList, Module, Options),
+    Object = #{<<"type">> => object, <<"properties">> => Props},
     case Required of
         [] -> {Object, Refs};
         _ -> {maps:put(required, Required, Object), Refs}
@@ -874,6 +846,54 @@ parse_object(Other, Module, Options) ->
         }}
     ).
 
+parse_object_loop(PropList0, Module, Options) ->
+    PropList = lists:filter(
+        fun({_, Hocon}) ->
+            case hoconsc:is_schema(Hocon) andalso is_hidden(Hocon) of
+                true -> false;
+                false -> true
+            end
+        end,
+        PropList0
+    ),
+    parse_object_loop(PropList, Module, Options, _Props = [], _Required = [], _Refs = []).
+
+parse_object_loop([], _Modlue, _Options, Props, Required, Refs) ->
+    {lists:reverse(Props), lists:usort(Required), Refs};
+parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs) ->
+    NameBin = to_bin(Name),
+    case hoconsc:is_schema(Hocon) of
+        true ->
+            HoconType = hocon_schema:field_schema(Hocon, type),
+            Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
+            SchemaToSpec = schema_converter(Options),
+            Init = trans_desc(Init0, Hocon, SchemaToSpec, NameBin),
+            {Prop, Refs1} = SchemaToSpec(HoconType, Module),
+            NewRequiredAcc =
+                case is_required(Hocon) of
+                    true -> [NameBin | Required];
+                    false -> Required
+                end,
+            parse_object_loop(
+                Rest,
+                Module,
+                Options,
+                [{NameBin, maps:merge(Prop, Init)} | Props],
+                NewRequiredAcc,
+                Refs1 ++ Refs
+            );
+        false ->
+            %% TODO: there is only a handful of such
+            %% refactor the schema to unify the two cases
+            {SubObject, SubRefs} = parse_object(Hocon, Module, Options),
+            parse_object_loop(
+                Rest, Module, Options, [{NameBin, SubObject} | Props], Required, SubRefs ++ Refs
+            )
+    end.
+
+%% return true if the field has 'importance' set to 'hidden'
+is_hidden(Hocon) ->
+    hocon_schema:is_hidden(Hocon, #{include_importance_up_from => ?IMPORTANCE_LOW}).
 is_required(Hocon) ->
     hocon_schema:field_schema(Hocon, required) =:= true.
 
