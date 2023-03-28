@@ -2,16 +2,12 @@ emqx_ee_connector_tdengine {
 
     server {
         desc {
-          en: """
-The IPv4 or IPv6 address or the hostname to connect to.<br/>
+          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
-The TDengine default port 6041 is used if `[:Port]` is not specified.
-"""
-          zh: """
-将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+The TDengine default port 6041 is used if `[:Port]` is not specified."""
+          zh: """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
 主机名具有以下形式：`Host[:Port]`。<br/>
-如果未指定 `[:Port]`，则使用 TDengine 默认端口 6041。
-"""
+如果未指定 `[:Port]`，则使用 TDengine 默认端口 6041。"""
         }
         label: {
               en: "Server Host"

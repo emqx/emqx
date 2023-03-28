@@ -547,7 +547,7 @@ emqx_ee_bridge_kafka {
                 "<code>ts</code>: message timestamp.\n"
                 "<code>ts_type</code>: message timestamp type, which is one of"
                 " <code>create</code>, <code>append</code> or <code>undefined</code>.\n"
-                "<code>value</code>: Kafka message value (uses the chosen value encoding).\n"
+                "<code>value</code>: Kafka message value (uses the chosen value encoding)."
             zh: "用于转换收到的 Kafka 消息的模板。 "
                 "默认情况下，它将使用 JSON 格式来序列化来自 Kafka 的所有字段。 "
                 "这些字段包括："
@@ -558,7 +558,7 @@ emqx_ee_bridge_kafka {
                 "<code>ts</code>: 消息的时间戳。\n"
                 "<code>ts_type</code>：消息的时间戳类型，值可能是："
                 " <code>create</code>， <code>append</code> 或 <code>undefined</code>。\n"
-                "<code>value</code>: Kafka 消息值（使用选择的编码方式编码）。\n"
+                "<code>value</code>: Kafka 消息值（使用选择的编码方式编码）。"
 
         }
         label {

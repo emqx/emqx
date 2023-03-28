@@ -2,8 +2,8 @@ emqx_ee_connector_dynamo {
 
     url {
         desc {
-          en: """The url of DynamoDB endpoint.<br/>"""
-          zh: """DynamoDB 的地址。<br/>"""
+          en: """The url of DynamoDB endpoint."""
+          zh: """DynamoDB 的地址。"""
         }
         label: {
               en: "DynamoDB Endpoint"

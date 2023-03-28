@@ -1,5 +1,7 @@
 #!/usr/bin/env escript
 
+%% called from check-i18n-style.sh
+
 -mode(compile).
 
 -define(YELLOW, "\e[33m").
