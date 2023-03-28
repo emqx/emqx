@@ -67,9 +67,9 @@ schema("/file_transfer/files") ->
     }.
 
 '/file_transfer/files'(get, #{}) ->
-    case emqx_ft_storage:exports() of
-        {ok, Transfers} ->
-            {200, #{<<"files">> => lists:map(fun format_export_info/1, Transfers)}};
+    case emqx_ft_storage:files() of
+        {ok, Files} ->
+            {200, #{<<"files">> => lists:map(fun format_file_info/1, Files)}};
         {error, _} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
@@ -84,7 +84,7 @@ roots() ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-format_export_info(
+format_file_info(
     Info = #{
         name := Name,
         size := Size,

@@ -216,7 +216,7 @@ t_simple_transfer(Config) ->
         emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
     ),
 
-    [Export] = list_exports(?config(clientid, Config)),
+    [Export] = list_files(?config(clientid, Config)),
     ?assertEqual(
         {ok, iolist_to_binary(Data)},
         read_export(Export)
@@ -234,7 +234,7 @@ t_nasty_clientids_fileids(_Config) ->
     ok = lists:foreach(
         fun({ClientId, FileId}) ->
             ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "justfile", ClientId),
-            [Export] = list_exports(ClientId),
+            [Export] = list_files(ClientId),
             ?assertEqual({ok, ClientId}, read_export(Export))
         end,
         Transfers
@@ -463,7 +463,7 @@ t_switch_node(Config) ->
 
     %% Now check consistency of the file
 
-    [Export] = list_exports(ClientId),
+    [Export] = list_files(ClientId),
     ?assertEqual(
         {ok, iolist_to_binary(Data)},
         read_export(Export)
@@ -539,7 +539,7 @@ t_unreliable_migrating_client(Config) ->
     ],
     _Context = run_commands(Commands, Context),
 
-    Exports = list_exports(?config(clientid, Config)),
+    Exports = list_files(?config(clientid, Config)),
 
     % NOTE
     % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
@@ -659,9 +659,9 @@ meta(FileName, Data) ->
         size => byte_size(FullData)
     }.
 
-list_exports(ClientId) ->
-    {ok, Exports} = emqx_ft_storage:exports(),
-    [Export || Export = #{transfer := {CId, _}} <- Exports, CId == ClientId].
+list_files(ClientId) ->
+    {ok, Files} = emqx_ft_storage:files(),
+    [File || File = #{transfer := {CId, _}} <- Files, CId == ClientId].
 
 read_export(#{path := AbsFilepath}) ->
     % TODO: only works for the local filesystem exporter right now

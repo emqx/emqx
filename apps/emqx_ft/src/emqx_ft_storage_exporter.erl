@@ -57,7 +57,7 @@
     ok | {error, _Reason}.
 
 -callback list(options()) ->
-    {ok, [emqx_ft_storage:export_info()]} | {error, _Reason}.
+    {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
 
 %%
 
