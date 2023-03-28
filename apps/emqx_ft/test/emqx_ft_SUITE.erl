@@ -58,8 +58,12 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
+            Storage = emqx_ft_test_helpers:local_storage(Config),
             emqx_ft_test_helpers:load_config(#{
-                storage => emqx_ft_test_helpers:local_storage(Config)
+                % NOTE
+                % Inhibit local fs GC to simulate it isn't fast enough to collect
+                % complete transfers.
+                storage => Storage#{gc => #{interval => 0}}
             });
         (_) ->
             ok
@@ -107,14 +111,7 @@ mk_cluster_specs(Config) ->
         {env, [{emqx, boot_modules, [broker, listeners]}]},
         {apps, [emqx_ft]},
         {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
-        {env_handler, fun
-            (emqx_ft) ->
-                emqx_ft_test_helpers:load_config(#{
-                    storage => emqx_ft_test_helpers:local_storage(Config)
-                });
-            (_) ->
-                ok
-        end}
+        {env_handler, set_special_configs(Config)}
     ],
     emqx_common_test_helpers:emqx_cluster(
         Specs,
@@ -549,22 +546,20 @@ t_unreliable_migrating_client(Config) ->
     % twice. This is currently expected, files must be identical anyway.
     Node1Str = atom_to_list(Node1),
     NodeSelfStr = atom_to_list(NodeSelf),
+    % TODO: this testcase is specific to local fs storage backend
     ?assertMatch(
         [#{"node" := Node1Str}, #{"node" := NodeSelfStr}],
         lists:map(
             fun(#{uri := URIString}) ->
                 #{query := QS} = uri_string:parse(URIString),
-                uri_string:dissect_query(QS)
+                maps:from_list(uri_string:dissect_query(QS))
             end,
             lists:sort(Exports)
         )
     ),
 
     [
-        ?assertEqual(
-            {ok, Payload},
-            read_export(Export)
-        )
+        ?assertEqual({ok, Payload}, read_export(Export))
      || Export <- Exports
     ].
 
