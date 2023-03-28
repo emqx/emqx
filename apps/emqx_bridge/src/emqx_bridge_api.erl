@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_lib.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -45,25 +46,6 @@
 ]).
 
 -export([lookup_from_local_node/2]).
-
-%% [TODO] Move those to a commonly shared header file
--define(ERROR_MSG(CODE, REASON), #{code => CODE, message => emqx_misc:readable_error_msg(REASON)}).
-
--define(OK(CONTENT), {200, CONTENT}).
-
--define(NO_CONTENT, 204).
-
--define(BAD_REQUEST(CODE, REASON), {400, ?ERROR_MSG(CODE, REASON)}).
--define(BAD_REQUEST(REASON), ?BAD_REQUEST('BAD_REQUEST', REASON)).
-
--define(NOT_FOUND(REASON), {404, ?ERROR_MSG('NOT_FOUND', REASON)}).
-
--define(INTERNAL_ERROR(REASON), {500, ?ERROR_MSG('INTERNAL_ERROR', REASON)}).
-
--define(NOT_IMPLEMENTED, 501).
-
--define(SERVICE_UNAVAILABLE(REASON), {503, ?ERROR_MSG('SERVICE_UNAVAILABLE', REASON)}).
-%% End TODO
 
 -define(BRIDGE_NOT_ENABLED,
     ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
