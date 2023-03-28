@@ -1635,7 +1635,11 @@ t_bridge_rule_action_source(Config) ->
                 },
                 emqx_json:decode(RawPayload, [return_maps])
             ),
-            ?assertEqual(1, emqx_resource_metrics:received_get(ResourceId)),
+            ?retry(
+                _Sleep0 = 100,
+                _Attempts0 = 50,
+                ?assertEqual(1, emqx_resource_metrics:received_get(ResourceId))
+            ),
             ok
         end
     ),
