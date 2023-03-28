@@ -94,14 +94,7 @@ client_id(Config) ->
     atom_to_binary(?config(tc, Config), utf8).
 
 storage(Config) ->
-    #{
-        type => local,
-        root => emqx_ft_test_helpers:root(Config, node(), ["transfers"]),
-        exporter => #{
-            type => local,
-            root => emqx_ft_test_helpers:root(Config, node(), ["exports"])
-        }
-    }.
+    emqx_ft_test_helpers:local_storage(Config).
 
 list_files(Config) ->
     {ok, Files} = emqx_ft_storage_fs:files(storage(Config)),

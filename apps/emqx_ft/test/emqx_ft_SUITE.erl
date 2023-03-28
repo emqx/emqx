@@ -63,7 +63,10 @@ set_special_configs(Config) ->
                 % NOTE
                 % Inhibit local fs GC to simulate it isn't fast enough to collect
                 % complete transfers.
-                storage => Storage#{gc => #{interval => 0}}
+                storage => emqx_map_lib:deep_merge(
+                    Storage,
+                    #{segments => #{gc => #{interval => 0}}}
+                )
             });
         (_) ->
             ok

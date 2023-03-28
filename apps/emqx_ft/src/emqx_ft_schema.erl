@@ -61,9 +61,9 @@ fields(local_storage) ->
             required => false,
             desc => ?DESC("local_type")
         }},
-        {root, #{
-            type => binary(),
-            desc => ?DESC("local_storage_root"),
+        {segments, #{
+            type => ?REF(local_storage_segments),
+            desc => ?DESC("local_storage_segments"),
             required => false
         }},
         {exporter, #{
@@ -72,10 +72,18 @@ fields(local_storage) ->
             ]),
             desc => ?DESC("local_storage_exporter"),
             required => true
+        }}
+    ];
+fields(local_storage_segments) ->
+    [
+        {root, #{
+            type => binary(),
+            desc => ?DESC("local_storage_segments_root"),
+            required => false
         }},
         {gc, #{
-            type => ?REF(local_storage_gc),
-            desc => ?DESC("local_storage_gc"),
+            type => ?REF(local_storage_segments_gc),
+            desc => ?DESC("local_storage_segments_gc"),
             required => false
         }}
     ];
@@ -93,7 +101,7 @@ fields(local_storage_exporter) ->
             required => false
         }}
     ];
-fields(local_storage_gc) ->
+fields(local_storage_segments_gc) ->
     [
         {interval, #{
             type => emqx_schema:duration_ms(),
@@ -122,10 +130,12 @@ desc(file_transfer) ->
     "File transfer settings";
 desc(local_storage) ->
     "File transfer local storage settings";
+desc(local_storage_segments) ->
+    "File transfer local segments storage settings";
 desc(local_storage_exporter) ->
     "Exporter settings for the File transfer local storage backend";
-desc(local_storage_gc) ->
-    "Garbage collection settings for the File transfer local storage backend".
+desc(local_storage_segments_gc) ->
+    "Garbage collection settings for the File transfer local segments storage".
 
 schema(filemeta) ->
     #{
