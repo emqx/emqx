@@ -105,7 +105,7 @@ values(consumer) ->
     #{
         kafka => #{
             max_batch_bytes => <<"896KB">>,
-            offset_reset_policy => <<"reset_to_latest">>,
+            offset_reset_policy => <<"latest">>,
             offset_commit_interval_seconds => 5
         },
         key_encoding_mode => <<"none">>,
@@ -370,8 +370,8 @@ fields(consumer_kafka_opts) ->
             })},
         {offset_reset_policy,
             mk(
-                enum([reset_to_latest, reset_to_earliest, reset_by_subscriber]),
-                #{default => reset_to_latest, desc => ?DESC(consumer_offset_reset_policy)}
+                enum([latest, earliest]),
+                #{default => latest, desc => ?DESC(consumer_offset_reset_policy)}
             )},
         {offset_commit_interval_seconds,
             mk(
