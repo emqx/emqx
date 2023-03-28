@@ -153,7 +153,7 @@ on_start(InstanceId, Config) ->
                 reason => emqx_misc:redact(Reason)
             }),
             throw(
-                "Kafka client failed to start properly.  Please check the connection parameters."
+                "Failed to start Kafka client. Please check the connection parameters."
             );
         {error, Reason} ->
             ?SLOG(error, #{
