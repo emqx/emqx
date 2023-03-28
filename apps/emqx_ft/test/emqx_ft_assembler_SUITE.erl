@@ -248,7 +248,9 @@ exporter(Config) ->
 storage(Config) ->
     #{
         type => local,
-        root => ?config(storage_root, Config),
+        segments => #{
+            root => ?config(storage_root, Config)
+        },
         exporter => #{
             type => local,
             root => ?config(exports_root, Config)
