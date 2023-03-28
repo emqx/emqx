@@ -2299,7 +2299,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         #{
                             required => false,
                             %% TODO: remove after e5.0.2
-                            hidden => true,
+                            importance => ?IMPORTANCE_HIDDEN,
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
