@@ -34,6 +34,9 @@
 
 -export([exporter/1]).
 
+-export_type([options/0]).
+-export_type([export/0]).
+
 -type storage() :: emxt_ft_storage_fs:storage().
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
