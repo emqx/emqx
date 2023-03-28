@@ -33,8 +33,11 @@ SWAGGER_JSON_URL="http://$IP:$PORT/api-docs/swagger.json"
 ## assert swagger.json is valid json
 JSON="$(curl -s "$SWAGGER_JSON_URL")"
 echo "$JSON" | jq . >/dev/null
-## assert swagger.json does not contain trie_compaction (which is a hidden field)
-if echo "$JSON" | grep -q trie_compaction; then
-    echo "swagger.json contains hidden fields"
-    exit 1
+
+if [ "${EMQX_SMOKE_TEST_CHECK_HIDDEN_FIELDS:-yes}" = 'yes' ]; then
+    ## assert swagger.json does not contain trie_compaction (which is a hidden field)
+    if echo "$JSON" | grep -q trie_compaction; then
+        echo "swagger.json contains hidden fields"
+        exit 1
+    fi
 fi
