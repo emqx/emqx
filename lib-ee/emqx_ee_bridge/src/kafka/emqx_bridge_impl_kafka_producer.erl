@@ -7,6 +7,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    is_buffer_supported/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -25,6 +26,8 @@
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, kafka).
+
+is_buffer_supported() -> true.
 
 callback_mode() -> async_if_possible.
 
