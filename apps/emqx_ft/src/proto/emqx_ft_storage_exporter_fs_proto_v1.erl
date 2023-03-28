@@ -29,7 +29,7 @@ introduced_in() ->
     "5.0.17".
 
 -spec list_exports([node()]) ->
-    emqx_rpc:erpc_multicall([emqx_ft_storage:export_info()]).
+    emqx_rpc:erpc_multicall([emqx_ft_storage:file_info()]).
 list_exports(Nodes) ->
     erpc:multicall(
         Nodes,
