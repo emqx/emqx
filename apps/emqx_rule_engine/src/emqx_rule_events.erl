@@ -20,6 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
 
 -export([
     reload/0,
@@ -1011,7 +1012,7 @@ hook_fun_name(HookPoint) ->
     HookFunName.
 
 %% return static function references to help static code checks
-hook_fun(<<"$bridges/", _/binary>>) -> fun ?MODULE:on_bridge_message_received/2;
+hook_fun(?BRIDGE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/2;
 hook_fun('client.connected') -> fun ?MODULE:on_client_connected/3;
 hook_fun('client.disconnected') -> fun ?MODULE:on_client_disconnected/4;
 hook_fun('client.connack') -> fun ?MODULE:on_client_connack/4;
@@ -1034,7 +1035,7 @@ ntoa(undefined) -> undefined;
 ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
 ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
-event_name(<<"$bridges/", _/binary>> = Bridge) -> Bridge;
+event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/client_connected">>) -> 'client.connected';
 event_name(<<"$events/client_disconnected">>) -> 'client.disconnected';
 event_name(<<"$events/client_connack">>) -> 'client.connack';
@@ -1047,7 +1048,7 @@ event_name(<<"$events/message_dropped">>) -> 'message.dropped';
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
-event_topic(<<"$bridges/", _/binary>> = Bridge) -> Bridge;
+event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;

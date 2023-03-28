@@ -213,11 +213,12 @@ get_rules_with_same_event(Topic) ->
     ].
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
-get_rule_ids_by_action(ActionName) when is_binary(ActionName) ->
+get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
     [
         Id
-     || #{actions := Acts, id := Id} <- get_rules(),
-        lists:any(fun(A) -> A =:= ActionName end, Acts)
+     || #{actions := Acts, id := Id, from := Froms} <- get_rules(),
+        forwards_to_bridge(Acts, BridgeId) orelse
+            references_ingress_bridge(Froms, BridgeId)
     ];
 get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
     {Mod, Fun} =
@@ -317,8 +318,14 @@ get_basic_usage_info() ->
         NumRules = length(EnabledRules),
         ReferencedBridges =
             lists:foldl(
-                fun(#{actions := Actions, from := From}, Acc) ->
-                    BridgeIDs0 = [BridgeID || <<"$bridges/", BridgeID/binary>> <- From],
+                fun(#{actions := Actions, from := Froms}, Acc) ->
+                    BridgeIDs0 =
+                        [
+                            BridgeID
+                         || From <- Froms,
+                            {ok, BridgeID} <-
+                                [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
+                        ],
                     BridgeIDs1 = lists:filter(fun is_binary/1, Actions),
                     tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
                 end,
@@ -477,4 +484,20 @@ contains_actions(Actions, Mod0, Func0) ->
             (_) -> false
         end,
         Actions
+    ).
+
+forwards_to_bridge(Actions, BridgeId) ->
+    lists:any(fun(A) -> A =:= BridgeId end, Actions).
+
+references_ingress_bridge(Froms, BridgeId) ->
+    lists:any(
+        fun(ReferenceBridgeId) ->
+            BridgeId =:= ReferenceBridgeId
+        end,
+        [
+            RefBridgeId
+         || From <- Froms,
+            {ok, RefBridgeId} <-
+                [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
+        ]
     ).
