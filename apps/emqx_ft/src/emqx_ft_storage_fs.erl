@@ -220,7 +220,7 @@ transfers(Storage) ->
     % TODO `Continuation`
     % There might be millions of transfers on the node, we need a protocol and
     % storage schema to iterate through them effectively.
-    ClientIds = try_list_dir(get_storage_root(Storage)),
+    ClientIds = try_list_dir(get_segments_root(Storage)),
     {ok,
         lists:foldl(
             fun(ClientId, Acc) -> transfers(Storage, ClientId, Acc) end,
@@ -229,7 +229,7 @@ transfers(Storage) ->
         )}.
 
 transfers(Storage, ClientId, AccIn) ->
-    Dirname = filename:join(get_storage_root(Storage), ClientId),
+    Dirname = filename:join(get_segments_root(Storage), ClientId),
     case file:list_dir(Dirname) of
         {ok, FileIds} ->
             lists:foldl(
@@ -307,7 +307,7 @@ break_segment_filename(Filename) ->
 
 mk_filedir(Storage, {ClientId, FileId}, SubDirs) ->
     filename:join([
-        get_storage_root(Storage),
+        get_segments_root(Storage),
         emqx_ft_fs_util:escape_filename(ClientId),
         emqx_ft_fs_util:escape_filename(FileId)
         | SubDirs
@@ -325,8 +325,8 @@ try_list_dir(Dirname) ->
         {error, _} -> []
     end.
 
-get_storage_root(Storage) ->
-    maps:get(root, Storage, filename:join([emqx:data_dir(), "ft", "transfers"])).
+get_segments_root(Storage) ->
+    emqx_ft_conf:segments_root(Storage).
 
 -include_lib("kernel/include/file.hrl").
 

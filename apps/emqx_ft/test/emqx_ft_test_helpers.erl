@@ -46,8 +46,13 @@ stop_additional_node(Node) ->
 local_storage(Config) ->
     #{
         type => local,
-        root => root(Config, node(), [transfers]),
-        exporter => #{type => local, root => root(Config, node(), [exports])}
+        segments => #{
+            root => root(Config, node(), [segments])
+        },
+        exporter => #{
+            type => local,
+            root => root(Config, node(), [exports])
+        }
     }.
 
 load_config(Config) ->

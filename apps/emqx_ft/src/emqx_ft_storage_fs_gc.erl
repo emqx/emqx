@@ -65,7 +65,7 @@ collect(Storage, Transfer, Nodes) ->
 
 mk_server_ref(Storage) ->
     % TODO
-    {via, gproc, {n, l, {?MODULE, get_storage_root(Storage)}}}.
+    {via, gproc, {n, l, {?MODULE, get_segments_root(Storage)}}}.
 
 %%
 
@@ -223,7 +223,7 @@ collect_transfer_directory(Storage, Transfer, Cutoff, Stats) ->
         end,
     case collect_empty_directory(Dirname, Filter, Stats) of
         {true, StatsNext} ->
-            collect_parents(Dirname, get_storage_root(Storage), StatsNext);
+            collect_parents(Dirname, get_segments_root(Storage), StatsNext);
         {false, StatsNext} ->
             StatsNext
     end.
@@ -373,5 +373,5 @@ register_gcstat_error(Subject, Error, Stats = #gcstats{errors = Errors}) ->
 
 %%
 
-get_storage_root(Storage) ->
-    maps:get(root, Storage, filename:join(emqx:data_dir(), "file_transfer")).
+get_segments_root(Storage) ->
+    emqx_ft_conf:segments_root(Storage).
