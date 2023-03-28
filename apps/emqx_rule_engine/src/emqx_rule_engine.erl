@@ -319,14 +319,8 @@ get_basic_usage_info() ->
         ReferencedBridges =
             lists:foldl(
                 fun(#{actions := Actions, from := Froms}, Acc) ->
-                    BridgeIDs0 =
-                        [
-                            BridgeID
-                         || From <- Froms,
-                            {ok, BridgeID} <-
-                                [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
-                        ],
-                    BridgeIDs1 = lists:filter(fun is_binary/1, Actions),
+                    BridgeIDs0 = get_referenced_hookpoints(Froms),
+                    BridgeIDs1 = get_egress_bridges(Actions),
                     tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
                 end,
                 #{},
@@ -490,10 +484,8 @@ forwards_to_bridge(Actions, BridgeId) ->
     lists:any(fun(A) -> A =:= BridgeId end, Actions).
 
 references_ingress_bridge(Froms, BridgeId) ->
-    lists:any(
-        fun(ReferenceBridgeId) ->
-            BridgeId =:= ReferenceBridgeId
-        end,
+    lists:member(
+        BridgeId,
         [
             RefBridgeId
          || From <- Froms,
@@ -501,3 +493,14 @@ references_ingress_bridge(Froms, BridgeId) ->
                 [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
         ]
     ).
+
+get_referenced_hookpoints(Froms) ->
+    [
+        BridgeID
+     || From <- Froms,
+        {ok, BridgeID} <-
+            [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
+    ].
+
+get_egress_bridges(Actions) ->
+    lists:filter(fun is_binary/1, Actions).
