@@ -24,7 +24,7 @@
         store_segment/2,
         assemble/2,
 
-        exports/0,
+        files/0,
 
         with_storage_type/2,
         with_storage_type/3
@@ -34,13 +34,13 @@
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
--export_type([export_info/0]).
+-export_type([file_info/0]).
 -export_type([export_data/0]).
 -export_type([reader/0]).
 
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
 
--type export_info() :: #{
+-type file_info() :: #{
     transfer := emqx_ft:transfer(),
     name := file:name(),
     size := _Bytes :: non_neg_integer(),
@@ -68,8 +68,8 @@
 -callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
 
--callback exports(storage()) ->
-    {ok, [export_info()]} | {error, term()}.
+-callback files(storage()) ->
+    {ok, [file_info()]} | {error, term()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -104,11 +104,11 @@ assemble(Transfer, Size) ->
     Mod = mod(),
     Mod:assemble(storage(), Transfer, Size).
 
--spec exports() ->
-    {ok, [export_info()]} | {error, term()}.
-exports() ->
+-spec files() ->
+    {ok, [file_info()]} | {error, term()}.
+files() ->
     Mod = mod(),
-    Mod:exports(storage()).
+    Mod:files(storage()).
 
 -spec with_storage_type(atom(), atom() | function()) -> any().
 with_storage_type(Type, Fun) ->

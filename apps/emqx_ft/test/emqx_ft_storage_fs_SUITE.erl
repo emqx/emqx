@@ -83,7 +83,7 @@ t_multinode_ready_transfers(Config) ->
             #{transfer := {<<"c/1">>, <<"f:1">>}, name := "fn1"},
             #{transfer := {<<"c/2">>, <<"f:2">>}, name := "fn2"}
         ],
-        lists:sort(list_exports(Config))
+        lists:sort(list_files(Config))
     ).
 
 %%--------------------------------------------------------------------
@@ -103,6 +103,6 @@ storage(Config) ->
         }
     }.
 
-list_exports(Config) ->
-    {ok, Exports} = emqx_ft_storage_fs:exports(storage(Config)),
-    Exports.
+list_files(Config) ->
+    {ok, Files} = emqx_ft_storage_fs:files(storage(Config)),
+    Files.
