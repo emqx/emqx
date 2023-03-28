@@ -138,7 +138,7 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"discover">>, <<"dat
             [
                 {uri_path, FullPathList},
                 {uri_query, QueryList},
-                {'accept', ?LWM2M_FORMAT_LINK}
+                {accept, ?LWM2M_FORMAT_LINK}
             ]
         ),
         InputCmd
@@ -241,6 +241,7 @@ empty_ack_to_mqtt(Ref) ->
 coap_failure_to_mqtt(Ref, MsgType) ->
     make_base_response(maps:put(<<"msgType">>, MsgType, Ref)).
 
+%% TODO: application/link-format
 content_to_mqtt(CoapPayload, <<"text/plain">>, Ref) ->
     emqx_lwm2m_message:text_to_json(extract_path(Ref), CoapPayload);
 content_to_mqtt(CoapPayload, <<"application/octet-stream">>, Ref) ->
