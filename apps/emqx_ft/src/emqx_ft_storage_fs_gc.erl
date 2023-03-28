@@ -81,12 +81,17 @@ handle_call(Call, From, St) ->
     {noreply, St}.
 
 handle_cast({collect, Transfer, [Node | Rest]}, St) ->
-    ok = do_collect_transfer(Transfer, Node, St),
-    case Rest of
-        [_ | _] ->
-            gen_server:cast(self(), {collect, Transfer, Rest});
-        [] ->
-            ok
+    case gc_enabled(St) of
+        true ->
+            ok = do_collect_transfer(Transfer, Node, St),
+            case Rest of
+                [_ | _] ->
+                    gen_server:cast(self(), {collect, Transfer, Rest});
+                [] ->
+                    ok
+            end;
+        false ->
+            skip
     end,
     {noreply, St};
 handle_cast(reset, St) ->
@@ -127,15 +132,23 @@ maybe_report(#gcstats{errors = Errors}, #st{storage = Storage}) when map_size(Er
 maybe_report(#gcstats{} = _Stats, #st{storage = _Storage}) ->
     ?tp(garbage_collection, #{stats => _Stats, storage => _Storage}).
 
-start_timer(St = #st{next_gc_timer = undefined}) ->
-    Delay = emqx_ft_conf:gc_interval(St#st.storage),
-    St#st{next_gc_timer = emqx_misc:start_timer(Delay, collect)}.
+start_timer(St = #st{storage = Storage, next_gc_timer = undefined}) ->
+    case emqx_ft_conf:gc_interval(Storage) of
+        Delay when Delay > 0 ->
+            St#st{next_gc_timer = emqx_misc:start_timer(Delay, collect)};
+        0 ->
+            ?SLOG(warning, #{msg => "periodic_gc_disabled"}),
+            St
+    end.
 
 reset_timer(St = #st{next_gc_timer = undefined}) ->
     start_timer(St);
 reset_timer(St = #st{next_gc_timer = TRef}) ->
     ok = emqx_misc:cancel_timer(TRef),
     start_timer(St#st{next_gc_timer = undefined}).
+
+gc_enabled(St) ->
+    emqx_ft_conf:gc_interval(St#st.storage) > 0.
 
 %%
 
