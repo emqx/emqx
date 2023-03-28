@@ -453,20 +453,20 @@ fields(translator) ->
     ];
 fields(udp_listeners) ->
     [
-        {udp, sc(map(name, ref(udp_listener)), #{desc => ?DESC(udp_listener)})},
-        {dtls, sc(map(name, ref(dtls_listener)), #{desc => ?DESC(dtls_listener)})}
+        {udp, sc(map(name, ref(udp_listener)), #{desc => ?DESC(listener_name_to_settings_map)})},
+        {dtls, sc(map(name, ref(dtls_listener)), #{desc => ?DESC(listener_name_to_settings_map)})}
     ];
 fields(tcp_listeners) ->
     [
-        {tcp, sc(map(name, ref(tcp_listener)), #{desc => ?DESC(tcp_listener)})},
-        {ssl, sc(map(name, ref(ssl_listener)), #{desc => ?DESC(ssl_listener)})}
+        {tcp, sc(map(name, ref(tcp_listener)), #{desc => ?DESC(listener_name_to_settings_map)})},
+        {ssl, sc(map(name, ref(ssl_listener)), #{desc => ?DESC(listener_name_to_settings_map)})}
     ];
 fields(tcp_udp_listeners) ->
     [
-        {tcp, sc(map(name, ref(tcp_listener)), #{desc => ?DESC(tcp_listener)})},
-        {ssl, sc(map(name, ref(ssl_listener)), #{desc => ?DESC(ssl_listener)})},
-        {udp, sc(map(name, ref(udp_listener)), #{desc => ?DESC(udp_listener)})},
-        {dtls, sc(map(name, ref(dtls_listener)), #{desc => ?DESC(dtls_listener)})}
+        {tcp, sc(map(name, ref(tcp_listener)), #{desc => ?DESC(listener_name_to_settings_map)})},
+        {ssl, sc(map(name, ref(ssl_listener)), #{desc => ?DESC(listener_name_to_settings_map)})},
+        {udp, sc(map(name, ref(udp_listener)), #{desc => ?DESC(listener_name_to_settings_map)})},
+        {dtls, sc(map(name, ref(dtls_listener)), #{desc => ?DESC(listener_name_to_settings_map)})}
     ];
 fields(tcp_listener) ->
     %% some special configs for tcp listener
@@ -558,19 +558,19 @@ desc(udp_listeners) ->
 desc(tcp_listeners) ->
     "Settings for the TCP listeners.";
 desc(tcp_udp_listeners) ->
-    "Settings for the listeners.";
+    "Settings for TCP and UDP listeners.";
 desc(tcp_listener) ->
-    "Settings for the TCP listener.";
+    "Settings for TCP listener.";
 desc(ssl_listener) ->
-    "Settings for the SSL listener.";
+    "Settings for SSL listener.";
 desc(udp_listener) ->
-    "Settings for the UDP listener.";
+    "Settings for UDP listener.";
 desc(dtls_listener) ->
-    "Settings for the DTLS listener.";
+    "Settings for DTLS listener.";
 desc(udp_opts) ->
-    "Settings for the UDP sockets.";
+    "Settings for UDP sockets.";
 desc(dtls_opts) ->
-    "Settings for the DTLS protocol.";
+    "Settings for DTLS protocol.";
 desc(_) ->
     undefined.
 
@@ -625,7 +625,7 @@ mountpoint(Default) ->
         binary(),
         #{
             default => iolist_to_binary(Default),
-            desc => ?DESC(gateway_common_mountpoint)
+            desc => ?DESC(gateway_mountpoint)
         }
     ).
 
@@ -674,7 +674,7 @@ common_listener_opts() ->
                 binary(),
                 #{
                     default => undefined,
-                    desc => ?DESC(gateway_common_listener_mountpoint)
+                    desc => ?DESC(gateway_mountpoint)
                 }
             )},
         {access_rules,

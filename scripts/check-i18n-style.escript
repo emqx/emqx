@@ -4,11 +4,12 @@
 
 -mode(compile).
 
--define(YELLOW, "\e[33m").
+% -define(YELLOW, "\e[33m"). % not used
 -define(RED, "\e[31m").
 -define(RESET, "\e[39m").
 
 main([Files0]) ->
+    io:format(user, "checking i18n file styles", []),
     _ = put(errors, 0),
     Files = string:tokens(Files0, "\n"),
     ok = load_hocon(),
@@ -48,7 +49,7 @@ logerr(Fmt, Args) ->
 
 
 check(File) ->
-    io:format(user, "checking: ~s~n", [File]),
+    io:format(user, ".", []),
     {ok, C} = hocon:load(File),
     maps:foreach(fun check_one_field/2, C),
     ok.
@@ -86,7 +87,7 @@ do_check_desc(Name, _) ->
     die("~s: missing 'zh' or 'en'~n", [Name]).
 
 check_desc_string(Name, Tr, <<>>) ->
-    io:format(standard_error, ?YELLOW ++ "WARNING: ~s.~s: empty string~n" ++ ?RESET, [Name, Tr]);
+    logerr("~s.~s: empty string~n", [Name, Tr]);
 check_desc_string(Name, Tr, BinStr) ->
     Str = unicode:characters_to_list(BinStr, utf8),
     Err = fun(Reason) ->
