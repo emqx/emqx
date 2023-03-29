@@ -17,12 +17,14 @@
 -module(emqx_ft_fs_util).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("kernel/include/file.hrl").
 
 -export([is_filename_safe/1]).
 -export([escape_filename/1]).
 -export([unescape_filename/1]).
 
 -export([read_decode_file/2]).
+-export([read_info/1]).
 
 -export([fold/4]).
 
@@ -144,13 +146,20 @@ safe_decode(Content, DecodeFun) ->
             {error, corrupted}
     end.
 
+-spec read_info(file:name_all()) ->
+    {ok, file:file_info()} | {error, file:posix() | badarg}.
+read_info(AbsPath) ->
+    % NOTE
+    % Be aware that this function is occasionally mocked in `emqx_ft_fs_util_SUITE`.
+    file:read_link_info(AbsPath, [{time, posix}, raw]).
+
 -spec fold(foldfun(Acc), Acc, _Root :: file:name(), glob()) ->
     Acc.
 fold(Fun, Acc, Root, Glob) ->
     fold(Fun, Acc, [], Root, Glob, []).
 
 fold(Fun, AccIn, Path, Root, [Glob | Rest], Stack) when Glob == '*' orelse is_function(Glob) ->
-    case file:list_dir(filename:join(Root, Path)) of
+    case list_dir(filename:join(Root, Path)) of
         {ok, Filenames} ->
             lists:foldl(
                 fun(FN, Acc) ->
@@ -172,7 +181,7 @@ fold(Fun, AccIn, Path, Root, [Glob | Rest], Stack) when Glob == '*' orelse is_fu
             Fun(Path, {error, Reason}, Stack, AccIn)
     end;
 fold(Fun, AccIn, Filepath, Root, [], Stack) ->
-    case file:read_link_info(filename:join(Root, Filepath), [{time, posix}, raw]) of
+    case ?MODULE:read_info(filename:join(Root, Filepath)) of
         {ok, Info} ->
             Fun(Filepath, Info, Stack, AccIn);
         {error, Reason} ->
@@ -183,3 +192,13 @@ matches_glob('*', _) ->
     true;
 matches_glob(FilterFun, Filename) when is_function(FilterFun) ->
     FilterFun(Filename).
+
+list_dir(AbsPath) ->
+    case ?MODULE:read_info(AbsPath) of
+        {ok, #file_info{type = directory}} ->
+            file:list_dir(AbsPath);
+        {ok, #file_info{}} ->
+            {error, enotdir};
+        {error, Reason} ->
+            {error, Reason}
+    end.
