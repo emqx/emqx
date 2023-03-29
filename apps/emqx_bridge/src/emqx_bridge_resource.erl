@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_resource).
 
+-include("emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
@@ -23,7 +24,9 @@
     resource_id/1,
     resource_id/2,
     bridge_id/2,
-    parse_bridge_id/1
+    parse_bridge_id/1,
+    bridge_hookpoint/1,
+    bridge_hookpoint_to_bridge_id/1
 ]).
 
 -export([
@@ -88,6 +91,14 @@ parse_bridge_id(BridgeId) ->
                 <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
             )
     end.
+
+bridge_hookpoint(BridgeId) ->
+    <<"$bridges/", (bin(BridgeId))/binary>>.
+
+bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
+    {ok, BridgeId};
+bridge_hookpoint_to_bridge_id(_) ->
+    {error, bad_bridge_hookpoint}.
 
 validate_name(Name0) ->
     Name = unicode:characters_to_list(Name0, utf8),
@@ -308,7 +319,8 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
     BId = bridge_id(Type, Name),
-    Conf#{hookpoint => <<"$bridges/", BId/binary>>, bridge_name => Name};
+    BridgeHookpoint = bridge_hookpoint(BId),
+    Conf#{hookpoint => BridgeHookpoint, bridge_name => Name};
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 parse_confs(<<"kafka">> = _Type, Name, Conf) ->

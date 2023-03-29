@@ -53,6 +53,7 @@ sasl_only_tests() ->
 %% tests that do not need to be run on all groups
 only_once_tests() ->
     [
+        t_begin_offset_earliest,
         t_bridge_rule_action_source,
         t_cluster_group,
         t_node_joins_existing_cluster,
@@ -274,7 +275,18 @@ init_per_testcase(TestCase, Config) when
             [{skip_does_not_apply, true}]
     end;
 init_per_testcase(TestCase, Config) when
-    TestCase =:= t_failed_creation_then_fixed;
+    TestCase =:= t_failed_creation_then_fixed
+->
+    %% test with one partiton only for this case because
+    %% the wait probe may not be always sent to the same partition
+    HasProxy = proplists:get_value(has_proxy, Config, true),
+    case HasProxy of
+        false ->
+            [{skip_does_not_apply, true}];
+        true ->
+            common_init_per_testcase(TestCase, [{num_partitions, 1} | Config])
+    end;
+init_per_testcase(TestCase, Config) when
     TestCase =:= t_on_get_status;
     TestCase =:= t_receive_after_recovery
 ->
@@ -574,7 +586,7 @@ kafka_config(TestCase, _KafkaType, Config) ->
             "    max_rejoin_attempts = 5\n"
             "    offset_commit_interval_seconds = 3\n"
             %% todo: matrix this
-            "    offset_reset_policy = reset_to_latest\n"
+            "    offset_reset_policy = latest\n"
             "  }\n"
             "~s"
             "  key_encoding_mode = none\n"
@@ -1736,7 +1748,18 @@ t_node_joins_existing_cluster(Config) ->
             setup_group_subscriber_spy(N1),
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
-                    erpc:call(N1, fun() -> {ok, _} = create_bridge(Config) end),
+                    erpc:call(N1, fun() ->
+                        {ok, _} = create_bridge(
+                            Config,
+                            #{
+                                <<"kafka">> =>
+                                    #{
+                                        <<"offset_reset_policy">> =>
+                                            <<"earliest">>
+                                    }
+                            }
+                        )
+                    end),
                     #{?snk_kind := kafka_consumer_subscriber_started},
                     15_000
                 ),
@@ -1767,14 +1790,19 @@ t_node_joins_existing_cluster(Config) ->
             wait_for_cluster_rpc(N2),
 
             {ok, _} = snabbkaffe:receive_events(SRef0),
-            ?assertMatch({ok, _}, erpc:call(N2, emqx_bridge, lookup, [BridgeId])),
+            ?retry(
+                _Sleep1 = 100,
+                _Attempts1 = 50,
+                ?assertMatch({ok, _}, erpc:call(N2, emqx_bridge, lookup, [BridgeId]))
+            ),
+
             %% Give some time for the consumers in both nodes to
             %% rebalance.
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, Nodes, 30_000),
             %% Publish some messages so we can check they came from each node.
             ?retry(
-                _Sleep1 = 100,
-                _Attempts1 = 50,
+                _Sleep2 = 100,
+                _Attempts2 = 50,
                 true = erpc:call(N2, emqx_router, has_routes, [MQTTTopic])
             ),
             {ok, SRef1} =
@@ -1784,7 +1812,7 @@ t_node_joins_existing_cluster(Config) ->
                         ?snk_span := {complete, _}
                     }),
                     NPartitions,
-                    10_000
+                    20_000
                 ),
             lists:foreach(
                 fun(N) ->
@@ -1915,6 +1943,60 @@ t_cluster_node_down(Config) ->
             %% All published messages are eventually received.
             Published = receive_published(#{n => NumPublished, timeout => 3_000}),
             ct:pal("published:\n  ~p", [Published]),
+            ok
+        end
+    ),
+    ok.
+
+t_begin_offset_earliest(Config) ->
+    MQTTTopic = ?config(mqtt_topic, Config),
+    ResourceId = resource_id(Config),
+    Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+    {ok, C} = emqtt:start_link([{proto_ver, v5}]),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [2]} = emqtt:subscribe(C, MQTTTopic, 2),
+
+    ?check_trace(
+        begin
+            %% publish a message before the bridge is started.
+            NumMessages = 5,
+            lists:foreach(
+                fun(N) ->
+                    publish(Config, [
+                        #{
+                            key => <<"mykey", (integer_to_binary(N))/binary>>,
+                            value => Payload,
+                            headers => [{<<"hkey">>, <<"hvalue">>}]
+                        }
+                    ])
+                end,
+                lists:seq(1, NumMessages)
+            ),
+
+            {ok, _} = create_bridge(Config, #{
+                <<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}
+            }),
+
+            #{num_published => NumMessages}
+        end,
+        fun(Res, _Trace) ->
+            #{num_published := NumMessages} = Res,
+            %% we should receive messages published before starting
+            %% the consumers
+            Published = receive_published(#{n => NumMessages}),
+            Payloads = lists:map(
+                fun(#{payload := P}) -> emqx_json:decode(P, [return_maps]) end,
+                Published
+            ),
+            ?assert(
+                lists:all(
+                    fun(#{<<"value">> := V}) -> V =:= Payload end,
+                    Payloads
+                ),
+                #{payloads => Payloads}
+            ),
+            ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId)),
             ok
         end
     ),

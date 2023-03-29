@@ -59,8 +59,7 @@
     subscriber_id := subscriber_id(),
     kafka_client_id := brod:client_id()
 }.
--type offset_reset_policy() :: reset_to_latest | reset_to_earliest | reset_by_subscriber.
-%% -type mqtt_payload() :: full_message | message_value.
+-type offset_reset_policy() :: latest | earliest.
 -type encoding_mode() :: none | base64.
 -type consumer_init_data() :: #{
     hookpoint := binary(),
@@ -271,7 +270,7 @@ start_consumer(Config, InstanceId, ClientID) ->
             max_batch_bytes := MaxBatchBytes,
             max_rejoin_attempts := MaxRejoinAttempts,
             offset_commit_interval_seconds := OffsetCommitInterval,
-            offset_reset_policy := OffsetResetPolicy
+            offset_reset_policy := OffsetResetPolicy0
         },
         key_encoding_mode := KeyEncodingMode,
         topic_mapping := TopicMapping0,
@@ -290,7 +289,15 @@ start_consumer(Config, InstanceId, ClientID) ->
     %% cluster, so that the load gets distributed between all
     %% consumers and we don't repeat messages in the same cluster.
     GroupID = consumer_group_id(BridgeName),
+    %% earliest or latest
+    BeginOffset = OffsetResetPolicy0,
+    OffsetResetPolicy =
+        case OffsetResetPolicy0 of
+            latest -> reset_to_latest;
+            earliest -> reset_to_earliest
+        end,
     ConsumerConfig = [
+        {begin_offset, BeginOffset},
         {max_bytes, MaxBatchBytes},
         {offset_reset_policy, OffsetResetPolicy}
     ],
