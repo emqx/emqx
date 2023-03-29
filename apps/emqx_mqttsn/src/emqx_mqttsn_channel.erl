@@ -14,11 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_sn_channel).
+-module(emqx_mqttsn_channel).
 
 -behaviour(emqx_gateway_channel).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -51,7 +51,7 @@
     %% Context
     ctx :: emqx_gateway_ctx:context(),
     %% Registry
-    registry :: emqx_sn_registry:registry(),
+    registry :: emqx_mqttsn_registry:registry(),
     %% Gateway Id
     gateway_id :: integer(),
     %% Enable QoS3
@@ -478,7 +478,7 @@ handle_in(
             true ->
                 <<TopicId:16>>;
             false ->
-                emqx_sn_registry:lookup_topic(
+                emqx_mqttsn_registry:lookup_topic(
                     Registry,
                     ?NEG_QOS_CLIENT_ID,
                     TopicId
@@ -624,7 +624,7 @@ handle_in(
         clientinfo = #{clientid := ClientId}
     }
 ) ->
-    case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
+    case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
         TopicId when is_integer(TopicId) ->
             ?SLOG(debug, #{
                 msg => "registered_topic_name",
@@ -778,7 +778,7 @@ handle_in(
                     {ok, Channel}
             end;
         ?SN_RC_INVALID_TOPIC_ID ->
-            case emqx_sn_registry:lookup_topic(Registry, ClientId, TopicId) of
+            case emqx_mqttsn_registry:lookup_topic(Registry, ClientId, TopicId) of
                 undefined ->
                     {ok, Channel};
                 TopicName ->
@@ -1093,7 +1093,7 @@ convert_topic_id_to_name(
         clientinfo = #{clientid := ClientId}
     }
 ) ->
-    case emqx_sn_registry:lookup_topic(Registry, ClientId, TopicId) of
+    case emqx_mqttsn_registry:lookup_topic(Registry, ClientId, TopicId) of
         undefined ->
             {error, ?SN_RC_INVALID_TOPIC_ID};
         TopicName ->
@@ -1202,7 +1202,7 @@ preproc_subs_type(
     %% If the gateway is able accept the subscription,
     %% it assigns a topic id to the received topic name
     %% and returns it within a SUBACK message
-    case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
+    case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
         {error, too_large} ->
             {error, ?SN_RC2_EXCEED_LIMITATION};
         {error, wildcard_topic} ->
@@ -1228,7 +1228,7 @@ preproc_subs_type(
     }
 ) ->
     case
-        emqx_sn_registry:lookup_topic(
+        emqx_mqttsn_registry:lookup_topic(
             Registry,
             ClientId,
             TopicId
@@ -1344,7 +1344,7 @@ preproc_unsub_type(
     }
 ) ->
     case
-        emqx_sn_registry:lookup_topic(
+        emqx_mqttsn_registry:lookup_topic(
             Registry,
             ClientId,
             TopicId
@@ -1765,7 +1765,7 @@ message_to_packet(
             ?QOS_0 -> 0;
             _ -> MsgId
         end,
-    case emqx_sn_registry:lookup_topic_id(Registry, ClientId, Topic) of
+    case emqx_mqttsn_registry:lookup_topic_id(Registry, ClientId, Topic) of
         {predef, PredefTopicId} ->
             Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_PREDEFINED_TOPIC},
             ?SN_PUBLISH_MSG(Flags, PredefTopicId, NMsgId, Payload);
@@ -1932,9 +1932,9 @@ ensure_registered_topic_name(
     Channel = #channel{registry = Registry}
 ) ->
     ClientId = clientid(Channel),
-    case emqx_sn_registry:lookup_topic_id(Registry, ClientId, TopicName) of
+    case emqx_mqttsn_registry:lookup_topic_id(Registry, ClientId, TopicName) of
         undefined ->
-            case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
+            case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
                 {error, Reason} -> {error, Reason};
                 TopicId -> {ok, TopicId}
             end;

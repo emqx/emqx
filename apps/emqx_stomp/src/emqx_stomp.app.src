@@ -1,0 +1,10 @@
+{application, emqx_stomp, [
+    {description, "Stomp gateway"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

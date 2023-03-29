@@ -14,17 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_sn_broadcast).
+-module(emqx_mqttsn_broadcast).
 
 -behaviour(gen_server).
 
--ifdef(TEST).
-%% make rebar3 ct happy when testing with --suite path/to/module_SUITE.erl
--include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
--else.
-%% make mix happy
--include("src/mqttsn/include/emqx_sn.hrl").
--endif.
+-include("emqx_mqttsn.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([
@@ -65,7 +59,7 @@ stop() ->
 
 init([GwId, Port]) ->
     %% FIXME:
-    Duration = application:get_env(emqx_sn, advertise_duration, ?DEFAULT_DURATION),
+    Duration = application:get_env(emqx_mqttsn, advertise_duration, ?DEFAULT_DURATION),
     {ok, Sock} = gen_udp:open(0, [binary, {broadcast, true}]),
     {ok,
         ensure_advertise(#state{
@@ -121,7 +115,7 @@ send_advertise(#state{
     addrs = Addrs,
     duration = Duration
 }) ->
-    Data = emqx_sn_frame:serialize_pkt(?SN_ADVERTISE_MSG(GwId, Duration), #{}),
+    Data = emqx_mqttsn_frame:serialize_pkt(?SN_ADVERTISE_MSG(GwId, Duration), #{}),
     lists:foreach(
         fun(Addr) ->
             ?SLOG(debug, #{

@@ -41,33 +41,49 @@ stop(_State) ->
 %% Internal funcs
 
 load_default_gateway_applications() ->
-    Apps = gateway_type_searching(),
-    lists:foreach(fun reg/1, Apps).
+    BuiltInGateways = [
+        #{
+            name => lwm2m,
+            callback_module => emqx_lwm2m_impl,
+            config_schema_module => emqx_lwm2m_schema
+        },
+        #{
+            name => coap,
+            callback_module => emqx_coap_impl,
+            config_schema_module => emqx_gateway_schema
+        },
+        #{
+            name => exproto,
+            callback_module => emqx_exproto_impl,
+            config_schema_module => emqx_gateway_schema
+        }
+    ],
+    lists:foreach(
+        fun(Def) ->
+            load_gateway_application(Def)
+        end,
+        emqx_gateway_utils:find_gateway_definations() ++ BuiltInGateways
+    ).
 
-gateway_type_searching() ->
-    %% FIXME: Hardcoded apps
-    [
-        emqx_stomp_impl,
-        emqx_sn_impl,
-        emqx_exproto_impl,
-        emqx_coap_impl,
-        emqx_lwm2m_impl
-    ].
-
-reg(Mod) ->
-    try
-        Mod:reg(),
-        ?SLOG(debug, #{
-            msg => "register_gateway_succeed",
-            callback_module => Mod
-        })
-    catch
-        Class:Reason:Stk ->
+load_gateway_application(
+    #{
+        name := Name,
+        callback_module := CbMod,
+        config_schema_module := SchemaMod
+    }
+) ->
+    RegistryOptions = [{cbkmod, CbMod}, {schema, SchemaMod}],
+    case emqx_gateway_registry:reg(Name, RegistryOptions) of
+        ok ->
+            ?SLOG(debug, #{
+                msg => "register_gateway_succeed",
+                callback_module => CbMod
+            });
+        {error, already_registered} ->
             ?SLOG(error, #{
-                msg => "failed_to_register_gateway",
-                callback_module => Mod,
-                reason => {Class, Reason},
-                stacktrace => Stk
+                msg => "gateway_already_registered",
+                name => Name,
+                callback_module => CbMod
             })
     end.
 

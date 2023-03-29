@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,12 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The MQTT-SN Gateway Implement interface
--module(emqx_sn_impl).
-
--behaviour(emqx_gateway_impl).
+%% @doc The Stomp Gateway implement interface
+-module(emqx_stomp).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
+
+%% define a gateway named stomp
+-gateway(#{
+    name => stomp,
+    callback_module => ?MODULE,
+    config_schema_module => emqx_stomp_schema
+}).
+
+%% callback_module must implement the emqx_gateway_impl behaviour
+-behaviour(emqx_gateway_impl).
+
+%% callback for emqx_gateway_impl
+-export([
+    on_gateway_load/2,
+    on_gateway_update/3,
+    on_gateway_unload/2
+]).
 
 -import(
     emqx_gateway_utils,
@@ -30,31 +46,8 @@
     ]
 ).
 
-%% APIs
--export([
-    reg/0,
-    unreg/0
-]).
-
--export([
-    on_gateway_load/2,
-    on_gateway_update/3,
-    on_gateway_unload/2
-]).
-
 %%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
-
-reg() ->
-    RegistryOptions = [{cbkmod, ?MODULE}],
-    emqx_gateway_registry:reg(mqttsn, RegistryOptions).
-
-unreg() ->
-    emqx_gateway_registry:unreg(mqttsn).
-
-%%--------------------------------------------------------------------
-%% emqx_gateway_registry callbacks
+%% emqx_gateway_impl callbacks
 %%--------------------------------------------------------------------
 
 on_gateway_load(
@@ -64,40 +57,19 @@ on_gateway_load(
     },
     Ctx
 ) ->
-    %% We Also need to start `emqx_sn_broadcast` &
-    %% `emqx_sn_registry` process
-    case maps:get(broadcast, Config, false) of
-        false ->
-            ok;
-        true ->
-            %% FIXME:
-            Port = 1884,
-            SnGwId = maps:get(gateway_id, Config, undefined),
-            _ = emqx_sn_broadcast:start_link(SnGwId, Port),
-            ok
-    end,
-
-    PredefTopics = maps:get(predefined, Config, []),
-    {ok, RegistrySvr} = emqx_sn_registry:start_link(GwName, PredefTopics),
-
-    NConfig = maps:without(
-        [broadcast, predefined],
-        Config#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
-    ),
-
-    Listeners = emqx_gateway_utils:normalize_config(NConfig),
-
+    Listeners = normalize_config(Config),
     ModCfg = #{
-        frame_mod => emqx_sn_frame,
-        chann_mod => emqx_sn_channel
+        frame_mod => emqx_stomp_frame,
+        chann_mod => emqx_stomp_channel
     },
-
     case
         start_listeners(
             Listeners, GwName, Ctx, ModCfg
         )
     of
         {ok, ListenerPids} ->
+            %% FIXME: How to throw an exception to interrupt the restart logic ?
+            %% FIXME: Assign ctx to GwState
             {ok, ListenerPids, _GwState = #{ctx => Ctx}};
         {error, {Reason, Listener}} ->
             throw(
@@ -113,7 +85,7 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
-        %% XXX: 2. Check the New confs first before destroy old instance ???
+        %% XXX: 2. Check the New confs first before destroy old state???
         on_gateway_unload(Gateway, GwState),
         on_gateway_load(Gateway#{config => Config}, Ctx)
     catch

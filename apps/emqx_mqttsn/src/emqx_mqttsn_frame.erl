@@ -16,11 +16,11 @@
 %%--------------------------------------------------------------------
 
 %% @doc The frame parser for MQTT-SN protocol
--module(emqx_sn_frame).
+-module(emqx_mqttsn_frame).
 
 -behaviour(emqx_gateway_frame).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 
 -export([
     initial_parse_state/1,
@@ -438,7 +438,7 @@ format(?SN_DISCONNECT_MSG(Duration)) ->
 format(#mqtt_sn_message{type = Type, variable = Var}) ->
     io_lib:format(
         "mqtt_sn_message(type=~s, Var=~w)",
-        [emqx_sn_frame:message_type(Type), Var]
+        [emqx_mqttsn_frame:message_type(Type), Var]
     ).
 
 is_message(#mqtt_sn_message{type = Type}) when

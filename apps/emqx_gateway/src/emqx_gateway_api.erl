@@ -395,7 +395,7 @@ fields(Gw) when
     Gw == exproto
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
-        convert_listener_struct(emqx_gateway_schema:fields(Gw));
+        convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -405,7 +405,7 @@ fields(Gw) when
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
-    remove_listener_and_authn(emqx_gateway_schema:fields(Gw1));
+    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1));
 fields(Listener) when
     Listener == tcp_listener;
     Listener == ssl_listener;

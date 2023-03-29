@@ -15,13 +15,11 @@
 %%--------------------------------------------------------------------
 
 %% @doc The MQTT-SN Topic Registry
-%%
-%% XXX:
--module(emqx_sn_registry).
+-module(emqx_mqttsn_registry).
 
 -behaviour(gen_server).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([start_link/2]).
@@ -53,11 +51,11 @@
 
 -export([lookup_name/1]).
 
--define(SN_SHARD, emqx_sn_shard).
+-define(SN_SHARD, emqx_mqttsn_shard).
 
 -record(state, {tabname, max_predef_topic_id = 0}).
 
--record(emqx_sn_registry, {key, value}).
+-record(emqx_mqttsn_registry, {key, value}).
 
 -type registry() :: {Tab :: atom(), RegistryPid :: pid()}.
 
@@ -126,7 +124,7 @@ lookup_name(Pid) ->
 %%-----------------------------------------------------------------------------
 
 name(InstaId) ->
-    list_to_atom(lists:concat([emqx_sn_, InstaId, '_registry'])).
+    list_to_atom(lists:concat([emqx_mqttsn_, InstaId, '_registry'])).
 
 init([InstaId, PredefTopics]) ->
     %% {predef, TopicId}     -> TopicName
@@ -136,8 +134,8 @@ init([InstaId, PredefTopics]) ->
     Tab = name(InstaId),
     ok = mria:create_table(Tab, [
         {storage, ram_copies},
-        {record_name, emqx_sn_registry},
-        {attributes, record_info(fields, emqx_sn_registry)},
+        {record_name, emqx_mqttsn_registry},
+        {attributes, record_info(fields, emqx_mqttsn_registry)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]},
         {rlog_shard, ?SN_SHARD}
     ]),
@@ -145,11 +143,11 @@ init([InstaId, PredefTopics]) ->
     MaxPredefId = lists:foldl(
         fun(#{id := TopicId, topic := TopicName0}, AccId) ->
             TopicName = iolist_to_binary(TopicName0),
-            mria:dirty_write(Tab, #emqx_sn_registry{
+            mria:dirty_write(Tab, #emqx_mqttsn_registry{
                 key = {predef, TopicId},
                 value = TopicName
             }),
-            mria:dirty_write(Tab, #emqx_sn_registry{
+            mria:dirty_write(Tab, #emqx_mqttsn_registry{
                 key = {predef, TopicName},
                 value = TopicId
             }),
@@ -193,7 +191,7 @@ handle_call(
 handle_call({unregister, ClientId}, _From, State = #state{tabname = Tab}) ->
     Registry = mnesia:dirty_match_object(
         Tab,
-        {emqx_sn_registry, {ClientId, '_'}, '_'}
+        {emqx_mqttsn_registry, {ClientId, '_'}, '_'}
     ),
     lists:foreach(
         fun(R) ->
@@ -234,7 +232,7 @@ code_change(_OldVsn, State, _Extra) ->
 do_register(Tab, ClientId, TopicId, TopicName) ->
     mnesia:write(
         Tab,
-        #emqx_sn_registry{
+        #emqx_mqttsn_registry{
             key = {ClientId, next_topic_id},
             value = TopicId + 1
         },
@@ -242,7 +240,7 @@ do_register(Tab, ClientId, TopicId, TopicName) ->
     ),
     mnesia:write(
         Tab,
-        #emqx_sn_registry{
+        #emqx_mqttsn_registry{
             key = {ClientId, TopicName},
             value = TopicId
         },
@@ -250,7 +248,7 @@ do_register(Tab, ClientId, TopicId, TopicName) ->
     ),
     mnesia:write(
         Tab,
-        #emqx_sn_registry{
+        #emqx_mqttsn_registry{
             key = {ClientId, TopicId},
             value = TopicName
         },
@@ -261,6 +259,6 @@ do_register(Tab, ClientId, TopicId, TopicName) ->
 
 next_topic_id(Tab, PredefId, ClientId) ->
     case mnesia:dirty_read(Tab, {ClientId, next_topic_id}) of
-        [#emqx_sn_registry{value = Id}] -> Id;
+        [#emqx_mqttsn_registry{value = Id}] -> Id;
         [] -> PredefId + 1
     end.

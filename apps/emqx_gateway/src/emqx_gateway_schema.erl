@@ -53,6 +53,8 @@
 
 -export([proxy_protocol_opts/0]).
 
+-export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1]).
+
 namespace() -> gateway.
 
 tags() ->
@@ -62,22 +64,6 @@ roots() -> [gateway].
 
 fields(gateway) ->
     [
-        {stomp,
-            sc(
-                ref(stomp),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(stomp)
-                }
-            )},
-        {mqttsn,
-            sc(
-                ref(mqttsn),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(mqttsn)
-                }
-            )},
         {coap,
             sc(
                 ref(coap),
@@ -102,102 +88,7 @@ fields(gateway) ->
                     desc => ?DESC(exproto)
                 }
             )}
-    ];
-fields(stomp) ->
-    [
-        {frame, sc(ref(stomp_frame))},
-        {mountpoint, mountpoint()},
-        {listeners, sc(ref(tcp_listeners), #{desc => ?DESC(tcp_listeners)})}
-    ] ++ gateway_common_options();
-fields(stomp_frame) ->
-    [
-        {max_headers,
-            sc(
-                non_neg_integer(),
-                #{
-                    default => 10,
-                    desc => ?DESC(stom_frame_max_headers)
-                }
-            )},
-        {max_headers_length,
-            sc(
-                non_neg_integer(),
-                #{
-                    default => 1024,
-                    desc => ?DESC(stomp_frame_max_headers_length)
-                }
-            )},
-        {max_body_length,
-            sc(
-                integer(),
-                #{
-                    default => 65536,
-                    desc => ?DESC(stom_frame_max_body_length)
-                }
-            )}
-    ];
-fields(mqttsn) ->
-    [
-        {gateway_id,
-            sc(
-                integer(),
-                #{
-                    default => 1,
-                    required => true,
-                    desc => ?DESC(mqttsn_gateway_id)
-                }
-            )},
-        {broadcast,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(mqttsn_broadcast)
-                }
-            )},
-        %% TODO: rename
-        {enable_qos3,
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(mqttsn_enable_qos3)
-                }
-            )},
-        {subs_resume,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(mqttsn_subs_resume)
-                }
-            )},
-        {predefined,
-            sc(
-                hoconsc:array(ref(mqttsn_predefined)),
-                #{
-                    default => [],
-                    required => {false, recursively},
-                    desc => ?DESC(mqttsn_predefined)
-                }
-            )},
-        {mountpoint, mountpoint()},
-        {listeners, sc(ref(udp_listeners), #{desc => ?DESC(udp_listeners)})}
-    ] ++ gateway_common_options();
-fields(mqttsn_predefined) ->
-    [
-        {id,
-            sc(integer(), #{
-                required => true,
-                desc => ?DESC(mqttsn_predefined_id)
-            })},
-
-        {topic,
-            sc(binary(), #{
-                required => true,
-                desc => ?DESC(mqttsn_predefined_topic)
-            })}
-    ];
+    ] ++ gateway_schemas();
 fields(coap) ->
     [
         {heartbeat,
@@ -522,17 +413,6 @@ fields(dtls_opts) ->
 
 desc(gateway) ->
     "EMQX Gateway configuration root.";
-desc(stomp) ->
-    "The STOMP protocol gateway provides EMQX with the ability to access STOMP\n"
-    "(Simple (or Streaming) Text Orientated Messaging Protocol) protocol.";
-desc(stomp_frame) ->
-    "Size limits for the STOMP frames.";
-desc(mqttsn) ->
-    "The MQTT-SN (MQTT for Sensor Networks) protocol gateway.";
-desc(mqttsn_predefined) ->
-    "The pre-defined topic name corresponding to the pre-defined topic\n"
-    "ID of N.\n\n"
-    "Note: the pre-defined topic ID of 0 is reserved.";
 desc(coap) ->
     "The CoAP protocol gateway provides EMQX with the access capability of the CoAP protocol.\n"
     "It allows publishing, subscribing, and receiving messages to EMQX in accordance\n"
@@ -713,8 +593,33 @@ proxy_protocol_opts() ->
             )}
     ].
 
-sc(Type) ->
-    sc(Type, #{}).
+%%--------------------------------------------------------------------
+%% dynamic schemas
+
+%% FIXME: don't hardcode the gateway names
+gateway_schema(coap) -> fields(coap);
+gateway_schema(lwm2m) -> fields(lwm2m);
+gateway_schema(exproto) -> fields(exproto);
+gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
+gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn).
+
+gateway_schemas() ->
+    lists:map(
+        fun(#{name := Name, config_schema_module := Mod}) ->
+            {Name,
+                sc(
+                    ref(Mod, Name),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC(Name)
+                    }
+                )}
+        end,
+        emqx_gateway_utils:find_gateway_definations()
+    ).
+
+%%--------------------------------------------------------------------
+%% helpers
 
 sc(Type, Meta) ->
     hoconsc:mk(Type, Meta).
