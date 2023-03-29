@@ -114,7 +114,11 @@ on_start(InstId, Config) ->
                     client_id => ClientId
                 }
             ),
-            throw(failed_to_start_kafka_producer)
+            throw(
+                {error,
+                    "Failed to start Kafka client. Please check the logs for errors and check"
+                    " the connection parameters"}
+            )
     end.
 
 on_stop(_InstanceID, #{client_id := ClientID, producers := Producers, resource_id := ResourceID}) ->

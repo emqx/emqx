@@ -152,7 +152,11 @@ on_start(InstanceId, Config) ->
                 kafka_hosts => BootstrapHosts,
                 reason => emqx_misc:redact(Reason)
             }),
-            throw(failed_to_start_kafka_client)
+            throw(
+                {error,
+                    "Failed to start Kafka client. Please check the logs for errors and check"
+                    " the connection parameters"}
+            )
     end,
     start_consumer(Config, InstanceId, ClientID).
 

@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
 -define(PRODUCER, emqx_bridge_impl_kafka_producer).
@@ -415,9 +416,14 @@ t_failed_creation_then_fix(Config) ->
         Type, erlang:list_to_atom(Name), WrongConf
     ),
     WrongConfigAtom = WrongConfigAtom1#{bridge_name => Name},
-    ?assertThrow(failed_to_start_kafka_producer, ?PRODUCER:on_start(ResourceId, WrongConfigAtom)),
-    %% before throwing, it should cleanup the client process.
-    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertThrow(
+        {error, _},
+        ?PRODUCER:on_start(ResourceId, WrongConfigAtom)
+    ),
+    %% before throwing, it should cleanup the client process.  we
+    %% retry because the supervisor might need some time to really
+    %% remove it from its tree.
+    ?retry(50, 10, ?assertEqual([], supervisor:which_children(wolff_client_sup))),
     %% must succeed with correct config
     {ok, #{config := ValidConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), ValidConf

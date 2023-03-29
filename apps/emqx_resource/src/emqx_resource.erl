@@ -356,7 +356,14 @@ is_buffer_supported(Module) ->
 -spec call_start(manager_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(MgrId, Mod, Config) ->
-    ?SAFE_CALL(Mod:on_start(MgrId, Config)).
+    try
+        Mod:on_start(MgrId, Config)
+    catch
+        throw:{error, Error} ->
+            {error, Error};
+        Kind:Error:Stacktrace ->
+            {error, {Kind, Error, Stacktrace}}
+    end.
 
 -spec call_health_check(manager_id(), module(), resource_state()) ->
     resource_status()
