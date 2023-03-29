@@ -29,9 +29,11 @@ list_exports_local() ->
     emqx_ft_storage:with_storage_type(local, fun(Storage) ->
         case emqx_ft_storage_exporter:exporter(Storage) of
             {emqx_ft_storage_exporter_fs, Options} ->
-                emqx_ft_storage_exporter_fs:list_local(Options);
-            InvalidExporter ->
-                {error, {invalid_exporter, InvalidExporter}}
+                emqx_ft_storage_exporter_fs:list_local(Options)
+            % NOTE
+            % This case clause is currently deemed unreachable by dialyzer.
+            % InvalidExporter ->
+            %     {error, {invalid_exporter, InvalidExporter}}
         end
     end).
 
@@ -39,8 +41,10 @@ read_export_file_local(Filepath, CallerPid) ->
     emqx_ft_storage:with_storage_type(local, fun(Storage) ->
         case emqx_ft_storage_exporter:exporter(Storage) of
             {emqx_ft_storage_exporter_fs, Options} ->
-                emqx_ft_storage_exporter_fs:start_reader(Options, Filepath, CallerPid);
-            InvalidExporter ->
-                {error, {invalid_exporter, InvalidExporter}}
+                emqx_ft_storage_exporter_fs:start_reader(Options, Filepath, CallerPid)
+            % NOTE
+            % This case clause is currently deemed unreachable by dialyzer.
+            % InvalidExporter ->
+            %     {error, {invalid_exporter, InvalidExporter}}
         end
     end).
