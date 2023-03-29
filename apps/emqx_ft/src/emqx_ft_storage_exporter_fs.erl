@@ -266,20 +266,32 @@ start_reader(Options, RelFilepath, CallerPid) ->
 %%
 
 -spec list(options()) ->
-    {ok, [exportinfo(), ...]} | {error, file_error()}.
+    {ok, [exportinfo(), ...]} | {error, [{node(), _Reason}]}.
 list(_Options) ->
     Nodes = mria_mnesia:running_nodes(),
-    Results = emqx_ft_storage_exporter_fs_proto_v1:list_exports(Nodes),
-    {GoodResults, BadResults} = lists:partition(
+    Replies = emqx_ft_storage_exporter_fs_proto_v1:list_exports(Nodes),
+    {Results, Errors} = lists:foldl(
         fun
-            ({_Node, {ok, {ok, _}}}) -> true;
-            (_) -> false
+            ({_Node, {ok, {ok, Files}}}, {Acc, Errors}) ->
+                {Files ++ Acc, Errors};
+            ({Node, {ok, {error, _} = Error}}, {Acc, Errors}) ->
+                {Acc, [{Node, Error} | Errors]};
+            ({Node, Error}, {Acc, Errors}) ->
+                {Acc, [{Node, Error} | Errors]}
         end,
-        lists:zip(Nodes, Results)
+        {[], []},
+        lists:zip(Nodes, Replies)
     ),
-    length(BadResults) > 0 andalso
-        ?SLOG(warning, #{msg => "list_remote_exports_failed", failures => BadResults}),
-    {ok, [File || {_Node, {ok, {ok, Files}}} <- GoodResults, File <- Files]}.
+    length(Errors) > 0 andalso
+        ?SLOG(warning, #{msg => "list_remote_exports_failed", errors => Errors}),
+    case Results of
+        [_ | _] ->
+            {ok, Results};
+        [] when Errors =:= [] ->
+            {ok, Results};
+        [] ->
+            {error, Errors}
+    end.
 
 %%
 
