@@ -285,7 +285,6 @@ redis_fields() ->
         {database, #{
             type => integer(),
             default => 0,
-            required => true,
             desc => ?DESC("database")
         }},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
