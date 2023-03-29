@@ -15,11 +15,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_lwm2m_session).
 
+-include("src/coap/include/emqx_coap.hrl").
+-include("src/lwm2m/include/emqx_lwm2m.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include("src/coap/include/emqx_coap.hrl").
--include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -513,12 +514,20 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
             true ->
                 Acc;
             false ->
-                try
-                    emqx_lwm2m_xml_object_db:find_objectid(binary_to_integer(ObjId)),
-                    observe_object(AlternatePath, ObjectPath, Acc)
-                catch
-                    error:no_xml_definition ->
-                        Acc
+                ObjId1 = binary_to_integer(ObjId),
+                case emqx_lwm2m_xml_object_db:find_objectid(ObjId1) of
+                    {error, no_xml_definition} ->
+                        ?tp(
+                            warning,
+                            ignore_observer_resource,
+                            #{
+                                reason => no_xml_definition,
+                                object_id => ObjId1
+                            }
+                        ),
+                        Acc;
+                    _ ->
+                        observe_object(AlternatePath, ObjectPath, Acc)
                 end
         end
     end,
@@ -538,15 +547,20 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
         path => AlternatePath,
         data => TermData
     }),
-    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
+    {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
+    Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
 is_auto_observe() ->
     emqx:get_config([gateway, lwm2m, auto_observe]).
 
+alloc_token(Req = #coap_message{}) ->
+    Req#coap_message{token = crypto:strong_rand_bytes(4)}.
+
 %%--------------------------------------------------------------------
 %% Response
 %%--------------------------------------------------------------------
+
 handle_coap_response(
     {Ctx = #{<<"msgType">> := EventType}, #coap_message{
         method = CoapMsgMethod,

@@ -57,6 +57,7 @@
 start_link(XmlDir) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [XmlDir], []).
 
+-spec find_objectid(integer()) -> {error, no_xml_definition} | xmerl:xmlElement().
 find_objectid(ObjectId) ->
     ObjectIdInt =
         case is_list(ObjectId) of
@@ -65,9 +66,10 @@ find_objectid(ObjectId) ->
         end,
     case ets:lookup(?LWM2M_OBJECT_DEF_TAB, ObjectIdInt) of
         [] -> {error, no_xml_definition};
-        [{ObjectId, Xml}] -> Xml
+        [{_ObjectId, Xml}] -> Xml
     end.
 
+-spec find_name(string()) -> {error, no_xml_definition} | xmerl:xmlElement().
 find_name(Name) ->
     NameBinary =
         case is_list(Name) of
@@ -77,10 +79,11 @@ find_name(Name) ->
     case ets:lookup(?LWM2M_OBJECT_NAME_TO_ID_TAB, NameBinary) of
         [] ->
             {error, no_xml_definition};
-        [{NameBinary, ObjectId}] ->
+        [{_NameBinary, ObjectId}] ->
             find_objectid(ObjectId)
     end.
 
+-spec stop() -> ok.
 stop() ->
     gen_server:stop(?MODULE).
 
