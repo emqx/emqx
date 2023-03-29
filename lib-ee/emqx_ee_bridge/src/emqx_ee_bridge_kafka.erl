@@ -221,17 +221,21 @@ fields(socket_opts) ->
         {sndbuf,
             mk(
                 emqx_schema:bytesize(),
-                #{default => <<"1024KB">>, desc => ?DESC(socket_send_buffer)}
+                #{default => <<"1MB">>, desc => ?DESC(socket_send_buffer)}
             )},
         {recbuf,
             mk(
                 emqx_schema:bytesize(),
-                #{default => <<"1024KB">>, desc => ?DESC(socket_receive_buffer)}
+                #{default => <<"1MB">>, desc => ?DESC(socket_receive_buffer)}
             )},
         {nodelay,
             mk(
                 boolean(),
-                #{default => true, desc => ?DESC(socket_nodelay)}
+                #{
+                    default => true,
+                    hidden => true,
+                    desc => ?DESC(socket_nodelay)
+                }
             )}
     ];
 fields(producer_opts) ->
