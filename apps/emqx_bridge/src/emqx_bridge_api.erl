@@ -218,7 +218,7 @@ info_example_basic(webhook) ->
             health_check_interval => 15000,
             auto_restart_interval => 15000,
             query_mode => async,
-            async_inflight_window => 100,
+            inflight_window => 100,
             max_queue_bytes => 100 * 1024 * 1024
         }
     };

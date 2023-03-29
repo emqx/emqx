@@ -369,7 +369,7 @@ t_query_counter_async_callback(_) ->
         #{
             query_mode => async,
             batch_size => 1,
-            async_inflight_window => 1000000
+            inflight_window => 1000000
         }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
@@ -450,7 +450,7 @@ t_query_counter_async_inflight(_) ->
         #{
             query_mode => async,
             batch_size => 1,
-            async_inflight_window => WindowSize,
+            inflight_window => WindowSize,
             worker_pool_size => 1,
             resume_interval => 300
         }
@@ -634,7 +634,7 @@ t_query_counter_async_inflight_batch(_) ->
             query_mode => async,
             batch_size => BatchSize,
             batch_time => 100,
-            async_inflight_window => WindowSize,
+            inflight_window => WindowSize,
             worker_pool_size => 1,
             resume_interval => 300
         }
@@ -1584,7 +1584,7 @@ t_retry_async_inflight_full(_Config) ->
         #{name => ?FUNCTION_NAME},
         #{
             query_mode => async,
-            async_inflight_window => AsyncInflightWindow,
+            inflight_window => AsyncInflightWindow,
             batch_size => 1,
             worker_pool_size => 1,
             resume_interval => ResumeInterval
@@ -1642,7 +1642,7 @@ t_async_reply_multi_eval(_Config) ->
         #{name => ?FUNCTION_NAME},
         #{
             query_mode => async,
-            async_inflight_window => AsyncInflightWindow,
+            inflight_window => AsyncInflightWindow,
             batch_size => 3,
             batch_time => 10,
             worker_pool_size => 1,

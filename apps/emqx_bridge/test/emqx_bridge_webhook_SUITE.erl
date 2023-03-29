@@ -172,7 +172,7 @@ bridge_async_config(#{port := Port} = Config) ->
         "  request_timeout = \"~ps\"\n"
         "  body = \"${id}\""
         "  resource_opts {\n"
-        "    async_inflight_window = 100\n"
+        "    inflight_window = 100\n"
         "    auto_restart_interval = \"60s\"\n"
         "    health_check_interval = \"15s\"\n"
         "    max_queue_bytes = \"1GB\"\n"
