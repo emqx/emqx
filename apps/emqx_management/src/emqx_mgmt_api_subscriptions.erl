@@ -177,7 +177,7 @@ format(WhichNode, {{Topic, _Subscriber}, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
-            clientid => maps:get(subid, Options),
+            clientid => maps:get(subid, Options, null),
             node => WhichNode
         },
         maps:with([qos, nl, rap, rh], Options)
