@@ -20,20 +20,21 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% Exporter API
+-behaviour(emqx_ft_storage_exporter).
+
 -export([start_export/3]).
 -export([write/2]).
 -export([complete/1]).
 -export([discard/1]).
+-export([list/1]).
 
+%% Internal API for RPC
 -export([list_local/1]).
 -export([list_local/2]).
 -export([start_reader/3]).
 
--export([list/1]).
 % TODO
 % -export([list/2]).
-
--export_type([export/0]).
 
 -type options() :: _TODO.
 -type transfer() :: emqx_ft:transfer().
@@ -49,7 +50,7 @@
 
 -type file_error() :: emqx_ft_storage_fs:file_error().
 
--opaque export() :: #{
+-type export() :: #{
     path := file:name(),
     handle := io:device(),
     result := file:name(),
@@ -116,6 +117,7 @@ write(Export = #{handle := Handle, hash := Ctx}, IoData) ->
         ok ->
             {ok, Export#{hash := update_checksum(Ctx, IoData)}};
         {error, _} = Error ->
+            _ = discard(Export),
             Error
     end.
 
@@ -370,4 +372,4 @@ mk_transfer_hash(Transfer) ->
     crypto:hash(?BUCKET_HASH, term_to_binary(Transfer)).
 
 get_storage_root(Options) ->
-    maps:get(root, Options, filename:join([emqx:data_dir(), "ft", "exports"])).
+    maps:get(root, Options, filename:join([emqx:data_dir(), file_transfer, exports])).

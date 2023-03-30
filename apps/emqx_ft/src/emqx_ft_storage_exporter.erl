@@ -34,42 +34,47 @@
 
 -export([exporter/1]).
 
--export_type([options/0]).
 -export_type([export/0]).
 
 -type storage() :: emxt_ft_storage_fs:storage().
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
 
--type options() :: map().
--type export() :: term().
+-type exporter_conf() :: map().
+-type export_st() :: term().
+-opaque export() :: {module(), export_st()}.
 
--callback start_export(options(), transfer(), filemeta()) ->
-    {ok, export()} | {error, _Reason}.
+-callback start_export(exporter_conf(), transfer(), filemeta()) ->
+    {ok, export_st()} | {error, _Reason}.
 
--callback write(ExportSt :: export(), iodata()) ->
-    {ok, ExportSt :: export()} | {error, _Reason}.
+%% Exprter must discard the export itself in case of error
+-callback write(ExportSt :: export_st(), iodata()) ->
+    {ok, ExportSt :: export_st()} | {error, _Reason}.
 
--callback complete(ExportSt :: export()) ->
+-callback complete(ExportSt :: export_st()) ->
     ok | {error, _Reason}.
 
--callback discard(ExportSt :: export()) ->
+-callback discard(ExportSt :: export_st()) ->
     ok | {error, _Reason}.
 
--callback list(options()) ->
+-callback list(storage()) ->
     {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
 
 %%
 
+-spec start_export(storage(), transfer(), filemeta()) ->
+    {ok, export()} | {error, _Reason}.
 start_export(Storage, Transfer, Filemeta) ->
-    {ExporterMod, Exporter} = exporter(Storage),
-    case ExporterMod:start_export(Exporter, Transfer, Filemeta) of
+    {ExporterMod, ExporterConf} = exporter(Storage),
+    case ExporterMod:start_export(ExporterConf, Transfer, Filemeta) of
         {ok, ExportSt} ->
             {ok, {ExporterMod, ExportSt}};
         {error, _} = Error ->
             Error
     end.
 
+-spec write(export(), iodata()) ->
+    {ok, export()} | {error, _Reason}.
 write({ExporterMod, ExportSt}, Content) ->
     case ExporterMod:write(ExportSt, Content) of
         {ok, ExportStNext} ->
@@ -78,23 +83,31 @@ write({ExporterMod, ExportSt}, Content) ->
             Error
     end.
 
+-spec complete(export()) ->
+    ok | {error, _Reason}.
 complete({ExporterMod, ExportSt}) ->
     ExporterMod:complete(ExportSt).
 
+-spec discard(export()) ->
+    ok | {error, _Reason}.
 discard({ExporterMod, ExportSt}) ->
     ExporterMod:discard(ExportSt).
 
-%%
-
+-spec list(storage()) ->
+    {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
 list(Storage) ->
     {ExporterMod, ExporterOpts} = exporter(Storage),
     ExporterMod:list(ExporterOpts).
-
-%%
 
 -spec exporter(storage()) -> {module(), _ExporterOptions}.
 exporter(Storage) ->
     case maps:get(exporter, Storage) of
         #{type := local} = Options ->
-            {emqx_ft_storage_exporter_fs, Options}
+            {emqx_ft_storage_exporter_fs, without_type(Options)};
+        #{type := s3} = Options ->
+            {emqx_ft_storage_exporter_s3, without_type(Options)}
     end.
+
+-spec without_type(exporter_conf()) -> exporter_conf().
+without_type(#{type := _} = Options) ->
+    maps:without([type], Options).

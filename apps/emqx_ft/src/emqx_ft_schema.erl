@@ -16,7 +16,7 @@
 
 -module(emqx_ft_schema).
 
--behaviour(hocon_schema).
+% -behaviour(hocon_schema).
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -35,7 +35,7 @@
 
 -reflect_type([json_value/0]).
 
-%%
+-import(hoconsc, [ref/1, ref/2, mk/2]).
 
 namespace() -> file_transfer.
 
@@ -46,84 +46,130 @@ roots() -> [file_transfer].
 
 fields(file_transfer) ->
     [
-        {storage, #{
-            type => hoconsc:union([
-                hoconsc:ref(?MODULE, local_storage)
-            ]),
-            desc => ?DESC("storage")
-        }}
+        {storage,
+            mk(
+                hoconsc:union([
+                    ref(local_storage)
+                ]),
+                #{
+                    required => true,
+                    desc => ?DESC("storage")
+                }
+            )}
     ];
 fields(local_storage) ->
     [
-        {type, #{
-            type => local,
-            default => local,
-            required => false,
-            desc => ?DESC("local_type")
-        }},
-        {segments, #{
-            type => ?REF(local_storage_segments),
-            desc => ?DESC("local_storage_segments"),
-            required => false
-        }},
-        {exporter, #{
-            type => hoconsc:union([
-                ?REF(local_storage_exporter)
-            ]),
-            desc => ?DESC("local_storage_exporter"),
-            required => true
-        }}
+        {type,
+            mk(
+                local,
+                #{
+                    default => local,
+                    required => false,
+                    desc => ?DESC("local_type")
+                }
+            )},
+        {segments,
+            mk(
+                ref(local_storage_segments),
+                #{
+                    desc => ?DESC("local_storage_segments"),
+                    required => false
+                }
+            )},
+        {exporter,
+            mk(
+                hoconsc:union([
+                    ref(local_storage_exporter),
+                    ref(s3_exporter)
+                ]),
+                #{
+                    desc => ?DESC("local_storage_exporter"),
+                    required => true
+                }
+            )}
     ];
 fields(local_storage_segments) ->
     [
-        {root, #{
-            type => binary(),
-            desc => ?DESC("local_storage_segments_root"),
-            required => false
-        }},
-        {gc, #{
-            type => ?REF(local_storage_segments_gc),
-            desc => ?DESC("local_storage_segments_gc"),
-            required => false
-        }}
+        {root,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("local_storage_segments_root"),
+                    required => false
+                }
+            )},
+        {gc,
+            mk(
+                ref(local_storage_segments_gc), #{
+                    desc => ?DESC("local_storage_segments_gc"),
+                    required => false
+                }
+            )}
     ];
 fields(local_storage_exporter) ->
     [
-        {type, #{
-            type => local,
-            default => local,
-            required => false,
-            desc => ?DESC("local_storage_exporter_type")
-        }},
-        {root, #{
-            type => binary(),
-            desc => ?DESC("local_storage_exporter_root"),
-            required => false
-        }}
+        {type,
+            mk(
+                local,
+                #{
+                    default => local,
+                    required => false,
+                    desc => ?DESC("local_storage_exporter_type")
+                }
+            )},
+        {root,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("local_storage_exporter_root"),
+                    required => false
+                }
+            )}
     ];
+fields(s3_exporter) ->
+    [
+        {type,
+            mk(
+                s3,
+                #{
+                    default => s3,
+                    required => false,
+                    desc => ?DESC("s3_exporter_type")
+                }
+            )}
+    ] ++
+        emqx_s3_schema:fields(s3);
 fields(local_storage_segments_gc) ->
     [
-        {interval, #{
-            type => emqx_schema:duration_ms(),
-            desc => ?DESC("storage_gc_interval"),
-            required => false,
-            default => "1h"
-        }},
-        {maximum_segments_ttl, #{
-            type => emqx_schema:duration_s(),
-            desc => ?DESC("storage_gc_max_segments_ttl"),
-            required => false,
-            default => "24h"
-        }},
-        {minimum_segments_ttl, #{
-            type => emqx_schema:duration_s(),
-            % desc => ?DESC("storage_gc_min_segments_ttl"),
-            required => false,
-            default => "5m",
-            % NOTE
-            % This setting does not seem to be useful to an end-user.
-            hidden => true
-        }}
+        {interval,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    desc => ?DESC("storage_gc_interval"),
+                    required => false,
+                    default => "1h"
+                }
+            )},
+        {maximum_segments_ttl,
+            mk(
+                emqx_schema:duration_s(),
+                #{
+                    desc => ?DESC("storage_gc_max_segments_ttl"),
+                    required => false,
+                    default => "24h"
+                }
+            )},
+        {minimum_segments_ttl,
+            mk(
+                emqx_schema:duration_s(),
+                #{
+                    required => false,
+                    default => "5m",
+                    % NOTE
+                    % This setting does not seem to be useful to an end-user.
+                    hidden => true
+                }
+            )}
     ].
 
 desc(file_transfer) ->
@@ -133,7 +179,9 @@ desc(local_storage) ->
 desc(local_storage_segments) ->
     "File transfer local segments storage settings";
 desc(local_storage_exporter) ->
-    "Exporter settings for the File transfer local storage backend";
+    "Local Exporter settings for the File transfer local storage backend";
+desc(s3_exporter) ->
+    "S3 Exporter settings for the File transfer local storage backend";
 desc(local_storage_segments_gc) ->
     "Garbage collection settings for the File transfer local segments storage".
 
