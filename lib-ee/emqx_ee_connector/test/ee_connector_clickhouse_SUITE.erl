@@ -190,7 +190,8 @@ clickhouse_config() ->
                         ?CLICKHOUSE_DEFAULT_PORT
                     ]
                 )
-            )
+            ),
+            connect_timeout => 10000
         },
     #{<<"config">> => Config}.
 
