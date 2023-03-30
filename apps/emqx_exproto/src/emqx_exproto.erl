@@ -14,12 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The ExProto Gateway Implement interface
--module(emqx_exproto_impl).
-
--behaviour(emqx_gateway_impl).
+%% @doc The ExProto Gateway implement
+-module(emqx_exproto).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
+
+%% define a gateway named stomp
+-gateway(#{
+    name => exproto,
+    callback_module => ?MODULE,
+    config_schema_module => emqx_exproto_schema
+}).
+
+%% callback_module must implement the emqx_gateway_impl behaviour
+-behaviour(emqx_gateway_impl).
+
+%% callback for emqx_gateway_impl
+-export([
+    on_gateway_load/2,
+    on_gateway_update/3,
+    on_gateway_unload/2
+]).
 
 -import(
     emqx_gateway_utils,
@@ -30,31 +46,8 @@
     ]
 ).
 
-%% APIs
--export([
-    reg/0,
-    unreg/0
-]).
-
--export([
-    on_gateway_load/2,
-    on_gateway_update/3,
-    on_gateway_unload/2
-]).
-
 %%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
-
-reg() ->
-    RegistryOptions = [{cbkmod, ?MODULE}],
-    emqx_gateway_registry:reg(exproto, RegistryOptions).
-
-unreg() ->
-    emqx_gateway_registry:unreg(exproto).
-
-%%--------------------------------------------------------------------
-%% emqx_gateway_registry callbacks
+%% emqx_gateway_impl callbacks
 %%--------------------------------------------------------------------
 
 on_gateway_load(

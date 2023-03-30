@@ -60,79 +60,22 @@ namespace() -> gateway.
 tags() ->
     [<<"Gateway">>].
 
-roots() -> [gateway].
+roots() ->
+    [{gateway, sc(ref(?MODULE, gateway), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields(gateway) ->
-    [
-        {exproto,
-            sc(
-                ref(exproto),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(exproto)
-                }
-            )}
-    ] ++ gateway_schemas();
-fields(exproto) ->
-    [
-        {server,
-            sc(
-                ref(exproto_grpc_server),
-                #{
-                    required => true,
-                    desc => ?DESC(exproto_server)
-                }
-            )},
-        {handler,
-            sc(
-                ref(exproto_grpc_handler),
-                #{
-                    required => true,
-                    desc => ?DESC(exproto_handler)
-                }
-            )},
-        {mountpoint, mountpoint()},
-        {listeners, sc(ref(tcp_udp_listeners), #{desc => ?DESC(tcp_udp_listeners)})}
-    ] ++ gateway_common_options();
-fields(exproto_grpc_server) ->
-    [
-        {bind,
-            sc(
-                hoconsc:union([ip_port(), integer()]),
-                #{
-                    required => true,
-                    desc => ?DESC(exproto_grpc_server_bind)
-                }
-            )},
-        {ssl_options,
-            sc(
-                ref(ssl_server_opts),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(exproto_grpc_server_ssl)
-                }
-            )}
-    ];
-fields(exproto_grpc_handler) ->
-    [
-        {address, sc(binary(), #{required => true, desc => ?DESC(exproto_grpc_handler_address)})},
-        {ssl_options,
-            sc(
-                ref(emqx_schema, "ssl_client_opts"),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(exproto_grpc_handler_ssl)
-                }
-            )}
-    ];
-fields(ssl_server_opts) ->
-    emqx_schema:server_ssl_opts_schema(
-        #{
-            depth => 10,
-            reuse_sessions => true,
-            versions => tls_all_available
-        },
-        true
+    lists:map(
+        fun(#{name := Name, config_schema_module := Mod}) ->
+            {Name,
+                sc(
+                    ref(Mod, Name),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC(Name)
+                    }
+                )}
+        end,
+        emqx_gateway_utils:find_gateway_definations()
     );
 fields(clientinfo_override) ->
     [
@@ -217,14 +160,6 @@ fields(dtls_opts) ->
 
 desc(gateway) ->
     "EMQX Gateway configuration root.";
-desc(exproto) ->
-    "Settings for EMQX extension protocol (exproto).";
-desc(exproto_grpc_server) ->
-    "Settings for the exproto gRPC server.";
-desc(exproto_grpc_handler) ->
-    "Settings for the exproto gRPC connection handler.";
-desc(ssl_server_opts) ->
-    "SSL configuration for the server.";
 desc(clientinfo_override) ->
     "ClientInfo override.";
 desc(udp_listeners) ->
@@ -391,26 +326,11 @@ proxy_protocol_opts() ->
 %% dynamic schemas
 
 %% FIXME: don't hardcode the gateway names
-gateway_schema(exproto) -> fields(exproto);
 gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
 gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
 gateway_schema(coap) -> emqx_coap_schema:fields(coap);
-gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m).
-
-gateway_schemas() ->
-    lists:map(
-        fun(#{name := Name, config_schema_module := Mod}) ->
-            {Name,
-                sc(
-                    ref(Mod, Name),
-                    #{
-                        required => {false, recursively},
-                        desc => ?DESC(Name)
-                    }
-                )}
-        end,
-        emqx_gateway_utils:find_gateway_definations()
-    ).
+gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m);
+gateway_schema(exproto) -> emqx_exproto_schema:fields(exproto).
 
 %%--------------------------------------------------------------------
 %% helpers

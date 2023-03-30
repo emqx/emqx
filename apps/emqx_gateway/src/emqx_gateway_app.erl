@@ -41,18 +41,11 @@ stop(_State) ->
 %% Internal funcs
 
 load_default_gateway_applications() ->
-    BuiltInGateways = [
-        #{
-            name => exproto,
-            callback_module => emqx_exproto_impl,
-            config_schema_module => emqx_gateway_schema
-        }
-    ],
     lists:foreach(
         fun(Def) ->
             load_gateway_application(Def)
         end,
-        emqx_gateway_utils:find_gateway_definations() ++ BuiltInGateways
+        emqx_gateway_utils:find_gateway_definations()
     ).
 
 load_gateway_application(

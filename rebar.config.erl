@@ -393,6 +393,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_mqttsn,
             emqx_coap,
             emqx_lwm2m,
+            emqx_exproto,
             emqx_exhook,
             emqx_bridge,
             emqx_rule_engine,
