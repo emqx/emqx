@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The Stomp Gateway implement interface
+%% @doc The Stomp Gateway implement
 -module(emqx_stomp).
 
 -include_lib("emqx/include/logger.hrl").

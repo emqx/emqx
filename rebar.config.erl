@@ -391,6 +391,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_gateway,
             emqx_stomp,
             emqx_mqttsn,
+            emqx_coap,
             emqx_exhook,
             emqx_bridge,
             emqx_rule_engine,

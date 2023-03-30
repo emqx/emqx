@@ -48,11 +48,6 @@ load_default_gateway_applications() ->
             config_schema_module => emqx_lwm2m_schema
         },
         #{
-            name => coap,
-            callback_module => emqx_coap_impl,
-            config_schema_module => emqx_gateway_schema
-        },
-        #{
             name => exproto,
             callback_module => emqx_exproto_impl,
             config_schema_module => emqx_gateway_schema

@@ -18,10 +18,10 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_coap.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
--include("src/coap/include/emqx_coap.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0]).

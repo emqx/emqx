@@ -64,14 +64,6 @@ roots() -> [gateway].
 
 fields(gateway) ->
     [
-        {coap,
-            sc(
-                ref(coap),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(coap)
-                }
-            )},
         {lwm2m,
             sc(
                 ref(lwm2m),
@@ -89,55 +81,6 @@ fields(gateway) ->
                 }
             )}
     ] ++ gateway_schemas();
-fields(coap) ->
-    [
-        {heartbeat,
-            sc(
-                duration(),
-                #{
-                    default => <<"30s">>,
-                    desc => ?DESC(coap_heartbeat)
-                }
-            )},
-        {connection_required,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(coap_connection_required)
-                }
-            )},
-        {notify_type,
-            sc(
-                hoconsc:enum([non, con, qos]),
-                #{
-                    default => qos,
-                    desc => ?DESC(coap_notify_type)
-                }
-            )},
-        {subscribe_qos,
-            sc(
-                hoconsc:enum([qos0, qos1, qos2, coap]),
-                #{
-                    default => coap,
-                    desc => ?DESC(coap_subscribe_qos)
-                }
-            )},
-        {publish_qos,
-            sc(
-                hoconsc:enum([qos0, qos1, qos2, coap]),
-                #{
-                    default => coap,
-                    desc => ?DESC(coap_publish_qos)
-                }
-            )},
-        {mountpoint, mountpoint()},
-        {listeners,
-            sc(
-                ref(udp_listeners),
-                #{desc => ?DESC(udp_listeners)}
-            )}
-    ] ++ gateway_common_options();
 fields(lwm2m) ->
     [
         {xml_dir,
@@ -413,10 +356,6 @@ fields(dtls_opts) ->
 
 desc(gateway) ->
     "EMQX Gateway configuration root.";
-desc(coap) ->
-    "The CoAP protocol gateway provides EMQX with the access capability of the CoAP protocol.\n"
-    "It allows publishing, subscribing, and receiving messages to EMQX in accordance\n"
-    "with a certain defined CoAP message format.";
 desc(lwm2m) ->
     "The LwM2M protocol gateway.";
 desc(exproto) ->
@@ -597,11 +536,11 @@ proxy_protocol_opts() ->
 %% dynamic schemas
 
 %% FIXME: don't hardcode the gateway names
-gateway_schema(coap) -> fields(coap);
 gateway_schema(lwm2m) -> fields(lwm2m);
 gateway_schema(exproto) -> fields(exproto);
 gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
-gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn).
+gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
+gateway_schema(coap) -> emqx_coap_schema:fields(coap).
 
 gateway_schemas() ->
     lists:map(

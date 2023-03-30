@@ -15,10 +15,10 @@
 %%--------------------------------------------------------------------
 -module(emqx_coap_session).
 
+-include("emqx_coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
--include("src/coap/include/emqx_coap.hrl").
 
 %% API
 -export([

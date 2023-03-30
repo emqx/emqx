@@ -29,8 +29,8 @@
 
 -export_type([manager/0, event_result/1]).
 
+-include("emqx_coap.hrl").
 -include_lib("emqx/include/logger.hrl").
--include("src/coap/include/emqx_coap.hrl").
 
 -type direction() :: in | out.
 
