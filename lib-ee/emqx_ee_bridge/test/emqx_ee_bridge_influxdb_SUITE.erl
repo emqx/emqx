@@ -990,9 +990,7 @@ t_write_failure(Config) ->
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        {error, {error, {closed, "The connection was lost."}}} =:= Result orelse
-                            {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, econnrefused}} =:= Result,
+                        not emqx_ee_connector_influxdb:is_unrecoverable_error(Result),
                         #{got => Result}
                     );
                 async ->
@@ -1000,11 +998,7 @@ t_write_failure(Config) ->
                     ?assertMatch([#{action := nack} | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        {error, {recoverable_error, {closed, "The connection was lost."}}} =:=
-                            Result orelse
-                            {error, {error, closed}} =:= Result orelse
-                            {error, {recoverable_error, econnrefused}} =:= Result orelse
-                            {error, {recoverable_error, noproc}} =:= Result,
+                        not emqx_ee_connector_influxdb:is_unrecoverable_error(Result),
                         #{got => Result}
                     )
             end,
