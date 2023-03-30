@@ -45,7 +45,8 @@
     bytes/0,
     offset/0,
     filemeta/0,
-    segment/0
+    segment/0,
+    checksum/0
 ]).
 
 %% Number of bytes
@@ -57,6 +58,7 @@
 -type fileid() :: binary().
 -type transfer() :: {clientid(), fileid()}.
 -type offset() :: bytes().
+-type checksum() :: {_Algo :: atom(), _Digest :: binary()}.
 
 -type filemeta() :: #{
     %% Display name
@@ -68,7 +70,7 @@
     %% currently do not condider that an error (or, specifically, a signal that
     %% the resulting file is corrupted during transmission).
     size => _Bytes :: non_neg_integer(),
-    checksum => {sha256, <<_:256>>},
+    checksum => checksum(),
     expire_at := emqx_datetime:epoch_second(),
     %% TTL of individual segments
     %% Somewhat confusing that we won't know it on the nodes where the filemeta

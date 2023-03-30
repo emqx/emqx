@@ -24,7 +24,7 @@
 
 -export([start_export/3]).
 -export([write/2]).
--export([complete/1]).
+-export([complete/2]).
 -export([discard/1]).
 -export([list/1]).
 
@@ -50,12 +50,11 @@
 
 -type file_error() :: emqx_ft_storage_fs:file_error().
 
--type export() :: #{
+-type export_st() :: #{
     path := file:name(),
     handle := io:device(),
     result := file:name(),
-    meta := filemeta(),
-    hash := crypto:hash_state()
+    meta := filemeta()
 }.
 
 -type reader() :: pid().
@@ -92,7 +91,7 @@
 %%
 
 -spec start_export(options(), transfer(), filemeta()) ->
-    {ok, export()} | {error, file_error()}.
+    {ok, export_st()} | {error, file_error()}.
 start_export(Options, Transfer, Filemeta = #{name := Filename}) ->
     TempFilepath = mk_temp_absfilepath(Options, Transfer, Filename),
     ResultFilepath = mk_absfilepath(Options, Transfer, result, Filename),
@@ -103,47 +102,41 @@ start_export(Options, Transfer, Filemeta = #{name := Filename}) ->
                 path => TempFilepath,
                 handle => Handle,
                 result => ResultFilepath,
-                meta => Filemeta,
-                hash => init_checksum(Filemeta)
+                meta => Filemeta
             }};
         {error, _} = Error ->
             Error
     end.
 
--spec write(export(), iodata()) ->
-    {ok, export()} | {error, file_error()}.
-write(Export = #{handle := Handle, hash := Ctx}, IoData) ->
+-spec write(export_st(), iodata()) ->
+    {ok, export_st()} | {error, file_error()}.
+write(ExportSt = #{handle := Handle}, IoData) ->
     case file:write(Handle, IoData) of
         ok ->
-            {ok, Export#{hash := update_checksum(Ctx, IoData)}};
+            {ok, ExportSt};
         {error, _} = Error ->
-            _ = discard(Export),
+            _ = discard(ExportSt),
             Error
     end.
 
--spec complete(export()) ->
+-spec complete(export_st(), emqx_ft:checksum()) ->
     ok | {error, {checksum, _Algo, _Computed}} | {error, file_error()}.
 complete(
-    Export = #{
+    #{
         path := Filepath,
         handle := Handle,
         result := ResultFilepath,
-        meta := FilemetaIn,
-        hash := Ctx
-    }
+        meta := FilemetaIn
+    },
+    Checksum
 ) ->
-    case verify_checksum(Ctx, FilemetaIn) of
-        {ok, Filemeta} ->
-            ok = file:close(Handle),
-            _ = filelib:ensure_dir(ResultFilepath),
-            _ = file:write_file(mk_manifest_filename(ResultFilepath), encode_filemeta(Filemeta)),
-            file:rename(Filepath, ResultFilepath);
-        {error, _} = Error ->
-            _ = discard(Export),
-            Error
-    end.
+    Filemeta = FilemetaIn#{checksum => Checksum},
+    ok = file:close(Handle),
+    _ = filelib:ensure_dir(ResultFilepath),
+    _ = file:write_file(mk_manifest_filename(ResultFilepath), encode_filemeta(Filemeta)),
+    file:rename(Filepath, ResultFilepath).
 
--spec discard(export()) ->
+-spec discard(export_st()) ->
     ok.
 discard(#{path := Filepath, handle := Handle}) ->
     ok = file:close(Handle),
@@ -294,27 +287,6 @@ list(_Options) ->
         [] ->
             {error, Errors}
     end.
-
-%%
-
-init_checksum(#{checksum := {Algo, _}}) ->
-    crypto:hash_init(Algo);
-init_checksum(#{}) ->
-    crypto:hash_init(sha256).
-
-update_checksum(Ctx, IoData) ->
-    crypto:hash_update(Ctx, IoData).
-
-verify_checksum(Ctx, Filemeta = #{checksum := {Algo, Digest}}) ->
-    case crypto:hash_final(Ctx) of
-        Digest ->
-            {ok, Filemeta};
-        Mismatch ->
-            {error, {checksum, Algo, binary:encode_hex(Mismatch)}}
-    end;
-verify_checksum(Ctx, Filemeta = #{}) ->
-    Digest = crypto:hash_final(Ctx),
-    {ok, Filemeta#{checksum => {sha256, Digest}}}.
 
 %%
 

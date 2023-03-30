@@ -39,10 +39,21 @@
 -type storage() :: emxt_ft_storage_fs:storage().
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
+-type checksum() :: emqx_ft:checksum().
 
 -type exporter_conf() :: map().
 -type export_st() :: term().
--opaque export() :: {module(), export_st()}.
+-type hash_state() :: term().
+-opaque export() :: #{
+    mod := module(),
+    st := export_st(),
+    hash := hash_state(),
+    filemeta := filemeta()
+}.
+
+%%------------------------------------------------------------------------------
+%% Behaviour
+%%------------------------------------------------------------------------------
 
 -callback start_export(exporter_conf(), transfer(), filemeta()) ->
     {ok, export_st()} | {error, _Reason}.
@@ -51,7 +62,7 @@
 -callback write(ExportSt :: export_st(), iodata()) ->
     {ok, ExportSt :: export_st()} | {error, _Reason}.
 
--callback complete(ExportSt :: export_st()) ->
+-callback complete(_ExportSt :: export_st(), _Checksum :: checksum()) ->
     ok | {error, _Reason}.
 
 -callback discard(ExportSt :: export_st()) ->
@@ -60,7 +71,9 @@
 -callback list(storage()) ->
     {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
 
-%%
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 -spec start_export(storage(), transfer(), filemeta()) ->
     {ok, export()} | {error, _Reason}.
@@ -68,29 +81,43 @@ start_export(Storage, Transfer, Filemeta) ->
     {ExporterMod, ExporterConf} = exporter(Storage),
     case ExporterMod:start_export(ExporterConf, Transfer, Filemeta) of
         {ok, ExportSt} ->
-            {ok, {ExporterMod, ExportSt}};
+            {ok, #{
+                mod => ExporterMod,
+                st => ExportSt,
+                hash => init_checksum(Filemeta),
+                filemeta => Filemeta
+            }};
         {error, _} = Error ->
             Error
     end.
 
 -spec write(export(), iodata()) ->
     {ok, export()} | {error, _Reason}.
-write({ExporterMod, ExportSt}, Content) ->
+write(#{mod := ExporterMod, st := ExportSt, hash := Hash} = Export, Content) ->
     case ExporterMod:write(ExportSt, Content) of
         {ok, ExportStNext} ->
-            {ok, {ExporterMod, ExportStNext}};
+            {ok, Export#{
+                st := ExportStNext,
+                hash := update_checksum(Hash, Content)
+            }};
         {error, _} = Error ->
             Error
     end.
 
 -spec complete(export()) ->
     ok | {error, _Reason}.
-complete({ExporterMod, ExportSt}) ->
-    ExporterMod:complete(ExportSt).
+complete(#{mod := ExporterMod, st := ExportSt, hash := Hash, filemeta := Filemeta}) ->
+    case verify_checksum(Hash, Filemeta) of
+        {ok, Checksum} ->
+            ExporterMod:complete(ExportSt, Checksum);
+        {error, _} = Error ->
+            _ = ExporterMod:discard(ExportSt),
+            Error
+    end.
 
 -spec discard(export()) ->
     ok | {error, _Reason}.
-discard({ExporterMod, ExportSt}) ->
+discard(#{mod := ExporterMod, st := ExportSt}) ->
     ExporterMod:discard(ExportSt).
 
 -spec list(storage()) ->
@@ -99,7 +126,10 @@ list(Storage) ->
     {ExporterMod, ExporterOpts} = exporter(Storage),
     ExporterMod:list(ExporterOpts).
 
--spec exporter(storage()) -> {module(), _ExporterOptions}.
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 exporter(Storage) ->
     case maps:get(exporter, Storage) of
         #{type := local} = Options ->
@@ -111,3 +141,22 @@ exporter(Storage) ->
 -spec without_type(exporter_conf()) -> exporter_conf().
 without_type(#{type := _} = Options) ->
     maps:without([type], Options).
+
+init_checksum(#{checksum := {Algo, _}}) ->
+    crypto:hash_init(Algo);
+init_checksum(#{}) ->
+    crypto:hash_init(sha256).
+
+update_checksum(Ctx, IoData) ->
+    crypto:hash_update(Ctx, IoData).
+
+verify_checksum(Ctx, #{checksum := {Algo, Digest} = Checksum}) ->
+    case crypto:hash_final(Ctx) of
+        Digest ->
+            {ok, Checksum};
+        Mismatch ->
+            {error, {checksum, Algo, binary:encode_hex(Mismatch)}}
+    end;
+verify_checksum(Ctx, #{}) ->
+    Digest = crypto:hash_final(Ctx),
+    {ok, {sha256, Digest}}.
