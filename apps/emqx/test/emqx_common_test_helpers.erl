@@ -237,6 +237,9 @@ do_render_app_config(App, Schema, ConfigFile, Opts) ->
     copy_certs(App, RenderedConfigFile),
     ok.
 
+start_app(App, SpecAppConfig) ->
+    start_app(App, SpecAppConfig, #{}).
+
 start_app(App, SpecAppConfig, Opts) ->
     render_and_load_app_config(App, Opts),
     SpecAppConfig(App),
