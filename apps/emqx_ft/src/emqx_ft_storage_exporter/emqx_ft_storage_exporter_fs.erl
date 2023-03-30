@@ -28,6 +28,12 @@
 -export([discard/1]).
 -export([list/1]).
 
+-export([
+    start/1,
+    stop/1,
+    update/2
+]).
+
 %% Internal API for RPC
 -export([list_local/1]).
 -export([list_local/2]).
@@ -88,7 +94,9 @@
     })
 ).
 
-%%
+%%--------------------------------------------------------------------
+%% Exporter behaviour
+%%--------------------------------------------------------------------
 
 -spec start_export(options(), transfer(), filemeta()) ->
     {ok, export_st()} | {error, file_error()}.
@@ -142,7 +150,25 @@ discard(#{path := Filepath, handle := Handle}) ->
     ok = file:close(Handle),
     file:delete(Filepath).
 
-%%
+%%--------------------------------------------------------------------
+%% Exporter behaviour (lifecycle)
+%%--------------------------------------------------------------------
+
+%% FS Exporter does not have require any stateful entities,
+%% so lifecycle callbacks are no-op.
+
+-spec start(options()) -> ok.
+start(_Options) -> ok.
+
+-spec stop(options()) -> ok.
+stop(_Options) -> ok.
+
+-spec update(options(), options()) -> ok.
+update(_OldOptions, _NewOptions) -> ok.
+
+%%--------------------------------------------------------------------
+%% Internal API
+%%--------------------------------------------------------------------
 
 -spec list_local(options(), transfer()) ->
     {ok, [exportinfo(), ...]} | {error, file_error()}.
@@ -198,6 +224,10 @@ list_local(Options) ->
             Root,
             Pattern
         )}.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
 
 filter_manifest(?MANIFEST) ->
     % Filename equals `?MANIFEST`, there should also be a manifest for it.

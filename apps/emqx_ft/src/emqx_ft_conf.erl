@@ -75,6 +75,10 @@ assert_storage(Type) ->
 
 -spec load() -> ok.
 load() ->
+    ok = emqx_ft_storage_exporter:update_exporter(
+        undefined,
+        emqx_config:get([file_transfer, storage])
+    ),
     emqx_conf:add_handler([file_transfer], ?MODULE).
 
 -spec unload() -> ok.
@@ -98,5 +102,7 @@ pre_config_update(_, Req, _Config) ->
     emqx_config:app_envs()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
-post_config_update(_, _Req, _NewConfig, _OldConfig, _AppEnvs) ->
-    ok.
+post_config_update(_Path, _Req, NewConfig, OldConfig, _AppEnvs) ->
+    OldStorageConfig = maps:get(storage, OldConfig, undefined),
+    NewStorageConfig = maps:get(storage, NewConfig, undefined),
+    emqx_ft_storage_exporter:update_exporter(OldStorageConfig, NewStorageConfig).
