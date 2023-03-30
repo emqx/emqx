@@ -41,8 +41,6 @@
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 
--define(BASE_PATH, "/api/v5").
-
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 
 %%--------------------------------------------------------------------
@@ -61,7 +59,7 @@ start_listeners(Listeners) ->
     GlobalSpec = #{
         openapi => "3.0.0",
         info => #{title => "EMQX API", version => ?EMQX_API_VERSION},
-        servers => [#{url => ?BASE_PATH}],
+        servers => [#{url => emqx_dashboard_swagger:base_path()}],
         components => #{
             schemas => #{},
             'securitySchemes' => #{
@@ -78,11 +76,11 @@ start_listeners(Listeners) ->
         {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
         {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
         {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
-        {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []},
+        {emqx_dashboard_swagger:relative_uri("/[...]"), emqx_dashboard_bad_api, []},
         {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
     ],
     BaseMinirest = #{
-        base_path => ?BASE_PATH,
+        base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],

@@ -61,18 +61,47 @@ fields(local_storage) ->
             required => false,
             desc => ?DESC("local_type")
         }},
+        {segments, #{
+            type => ?REF(local_storage_segments),
+            desc => ?DESC("local_storage_segments"),
+            required => false
+        }},
+        {exporter, #{
+            type => hoconsc:union([
+                ?REF(local_storage_exporter)
+            ]),
+            desc => ?DESC("local_storage_exporter"),
+            required => true
+        }}
+    ];
+fields(local_storage_segments) ->
+    [
         {root, #{
             type => binary(),
-            desc => ?DESC("local_storage_root"),
+            desc => ?DESC("local_storage_segments_root"),
             required => false
         }},
         {gc, #{
-            type => hoconsc:ref(?MODULE, local_storage_gc),
-            desc => ?DESC("local_storage_gc"),
+            type => ?REF(local_storage_segments_gc),
+            desc => ?DESC("local_storage_segments_gc"),
             required => false
         }}
     ];
-fields(local_storage_gc) ->
+fields(local_storage_exporter) ->
+    [
+        {type, #{
+            type => local,
+            default => local,
+            required => false,
+            desc => ?DESC("local_storage_exporter_type")
+        }},
+        {root, #{
+            type => binary(),
+            desc => ?DESC("local_storage_exporter_root"),
+            required => false
+        }}
+    ];
+fields(local_storage_segments_gc) ->
     [
         {interval, #{
             type => emqx_schema:duration_ms(),
@@ -101,13 +130,21 @@ desc(file_transfer) ->
     "File transfer settings";
 desc(local_storage) ->
     "File transfer local storage settings";
-desc(local_storage_gc) ->
-    "Garbage collection settings for the File transfer local storage backend".
+desc(local_storage_segments) ->
+    "File transfer local segments storage settings";
+desc(local_storage_exporter) ->
+    "Exporter settings for the File transfer local storage backend";
+desc(local_storage_segments_gc) ->
+    "Garbage collection settings for the File transfer local segments storage".
 
 schema(filemeta) ->
     #{
         roots => [
-            {name, hoconsc:mk(string(), #{required => true})},
+            {name,
+                hoconsc:mk(string(), #{
+                    required => true,
+                    validator => validator(filename)
+                })},
             {size, hoconsc:mk(non_neg_integer())},
             {expire_at, hoconsc:mk(non_neg_integer())},
             {checksum, hoconsc:mk({atom(), binary()}, #{converter => converter(checksum)})},
@@ -115,6 +152,9 @@ schema(filemeta) ->
             {user_data, hoconsc:mk(json_value())}
         ]
     }.
+
+validator(filename) ->
+    fun emqx_ft_fs_util:is_filename_safe/1.
 
 converter(checksum) ->
     fun

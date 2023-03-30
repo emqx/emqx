@@ -58,8 +58,16 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            Root = emqx_ft_test_helpers:ft_root(Config, node()),
-            emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
+            Storage = emqx_ft_test_helpers:local_storage(Config),
+            emqx_ft_test_helpers:load_config(#{
+                % NOTE
+                % Inhibit local fs GC to simulate it isn't fast enough to collect
+                % complete transfers.
+                storage => emqx_map_lib:deep_merge(
+                    Storage,
+                    #{segments => #{gc => #{interval => 0}}}
+                )
+            });
         (_) ->
             ok
     end.
@@ -106,13 +114,7 @@ mk_cluster_specs(Config) ->
         {env, [{emqx, boot_modules, [broker, listeners]}]},
         {apps, [emqx_ft]},
         {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
-        {env_handler, fun
-            (emqx_ft) ->
-                Root = emqx_ft_test_helpers:ft_root(Config, node()),
-                emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
-            (_) ->
-                ok
-        end}
+        {env_handler, set_special_configs(Config)}
     ],
     emqx_common_test_helpers:emqx_cluster(
         Specs,
@@ -163,6 +165,29 @@ t_invalid_fileid(Config) ->
         emqtt:publish(C, <<"$file//init">>, <<>>, 1)
     ).
 
+t_invalid_filename(Config) ->
+    C = ?config(client, Config),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f1">>), emqx_json:encode(meta(".", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("..", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("../nice", <<>>)), 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, mk_init_topic(<<"f3">>), emqx_json:encode(meta("/etc/passwd", <<>>)), 1)
+    ),
+    ?assertRCName(
+        success,
+        emqtt:publish(C, mk_init_topic(<<"f4">>), emqx_json:encode(meta("146%", <<>>)), 1)
+    ).
+
 t_simple_transfer(Config) ->
     C = ?config(client, Config),
 
@@ -194,11 +219,28 @@ t_simple_transfer(Config) ->
         emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
     ),
 
-    [ReadyTransferId] = list_ready_transfers(?config(clientid, Config)),
-    {ok, TableQH} = emqx_ft_storage:get_ready_transfer(ReadyTransferId),
+    [Export] = list_files(?config(clientid, Config)),
     ?assertEqual(
-        iolist_to_binary(Data),
-        iolist_to_binary(qlc:eval(TableQH))
+        {ok, iolist_to_binary(Data)},
+        read_export(Export)
+    ).
+
+t_nasty_clientids_fileids(_Config) ->
+    Transfers = [
+        {<<".">>, <<".">>},
+        {<<"🌚"/utf8>>, <<"🌝"/utf8>>},
+        {<<"../..">>, <<"😤"/utf8>>},
+        {<<"/etc/passwd">>, <<"whitehat">>},
+        {<<"; rm -rf / ;">>, <<"whitehat">>}
+    ],
+
+    ok = lists:foreach(
+        fun({ClientId, FileId}) ->
+            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "justfile", ClientId),
+            [Export] = list_files(ClientId),
+            ?assertEqual({ok, ClientId}, read_export(Export))
+        end,
+        Transfers
     ).
 
 t_meta_conflict(Config) ->
@@ -424,11 +466,10 @@ t_switch_node(Config) ->
 
     %% Now check consistency of the file
 
-    [ReadyTransferId] = list_ready_transfers(ClientId),
-    {ok, TableQH} = emqx_ft_storage:get_ready_transfer(ReadyTransferId),
+    [Export] = list_files(ClientId),
     ?assertEqual(
-        iolist_to_binary(Data),
-        iolist_to_binary(qlc:eval(TableQH))
+        {ok, iolist_to_binary(Data)},
+        read_export(Export)
     ).
 
 t_assemble_crash(Config) ->
@@ -501,27 +542,28 @@ t_unreliable_migrating_client(Config) ->
     ],
     _Context = run_commands(Commands, Context),
 
-    ReadyTransferIds = list_ready_transfers(?config(clientid, Config)),
+    Exports = list_files(?config(clientid, Config)),
 
     % NOTE
     % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
     % twice. This is currently expected, files must be identical anyway.
-    Node1Bin = atom_to_binary(Node1),
-    NodeSelfBin = atom_to_binary(NodeSelf),
+    Node1Str = atom_to_list(Node1),
+    NodeSelfStr = atom_to_list(NodeSelf),
+    % TODO: this testcase is specific to local fs storage backend
     ?assertMatch(
-        [#{<<"node">> := Node1Bin}, #{<<"node">> := NodeSelfBin}],
-        lists:sort(ReadyTransferIds)
+        [#{"node" := Node1Str}, #{"node" := NodeSelfStr}],
+        lists:map(
+            fun(#{uri := URIString}) ->
+                #{query := QS} = uri_string:parse(URIString),
+                maps:from_list(uri_string:dissect_query(QS))
+            end,
+            lists:sort(Exports)
+        )
     ),
 
     [
-        begin
-            {ok, TableQH} = emqx_ft_storage:get_ready_transfer(Id),
-            ?assertEqual(
-                Payload,
-                iolist_to_binary(qlc:eval(TableQH))
-            )
-        end
-     || Id <- ReadyTransferIds
+        ?assertEqual({ok, Payload}, read_export(Export))
+     || Export <- Exports
     ].
 
 run_commands(Commands, Context) ->
@@ -620,10 +662,10 @@ meta(FileName, Data) ->
         size => byte_size(FullData)
     }.
 
-list_ready_transfers(ClientId) ->
-    {ok, ReadyTransfers} = emqx_ft_storage:ready_transfers(),
-    [
-        Id
-     || {#{<<"clientid">> := CId} = Id, _Info} <- ReadyTransfers,
-        CId == ClientId
-    ].
+list_files(ClientId) ->
+    {ok, Files} = emqx_ft_storage:files(),
+    [File || File = #{transfer := {CId, _}} <- Files, CId == ClientId].
+
+read_export(#{path := AbsFilepath}) ->
+    % TODO: only works for the local filesystem exporter right now
+    file:read_file(AbsFilepath).

@@ -22,6 +22,7 @@
 
 %% Accessors
 -export([storage/0]).
+-export([segments_root/1]).
 -export([gc_interval/1]).
 -export([segments_ttl/1]).
 
@@ -48,17 +49,27 @@
 storage() ->
     emqx_config:get([file_transfer, storage], disabled).
 
+-spec segments_root(_Storage) -> file:name().
+segments_root(_Storage) ->
+    Conf = assert_storage(local),
+    case emqx_map_lib:deep_find([segments, root], Conf) of
+        {ok, Root} ->
+            Root;
+        {not_found, _, _} ->
+            filename:join([emqx:data_dir(), file_transfer, segments])
+    end.
+
 -spec gc_interval(_Storage) -> milliseconds().
 gc_interval(_Storage) ->
     Conf = assert_storage(local),
-    emqx_map_lib:deep_get([gc, interval], Conf).
+    emqx_map_lib:deep_get([segments, gc, interval], Conf).
 
 -spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
 segments_ttl(_Storage) ->
     Conf = assert_storage(local),
     {
-        emqx_map_lib:deep_get([gc, minimum_segments_ttl], Conf),
-        emqx_map_lib:deep_get([gc, maximum_segments_ttl], Conf)
+        emqx_map_lib:deep_get([segments, gc, minimum_segments_ttl], Conf),
+        emqx_map_lib:deep_get([segments, gc, maximum_segments_ttl], Conf)
     }.
 
 assert_storage(Type) ->

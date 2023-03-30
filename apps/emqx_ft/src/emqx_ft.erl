@@ -33,7 +33,8 @@
 ]).
 
 -export([
-    decode_filemeta/1
+    decode_filemeta/1,
+    encode_filemeta/1
 ]).
 
 -export([on_complete/4]).
@@ -51,7 +52,7 @@
 -type bytes() :: non_neg_integer().
 
 %% MQTT Client ID
--type clientid() :: emqx_types:clientid().
+-type clientid() :: binary().
 
 -type fileid() :: binary().
 -type transfer() :: {clientid(), fileid()}.
@@ -113,6 +114,11 @@ decode_filemeta(Map) when is_map(Map) ->
         throw:Error ->
             {error, {invalid_filemeta, Error}}
     end.
+
+encode_filemeta(Meta = #{}) ->
+    % TODO: Looks like this should be hocon's responsibility.
+    Schema = emqx_ft_schema:schema(filemeta),
+    hocon_tconf:make_serializable(Schema, emqx_map_lib:binary_key_map(Meta), #{}).
 
 %%--------------------------------------------------------------------
 %% Hooks
@@ -327,7 +333,7 @@ assemble(Transfer, FinalSize) ->
 
 transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
-    {ClientId, FileId}.
+    {clientid_to_binary(ClientId), FileId}.
 
 on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
     ?SLOG(debug, #{
@@ -421,3 +427,8 @@ parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:
     end;
 parse_checksum(_Checksum) ->
     {error, invalid_checksum}.
+
+clientid_to_binary(A) when is_atom(A) ->
+    atom_to_binary(A);
+clientid_to_binary(B) when is_binary(B) ->
+    B.

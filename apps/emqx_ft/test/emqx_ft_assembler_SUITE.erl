@@ -47,6 +47,7 @@ init_per_testcase(TC, Config) ->
     {ok, Pid} = emqx_ft_assembler_sup:start_link(),
     [
         {storage_root, "file_transfer_root"},
+        {exports_root, "file_transfer_exports"},
         {file_id, atom_to_binary(TC)},
         {assembler_sup, Pid}
         | Config
@@ -85,11 +86,11 @@ t_assemble_empty_transfer(Config) ->
     ),
     Status = complete_assemble(Storage, Transfer, 0),
     ?assertEqual({shutdown, ok}, Status),
-    {ok, [Result = #{size := Size = 0}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
-    ?assertEqual(
-        {error, eof},
-        emqx_ft_storage_fs:pread(Storage, Transfer, Result, 0, Size)
-    ),
+    {ok, [_Result = #{size := _Size = 0}]} = list_exports(Config, Transfer),
+    % ?assertEqual(
+    %     {error, eof},
+    %     emqx_ft_storage_fs:pread(Storage, Transfer, Result, 0, Size)
+    % ),
     ok.
 
 t_assemble_complete_local_transfer(Config) ->
@@ -133,12 +134,12 @@ t_assemble_complete_local_transfer(Config) ->
         {ok, [
             #{
                 size := TransferSize,
-                fragment := {result, #{}}
+                meta := #{}
             }
         ]},
-        emqx_ft_storage_fs:list(Storage, Transfer, result)
+        list_exports(Config, Transfer)
     ),
-    {ok, [#{path := AssemblyFilename}]} = emqx_ft_storage_fs:list(Storage, Transfer, result),
+    {ok, [#{path := AssemblyFilename}]} = list_exports(Config, Transfer),
     ?assertMatch(
         {ok, #file_info{type = regular, size = TransferSize}},
         file:read_file_info(AssemblyFilename)
@@ -190,19 +191,23 @@ complete_assemble(Storage, Transfer, Size, Timeout) ->
 %%
 
 t_list_transfers(Config) ->
-    Storage = storage(Config),
+    {ok, Exports} = list_exports(Config),
     ?assertMatch(
-        {ok, #{
-            {?CLIENTID1, <<"t_assemble_empty_transfer">>} := #{
-                status := complete,
-                result := [#{path := _, size := 0, fragment := {result, _}}]
+        [
+            #{
+                transfer := {?CLIENTID2, <<"t_assemble_complete_local_transfer">>},
+                path := _,
+                size := Size,
+                meta := #{name := "topsecret.pdf"}
             },
-            {?CLIENTID2, <<"t_assemble_complete_local_transfer">>} := #{
-                status := complete,
-                result := [#{path := _, size := Size, fragment := {result, _}}]
+            #{
+                transfer := {?CLIENTID1, <<"t_assemble_empty_transfer">>},
+                path := _,
+                size := 0,
+                meta := #{name := "important.pdf"}
             }
-        }} when Size > 0,
-        emqx_ft_storage_fs:transfers(Storage)
+        ] when Size > 0,
+        lists:sort(Exports)
     ).
 
 %%
@@ -229,8 +234,25 @@ inspect_file(Filename) ->
 mk_fileid() ->
     integer_to_binary(erlang:system_time(millisecond)).
 
+list_exports(Config) ->
+    {emqx_ft_storage_exporter_fs, Options} = exporter(Config),
+    emqx_ft_storage_exporter_fs:list_local(Options).
+
+list_exports(Config, Transfer) ->
+    {emqx_ft_storage_exporter_fs, Options} = exporter(Config),
+    emqx_ft_storage_exporter_fs:list_local(Options, Transfer).
+
+exporter(Config) ->
+    emqx_ft_storage_exporter:exporter(storage(Config)).
+
 storage(Config) ->
     #{
         type => local,
-        root => ?config(storage_root, Config)
+        segments => #{
+            root => ?config(storage_root, Config)
+        },
+        exporter => #{
+            type => local,
+            root => ?config(exports_root, Config)
+        }
     }.

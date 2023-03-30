@@ -56,11 +56,29 @@ t_update_config(_Config) ->
         {ok, _},
         emqx_conf:update(
             [file_transfer],
-            #{<<"storage">> => #{<<"type">> => <<"local">>, <<"root">> => <<"/tmp/path">>}},
+            #{
+                <<"storage">> => #{
+                    <<"type">> => <<"local">>,
+                    <<"segments">> => #{
+                        <<"root">> => <<"/tmp/path">>,
+                        <<"gc">> => #{
+                            <<"interval">> => <<"5m">>
+                        }
+                    },
+                    <<"exporter">> => #{
+                        <<"type">> => <<"local">>,
+                        <<"root">> => <<"/tmp/exports">>
+                    }
+                }
+            },
             #{}
         )
     ),
     ?assertEqual(
         <<"/tmp/path">>,
-        emqx_config:get([file_transfer, storage, root])
+        emqx_config:get([file_transfer, storage, segments, root])
+    ),
+    ?assertEqual(
+        5 * 60 * 1000,
+        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
     ).

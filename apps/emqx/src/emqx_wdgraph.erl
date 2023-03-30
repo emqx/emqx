@@ -27,6 +27,8 @@
 -export([find_edge/3]).
 -export([get_edges/2]).
 
+-export([fold/3]).
+
 -export([find_shortest_path/3]).
 
 -export_type([t/0]).
@@ -38,7 +40,7 @@
 -type label() :: term().
 
 -opaque t() :: t(gnode(), label()).
--opaque t(Node, Label) :: gb_trees:tree({Node}, {Node, weight(), Label}).
+-opaque t(Node, Label) :: gb_trees:tree({Node}, [{Node, weight(), Label}]).
 
 %%
 
@@ -71,6 +73,26 @@ find_edge(From, To, G) ->
 -spec get_edges(Node, t(Node, Label)) -> [{Node, weight(), Label}].
 get_edges(Node, G) ->
     tree_lookup({Node}, G, []).
+
+-spec fold(FoldFun, Acc, t(Node, Label)) -> Acc when
+    FoldFun :: fun((Node, _Edge :: {Node, weight(), Label}, Acc) -> Acc).
+fold(FoldFun, Acc, G) ->
+    fold_iterator(FoldFun, Acc, gb_trees:iterator(G)).
+
+fold_iterator(FoldFun, AccIn, It) ->
+    case gb_trees:next(It) of
+        {{Node}, Edges = [_ | _], ItNext} ->
+            AccNext = lists:foldl(
+                fun(Edge = {_To, _Weight, _Label}, Acc) ->
+                    FoldFun(Node, Edge, Acc)
+                end,
+                AccIn,
+                Edges
+            ),
+            fold_iterator(FoldFun, AccNext, ItNext);
+        none ->
+            AccIn
+    end.
 
 % Find the shortest path between two nodes, if any. If the path exists, return list
 % of edge labels along that path.

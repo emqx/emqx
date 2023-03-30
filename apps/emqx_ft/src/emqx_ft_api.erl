@@ -30,14 +30,12 @@
 ]).
 
 -export([
-    fields/1,
     roots/0
 ]).
 
 %% API callbacks
 -export([
-    '/file_transfer/files'/2,
-    '/file_transfer/file'/2
+    '/file_transfer/files'/2
 ]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -49,8 +47,7 @@ api_spec() ->
 
 paths() ->
     [
-        "/file_transfer/files",
-        "/file_transfer/file"
+        "/file_transfer/files"
     ].
 
 schema("/file_transfer/files") ->
@@ -67,103 +64,49 @@ schema("/file_transfer/files") ->
                 )
             }
         }
-    };
-schema("/file_transfer/file") ->
-    #{
-        'operationId' => '/file_transfer/file',
-        get => #{
-            tags => [<<"file_transfer">>],
-            summary => <<"Download a particular file">>,
-            description => ?DESC("file_get"),
-            parameters => [
-                ref(file_node),
-                ref(file_clientid),
-                ref(file_id)
-            ],
-            responses => #{
-                200 => <<"Operation success">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Not found">>),
-                503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
-                )
-            }
-        }
     }.
 
 '/file_transfer/files'(get, #{}) ->
-    case emqx_ft_storage:ready_transfers() of
-        {ok, Transfers} ->
-            FormattedTransfers = lists:map(
-                fun({Id, Info}) ->
-                    #{id => Id, info => format_file_info(Info)}
-                end,
-                Transfers
-            ),
-            {200, #{<<"files">> => FormattedTransfers}};
+    case emqx_ft_storage:files() of
+        {ok, Files} ->
+            {200, #{<<"files">> => lists:map(fun format_file_info/1, Files)}};
         {error, _} ->
-            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
-    end.
-
-'/file_transfer/file'(get, #{query_string := Query}) ->
-    case emqx_ft_storage:get_ready_transfer(Query) of
-        {ok, FileData} ->
-            {200,
-                #{
-                    <<"content-type">> => <<"application/data">>,
-                    <<"content-disposition">> => <<"attachment">>
-                },
-                FileData};
-        {error, enoent} ->
-            {404, error_msg('NOT_FOUND', <<"Not found">>)};
-        {error, Error} ->
-            ?SLOG(warning, #{msg => "get_ready_transfer_fail", error => Error}),
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
 
 error_msg(Code, Msg) ->
     #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
 
--spec fields(hocon_schema:name()) -> hocon_schema:fields().
-fields(file_node) ->
-    Desc = <<"File Node">>,
-    Meta = #{
-        in => query, desc => Desc, example => <<"emqx@127.0.0.1">>, required => false
-    },
-    [{node, hoconsc:mk(binary(), Meta)}];
-fields(file_clientid) ->
-    Desc = <<"File ClientId">>,
-    Meta = #{
-        in => query, desc => Desc, example => <<"client1">>, required => false
-    },
-    [{clientid, hoconsc:mk(binary(), Meta)}];
-fields(file_id) ->
-    Desc = <<"File">>,
-    Meta = #{
-        in => query, desc => Desc, example => <<"file1">>, required => false
-    },
-    [{fileid, hoconsc:mk(binary(), Meta)}].
-
 roots() ->
-    [
-        file_node,
-        file_clientid,
-        file_id
-    ].
+    [].
 
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
-format_file_info(#{path := Path, size := Size, timestamp := Timestamp}) ->
-    #{
-        path => Path,
+format_file_info(
+    Info = #{
+        name := Name,
+        size := Size,
+        uri := URI,
+        timestamp := Timestamp,
+        transfer := {ClientId, FileId}
+    }
+) ->
+    Res = #{
+        name => iolist_to_binary(Name),
         size => Size,
-        timestamp => format_datetime(Timestamp)
-    }.
+        timestamp => format_timestamp(Timestamp),
+        clientid => ClientId,
+        fileid => FileId,
+        uri => iolist_to_binary(URI)
+    },
+    case Info of
+        #{meta := Meta} ->
+            Res#{metadata => emqx_ft:encode_filemeta(Meta)};
+        #{} ->
+            Res
+    end.
 
-format_datetime({{Year, Month, Day}, {Hour, Minute, Second}}) ->
-    iolist_to_binary(
-        io_lib:format("~4..0w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0w", [
-            Year, Month, Day, Hour, Minute, Second
-        ])
-    ).
+format_timestamp(Timestamp) ->
+    iolist_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).

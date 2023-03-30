@@ -33,7 +33,12 @@ start_child(CallerPid, Filename) ->
         start => {emqx_ft_storage_fs_reader, start_link, [CallerPid, Filename]},
         restart => temporary
     },
-    supervisor:start_child(?MODULE, Childspec).
+    case supervisor:start_child(?MODULE, Childspec) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {Reason, _Child}} ->
+            {error, Reason}
+    end.
 
 init(_) ->
     SupFlags = #{

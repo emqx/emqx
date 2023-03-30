@@ -40,6 +40,26 @@ edges_nodes_test_() ->
         ?_assertEqual([{baz, 1, "cheapest"}, {foo, 0, "free"}], emqx_wdgraph:get_edges(bar, G5))
     ].
 
+fold_test_() ->
+    G1 = emqx_wdgraph:new(),
+    G2 = emqx_wdgraph:insert_edge(foo, bar, 42, "fancy", G1),
+    G3 = emqx_wdgraph:insert_edge(bar, baz, 1, "cheapest", G2),
+    G4 = emqx_wdgraph:insert_edge(bar, foo, 0, "free", G3),
+    G5 = emqx_wdgraph:insert_edge(foo, bar, 100, "luxury", G4),
+    [
+        ?_assertEqual(
+            % 100 + 0 + 1
+            101,
+            emqx_wdgraph:fold(fun(_From, {_, Weight, _}, Acc) -> Weight + Acc end, 0, G5)
+        ),
+        ?_assertEqual(
+            [bar, baz, foo],
+            lists:usort(
+                emqx_wdgraph:fold(fun(From, {To, _, _}, Acc) -> [From, To | Acc] end, [], G5)
+            )
+        )
+    ].
+
 nonexistent_nodes_path_test_() ->
     G1 = emqx_wdgraph:new(),
     G2 = emqx_wdgraph:insert_edge(foo, bar, 42, "fancy", G1),

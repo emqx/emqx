@@ -24,9 +24,9 @@
         store_segment/2,
         assemble/2,
 
-        ready_transfers/0,
-        get_ready_transfer/1,
+        files/0,
 
+        with_storage_type/2,
         with_storage_type/3
     ]
 ).
@@ -34,12 +34,22 @@
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
+-export_type([file_info/0]).
+-export_type([export_data/0]).
+-export_type([reader/0]).
 
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
 
--type ready_transfer_id() :: term().
--type ready_transfer_info() :: map().
--type ready_transfer_data() :: binary() | qlc:query_handle().
+-type file_info() :: #{
+    transfer := emqx_ft:transfer(),
+    name := file:name(),
+    size := _Bytes :: non_neg_integer(),
+    uri => uri_string:uri_string(),
+    meta => emqx_ft:filemeta()
+}.
+
+-type export_data() :: binary() | qlc:query_handle().
+-type reader() :: pid().
 
 %%--------------------------------------------------------------------
 %% Behaviour
@@ -57,10 +67,9 @@
     ok | {async, pid()} | {error, term()}.
 -callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
--callback ready_transfers(storage()) ->
-    {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
--callback get_ready_transfer(storage(), ready_transfer_id()) ->
-    {ok, ready_transfer_data()} | {error, term()}.
+
+-callback files(storage()) ->
+    {ok, [file_info()]} | {error, term()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -95,21 +104,23 @@ assemble(Transfer, Size) ->
     Mod = mod(),
     Mod:assemble(storage(), Transfer, Size).
 
--spec ready_transfers() -> {ok, [{ready_transfer_id(), ready_transfer_info()}]} | {error, term()}.
-ready_transfers() ->
+-spec files() ->
+    {ok, [file_info()]} | {error, term()}.
+files() ->
     Mod = mod(),
-    Mod:ready_transfers(storage()).
+    Mod:files(storage()).
 
--spec get_ready_transfer(ready_transfer_id()) -> {ok, ready_transfer_data()} | {error, term()}.
-get_ready_transfer(ReadyTransferId) ->
-    Mod = mod(),
-    Mod:get_ready_transfer(storage(), ReadyTransferId).
+-spec with_storage_type(atom(), atom() | function()) -> any().
+with_storage_type(Type, Fun) ->
+    with_storage_type(Type, Fun, []).
 
--spec with_storage_type(atom(), atom(), list(term())) -> any().
+-spec with_storage_type(atom(), atom() | function(), list(term())) -> any().
 with_storage_type(Type, Fun, Args) ->
     Storage = storage(),
     case Storage of
-        #{type := Type} ->
+        #{type := Type} when is_function(Fun) ->
+            apply(Fun, [Storage | Args]);
+        #{type := Type} when is_atom(Fun) ->
             Mod = mod(Storage),
             apply(Mod, Fun, [Storage | Args]);
         disabled ->

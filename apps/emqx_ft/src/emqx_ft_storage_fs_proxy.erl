@@ -22,9 +22,7 @@
 
 -export([
     list_local/2,
-    pread_local/4,
-    get_ready_transfer_local/2,
-    ready_transfers_local/0
+    pread_local/4
 ]).
 
 list_local(Transfer, What) ->
@@ -32,9 +30,3 @@ list_local(Transfer, What) ->
 
 pread_local(Transfer, Frag, Offset, Size) ->
     emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
-
-get_ready_transfer_local(CallerPid, Transfer) ->
-    emqx_ft_storage:with_storage_type(local, get_ready_transfer_local, [CallerPid, Transfer]).
-
-ready_transfers_local() ->
-    emqx_ft_storage:with_storage_type(local, ready_transfers_local, []).

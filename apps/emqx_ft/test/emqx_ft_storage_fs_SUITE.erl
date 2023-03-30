@@ -22,11 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--include_lib("emqx/include/asserts.hrl").
-
 all() ->
     [
-        {group, single_node},
         {group, cluster}
     ].
 
@@ -34,7 +31,6 @@ all() ->
 
 groups() ->
     [
-        {single_node, [sequence], emqx_common_test_helpers:all(?MODULE) -- ?CLUSTER_CASES},
         {cluster, [sequence], ?CLUSTER_CASES}
     ].
 
@@ -48,8 +44,9 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            Root = emqx_ft_test_helpers:ft_root(Config, node()),
-            emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
+            emqx_ft_test_helpers:load_config(#{
+                storage => emqx_ft_test_helpers:local_storage(Config)
+            });
         (_) ->
             ok
     end.
@@ -74,47 +71,19 @@ end_per_group(_Group, _Config) ->
 %% Tests
 %%--------------------------------------------------------------------
 
-t_invalid_ready_transfer_id(Config) ->
-    ?assertMatch(
-        {error, _},
-        emqx_ft_storage_fs:get_ready_transfer(storage(Config), #{
-            <<"clientid">> => client_id(Config),
-            <<"fileid">> => <<"fileid">>,
-            <<"node">> => atom_to_binary('nonexistent@127.0.0.1')
-        })
-    ),
-    ?assertMatch(
-        {error, _},
-        emqx_ft_storage_fs:get_ready_transfer(storage(Config), #{
-            <<"clientid">> => client_id(Config),
-            <<"fileid">> => <<"fileid">>,
-            <<"node">> => <<"nonexistent_as_atom@127.0.0.1">>
-        })
-    ),
-    ?assertMatch(
-        {error, _},
-        emqx_ft_storage_fs:get_ready_transfer(storage(Config), #{
-            <<"clientid">> => client_id(Config),
-            <<"fileid">> => <<"nonexistent_file">>,
-            <<"node">> => node()
-        })
-    ).
-
 t_multinode_ready_transfers(Config) ->
     Node1 = ?config(additional_node, Config),
-    ok = emqx_ft_test_helpers:upload_file(<<"c1">>, <<"f1">>, <<"data">>, Node1),
+    ok = emqx_ft_test_helpers:upload_file(<<"c/1">>, <<"f:1">>, "fn1", <<"data">>, Node1),
 
     Node2 = node(),
-    ok = emqx_ft_test_helpers:upload_file(<<"c2">>, <<"f2">>, <<"data">>, Node2),
+    ok = emqx_ft_test_helpers:upload_file(<<"c/2">>, <<"f:2">>, "fn2", <<"data">>, Node2),
 
-    ?assertInclude(
-        #{<<"clientid">> := <<"c1">>, <<"fileid">> := <<"f1">>},
-        ready_transfer_ids(Config)
-    ),
-
-    ?assertInclude(
-        #{<<"clientid">> := <<"c2">>, <<"fileid">> := <<"f2">>},
-        ready_transfer_ids(Config)
+    ?assertMatch(
+        [
+            #{transfer := {<<"c/1">>, <<"f:1">>}, name := "fn1"},
+            #{transfer := {<<"c/2">>, <<"f:2">>}, name := "fn2"}
+        ],
+        lists:sort(list_files(Config))
     ).
 
 %%--------------------------------------------------------------------
@@ -125,15 +94,8 @@ client_id(Config) ->
     atom_to_binary(?config(tc, Config), utf8).
 
 storage(Config) ->
-    #{
-        type => local,
-        root => ft_root(Config)
-    }.
+    emqx_ft_test_helpers:local_storage(Config).
 
-ft_root(Config) ->
-    emqx_ft_test_helpers:ft_root(Config, node()).
-
-ready_transfer_ids(Config) ->
-    {ok, ReadyTransfers} = emqx_ft_storage_fs:ready_transfers(storage(Config)),
-    {ReadyTransferIds, _} = lists:unzip(ReadyTransfers),
-    ReadyTransferIds.
+list_files(Config) ->
+    {ok, Files} = emqx_ft_storage_fs:files(storage(Config)),
+    Files.

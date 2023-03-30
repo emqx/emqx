@@ -65,7 +65,7 @@ collect(Storage, Transfer, Nodes) ->
 
 mk_server_ref(Storage) ->
     % TODO
-    {via, gproc, {n, l, {?MODULE, get_storage_root(Storage)}}}.
+    {via, gproc, {n, l, {?MODULE, get_segments_root(Storage)}}}.
 
 %%
 
@@ -80,11 +80,20 @@ handle_call(Call, From, St) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Call, from => From}),
     {noreply, St}.
 
-% TODO
-% handle_cast({collect, Transfer, [Node | Rest]}, St) ->
-%     ok = do_collect_transfer(Transfer, Node, St),
-%     ok = collect(self(), Transfer, Rest),
-%     {noreply, St};
+handle_cast({collect, Transfer, [Node | Rest]}, St) ->
+    case gc_enabled(St) of
+        true ->
+            ok = do_collect_transfer(Transfer, Node, St),
+            case Rest of
+                [_ | _] ->
+                    gen_server:cast(self(), {collect, Transfer, Rest});
+                [] ->
+                    ok
+            end;
+        false ->
+            skip
+    end,
+    {noreply, St};
 handle_cast(reset, St) ->
     {noreply, reset_timer(St)};
 handle_cast(Cast, St) ->
@@ -95,10 +104,13 @@ handle_info({timeout, TRef, collect}, St = #st{next_gc_timer = TRef}) ->
     StNext = do_collect_garbage(St),
     {noreply, start_timer(StNext#st{next_gc_timer = undefined})}.
 
-% do_collect_transfer(Transfer, Node, St = #st{storage = Storage}) when Node == node() ->
-%     Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
-%     ok = maybe_report(Stats, St),
-%     ok.
+do_collect_transfer(Transfer, Node, St = #st{storage = Storage}) when Node == node() ->
+    Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
+    ok = maybe_report(Stats, St),
+    ok;
+do_collect_transfer(_Transfer, _Node, _St = #st{}) ->
+    % TODO
+    ok.
 
 maybe_collect_garbage(_CalledAt, St = #st{last_gc = undefined}) ->
     do_collect_garbage(St);
@@ -120,15 +132,23 @@ maybe_report(#gcstats{errors = Errors}, #st{storage = Storage}) when map_size(Er
 maybe_report(#gcstats{} = _Stats, #st{storage = _Storage}) ->
     ?tp(garbage_collection, #{stats => _Stats, storage => _Storage}).
 
-start_timer(St = #st{next_gc_timer = undefined}) ->
-    Delay = emqx_ft_conf:gc_interval(St#st.storage),
-    St#st{next_gc_timer = emqx_misc:start_timer(Delay, collect)}.
+start_timer(St = #st{storage = Storage, next_gc_timer = undefined}) ->
+    case emqx_ft_conf:gc_interval(Storage) of
+        Delay when Delay > 0 ->
+            St#st{next_gc_timer = emqx_misc:start_timer(Delay, collect)};
+        0 ->
+            ?SLOG(warning, #{msg => "periodic_gc_disabled"}),
+            St
+    end.
 
 reset_timer(St = #st{next_gc_timer = undefined}) ->
     start_timer(St);
 reset_timer(St = #st{next_gc_timer = TRef}) ->
     ok = emqx_misc:cancel_timer(TRef),
     start_timer(St#st{next_gc_timer = undefined}).
+
+gc_enabled(St) ->
+    emqx_ft_conf:gc_interval(St#st.storage) > 0.
 
 %%
 
@@ -149,31 +169,30 @@ collect_garbage(Storage, Transfers, Stats) ->
         )
     ).
 
-try_collect_transfer(Storage, Transfer, #{status := complete}, Stats) ->
-    % File transfer is complete.
-    % We should be good to delete fragments and temporary files with their respective
-    % directories altogether.
-    % TODO: file expiration
-    {_, Stats1} = collect_fragments(Storage, Transfer, Stats),
-    {_, Stats2} = collect_tempfiles(Storage, Transfer, Stats1),
-    Stats2;
-try_collect_transfer(Storage, Transfer, #{status := incomplete}, Stats) ->
-    % File transfer is still incomplete.
+try_collect_transfer(Storage, Transfer, TransferInfo = #{}, Stats) ->
+    % File transfer might still be incomplete.
     % Any outdated fragments and temporary files should be collectable. As a kind of
     % heuristic we only delete transfer directory itself only if it is also outdated
     % _and was empty at the start of GC_, as a precaution against races between
     % writers and GCs.
-    TTL = get_segments_ttl(Storage, Transfer),
+    TTL = get_segments_ttl(Storage, TransferInfo),
     Cutoff = erlang:system_time(second) - TTL,
     {FragCleaned, Stats1} = collect_outdated_fragments(Storage, Transfer, Cutoff, Stats),
     {TempCleaned, Stats2} = collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats1),
     % TODO: collect empty directories separately
     case FragCleaned and TempCleaned of
         true ->
-            collect_transfer_directory(Storage, Transfer, Stats2);
+            collect_transfer_directory(Storage, Transfer, Cutoff, Stats2);
         false ->
             Stats2
-    end.
+    end;
+try_collect_transfer(Storage, Transfer, complete, Stats) ->
+    % File transfer is complete.
+    % We should be good to delete fragments and temporary files with their respective
+    % directories altogether.
+    {_, Stats1} = collect_fragments(Storage, Transfer, Stats),
+    {_, Stats2} = collect_tempfiles(Storage, Transfer, Stats1),
+    Stats2.
 
 collect_fragments(Storage, Transfer, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, fragment),
@@ -185,18 +204,32 @@ collect_tempfiles(Storage, Transfer, Stats) ->
 
 collect_outdated_fragments(Storage, Transfer, Cutoff, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, fragment),
-    Filter = fun(_Filepath, #file_info{mtime = ModifiedAt}) -> ModifiedAt < Cutoff end,
-    maybe_collect_directory(Dirname, Filter, Stats).
+    maybe_collect_directory(Dirname, filter_older_than(Cutoff), Stats).
 
 collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer, temporary),
-    Filter = fun(_Filepath, #file_info{mtime = ModifiedAt}) -> ModifiedAt < Cutoff end,
-    maybe_collect_directory(Dirname, Filter, Stats).
+    maybe_collect_directory(Dirname, filter_older_than(Cutoff), Stats).
 
-collect_transfer_directory(Storage, Transfer, Stats) ->
+collect_transfer_directory(Storage, Transfer, Cutoff, Stats) ->
     Dirname = emqx_ft_storage_fs:get_subdir(Storage, Transfer),
-    StatsNext = collect_empty_directory(Dirname, Stats),
-    collect_parents(Dirname, get_storage_root(Storage), StatsNext).
+    Filter =
+        case Stats of
+            #gcstats{directories = 0} ->
+                % Nothing were collected, this is a leftover from a past complete transfer GC.
+                filter_older_than(Cutoff);
+            #gcstats{} ->
+                % Usual incomplete transfer GC, collect directories unconditionally.
+                true
+        end,
+    case collect_empty_directory(Dirname, Filter, Stats) of
+        {true, StatsNext} ->
+            collect_parents(Dirname, get_segments_root(Storage), StatsNext);
+        {false, StatsNext} ->
+            StatsNext
+    end.
+
+filter_older_than(Cutoff) ->
+    fun(_Filepath, #file_info{mtime = ModifiedAt}) -> ModifiedAt =< Cutoff end.
 
 collect_parents(Dirname, Until, Stats) ->
     Parent = filename:dirname(Dirname),
@@ -211,14 +244,6 @@ collect_parents(Dirname, Until, Stats) ->
         {error, Reason} ->
             register_gcstat_error({directory, Parent}, Reason, Stats)
     end.
-
-% collect_outdated_fragment(#{path := Filepath, fileinfo := Fileinfo}, Cutoff, Stats) ->
-%     case Fileinfo#file_info.mtime of
-%         ModifiedAt when ModifiedAt < Cutoff ->
-%             collect_filepath(Filepath, Fileinfo, Stats);
-%         _ ->
-%             Stats
-%     end.
 
 maybe_collect_directory(Dirpath, Filter, Stats) ->
     case filelib:is_dir(Dirpath) of
@@ -257,10 +282,10 @@ collect_directory(Dirpath, Fileinfo, Filter, Stats) ->
     case file:list_dir(Dirpath) of
         {ok, Filenames} ->
             {Clean, StatsNext} = collect_files(Dirpath, Filenames, Filter, Stats),
-            case Clean andalso filter_filepath(Filter, Dirpath, Fileinfo) of
+            case Clean of
                 true ->
-                    {true, collect_empty_directory(Dirpath, StatsNext)};
-                _ ->
+                    collect_empty_directory(Dirpath, Fileinfo, Filter, StatsNext);
+                false ->
                     {false, StatsNext}
             end;
         {error, Reason} ->
@@ -278,13 +303,23 @@ collect_files(Dirname, Filenames, Filter, Stats) ->
         Filenames
     ).
 
-collect_empty_directory(Dirpath, Stats) ->
-    case file:del_dir(Dirpath) of
+collect_empty_directory(Dirpath, Filter, Stats) ->
+    case file:read_link_info(Dirpath, [{time, posix}, raw]) of
+        {ok, Dirinfo} ->
+            collect_empty_directory(Dirpath, Dirinfo, Filter, Stats);
+        {error, Reason} ->
+            {Reason == enoent, register_gcstat_error({directory, Dirpath}, Reason, Stats)}
+    end.
+
+collect_empty_directory(Dirpath, Dirinfo, Filter, Stats) ->
+    case filter_filepath(Filter, Dirpath, Dirinfo) andalso file:del_dir(Dirpath) of
+        false ->
+            {false, Stats};
         ok ->
             ?tp(garbage_collected_directory, #{path => Dirpath}),
-            account_gcstat_directory(Stats);
+            {true, account_gcstat_directory(Stats)};
         {error, Reason} ->
-            register_gcstat_error({directory, Dirpath}, Reason, Stats)
+            {false, register_gcstat_error({directory, Dirpath}, Reason, Stats)}
     end.
 
 filter_filepath(Filter, _, _) when is_boolean(Filter) ->
@@ -302,27 +337,17 @@ is_same_filepath(P1, P2) when is_binary(P1) ->
 filepath_to_binary(S) ->
     unicode:characters_to_binary(S, unicode, file:native_name_encoding()).
 
-get_segments_ttl(Storage, Transfer) ->
+get_segments_ttl(Storage, TransferInfo) ->
     {MinTTL, MaxTTL} = emqx_ft_conf:segments_ttl(Storage),
-    clamp(MinTTL, MaxTTL, try_get_filemeta_ttl(Storage, Transfer)).
+    clamp(MinTTL, MaxTTL, try_get_filemeta_ttl(TransferInfo)).
 
-try_get_filemeta_ttl(Storage, Transfer) ->
-    case emqx_ft_storage_fs:read_filemeta(Storage, Transfer) of
-        {ok, Filemeta} ->
-            maps:get(segments_ttl, Filemeta, undefined);
-        {error, _} ->
-            undefined
-    end.
+try_get_filemeta_ttl(#{filemeta := Filemeta}) ->
+    maps:get(segments_ttl, Filemeta, undefined);
+try_get_filemeta_ttl(#{}) ->
+    undefined.
 
 clamp(Min, Max, V) ->
     min(Max, max(Min, V)).
-
-% try_collect(_Subject, ok = Result, Then, _Stats) ->
-%     Then(Result);
-% try_collect(_Subject, {ok, Result}, Then, _Stats) ->
-%     Then(Result);
-% try_collect(Subject, {error, _} = Error, _Then, Stats) ->
-%     register_gcstat_error(Subject, Error, Stats).
 
 %%
 
@@ -348,5 +373,5 @@ register_gcstat_error(Subject, Error, Stats = #gcstats{errors = Errors}) ->
 
 %%
 
-get_storage_root(Storage) ->
-    maps:get(root, Storage, filename:join(emqx:data_dir(), "file_transfer")).
+get_segments_root(Storage) ->
+    emqx_ft_conf:segments_root(Storage).

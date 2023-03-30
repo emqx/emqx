@@ -24,7 +24,7 @@
 
 -include_lib("emqx/include/asserts.hrl").
 
--import(emqx_mgmt_api_test_util, [request/3, uri/1]).
+-import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -41,8 +41,9 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            Root = emqx_ft_test_helpers:ft_root(Config, node()),
-            emqx_ft_test_helpers:load_config(#{storage => #{type => local, root => Root}});
+            emqx_ft_test_helpers:load_config(#{
+                storage => emqx_ft_test_helpers:local_storage(Config)
+            });
         (_) ->
             ok
     end.
@@ -59,42 +60,27 @@ end_per_testcase(_Case, _Config) ->
 t_list_ready_transfers(Config) ->
     ClientId = client_id(Config),
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, <<"data">>, node()),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, "f1", <<"data">>),
 
-    {ok, 200, Response} = request(get, uri(["file_transfer", "files"])),
-
-    #{<<"files">> := Files} = emqx_json:decode(Response, [return_maps]),
+    {ok, 200, #{<<"files">> := Files}} =
+        request(get, uri(["file_transfer", "files"]), fun json/1),
 
     ?assertInclude(
-        #{<<"id">> := #{<<"clientid">> := ClientId, <<"fileid">> := <<"f1">>}},
+        #{<<"clientid">> := ClientId, <<"fileid">> := <<"f1">>},
         Files
-    ).
-
-%% This shouldn't happen in real life
-%% but we need to test it anyway
-t_list_ready_transfers_no_nodes(_Config) ->
-    _ = meck:new(mria_mnesia, [passthrough]),
-    _ = meck:expect(mria_mnesia, running_nodes, fun() -> [] end),
-
-    ?assertMatch(
-        {ok, 503, _},
-        request(get, uri(["file_transfer", "files"]))
     ).
 
 t_download_transfer(Config) ->
     ClientId = client_id(Config),
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, <<"data">>, node()),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, "f1", <<"data">>),
 
     ?assertMatch(
-        {ok, 503, _},
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request(
             get,
-            uri(["file_transfer", "file"]) ++
-                query(#{
-                    clientid => ClientId,
-                    fileid => <<"f1">>
-                })
+            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>}),
+            fun json/1
         )
     ),
 
@@ -104,8 +90,7 @@ t_download_transfer(Config) ->
             get,
             uri(["file_transfer", "file"]) ++
                 query(#{
-                    clientid => ClientId,
-                    fileid => <<"f1">>,
+                    fileref => <<"f1">>,
                     node => <<"nonode@nohost">>
                 })
         )
@@ -117,22 +102,16 @@ t_download_transfer(Config) ->
             get,
             uri(["file_transfer", "file"]) ++
                 query(#{
-                    clientid => ClientId,
-                    fileid => <<"unknown_file">>,
+                    fileref => <<"unknown_file">>,
                     node => node()
                 })
         )
     ),
 
-    {ok, 200, Response} = request(
-        get,
-        uri(["file_transfer", "file"]) ++
-            query(#{
-                clientid => ClientId,
-                fileid => <<"f1">>,
-                node => node()
-            })
-    ),
+    {ok, 200, #{<<"files">> := [File]}} =
+        request(get, uri(["file_transfer", "files"]), fun json/1),
+
+    {ok, 200, Response} = request(get, host() ++ maps:get(<<"uri">>, File)),
 
     ?assertEqual(
         <<"data">>,
@@ -147,7 +126,18 @@ client_id(Config) ->
     atom_to_binary(?config(tc, Config), utf8).
 
 request(Method, Url) ->
-    request(Method, Url, []).
+    emqx_mgmt_api_test_util:request(Method, Url, []).
+
+request(Method, Url, Decoder) when is_function(Decoder) ->
+    case emqx_mgmt_api_test_util:request(Method, Url, []) of
+        {ok, Code, Body} ->
+            {ok, Code, Decoder(Body)};
+        Otherwise ->
+            Otherwise
+    end.
+
+json(Body) when is_binary(Body) ->
+    emqx_json:decode(Body, [return_maps]).
 
 query(Params) ->
     KVs = lists:map(fun({K, V}) -> uri_encode(K) ++ "=" ++ uri_encode(V) end, maps:to_list(Params)),
