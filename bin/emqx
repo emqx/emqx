@@ -375,12 +375,6 @@ maybe_use_portable_dynlibs() {
     fi
 }
 
-# Warn the user if ulimit -n is less than 1024
-ULIMIT_F=$(ulimit -n)
-if [ "$ULIMIT_F" -lt 1024 ]; then
-    logwarn "ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
-fi
-
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
     *GNU*) SED_REPLACE="sed -i ";;
@@ -912,6 +906,14 @@ maybe_log_to_console() {
     fi
 }
 
+# Warn the user if ulimit -n is less than 1024
+maybe_warn_ulimit() {
+    ULIMIT_F=$(ulimit -n)
+    if [ "$ULIMIT_F" -lt 1024 ]; then
+        logwarn "ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
+    fi
+}
+
 ## Possible ways to configure emqx node name:
 ## 1. configure node.name in emqx.conf
 ## 2. override with environment variable EMQX_NODE__NAME
@@ -1033,6 +1035,7 @@ cd "$RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
+        maybe_warn_ulimit
         maybe_warn_default_cookie
 
         # this flag passes down to console mode
@@ -1184,6 +1187,7 @@ case "${COMMAND}" in
             tr_log_to_env
         else
             maybe_log_to_console
+            maybe_warn_ulimit
             maybe_warn_default_cookie
         fi
 
