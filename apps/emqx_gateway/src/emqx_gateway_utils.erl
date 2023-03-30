@@ -564,6 +564,7 @@ make_compatible_schema2(Path, SchemaFun) ->
         Schema
     ).
 
+-spec find_gateway_definations() -> list(gateway_def()).
 find_gateway_definations() ->
     lists:flatten(
         lists:map(

@@ -15,12 +15,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_lwm2m_session).
 
--include("src/coap/include/emqx_coap.hrl").
 -include("src/lwm2m/include/emqx_lwm2m.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_coap/include/emqx_coap.hrl").
 
 %% API
 -export([

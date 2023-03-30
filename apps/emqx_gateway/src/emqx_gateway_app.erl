@@ -80,7 +80,11 @@ load_gateway_application(
                 name => Name,
                 callback_module => CbMod
             })
-    end.
+    end;
+load_gateway_application(_) ->
+    ?SLOG(error, #{
+        msg => "invalid_gateway_defination"
+    }).
 
 load_gateway_by_default() ->
     load_gateway_by_default(confs()).

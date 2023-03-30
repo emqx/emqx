@@ -37,4 +37,11 @@
         config => emqx_config:config()
     }.
 
+-type gateway_def() ::
+    #{
+        name := gateway_name(),
+        callback_module := module(),
+        config_schema_module := module()
+     }.
+
 -endif.
