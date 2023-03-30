@@ -25,6 +25,12 @@
 -export([discard/1]).
 -export([list/1]).
 
+-export([
+    start/1,
+    stop/1,
+    update/2
+]).
+
 -type options() :: emqx_s3:profile_config().
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
@@ -41,6 +47,10 @@
     pid := pid(),
     meta := filemeta()
 }.
+
+%%--------------------------------------------------------------------
+%% Exporter behaviour
+%%--------------------------------------------------------------------
 
 -spec start_export(options(), transfer(), filemeta()) ->
     {ok, export_st()} | {error, term()}.
@@ -67,3 +77,26 @@ discard(_ExportSt) ->
     {ok, [exportinfo()]} | {error, term()}.
 list(_Options) ->
     {ok, []}.
+
+%%--------------------------------------------------------------------
+%% Exporter behaviour (lifecycle)
+%%--------------------------------------------------------------------
+
+-spec start(options()) -> ok | {error, term()}.
+start(Options) ->
+    emqx_s3:start_profile(s3_profile_id(), Options).
+
+-spec stop(options()) -> ok.
+stop(_Options) ->
+    ok = emqx_s3:stop_profile(s3_profile_id()).
+
+-spec update(options(), options()) -> ok.
+update(_OldOptions, NewOptions) ->
+    emqx_s3:update_profile(s3_profile_id(), NewOptions).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%% -------------------------------------------------------------------
+
+s3_profile_id() ->
+    atom_to_binary(?MODULE).

@@ -29,9 +29,11 @@
 
 %% Listing API
 -export([list/1]).
-% TODO
-% -export([list/2]).
 
+%% Lifecycle API
+-export([update_exporter/2]).
+
+%% Internal API
 -export([exporter/1]).
 
 -export_type([export/0]).
@@ -70,6 +72,17 @@
 
 -callback list(storage()) ->
     {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
+
+%% Lifecycle callbacks
+
+-callback start(exporter_conf()) ->
+    ok | {error, _Reason}.
+
+-callback stop(exporter_conf()) ->
+    ok.
+
+-callback update(exporter_conf(), exporter_conf()) ->
+    ok | {error, _Reason}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -126,6 +139,32 @@ list(Storage) ->
     {ExporterMod, ExporterOpts} = exporter(Storage),
     ExporterMod:list(ExporterOpts).
 
+%% Lifecycle
+
+-spec update_exporter(emqx_config:config(), emqx_config:config()) -> ok | {error, term()}.
+update_exporter(
+    #{exporter := #{type := OldType}} = OldConfig,
+    #{exporter := #{type := OldType}} = NewConfig
+) ->
+    {ExporterMod, OldExporterOpts} = exporter(OldConfig),
+    {_NewExporterMod, NewExporterOpts} = exporter(NewConfig),
+    ExporterMod:update(OldExporterOpts, NewExporterOpts);
+update_exporter(
+    #{exporter := _} = OldConfig,
+    #{exporter := _} = NewConfig
+) ->
+    {OldExporterMod, OldExporterOpts} = exporter(OldConfig),
+    {NewExporterMod, NewExporterOpts} = exporter(NewConfig),
+    ok = OldExporterMod:stop(OldExporterOpts),
+    NewExporterMod:start(NewExporterOpts);
+update_exporter(undefined, NewConfig) ->
+    {ExporterMod, ExporterOpts} = exporter(NewConfig),
+    ExporterMod:start(ExporterOpts);
+update_exporter(OldConfig, undefined) ->
+    {ExporterMod, ExporterOpts} = exporter(OldConfig),
+    ExporterMod:stop(ExporterOpts);
+update_exporter(_, _) ->
+    ok.
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -138,7 +177,6 @@ exporter(Storage) ->
             {emqx_ft_storage_exporter_s3, without_type(Options)}
     end.
 
--spec without_type(exporter_conf()) -> exporter_conf().
 without_type(#{type := _} = Options) ->
     maps:without([type], Options).
 
