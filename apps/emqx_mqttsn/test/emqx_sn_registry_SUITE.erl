@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(REGISTRY, emqx_sn_registry).
+-define(REGISTRY, emqx_mqttsn_registry).
 -define(MAX_PREDEF_ID, 2).
 -define(PREDEF_TOPICS, [
     #{id => 1, topic => <<"/predefined/topic/name/hello">>},
@@ -66,7 +66,7 @@ t_register(Config) ->
     ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
     ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
     ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
-    emqx_sn_registry:unregister_topic(Reg, <<"ClientId">>),
+    emqx_mqttsn_registry:unregister_topic(Reg, <<"ClientId">>),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),

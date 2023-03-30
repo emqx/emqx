@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %%--------------------------------------------------------------------
@@ -30,11 +30,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 parse(D) ->
-    {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),
+    {ok, P, _Rest, _State} = emqx_mqttsn_frame:parse(D, #{}),
     P.
 
 serialize_pkt(P) ->
-    emqx_sn_frame:serialize_pkt(P, #{}).
+    emqx_mqttsn_frame:serialize_pkt(P, #{}).
 
 %%--------------------------------------------------------------------
 %% Test cases

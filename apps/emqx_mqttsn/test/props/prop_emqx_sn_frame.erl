@@ -16,7 +16,7 @@
 
 -module(prop_emqx_sn_frame).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 -include_lib("proper/include/proper.hrl").
 
 -compile({no_auto_import, [register/1]}).
@@ -32,11 +32,11 @@
 ).
 
 parse(D) ->
-    {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),
+    {ok, P, _Rest, _State} = emqx_mqttsn_frame:parse(D, #{}),
     P.
 
 serialize(P) ->
-    emqx_sn_frame:serialize_pkt(P, #{}).
+    emqx_mqttsn_frame:serialize_pkt(P, #{}).
 
 %%--------------------------------------------------------------------
 %% Properties

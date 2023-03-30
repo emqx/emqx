@@ -27,7 +27,7 @@
     ]
 ).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_mqttsn.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -97,6 +97,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_mqttsn),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
     Config.
@@ -270,7 +271,7 @@ t_subscribe_case03(_) ->
 %% In this case We use predefined topic name to register and subscribe,
 %% and expect to receive the corresponding predefined topic id but not a new
 %% generated topic id from broker. We design this case to illustrate
-%% emqx_sn_gateway's compatibility of dealing with predefined and normal
+%% MQTT-SN Gateway's compatibility of dealing with predefined and normal
 %% topics.
 %%
 %% Once we give more restrictions to different topic id type, this case
