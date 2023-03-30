@@ -49,7 +49,7 @@ done
 # Collect system info:
 {
     collect "$RUNNER_BIN_DIR"/emqx_ctl broker
-    collect "$RUNNER_BIN_DIR"/emqx eval-erl "'emqx_node_dump:sys_info()'"
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:sys_info()'"
 
     collect uname -a
     collect uptime
@@ -64,7 +64,7 @@ done
 
 # Collect information about the configuration:
 {
-    collect "$RUNNER_BIN_DIR"/emqx eval-erl "'emqx_node_dump:app_env_dump()'"
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:app_env_dump()'"
 } > "${CONF_DUMP}"
 
 # Collect license info:

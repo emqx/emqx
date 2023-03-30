@@ -159,9 +159,6 @@ usage() {
         echo "Print EMQX installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang or Elixir expression in the EMQX node"
-        ;;
-    eval-erl)
         echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
         ;;
     eval-ex)
@@ -231,7 +228,7 @@ usage() {
         echo "  Install Info:     ertspath | root_dir"
         echo "  Runtime Status:   pid | ping"
         echo "  Validate Config:  check_config"
-        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-erl | eval-ex"
+        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-ex"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
     ;;
@@ -1263,25 +1260,6 @@ case "${COMMAND}" in
         relx_nodetool rpcterms "$@"
         ;;
     eval)
-        assert_node_alive
-
-        shift
-        if [ "$IS_ELIXIR" = "yes" ]
-        then
-          "$REL_DIR/elixir" \
-              --hidden \
-              --name "rand-$(relx_gen_id)-$NAME" \
-              --cookie "$COOKIE" \
-              --boot "$REL_DIR/start_clean" \
-              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
-              --vm-args "$REL_DIR/remote.vm.args" \
-              --erl "-start_epmd false -epmd_module ekka_epmd" \
-              --rpc-eval "$NAME" "$@"
-        else
-          relx_nodetool "eval" "$@"
-        fi
-        ;;
-    eval-erl)
         assert_node_alive
 
         shift
