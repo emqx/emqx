@@ -374,4 +374,4 @@ register_gcstat_error(Subject, Error, Stats = #gcstats{errors = Errors}) ->
 %%
 
 get_segments_root(Storage) ->
-    emqx_ft_conf:segments_root(Storage).
+    emqx_ft_storage_fs:get_root(Storage).
