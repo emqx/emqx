@@ -760,7 +760,7 @@ generate_config() {
     local node_name="$2"
     ## Delete the *.siz files first or it can't start after
     ## changing the config 'log.rotation.size'
-    rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    rm -f "${RUNNER_LOG_DIR}"/*.siz
 
     ## timestamp for each generation
     local NOW_TIME

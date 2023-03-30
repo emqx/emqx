@@ -38,7 +38,7 @@ start(_StartType, _StartArgs) ->
                 reason => E,
                 stacktrace => St
             }),
-            init:stop()
+            init:stop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
