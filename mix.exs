@@ -284,6 +284,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_stomp: :permanent,
         emqx_mqttsn: :permanent,
         emqx_coap: :permanent,
+        emqx_lwm2m: :permanent,
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
         emqx_rule_engine: :permanent,

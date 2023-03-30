@@ -16,9 +16,9 @@
 
 -module(emqx_lwm2m_cmd).
 
+-include("emqx_lwm2m.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_coap/include/emqx_coap.hrl").
--include("src/lwm2m/include/emqx_lwm2m.hrl").
 
 -export([
     mqtt_to_coap/2,

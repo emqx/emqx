@@ -64,14 +64,6 @@ roots() -> [gateway].
 
 fields(gateway) ->
     [
-        {lwm2m,
-            sc(
-                ref(lwm2m),
-                #{
-                    required => {false, recursively},
-                    desc => ?DESC(lwm2m)
-                }
-            )},
         {exproto,
             sc(
                 ref(exproto),
@@ -81,75 +73,6 @@ fields(gateway) ->
                 }
             )}
     ] ++ gateway_schemas();
-fields(lwm2m) ->
-    [
-        {xml_dir,
-            sc(
-                binary(),
-                #{
-                    %% since this is not packaged with emqx, nor
-                    %% present in the packages, we must let the user
-                    %% specify it rather than creating a dynamic
-                    %% default (especially difficult to handle when
-                    %% generating docs).
-                    example => <<"/etc/emqx/lwm2m_xml">>,
-                    required => true,
-                    desc => ?DESC(lwm2m_xml_dir)
-                }
-            )},
-        {lifetime_min,
-            sc(
-                duration(),
-                #{
-                    default => <<"15s">>,
-                    desc => ?DESC(lwm2m_lifetime_min)
-                }
-            )},
-        {lifetime_max,
-            sc(
-                duration(),
-                #{
-                    default => <<"86400s">>,
-                    desc => ?DESC(lwm2m_lifetime_max)
-                }
-            )},
-        {qmode_time_window,
-            sc(
-                duration_s(),
-                #{
-                    default => <<"22s">>,
-                    desc => ?DESC(lwm2m_qmode_time_window)
-                }
-            )},
-        %% TODO: Support config resource path
-        {auto_observe,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(lwm2m_auto_observe)
-                }
-            )},
-        %% FIXME: not working now
-        {update_msg_publish_condition,
-            sc(
-                hoconsc:enum([always, contains_object_list]),
-                #{
-                    default => contains_object_list,
-                    desc => ?DESC(lwm2m_update_msg_publish_condition)
-                }
-            )},
-        {translators,
-            sc(
-                ref(lwm2m_translators),
-                #{
-                    required => true,
-                    desc => ?DESC(lwm2m_translators)
-                }
-            )},
-        {mountpoint, mountpoint("lwm2m/${endpoint_name}/")},
-        {listeners, sc(ref(udp_listeners), #{desc => ?DESC(udp_listeners)})}
-    ] ++ gateway_common_options();
 fields(exproto) ->
     [
         {server,
@@ -223,68 +146,6 @@ fields(clientinfo_override) ->
             })},
         {clientid, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_clientid)})}
     ];
-fields(lwm2m_translators) ->
-    [
-        {command,
-            sc(
-                ref(translator),
-                #{
-                    desc => ?DESC(lwm2m_translators_command),
-                    required => true
-                }
-            )},
-        {response,
-            sc(
-                ref(translator),
-                #{
-                    desc => ?DESC(lwm2m_translators_response),
-                    required => true
-                }
-            )},
-        {notify,
-            sc(
-                ref(translator),
-                #{
-                    desc => ?DESC(lwm2m_translators_notify),
-                    required => true
-                }
-            )},
-        {register,
-            sc(
-                ref(translator),
-                #{
-                    desc => ?DESC(lwm2m_translators_register),
-                    required => true
-                }
-            )},
-        {update,
-            sc(
-                ref(translator),
-                #{
-                    desc => ?DESC(lwm2m_translators_update),
-                    required => true
-                }
-            )}
-    ];
-fields(translator) ->
-    [
-        {topic,
-            sc(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC(translator_topic)
-                }
-            )},
-        {qos,
-            sc(
-                emqx_schema:qos(),
-                #{
-                    default => 0,
-                    desc => ?DESC(translator_qos)
-                }
-            )}
-    ];
 fields(udp_listeners) ->
     [
         {udp, sc(map(name, ref(udp_listener)), #{desc => ?DESC(udp_listener)})},
@@ -356,8 +217,6 @@ fields(dtls_opts) ->
 
 desc(gateway) ->
     "EMQX Gateway configuration root.";
-desc(lwm2m) ->
-    "The LwM2M protocol gateway.";
 desc(exproto) ->
     "Settings for EMQX extension protocol (exproto).";
 desc(exproto_grpc_server) ->
@@ -368,10 +227,6 @@ desc(ssl_server_opts) ->
     "SSL configuration for the server.";
 desc(clientinfo_override) ->
     "ClientInfo override.";
-desc(lwm2m_translators) ->
-    "MQTT topics that correspond to LwM2M events.";
-desc(translator) ->
-    "MQTT topic that corresponds to a particular type of event.";
 desc(udp_listeners) ->
     "Settings for the UDP listeners.";
 desc(tcp_listeners) ->
@@ -536,11 +391,11 @@ proxy_protocol_opts() ->
 %% dynamic schemas
 
 %% FIXME: don't hardcode the gateway names
-gateway_schema(lwm2m) -> fields(lwm2m);
 gateway_schema(exproto) -> fields(exproto);
 gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
 gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
-gateway_schema(coap) -> emqx_coap_schema:fields(coap).
+gateway_schema(coap) -> emqx_coap_schema:fields(coap);
+gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m).
 
 gateway_schemas() ->
     lists:map(

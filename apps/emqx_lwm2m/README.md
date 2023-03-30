@@ -1,4 +1,3 @@
-
 # LwM2M Gateway
 
 [The LwM2M Specifications](http://www.openmobilealliance.org/release/LightweightM2M) is a Lightweight Machine to Machine protocol.

@@ -42,6 +42,6 @@
         name := gateway_name(),
         callback_module := module(),
         config_schema_module := module()
-     }.
+    }.
 
 -endif.

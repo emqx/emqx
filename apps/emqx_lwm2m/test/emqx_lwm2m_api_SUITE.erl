@@ -23,8 +23,8 @@
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
--include("src/coap/include/emqx_coap.hrl").
+-include("emqx_lwm2m.hrl").
+-include("emqx_coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -81,8 +81,9 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     application:load(emqx_gateway),
+    application:load(emqx_lwm2m),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),
     Config.
 

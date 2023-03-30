@@ -31,8 +31,8 @@
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
--include("src/lwm2m/include/emqx_lwm2m.hrl").
--include("src/coap/include/emqx_coap.hrl").
+-include("emqx_lwm2m.hrl").
+-include_lib("emqx_coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -134,6 +134,7 @@ groups() ->
 init_per_suite(Config) ->
     %% load application first for minirest api searching
     application:load(emqx_gateway),
+    application:load(emqx_lwm2m),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),
     Config.
 

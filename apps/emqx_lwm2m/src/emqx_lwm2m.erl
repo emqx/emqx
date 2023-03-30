@@ -14,35 +14,37 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The LwM2M Gateway Implement interface
--module(emqx_lwm2m_impl).
-
--behaviour(emqx_gateway_impl).
+%% @doc The LwM2M Gateway implement
+-module(emqx_lwm2m).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
-%% APIs
--export([
-    reg/0,
-    unreg/0
-]).
+%% define a gateway named stomp
+-gateway(#{
+    name => lwm2m,
+    callback_module => ?MODULE,
+    config_schema_module => emqx_lwm2m_schema
+}).
 
+%% callback_module must implement the emqx_gateway_impl behaviour
+-behaviour(emqx_gateway_impl).
+
+%% callback for emqx_gateway_impl
 -export([
     on_gateway_load/2,
     on_gateway_update/3,
     on_gateway_unload/2
 ]).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
-
-reg() ->
-    RegistryOptions = [{cbkmod, ?MODULE}],
-    emqx_gateway_registry:reg(lwm2m, RegistryOptions).
-
-unreg() ->
-    emqx_gateway_registry:unreg(lwm2m).
+-import(
+    emqx_gateway_utils,
+    [
+        normalize_config/1,
+        start_listeners/4,
+        stop_listeners/2
+    ]
+).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_registry callbacks
