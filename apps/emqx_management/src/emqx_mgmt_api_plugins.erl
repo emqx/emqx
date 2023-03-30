@@ -428,6 +428,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
     File = filename:join(emqx_plugins:install_dir(), FileName),
+    ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:ensure_installed(PackageName) of
