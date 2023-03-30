@@ -41,6 +41,7 @@
 
 % GC API
 % TODO: This is quickly becomes hairy.
+-export([get_root/1]).
 -export([get_subdir/2]).
 -export([get_subdir/3]).
 
@@ -220,7 +221,7 @@ transfers(Storage) ->
     % TODO `Continuation`
     % There might be millions of transfers on the node, we need a protocol and
     % storage schema to iterate through them effectively.
-    ClientIds = try_list_dir(get_segments_root(Storage)),
+    ClientIds = try_list_dir(get_root(Storage)),
     {ok,
         lists:foldl(
             fun(ClientId, Acc) -> transfers(Storage, ClientId, Acc) end,
@@ -229,7 +230,7 @@ transfers(Storage) ->
         )}.
 
 transfers(Storage, ClientId, AccIn) ->
-    Dirname = filename:join(get_segments_root(Storage), ClientId),
+    Dirname = filename:join(get_root(Storage), ClientId),
     case file:list_dir(Dirname) of
         {ok, FileIds} ->
             lists:foldl(
@@ -261,6 +262,16 @@ read_transferinfo(Storage, Transfer, Acc) ->
                 reason => Reason
             }),
             Acc
+    end.
+
+-spec get_root(storage()) ->
+    file:name().
+get_root(Storage) ->
+    case emqx_map_lib:deep_find([segments, root], Storage) of
+        {ok, Root} ->
+            Root;
+        {not_found, _, _} ->
+            filename:join([emqx:data_dir(), file_transfer, segments])
     end.
 
 -spec get_subdir(storage(), transfer()) ->
@@ -307,7 +318,7 @@ break_segment_filename(Filename) ->
 
 mk_filedir(Storage, {ClientId, FileId}, SubDirs) ->
     filename:join([
-        get_segments_root(Storage),
+        get_root(Storage),
         emqx_ft_fs_util:escape_filename(ClientId),
         emqx_ft_fs_util:escape_filename(FileId)
         | SubDirs
@@ -324,9 +335,6 @@ try_list_dir(Dirname) ->
         {ok, List} -> List;
         {error, _} -> []
     end.
-
-get_segments_root(Storage) ->
-    emqx_ft_conf:segments_root(Storage).
 
 -include_lib("kernel/include/file.hrl").
 
