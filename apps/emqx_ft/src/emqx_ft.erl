@@ -336,7 +336,7 @@ transfer(Msg, FileId) ->
     {clientid_to_binary(ClientId), FileId}.
 
 on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
-    ?SLOG(debug, #{
+    ?SLOG(warning, #{
         msg => "on_complete",
         operation => Op,
         packet_id => PacketId,

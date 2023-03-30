@@ -21,8 +21,32 @@
 
 -type profile_id() :: term().
 
-%% TODO: define fields
--type profile_config() :: map().
+-type acl() ::
+    private
+    | public_read
+    | public_read_write
+    | authenticated_read
+    | bucket_owner_read
+    | bucket_owner_full_control.
+
+-type transport_options() :: #{
+    connect_timeout => pos_integer(),
+    enable_pipelining => pos_integer(),
+    headers => map(),
+    max_retries => pos_integer(),
+    pool_size => pos_integer(),
+    pool_type => atom(),
+    ssl => map()
+}.
+
+-type profile_config() :: #{
+    bucket := string(),
+    host := string(),
+    port := pos_integer(),
+    acl => acl(),
+    min_part_size => pos_integer(),
+    transport_options => transport_options()
+}.
 
 %%--------------------------------------------------------------------
 %% API

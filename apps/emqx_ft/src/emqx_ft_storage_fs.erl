@@ -86,14 +86,18 @@
 -define(MANIFEST, "MANIFEST.json").
 -define(SEGMENT, "SEG").
 
--type storage() :: #{
-    root => file:name(),
-    exporter => exporter()
+-type segments() :: #{
+    root := file:name(),
+    gc := #{
+        interval := non_neg_integer(),
+        maximum_segments_ttl := non_neg_integer(),
+        minimum_segments_ttl := non_neg_integer()
+    }
 }.
 
--type exporter() :: #{
-    type := local,
-    root => file:name()
+-type storage() :: #{
+    segments := segments(),
+    exporter := emqx_ft_storage_exporter:exporter()
 }.
 
 -type file_error() ::

@@ -136,13 +136,12 @@ handle_event(
 ) ->
     Filemeta = emqx_ft_assembly:filemeta(Asm),
     Coverage = emqx_ft_assembly:coverage(Asm),
-    % TODO: better error handling
-    {ok, Export} = emqx_ft_storage_exporter:start_export(
-        Storage,
-        Transfer,
-        Filemeta
-    ),
-    {next_state, {assemble, Coverage}, St#{export => Export}, ?internal([])};
+    case emqx_ft_storage_exporter:start_export(Storage, Transfer, Filemeta) of
+        {ok, Export} ->
+            {next_state, {assemble, Coverage}, St#{export => Export}, ?internal([])};
+        {error, _} = Error ->
+            {stop, {shutdown, Error}}
+    end;
 handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #{export := Export}) ->
     % TODO
     % Currently, race is possible between getting segment info from the remote node and
@@ -150,8 +149,12 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #{export :=
     % TODO: pipelining
     % TODO: better error handling
     {ok, Content} = pread(Node, Segment, St),
-    {ok, NExport} = emqx_ft_storage_exporter:write(Export, Content),
-    {next_state, {assemble, Rest}, St#{export := NExport}, ?internal([])};
+    case emqx_ft_storage_exporter:write(Export, Content) of
+        {ok, NExport} ->
+            {next_state, {assemble, Rest}, St#{export := NExport}, ?internal([])};
+        {error, _} = Error ->
+            {stop, {shutdown, Error}, maps:remove(export, St)}
+    end;
 handle_event(internal, _, {assemble, []}, St = #{}) ->
     {next_state, complete, St, ?internal([])};
 handle_event(internal, _, complete, St = #{export := Export}) ->

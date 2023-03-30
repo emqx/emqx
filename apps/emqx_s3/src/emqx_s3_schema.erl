@@ -7,7 +7,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [mk/2, ref/1]).
+-import(hoconsc, [mk/2, ref/2]).
 
 -export([roots/0, fields/1, namespace/0, tags/0]).
 
@@ -101,7 +101,7 @@ fields(s3) ->
             )},
         {transport_options,
             mk(
-                ref(transport_options),
+                ref(?MODULE, transport_options),
                 #{
                     desc => ?DESC("transport_options"),
                     required => false
