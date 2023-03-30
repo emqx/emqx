@@ -115,9 +115,8 @@ on_start(InstId, Config) ->
                 }
             ),
             throw(
-                {error,
-                    "Failed to start Kafka client. Please check the logs for errors and check"
-                    " the connection parameters"}
+                "Failed to start Kafka client. Please check the logs for errors and check"
+                " the connection parameters."
             )
     end.
 

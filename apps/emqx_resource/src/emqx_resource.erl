@@ -359,10 +359,10 @@ call_start(MgrId, Mod, Config) ->
     try
         Mod:on_start(MgrId, Config)
     catch
-        throw:{error, Error} ->
+        throw:Error ->
             {error, Error};
         Kind:Error:Stacktrace ->
-            {error, {Kind, Error, Stacktrace}}
+            {error, #{exception => Kind, reason => Error, stacktrace => Stacktrace}}
     end.
 
 -spec call_health_check(manager_id(), module(), resource_state()) ->

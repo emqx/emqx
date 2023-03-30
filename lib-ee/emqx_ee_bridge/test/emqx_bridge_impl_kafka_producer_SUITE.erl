@@ -416,10 +416,7 @@ t_failed_creation_then_fix(Config) ->
         Type, erlang:list_to_atom(Name), WrongConf
     ),
     WrongConfigAtom = WrongConfigAtom1#{bridge_name => Name},
-    ?assertThrow(
-        {error, _},
-        ?PRODUCER:on_start(ResourceId, WrongConfigAtom)
-    ),
+    ?assertThrow(Reason when is_list(Reason), ?PRODUCER:on_start(ResourceId, WrongConfigAtom)),
     %% before throwing, it should cleanup the client process.  we
     %% retry because the supervisor might need some time to really
     %% remove it from its tree.
