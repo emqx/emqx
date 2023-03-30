@@ -42,7 +42,7 @@ start_additional_node(Config, Name) ->
 stop_additional_node(Node) ->
     ok = rpc:call(Node, ekka, leave, []),
     ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
-    {ok, _} = emqx_common_test_helpers:stop_slave(Node),
+    ok = emqx_common_test_helpers:stop_slave(Node),
     ok.
 
 tcp_port(Node) ->
