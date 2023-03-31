@@ -96,7 +96,7 @@ on_message_publish(Message = #message{flags = #{sys := true}},
                    #{ignore_sys_message := true}) ->
     {ok, Message};
 on_message_publish(Message = #message{topic = Topic}, _Env) ->
-    case emqx_rule_registry:get_rules_for(Topic) of
+    case emqx_rule_registry:get_active_rules_for(Topic) of
         [] -> ok;
         Rules -> emqx_rule_runtime:apply_rules(Rules, eventmsg_publish(Message))
     end,
@@ -406,10 +406,10 @@ may_publish_and_apply(EventName, GenEventMsg, #{enabled := true, qos := QoS}) ->
         {error, _Reason} ->
             ?LOG(error, "Failed to encode event msg for ~p, msg: ~p", [EventName, EventMsg])
     end,
-    emqx_rule_runtime:apply_rules(emqx_rule_registry:get_rules_for(EventTopic), EventMsg);
+    emqx_rule_runtime:apply_rules(emqx_rule_registry:get_active_rules_for(EventTopic), EventMsg);
 may_publish_and_apply(EventName, GenEventMsg, _Env) ->
     EventTopic = event_topic(EventName),
-    case emqx_rule_registry:get_rules_for(EventTopic) of
+    case emqx_rule_registry:get_active_rules_for(EventTopic) of
         [] -> ok;
         Rules -> emqx_rule_runtime:apply_rules(Rules, GenEventMsg())
     end.

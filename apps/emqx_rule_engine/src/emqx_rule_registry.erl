@@ -27,6 +27,7 @@
 %% Rule Management
 -export([ get_rules/0
         , get_rules_for/1
+        , get_active_rules_for/1
         , get_rules_with_same_event/1
         , get_rules_ordered_by_ts/0
         , get_rule/1
@@ -71,6 +72,10 @@
 
 -export([ load_hooks_for_rule/1
         , unload_hooks_for_rule/1
+        ]).
+
+-export([ update_rules_cache/0
+        , clear_rules_cache/0
         ]).
 
 %% for debug purposes
@@ -164,22 +169,37 @@ start_link() ->
 %%------------------------------------------------------------------------------
 %% Rule Management
 %%------------------------------------------------------------------------------
-
+-define(PK_RULE_TAB, {?MODULE, ?RULE_TAB}).
 -spec(get_rules() -> list(emqx_rule_engine:rule())).
 get_rules() ->
-    get_all_records(?RULE_TAB).
+    case get_rules_from_cache() of
+        not_found -> get_all_records(?RULE_TAB);
+        CachedRules -> CachedRules
+    end.
+
+get_rules_from_cache() ->
+    persistent_term:get(?PK_RULE_TAB, not_found).
+
+put_rules_to_cache(Rules) ->
+    persistent_term:put(?PK_RULE_TAB, Rules).
+
+update_rules_cache() ->
+    put_rules_to_cache(get_all_records(?RULE_TAB)).
+
+clear_rules_cache() ->
+    persistent_term:erase(?PK_RULE_TAB).
 
 get_rules_ordered_by_ts() ->
-    F = fun() ->
-        Query = qlc:q([E || E <- mnesia:table(?RULE_TAB)]),
-        qlc:e(qlc:keysort(#rule.created_at, Query, [{order, ascending}]))
-    end,
-    {atomic, List} = mnesia:transaction(F),
-    List.
+    lists:keysort(#rule.created_at, get_rules()).
 
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
+             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+
+-spec(get_active_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
+get_active_rules_for(Topic) ->
+    [Rule || Rule = #rule{enabled = true, for = For} <- get_rules(),
              emqx_rule_utils:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
@@ -441,10 +461,12 @@ init([]) ->
 
 handle_call({add_rules, Rules}, _From, State) ->
     trans(fun lists:foreach/2, [fun insert_rule/1, Rules]),
+    _ = ?CLUSTER_CALL(update_rules_cache, []),
     {reply, ok, State};
 
 handle_call({remove_rules, Rules}, _From, State) ->
     trans(fun lists:foreach/2, [fun delete_rule/1, Rules]),
+    _ = ?CLUSTER_CALL(update_rules_cache, []),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
