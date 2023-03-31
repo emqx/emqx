@@ -23,6 +23,7 @@
 -export([seek/3]).
 
 -export([fold/3]).
+-export([fold_n/4]).
 
 -export_type([t/0]).
 -export_type([glob/0]).
@@ -202,6 +203,21 @@ fold(FoldFun, Acc, It) ->
             fold(FoldFun, FoldFun(Entry, Acc), ItNext);
         none ->
             Acc
+    end.
+
+%% NOTE
+%% Passing negative `N` is allowed, in which case the iterator will be exhausted
+%% completely, like in `fold/3`.
+-spec fold_n(fun((entry(), Acc) -> Acc), Acc, t(), _N :: integer()) ->
+    {Acc, {more, t()} | none}.
+fold_n(_FoldFun, Acc, It, 0) ->
+    {Acc, {more, It}};
+fold_n(FoldFun, Acc, It, N) ->
+    case next(It) of
+        {Entry, ItNext} ->
+            fold_n(FoldFun, FoldFun(Entry, Acc), ItNext, N - 1);
+        none ->
+            {Acc, none}
     end.
 
 %%

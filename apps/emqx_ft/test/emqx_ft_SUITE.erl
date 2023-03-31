@@ -671,7 +671,7 @@ encode_meta(Meta) ->
     emqx_utils_json:encode(emqx_ft:encode_filemeta(Meta)).
 
 list_files(ClientId) ->
-    {ok, Files} = emqx_ft_storage:files(),
+    {ok, #{items := Files}} = emqx_ft_storage:files(),
     [File || File = #{transfer := {CId, _}} <- Files, CId == ClientId].
 
 read_export(#{path := AbsFilepath}) ->

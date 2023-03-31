@@ -19,7 +19,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/logger.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -30,12 +29,14 @@
 ]).
 
 -export([
-    roots/0
+    roots/0,
+    fields/1
 ]).
 
 %% API callbacks
 -export([
-    '/file_transfer/files'/2
+    '/file_transfer/files'/2,
+    '/file_transfer/files/:clientid/:fileid'/2
 ]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -47,7 +48,8 @@ api_spec() ->
 
 paths() ->
     [
-        "/file_transfer/files"
+        "/file_transfer/files",
+        "/file_transfer/files/:clientid/:fileid"
     ].
 
 schema("/file_transfer/files") ->
@@ -57,28 +59,132 @@ schema("/file_transfer/files") ->
             tags => [<<"file_transfer">>],
             summary => <<"List all uploaded files">>,
             description => ?DESC("file_list"),
+            parameters => [
+                ref(following),
+                ref(emqx_dashboard_swagger, limit)
+            ],
             responses => #{
                 200 => <<"Operation success">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], <<"Invalid cursor">>
+                ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
+                )
+            }
+        }
+    };
+schema("/file_transfer/files/:clientid/:fileid") ->
+    #{
+        'operationId' => '/file_transfer/files/:clientid/:fileid',
+        get => #{
+            tags => [<<"file_transfer">>],
+            summary => <<"List files uploaded in a specific transfer">>,
+            description => ?DESC("file_list_transfer"),
+            parameters => [
+                ref(client_id),
+                ref(file_id)
+            ],
+            responses => #{
+                200 => <<"Operation success">>,
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['FILES_NOT_FOUND'], error_desc('FILES_NOT_FOUND')
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
                 )
             }
         }
     }.
 
-'/file_transfer/files'(get, #{}) ->
-    case emqx_ft_storage:files() of
-        {ok, Files} ->
-            {200, #{<<"files">> => lists:map(fun format_file_info/1, Files)}};
-        {error, _} ->
-            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
+'/file_transfer/files'(get, #{
+    query_string := QueryString
+}) ->
+    try
+        Limit = limit(QueryString),
+        Query =
+            case maps:get(<<"following">>, QueryString, undefined) of
+                undefined ->
+                    #{limit => Limit};
+                Cursor ->
+                    #{limit => Limit, following => Cursor}
+            end,
+        case emqx_ft_storage:files(Query) of
+            {ok, Page} ->
+                {200, format_page(Page)};
+            {error, _} ->
+                {503, error_msg('SERVICE_UNAVAILABLE')}
+        end
+    catch
+        error:{badarg, cursor} ->
+            {400, error_msg('BAD_REQUEST', <<"Invalid cursor">>)}
     end.
+
+'/file_transfer/files/:clientid/:fileid'(get, #{
+    bindings := #{clientid := ClientId, fileid := FileId}
+}) ->
+    Transfer = {ClientId, FileId},
+    case emqx_ft_storage:files(#{transfer => Transfer}) of
+        {ok, Page} ->
+            {200, format_page(Page)};
+        {error, [{_Node, enoent} | _]} ->
+            {404, error_msg('FILES_NOT_FOUND')};
+        {error, _} ->
+            {503, error_msg('SERVICE_UNAVAILABLE')}
+    end.
+
+format_page(#{items := Files, cursor := Cursor}) ->
+    #{
+        <<"files">> => lists:map(fun format_file_info/1, Files),
+        <<"cursor">> => Cursor
+    };
+format_page(#{items := Files}) ->
+    #{
+        <<"files">> => lists:map(fun format_file_info/1, Files)
+    }.
+
+error_msg(Code) ->
+    #{code => Code, message => error_desc(Code)}.
 
 error_msg(Code, Msg) ->
     #{code => Code, message => emqx_utils:readable_error_msg(Msg)}.
 
+error_desc('FILES_NOT_FOUND') ->
+    <<"Files requested for this transfer could not be found">>;
+error_desc('SERVICE_UNAVAILABLE') ->
+    <<"Service unavailable">>.
+
 roots() ->
     [].
+
+-spec fields(hocon_schema:name()) -> [hoconsc:field()].
+fields(client_id) ->
+    [
+        {clientid,
+            mk(binary(), #{
+                in => path,
+                desc => <<"MQTT Client ID">>,
+                required => true
+            })}
+    ];
+fields(file_id) ->
+    [
+        {fileid,
+            mk(binary(), #{
+                in => path,
+                desc => <<"File ID">>,
+                required => true
+            })}
+    ];
+fields(following) ->
+    [
+        {following,
+            mk(binary(), #{
+                in => query,
+                desc => <<"Cursor to start listing files from">>,
+                required => false
+            })}
+    ].
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -115,3 +221,6 @@ format_name(NameBin) when is_binary(NameBin) ->
     NameBin;
 format_name(Name) when is_list(Name) ->
     iolist_to_binary(Name).
+
+limit(QueryString) ->
+    maps:get(<<"limit">>, QueryString, emqx_mgmt:default_row_limit()).

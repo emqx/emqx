@@ -17,7 +17,7 @@
 %% Filesystem storage exporter
 %%
 %% This is conceptually a part of the Filesystem storage backend that defines
-%% how and where complete tranfers are assembled into files and stored.
+%% how and where complete transfers are assembled into files and stored.
 
 -module(emqx_ft_storage_exporter).
 
@@ -28,7 +28,7 @@
 -export([discard/1]).
 
 %% Listing API
--export([list/1]).
+-export([list/2]).
 
 %% Lifecycle API
 -export([on_config_update/2]).
@@ -70,8 +70,8 @@
 -callback discard(ExportSt :: export_st()) ->
     ok | {error, _Reason}.
 
--callback list(storage()) ->
-    {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
+-callback list(exporter_conf(), emqx_ft_storage:query(Cursor)) ->
+    {ok, emqx_ft_storage:page(emqx_ft_storage:file_info(), Cursor)} | {error, _Reason}.
 
 %% Lifecycle callbacks
 
@@ -133,11 +133,11 @@ complete(#{mod := ExporterMod, st := ExportSt, hash := Hash, filemeta := Filemet
 discard(#{mod := ExporterMod, st := ExportSt}) ->
     ExporterMod:discard(ExportSt).
 
--spec list(storage()) ->
-    {ok, [emqx_ft_storage:file_info()]} | {error, _Reason}.
-list(Storage) ->
+-spec list(storage(), emqx_ft_storage:query(Cursor)) ->
+    {ok, emqx_ft_storage:page(emqx_ft_storage:file_info(), Cursor)} | {error, _Reason}.
+list(Storage, Query) ->
     {ExporterMod, ExporterOpts} = exporter(Storage),
-    ExporterMod:list(ExporterOpts).
+    ExporterMod:list(ExporterOpts, Query).
 
 %% Lifecycle
 

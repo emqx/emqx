@@ -87,5 +87,5 @@ storage(Config) ->
     emqx_ft_test_helpers:local_storage(Config).
 
 list_files(Config) ->
-    {ok, Files} = emqx_ft_storage_fs:files(storage(Config)),
+    {ok, #{items := Files}} = emqx_ft_storage_fs:files(storage(Config), #{}),
     Files.

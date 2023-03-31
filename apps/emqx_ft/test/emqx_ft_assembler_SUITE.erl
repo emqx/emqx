@@ -240,7 +240,7 @@ list_exports(Config) ->
 
 list_exports(Config, Transfer) ->
     {emqx_ft_storage_exporter_fs, Options} = exporter(Config),
-    emqx_ft_storage_exporter_fs:list_local(Options, Transfer).
+    emqx_ft_storage_exporter_fs:list_local_transfer(Options, Transfer).
 
 exporter(Config) ->
     emqx_ft_storage_exporter:exporter(storage(Config)).

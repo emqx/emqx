@@ -3,6 +3,9 @@ emqx_ft_api {
 file_list.desc:
 """List all uploaded files."""
 
+file_list_transfer.desc
+"""List a file uploaded during specified transfer, identified by client id and file id."""
+
 }
 
 emqx_ft_storage_exporter_fs_api {
