@@ -159,7 +159,7 @@ usage() {
         echo "Print EMQX installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
+        echo "Evaluate an Erlang expression in the EMQX node."
         ;;
     eval-ex)
         echo "Evaluate an Elixir expression in the EMQX node. Only applies to Elixir node"
