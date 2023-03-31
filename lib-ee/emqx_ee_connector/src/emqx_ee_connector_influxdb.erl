@@ -35,6 +35,9 @@
     desc/1
 ]).
 
+%% only for test
+-export([is_unrecoverable_error/1]).
+
 -type ts_precision() :: ns | us | ms | s.
 
 %% influxdb servers don't need parse
@@ -655,12 +658,6 @@ str(S) when is_list(S) ->
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
-is_unrecoverable_error({error, {recoverable_error, _}}) ->
-    false;
-is_unrecoverable_error({error, {error, econnrefused}}) ->
-    false;
-is_unrecoverable_error({error, econnrefused}) ->
-    false;
 is_unrecoverable_error(_) ->
     false.
 
