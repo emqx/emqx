@@ -12,16 +12,13 @@ different statistics and metrics.
 
 Amongst others it allows to manage
 
-* alarms,
-* API Keys,
-* banned clients, users or hosts,
-* connected clients including their topic subscriptions,
-* cluster configurations,
-* configuration of MQTT listeners,
-* node configuration,
-* custom plugins,
-* fixed subscriptions,
-* and topics.
+* Alarms
+* API Keys
+* Banned clients, users or hosts
+* Clients (and sessions) including their topic subscriptions
+* Configurations
+* Manage plugins
+* Fixed subscriptions
 
 Moreover it lets you
 
@@ -33,7 +30,7 @@ Moreover it lets you
 ## Implementation Notes
 
 API endpoints are implemented using the `minirest` framework in combination with
-`hoconsc` and `emqx_dashboard_swagger`.
+HOCON schema and OpenAPI 3.0 specifications.
 
 ## TODO/FIXME
 
