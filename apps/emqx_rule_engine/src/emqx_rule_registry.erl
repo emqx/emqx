@@ -165,6 +165,10 @@ dump() ->
 start_link() ->
     gen_server:start_link({local, ?REGISTRY}, ?MODULE, [], []).
 
+%% Use a single process to protect the cache updating to avoid race conditions
+update_rules_cache_locally() ->
+    gen_server:cast(?REGISTRY, update_rules_cache).
+
 %%------------------------------------------------------------------------------
 %% Rule Management
 %%------------------------------------------------------------------------------
@@ -172,7 +176,9 @@ start_link() ->
 -spec(get_rules() -> list(emqx_rule_engine:rule())).
 get_rules() ->
     case get_rules_from_cache() of
-        not_found -> get_all_records(?RULE_TAB);
+        not_found ->
+            update_rules_cache_locally(),
+            get_all_records(?RULE_TAB);
         CachedRules -> CachedRules
     end.
 
@@ -186,7 +192,8 @@ update_rules_cache() ->
     put_rules_to_cache(get_all_records(?RULE_TAB)).
 
 clear_rules_cache() ->
-    persistent_term:erase(?PK_RULE_TAB).
+    _ = persistent_term:erase(?PK_RULE_TAB),
+    ok.
 
 get_rules_ordered_by_ts() ->
     lists:keysort(#rule.created_at, get_rules()).
@@ -471,6 +478,10 @@ handle_call({remove_rules, Rules}, _From, State) ->
 handle_call(Req, _From, State) ->
     ?LOG(error, "[RuleRegistry]: unexpected call - ~p", [Req]),
     {reply, ignored, State}.
+
+handle_cast(update_rules_cache, State) ->
+    _ = update_rules_cache(),
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     ?LOG(error, "[RuleRegistry]: unexpected cast ~p", [Msg]),
