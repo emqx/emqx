@@ -27,7 +27,7 @@ all() ->
         {group, cluster}
     ].
 
--define(CLUSTER_CASES, [t_multinode_ready_transfers]).
+-define(CLUSTER_CASES, [t_multinode_exports]).
 
 groups() ->
     [
@@ -61,7 +61,7 @@ end_per_group(_Group, _Config) ->
 %% Tests
 %%--------------------------------------------------------------------
 
-t_multinode_ready_transfers(Config) ->
+t_multinode_exports(Config) ->
     Node1 = ?config(additional_node, Config),
     ok = emqx_ft_test_helpers:upload_file(<<"c/1">>, <<"f:1">>, "fn1", <<"data">>, Node1),
 
