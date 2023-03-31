@@ -65,7 +65,7 @@ terminate(_Reason, #{callbacks := Callbacks}) ->
 handle_call({push, Callback}, _From, State = #{callbacks := Callbacks}) ->
     {reply, ok, State#{callbacks := [Callback | Callbacks]}};
 handle_call(terminate, _From, State = #{callbacks := Callbacks}) ->
-    lists:foreach(fun(Fun) -> Fun() end, Callbacks),
+    lists:foreach(fun(Fun) -> catch Fun() end, Callbacks),
     {stop, normal, ok, State};
 handle_call(_Req, _From, State) ->
     {reply, error, State}.

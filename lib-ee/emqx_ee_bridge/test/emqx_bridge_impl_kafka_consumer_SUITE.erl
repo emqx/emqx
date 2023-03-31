@@ -388,7 +388,7 @@ end_per_testcase(_Testcase, Config) ->
                 maps:values(ProducersMapping)
             ),
             ok = wolff:stop_and_delete_supervised_client(KafkaProducerClientId),
-            emqx_common_test_helpers:call_janitor(),
+            emqx_common_test_helpers:call_janitor(30_000),
             ok = snabbkaffe:stop(),
             ok
     end.
