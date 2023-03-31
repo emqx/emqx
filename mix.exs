@@ -394,10 +394,12 @@ defmodule EMQXUmbrella.MixProject do
     bin = Path.join(release.path, "bin")
     etc = Path.join(release.path, "etc")
     log = Path.join(release.path, "log")
+    plugins = Path.join(release.path, "plugins")
 
     Mix.Generator.create_directory(bin)
     Mix.Generator.create_directory(etc)
     Mix.Generator.create_directory(log)
+    Mix.Generator.create_directory(plugins)
     Mix.Generator.create_directory(Path.join(etc, "certs"))
 
     Enum.each(
@@ -610,6 +612,7 @@ defmodule EMQXUmbrella.MixProject do
       &[
         "etc",
         "data",
+        "plugins",
         "bin/node_dump"
         | &1
       ]
