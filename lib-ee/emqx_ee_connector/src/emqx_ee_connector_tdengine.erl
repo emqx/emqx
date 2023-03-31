@@ -41,14 +41,16 @@ roots() ->
 fields(config) ->
     [
         {server, server()}
-        | add_default_username(emqx_connector_schema_lib:relational_db_fields())
+        | adjust_fields(emqx_connector_schema_lib:relational_db_fields())
     ].
 
-add_default_username(Fields) ->
+adjust_fields(Fields) ->
     lists:map(
         fun
             ({username, OrigUsernameFn}) ->
                 {username, add_default_fn(OrigUsernameFn, <<"root">>)};
+            ({password, OrigPasswordFn}) ->
+                {password, make_required_fn(OrigPasswordFn)};
             (Field) ->
                 Field
         end,
@@ -58,6 +60,12 @@ add_default_username(Fields) ->
 add_default_fn(OrigFn, Default) ->
     fun
         (default) -> Default;
+        (Field) -> OrigFn(Field)
+    end.
+
+make_required_fn(OrigFn) ->
+    fun
+        (required) -> true;
         (Field) -> OrigFn(Field)
     end.
 
