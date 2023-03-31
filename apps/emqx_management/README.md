@@ -19,6 +19,7 @@ Amongst others it allows to manage
 * Configurations
 * Manage plugins
 * Fixed subscriptions
+* Topics
 
 Moreover it lets you
 
