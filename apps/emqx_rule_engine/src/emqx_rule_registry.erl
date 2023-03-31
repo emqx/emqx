@@ -20,7 +20,6 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("stdlib/include/qlc.hrl").
 
 -export([start_link/0]).
 
