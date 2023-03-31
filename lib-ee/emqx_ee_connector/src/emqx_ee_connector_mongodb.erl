@@ -60,7 +60,9 @@ on_query(InstanceId, {send_message, Message0}, State) ->
         collection => emqx_plugin_libs_rule:proc_tmpl(CollectionTemplate, Message0)
     },
     Message = render_message(PayloadTemplate, Message0),
-    emqx_connector_mongo:on_query(InstanceId, {send_message, Message}, NewConnectorState);
+    Res = emqx_connector_mongo:on_query(InstanceId, {send_message, Message}, NewConnectorState),
+    ?tp(mongo_ee_connector_on_query_return, #{result => Res}),
+    Res;
 on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
     emqx_connector_mongo:on_query(InstanceId, Request, ConnectorState).
 

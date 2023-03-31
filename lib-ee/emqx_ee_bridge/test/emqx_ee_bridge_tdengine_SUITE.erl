@@ -46,18 +46,25 @@
 
 all() ->
     [
-        {group, with_batch},
-        {group, without_batch}
+        {group, async},
+        {group, sync}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     NonBatchCases = [t_write_timeout],
+    BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
+        {async, BatchingGroups},
+        {sync, BatchingGroups},
         {with_batch, TCs -- NonBatchCases},
         {without_batch, TCs}
     ].
 
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
     Config = [{enable_batch, true} | Config0],
     common_init(Config);
@@ -87,6 +94,7 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -109,7 +117,6 @@ common_init(ConfigT) ->
     Config0 = [
         {td_host, Host},
         {td_port, Port},
-        {query_mode, sync},
         {proxy_name, "tdengine_restful"}
         | ConfigT
     ],
@@ -194,9 +201,13 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     Config.
 
 create_bridge(Config) ->
+    create_bridge(Config, _Overrides = #{}).
+
+create_bridge(Config, Overrides) ->
     BridgeType = ?config(tdengine_bridge_type, Config),
     Name = ?config(tdengine_name, Config),
-    TDConfig = ?config(tdengine_config, Config),
+    TDConfig0 = ?config(tdengine_config, Config),
+    TDConfig = emqx_map_lib:deep_merge(TDConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, TDConfig).
 
 delete_bridge(Config) ->
@@ -223,6 +234,27 @@ query_resource(Config, Request) ->
     BridgeType = ?config(tdengine_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+
+query_resource_async(Config, Request) ->
+    Name = ?config(tdengine_name, Config),
+    BridgeType = ?config(tdengine_bridge_type, Config),
+    Ref = alias([reply]),
+    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    Return = emqx_resource:query(ResourceID, Request, #{
+        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    }),
+    {Return, Ref}.
+
+receive_result(Ref, Timeout) ->
+    receive
+        {result, Ref, Result} ->
+            {ok, Result};
+        {Ref, Result} ->
+            {ok, Result}
+    after Timeout ->
+        timeout
+    end.
 
 connect_direct_tdengine(Config) ->
     Opts = [
@@ -273,12 +305,14 @@ t_setup_via_config_and_publish(Config) ->
     SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
     ?check_trace(
         begin
-            ?wait_async_action(
-                ?assertMatch(
-                    {ok, #{<<"code">> := 0, <<"rows">> := 1}}, send_message(Config, SentData)
+            {_, {ok, #{result := Result}}} =
+                ?wait_async_action(
+                    send_message(Config, SentData),
+                    #{?snk_kind := buffer_worker_flush_ack},
+                    2_000
                 ),
-                #{?snk_kind := tdengine_connector_query_return},
-                10_000
+            ?assertMatch(
+                {ok, #{<<"code">> := 0, <<"rows">> := 1}}, Result
             ),
             ?assertMatch(
                 ?PAYLOAD,
@@ -297,24 +331,32 @@ t_setup_via_config_and_publish(Config) ->
 t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(tdengine_bridge_type, Config),
     Name = ?config(tdengine_name, Config),
-    PgsqlConfig0 = ?config(tdengine_config, Config),
-    PgsqlConfig = PgsqlConfig0#{
+    QueryMode = ?config(query_mode, Config),
+    TDengineConfig0 = ?config(tdengine_config, Config),
+    TDengineConfig = TDengineConfig0#{
         <<"name">> => Name,
         <<"type">> => BridgeType
     },
     ?assertMatch(
         {ok, _},
-        create_bridge_http(PgsqlConfig)
+        create_bridge_http(TDengineConfig)
     ),
     SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
     ?check_trace(
         begin
-            ?wait_async_action(
-                ?assertMatch(
-                    {ok, #{<<"code">> := 0, <<"rows">> := 1}}, send_message(Config, SentData)
-                ),
-                #{?snk_kind := tdengine_connector_query_return},
-                10_000
+            Request = {send_message, SentData},
+            Res0 =
+                case QueryMode of
+                    sync ->
+                        query_resource(Config, Request);
+                    async ->
+                        {_, Ref} = query_resource_async(Config, Request),
+                        {ok, Res} = receive_result(Ref, 2_000),
+                        Res
+                end,
+
+            ?assertMatch(
+                {ok, #{<<"code">> := 0, <<"rows">> := 1}}, Res0
             ),
             ?assertMatch(
                 ?PAYLOAD,
@@ -359,7 +401,14 @@ t_write_failure(Config) ->
     {ok, _} = create_bridge(Config),
     SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch({error, econnrefused}, send_message(Config, SentData))
+        {_, {ok, #{result := Result}}} =
+            ?wait_async_action(
+                send_message(Config, SentData),
+                #{?snk_kind := buffer_worker_flush_ack},
+                2_000
+            ),
+        ?assertMatch({error, econnrefused}, Result),
+        ok
     end),
     ok.
 
@@ -369,24 +418,50 @@ t_write_timeout(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
-    {ok, _} = create_bridge(Config),
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"resource_opts">> => #{
+                <<"request_timeout">> => 500,
+                <<"resume_interval">> => 100,
+                <<"health_check_interval">> => 100
+            }
+        }
+    ),
     SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
-    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, #{reason := timeout}}},
-            query_resource(Config, {send_message, SentData})
-        )
-    end),
+    %% FIXME: TDengine connector hangs indefinetily during
+    %% `call_query' while the connection is unresponsive.  Should add
+    %% a timeout to `APPLY_RESOURCE' in buffer worker??
+    case QueryMode of
+        sync ->
+            emqx_common_test_helpers:with_failure(
+                timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
+                    ?assertMatch(
+                        {error, {resource_error, #{reason := timeout}}},
+                        query_resource(Config, {send_message, SentData})
+                    )
+                end
+            );
+        async ->
+            ct:comment("tdengine connector hangs the buffer worker forever")
+    end,
     ok.
 
 t_simple_sql_query(Config) ->
+    EnableBatch = ?config(enable_batch, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {query, <<"SELECT count(1) AS T">>},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    {_, {ok, #{result := Result}}} =
+        ?wait_async_action(
+            query_resource(Config, Request),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
+    case EnableBatch of
         true ->
             ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
         false ->
@@ -399,7 +474,12 @@ t_missing_data(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Result = send_message(Config, #{}),
+    {_, {ok, #{result := Result}}} =
+        ?wait_async_action(
+            send_message(Config, #{}),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
     ?assertMatch(
         {error, #{
             <<"code">> := 534,
@@ -410,13 +490,19 @@ t_missing_data(Config) ->
     ok.
 
 t_bad_sql_parameter(Config) ->
+    EnableBatch = ?config(enable_batch, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {sql, <<"">>, [bad_parameter]},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    {_, {ok, #{result := Result}}} =
+        ?wait_async_action(
+            query_resource(Config, Request),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
+    case EnableBatch of
         true ->
             ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
         false ->
@@ -443,9 +529,15 @@ t_nasty_sql_string(Config) ->
     % [1]: https://github.com/taosdata/TDengine/blob/066cb34a/source/libs/parser/src/parUtil.c#L279-L301
     Payload = list_to_binary(lists:seq(1, 127)),
     Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    {_, {ok, #{result := Result}}} =
+        ?wait_async_action(
+            send_message(Config, Message),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
     ?assertMatch(
         {ok, #{<<"code">> := 0, <<"rows">> := 1}},
-        send_message(Config, Message)
+        Result
     ),
     ?assertEqual(
         Payload,

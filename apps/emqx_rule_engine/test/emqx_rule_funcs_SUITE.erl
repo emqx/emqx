@@ -687,10 +687,6 @@ t_jq(_) ->
                 got_timeout
         end,
     ConfigRootKey = emqx_rule_engine_schema:namespace(),
-    DefaultTimeOut = emqx_config:get([
-        ConfigRootKey,
-        jq_function_default_timeout
-    ]),
     ?assertThrow(
         {jq_exception, {timeout, _}},
         apply_func(jq, [TOProgram, <<"-2">>])

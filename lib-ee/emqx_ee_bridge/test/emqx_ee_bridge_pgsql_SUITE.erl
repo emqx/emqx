@@ -42,19 +42,18 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     NonBatchCases = [t_write_timeout],
+    BatchVariantGroups = [
+        {group, with_batch},
+        {group, without_batch},
+        {group, matrix},
+        {group, timescale}
+    ],
+    QueryModeGroups = [{async, BatchVariantGroups}, {sync, BatchVariantGroups}],
     [
-        {tcp, [
-            {group, with_batch},
-            {group, without_batch},
-            {group, matrix},
-            {group, timescale}
-        ]},
-        {tls, [
-            {group, with_batch},
-            {group, without_batch},
-            {group, matrix},
-            {group, timescale}
-        ]},
+        {tcp, QueryModeGroups},
+        {tls, QueryModeGroups},
+        {async, BatchVariantGroups},
+        {sync, BatchVariantGroups},
         {with_batch, TCs -- NonBatchCases},
         {without_batch, TCs},
         {matrix, [t_setup_via_config_and_publish, t_setup_via_http_api_and_publish]},
@@ -68,7 +67,6 @@ init_per_group(tcp, Config) ->
         {pgsql_host, Host},
         {pgsql_port, Port},
         {enable_tls, false},
-        {query_mode, sync},
         {proxy_name, "pgsql_tcp"}
         | Config
     ];
@@ -79,10 +77,13 @@ init_per_group(tls, Config) ->
         {pgsql_host, Host},
         {pgsql_port, Port},
         {enable_tls, true},
-        {query_mode, sync},
         {proxy_name, "pgsql_tls"}
         | Config
     ];
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
     Config = [{enable_batch, true} | Config0],
     common_init(Config);
@@ -118,6 +119,7 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -221,9 +223,13 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     Config.
 
 create_bridge(Config) ->
+    create_bridge(Config, _Overrides = #{}).
+
+create_bridge(Config, Overrides) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     Name = ?config(pgsql_name, Config),
-    PGConfig = ?config(pgsql_config, Config),
+    PGConfig0 = ?config(pgsql_config, Config),
+    PGConfig = emqx_map_lib:deep_merge(PGConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, PGConfig).
 
 delete_bridge(Config) ->
@@ -250,6 +256,27 @@ query_resource(Config, Request) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+
+query_resource_async(Config, Request) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    Ref = alias([reply]),
+    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    Return = emqx_resource:query(ResourceID, Request, #{
+        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    }),
+    {Return, Ref}.
+
+receive_result(Ref, Timeout) ->
+    receive
+        {result, Ref, Result} ->
+            {ok, Result};
+        {Ref, Result} ->
+            {ok, Result}
+    after Timeout ->
+        timeout
+    end.
 
 connect_direct_pgsql(Config) ->
     Opts = #{
@@ -308,11 +335,12 @@ t_setup_via_config_and_publish(Config) ->
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
         begin
-            ?wait_async_action(
-                ?assertEqual({ok, 1}, send_message(Config, SentData)),
-                #{?snk_kind := pgsql_connector_query_return},
-                10_000
-            ),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    send_message(Config, SentData),
+                    #{?snk_kind := pgsql_connector_query_return},
+                    10_000
+                ),
             ?assertMatch(
                 Val,
                 connect_and_get_payload(Config)
@@ -336,6 +364,7 @@ t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     Name = ?config(pgsql_name, Config),
     PgsqlConfig0 = ?config(pgsql_config, Config),
+    QueryMode = ?config(query_mode, Config),
     PgsqlConfig = PgsqlConfig0#{
         <<"name">> => Name,
         <<"type">> => BridgeType
@@ -348,11 +377,18 @@ t_setup_via_http_api_and_publish(Config) ->
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
         begin
-            ?wait_async_action(
-                ?assertEqual({ok, 1}, send_message(Config, SentData)),
-                #{?snk_kind := pgsql_connector_query_return},
-                10_000
-            ),
+            {Res, {ok, _}} =
+                ?wait_async_action(
+                    send_message(Config, SentData),
+                    #{?snk_kind := pgsql_connector_query_return},
+                    10_000
+                ),
+            case QueryMode of
+                async ->
+                    ok;
+                sync ->
+                    ?assertEqual({ok, 1}, Res)
+            end,
             ?assertMatch(
                 Val,
                 connect_and_get_payload(Config)
@@ -457,28 +493,71 @@ t_write_timeout(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
-    {ok, _} = create_bridge(Config),
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"resource_opts">> => #{
+                <<"request_timeout">> => 500,
+                <<"resume_interval">> => 100,
+                <<"health_check_interval">> => 100
+            }
+        }
+    ),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
-    Timeout = 1000,
-    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, #{reason := timeout}}},
-            query_resource(Config, {send_message, SentData, [], Timeout})
-        )
-    end),
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := call_query_enter}),
+        2_000
+    ),
+    Res0 =
+        emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
+            Res1 =
+                case QueryMode of
+                    async ->
+                        query_resource_async(Config, {send_message, SentData});
+                    sync ->
+                        query_resource(Config, {send_message, SentData})
+                end,
+            ?assertMatch({ok, [_]}, snabbkaffe:receive_events(SRef)),
+            Res1
+        end),
+    case Res0 of
+        {_, Ref} when is_reference(Ref) ->
+            case receive_result(Ref, 15_000) of
+                {ok, Res} ->
+                    ?assertMatch({error, {unrecoverable_error, _}}, Res);
+                timeout ->
+                    ct:pal("mailbox:\n  ~p", [process_info(self(), messages)]),
+                    ct:fail("no response received")
+            end;
+        _ ->
+            ?assertMatch({error, {resource_error, #{reason := timeout}}}, Res0)
+    end,
     ok.
 
 t_simple_sql_query(Config) ->
+    EnableBatch = ?config(enable_batch, Config),
+    QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {sql, <<"SELECT count(1) AS T">>},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
-        false -> ?assertMatch({ok, _, [{1}]}, Result)
+    Result =
+        case QueryMode of
+            sync ->
+                query_resource(Config, Request);
+            async ->
+                {_, Ref} = query_resource_async(Config, Request),
+                {ok, Res} = receive_result(Ref, 2_000),
+                Res
+        end,
+    case EnableBatch of
+        true ->
+            ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
+        false ->
+            ?assertMatch({ok, _, [{1}]}, Result)
     end,
     ok.
 
@@ -487,21 +566,40 @@ t_missing_data(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Result = send_message(Config, #{}),
+    {_, {ok, Event}} =
+        ?wait_async_action(
+            send_message(Config, #{}),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
     ?assertMatch(
-        {error, {unrecoverable_error, {error, error, <<"23502">>, not_null_violation, _, _}}},
-        Result
+        #{
+            result :=
+                {error,
+                    {unrecoverable_error, {error, error, <<"23502">>, not_null_violation, _, _}}}
+        },
+        Event
     ),
     ok.
 
 t_bad_sql_parameter(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    EnableBatch = ?config(enable_batch, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {sql, <<"">>, [bad_parameter]},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    Result =
+        case QueryMode of
+            sync ->
+                query_resource(Config, Request);
+            async ->
+                {_, Ref} = query_resource_async(Config, Request),
+                {ok, Res} = receive_result(Ref, 2_000),
+                Res
+        end,
+    case EnableBatch of
         true ->
             ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
         false ->
@@ -515,5 +613,10 @@ t_nasty_sql_string(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config)),
     Payload = list_to_binary(lists:seq(1, 127)),
     Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
-    ?assertEqual({ok, 1}, send_message(Config, Message)),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, Message),
+            #{?snk_kind := pgsql_connector_query_return},
+            1_000
+        ),
     ?assertEqual(Payload, connect_and_get_payload(Config)).

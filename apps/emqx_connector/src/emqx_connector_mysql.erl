@@ -172,10 +172,15 @@ on_query(
                     %% not return result, next loop will try again
                     on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, State);
                 {error, Reason} ->
-                    LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
-                    ?SLOG(
+                    ?tp(
                         error,
-                        LogMeta#{msg => "mysql_connector_do_prepare_failed", reason => Reason}
+                        "mysql_connector_do_prepare_failed",
+                        #{
+                            connector => InstId,
+                            sql => SQLOrKey,
+                            state => State,
+                            reason => Reason
+                        }
                     ),
                     {error, Reason}
             end;
@@ -417,12 +422,10 @@ on_sql_query(
             ),
             do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta);
         {error, disconnected} ->
-            ?SLOG(
+            ?tp(
                 error,
-                LogMeta#{
-                    msg => "mysql_connector_do_sql_query_failed",
-                    reason => worker_is_disconnected
-                }
+                "mysql_connector_do_sql_query_failed",
+                LogMeta#{reason => worker_is_disconnected}
             ),
             {error, {recoverable_error, disconnected}}
     end.
