@@ -388,7 +388,9 @@ end_per_testcase(_Testcase, Config) ->
                 maps:values(ProducersMapping)
             ),
             ok = wolff:stop_and_delete_supervised_client(KafkaProducerClientId),
-            emqx_common_test_helpers:call_janitor(30_000),
+            %% in CI, apparently this needs more time since the
+            %% machines struggle with all the containers running...
+            emqx_common_test_helpers:call_janitor(60_000),
             ok = snabbkaffe:stop(),
             ok
     end.
@@ -1664,7 +1666,7 @@ t_cluster_group(Config) ->
                  || {Name, Opts} <- Cluster
                 ],
             on_exit(fun() ->
-                lists:foreach(
+                emqx_misc:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)
@@ -1875,7 +1877,7 @@ t_cluster_node_down(Config) ->
                     Cluster
                 ),
             on_exit(fun() ->
-                lists:foreach(
+                emqx_misc:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)
@@ -1894,10 +1896,14 @@ t_cluster_node_down(Config) ->
             {ok, _} = snabbkaffe:receive_events(SRef0),
             lists:foreach(
                 fun(N) ->
-                    ?assertMatch(
-                        {ok, _},
-                        erpc:call(N, emqx_bridge, lookup, [BridgeId]),
-                        #{node => N}
+                    ?retry(
+                        _Sleep1 = 100,
+                        _Attempts1 = 50,
+                        ?assertMatch(
+                            {ok, _},
+                            erpc:call(N, emqx_bridge, lookup, [BridgeId]),
+                            #{node => N}
+                        )
                     )
                 end,
                 Nodes
