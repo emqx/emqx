@@ -221,6 +221,11 @@ defmodule EMQXUmbrella.MixProject do
           applications: applications(edition_type),
           skip_mode_validation_for: [
             :emqx_gateway,
+            :emqx_stomp,
+            :emqx_mqttsn,
+            :emqx_coap,
+            :emqx_lwm2m,
+            :emqx_exproto,
             :emqx_dashboard,
             :emqx_resource,
             :emqx_connector,
