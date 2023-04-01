@@ -45,6 +45,7 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
         raw_with_default => true
     }),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
         fun set_special_configs/1
