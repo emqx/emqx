@@ -379,8 +379,8 @@ is_alternate_path(LinkAttrs) ->
                     true;
                 [AttrKey, _] when AttrKey =/= <<>> ->
                     false;
-                _BadAttr ->
-                    throw({bad_attr, _BadAttr})
+                BadAttr ->
+                    throw({bad_attr, BadAttr})
             end
         end,
         LinkAttrs
@@ -679,10 +679,10 @@ send_to_coap(#session{queue = Queue} = Session) ->
     case queue:out(Queue) of
         {{value, {Timestamp, Ctx, Req}}, Q2} ->
             Now = ?NOW,
-            if
-                Timestamp =:= 0 orelse Timestamp > Now ->
-                    send_to_coap(Ctx, Req, Session#session{queue = Q2});
+            case Timestamp =:= 0 orelse Timestamp > Now of
                 true ->
+                    send_to_coap(Ctx, Req, Session#session{queue = Q2});
+                false ->
                     send_to_coap(Session#session{queue = Q2})
             end;
         {empty, _} ->

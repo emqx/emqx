@@ -412,9 +412,11 @@ byte_size_of_signed(UInt) ->
 byte_size_of_signed(UInt, N) ->
     BitSize = (8 * N - 1),
     Max = (1 bsl BitSize),
-    if
-        UInt =< Max -> N;
-        UInt > Max -> byte_size_of_signed(UInt, N + 1)
+    case UInt =< Max of
+        true ->
+            N;
+        false ->
+            byte_size_of_signed(UInt, N + 1)
     end.
 
 binary_to_number(NumStr) ->

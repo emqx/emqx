@@ -32,6 +32,8 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+
 namespace() -> "lwm2m".
 
 api_spec() ->

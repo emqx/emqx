@@ -601,7 +601,7 @@ find_attrs(App, Def) ->
 
 module_attributes(Module) ->
     try
-        Module:module_info(attributes)
+        apply(Module, module_info, [attributes])
     catch
         error:undef -> []
     end.

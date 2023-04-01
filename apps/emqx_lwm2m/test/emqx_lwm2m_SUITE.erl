@@ -177,11 +177,19 @@ default_config() ->
     default_config(#{}).
 
 default_config(Overrides) ->
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
     iolist_to_binary(
         io_lib:format(
             "\n"
             "gateway.lwm2m {\n"
-            "  xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"\n"
+            "  xml_dir = \"~s\"\n"
             "  lifetime_min = 1s\n"
             "  lifetime_max = 86400s\n"
             "  qmode_time_window = 22\n"
@@ -200,6 +208,7 @@ default_config(Overrides) ->
             "  }\n"
             "}\n",
             [
+                XmlDir,
                 maps:get(auto_observe, Overrides, false),
                 maps:get(bind, Overrides, ?PORT)
             ]

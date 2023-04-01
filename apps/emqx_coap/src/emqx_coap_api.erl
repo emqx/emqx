@@ -34,9 +34,12 @@
 -import(hoconsc, [mk/2, enum/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
+
 namespace() -> "gateway_coap".
 
 api_spec() ->

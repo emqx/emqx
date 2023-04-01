@@ -292,9 +292,9 @@ make_response(Code, Ref = #{}) ->
     BaseRsp = make_base_response(Ref),
     make_data_response(BaseRsp, Code).
 
-make_response(Code, Ref = #{}, _Format, Result) ->
+make_response(Code, Ref = #{}, Format, Result) ->
     BaseRsp = make_base_response(Ref),
-    make_data_response(BaseRsp, Code, _Format, Result).
+    make_data_response(BaseRsp, Code, Format, Result).
 
 %% The base response format is what included in the request:
 %%

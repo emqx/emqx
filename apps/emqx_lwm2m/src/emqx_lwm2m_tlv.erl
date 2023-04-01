@@ -37,13 +37,18 @@
 -define(TLV_LEGNTH_16_BIT, 2).
 -define(TLV_LEGNTH_24_BIT, 3).
 
-%----------------------------------------------------------------------------------------------------------------------------------------
-% [#{tlv_object_instance := Id11, value := Value11}, #{tlv_object_instance := Id12, value := Value12}, ...]
+-elvis([{elvis_style, no_if_expression, disable}]).
+
+%%--------------------------------------------------------------------
+% [#{tlv_object_instance := Id11, value := Value11},
+% #{tlv_object_instance := Id12, value := Value12}, ...]
 % where Value11 and Value12 is a list:
-%     [#{tlv_resource_with_value => Id21, value => Value21}, #{tlv_multiple_resource => Id22, value = Value22}, ...]
+%     [#{tlv_resource_with_value => Id21, value => Value21},
+%     #{tlv_multiple_resource => Id22, value = Value22}, ...]
 %     where Value21 is a binary
 %           Value22 is a list:
-%                 [#{tlv_resource_instance => Id31,  value => Value31}, #{tlv_resource_instance => Id32,  value => Value32}, ...]
+%                 [#{tlv_resource_instance => Id31,  value => Value31},
+%                 #{tlv_resource_instance => Id32,  value => Value32}, ...]
 %                 where Value31 and Value32 is a binary
 %
 % correspond to three levels:
@@ -51,8 +56,9 @@
 % 2)        Resource Level
 % 3)            Resource Instance Level
 %
-% NOTE: TLV does not has object level, only has object instance level. It implies TLV can not represent multiple objects
-%----------------------------------------------------------------------------------------------------------------------------------------
+% NOTE: TLV does not has object level, only has object instance level.
+% It implies TLV can not represent multiple objects
+%%--------------------------------------------------------------------
 
 parse(Data) ->
     parse_loop(Data, []).

@@ -45,6 +45,8 @@
 
 -record(state, {}).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -124,10 +126,10 @@ code_change(_OldVsn, State, _Extra) ->
 load(BaseDir) ->
     Wild = filename:join(BaseDir, "*.xml"),
     Wild2 =
-        if
-            is_binary(Wild) ->
-                erlang:binary_to_list(Wild);
+        case is_binary(Wild) of
             true ->
+                erlang:binary_to_list(Wild);
+            false ->
                 Wild
         end,
     case filelib:wildcard(Wild2) of

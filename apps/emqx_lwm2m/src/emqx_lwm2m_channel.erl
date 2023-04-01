@@ -464,14 +464,14 @@ check_lwm2m_version(
             _ ->
                 false
         end,
-    if
-        IsValid ->
+    case IsValid of
+        true ->
             NConnInfo = ConnInfo#{
                 connected_at => erlang:system_time(millisecond),
                 proto_ver => Ver
             },
             {ok, Channel#channel{conninfo = NConnInfo}};
-        true ->
+        _ ->
             ?SLOG(error, #{
                 msg => "reject_REGISTRE_request",
                 reason => {unsupported_version, Ver}

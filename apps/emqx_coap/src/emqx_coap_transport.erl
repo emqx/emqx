@@ -60,6 +60,12 @@
     reply/2
 ]).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+-elvis([{elvis_style, no_if_expression, disable}]).
+
+%%--------------------------------------------------------------------
+%% APIs
+
 -spec new() -> transport().
 new() ->
     new(undefined).

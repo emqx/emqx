@@ -58,10 +58,10 @@ serialize_opts() ->
 %% Parse MQTT-SN Message
 %%--------------------------------------------------------------------
 
-parse(<<16#01:?byte, Len:?short, Type:?byte, Var/binary>>, _State) ->
-    {ok, parse(Type, Len - 4, Var), <<>>, _State};
-parse(<<Len:?byte, Type:?byte, Var/binary>>, _State) ->
-    {ok, parse(Type, Len - 2, Var), <<>>, _State}.
+parse(<<16#01:?byte, Len:?short, Type:?byte, Var/binary>>, State) ->
+    {ok, parse(Type, Len - 4, Var), <<>>, State};
+parse(<<Len:?byte, Type:?byte, Var/binary>>, State) ->
+    {ok, parse(Type, Len - 2, Var), <<>>, State}.
 
 parse(Type, Len, Var) when Len =:= size(Var) ->
     #mqtt_sn_message{type = Type, variable = parse_var(Type, Var)};
@@ -160,9 +160,11 @@ parse_topic(2#11, Topic) -> Topic.
 serialize_pkt(#mqtt_sn_message{type = Type, variable = Var}, Opts) ->
     VarBin = serialize(Type, Var, Opts),
     VarLen = size(VarBin),
-    if
-        VarLen < 254 -> <<(VarLen + 2), Type, VarBin/binary>>;
-        true -> <<16#01, (VarLen + 4):?short, Type, VarBin/binary>>
+    case VarLen < 254 of
+        true ->
+            <<(VarLen + 2), Type, VarBin/binary>>;
+        false ->
+            <<16#01, (VarLen + 4):?short, Type, VarBin/binary>>
     end.
 
 serialize(?SN_ADVERTISE, {GwId, Duration}, _Opts) ->

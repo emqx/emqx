@@ -28,29 +28,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.lwm2m {\n"
-    "  xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"\n"
-    "  lifetime_min = 100s\n"
-    "  lifetime_max = 86400s\n"
-    "  qmode_time_window = 200\n"
-    "  auto_observe = false\n"
-    "  mountpoint = \"lwm2m/${username}\"\n"
-    "  update_msg_publish_condition = contains_object_list\n"
-    "  translators {\n"
-    "    command = {topic = \"/dn/#\", qos = 0}\n"
-    "    response = {topic = \"/up/resp\", qos = 0}\n"
-    "    notify = {topic = \"/up/notify\", qos = 0}\n"
-    "    register = {topic = \"/up/resp\", qos = 0}\n"
-    "    update = {topic = \"/up/resp\", qos = 0}\n"
-    "  }\n"
-    "  listeners.udp.default {\n"
-    "    bind = 5783\n"
-    "  }\n"
-    "}\n"
->>).
-
 -define(assertExists(Map, Key),
     ?assertNotEqual(maps:get(Key, Map, undefined), undefined)
 ).
@@ -83,7 +60,8 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_gateway),
     application:load(emqx_lwm2m),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
+    DefaultConfig = emqx_lwm2m_SUITE:default_config(),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, DefaultConfig),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),
     Config.
 
@@ -94,7 +72,8 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
+    DefaultConfig = emqx_lwm2m_SUITE:default_config(),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, DefaultConfig),
     {ok, _} = application:ensure_all_started(emqx_gateway),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 

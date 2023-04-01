@@ -214,9 +214,17 @@ t_gateway_coap(_) ->
 t_gateway_lwm2m(_) ->
     {200, Gw} = request(get, "/gateways/lwm2m"),
     assert_gw_unloaded(Gw),
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
     GwConf = #{
         name => <<"lwm2m">>,
-        xml_dir => <<"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml">>,
+        xml_dir => list_to_binary(XmlDir),
         lifetime_min => <<"1s">>,
         lifetime_max => <<"1000s">>,
         qmode_time_window => <<"30s">>,

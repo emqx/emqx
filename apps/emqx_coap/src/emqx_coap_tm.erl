@@ -80,6 +80,8 @@
 
 -import(emqx_coap_medium, [empty/0, iter/4, reset/1, proto_out/2]).
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -401,9 +403,9 @@ alloc_message_id(MsgId, TM) ->
 
 next_message_id(MsgId) ->
     Next = MsgId + 1,
-    if
-        Next >= ?MAX_MESSAGE_ID ->
-            1;
+    case Next >= ?MAX_MESSAGE_ID of
         true ->
+            1;
+        false ->
             Next
     end.

@@ -151,9 +151,9 @@ init([InstaId, PredefTopics]) ->
                 key = {predef, TopicName},
                 value = TopicId
             }),
-            if
-                TopicId > AccId -> TopicId;
-                true -> AccId
+            case TopicId > AccId of
+                true -> TopicId;
+                false -> AccId
             end
         end,
         0,
