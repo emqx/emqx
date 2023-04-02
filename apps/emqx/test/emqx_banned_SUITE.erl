@@ -154,7 +154,12 @@ t_session_taken(_) ->
             {clean_start, false},
             {properties, #{'Session-Expiry-Interval' => 120}}
         ]),
-        {ok, _} = emqtt:connect(C),
+        case emqtt:connect(C) of
+            {ok, _} ->
+                ok;
+            {error, econnrefused} ->
+                throw(mqtt_listener_not_ready)
+        end,
         {ok, _, [0]} = emqtt:subscribe(C, Topic, []),
         C
     end,
@@ -168,9 +173,21 @@ t_session_taken(_) ->
             lists:seq(1, MsgNum)
         )
     end,
-
-    C1 = Connect(),
-    ok = emqtt:disconnect(C1),
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            try
+                C = Connect(),
+                emqtt:disconnect(C),
+                true
+            catch
+                throw:mqtt_listener_not_ready ->
+                    false
+            end
+        end,
+        3000
+    ),
 
     Publish(),
 
