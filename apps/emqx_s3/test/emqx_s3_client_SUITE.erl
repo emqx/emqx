@@ -83,6 +83,39 @@ t_simple_put(Config) ->
 
     ok = emqx_s3_client:put_object(Client, Key, Data).
 
+t_list(Config) ->
+    Key = ?config(key, Config),
+
+    Client = client(Config),
+
+    ok = emqx_s3_client:put_object(Client, Key, <<"data">>),
+
+    {ok, List} = emqx_s3_client:list(Client, Key),
+
+    [KeyInfo] = proplists:get_value(contents, List),
+    ?assertMatch(
+        #{
+            key := Key,
+            size := 4,
+            etag := _,
+            last_modified := _
+        },
+        maps:from_list(KeyInfo)
+    ).
+
+t_url(Config) ->
+    Key = ?config(key, Config),
+
+    Client = client(Config),
+    ok = emqx_s3_client:put_object(Client, Key, <<"data">>),
+
+    Url = emqx_s3_client:url(Client, Key),
+
+    ?assertMatch(
+        {ok, {{_StatusLine, 200, "OK"}, _Headers, "data"}},
+        httpc:request(Url)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

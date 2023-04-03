@@ -211,6 +211,7 @@ client_config(ProfileConfig, PoolName) ->
         scheme => scheme(HTTPOpts),
         host => maps:get(host, ProfileConfig),
         port => maps:get(port, ProfileConfig),
+        url_expire_time => maps:get(url_expire_time, ProfileConfig),
         headers => maps:get(headers, HTTPOpts, #{}),
         acl => maps:get(acl, ProfileConfig),
         bucket => maps:get(bucket, ProfileConfig),

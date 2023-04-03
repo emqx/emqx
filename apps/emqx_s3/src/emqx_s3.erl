@@ -41,8 +41,11 @@
 
 -type profile_config() :: #{
     bucket := string(),
+    access_key_id => string(),
+    secret_access_key => string(),
     host := string(),
     port := pos_integer(),
+    url_expire_time := pos_integer(),
     acl => acl(),
     min_part_size => pos_integer(),
     transport_options => transport_options()

@@ -63,6 +63,15 @@ fields(s3) ->
                     required => true
                 }
             )},
+        {url_expire_time,
+            mk(
+                emqx_schema:duration_s(),
+                #{
+                    default => "1h",
+                    desc => ?DESC("url_expire_time"),
+                    required => false
+                }
+            )},
         {min_part_size,
             mk(
                 emqx_schema:bytesize(),
