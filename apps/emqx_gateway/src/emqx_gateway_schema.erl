@@ -580,6 +580,8 @@ authentication_schema() ->
         #{
             required => {false, recursively},
             desc => ?DESC(gateway_common_authentication),
+            %% we do not expose this to the user for now
+            importance => ?IMPORTANCE_HIDDEN,
             examples => emqx_authn_api:authenticator_examples()
         }
     ).

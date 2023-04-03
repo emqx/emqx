@@ -1880,7 +1880,9 @@ mqtt_listener(Bind) ->
                         default => <<"3s">>
                     }
                 )},
-            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
+            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, (authentication(listener))#{
+                importance => ?IMPORTANCE_HIDDEN
+            }}
         ].
 
 base_listener(Bind) ->
