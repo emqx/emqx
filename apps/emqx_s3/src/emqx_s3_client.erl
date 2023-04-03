@@ -217,7 +217,7 @@ request_fun(HttpPool) ->
     fun(Url, Method, Headers, Body, Timeout, _Config) ->
         with_path_and_query_only(Url, fun(PathQuery) ->
             Request = make_request(Method, PathQuery, binary_headers(Headers), Body),
-            ?SLOG(warning, #{
+            ?SLOG(debug, #{
                 msg => "s3_ehttpc_request",
                 timeout => Timeout,
                 pool => HttpPool,
