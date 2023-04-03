@@ -16,7 +16,7 @@
 
 -module(emqx_ft_schema).
 
-% -behaviour(hocon_schema).
+-behaviour(hocon_schema).
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
