@@ -233,7 +233,7 @@ fields(socket_opts) ->
                 boolean(),
                 #{
                     default => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(socket_nodelay)
                 }
             )}
