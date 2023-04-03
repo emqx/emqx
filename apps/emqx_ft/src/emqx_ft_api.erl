@@ -69,6 +69,7 @@ schema("/file_transfer/files") ->
 '/file_transfer/files'(get, #{}) ->
     case emqx_ft_storage:files() of
         {ok, Files} ->
+            ?SLOG(warning, #{msg => "files", files => Files}),
             {200, #{<<"files">> => lists:map(fun format_file_info/1, Files)}};
         {error, _} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
@@ -94,7 +95,7 @@ format_file_info(
     }
 ) ->
     Res = #{
-        name => iolist_to_binary(Name),
+        name => format_name(Name),
         size => Size,
         timestamp => format_timestamp(Timestamp),
         clientid => ClientId,
@@ -110,3 +111,8 @@ format_file_info(
 
 format_timestamp(Timestamp) ->
     iolist_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+
+format_name(NameBin) when is_binary(NameBin) ->
+    NameBin;
+format_name(Name) when is_list(Name) ->
+    iolist_to_binary(Name).

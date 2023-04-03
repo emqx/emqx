@@ -12,8 +12,13 @@
     start_link/2,
 
     write/2,
+    write/3,
+
     complete/1,
-    abort/1
+    complete/2,
+
+    abort/1,
+    abort/2
 ]).
 
 -export([
@@ -26,14 +31,11 @@
     format_status/2
 ]).
 
--export_type([opts/0, config/0]).
+-export_type([opts/0]).
 
 -type opts() :: #{
-    name := string()
-}.
-
--type config() :: #{
-    min_part_size := pos_integer()
+    key := string(),
+    headers => emqx_s3_client:headers()
 }.
 
 -type data() :: #{
@@ -58,12 +60,12 @@
 start_link(ProfileId, #{key := Key} = Opts) when is_list(Key) ->
     gen_statem:start_link(?MODULE, [ProfileId, Opts], []).
 
--spec write(pid(), binary()) -> ok_or_error(term()).
-write(Pid, WriteData) when is_binary(WriteData) ->
+-spec write(pid(), iodata()) -> ok_or_error(term()).
+write(Pid, WriteData) ->
     write(Pid, WriteData, infinity).
 
--spec write(pid(), binary(), timeout()) -> ok_or_error(term()).
-write(Pid, WriteData, Timeout) when is_binary(WriteData) ->
+-spec write(pid(), iodata(), timeout()) -> ok_or_error(term()).
+write(Pid, WriteData, Timeout) ->
     gen_statem:call(Pid, {write, wrap(WriteData)}, Timeout).
 
 -spec complete(pid()) -> ok_or_error(term()).
@@ -88,10 +90,10 @@ abort(Pid, Timeout) ->
 
 callback_mode() -> handle_event_function.
 
-init([ProfileId, #{key := Key}]) ->
+init([ProfileId, #{key := Key} = Opts]) ->
     process_flag(trap_exit, true),
     {ok, ClientConfig, UploaderConfig} = emqx_s3_profile_conf:checkout_config(ProfileId),
-    Client = emqx_s3_client:create(ClientConfig),
+    Client = client(ClientConfig, Opts),
     {ok, upload_not_started, #{
         profile_id => ProfileId,
         client => Client,
@@ -111,7 +113,7 @@ handle_event({call, From}, {write, WriteDataWrapped}, State, Data0) ->
         true ->
             handle_write(State, From, WriteData, Data0);
         false ->
-            {keep_state_and_data, {reply, From, {error, {too_large, byte_size(WriteData)}}}}
+            {keep_state_and_data, {reply, From, {error, {too_large, iolist_size(WriteData)}}}}
     end;
 handle_event({call, From}, complete, upload_not_started, Data0) ->
     case put_object(Data0) of
@@ -218,7 +220,6 @@ maybe_upload_part(#{buffer_size := BufferSize, min_part_size := MinPartSize} = D
         true ->
             upload_part(Data);
         false ->
-            % ct:print("buffer size: ~p, max part size: ~p, no upload", [BufferSize, MinPartSize]),
             {ok, Data}
     end.
 
@@ -237,7 +238,6 @@ upload_part(
 ) ->
     case emqx_s3_client:upload_part(Client, Key, UploadId, PartNumber, lists:reverse(Buffer)) of
         {ok, ETag} ->
-            % ct:print("upload part ~p, etag: ~p", [PartNumber, ETag]),
             NewData = Data#{
                 buffer => [],
                 buffer_size => 0,
@@ -246,7 +246,6 @@ upload_part(
             },
             {ok, NewData};
         {error, _} = Error ->
-            % ct:print("upload part ~p failed: ~p", [PartNumber, Error]),
             Error
     end.
 
@@ -260,7 +259,11 @@ complete_upload(
 ) ->
     case upload_part(Data0) of
         {ok, #{etags := ETags} = Data1} ->
-            case emqx_s3_client:complete_multipart(Client, Key, UploadId, lists:reverse(ETags)) of
+            case
+                emqx_s3_client:complete_multipart(
+                    Client, Key, UploadId, lists:reverse(ETags)
+                )
+            of
                 ok ->
                     {ok, Data1};
                 {error, _} = Error ->
@@ -300,11 +303,11 @@ put_object(
             Error
     end.
 
--spec append_buffer(data(), binary()) -> data().
+-spec append_buffer(data(), iodata()) -> data().
 append_buffer(#{buffer := Buffer, buffer_size := BufferSize} = Data, WriteData) ->
     Data#{
         buffer => [WriteData | Buffer],
-        buffer_size => BufferSize + byte_size(WriteData)
+        buffer_size => BufferSize + iolist_size(WriteData)
     }.
 
 -compile({inline, [wrap/1, unwrap/1]}).
@@ -315,4 +318,8 @@ unwrap(WrappedData) ->
     WrappedData().
 
 is_valid_part(WriteData, #{max_part_size := MaxPartSize, buffer_size := BufferSize}) ->
-    BufferSize + byte_size(WriteData) =< MaxPartSize.
+    BufferSize + iolist_size(WriteData) =< MaxPartSize.
+
+client(Config, Opts) ->
+    Headers = maps:get(headers, Opts, #{}),
+    emqx_s3_client:create(Config#{headers => Headers}).

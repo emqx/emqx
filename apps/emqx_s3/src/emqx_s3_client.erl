@@ -8,9 +8,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
 
--compile(nowarn_export_all).
--compile(export_all).
-
 -export([
     create/1,
 
@@ -21,11 +18,16 @@
     complete_multipart/4,
     abort_multipart/3,
     list/2,
+    uri/2,
 
-    format/1
+    format/1,
+    format_request/1
 ]).
 
--export_type([client/0]).
+-export_type([
+    client/0,
+    headers/0
+]).
 
 -type s3_bucket_acl() ::
     private
@@ -35,7 +37,7 @@
     | bucket_owner_read
     | bucket_owner_full_control.
 
--type headers() :: #{binary() => binary()}.
+-type headers() :: #{binary() | string() => binary() | string()}.
 
 -type key() :: string().
 -type part_number() :: non_neg_integer().
@@ -58,6 +60,7 @@
     bucket := string(),
     headers := headers(),
     acl := s3_bucket_acl(),
+    url_expire_time := pos_integer(),
     access_key_id := string() | undefined,
     secret_access_key := string() | undefined,
     http_pool := ecpool:pool_name(),
@@ -76,6 +79,7 @@ create(Config) ->
         aws_config => aws_config(Config),
         upload_options => upload_options(Config),
         bucket => maps:get(bucket, Config),
+        url_expire_time => maps:get(url_expire_time, Config),
         headers => headers(Config)
     }.
 
@@ -85,7 +89,7 @@ put_object(
     Key,
     Value
 ) ->
-    try erlcloud_s3:put_object(Bucket, Key, Value, Options, Headers, AwsConfig) of
+    try erlcloud_s3:put_object(Bucket, key(Key), Value, Options, Headers, AwsConfig) of
         Props when is_list(Props) ->
             ok
     catch
@@ -99,7 +103,7 @@ start_multipart(
     #{bucket := Bucket, upload_options := Options, headers := Headers, aws_config := AwsConfig},
     Key
 ) ->
-    case erlcloud_s3:start_multipart(Bucket, Key, Options, Headers, AwsConfig) of
+    case erlcloud_s3:start_multipart(Bucket, key(Key), Options, Headers, AwsConfig) of
         {ok, Props} ->
             {ok, proplists:get_value(uploadId, Props)};
         {error, Reason} ->
@@ -116,7 +120,9 @@ upload_part(
     PartNumber,
     Value
 ) ->
-    case erlcloud_s3:upload_part(Bucket, Key, UploadId, PartNumber, Value, Headers, AwsConfig) of
+    case
+        erlcloud_s3:upload_part(Bucket, key(Key), UploadId, PartNumber, Value, Headers, AwsConfig)
+    of
         {ok, Props} ->
             {ok, proplists:get_value(etag, Props)};
         {error, Reason} ->
@@ -126,9 +132,12 @@ upload_part(
 
 -spec complete_multipart(client(), key(), upload_id(), [etag()]) -> ok_or_error(term()).
 complete_multipart(
-    #{bucket := Bucket, headers := Headers, aws_config := AwsConfig}, Key, UploadId, ETags
+    #{bucket := Bucket, headers := Headers, aws_config := AwsConfig},
+    Key,
+    UploadId,
+    ETags
 ) ->
-    case erlcloud_s3:complete_multipart(Bucket, Key, UploadId, ETags, Headers, AwsConfig) of
+    case erlcloud_s3:complete_multipart(Bucket, key(Key), UploadId, ETags, Headers, AwsConfig) of
         ok ->
             ok;
         {error, Reason} ->
@@ -138,7 +147,7 @@ complete_multipart(
 
 -spec abort_multipart(client(), key(), upload_id()) -> ok_or_error(term()).
 abort_multipart(#{bucket := Bucket, headers := Headers, aws_config := AwsConfig}, Key, UploadId) ->
-    case erlcloud_s3:abort_multipart(Bucket, Key, UploadId, [], Headers, AwsConfig) of
+    case erlcloud_s3:abort_multipart(Bucket, key(Key), UploadId, [], Headers, AwsConfig) of
         ok ->
             ok;
         {error, Reason} ->
@@ -156,6 +165,10 @@ list(#{bucket := Bucket, aws_config := AwsConfig}, Options) ->
             {error, Reason}
     end.
 
+-spec uri(client(), key()) -> iodata().
+uri(#{bucket := Bucket, aws_config := AwsConfig, url_expire_time := ExpireTime}, Key) ->
+    erlcloud_s3:make_get_url(ExpireTime, Bucket, key(Key), AwsConfig).
+
 -spec format(client()) -> term().
 format(#{aws_config := AwsConfig} = Client) ->
     Client#{aws_config => AwsConfig#aws_config{secret_access_key = "***"}}.
@@ -170,13 +183,14 @@ upload_options(Config) ->
     ].
 
 headers(#{headers := Headers}) ->
-    maps:to_list(Headers).
+    string_headers(maps:to_list(Headers));
+headers(#{}) ->
+    [].
 
 aws_config(#{
     scheme := Scheme,
     host := Host,
     port := Port,
-    headers := Headers,
     access_key_id := AccessKeyId,
     secret_access_key := SecretAccessKey,
     http_pool := HttpPool,
@@ -187,23 +201,29 @@ aws_config(#{
         s3_host = Host,
         s3_port = Port,
         s3_bucket_access_method = path,
+        s3_bucket_after_host = true,
 
         access_key_id = AccessKeyId,
         secret_access_key = SecretAccessKey,
 
-        http_client = request_fun(Headers, HttpPool),
+        http_client = request_fun(HttpPool),
         timeout = Timeout
     }.
 
--type http_headers() :: [{binary(), binary()}].
 -type http_pool() :: term().
 
--spec request_fun(http_headers(), http_pool()) -> erlcloud_httpc:request_fun().
-request_fun(CustomHeaders, HttpPool) ->
+-spec request_fun(http_pool()) -> erlcloud_httpc:request_fun().
+request_fun(HttpPool) ->
     fun(Url, Method, Headers, Body, Timeout, _Config) ->
         with_path_and_query_only(Url, fun(PathQuery) ->
-            JoinedHeaders = join_headers(Headers, CustomHeaders),
-            Request = make_request(Method, PathQuery, JoinedHeaders, Body),
+            Request = make_request(Method, PathQuery, binary_headers(Headers), Body),
+            ?SLOG(warning, #{
+                msg => "s3_ehttpc_request",
+                timeout => Timeout,
+                pool => HttpPool,
+                method => Method,
+                request => Request
+            }),
             ehttpc_request(HttpPool, Method, Request, Timeout)
         end)
     end.
@@ -211,9 +231,9 @@ request_fun(CustomHeaders, HttpPool) ->
 ehttpc_request(HttpPool, Method, Request, Timeout) ->
     try ehttpc:request(HttpPool, Method, Request, Timeout) of
         {ok, StatusCode, RespHeaders} ->
-            {ok, {{StatusCode, undefined}, string_headers(RespHeaders), undefined}};
+            {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), undefined}};
         {ok, StatusCode, RespHeaders, RespBody} ->
-            {ok, {{StatusCode, undefined}, string_headers(RespHeaders), RespBody}};
+            {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), RespBody}};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "s3_ehttpc_request_fail",
@@ -258,16 +278,6 @@ make_request(_Method, PathQuery, Headers, Body) ->
 
 format_request({PathQuery, Headers, _Body}) -> {PathQuery, Headers, <<"...">>}.
 
-join_headers(Headers, CustomHeaders) ->
-    MapHeaders = lists:foldl(
-        fun({K, V}, MHeaders) ->
-            maps:put(to_binary(K), V, MHeaders)
-        end,
-        #{},
-        Headers ++ maps:to_list(CustomHeaders)
-    ),
-    maps:to_list(MapHeaders).
-
 with_path_and_query_only(Url, Fun) ->
     case string:split(Url, "//", leading) of
         [_Scheme, UrlRem] ->
@@ -281,13 +291,22 @@ with_path_and_query_only(Url, Fun) ->
             {error, {invalid_url, Url}}
     end.
 
+string_headers(Headers) ->
+    [{to_list_string(K), to_list_string(V)} || {K, V} <- Headers].
+
+erlcloud_string_headers(Headers) ->
+    [{string:to_lower(K), V} || {K, V} <- string_headers(Headers)].
+
+binary_headers(Headers) ->
+    [{to_binary(K), V} || {K, V} <- Headers].
+
 to_binary(Val) when is_list(Val) -> list_to_binary(Val);
 to_binary(Val) when is_binary(Val) -> Val.
-
-string_headers(Hdrs) ->
-    [{string:to_lower(to_list_string(K)), to_list_string(V)} || {K, V} <- Hdrs].
 
 to_list_string(Val) when is_binary(Val) ->
     binary_to_list(Val);
 to_list_string(Val) when is_list(Val) ->
     Val.
+
+key(Characters) ->
+    binary_to_list(unicode:characters_to_binary(Characters)).

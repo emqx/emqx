@@ -118,7 +118,6 @@ decode_filemeta(Map) when is_map(Map) ->
     end.
 
 encode_filemeta(Meta = #{}) ->
-    % TODO: Looks like this should be hocon's responsibility.
     Schema = emqx_ft_schema:schema(filemeta),
     hocon_tconf:make_serializable(Schema, emqx_map_lib:binary_key_map(Meta), #{}).
 
