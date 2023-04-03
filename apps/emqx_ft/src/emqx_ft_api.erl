@@ -69,7 +69,6 @@ schema("/file_transfer/files") ->
 '/file_transfer/files'(get, #{}) ->
     case emqx_ft_storage:files() of
         {ok, Files} ->
-            ?SLOG(warning, #{msg => "files", files => Files}),
             {200, #{<<"files">> => lists:map(fun format_file_info/1, Files)}};
         {error, _} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
