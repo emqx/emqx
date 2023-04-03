@@ -52,7 +52,7 @@
 -define(INVALID_NODE, 'INVALID_NODE').
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
