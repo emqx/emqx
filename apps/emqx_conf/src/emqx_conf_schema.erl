@@ -1076,10 +1076,10 @@ tr_config_files(_Conf) ->
     end.
 
 tr_cluster_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "cluster-override.conf").
+    tr_override_conf_file(Conf, "cluster.conf").
 
 tr_local_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "local-override.conf").
+    tr_override_conf_file(Conf, "local.conf").
 
 tr_override_conf_file(Conf, Filename) ->
     DataDir = conf_get("node.data_dir", Conf),

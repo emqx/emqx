@@ -271,8 +271,10 @@ do_update_config(
     SubOldRawConf = get_sub_config(ConfKeyBin, OldRawConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
     case do_update_config(SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ConfKeyPath) of
-        {ok, NewUpdateReq} -> merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
-        Error -> Error
+        {ok, NewUpdateReq} ->
+            merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
+        Error ->
+            Error
     end.
 
 check_and_save_configs(
@@ -289,7 +291,9 @@ check_and_save_configs(
     OldConf = emqx_config:get_root(ConfKeyPath),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
-            ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
+            ok = emqx_config:save_configs(
+                ConfKeyPath, AppEnvs, NewConf, NewRawConf, OverrideConf, Opts
+            ),
             Result1 = return_change_result(ConfKeyPath, UpdateArgs),
             {ok, Result1#{post_config_update => Result0}};
         Error ->
@@ -560,11 +564,11 @@ check_permissions(Action, ConfKeyPath, NewRawConf, _Opts) ->
                             allow;
                         {error, Error} ->
                             ?SLOG(error, #{
-                                msg => "prevent_remove_local_override_conf",
+                                msg => "prevent_remove_local_conf",
                                 config_key_path => ConfKeyPath,
                                 error => Error
                             }),
-                            {deny, "Disable changed from local-override.conf"}
+                            {deny, "Disable changed from local conf"}
                     end;
                 {not_found, _, _} ->
                     allow

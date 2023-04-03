@@ -21,8 +21,8 @@
 
 -define(MOD, {mod}).
 -define(WKEY, '?').
--define(LOCAL_CONF, "/tmp/local-override.conf").
--define(CLUSTER_CONF, "/tmp/cluster-override.conf").
+-define(LOCAL_CONF, "/tmp/local.conf").
+-define(CLUSTER_CONF, "/tmp/cluster.conf").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -221,12 +221,6 @@ t_local_override_update_remove(_Config) ->
     ),
     ?assertMatch(0.7, emqx:get_config(KeyPath)),
 
-    KeyPath2 = [sysmon, os, cpu_low_watermark],
-    ok = emqx_config_handler:add_handler(KeyPath2, ?MODULE),
-    ?assertMatch(
-        {error, {permission_denied, _}}, emqx:update_config(KeyPath2, <<"40%">>, ClusterOpts)
-    ),
-
     %% remove
     ?assertMatch({error, {permission_denied, _}}, emqx:remove_config(KeyPath)),
     ?assertEqual(
@@ -251,7 +245,6 @@ t_local_override_update_remove(_Config) ->
     ?assert(length(OSKey1) > 1),
 
     ok = emqx_config_handler:remove_handler(KeyPath),
-    ok = emqx_config_handler:remove_handler(KeyPath2),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
     ok.
@@ -426,9 +419,9 @@ wait_for_new_pid() ->
 callback_error(FailedPath, Update, Error) ->
     Opts = #{rawconf_with_defaults => true},
     ok = emqx_config_handler:add_handler(FailedPath, ?MODULE),
-    Old = emqx:get_raw_config(FailedPath),
+    Old = emqx:get_raw_config(FailedPath, undefined),
     ?assertEqual(Error, emqx:update_config(FailedPath, Update, Opts)),
-    New = emqx:get_raw_config(FailedPath),
+    New = emqx:get_raw_config(FailedPath, undefined),
     ?assertEqual(Old, New),
     ok = emqx_config_handler:remove_handler(FailedPath),
     ok.

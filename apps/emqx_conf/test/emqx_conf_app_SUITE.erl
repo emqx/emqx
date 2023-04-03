@@ -85,7 +85,7 @@ create_data_dir() ->
     ok = file:write_file(Node ++ "/certs/fake-cert", list_to_binary(Node)),
     ok = file:write_file(Node ++ "/authz/fake-authz", list_to_binary(Node)),
     Telemetry = <<"telemetry.enable = false">>,
-    ok = file:write_file(Node ++ "/configs/cluster-override.conf", Telemetry).
+    ok = file:write_file(Node ++ "/configs/cluster.hocon", Telemetry).
 
 set_data_dir_env() ->
     Node = atom_to_list(node()),
@@ -100,14 +100,14 @@ set_data_dir_env() ->
     ok = file:write_file(NewConfigFile, DataDir, [append]),
     application:set_env(emqx, config_files, [NewConfigFile]),
     application:set_env(emqx, data_dir, Node),
-    application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
+    application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster.hocon"),
     ok.
 
 assert_data_copy_done([First0 | Rest]) ->
     First = atom_to_list(First0),
     {ok, FakeCertFile} = file:read_file(First ++ "/certs/fake-cert"),
     {ok, FakeAuthzFile} = file:read_file(First ++ "/authz/fake-authz"),
-    {ok, FakeOverrideFile} = file:read_file(First ++ "/configs/cluster-override.conf"),
+    {ok, FakeOverrideFile} = file:read_file(First ++ "/configs/cluster.hocon"),
     lists:foreach(
         fun(Node0) ->
             Node = atom_to_list(Node0),
@@ -118,7 +118,7 @@ assert_data_copy_done([First0 | Rest]) ->
             ),
             ?assertEqual(
                 {ok, FakeOverrideFile},
-                file:read_file(Node ++ "/configs/cluster-override.conf"),
+                file:read_file(Node ++ "/configs/cluster.hocon"),
                 #{node => Node}
             ),
             ?assertEqual(
