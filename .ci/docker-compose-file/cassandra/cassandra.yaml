@@ -469,8 +469,8 @@ concurrent_materialized_view_writes: 32
 # accepting writes when the limit is exceeded until a flush completes,
 # and will trigger a flush based on memtable_cleanup_threshold
 # If omitted, Cassandra will set both to 1/4 the size of the heap.
-# memtable_heap_space_in_mb: 2048
-# memtable_offheap_space_in_mb: 2048
+memtable_heap_space_in_mb: 2048
+memtable_offheap_space_in_mb: 2048
 
 # memtable_cleanup_threshold is deprecated. The default calculation
 # is the only reasonable choice. See the comments on  memtable_flush_writers
