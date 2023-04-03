@@ -90,13 +90,13 @@ init_conf() ->
     emqx_app:set_init_config_load_done().
 
 cluster_nodes() ->
-    maps:get(running_nodes, ekka_cluster:info()) -- [node()].
+    mria_mnesia:running_nodes() -- [node()].
 
 copy_override_conf_from_core_node() ->
     case cluster_nodes() of
         %% The first core nodes is self.
         [] ->
-            ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
+            ?SLOG(debug, #{msg => "skip_copy_override_conf_from_core_node"}),
             {ok, ?DEFAULT_INIT_TXN_ID};
         Nodes ->
             {Results, Failed} = emqx_conf_proto_v2:get_override_config_file(Nodes),
@@ -130,7 +130,7 @@ copy_override_conf_from_core_node() ->
                             %% finish the boot sequence and load the
                             %% config for other nodes to copy it.
                             ?SLOG(info, #{
-                                msg => "skip_copy_overide_conf_from_core_node",
+                                msg => "skip_copy_override_conf_from_core_node",
                                 loading_from_disk => true,
                                 nodes => Nodes,
                                 failed => Failed,
@@ -142,7 +142,7 @@ copy_override_conf_from_core_node() ->
                             Jitter = rand:uniform(2_000),
                             Timeout = 10_000 + Jitter,
                             ?SLOG(info, #{
-                                msg => "copy_overide_conf_from_core_node_retry",
+                                msg => "copy_override_conf_from_core_node_retry",
                                 timeout => Timeout,
                                 nodes => Nodes,
                                 failed => Failed,
@@ -155,7 +155,7 @@ copy_override_conf_from_core_node() ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
                     ?SLOG(debug, #{
-                        msg => "copy_overide_conf_from_core_node_success",
+                        msg => "copy_override_conf_from_core_node_success",
                         node => Node,
                         cluster_override_conf_file => application:get_env(
                             emqx, cluster_override_conf_file
