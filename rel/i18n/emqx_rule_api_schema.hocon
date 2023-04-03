@@ -35,8 +35,8 @@ emqx_rule_api_schema {
 
     event_username {
                    desc {
-                         en: "The User Name"
-                         zh: ""
+                         en: "Username"
+                         zh: "用户名"
                         }
                    label: {
                            en: "Username"

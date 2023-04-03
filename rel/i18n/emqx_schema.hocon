@@ -1505,8 +1505,8 @@ In case PSK cipher suites are intended, make sure to configure
 
 common_ssl_opts_schema_hibernate_after {
     desc {
-        en: """ Hibernate the SSL process after idling for amount of time reducing its memory footprint. """
-        zh: """ 在闲置一定时间后休眠 SSL 进程，减少其内存占用。"""
+        en: """Hibernate the SSL process after idling for amount of time reducing its memory footprint."""
+        zh: """在闲置一定时间后休眠 SSL 进程，减少其内存占用。"""
     }
     label: {
         en: "hibernate after"

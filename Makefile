@@ -82,7 +82,7 @@ ct: $(REBAR) merge-config
 static_checks:
 	@$(REBAR) as check do xref, dialyzer
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
-	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then ./scripts/check-i18n-style.sh; fi
+	./scripts/check-i18n-style.sh
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 

@@ -370,13 +370,6 @@ After succeed observe a resource of LwM2M client, Gateway will send the notify e
         }
     }
 
-    gateway_common_mountpoint {
-        desc {
-            en: """"""
-            zh: """"""
-        }
-    }
-
     gateway_common_clientinfo_override {
         desc {
             en: """ClientInfo override."""
@@ -431,10 +424,10 @@ After succeed observe a resource of LwM2M client, Gateway will send the notify e
         }
     }
 
-    tcp_listener {
+    listener_name_to_settings_map{
         desc {
-            en: """"""
-            zh: """"""
+            en: """A map from listener names to listener settings."""
+            zh: """从监听器名称到配置参数的映射。"""
         }
     }
 
@@ -468,24 +461,10 @@ EMQX will close the TCP connection if proxy protocol packet is not received with
         }
     }
 
-    ssl_listener {
-        desc {
-            en: """"""
-            zh: """"""
-        }
-    }
-
     ssl_listener_options {
         desc {
             en: """SSL Socket options."""
             zh: """SSL Socket 配置。"""
-        }
-    }
-
-    udp_listener {
-        desc {
-            en: """"""
-            zh: """"""
         }
     }
 
@@ -530,13 +509,6 @@ See: https://erlang.org/doc/man/inet.html#setopts-2"""
         desc {
             en: """Allow local reuse of port numbers."""
             zh: """允许重用本地处于 TIME_WAIT 的端口号。"""
-        }
-    }
-
-    dtls_listener {
-        desc {
-            en: """"""
-            zh: """"""
         }
     }
 
@@ -592,7 +564,7 @@ When set to <code>false</code> clients will be allowed to connect without authen
         }
     }
 
-    gateway_common_listener_mountpoint {
+    gateway_mountpoint {
         desc {
             en: """When publishing or subscribing, prefix all topics with a mountpoint string.
 The prefixed string will be removed from the topic name when the message is delivered to the subscriber.

@@ -2,16 +2,12 @@ emqx_ee_connector_rocketmq {
 
     server {
         desc {
-          en: """
-The IPv4 or IPv6 address or the hostname to connect to.<br/>
+          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
-The RocketMQ default port 9876 is used if `[:Port]` is not specified.
-"""
-          zh: """
-将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
+          zh: """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
 主机名具有以下形式：`Host[:Port]`。<br/>
-如果未指定 `[:Port]`，则使用 RocketMQ 默认端口 9876。
-"""
+如果未指定 `[:Port]`，则使用 RocketMQ 默认端口 9876。"""
         }
         label: {
               en: "Server Host"
