@@ -460,7 +460,7 @@ schema("/gateways/:name/clients") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_clients),
-                summary => <<"List Gateway's Clients">>,
+                summary => <<"List gateway's clients">>,
                 parameters => params_client_query(),
                 responses =>
                     ?STANDARD_RESP(#{
@@ -478,7 +478,7 @@ schema("/gateways/:name/clients/:clientid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_client),
-                summary => <<"Get Client Info">>,
+                summary => <<"Get client info">>,
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_client()})
@@ -487,7 +487,7 @@ schema("/gateways/:name/clients/:clientid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(kick_client),
-                summary => <<"Kick out Client">>,
+                summary => <<"Kick out client">>,
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Kicked">>})
@@ -500,7 +500,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_subscriptions),
-                summary => <<"List Client's Subscription">>,
+                summary => <<"List client's subscription">>,
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(
@@ -516,7 +516,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_subscription),
-                summary => <<"Add Subscription for Client">>,
+                summary => <<"Add subscription for client">>,
                 parameters => params_client_insta(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(subscription),
@@ -540,7 +540,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_subscription),
-                summary => <<"Delete Client's Subscription">>,
+                summary => <<"Delete client's subscription">>,
                 parameters => params_topic_name_in_path() ++ params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})
@@ -1020,12 +1020,12 @@ examples_client_list() ->
     #{
         general_client_list =>
             #{
-                summary => <<"General Client List">>,
+                summary => <<"General client list">>,
                 value => [example_general_client()]
             },
         lwm2m_client_list =>
             #{
-                summary => <<"LwM2M Client List">>,
+                summary => <<"LwM2M client list">>,
                 value => [example_lwm2m_client()]
             }
     }.
@@ -1034,12 +1034,12 @@ examples_client() ->
     #{
         general_client =>
             #{
-                summary => <<"General Client Info">>,
+                summary => <<"General client info">>,
                 value => example_general_client()
             },
         lwm2m_client =>
             #{
-                summary => <<"LwM2M Client Info">>,
+                summary => <<"LwM2M client info">>,
                 value => example_lwm2m_client()
             }
     }.
@@ -1048,12 +1048,12 @@ examples_subscription_list() ->
     #{
         general_subscription_list =>
             #{
-                summary => <<"A General Subscription List">>,
+                summary => <<"A general subscription list">>,
                 value => [example_general_subscription()]
             },
         stomp_subscription_list =>
             #{
-                summary => <<"The Stomp Subscription List">>,
+                summary => <<"The STOMP subscription list">>,
                 value => [example_stomp_subscription]
             }
     }.
@@ -1062,12 +1062,12 @@ examples_subscription() ->
     #{
         general_subscription =>
             #{
-                summary => <<"A General Subscription">>,
+                summary => <<"A general subscription">>,
                 value => example_general_subscription()
             },
         stomp_subscription =>
             #{
-                summary => <<"A Stomp Subscription">>,
+                summary => <<"A STOMP subscription">>,
                 value => example_stomp_subscription()
             }
     }.

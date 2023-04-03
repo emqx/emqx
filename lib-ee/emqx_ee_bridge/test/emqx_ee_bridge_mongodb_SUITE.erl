@@ -26,7 +26,8 @@ group_tests() ->
     [
         t_setup_via_config_and_publish,
         t_setup_via_http_api_and_publish,
-        t_payload_template
+        t_payload_template,
+        t_collection_template
     ].
 
 groups() ->
@@ -297,6 +298,27 @@ t_payload_template(Config) ->
     Val = erlang:unique_integer(),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     ok = send_message(Config, #{key => Val, clientid => ClientId}),
+    ?assertMatch(
+        {ok, [#{<<"foo">> := ClientId}]},
+        find_all(Config)
+    ),
+    ok.
+
+t_collection_template(Config) ->
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>,
+            <<"collection">> => <<"${mycollectionvar}">>
+        }
+    ),
+    Val = erlang:unique_integer(),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ok = send_message(Config, #{
+        key => Val,
+        clientid => ClientId,
+        mycollectionvar => <<"mycol">>
+    }),
     ?assertMatch(
         {ok, [#{<<"foo">> := ClientId}]},
         find_all(Config)

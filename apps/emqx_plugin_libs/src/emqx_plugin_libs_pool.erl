@@ -67,13 +67,14 @@ stop_pool(Name) ->
 health_check_ecpool_workers(PoolName, CheckFunc) ->
     health_check_ecpool_workers(PoolName, CheckFunc, ?HEALTH_CHECK_TIMEOUT).
 
-health_check_ecpool_workers(PoolName, CheckFunc, Timeout) when is_function(CheckFunc) ->
+health_check_ecpool_workers(PoolName, CheckFunc, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
         fun(Worker) ->
             case ecpool_worker:client(Worker) of
                 {ok, Conn} ->
-                    erlang:is_process_alive(Conn) andalso CheckFunc(Conn);
+                    erlang:is_process_alive(Conn) andalso
+                        ecpool_worker:exec(Worker, CheckFunc, Timeout);
                 _ ->
                     false
             end

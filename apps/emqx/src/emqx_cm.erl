@@ -465,23 +465,23 @@ request_stepdown(Action, ConnMod, Pid) ->
         catch
             % emqx_ws_connection: call
             _:noproc ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             % emqx_connection: gen_server:call
             _:{noproc, _} ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{shutdown, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{{shutdown, _}, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{timeout, {gen_server, call, _}} ->
                 ?tp(
                     warning,
                     "session_stepdown_request_timeout",
-                    #{pid => Pid, action => Action, stale_channel => stale_channel_info(Pid)}
+                    #{stale_pid => Pid, action => Action, stale_channel => stale_channel_info(Pid)}
                 ),
                 ok = force_kill(Pid),
                 {error, timeout};
@@ -490,7 +490,7 @@ request_stepdown(Action, ConnMod, Pid) ->
                     error,
                     "session_stepdown_request_exception",
                     #{
-                        pid => Pid,
+                        stale_pid => Pid,
                         action => Action,
                         reason => Error,
                         stacktrace => St,
@@ -671,7 +671,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
-    ?tp(emqx_cm_process_down, #{pid => Pid, reason => _Reason}),
+    ?tp(emqx_cm_process_down, #{stale_pid => Pid, reason => _Reason}),
     ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     lists:foreach(fun mark_channel_disconnected/1, ChanPids),

@@ -56,30 +56,12 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-end_suite() ->
-    end_suite([]).
-
-end_suite(Apps) ->
-    application:unload(emqx_management),
-    mnesia:clear_table(?ADMIN),
-    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
-
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps(
-        [emqx_management, emqx_dashboard],
-        fun set_special_configs/1
-    ),
+    emqx_mgmt_api_test_util:init_suite([emqx_management]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    mria:stop().
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),

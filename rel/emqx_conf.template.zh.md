@@ -3,12 +3,11 @@ HOCON（Human-Optimized Config Object Notation）是一个JSON的超集，非常
 
 ## 分层结构
 
-EMQX的配置文件可分为三层，自底向上依次是：
+EMQX的配置文件可分为二层，自底向上依次是：
 
 1. 不可变的基础层 `emqx.conf` 加上 `EMQX_` 前缀的环境变量。<br/>
    修改这一层的配置之后，需要重启节点来使之生效。
 1. 集群范围重载层：`$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
-1. 节点本地重载层：`$EMQX_NODE__DATA_DIR/configs/local-override.conf`
 
 如果环境变量 `$EMQX_NODE__DATA_DIR` 没有设置，那么该目录会从 `emqx.conf` 的 `node.data_dir` 配置中读取。
 

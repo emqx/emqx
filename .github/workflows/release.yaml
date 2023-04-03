@@ -54,7 +54,7 @@ jobs:
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ github.ref_name }} packages
           cd packages
-          DEFAULT_BEAM_PLATFORM='otp24.3.4.2-2'
+          DEFAULT_BEAM_PLATFORM='otp24.3.4.2-3'
           # all packages including full-name and default-name are uploaded to s3
           # but we only upload default-name packages (and elixir) as github artifacts
           # so we rename (overwrite) non-default packages before uploading

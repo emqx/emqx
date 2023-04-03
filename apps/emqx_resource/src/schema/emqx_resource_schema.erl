@@ -39,10 +39,9 @@ fields("resource_opts_sync_only") ->
             )}
     ];
 fields("creation_opts_sync_only") ->
-    Fields0 = fields("creation_opts"),
-    Fields1 = lists:keydelete(async_inflight_window, 1, Fields0),
+    Fields = fields("creation_opts"),
     QueryMod = {query_mode, fun query_mode_sync_only/1},
-    lists:keyreplace(query_mode, 1, Fields1, QueryMod);
+    lists:keyreplace(query_mode, 1, Fields, QueryMod);
 fields("resource_opts") ->
     [
         {resource_opts,
@@ -55,12 +54,13 @@ fields("creation_opts") ->
     [
         {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
+        {resume_interval, fun resume_interval/1},
         {start_after_created, fun start_after_created/1},
         {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
         {request_timeout, fun request_timeout/1},
-        {async_inflight_window, fun async_inflight_window/1},
+        {inflight_window, fun inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
@@ -80,6 +80,12 @@ worker_pool_size(desc) -> ?DESC("worker_pool_size");
 worker_pool_size(default) -> ?WORKER_POOL_SIZE;
 worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
+
+resume_interval(type) -> emqx_schema:duration_ms();
+resume_interval(importance) -> hidden;
+resume_interval(desc) -> ?DESC("resume_interval");
+resume_interval(required) -> false;
+resume_interval(_) -> undefined.
 
 health_check_interval(type) -> emqx_schema:duration_ms();
 health_check_interval(desc) -> ?DESC("health_check_interval");
@@ -136,11 +142,12 @@ enable_queue(deprecated) -> {since, "v5.0.14"};
 enable_queue(desc) -> ?DESC("enable_queue");
 enable_queue(_) -> undefined.
 
-async_inflight_window(type) -> pos_integer();
-async_inflight_window(desc) -> ?DESC("async_inflight_window");
-async_inflight_window(default) -> ?DEFAULT_INFLIGHT;
-async_inflight_window(required) -> false;
-async_inflight_window(_) -> undefined.
+inflight_window(type) -> pos_integer();
+inflight_window(aliases) -> [async_inflight_window];
+inflight_window(desc) -> ?DESC("inflight_window");
+inflight_window(default) -> ?DEFAULT_INFLIGHT;
+inflight_window(required) -> false;
+inflight_window(_) -> undefined.
 
 batch_size(type) -> pos_integer();
 batch_size(desc) -> ?DESC("batch_size");

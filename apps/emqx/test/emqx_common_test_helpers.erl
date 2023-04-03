@@ -16,7 +16,7 @@
 
 -module(emqx_common_test_helpers).
 
--include("emqx_authentication.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
 
 -type special_config_handler() :: fun().
 
@@ -83,6 +83,13 @@
 -export([
     with_failure/5,
     reset_proxy/2
+]).
+
+%% TLS certs API
+-export([
+    gen_ca/2,
+    gen_host_cert/3,
+    gen_host_cert/4
 ]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
@@ -202,7 +209,6 @@ start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
-    mnesia:clear_table(emqx_admin),
     ok = emqx_ratelimiter_SUITE:load_conf(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
 
@@ -262,12 +268,13 @@ app_schema(App) ->
     end.
 
 mustache_vars(App, Opts) ->
-    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, []),
-    [
-        {platform_data_dir, app_path(App, "data")},
-        {platform_etc_dir, app_path(App, "etc")},
-        {platform_log_dir, app_path(App, "log")}
-    ] ++ ExtraMustacheVars.
+    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
+    Defaults = #{
+        platform_data_dir => app_path(App, "data"),
+        platform_etc_dir => app_path(App, "etc"),
+        platform_log_dir => app_path(App, "log")
+    },
+    maps:merge(Defaults, ExtraMustacheVars).
 
 render_config_file(ConfigFile, Vars0) ->
     Temp =
@@ -275,7 +282,7 @@ render_config_file(ConfigFile, Vars0) ->
             {ok, T} -> T;
             {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
         end,
-    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- Vars0],
+    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],
     Targ = bbmustache:render(Temp, Vars),
     NewName = ConfigFile ++ ".rendered",
     ok = file:write_file(NewName, Targ),
@@ -299,6 +306,7 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
+    ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
@@ -561,6 +569,7 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         mountpoint => <<>>,
         zone => default
     },
+
     Conf2 = maps:merge(Conf, ExtraSettings),
     emqx_config:put([listeners, quic, Name], Conf2),
     case emqx_listeners:start_listener(emqx_listeners:listener_id(quic, Name)) of
@@ -723,7 +732,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
     LoadSchema = maps:get(load_schema, Opts, true),
     SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
-    LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
+    LoadApps = maps:get(load_apps, Opts, Apps),
     Env = maps:get(env, Opts, []),
     Conf = maps:get(conf, Opts, []),
     ListenerPorts = maps:get(listener_ports, Opts, [
@@ -741,12 +750,13 @@ setup_node(Node, Opts) when is_map(Opts) ->
     StartAutocluster = maps:get(start_autocluster, Opts, false),
 
     %% Load env before doing anything to avoid overriding
-    lists:foreach(fun(App) -> rpc:call(Node, ?MODULE, load, [App]) end, LoadApps),
+    [ok = erpc:call(Node, ?MODULE, load, [App]) || App <- [gen_rpc, ekka, mria, emqx | LoadApps]],
+
     %% Ensure a clean mnesia directory for each run to avoid
     %% inter-test flakiness.
     MnesiaDataDir = filename:join([
         PrivDataDir,
-        node(),
+        Node,
         integer_to_list(erlang:unique_integer()),
         "mnesia"
     ]),
@@ -1072,6 +1082,104 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
         [{body_format, binary}]
     ).
 
+%%-------------------------------------------------------------------------------
+%% TLS certs
+%%-------------------------------------------------------------------------------
+gen_ca(Path, Name) ->
+    %% Generate ca.pem and ca.key which will be used to generate certs
+    %% for hosts server and clients
+    ECKeyFile = filename(Path, "~s-ec.key", [Name]),
+    filelib:ensure_dir(ECKeyFile),
+    os:cmd("openssl ecparam -name secp256r1 > " ++ ECKeyFile),
+    Cmd = lists:flatten(
+        io_lib:format(
+            "openssl req -new -x509 -nodes "
+            "-newkey ec:~s "
+            "-keyout ~s -out ~s -days 3650 "
+            "-subj \"/C=SE/O=Internet Widgits Pty Ltd CA\"",
+            [
+                ECKeyFile,
+                ca_key_name(Path, Name),
+                ca_cert_name(Path, Name)
+            ]
+        )
+    ),
+    os:cmd(Cmd).
+
+ca_cert_name(Path, Name) ->
+    filename(Path, "~s.pem", [Name]).
+ca_key_name(Path, Name) ->
+    filename(Path, "~s.key", [Name]).
+
+gen_host_cert(H, CaName, Path) ->
+    gen_host_cert(H, CaName, Path, #{}).
+
+gen_host_cert(H, CaName, Path, Opts) ->
+    ECKeyFile = filename(Path, "~s-ec.key", [CaName]),
+    CN = str(H),
+    HKey = filename(Path, "~s.key", [H]),
+    HCSR = filename(Path, "~s.csr", [H]),
+    HPEM = filename(Path, "~s.pem", [H]),
+    HEXT = filename(Path, "~s.extfile", [H]),
+    PasswordArg =
+        case maps:get(password, Opts, undefined) of
+            undefined ->
+                " -nodes ";
+            Password ->
+                io_lib:format(" -passout pass:'~s' ", [Password])
+        end,
+    CSR_Cmd =
+        lists:flatten(
+            io_lib:format(
+                "openssl req -new ~s -newkey ec:~s "
+                "-keyout ~s -out ~s "
+                "-addext \"subjectAltName=DNS:~s\" "
+                "-addext keyUsage=digitalSignature,keyAgreement "
+                "-subj \"/C=SE/O=Internet Widgits Pty Ltd/CN=~s\"",
+                [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
+            )
+        ),
+    create_file(
+        HEXT,
+        "keyUsage=digitalSignature,keyAgreement\n"
+        "subjectAltName=DNS:~s\n",
+        [CN]
+    ),
+    CERT_Cmd =
+        lists:flatten(
+            io_lib:format(
+                "openssl x509 -req "
+                "-extfile ~s "
+                "-in ~s -CA ~s -CAkey ~s -CAcreateserial "
+                "-out ~s -days 500",
+                [
+                    HEXT,
+                    HCSR,
+                    ca_cert_name(Path, CaName),
+                    ca_key_name(Path, CaName),
+                    HPEM
+                ]
+            )
+        ),
+    ct:pal(os:cmd(CSR_Cmd)),
+    ct:pal(os:cmd(CERT_Cmd)),
+    file:delete(HEXT).
+
+filename(Path, F, A) ->
+    filename:join(Path, str(io_lib:format(F, A))).
+
+str(Arg) ->
+    binary_to_list(iolist_to_binary(Arg)).
+
+create_file(Filename, Fmt, Args) ->
+    filelib:ensure_dir(Filename),
+    {ok, F} = file:open(Filename, [write]),
+    try
+        io:format(F, Fmt, Args)
+    after
+        file:close(F)
+    end,
+    ok.
 %%-------------------------------------------------------------------------------
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------

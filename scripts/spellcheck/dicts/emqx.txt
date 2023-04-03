@@ -271,3 +271,5 @@ nif
 TDengine
 clickhouse
 FormatType
+RocketMQ
+Keyspace

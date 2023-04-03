@@ -233,7 +233,7 @@ fields(socket_opts) ->
                 boolean(),
                 #{
                     default => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(socket_nodelay)
                 }
             )}
@@ -368,7 +368,7 @@ fields(consumer_kafka_opts) ->
             })},
         {max_rejoin_attempts,
             mk(non_neg_integer(), #{
-                hidden => true,
+                importance => ?IMPORTANCE_HIDDEN,
                 default => 5,
                 desc => ?DESC(consumer_max_rejoin_attempts)
             })},

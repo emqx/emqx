@@ -520,6 +520,7 @@ wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
         #{measurements := #{gauge_set := Value}} ->
+            ct:pal("events: ~p", [Events]),
             ct:fail(
                 "gauge ~p didn't reach expected value ~p; last value: ~p",
                 [GaugeName, ExpectedValue, Value]
@@ -972,7 +973,13 @@ t_publish_econnrefused(Config) ->
     ResourceId = ?config(resource_id, Config),
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc.
-    {ok, _} = create_bridge(Config, #{<<"pipelining">> => 1}),
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"pipelining">> => 1,
+            <<"resource_opts">> => #{<<"resume_interval">> => <<"15s">>}
+        }
+    ),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     assert_empty_metrics(ResourceId),
@@ -986,7 +993,10 @@ t_publish_timeout(Config) ->
     %% requests are done separately.
     {ok, _} = create_bridge(Config, #{
         <<"pipelining">> => 1,
-        <<"resource_opts">> => #{<<"batch_size">> => 1}
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 1,
+            <<"resume_interval">> => <<"15s">>
+        }
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
@@ -1013,7 +1023,6 @@ t_publish_timeout(Config) ->
     do_econnrefused_or_timeout_test(Config, timeout).
 
 do_econnrefused_or_timeout_test(Config, Error) ->
-    QueryMode = ?config(query_mode, Config),
     ResourceId = ?config(resource_id, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
@@ -1021,15 +1030,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
         begin
-            case {QueryMode, Error} of
-                {sync, _} ->
-                    {_, {ok, _}} =
-                        ?wait_async_action(
-                            emqx:publish(Message),
-                            #{?snk_kind := gcp_pubsub_request_failed, recoverable_error := true},
-                            15_000
-                        );
-                {async, econnrefused} ->
+            case Error of
+                econnrefused ->
                     %% at the time of writing, async requests
                     %% are never considered expired by ehttpc
                     %% (even if they arrive late, or never
@@ -1049,7 +1051,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                             },
                             15_000
                         );
-                {async, timeout} ->
+                timeout ->
                     %% at the time of writing, async requests
                     %% are never considered expired by ehttpc
                     %% (even if they arrive late, or never
@@ -1067,18 +1069,13 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             end
         end,
         fun(Trace) ->
-            case {QueryMode, Error} of
-                {sync, _} ->
+            case Error of
+                econnrefused ->
                     ?assertMatch(
                         [#{reason := Error, connector := ResourceId} | _],
                         ?of_kind(gcp_pubsub_request_failed, Trace)
                     );
-                {async, econnrefused} ->
-                    ?assertMatch(
-                        [#{reason := Error, connector := ResourceId} | _],
-                        ?of_kind(gcp_pubsub_request_failed, Trace)
-                    );
-                {async, timeout} ->
+                timeout ->
                     ?assertMatch(
                         [_, _ | _],
                         ?of_kind(gcp_pubsub_response, Trace)
@@ -1088,11 +1085,11 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         end
     ),
 
-    case {Error, QueryMode} of
+    case Error of
         %% apparently, async with disabled queue doesn't mark the
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
-        {econnrefused, async} ->
+        econnrefused ->
             wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
                 timeout => 10_000, n_events => 1
             }),
@@ -1114,7 +1111,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
                 CurrentMetrics
             );
-        {timeout, async} ->
+        timeout ->
             wait_until_gauge_is(inflight, 0, _Timeout = 400),
             wait_until_gauge_is(queuing, 0, _Timeout = 400),
             assert_metrics(
@@ -1127,21 +1124,6 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     retried => 0,
                     success => 0,
                     late_reply => 2
-                },
-                ResourceId
-            );
-        {_, sync} ->
-            wait_until_gauge_is(queuing, 0, 500),
-            wait_until_gauge_is(inflight, 1, 500),
-            assert_metrics(
-                #{
-                    dropped => 0,
-                    failed => 0,
-                    inflight => 1,
-                    matched => 1,
-                    queuing => 0,
-                    retried => 0,
-                    success => 0
                 },
                 ResourceId
             )
@@ -1267,7 +1249,6 @@ t_failure_no_body(Config) ->
 
 t_unrecoverable_error(Config) ->
     ResourceId = ?config(resource_id, Config),
-    QueryMode = ?config(query_mode, Config),
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
@@ -1298,33 +1279,16 @@ t_unrecoverable_error(Config) ->
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
         {_, {ok, _}} =
-            case QueryMode of
-                sync ->
-                    ?wait_async_action(
-                        emqx:publish(Message),
-                        #{?snk_kind := gcp_pubsub_request_failed},
-                        5_000
-                    );
-                async ->
-                    ?wait_async_action(
-                        emqx:publish(Message),
-                        #{?snk_kind := gcp_pubsub_response},
-                        5_000
-                    )
-            end,
+            ?wait_async_action(
+                emqx:publish(Message),
+                #{?snk_kind := gcp_pubsub_response},
+                5_000
+            ),
         fun(Trace) ->
-            case QueryMode of
-                sync ->
-                    ?assertMatch(
-                        [#{reason := killed}],
-                        ?of_kind(gcp_pubsub_request_failed, Trace)
-                    );
-                async ->
-                    ?assertMatch(
-                        [#{response := {error, killed}}],
-                        ?of_kind(gcp_pubsub_response, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [#{response := {error, killed}}],
+                ?of_kind(gcp_pubsub_response, Trace)
+            ),
             ok
         end
     ),

@@ -35,29 +35,7 @@
 -include("src/coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.lwm2m {\n"
-    "  xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"\n"
-    "  lifetime_min = 1s\n"
-    "  lifetime_max = 86400s\n"
-    "  qmode_time_window = 22\n"
-    "  auto_observe = false\n"
-    "  mountpoint = \"lwm2m/${username}\"\n"
-    "  update_msg_publish_condition = contains_object_list\n"
-    "  translators {\n"
-    "    command = {topic = \"/dn/#\", qos = 0}\n"
-    "    response = {topic = \"/up/resp\", qos = 0}\n"
-    "    notify = {topic = \"/up/notify\", qos = 0}\n"
-    "    register = {topic = \"/up/resp\", qos = 0}\n"
-    "    update = {topic = \"/up/resp\", qos = 0}\n"
-    "  }\n"
-    "  listeners.udp.default {\n"
-    "    bind = 5783\n"
-    "  }\n"
-    "}\n"
->>).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -record(coap_content, {content_format, payload = <<>>}).
 
@@ -99,7 +77,8 @@ groups() ->
             %% case06_register_wrong_lifetime, %% now, will ignore wrong lifetime
             case07_register_alternate_path_01,
             case07_register_alternate_path_02,
-            case08_reregister
+            case08_reregister,
+            case09_auto_observe
         ]},
         {test_grp_1_read, [RepeatOpt], [
             case10_read,
@@ -164,8 +143,15 @@ end_per_suite(Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authn]),
     Config.
 
-init_per_testcase(_AllTestCase, Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
+init_per_testcase(TestCase, Config) ->
+    GatewayConfig =
+        case TestCase of
+            case09_auto_observe ->
+                default_config(#{auto_observe => true});
+            _ ->
+                default_config()
+        end,
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, GatewayConfig),
 
     {ok, _} = application:ensure_all_started(emqx_gateway),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
@@ -187,7 +173,37 @@ end_per_testcase(_AllTestCase, Config) ->
     ok = application:stop(emqx_gateway).
 
 default_config() ->
-    ?CONF_DEFAULT.
+    default_config(#{}).
+
+default_config(Overrides) ->
+    iolist_to_binary(
+        io_lib:format(
+            "\n"
+            "gateway.lwm2m {\n"
+            "  xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"\n"
+            "  lifetime_min = 1s\n"
+            "  lifetime_max = 86400s\n"
+            "  qmode_time_window = 22\n"
+            "  auto_observe = ~w\n"
+            "  mountpoint = \"lwm2m/${username}\"\n"
+            "  update_msg_publish_condition = contains_object_list\n"
+            "  translators {\n"
+            "    command = {topic = \"/dn/#\", qos = 0}\n"
+            "    response = {topic = \"/up/resp\", qos = 0}\n"
+            "    notify = {topic = \"/up/notify\", qos = 0}\n"
+            "    register = {topic = \"/up/resp\", qos = 0}\n"
+            "    update = {topic = \"/up/resp\", qos = 0}\n"
+            "  }\n"
+            "  listeners.udp.default {\n"
+            "    bind = ~w\n"
+            "  }\n"
+            "}\n",
+            [
+                maps:get(auto_observe, Overrides, false),
+                maps:get(bind, Overrides, ?PORT)
+            ]
+        )
+    ).
 
 default_port() ->
     ?PORT.
@@ -761,6 +777,52 @@ case08_reregister(Config) ->
 
     %% verify the lwm2m client is still online
     ?assertEqual(ReadResult, test_recv_mqtt_response(ReportTopic)).
+
+case09_auto_observe(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId1 = 15,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    ok = snabbkaffe:start_trace(),
+
+    %% step 1, device register ...
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload = <<
+                "</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>,</lwm2m/59102/0>"
+            >>
+        },
+        [],
+        MsgId1
+    ),
+    #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
+    ?assertEqual({ok, created}, Method1),
+
+    #coap_message{
+        method = Method2,
+        token = Token2,
+        options = Options2
+    } = test_recv_coap_request(UdpSock),
+    ?assertEqual(get, Method2),
+    ?assertNotEqual(<<>>, Token2),
+    ?assertMatch(
+        #{
+            observe := 0,
+            uri_path := [<<"lwm2m">>, <<"3">>, <<"0">>]
+        },
+        Options2
+    ),
+
+    {ok, _} = ?block_until(#{?snk_kind := ignore_observer_resource}, 1000),
+    ok.
 
 case10_read(Config) ->
     UdpSock = ?config(sock, Config),

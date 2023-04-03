@@ -170,6 +170,12 @@ for dep in ${CT_DEPS}; do
         dynamo)
             FILES+=( '.ci/docker-compose-file/docker-compose-dynamo.yaml' )
             ;;
+        rocketmq)
+            FILES+=( '.ci/docker-compose-file/docker-compose-rocketmq.yaml' )
+            ;; 
+        cassandra)
+            FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

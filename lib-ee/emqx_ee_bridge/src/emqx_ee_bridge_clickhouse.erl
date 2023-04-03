@@ -103,8 +103,7 @@ fields("config") ->
     ] ++
         emqx_ee_connector_clickhouse:fields(config);
 fields("creation_opts") ->
-    Opts = emqx_resource_schema:fields("creation_opts"),
-    [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
+    emqx_resource_schema:fields("creation_opts");
 fields("post") ->
     fields("post", clickhouse);
 fields("put") ->
@@ -127,10 +126,6 @@ desc(_) ->
 %% -------------------------------------------------------------------------------------------------
 %% internal
 %% -------------------------------------------------------------------------------------------------
-is_hidden_opts(Field) ->
-    lists:member(Field, [
-        async_inflight_window
-    ]).
 
 type_field(Type) ->
     {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.

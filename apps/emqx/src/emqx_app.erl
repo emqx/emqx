@@ -72,9 +72,13 @@ set_init_config_load_done() ->
 get_init_config_load_done() ->
     application:get_env(emqx, init_config_load_done, false).
 
+%% @doc Set the transaction id from which this node should start applying after boot.
+%% The transaction ID is received from the core node which we just copied the latest
+%% config from.
 set_init_tnx_id(TnxId) ->
     application:set_env(emqx, cluster_rpc_init_tnx_id, TnxId).
 
+%% @doc Get the transaction id from which this node should start applying after boot.
 get_init_tnx_id() ->
     application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
 
