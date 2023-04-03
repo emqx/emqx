@@ -1,73 +1,31 @@
+# emqx_stomp
 
-# emqx-stomp
+The Stomp Gateway is based on the
+[Stomp v1.2](https://stomp.github.io/stomp-specification-1.2.html) and is
+compatible with the Stomp v1.0 and v1.1 specification.
 
+## Quick Start
 
-The plugin adds STOMP 1.0/1.1/1.2 protocol supports to the EMQX broker.
+In EMQX 5.0, Stomp gateway can be configured and enabled through the Dashboard.
 
-The STOMP clients could PubSub to the MQTT clients.
+It can also be enabled via the HTTP API or emqx.conf, e.g. In emqx.conf:
 
-## Configuration
+```properties
+gateway.stomp {
 
-etc/emqx_stomp.conf
+  mountpoint = "stomp/"
 
-```
-## The Port that stomp listener will bind.
-##
-## Value: Port
-stomp.listener = 61613
-
-## The acceptor pool for stomp listener.
-##
-## Value: Number
-stomp.listener.acceptors = 4
-
-## Maximum number of concurrent stomp connections.
-##
-## Value: Number
-stomp.listener.max_connections = 512
-
-## Default login user
-##
-## Value: String
-stomp.default_user.login = guest
-
-## Default login password
-##
-## Value: String
-stomp.default_user.passcode = guest
-
-## Allow anonymous authentication.
-##
-## Value: true | false
-stomp.allow_anonymous = true
-
-## Maximum numbers of frame headers.
-##
-## Value: Number
-stomp.frame.max_headers = 10
-
-## Maximum length of frame header.
-##
-## Value: Number
-stomp.frame.max_header_length = 1024
-
-## Maximum body length of frame.
-##
-## Value: Number
-stomp.frame.max_body_length = 8192
+  listeners.tcp.default {
+    bind = 61613
+    acceptors = 16
+    max_connections = 1024000
+    max_conn_rate = 1000
+  }
+}
 ```
 
-## Load the Plugin
+> Note:
+> Configuring the gateway via emqx.conf requires changes on a per-node basis,
+> but configuring it via Dashboard or the HTTP API will take effect across the cluster.
 
-```
-./bin/emqx_ctl plugins load emqx_stomp
-```
-
-## License
-
-Apache License Version 2.0
-
-## Author
-
-EMQX Team.
-
+More documentations: [Stomp Gateway](https://www.emqx.io/docs/en/v5.0/gateway/stomp.html)
