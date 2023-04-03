@@ -77,7 +77,6 @@ qlc_modules0() ->
      "apps/emqx_management/src/emqx_mgmt_api.erl",
      "apps/emqx_auth_mnesia/src/emqx_auth_mnesia_api.erl",
      "apps/emqx_auth_mnesia/src/emqx_acl_mnesia_db.erl",
-     "apps/emqx_rule_engine/src/emqx_rule_registry.erl",
      "lib-ee/emqx_eviction_agent/src/emqx_eviction_agent.erl",
      "lib-ee/emqx_node_rebalance/src/emqx_node_rebalance_agent.erl"
     ].
