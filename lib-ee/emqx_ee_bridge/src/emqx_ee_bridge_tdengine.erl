@@ -22,7 +22,7 @@
 ]).
 
 -define(DEFAULT_SQL, <<
-    "insert into mqtt.t_mqtt_msg(ts, msgid, mqtt_topic, qos, payload, arrived) "
+    "insert into t_mqtt_msg(ts, msgid, mqtt_topic, qos, payload, arrived) "
     "values (${ts}, ${id}, ${topic}, ${qos}, ${payload}, ${timestamp})"
 >>).
 
