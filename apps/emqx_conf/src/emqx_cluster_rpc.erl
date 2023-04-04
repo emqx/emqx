@@ -278,6 +278,8 @@ init([Node, RetryMs]) ->
 
 %% @private
 handle_continue(?CATCH_UP, State) ->
+    %% emqx app must be started before
+    %% trying to catch up the rpc commit logs
     ok = wait_for_emqx_ready(),
     {noreply, State, catch_up(State)}.
 
