@@ -93,10 +93,11 @@ callback_mode() -> handle_event_function.
 init([ProfileId, #{key := Key} = Opts]) ->
     process_flag(trap_exit, true),
     {ok, ClientConfig, UploaderConfig} = emqx_s3_profile_conf:checkout_config(ProfileId),
-    Client = client(ClientConfig, Opts),
+    Client = client(ClientConfig),
     {ok, upload_not_started, #{
         profile_id => ProfileId,
         client => Client,
+        headers => maps:get(headers, Opts, #{}),
         key => Key,
         buffer => [],
         buffer_size => 0,
@@ -205,8 +206,8 @@ maybe_start_upload(#{buffer_size := BufferSize, min_part_size := MinPartSize} = 
     end.
 
 -spec start_upload(data()) -> {started, data()} | {error, term()}.
-start_upload(#{client := Client, key := Key} = Data) ->
-    case emqx_s3_client:start_multipart(Client, Key) of
+start_upload(#{client := Client, key := Key, headers := Headers} = Data) ->
+    case emqx_s3_client:start_multipart(Client, Headers, Key) of
         {ok, UploadId} ->
             NewData = Data#{upload_id => UploadId},
             {started, NewData};
@@ -293,10 +294,11 @@ put_object(
     #{
         client := Client,
         key := Key,
-        buffer := Buffer
+        buffer := Buffer,
+        headers := Headers
     }
 ) ->
-    case emqx_s3_client:put_object(Client, Key, lists:reverse(Buffer)) of
+    case emqx_s3_client:put_object(Client, Headers, Key, lists:reverse(Buffer)) of
         ok ->
             ok;
         {error, _} = Error ->
@@ -320,6 +322,5 @@ unwrap(WrappedData) ->
 is_valid_part(WriteData, #{max_part_size := MaxPartSize, buffer_size := BufferSize}) ->
     BufferSize + iolist_size(WriteData) =< MaxPartSize.
 
-client(Config, Opts) ->
-    Headers = maps:get(headers, Opts, #{}),
-    emqx_s3_client:create(Config#{headers => Headers}).
+client(Config) ->
+    emqx_s3_client:create(Config).

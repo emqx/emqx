@@ -109,7 +109,7 @@ t_url(Config) ->
     Client = client(Config),
     ok = emqx_s3_client:put_object(Client, Key, <<"data">>),
 
-    Url = emqx_s3_client:url(Client, Key),
+    Url = emqx_s3_client:uri(Client, Key),
 
     ?assertMatch(
         {ok, {{_StatusLine, 200, "OK"}, _Headers, "data"}},
