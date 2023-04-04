@@ -105,7 +105,7 @@ start_multipart(
 ) ->
     case erlcloud_s3:start_multipart(Bucket, key(Key), Options, Headers, AwsConfig) of
         {ok, Props} ->
-            {ok, proplists:get_value(uploadId, Props)};
+            {ok, proplists:get_value('uploadId', Props)};
         {error, Reason} ->
             ?SLOG(debug, #{msg => "start_multipart_fail", key => Key, reason => Reason}),
             {error, Reason}
