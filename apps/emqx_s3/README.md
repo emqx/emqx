@@ -112,6 +112,8 @@ do_upload_data(Key, Data) ->
 
 When an uploader process is started, it checkouts the actual S3 configuration for the profile from the `emqx_s3_profile_conf` server. It uses the obtained configuration and connection pool to upload data to S3 till the termination, even if the configuration is updated.
 
+Other processes (`emqx_XXX`) can also checkout the actual S3 configuration for the profile from the `emqx_s3_profile_conf` server.
+
 `emqx_s3_profile_conf`:
 * Keeps actual S3 configuration for the profile and creates a connection pool for the actual configuration.
 * Creates a new connection pool when the configuration is updated.
