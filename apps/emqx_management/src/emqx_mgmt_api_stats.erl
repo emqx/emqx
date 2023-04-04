@@ -139,7 +139,7 @@ list(get, #{query_string := Qs}) ->
 
 running_nodes() ->
     Nodes = erlang:nodes([visible, this]),
-    RpcResults = erpc:multicall(Nodes, emqx, is_running, [], 15000),
+    RpcResults = emqx_proto_v2:are_running(Nodes),
     [
         Node
      || {Node, IsRunning} <- lists:zip(Nodes, RpcResults),
