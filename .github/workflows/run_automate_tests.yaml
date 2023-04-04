@@ -6,7 +6,8 @@ on:
       - "v4.*"
   pull_request:
     branches:
-      - "main-v4.*"
+      - 'main-v4**'
+      - 'release-v4**'
 
 jobs:
   build:
@@ -132,16 +133,21 @@ jobs:
         ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
+        JTL_FILE="jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl"
+        if [ -e "$JTL_FILE" ]
+        then
+          echo > $JTL_FILE
+        fi
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/automate-test-suite/${{ matrix.webhook_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
           -Dweb_ip=$WEB_IP \
-          -l jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl \
+          -l $JTL_FILE \
           -j jmeter_logs/logs/webhook_${{ matrix.webhook_type }}.log
     - name: check logs
       run: |
-        if cat jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+        if cat $JTL_FILE | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
           echo "check logs filed"
           exit 1
         fi
@@ -228,6 +234,11 @@ jobs:
         wget --no-verbose -O "/opt/jmeter/lib/mysql-connector-java-8.0.16.jar" https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
     - name: run jmeter
       run: |
+        JTL_FILE="jmeter_logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.jtl"
+        if [ -e "$JTL_FILE" ]
+        then
+          echo > $JTL_FILE
+        fi
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/automate-test-suite/${{ matrix.mysql_type }}.jmx \
@@ -240,11 +251,11 @@ jobs:
           -Dmysql_pwd="public" \
           -Dconfig_path="/tmp/etc" \
           -Ddocker_path=".ci/docker-compose-file" \
-          -l jmeter_logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.jtl \
+          -l $JTL_FILE \
           -j jmeter_logs/logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.log
     - name: check logs
       run: |
-        if cat jmeter_logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+        if cat $JTL_FILE | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
           echo "check logs filed"
           exit 1
         fi
@@ -332,6 +343,11 @@ jobs:
         wget --no-verbose -O "/opt/jmeter/lib/postgresql-42.2.18.jar" https://repo1.maven.org/maven2/org/postgresql/postgresql/42.2.18/postgresql-42.2.18.jar
     - name: run jmeter
       run: |
+        JTL_FILE="jmeter_logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.jtl"
+        if [ -e "$JTL_FILE" ]
+        then
+          echo > $JTL_FILE
+        fi
         sudo /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/automate-test-suite/${{ matrix.pgsql_type }}.jmx \
@@ -349,11 +365,11 @@ jobs:
           -Dport="5432" \
           -Dconfig_path=$CONFIG_PATH \
           -Ddocker_path=".ci/docker-compose-file" \
-          -l jmeter_logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.jtl \
+          -l $JTL_FILE \
           -j jmeter_logs/logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.log
     - name: check logs
       run: |
-        if cat jmeter_logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+        if cat $JTL_FILE | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
           echo "check logs filed"
           exit 1
         fi
@@ -430,6 +446,11 @@ jobs:
         wget --no-verbose -O "/opt/jmeter/lib/mysql-connector-java-8.0.16.jar" https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
     - name: run jmeter
       run: |
+        JTL_FILE="jmeter_logs/http_auth_acl.jtl"
+        if [ -e "$JTL_FILE" ]
+        then
+          echo > $JTL_FILE
+        fi
         sudo /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/automate-test-suite/http_auth_acl.jmx \
@@ -438,11 +459,11 @@ jobs:
           -Dweb_server_ip=$HTTP_IP \
           -Dconfig_path=$CONFIG_PATH \
           -Ddocker_path=".ci/docker-compose-file" \
-          -l jmeter_logs/http_auth_acl.jtl \
+          -l $JTL_FILE \
           -j jmeter_logs/logs/http_auth_acl.log
     - name: check logs
       run: |
-        if cat jmeter_logs/http_auth_acl.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+        if cat $JTL_FILE | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
           echo "check logs filed"
           sudo cat /var/lib/docker/volumes/docker-compose-file_etc/_data/emqx.conf
           exit 1
