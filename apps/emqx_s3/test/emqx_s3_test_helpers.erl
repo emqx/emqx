@@ -99,7 +99,7 @@ unique_bucket() ->
 with_failure(_ConnType, ehttpc_500, Fun) ->
     try
         meck:new(ehttpc, [passthrough, no_history]),
-        meck:expect(ehttpc, request, fun(_, _, _, _) -> {ok, 500, []} end),
+        meck:expect(ehttpc, request, fun(_, _, _, _, _) -> {ok, 500, []} end),
         Fun()
     after
         meck:unload(ehttpc)

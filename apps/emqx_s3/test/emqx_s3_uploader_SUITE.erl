@@ -13,7 +13,6 @@
 -define(assertProcessExited(Reason, Pid),
     receive
         {'DOWN', _, _, Pid, Reason} ->
-            % ct:print("uploader process exited with reason: ~p", [R]),
             ok
     after 3000 ->
         ct:fail("uploader process did not exit")

@@ -203,6 +203,7 @@ client_config(ProfileConfig, PoolName) ->
         access_key_id => maps:get(access_key_id, ProfileConfig, undefined),
         secret_access_key => maps:get(secret_access_key, ProfileConfig, undefined),
         request_timeout => maps:get(request_timeout, HTTPOpts, undefined),
+        max_retries => maps:get(max_retries, HTTPOpts, undefined),
         http_pool => PoolName
     }.
 
