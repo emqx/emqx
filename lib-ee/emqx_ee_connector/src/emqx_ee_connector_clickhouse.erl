@@ -270,8 +270,15 @@ connect(Options) ->
         {pool_size, PoolSize}
     ],
     case clickhouse:start_link(FixedOptions) of
-        {ok, _Conn} = Ok ->
-            Ok;
+        {ok, Connection} ->
+            %% Check if we can connect and send a query
+            case clickhouse:detailed_status(Connection) of
+                ok ->
+                    {ok, Connection};
+                Error ->
+                    ok = clickhouse:stop(Connection),
+                    Error
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
