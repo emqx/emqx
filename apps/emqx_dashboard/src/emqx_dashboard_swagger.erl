@@ -755,6 +755,8 @@ typename_to_spec("initial()", _Mod) ->
     #{type => string, example => <<"0MB">>};
 typename_to_spec("bucket_name()", _Mod) ->
     #{type => string, example => <<"retainer">>};
+typename_to_spec("json_binary()", _Mod) ->
+    #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),

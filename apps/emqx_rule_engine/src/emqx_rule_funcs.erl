@@ -1097,26 +1097,27 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
 %% the function handling to the worker module.
 %% @end
-% '$handle_undefined_function'(schema_decode, [SchemaId, Data|MoreArgs]) ->
-%     emqx_schema_parser:decode(SchemaId, Data, MoreArgs);
-% '$handle_undefined_function'(schema_decode, Args) ->
-%     error({args_count_error, {schema_decode, Args}});
-
-% '$handle_undefined_function'(schema_encode, [SchemaId, Term|MoreArgs]) ->
-%     emqx_schema_parser:encode(SchemaId, Term, MoreArgs);
-% '$handle_undefined_function'(schema_encode, Args) ->
-%     error({args_count_error, {schema_encode, Args}});
-
-% '$handle_undefined_function'(sprintf, [Format|Args]) ->
-%     erlang:apply(fun sprintf_s/2, [Format, Args]);
-
-% '$handle_undefined_function'(Fun, Args) ->
-%     error({sql_function_not_supported, function_literal(Fun, Args)}).
-
+-if(?EMQX_RELEASE_EDITION == ee).
+%% EE
+'$handle_undefined_function'(schema_decode, [SchemaId, Data | MoreArgs]) ->
+    emqx_ee_schema_registry_serde:decode(SchemaId, Data, MoreArgs);
+'$handle_undefined_function'(schema_decode, Args) ->
+    error({args_count_error, {schema_decode, Args}});
+'$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
+    emqx_ee_schema_registry_serde:encode(SchemaId, Term, MoreArgs);
+'$handle_undefined_function'(schema_encode, Args) ->
+    error({args_count_error, {schema_encode, Args}});
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
 '$handle_undefined_function'(Fun, Args) ->
     error({sql_function_not_supported, function_literal(Fun, Args)}).
+-else.
+%% CE
+'$handle_undefined_function'(sprintf, [Format | Args]) ->
+    erlang:apply(fun sprintf_s/2, [Format, Args]);
+'$handle_undefined_function'(Fun, Args) ->
+    error({sql_function_not_supported, function_literal(Fun, Args)}).
+-endif.
 
 map_path(Key) ->
     {path, [{key, P} || P <- string:split(Key, ".", all)]}.

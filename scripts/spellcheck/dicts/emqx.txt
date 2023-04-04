@@ -1,6 +1,7 @@
 ACL
 AES
 APIs
+Avro
 BPAPI
 BSON
 Backplane

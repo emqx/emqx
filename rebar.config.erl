@@ -422,7 +422,8 @@ relx_apps_per_edition(ee) ->
         emqx_license,
         {emqx_ee_conf, load},
         emqx_ee_connector,
-        emqx_ee_bridge
+        emqx_ee_bridge,
+        emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
     [].
