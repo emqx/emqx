@@ -8,7 +8,10 @@
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1]).
 
--define(EE_SCHEMA_MODULES, [emqx_license_schema]).
+-define(EE_SCHEMA_MODULES, [
+    emqx_license_schema,
+    emqx_ft_schema
+]).
 
 namespace() ->
     emqx_conf_schema:namespace().

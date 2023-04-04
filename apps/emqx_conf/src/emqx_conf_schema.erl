@@ -63,8 +63,7 @@
     emqx_psk_schema,
     emqx_limiter_schema,
     emqx_slow_subs_schema,
-    emqx_mgmt_api_key_schema,
-    emqx_ft_schema
+    emqx_mgmt_api_key_schema
 ]).
 
 %% root config should not have a namespace
