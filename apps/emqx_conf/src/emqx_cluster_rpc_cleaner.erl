@@ -13,7 +13,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_cluster_rpc_handler).
+
+%% @doc This module is responsible for cleaning up the cluster RPC MFA.
+-module(emqx_cluster_rpc_cleaner).
 
 -behaviour(gen_server).
 

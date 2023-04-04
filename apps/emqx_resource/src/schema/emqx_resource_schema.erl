@@ -82,7 +82,7 @@ worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
 
 resume_interval(type) -> emqx_schema:duration_ms();
-resume_interval(importance) -> hidden;
+resume_interval(importance) -> ?IMPORTANCE_HIDDEN;
 resume_interval(desc) -> ?DESC("resume_interval");
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
