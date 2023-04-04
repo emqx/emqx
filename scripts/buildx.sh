@@ -27,6 +27,13 @@ help() {
     echo "                           E.g. ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-debian11"
 }
 
+die() {
+    msg="$1"
+    echo "$msg" >&2
+    help
+    exit 1
+}
+
 while [ "$#" -gt 0 ]; do
     case $1 in
     -h|--help)
@@ -81,13 +88,23 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "${PROFILE:-}" ]    ||
-   [ -z "${PKGTYPE:-}" ]    ||
-   [ -z "${BUILDER:-}" ]    ||
-   [ -z "${ARCH:-}" ]; then
-    help
-    exit 1
+## we have a different naming for them
+if [[ $(uname -m) == "x86_64" ]]; then
+    NATIVE_ARCH='amd64'
+elif [[ $(uname -m) == "aarch64" ]]; then
+    NATIVE_ARCH='arm64'
+elif [[ $(uname -m) == "arm64" ]]; then
+    NATIVE_ARCH='arm64'
+elif [[ $(uname -m) == "armv7l" ]]; then
+    # CHECKME: really ?
+    NATIVE_ARCH='arm64'
 fi
+ARCH="${ARCH:-${NATIVE_ARCH:-}}"
+
+[ -z "${PROFILE:-}" ] && die "missing --prifile"
+[ -z "${PKGTYPE:-}" ] && die "missing --pkgtyp"
+[ -z "${BUILDER:-}" ] && die "missing --builder"
+[ -z "${ARCH:-}" ] && die "missing --arch"
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
@@ -128,13 +145,7 @@ if [[ "$HOST_SYSTEM" = "$BUILDER_SYSTEM" ]]; then
 fi
 
 IS_NATIVE_ARCH='no'
-if [[ $(uname -m) == "x86_64" && "$ARCH" == "amd64" ]]; then
-    IS_NATIVE_ARCH='yes'
-elif [[ $(uname -m) == "aarch64" && "$ARCH" == "arm64" ]]; then
-    IS_NATIVE_ARCH='yes'
-elif [[ $(uname -m) == "arm64" && "$ARCH" == "arm64" ]]; then
-    IS_NATIVE_ARCH='yes'
-elif [[ $(uname -m) == "armv7l" && "$ARCH" == "arm64" ]]; then
+if [[ "$NATIVE_ARCH" == "$ARCH" ]]; then
     IS_NATIVE_ARCH='yes'
 fi
 
@@ -151,7 +162,7 @@ elif docker info; then
         --platform="linux/$ARCH" \
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
         "$BUILDER" \
-        bash -euc "$CMD_RUN"
+        bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
 else
     echo "Error: Docker not available on unsupported platform"
     exit 1;
