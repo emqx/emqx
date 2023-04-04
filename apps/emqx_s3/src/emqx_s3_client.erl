@@ -12,8 +12,10 @@
     create/1,
 
     put_object/3,
+    put_object/4,
 
     start_multipart/2,
+    start_multipart/3,
     upload_part/5,
     complete_multipart/4,
     abort_multipart/3,
@@ -84,12 +86,18 @@ create(Config) ->
     }.
 
 -spec put_object(client(), key(), iodata()) -> ok_or_error(term()).
+put_object(Client, Key, Value) ->
+    put_object(Client, #{}, Key, Value).
+
+-spec put_object(client(), headers(), key(), iodata()) -> ok_or_error(term()).
 put_object(
     #{bucket := Bucket, upload_options := Options, headers := Headers, aws_config := AwsConfig},
+    SpecialHeaders,
     Key,
     Value
 ) ->
-    try erlcloud_s3:put_object(Bucket, key(Key), Value, Options, Headers, AwsConfig) of
+    AllHeaders = join_headers(Headers, SpecialHeaders),
+    try erlcloud_s3:put_object(Bucket, key(Key), Value, Options, AllHeaders, AwsConfig) of
         Props when is_list(Props) ->
             ok
     catch
@@ -99,11 +107,17 @@ put_object(
     end.
 
 -spec start_multipart(client(), key()) -> ok_or_error(upload_id(), term()).
+start_multipart(Client, Key) ->
+    start_multipart(Client, #{}, Key).
+
+-spec start_multipart(client(), headers(), key()) -> ok_or_error(upload_id(), term()).
 start_multipart(
     #{bucket := Bucket, upload_options := Options, headers := Headers, aws_config := AwsConfig},
+    SpecialHeaders,
     Key
 ) ->
-    case erlcloud_s3:start_multipart(Bucket, key(Key), Options, Headers, AwsConfig) of
+    AllHeaders = join_headers(Headers, SpecialHeaders),
+    case erlcloud_s3:start_multipart(Bucket, key(Key), Options, AllHeaders, AwsConfig) of
         {ok, Props} ->
             {ok, proplists:get_value('uploadId', Props)};
         {error, Reason} ->
@@ -299,6 +313,9 @@ erlcloud_string_headers(Headers) ->
 
 binary_headers(Headers) ->
     [{to_binary(K), V} || {K, V} <- Headers].
+
+join_headers(Headers, SpecialHeaders) ->
+    Headers ++ string_headers(maps:to_list(SpecialHeaders)).
 
 to_binary(Val) when is_list(Val) -> list_to_binary(Val);
 to_binary(Val) when is_binary(Val) -> Val.
