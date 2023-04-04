@@ -56,13 +56,15 @@
 %% 5GB
 -define(DEFAULT_MAX_PART_SIZE, 5368709120).
 
+-define(DEFAULT_TIMEOUT, 30000).
+
 -spec start_link(emqx_s3:profile_id(), opts()) -> gen_statem:start_ret().
 start_link(ProfileId, #{key := Key} = Opts) when is_list(Key) ->
     gen_statem:start_link(?MODULE, [ProfileId, Opts], []).
 
 -spec write(pid(), iodata()) -> ok_or_error(term()).
 write(Pid, WriteData) ->
-    write(Pid, WriteData, infinity).
+    write(Pid, WriteData, ?DEFAULT_TIMEOUT).
 
 -spec write(pid(), iodata(), timeout()) -> ok_or_error(term()).
 write(Pid, WriteData, Timeout) ->
@@ -70,7 +72,7 @@ write(Pid, WriteData, Timeout) ->
 
 -spec complete(pid()) -> ok_or_error(term()).
 complete(Pid) ->
-    complete(Pid, infinity).
+    complete(Pid, ?DEFAULT_TIMEOUT).
 
 -spec complete(pid(), timeout()) -> ok_or_error(term()).
 complete(Pid, Timeout) ->
@@ -78,7 +80,7 @@ complete(Pid, Timeout) ->
 
 -spec abort(pid()) -> ok_or_error(term()).
 abort(Pid) ->
-    abort(Pid, infinity).
+    abort(Pid, ?DEFAULT_TIMEOUT).
 
 -spec abort(pid(), timeout()) -> ok_or_error(term()).
 abort(Pid, Timeout) ->
@@ -237,7 +239,7 @@ upload_part(
         etags := ETags
     } = Data
 ) ->
-    case emqx_s3_client:upload_part(Client, Key, UploadId, PartNumber, lists:reverse(Buffer)) of
+    case emqx_s3_client:upload_part(Client, Key, UploadId, PartNumber, Buffer) of
         {ok, ETag} ->
             NewData = Data#{
                 buffer => [],
@@ -298,7 +300,7 @@ put_object(
         headers := Headers
     }
 ) ->
-    case emqx_s3_client:put_object(Client, Headers, Key, lists:reverse(Buffer)) of
+    case emqx_s3_client:put_object(Client, Headers, Key, Buffer) of
         ok ->
             ok;
         {error, _} = Error ->
@@ -308,7 +310,7 @@ put_object(
 -spec append_buffer(data(), iodata()) -> data().
 append_buffer(#{buffer := Buffer, buffer_size := BufferSize} = Data, WriteData) ->
     Data#{
-        buffer => [WriteData | Buffer],
+        buffer => [Buffer, WriteData],
         buffer_size => BufferSize + iolist_size(WriteData)
     }.
 

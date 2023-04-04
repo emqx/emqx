@@ -7,6 +7,9 @@
 -behaviour(supervisor).
 
 -include_lib("emqx/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-include("src/emqx_s3.hrl").
 
 -export([
     start_link/1,
@@ -23,7 +26,7 @@
 
 -spec start_link(emqx_s3:profile_id()) -> supervisor:start_ret().
 start_link(ProfileId) ->
-    supervisor:start_link(?MODULE, [ProfileId]).
+    supervisor:start_link(?VIA_GPROC(id(ProfileId)), ?MODULE, [ProfileId]).
 
 -spec child_spec(emqx_s3:profile_id()) -> supervisor:child_spec().
 child_spec(ProfileId) ->
@@ -43,10 +46,10 @@ id(ProfileId) ->
 -spec start_uploader(emqx_s3:profile_id(), emqx_s3_uploader:opts()) ->
     supervisor:start_ret() | {error, profile_not_found}.
 start_uploader(ProfileId, Opts) ->
-    Id = id(ProfileId),
-    case gproc:where({n, l, Id}) of
-        undefined -> {error, profile_not_found};
-        Pid -> supervisor:start_child(Pid, [Opts])
+    try supervisor:start_child(?VIA_GPROC(id(ProfileId)), [Opts]) of
+        Result -> Result
+    catch
+        exit:{noproc, _} -> {error, profile_not_found}
     end.
 
 %%--------------------------------------------------------------------
@@ -54,7 +57,6 @@ start_uploader(ProfileId, Opts) ->
 %%-------------------------------------------------------------------
 
 init([ProfileId]) ->
-    true = gproc:reg({n, l, id(ProfileId)}, ignored),
     SupFlags = #{
         strategy => simple_one_for_one,
         intensity => 10,

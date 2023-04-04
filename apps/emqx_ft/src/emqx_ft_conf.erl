@@ -20,6 +20,8 @@
 
 -behaviour(emqx_config_handler).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% Accessors
 -export([storage/0]).
 -export([gc_interval/1]).
