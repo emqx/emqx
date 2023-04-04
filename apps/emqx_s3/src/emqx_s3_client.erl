@@ -31,22 +31,14 @@
     headers/0
 ]).
 
--type s3_bucket_acl() ::
-    private
-    | public_read
-    | public_read_write
-    | authenticated_read
-    | bucket_owner_read
-    | bucket_owner_full_control.
-
--type headers() :: #{binary() | string() => binary() | string()}.
+-type headers() :: #{binary() | string() => iodata()}.
 
 -type key() :: string().
 -type part_number() :: non_neg_integer().
 -type upload_id() :: string().
 -type etag() :: string().
 
--type upload_options() :: list({acl, s3_bucket_acl()}).
+-type upload_options() :: list({acl, emqx_s3:acl()}).
 
 -opaque client() :: #{
     aws_config := aws_config(),
@@ -61,11 +53,11 @@
     port := part_number(),
     bucket := string(),
     headers := headers(),
-    acl := s3_bucket_acl(),
+    acl := emqx_s3:acl(),
     url_expire_time := pos_integer(),
     access_key_id := string() | undefined,
     secret_access_key := string() | undefined,
-    http_pool := ecpool:pool_name(),
+    http_pool := ehttpc:pool_name(),
     request_timeout := timeout()
 }.
 
@@ -97,7 +89,7 @@ put_object(
     Value
 ) ->
     AllHeaders = join_headers(Headers, SpecialHeaders),
-    try erlcloud_s3:put_object(Bucket, key(Key), Value, Options, AllHeaders, AwsConfig) of
+    try erlcloud_s3:put_object(Bucket, erlcloud_key(Key), Value, Options, AllHeaders, AwsConfig) of
         Props when is_list(Props) ->
             ok
     catch
@@ -117,9 +109,9 @@ start_multipart(
     Key
 ) ->
     AllHeaders = join_headers(Headers, SpecialHeaders),
-    case erlcloud_s3:start_multipart(Bucket, key(Key), Options, AllHeaders, AwsConfig) of
+    case erlcloud_s3:start_multipart(Bucket, erlcloud_key(Key), Options, AllHeaders, AwsConfig) of
         {ok, Props} ->
-            {ok, proplists:get_value('uploadId', Props)};
+            {ok, response_property('uploadId', Props)};
         {error, Reason} ->
             ?SLOG(debug, #{msg => "start_multipart_fail", key => Key, reason => Reason}),
             {error, Reason}
@@ -135,10 +127,12 @@ upload_part(
     Value
 ) ->
     case
-        erlcloud_s3:upload_part(Bucket, key(Key), UploadId, PartNumber, Value, Headers, AwsConfig)
+        erlcloud_s3:upload_part(
+            Bucket, erlcloud_key(Key), UploadId, PartNumber, Value, Headers, AwsConfig
+        )
     of
         {ok, Props} ->
-            {ok, proplists:get_value(etag, Props)};
+            {ok, response_property(etag, Props)};
         {error, Reason} ->
             ?SLOG(debug, #{msg => "upload_part_fail", key => Key, reason => Reason}),
             {error, Reason}
@@ -151,7 +145,11 @@ complete_multipart(
     UploadId,
     ETags
 ) ->
-    case erlcloud_s3:complete_multipart(Bucket, key(Key), UploadId, ETags, Headers, AwsConfig) of
+    case
+        erlcloud_s3:complete_multipart(
+            Bucket, erlcloud_key(Key), UploadId, ETags, Headers, AwsConfig
+        )
+    of
         ok ->
             ok;
         {error, Reason} ->
@@ -161,7 +159,7 @@ complete_multipart(
 
 -spec abort_multipart(client(), key(), upload_id()) -> ok_or_error(term()).
 abort_multipart(#{bucket := Bucket, headers := Headers, aws_config := AwsConfig}, Key, UploadId) ->
-    case erlcloud_s3:abort_multipart(Bucket, key(Key), UploadId, [], Headers, AwsConfig) of
+    case erlcloud_s3:abort_multipart(Bucket, erlcloud_key(Key), UploadId, [], Headers, AwsConfig) of
         ok ->
             ok;
         {error, Reason} ->
@@ -181,7 +179,7 @@ list(#{bucket := Bucket, aws_config := AwsConfig}, Options) ->
 
 -spec uri(client(), key()) -> iodata().
 uri(#{bucket := Bucket, aws_config := AwsConfig, url_expire_time := ExpireTime}, Key) ->
-    erlcloud_s3:make_get_url(ExpireTime, Bucket, key(Key), AwsConfig).
+    erlcloud_s3:make_get_url(ExpireTime, Bucket, erlcloud_key(Key), AwsConfig).
 
 -spec format(client()) -> term().
 format(#{aws_config := AwsConfig} = Client) ->
@@ -197,7 +195,7 @@ upload_options(Config) ->
     ].
 
 headers(#{headers := Headers}) ->
-    string_headers(maps:to_list(Headers));
+    headers_user_to_erlcloud_request(Headers);
 headers(#{}) ->
     [].
 
@@ -230,7 +228,9 @@ aws_config(#{
 request_fun(HttpPool) ->
     fun(Url, Method, Headers, Body, Timeout, _Config) ->
         with_path_and_query_only(Url, fun(PathQuery) ->
-            Request = make_request(Method, PathQuery, binary_headers(Headers), Body),
+            Request = make_request(
+                Method, PathQuery, headers_erlcloud_request_to_ehttpc(Headers), Body
+            ),
             ?SLOG(debug, #{
                 msg => "s3_ehttpc_request",
                 timeout => Timeout,
@@ -243,6 +243,13 @@ request_fun(HttpPool) ->
     end.
 
 ehttpc_request(HttpPool, Method, Request, Timeout) ->
+    ?SLOG(debug, #{
+        msg => "s3_ehttpc_request",
+        timeout => Timeout,
+        pool => HttpPool,
+        method => Method,
+        request => format_request(Request)
+    }),
     try ehttpc:request(HttpPool, Method, Request, Timeout) of
         {ok, StatusCode, RespHeaders} ->
             ?SLOG(debug, #{
@@ -250,7 +257,9 @@ ehttpc_request(HttpPool, Method, Request, Timeout) ->
                 status_code => StatusCode,
                 headers => RespHeaders
             }),
-            {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), undefined}};
+            {ok, {
+                {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), undefined
+            }};
         {ok, StatusCode, RespHeaders, RespBody} ->
             ?SLOG(debug, #{
                 msg => "s3_ehttpc_request_ok",
@@ -258,7 +267,9 @@ ehttpc_request(HttpPool, Method, Request, Timeout) ->
                 headers => RespHeaders,
                 body => RespBody
             }),
-            {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), RespBody}};
+            {ok, {
+                {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), RespBody
+            }};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "s3_ehttpc_request_fail",
@@ -290,10 +301,10 @@ ehttpc_request(HttpPool, Method, Request, Timeout) ->
     end.
 
 -define(IS_BODY_EMPTY(Body), (Body =:= undefined orelse Body =:= <<>>)).
--define(NEEDS_BODY(Method), (Method =:= get orelse Method =:= head orelse Method =:= delete)).
+-define(NEEDS_NO_BODY(Method), (Method =:= get orelse Method =:= head orelse Method =:= delete)).
 
 make_request(Method, PathQuery, Headers, Body) when
-    ?IS_BODY_EMPTY(Body) andalso ?NEEDS_BODY(Method)
+    ?IS_BODY_EMPTY(Body) andalso ?NEEDS_NO_BODY(Method)
 ->
     {PathQuery, Headers};
 make_request(_Method, PathQuery, Headers, Body) when ?IS_BODY_EMPTY(Body) ->
@@ -301,7 +312,8 @@ make_request(_Method, PathQuery, Headers, Body) when ?IS_BODY_EMPTY(Body) ->
 make_request(_Method, PathQuery, Headers, Body) ->
     {PathQuery, Headers, Body}.
 
-format_request({PathQuery, Headers, _Body}) -> {PathQuery, Headers, <<"...">>}.
+format_request({PathQuery, Headers, _Body}) -> {PathQuery, Headers, <<"...">>};
+format_request({PathQuery, Headers}) -> {PathQuery, Headers}.
 
 with_path_and_query_only(Url, Fun) ->
     case string:split(Url, "//", leading) of
@@ -316,17 +328,41 @@ with_path_and_query_only(Url, Fun) ->
             {error, {invalid_url, Url}}
     end.
 
-string_headers(Headers) ->
-    [{to_list_string(K), to_list_string(V)} || {K, V} <- Headers].
+%% We need some header conversions to tie the emqx_s3, erlcloud and ehttpc APIs together.
 
-erlcloud_string_headers(Headers) ->
-    [{string:to_lower(K), V} || {K, V} <- string_headers(Headers)].
+%% The request header flow is:
 
-binary_headers(Headers) ->
-    [{to_binary(K), V} || {K, V} <- Headers].
+%% UserHeaders -> [emqx_s3_client API] -> ErlcloudRequestHeaders0 ->
+%% -> [erlcloud API] -> ErlcloudRequestHeaders1 -> [emqx_s3_client injected request_fun] ->
+%% -> EhttpcRequestHeaders -> [ehttpc API]
 
-join_headers(Headers, SpecialHeaders) ->
-    Headers ++ string_headers(maps:to_list(SpecialHeaders)).
+%% The response header flow is:
+
+%% [ehttpc API] -> EhttpcResponseHeaders -> [emqx_s3_client injected request_fun] ->
+%% -> ErlcloudResponseHeaders0 -> [erlcloud API] -> [emqx_s3_client API]
+
+%% UserHeders (emqx_s3 API headers) are maps with string/binary keys.
+%% ErlcloudRequestHeaders are lists of tuples with string keys and iodata values
+%% ErlcloudResponseHeders are lists of tuples with lower case string keys and iodata values.
+%% EhttpcHeaders are lists of tuples with binary keys and iodata values.
+
+%% Users provide headers as a map, but erlcloud expects a list of tuples with string keys and values.
+headers_user_to_erlcloud_request(UserHeaders) ->
+    [{to_list_string(K), V} || {K, V} <- maps:to_list(UserHeaders)].
+
+%% Ehttpc returns operates on headers as a list of tuples with binary keys.
+%% Erlcloud expects a list of tuples with string values and lowcase string keys
+%% from the underlying http library.
+headers_ehttpc_to_erlcloud_response(EhttpcHeaders) ->
+    [{string:to_lower(to_list_string(K)), to_list_string(V)} || {K, V} <- EhttpcHeaders].
+
+%% Ehttpc expects a list of tuples with binary keys.
+%% Erlcloud provides a list of tuples with string keys.
+headers_erlcloud_request_to_ehttpc(ErlcloudHeaders) ->
+    [{to_binary(K), V} || {K, V} <- ErlcloudHeaders].
+
+join_headers(ErlcloudHeaders, UserSpecialHeaders) ->
+    ErlcloudHeaders ++ headers_user_to_erlcloud_request(UserSpecialHeaders).
 
 to_binary(Val) when is_list(Val) -> list_to_binary(Val);
 to_binary(Val) when is_binary(Val) -> Val.
@@ -336,5 +372,19 @@ to_list_string(Val) when is_binary(Val) ->
 to_list_string(Val) when is_list(Val) ->
     Val.
 
-key(Characters) ->
+erlcloud_key(Characters) ->
     binary_to_list(unicode:characters_to_binary(Characters)).
+
+response_property(Name, Props) ->
+    case proplists:get_value(Name, Props) of
+        undefined ->
+            %% This schould not happen for valid S3 implementations
+            ?SLOG(error, #{
+                msg => "missing_s3_response_property",
+                name => Name,
+                props => Props
+            }),
+            error({missing_s3_response_property, Name});
+        Value ->
+            Value
+    end.

@@ -49,7 +49,7 @@
     transfer := transfer()
 }.
 
--define(S3_PROFILE_ID, <<"emqx_ft_storage_exporter_s3">>).
+-define(S3_PROFILE_ID, ?MODULE).
 -define(FILEMETA_VSN, <<"1">>).
 -define(S3_LIST_LIMIT, 500).
 
@@ -66,6 +66,7 @@ start_export(_Options, Transfer, Filemeta) ->
     },
     case emqx_s3:start_uploader(?S3_PROFILE_ID, Options) of
         {ok, Pid} ->
+            true = erlang:link(Pid),
             {ok, #{filemeta => Filemeta, pid => Pid}};
         {error, _Reason} = Error ->
             Error
@@ -151,7 +152,7 @@ list_key_info(Client, Options, Marker, Acc) ->
     ListOptions = [{max_keys, ?S3_LIST_LIMIT}] ++ Marker,
     case emqx_s3_client:list(Client, ListOptions) of
         {ok, Result} ->
-            ?SLOG(warning, #{msg => "list_key_info", result => Result}),
+            ?SLOG(debug, #{msg => "list_key_info", result => Result}),
             KeyInfos = proplists:get_value(contents, Result, []),
             case proplists:get_value(is_truncated, Result, false) of
                 true ->

@@ -11,6 +11,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-include("src/emqx_s3.hrl").
+
 -export([
     start_link/2,
     child_spec/2
@@ -47,6 +49,10 @@
 -define(DEFAULT_HTTP_POOL_TIMEOUT, 60000).
 -define(DEAFULT_HTTP_POOL_CLEANUP_INTERVAL, 60000).
 
+-define(SAFE_CALL_VIA_GPROC(ProfileId, Message, Timeout),
+    ?SAFE_CALL_VIA_GPROC(id(ProfileId), Message, Timeout, profile_not_found)
+).
+
 -spec child_spec(emqx_s3:profile_id(), emqx_s3:profile_config()) -> supervisor:child_spec().
 child_spec(ProfileId, ProfileConfig) ->
     #{
@@ -60,7 +66,7 @@ child_spec(ProfileId, ProfileConfig) ->
 
 -spec start_link(emqx_s3:profile_id(), emqx_s3:profile_config()) -> gen_server:start_ret().
 start_link(ProfileId, ProfileConfig) ->
-    gen_server:start_link(?MODULE, [ProfileId, ProfileConfig], []).
+    gen_server:start_link(?VIA_GPROC(id(ProfileId)), ?MODULE, [ProfileId, ProfileConfig], []).
 
 -spec update_config(emqx_s3:profile_id(), emqx_s3:profile_config()) -> ok_or_error(term()).
 update_config(ProfileId, ProfileConfig) ->
@@ -69,12 +75,7 @@ update_config(ProfileId, ProfileConfig) ->
 -spec update_config(emqx_s3:profile_id(), emqx_s3:profile_config(), timeout()) ->
     ok_or_error(term()).
 update_config(ProfileId, ProfileConfig, Timeout) ->
-    case gproc:where({n, l, id(ProfileId)}) of
-        undefined ->
-            {error, profile_not_found};
-        Pid ->
-            gen_server:call(Pid, {update_config, ProfileConfig}, Timeout)
-    end.
+    ?SAFE_CALL_VIA_GPROC(ProfileId, {update_config, ProfileConfig}, Timeout).
 
 -spec checkout_config(emqx_s3:profile_id()) ->
     {ok, emqx_s3_client:config(), emqx_s3_uploader:config()} | {error, profile_not_found}.
@@ -84,12 +85,7 @@ checkout_config(ProfileId) ->
 -spec checkout_config(emqx_s3:profile_id(), timeout()) ->
     {ok, emqx_s3_client:config(), emqx_s3_uploader:config()} | {error, profile_not_found}.
 checkout_config(ProfileId, Timeout) ->
-    case gproc:where({n, l, id(ProfileId)}) of
-        undefined ->
-            {error, profile_not_found};
-        Pid ->
-            gen_server:call(Pid, {checkout_config, self()}, Timeout)
-    end.
+    ?SAFE_CALL_VIA_GPROC(ProfileId, {checkout_config, self()}, Timeout).
 
 -spec checkin_config(emqx_s3:profile_id()) -> ok | {error, profile_not_found}.
 checkin_config(ProfileId) ->
@@ -97,12 +93,7 @@ checkin_config(ProfileId) ->
 
 -spec checkin_config(emqx_s3:profile_id(), timeout()) -> ok | {error, profile_not_found}.
 checkin_config(ProfileId, Timeout) ->
-    case gproc:where({n, l, id(ProfileId)}) of
-        undefined ->
-            {error, profile_not_found};
-        Pid ->
-            gen_server:call(Pid, {checkin_config, self()}, Timeout)
-    end.
+    ?SAFE_CALL_VIA_GPROC(ProfileId, {checkin_config, self()}, Timeout).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -110,10 +101,9 @@ checkin_config(ProfileId, Timeout) ->
 
 init([ProfileId, ProfileConfig]) ->
     _ = process_flag(trap_exit, true),
-    ok = cleanup_orphaned_pools(ProfileId),
+    ok = cleanup_profile_pools(ProfileId),
     case start_http_pool(ProfileId, ProfileConfig) of
         {ok, PoolName} ->
-            true = gproc:reg({n, l, id(ProfileId)}, ignored),
             HttpPoolCleanupInterval = http_pool_cleanup_interval(ProfileConfig),
             {ok, #{
                 profile_id => ProfileId,
@@ -188,12 +178,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{profile_id := ProfileId}) ->
-    lists:foreach(
-        fun(PoolName) ->
-            ok = stop_http_pool(ProfileId, PoolName)
-        end,
-        emqx_s3_profile_http_pools:all(ProfileId)
-    ).
+    cleanup_profile_pools(ProfileId).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -263,12 +248,14 @@ update_http_pool(ProfileId, ProfileConfig, #{pool_name := OldPoolName} = State) 
 pool_name(ProfileId) ->
     iolist_to_binary([
         <<"s3-http-">>,
-        ProfileId,
+        profile_id_to_bin(ProfileId),
         <<"-">>,
         integer_to_binary(erlang:system_time(millisecond)),
         <<"-">>,
         integer_to_binary(erlang:unique_integer([positive]))
     ]).
+profile_id_to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+profile_id_to_bin(Bin) when is_binary(Bin) -> Bin.
 
 old_http_config(#{profile_config := ProfileConfig}) -> http_config(ProfileConfig).
 
@@ -278,7 +265,7 @@ set_old_pool_outdated(#{
     _ = emqx_s3_profile_http_pools:set_outdated(ProfileId, PoolName, HttpPoolTimeout),
     ok.
 
-cleanup_orphaned_pools(ProfileId) ->
+cleanup_profile_pools(ProfileId) ->
     lists:foreach(
         fun(PoolName) ->
             ok = stop_http_pool(ProfileId, PoolName)
