@@ -149,7 +149,7 @@ values(common, MongoType, Method, TypeOpts) ->
         srv_record => false,
         pool_size => 8,
         username => <<"myuser">>,
-        password => <<"mypass">>
+        password => <<"******">>
     },
     MethodVals = method_values(MongoType, Method),
     Vals0 = maps:merge(MethodVals, Common),

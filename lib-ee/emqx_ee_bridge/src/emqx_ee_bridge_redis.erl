@@ -77,7 +77,7 @@ values(common, RedisType, SpecificOpts) ->
         enable => true,
         local_topic => <<"local/topic/#">>,
         pool_size => 8,
-        password => <<"secret">>,
+        password => <<"******">>,
         command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
         resource_opts => values(resource_opts, RedisType, #{}),
         ssl => #{enable => false}

@@ -235,7 +235,7 @@ mqtt_main_example() ->
         server => <<"127.0.0.1:1883">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,
-        password => <<"bar">>,
+        password => <<"******">>,
         clean_start => true,
         keepalive => <<"300s">>,
         retry_interval => <<"15s">>,

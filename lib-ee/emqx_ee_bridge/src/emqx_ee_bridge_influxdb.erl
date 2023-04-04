@@ -61,7 +61,7 @@ values("influxdb_api_v1", post) ->
     TypeOpts = #{
         database => <<"example_database">>,
         username => <<"example_username">>,
-        password => <<"examlpe_password">>,
+        password => <<"******">>,
         server => <<"127.0.0.1:8086">>
     },
     values(common, "influxdb_api_v1", SupportUint, TypeOpts);
