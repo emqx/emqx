@@ -210,7 +210,15 @@ start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
     ok = emqx_ratelimiter_SUITE:load_conf(),
-    lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
+    lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]),
+    case lists:member(emqx_conf) of
+        true ->
+            %% the cluster config syncer is started after all apps completed booting
+            %% mimic emqx_machine's boot sequence here.
+            ok = emqx_conf_sup:start_syncer();
+        false ->
+            ok
+    end.
 
 load(App) ->
     case application:load(App) of

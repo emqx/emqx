@@ -18,14 +18,27 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/0, start_syncer/0]).
 
 -export([init/1]).
+
+-include_lib("emqx/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
 
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+start_syncer() ->
+    case supervisor:start_child(?SERVER, child_spec(emqx_cluster_rpc, [])) of
+        {ok, Pid} when is_pid(Pid) ->
+            ok;
+        {error, {already_started, Pid}} when is_pid(Pid) ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_start_cluster_conf_syncer", reason => Reason}),
+            error(Reason)
+    end.
 
 init([]) ->
     SupFlags = #{
@@ -35,7 +48,8 @@ init([]) ->
     },
     ChildSpecs =
         [
-            child_spec(emqx_cluster_rpc, []),
+            % not started immediately, but by emqx_machine after boot
+            % child_spec(emqx_cluster_rpc, []),
             child_spec(emqx_cluster_rpc_cleaner, [])
         ],
     {ok, {SupFlags, ChildSpecs}}.

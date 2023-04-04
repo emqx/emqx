@@ -39,6 +39,8 @@ post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
     ok = start_autocluster(),
+    %% start conf syncer after boot
+    ok = emqx_conf_sup:start_syncer(),
     ignore.
 
 -ifdef(TEST).
