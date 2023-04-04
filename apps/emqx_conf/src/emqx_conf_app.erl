@@ -84,13 +84,16 @@ init_load() ->
 -endif.
 
 init_conf() ->
+    %% Workaround for https://github.com/emqx/mria/issues/94:
+    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
+    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, TnxId} = copy_override_conf_from_core_node(),
     emqx_app:set_init_tnx_id(TnxId),
     init_load(),
     emqx_app:set_init_config_load_done().
 
 cluster_nodes() ->
-    mria_mnesia:running_nodes() -- [node()].
+    mria:cluster_nodes(cores) -- [node()].
 
 copy_override_conf_from_core_node() ->
     case cluster_nodes() of
