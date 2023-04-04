@@ -52,12 +52,12 @@ WHERE
                               |              |           [Registry]
                        +------v--------------v------+
     REGISTER SCHEMA    |                            |
-    ------------------->                            |    +--------+
-                       |                            |    |        |
+       INSTANCE        |                            |    +--------+
+    ------------------->                            |    |        |
 [Management APIs]      |       Schema Registry      ------ Schema |
                        |                            |    |        |
-    ------------------->                            |    +--------+
-    LOAD PARSERS       |                            |
+                       |                            |    +--------+
+                       |                            |
                        +----------------------------+
                             /        |        \
                        +---/---+ +---|----+ +---\---+
@@ -67,3 +67,7 @@ WHERE
                        +-------+ +--------+ +-------+
 
 ```
+
+- Register schema instance: adds a new instance of a schema of a
+  certain type.  For example, when the user may have several Avro or
+  Protobuf schemas that they wish to use with different data flows.

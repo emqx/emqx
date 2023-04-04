@@ -48,7 +48,7 @@ fields(?CONF_KEY_ROOT) ->
     ];
 fields(avro) ->
     [
-        {type, mk(hoconsc:enum([avro]), #{required => true, desc => ?DESC("schema_type")})},
+        {type, mk(avro, #{required => true, desc => ?DESC("schema_type")})},
         {source,
             mk(emqx_schema:json_binary(), #{required => true, desc => ?DESC("schema_source")})},
         {description, mk(binary(), #{default => <<>>, desc => ?DESC("schema_description")})}

@@ -17,6 +17,7 @@
     get_serde/1,
 
     add_schema/2,
+    get_schema/1,
     delete_schema/1,
     list_schemas/0
 ]).
@@ -26,6 +27,7 @@
     init/1,
     handle_call/3,
     handle_cast/2,
+    handle_continue/2,
     terminate/2
 ]).
 
@@ -52,6 +54,15 @@ get_serde(SchemaName) ->
             {error, not_found};
         [Serde] ->
             {ok, serde_to_map(Serde)}
+    end.
+
+-spec get_schema(schema_name()) -> {ok, map()} | {error, not_found}.
+get_schema(SchemaName) ->
+    case emqx_config:get([?CONF_KEY_ROOT, schemas, SchemaName], undefined) of
+        undefined ->
+            {error, not_found};
+        Config ->
+            {ok, Config}
     end.
 
 -spec add_schema(schema_name(), schema()) -> ok | {error, term()}.
@@ -130,9 +141,12 @@ init(_) ->
     process_flag(trap_exit, true),
     create_tables(),
     Schemas = emqx_conf:get([?CONF_KEY_ROOT, schemas], #{}),
-    async_build_serdes(Schemas),
     State = #{},
-    {ok, State}.
+    {ok, State, {continue, {build_serdes, Schemas}}}.
+
+handle_continue({build_serdes, Schemas}, State) ->
+    do_build_serdes(Schemas),
+    {noreply, State}.
 
 handle_call(_Call, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -222,9 +236,6 @@ ensure_serde_absent(Name) ->
         {error, not_found} ->
             ok
     end.
-
-async_build_serdes(Schemas) ->
-    gen_server:cast(?MODULE, {build_serdes, Schemas}).
 
 async_delete_serdes(Names) ->
     gen_server:cast(?MODULE, {delete_serdes, Names}).

@@ -141,44 +141,44 @@ schema("/schema_registry/:name") ->
     ?OK(Response);
 '/schema_registry'(post, #{body := Params0 = #{<<"name">> := Name}}) ->
     Params = maps:without([<<"name">>], Params0),
-    case emqx_config:get([?CONF_KEY_ROOT, schemas, Name], undefined) of
-        undefined ->
+    case emqx_ee_schema_registry:get_schema(Name) of
+        {error, not_found} ->
             case emqx_ee_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    Res = emqx_config:get([?CONF_KEY_ROOT, schemas, Name]),
+                    {ok, Res} = emqx_ee_schema_registry:get_schema(Name),
                     {201, Res#{name => Name}};
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end;
-        _ ->
+        {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>)
     end.
 
 '/schema_registry/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_config:get([?CONF_KEY_ROOT, schemas, Name], undefined) of
-        undefined ->
+    case emqx_ee_schema_registry:get_schema(Name) of
+        {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
-        Res ->
-            ?OK(Res#{name => Name})
+        {ok, Schema} ->
+            ?OK(Schema#{name => Name})
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
-    case emqx_config:get([?CONF_KEY_ROOT, schemas, Name], undefined) of
-        undefined ->
+    case emqx_ee_schema_registry:get_schema(Name) of
+        {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
-        _ ->
+        {ok, _} ->
             case emqx_ee_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    Res = emqx_config:get([?CONF_KEY_ROOT, schemas, Name]),
+                    {ok, Res} = emqx_ee_schema_registry:get_schema(Name),
                     ?OK(Res#{name => Name});
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
     end;
 '/schema_registry/:name'(delete, #{bindings := #{name := Name}}) ->
-    case emqx_config:get([?CONF_KEY_ROOT, schemas, Name], undefined) of
-        undefined ->
+    case emqx_ee_schema_registry:get_schema(Name) of
+        {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
-        _ ->
+        {ok, _} ->
             case emqx_ee_schema_registry:delete_schema(Name) of
                 ok ->
                     ?NO_CONTENT;
