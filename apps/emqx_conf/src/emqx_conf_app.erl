@@ -93,7 +93,7 @@ init_conf() ->
     emqx_app:set_init_config_load_done().
 
 cluster_nodes() ->
-    mria_mnesia:running_nodes() -- [node()].
+    mria:cluster_nodes(cores) -- [node()].
 
 copy_override_conf_from_core_node() ->
     case cluster_nodes() of
