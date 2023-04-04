@@ -245,8 +245,19 @@ request_fun(HttpPool) ->
 ehttpc_request(HttpPool, Method, Request, Timeout) ->
     try ehttpc:request(HttpPool, Method, Request, Timeout) of
         {ok, StatusCode, RespHeaders} ->
+            ?SLOG(debug, #{
+                msg => "s3_ehttpc_request_ok",
+                status_code => StatusCode,
+                headers => RespHeaders
+            }),
             {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), undefined}};
         {ok, StatusCode, RespHeaders, RespBody} ->
+            ?SLOG(debug, #{
+                msg => "s3_ehttpc_request_ok",
+                status_code => StatusCode,
+                headers => RespHeaders,
+                body => RespBody
+            }),
             {ok, {{StatusCode, undefined}, erlcloud_string_headers(RespHeaders), RespBody}};
         {error, Reason} ->
             ?SLOG(error, #{

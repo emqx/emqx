@@ -155,7 +155,7 @@ list_key_info(Client, Options, Marker, Acc) ->
             KeyInfos = proplists:get_value(contents, Result, []),
             case proplists:get_value(is_truncated, Result, false) of
                 true ->
-                    NewMarker = [{marker, proplists:get_value(next_marker, Result)}],
+                    NewMarker = next_marker(KeyInfos),
                     list_key_info(Client, Options, NewMarker, [KeyInfos | Acc]);
                 false ->
                     {ok, lists:append(lists:reverse([KeyInfos | Acc]))}
@@ -163,6 +163,9 @@ list_key_info(Client, Options, Marker, Acc) ->
         {error, _Reason} = Error ->
             Error
     end.
+
+next_marker(KeyInfos) ->
+    [{marker, proplists:get_value(key, lists:last(KeyInfos))}].
 
 key_info_to_exportinfo(Client, KeyInfo, _Options) ->
     Key = proplists:get_value(key, KeyInfo),
