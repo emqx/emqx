@@ -50,7 +50,7 @@ values(_Method, Type) ->
         database => <<"mqtt">>,
         pool_size => 8,
         username => <<"default">>,
-        password => <<"public">>,
+        password => <<"******">>,
         sql => ?DEFAULT_SQL,
         batch_value_separator => ?DEFAULT_BATCH_VALUE_SEPARATOR,
         local_topic => <<"local/topic/#">>,

@@ -64,7 +64,7 @@ values(common_config) ->
         authentication => #{
             mechanism => <<"plain">>,
             username => <<"username">>,
-            password => <<"password">>
+            password => <<"******">>
         },
         bootstrap_hosts => <<"localhost:9092">>,
         connect_timeout => <<"5s">>,

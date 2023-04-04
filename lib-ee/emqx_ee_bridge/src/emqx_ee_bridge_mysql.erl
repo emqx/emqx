@@ -47,7 +47,7 @@ values(_Method) ->
         database => <<"test">>,
         pool_size => 8,
         username => <<"root">>,
-        password => <<"">>,
+        password => <<"******">>,
         sql => ?DEFAULT_SQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
