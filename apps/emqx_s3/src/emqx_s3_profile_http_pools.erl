@@ -96,11 +96,11 @@ set_outdated(ProfileId, PoolName, Timeout) ->
 outdated(ProfileId) ->
     Now = erlang:monotonic_time(millisecond),
     MS = ets:fun2ms(
-        fun(#pool{key = {ProfileId_, PoolName}, deadline = Deadline_}) when
-            ProfileId_ =:= ProfileId andalso
-                Deadline_ =/= undefined andalso Deadline_ < Now
+        fun(#pool{key = {CurProfileId, CurPoolName}, deadline = CurDeadline}) when
+            CurProfileId =:= ProfileId andalso
+                CurDeadline =/= undefined andalso CurDeadline < Now
         ->
-            PoolName
+            CurPoolName
         end
     ),
     ets:select(?TAB, MS).
@@ -109,8 +109,8 @@ outdated(ProfileId) ->
     [pool_name()].
 all(ProfileId) ->
     MS = ets:fun2ms(
-        fun(#pool{key = {ProfileId_, PoolName}}) when ProfileId_ =:= ProfileId ->
-            PoolName
+        fun(#pool{key = {CurProfileId, CurPoolName}}) when CurProfileId =:= ProfileId ->
+            CurPoolName
         end
     ),
     ets:select(?TAB, MS).
