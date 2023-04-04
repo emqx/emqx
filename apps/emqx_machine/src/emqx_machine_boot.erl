@@ -146,12 +146,17 @@ basic_reboot_apps() ->
                 emqx_authz,
                 emqx_slow_subs,
                 emqx_auto_subscribe,
-                emqx_plugins,
-                emqx_s3
+                emqx_plugins
             ],
     case emqx_release:edition() of
-        ce -> CE;
-        ee -> CE ++ []
+        ce ->
+            CE;
+        ee ->
+            CE ++
+                [
+                    emqx_s3,
+                    emqx_ft
+                ]
     end.
 
 sorted_reboot_apps() ->

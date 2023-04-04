@@ -400,9 +400,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_prometheus,
             emqx_psk,
             emqx_slow_subs,
-            emqx_plugins,
-            emqx_ft,
-            emqx_s3
+            emqx_plugins
         ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
@@ -424,7 +422,9 @@ relx_apps_per_edition(ee) ->
         emqx_license,
         {emqx_ee_conf, load},
         emqx_ee_connector,
-        emqx_ee_bridge
+        emqx_ee_bridge,
+        emqx_s3,
+        emqx_ft
     ];
 relx_apps_per_edition(ce) ->
     [].
