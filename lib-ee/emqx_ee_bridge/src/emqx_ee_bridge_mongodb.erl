@@ -38,7 +38,7 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
         {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
         {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
-    ] ++ emqx_resource_schema:fields("resource_opts_sync_only");
+    ] ++ emqx_resource_schema:fields("resource_opts");
 fields(mongodb_rs) ->
     emqx_connector_mongo:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->

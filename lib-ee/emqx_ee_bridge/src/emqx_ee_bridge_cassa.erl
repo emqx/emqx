@@ -86,21 +86,10 @@ fields("config") ->
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), default => undefined}
-            )},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
             )}
-    ] ++
+    ] ++ emqx_resource_schema:fields("resource_opts") ++
         (emqx_ee_connector_cassa:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
-fields("creation_opts") ->
-    emqx_resource_schema:fields("creation_opts_sync_only");
 fields("post") ->
     fields("post", cassandra);
 fields("put") ->
@@ -115,8 +104,6 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Cassandra using `", string:to_upper(Method), "` method."];
-desc("creation_opts" = Name) ->
-    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 

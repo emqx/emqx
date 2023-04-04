@@ -100,17 +100,6 @@ For bridges only have ingress direction data flow, it can be set to 0 otherwise 
     }
   }
 
-  query_mode_sync_only {
-    desc {
-      en: """Query mode. Only support 'sync'."""
-      zh: """请求模式。目前只支持同步模式。"""
-    }
-    label {
-      en: """Query mode"""
-      zh: """请求模式"""
-    }
-  }
-
   request_timeout {
     desc {
       en: """Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""

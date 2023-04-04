@@ -80,21 +80,10 @@ fields("config") ->
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), required => false}
-            )},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{<<"request_timeout">> => ?DEFFAULT_REQ_TIMEOUT},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
             )}
-    ] ++
+    ] ++ emqx_resource_schema:fields("resource_opts") ++
         (emqx_ee_connector_rocketmq:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
-fields("creation_opts") ->
-    emqx_resource_schema:fields("creation_opts_sync_only");
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
@@ -106,8 +95,6 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for RocketMQ using `", string:to_upper(Method), "` method."];
-desc("creation_opts" = Name) ->
-    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 

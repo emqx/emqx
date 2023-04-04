@@ -80,19 +80,8 @@ fields("config") ->
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), default => undefined}
-            )},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
             )}
-    ] ++ emqx_ee_connector_tdengine:fields(config);
-fields("creation_opts") ->
-    emqx_resource_schema:fields("creation_opts_sync_only");
+    ] ++ emqx_resource_schema:fields("resource_opts") ++ emqx_ee_connector_tdengine:fields(config);
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
@@ -104,8 +93,6 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for TDengine using `", string:to_upper(Method), "` method."];
-desc("creation_opts" = Name) ->
-    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 
