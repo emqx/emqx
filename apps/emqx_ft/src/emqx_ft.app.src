@@ -6,7 +6,8 @@
     {applications, [
         kernel,
         stdlib,
-        gproc
+        gproc,
+        emqx_s3
     ]},
     {env, []},
     {modules, []}
