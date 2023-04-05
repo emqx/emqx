@@ -48,7 +48,8 @@
     max_part_size := pos_integer(),
     upload_id := undefined | emqx_s3_client:upload_id(),
     etags := [emqx_s3_client:etag()],
-    part_number := emqx_s3_client:part_number()
+    part_number := emqx_s3_client:part_number(),
+    headers := emqx_s3_client:headers()
 }.
 
 %% 5MB
@@ -252,7 +253,7 @@ upload_part(
             Error
     end.
 
--spec complete_upload(data()) -> ok_or_error(term()).
+-spec complete_upload(data()) -> ok_or_error(data(), term()).
 complete_upload(
     #{
         client := Client,

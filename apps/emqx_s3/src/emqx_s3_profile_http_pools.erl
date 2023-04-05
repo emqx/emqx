@@ -89,7 +89,8 @@ unregister_client(ProfileId, PoolName) ->
 set_outdated(ProfileId, PoolName, Timeout) ->
     Key = key(ProfileId, PoolName),
     Now = erlang:monotonic_time(millisecond),
-    ets:update_element(?TAB, Key, {#pool.deadline, Now + Timeout}).
+    _ = ets:update_element(?TAB, Key, {#pool.deadline, Now + Timeout}),
+    ok.
 
 -spec outdated(emqx_s3:profile_id()) ->
     [pool_name()].
