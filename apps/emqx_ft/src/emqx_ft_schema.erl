@@ -163,6 +163,7 @@ fields(local_storage_segments_gc) ->
             mk(
                 emqx_schema:duration_s(),
                 #{
+                    desc => ?DESC("storage_gc_min_segments_ttl"),
                     required => false,
                     default => "5m",
                     % NOTE
