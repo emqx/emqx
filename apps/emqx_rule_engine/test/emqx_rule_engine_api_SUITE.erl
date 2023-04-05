@@ -281,3 +281,16 @@ test_rule_params(Sql, Payload) ->
             <<"sql">> => Sql
         }
     }.
+
+t_rule_engine(_) ->
+    {200, _} = emqx_rule_engine_api:'/rule_engine'(get, foo),
+    {200, #{
+        jq_function_default_timeout := 12000,
+        jq_implementation_module := jq_port
+    }} = emqx_rule_engine_api:'/rule_engine'(put, #{
+        body => #{
+            <<"jq_function_default_timeout">> => <<"12s">>,
+            <<"jq_implementation_module">> => <<"jq_port">>
+        }
+    }),
+    {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).

@@ -48,12 +48,15 @@ check_params(Params, Tag) ->
 
 roots() ->
     [
+        {"rule_engine", sc(ref("rule_engine"), #{desc => ?DESC("root_rule_engine")})},
         {"rule_creation", sc(ref("rule_creation"), #{desc => ?DESC("root_rule_creation")})},
         {"rule_info", sc(ref("rule_info"), #{desc => ?DESC("root_rule_info")})},
         {"rule_events", sc(ref("rule_events"), #{desc => ?DESC("root_rule_events")})},
         {"rule_test", sc(ref("rule_test"), #{desc => ?DESC("root_rule_test")})}
     ].
 
+fields("rule_engine") ->
+    emqx_rule_engine_schema:fields("rule_engine");
 fields("rule_creation") ->
     emqx_rule_engine_schema:fields("rules");
 fields("rule_info") ->

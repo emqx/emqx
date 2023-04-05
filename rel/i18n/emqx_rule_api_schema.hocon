@@ -638,6 +638,17 @@ emqx_rule_api_schema {
                           }
                   }
 
+    root_rule_engine {
+                   desc {
+                         en: "Rule engine configuration schema"
+                         zh: "规则引擎配置模式"
+                        }
+                   label: {
+                           en: "Configuration Schema"
+                           zh: "配置模式"
+                          }
+                  }
+
     root_rule_creation {
                    desc {
                          en: "Schema for creating rules"
