@@ -40,13 +40,17 @@ tags() ->
 roots() -> ["rule_engine"].
 
 fields("rule_engine") ->
+    fields("rule_engine_api") ++
+        [
+            {rules,
+                ?HOCON(hoconsc:map("id", ?R_REF("rules")), #{
+                    desc => ?DESC("rule_engine_rules"), default => #{}
+                })}
+        ];
+fields("rule_engine_api") ->
     [
         {ignore_sys_message,
             ?HOCON(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
-        {rules,
-            ?HOCON(hoconsc:map("id", ?R_REF("rules")), #{
-                desc => ?DESC("rule_engine_rules"), default => #{}
-            })},
         {jq_function_default_timeout,
             ?HOCON(
                 emqx_schema:duration_ms(),

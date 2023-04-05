@@ -447,16 +447,20 @@ param_path_id() ->
 '/rule_engine'(get, _Params) ->
     {200, format_rule_engine_resp(emqx_conf:get([rule_engine]))};
 '/rule_engine'(put, #{body := Params}) ->
-    case emqx_conf:update([rule_engine], Params, #{override_to => cluster}) of
-        {ok, #{config := Config}} ->
-            {200, format_rule_engine_resp(Config)};
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "update_rule_engine_failed",
-                reason => Reason
-            }),
-            {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
-    end.
+    ?CHECK_PARAMS(
+        Params,
+        rule_engine,
+        case emqx_conf:update([rule_engine], Params, #{override_to => cluster}) of
+            {ok, #{config := Config}} ->
+                {200, format_rule_engine_resp(Config)};
+            {error, Reason} ->
+                ?SLOG(error, #{
+                    msg => "update_rule_engine_failed",
+                    reason => Reason
+                }),
+                {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+        end
+    ).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -507,22 +511,29 @@ format_rule_info_resp(#{
 format_rule_engine_resp(#{rules := Rules} = Config) ->
     Config#{rules => maps:map(fun format_rule_resp/2, Rules)}.
 
-format_rule_resp(_Id, #{
-    name := Name,
-    metadata := MetaData = #{created_at := CreatedAt},
-    actions := Action,
-    sql := SQL,
-    enable := Enable,
-    description := Descr
-}) ->
+format_rule_resp(
+    _Id,
     #{
+        name := Name,
+        actions := Action,
+        sql := SQL,
+        enable := Enable,
+        description := Descr
+    } = Rule
+) ->
+    Format = #{
         name => Name,
         actions => format_action(Action),
         sql => SQL,
         enable => Enable,
-        metadata => MetaData#{created_at => format_datetime(CreatedAt, millisecond)},
         description => Descr
-    }.
+    },
+    case Rule of
+        #{metadata := MetaData = #{created_at := CreatedAt}} ->
+            Format#{metadata => MetaData#{created_at => format_datetime(CreatedAt, millisecond)}};
+        _ ->
+            Format
+    end.
 
 format_datetime(Timestamp, Unit) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
