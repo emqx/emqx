@@ -204,6 +204,7 @@ client_config(ProfileConfig, PoolName) ->
         secret_access_key => maps:get(secret_access_key, ProfileConfig, undefined),
         request_timeout => maps:get(request_timeout, HTTPOpts, undefined),
         max_retries => maps:get(max_retries, HTTPOpts, undefined),
+        pool_type => maps:get(pool_type, HTTPOpts, random),
         http_pool => PoolName
     }.
 
@@ -371,9 +372,12 @@ stop_http_pool(ProfileId, PoolName) ->
     ok = ?tp(debug, "s3_stop_http_pool", #{pool_name => PoolName}).
 
 do_start_http_pool(PoolName, HttpConfig) ->
+    ?SLOG(warning, #{msg => "s3_start_http_pool", pool_name => PoolName, config => HttpConfig}),
     case ehttpc_sup:start_pool(PoolName, HttpConfig) of
         {ok, _} ->
+            ?SLOG(warning, #{msg => "s3_start_http_pool_success", pool_name => PoolName}),
             ok;
         {error, _} = Error ->
+            ?SLOG(error, #{msg => "s3_start_http_pool_fail", pool_name => PoolName, error => Error}),
             Error
     end.

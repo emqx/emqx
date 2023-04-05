@@ -38,6 +38,8 @@
 -type part_number() :: non_neg_integer().
 -type upload_id() :: string().
 -type etag() :: string().
+-type http_pool() :: ehttpc:pool_name().
+-type pool_type() :: random | hash.
 -type upload_options() :: list({acl, emqx_s3:acl()}).
 
 -opaque client() :: #{
@@ -59,6 +61,7 @@
     access_key_id := string() | undefined,
     secret_access_key := string() | undefined,
     http_pool := ehttpc:pool_name(),
+    pool_type := pool_type(),
     request_timeout := timeout() | undefined,
     max_retries := non_neg_integer() | undefined
 }.
@@ -79,7 +82,8 @@ create(Config) ->
         upload_options => upload_options(Config),
         bucket => maps:get(bucket, Config),
         url_expire_time => maps:get(url_expire_time, Config),
-        headers => headers(Config)
+        headers => headers(Config),
+        pool_type => maps:get(pool_type, Config)
     }.
 
 -spec put_object(client(), key(), iodata()) -> ok_or_error(term()).
@@ -211,6 +215,7 @@ aws_config(#{
     access_key_id := AccessKeyId,
     secret_access_key := SecretAccessKey,
     http_pool := HttpPool,
+    pool_type := PoolType,
     request_timeout := Timeout,
     max_retries := MaxRetries
 }) ->
@@ -224,7 +229,9 @@ aws_config(#{
         access_key_id = AccessKeyId,
         secret_access_key = SecretAccessKey,
 
-        http_client = request_fun(HttpPool, with_default(MaxRetries, ?DEFAULT_MAX_RETRIES)),
+        http_client = request_fun(
+            HttpPool, PoolType, with_default(MaxRetries, ?DEFAULT_MAX_RETRIES)
+        ),
 
         %% This value will be transparently passed to ehttpc
         timeout = with_default(Timeout, ?DEFAULT_REQUEST_TIMEOUT),
@@ -232,55 +239,63 @@ aws_config(#{
         retry_num = 1
     }.
 
--type http_pool() :: term().
-
--spec request_fun(http_pool(), non_neg_integer()) -> erlcloud_httpc:request_fun().
-request_fun(HttpPool, MaxRetries) ->
+-spec request_fun(http_pool(), pool_type(), non_neg_integer()) -> erlcloud_httpc:request_fun().
+request_fun(HttpPool, PoolType, MaxRetries) ->
     fun(Url, Method, Headers, Body, Timeout, _Config) ->
         with_path_and_query_only(Url, fun(PathQuery) ->
             Request = make_request(
                 Method, PathQuery, headers_erlcloud_request_to_ehttpc(Headers), Body
             ),
-            ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries)
+            case pick_worker_safe(HttpPool, PoolType) of
+                {ok, Worker} ->
+                    ehttpc_request(Worker, Method, Request, Timeout, MaxRetries);
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "s3_request_fun_fail",
+                        reason => Reason,
+                        http_pool => HttpPool,
+                        pool_type => PoolType,
+                        method => Method,
+                        request => Request,
+                        timeout => Timeout,
+                        max_retries => MaxRetries
+                    }),
+                    {error, Reason}
+            end
         end)
     end.
 
 ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
-    ?SLOG(debug, #{
-        msg => "s3_ehttpc_request",
-        timeout => Timeout,
-        pool => HttpPool,
-        method => Method,
-        max_retries => MaxRetries,
-        request => format_request(Request)
-    }),
-    try ehttpc:request(HttpPool, Method, Request, Timeout, MaxRetries) of
-        {ok, StatusCode, RespHeaders} ->
-            ?SLOG(debug, #{
-                msg => "s3_ehttpc_request_ok",
-                status_code => StatusCode,
-                headers => RespHeaders
-            }),
-            {ok, {
-                {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), undefined
-            }};
-        {ok, StatusCode, RespHeaders, RespBody} ->
+    try timer:tc(fun() -> ehttpc:request(HttpPool, Method, Request, Timeout, MaxRetries) end) of
+        {Time, {ok, StatusCode, RespHeaders}} ->
             ?SLOG(debug, #{
                 msg => "s3_ehttpc_request_ok",
                 status_code => StatusCode,
                 headers => RespHeaders,
-                body => RespBody
+                time => Time
+            }),
+            {ok, {
+                {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), undefined
+            }};
+        {Time, {ok, StatusCode, RespHeaders, RespBody}} ->
+            ?SLOG(debug, #{
+                msg => "s3_ehttpc_request_ok",
+                status_code => StatusCode,
+                headers => RespHeaders,
+                body => RespBody,
+                time => Time
             }),
             {ok, {
                 {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), RespBody
             }};
-        {error, Reason} ->
+        {Time, {error, Reason}} ->
             ?SLOG(error, #{
                 msg => "s3_ehttpc_request_fail",
                 reason => Reason,
                 timeout => Timeout,
                 pool => HttpPool,
-                method => Method
+                method => Method,
+                time => Time
             }),
             {error, Reason}
     catch
@@ -303,6 +318,19 @@ ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
             }),
             {error, Reason}
     end.
+
+pick_worker_safe(HttpPool, PoolType) ->
+    try
+        {ok, pick_worker(HttpPool, PoolType)}
+    catch
+        error:badarg ->
+            {error, no_ehttpc_pool}
+    end.
+
+pick_worker(HttpPool, random) ->
+    ehttpc_pool:pick_worker(HttpPool);
+pick_worker(HttpPool, hash) ->
+    ehttpc_pool:pick_worker(HttpPool, self()).
 
 -define(IS_BODY_EMPTY(Body), (Body =:= undefined orelse Body =:= <<>>)).
 -define(NEEDS_NO_BODY(Method), (Method =:= get orelse Method =:= head orelse Method =:= delete)).
