@@ -107,13 +107,12 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp emqx_apps(profile_info, version) do
-    apps = umbrella_apps() ++ enterprise_apps(profile_info)
+    apps = community_apps() ++ enterprise_apps(profile_info)
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps() do
-    "apps/*"
-    |> Path.wildcard()
+  defp community_apps() do
+    community_app_paths()
     |> Enum.map(fn path ->
       app =
         path
@@ -125,9 +124,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
-    "lib-ee/*"
-    |> Path.wildcard()
-    |> Enum.filter(&File.dir?/1)
+    enterprise_app_paths()
     |> Enum.map(fn path ->
       app =
         path
@@ -140,6 +137,28 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_apps(_profile_info) do
     []
+  end
+
+  defp community_app_paths() do
+    "apps/*"
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.reject(&File.exists?(Path.join(&1, "BSL.txt")))
+  end
+
+  defp enterprise_app_paths() do
+    lib_ee_paths =
+      "lib-ee/*"
+      |> Path.wildcard()
+      |> Enum.filter(&File.dir?/1)
+
+    apps_paths =
+      "apps/*"
+      |> Path.wildcard()
+      |> Enum.filter(&File.dir?/1)
+      |> Enum.filter(&File.exists?(Path.join(&1, "BSL.txt")))
+
+    lib_ee_paths ++ apps_paths
   end
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
