@@ -26,29 +26,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft], fun set_special_config/1),
+    ok = emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)
+    ),
     {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
-
-set_special_config(emqx_ft) ->
-    emqx_config:put(
-        [file_transfer],
-        #{
-            storage => #{
-                type => local,
-                segments => #{
-                    gc => #{
-                        interval => 60000
-                    }
-                },
-                exporter => #{
-                    type => local
-                }
-            }
-        }
-    );
-set_special_config(_) ->
-    ok.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),

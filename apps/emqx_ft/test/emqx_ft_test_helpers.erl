@@ -28,12 +28,7 @@ start_additional_node(Config, Name) ->
             {apps, [emqx_ft]},
             {join_to, node()},
             {configure_gen_rpc, true},
-            {env_handler, fun
-                (emqx_ft) ->
-                    load_config(#{storage => local_storage(Config)});
-                (_) ->
-                    ok
-            end}
+            {env_handler, env_handler(Config)}
         ]
     ).
 
@@ -42,6 +37,14 @@ stop_additional_node(Node) ->
     ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
     ok = emqx_common_test_helpers:stop_slave(Node),
     ok.
+
+env_handler(Config) ->
+    fun
+        (emqx_ft) ->
+            load_config(#{storage => local_storage(Config)});
+        (_) ->
+            ok
+    end.
 
 local_storage(Config) ->
     #{
