@@ -35,7 +35,7 @@
 
 -reflect_type([json_value/0]).
 
--import(hoconsc, [ref/1, ref/2, mk/2]).
+-import(hoconsc, [ref/2, mk/2]).
 
 namespace() -> file_transfer.
 
@@ -217,3 +217,6 @@ converter(checksum) ->
             _ = byte_size(Hex) =:= 64 orelse throw({expected_length, 64}),
             {sha256, binary:decode_hex(Hex)}
     end.
+
+ref(Ref) ->
+    ref(?MODULE, Ref).

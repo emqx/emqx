@@ -26,10 +26,24 @@ roots() ->
     ).
 
 fields(Name) ->
-    emqx_conf_schema:fields(Name).
+    ee_fields(?EE_SCHEMA_MODULES, Name).
 
 translations() ->
     emqx_conf_schema:translations().
 
 translation(Name) ->
     emqx_conf_schema:translation(Name).
+
+%%------------------------------------------------------------------------------
+%% helpers
+%%------------------------------------------------------------------------------
+
+ee_fields([EEMod | EEMods], Name) ->
+    case lists:member(Name, apply(EEMod, roots, [])) of
+        true ->
+            apply(EEMod, fields, [Name]);
+        false ->
+            ee_fields(EEMods, Name)
+    end;
+ee_fields([], Name) ->
+    emqx_conf_schema:fields(Name).
