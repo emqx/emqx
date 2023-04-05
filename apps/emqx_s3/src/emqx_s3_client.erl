@@ -32,19 +32,20 @@
 ]).
 
 -type headers() :: #{binary() | string() => iodata()}.
+-type erlcloud_headers() :: list({string(), iodata()}).
 
 -type key() :: string().
 -type part_number() :: non_neg_integer().
 -type upload_id() :: string().
 -type etag() :: string().
-
 -type upload_options() :: list({acl, emqx_s3:acl()}).
 
 -opaque client() :: #{
     aws_config := aws_config(),
-    options := upload_options(),
+    upload_options := upload_options(),
     bucket := string(),
-    headers := headers()
+    headers := erlcloud_headers(),
+    url_expire_time := non_neg_integer()
 }.
 
 -type config() :: #{
@@ -62,7 +63,7 @@
     max_retries := non_neg_integer() | undefined
 }.
 
--type s3_options() :: list({string(), string()}).
+-type s3_options() :: proplists:proplist().
 
 -define(DEFAULT_REQUEST_TIMEOUT, 30000).
 -define(DEFAULT_MAX_RETRIES, 2).
@@ -171,10 +172,10 @@ abort_multipart(#{bucket := Bucket, headers := Headers, aws_config := AwsConfig}
             {error, Reason}
     end.
 
--spec list(client(), s3_options()) -> ok_or_error(term()).
+-spec list(client(), s3_options()) -> ok_or_error(proplists:proplist(), term()).
 list(#{bucket := Bucket, aws_config := AwsConfig}, Options) ->
-    try
-        {ok, erlcloud_s3:list_objects(Bucket, Options, AwsConfig)}
+    try erlcloud_s3:list_objects(Bucket, Options, AwsConfig) of
+        Result -> {ok, Result}
     catch
         error:{aws_error, Reason} ->
             ?SLOG(debug, #{msg => "list_objects_fail", bucket => Bucket, reason => Reason}),

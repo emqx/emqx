@@ -45,15 +45,7 @@
 -type options() :: _TODO.
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
--type exportinfo() :: #{
-    transfer := transfer(),
-    name := file:name(),
-    uri := uri_string:uri_string(),
-    timestamp := emqx_datetime:epoch_second(),
-    size := _Bytes :: non_neg_integer(),
-    meta => filemeta()
-}.
-
+-type exportinfo() :: emqx_ft_storage:file_info().
 -type file_error() :: emqx_ft_storage_fs:file_error().
 
 -type export_st() :: #{

@@ -20,12 +20,13 @@ create_table() ->
         set
     ]).
 
--spec register(ets:tid(), pid(), reference(), emqx_s3_profile_http_pools:pool_name()) -> true.
+-spec register(ets:tid(), pid(), reference(), emqx_s3_profile_http_pools:pool_name()) -> ok.
 register(Tab, Pid, MRef, PoolName) ->
     true = ets:insert(Tab, {Pid, {MRef, PoolName}}),
     ok.
 
--spec unregister(ets:tid(), pid()) -> emqx_s3_profile_http_pools:pool_name() | undefined.
+-spec unregister(ets:tid(), pid()) ->
+    {reference(), emqx_s3_profile_http_pools:pool_name()} | undefined.
 unregister(Tab, Pid) ->
     case ets:take(Tab, Pid) of
         [{Pid, {MRef, PoolName}}] ->
