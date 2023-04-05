@@ -61,7 +61,9 @@ fields("rule_engine") ->
                 #{
                     default => jq_nif,
                     mapping => "jq.jq_implementation_module",
-                    desc => ?DESC("rule_engine_jq_implementation_module")
+                    desc => ?DESC("rule_engine_jq_implementation_module"),
+                    deprecated => {since, "v5.0.22"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
