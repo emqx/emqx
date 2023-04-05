@@ -3,10 +3,14 @@
 -mode(compile).
 
 main(_) ->
+    main_per_lang("en"),
+    main_per_lang("zh").
+
+main_per_lang(Lang) ->
     BaseConf = <<"">>,
-    Cfgs0 = get_all_files(),
+    Cfgs0 = get_all_files(Lang),
     Conf = merge(BaseConf, Cfgs0),
-    OutputFile = "apps/emqx_dashboard/priv/i18n.conf",
+    OutputFile = "apps/emqx_dashboard/priv/i18n." ++ Lang ++ ".conf",
     ok = filelib:ensure_dir(OutputFile),
     ok = file:write_file(OutputFile, Conf).
 
@@ -21,7 +25,11 @@ merge(BaseConf, Cfgs) ->
               end
       end, BaseConf, Cfgs).
 
-get_all_files() ->
-    Dir = filename:join(["rel","i18n"]),
+get_all_files(Lang) ->
+    Dir =
+        case Lang of
+            "en" -> filename:join(["rel", "i18n"]);
+            "zh" -> filename:join(["rel", "i18n", "zh"])
+        end,
     Files = filelib:wildcard("*.hocon", Dir),
     lists:map(fun(Name) -> filename:join([Dir, Name]) end, Files).
