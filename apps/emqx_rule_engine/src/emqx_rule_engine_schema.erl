@@ -27,7 +27,8 @@
     roots/0,
     fields/1,
     desc/1,
-    post_config_update/5
+    post_config_update/5,
+    rule_engine_settings/0
 ]).
 
 -export([validate_sql/1]).
@@ -40,37 +41,13 @@ tags() ->
 roots() -> ["rule_engine"].
 
 fields("rule_engine") ->
-    fields("rule_engine_api") ++
+    rule_engine_settings() ++
         [
             {rules,
                 ?HOCON(hoconsc:map("id", ?R_REF("rules")), #{
                     desc => ?DESC("rule_engine_rules"), default => #{}
                 })}
         ];
-fields("rule_engine_api") ->
-    [
-        {ignore_sys_message,
-            ?HOCON(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
-        {jq_function_default_timeout,
-            ?HOCON(
-                emqx_schema:duration_ms(),
-                #{
-                    default => <<"10s">>,
-                    desc => ?DESC("rule_engine_jq_function_default_timeout")
-                }
-            )},
-        {jq_implementation_module,
-            ?HOCON(
-                hoconsc:enum([jq_nif, jq_port]),
-                #{
-                    default => jq_nif,
-                    mapping => "jq.jq_implementation_module",
-                    desc => ?DESC("rule_engine_jq_implementation_module"),
-                    deprecated => {since, "v5.0.22"},
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
-    ];
 fields("rules") ->
     [
         rule_name(),
@@ -232,6 +209,31 @@ actions() ->
 
 qos() ->
     ?UNION([emqx_schema:qos(), binary()]).
+
+rule_engine_settings() ->
+    [
+        {ignore_sys_message,
+            ?HOCON(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
+        {jq_function_default_timeout,
+            ?HOCON(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"10s">>,
+                    desc => ?DESC("rule_engine_jq_function_default_timeout")
+                }
+            )},
+        {jq_implementation_module,
+            ?HOCON(
+                hoconsc:enum([jq_nif, jq_port]),
+                #{
+                    default => jq_nif,
+                    mapping => "jq.jq_implementation_module",
+                    desc => ?DESC("rule_engine_jq_implementation_module"),
+                    deprecated => {since, "v5.0.22"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ].
 
 validate_sql(Sql) ->
     case emqx_rule_sqlparser:parse(Sql) of

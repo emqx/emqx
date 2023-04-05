@@ -56,7 +56,7 @@ roots() ->
     ].
 
 fields("rule_engine") ->
-    emqx_rule_engine_schema:fields("rule_engine_api");
+    emqx_rule_engine_schema:rule_engine_settings();
 fields("rule_creation") ->
     emqx_rule_engine_schema:fields("rules");
 fields("rule_info") ->
