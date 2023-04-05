@@ -20,9 +20,15 @@ all() ->
 
 groups() ->
     AllCases = emqx_common_test_helpers:all(?MODULE),
+    PoolGroups = [
+        {group, pool_random},
+        {group, pool_hash}
+    ],
     [
-        {tcp, [], AllCases},
-        {tls, [], AllCases}
+        {tcp, [], PoolGroups},
+        {tls, [], PoolGroups},
+        {pool_random, [], AllCases},
+        {pool_hash, [], AllCases}
     ].
 
 init_per_suite(Config) ->
@@ -32,8 +38,17 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = application:stop(emqx_s3).
 
-init_per_group(ConnType, Config) ->
-    [{conn_type, ConnType} | Config].
+init_per_group(ConnTypeGroup, Config) when ConnTypeGroup =:= tcp; ConnTypeGroup =:= tls ->
+    [{conn_type, ConnTypeGroup} | Config];
+init_per_group(PoolTypeGroup, Config) when
+    PoolTypeGroup =:= pool_random; PoolTypeGroup =:= pool_hash
+->
+    PoolType =
+        case PoolTypeGroup of
+            pool_random -> random;
+            pool_hash -> hash
+        end,
+    [{pool_type, PoolType} | Config].
 end_per_group(_ConnType, _Config) ->
     ok.
 
@@ -127,11 +142,18 @@ client(Config) ->
     emqx_s3_client:create(ClientConfig).
 
 profile_config(Config) ->
-    maps:put(
+    ProfileConfig0 = emqx_s3_test_helpers:base_config(?config(conn_type, Config)),
+    ProfileConfig1 = maps:put(
         bucket,
         ?config(bucket, Config),
-        emqx_s3_test_helpers:base_config(?config(conn_type, Config))
-    ).
+        ProfileConfig0
+    ),
+    ProfileConfig2 = emqx_map_lib:deep_put(
+        [transport_options, pool_type],
+        ProfileConfig1,
+        ?config(pool_type, Config)
+    ),
+    ProfileConfig2.
 
 data(Size) ->
     iolist_to_binary([$a || _ <- lists:seq(1, Size)]).

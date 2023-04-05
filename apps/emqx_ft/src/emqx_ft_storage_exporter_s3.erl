@@ -137,10 +137,11 @@ s3_headers({ClientId, FileId}, Filemeta) ->
 list(Client, Options) ->
     case list_key_info(Client, Options) of
         {ok, KeyInfos} ->
-            {ok,
-                lists:map(
-                    fun(KeyInfo) -> key_info_to_exportinfo(Client, KeyInfo, Options) end, KeyInfos
-                )};
+            MaybeExportInfos = lists:map(
+                fun(KeyInfo) -> key_info_to_exportinfo(Client, KeyInfo, Options) end, KeyInfos
+            ),
+            ExportInfos = [ExportInfo || {ok, ExportInfo} <- MaybeExportInfos],
+            {ok, ExportInfos};
         {error, _Reason} = Error ->
             Error
     end.
@@ -170,14 +171,18 @@ next_marker(KeyInfos) ->
 
 key_info_to_exportinfo(Client, KeyInfo, _Options) ->
     Key = proplists:get_value(key, KeyInfo),
-    {Transfer, Name} = parse_transfer_and_name(Key),
-    #{
-        transfer => Transfer,
-        name => unicode:characters_to_binary(Name),
-        uri => emqx_s3_client:uri(Client, Key),
-        timestamp => datetime_to_epoch_second(proplists:get_value(last_modified, KeyInfo)),
-        size => proplists:get_value(size, KeyInfo)
-    }.
+    case parse_transfer_and_name(Key) of
+        {ok, {Transfer, Name}} ->
+            {ok, #{
+                transfer => Transfer,
+                name => unicode:characters_to_binary(Name),
+                uri => emqx_s3_client:uri(Client, Key),
+                timestamp => datetime_to_epoch_second(proplists:get_value(last_modified, KeyInfo)),
+                size => proplists:get_value(size, KeyInfo)
+            }};
+        {error, _Reason} = Error ->
+            Error
+    end.
 
 -define(EPOCH_START, 62167219200).
 
@@ -185,8 +190,13 @@ datetime_to_epoch_second(DateTime) ->
     calendar:datetime_to_gregorian_seconds(DateTime) - ?EPOCH_START.
 
 parse_transfer_and_name(Key) ->
-    [ClientId, FileId, Name] = string:split(Key, "/", all),
-    Transfer = {
-        emqx_ft_fs_util:unescape_filename(ClientId), emqx_ft_fs_util:unescape_filename(FileId)
-    },
-    {Transfer, Name}.
+    case string:split(Key, "/", all) of
+        [ClientId, FileId, Name] ->
+            Transfer = {
+                emqx_ft_fs_util:unescape_filename(ClientId),
+                emqx_ft_fs_util:unescape_filename(FileId)
+            },
+            {ok, {Transfer, Name}};
+        _ ->
+            {error, invalid_key}
+    end.
