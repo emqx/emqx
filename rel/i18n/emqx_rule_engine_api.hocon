@@ -147,8 +147,8 @@ emqx_rule_engine_api {
                   }
     api9 {
                    desc {
-                         en: "Get rule engine configuration"
-                         zh: "获取规则引擎配置"
+                         en: "Get rule engine configuration."
+                         zh: "获取规则引擎配置。"
                         }
                    label {
                           en: "Get configuration"
@@ -157,8 +157,8 @@ emqx_rule_engine_api {
     }
     api10 {
                    desc {
-                         en: "Update rule engine configuration"
-                         zh: "更新规则引擎配置"
+                         en: "Update rule engine configuration."
+                         zh: "更新规则引擎配置。"
                         }
                    label {
                           en: "Update configuration"
