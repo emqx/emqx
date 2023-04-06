@@ -24,7 +24,9 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--record(emqx_trace, {name, type, filter, enable = true, start_at, end_at}).
+-record(emqx_trace, {
+    name, type, filter, enable = true, payload_encode = text, extra = #{}, start_at, end_at
+}).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -97,7 +99,9 @@ t_base_create_delete(_Config) ->
             type => clientid,
             name => <<"name1">>,
             start_at => Now,
-            end_at => Now + 30 * 60
+            end_at => Now + 30 * 60,
+            payload_encode => text,
+            extra => #{}
         }
     ],
     ?assertEqual(ExpectFormat, emqx_trace:format([TraceRec])),
@@ -383,6 +387,48 @@ t_find_closed_time(_Config) ->
         #emqx_trace{name = <<"stopped">>, start_at = Now, end_at = Now + 10, enable = false}
     ],
     ?assertEqual(1000, emqx_trace:find_closest_time(Traces, Now)),
+    ok.
+
+t_migrate_trace(_Config) ->
+    build_new_trace_data(),
+    build_old_trace_data(),
+    reload(),
+    Traces = emqx_trace:format(emqx_trace:list()),
+    ?assertEqual(2, erlang:length(Traces)),
+    lists:foreach(
+        fun(#{name := Name, enable := Enable}) ->
+            ?assertEqual(true, Enable, Name)
+        end,
+        Traces
+    ),
+    LoggerIds = logger:get_handler_ids(),
+    lists:foreach(
+        fun(Id) ->
+            ?assertEqual(true, lists:member(Id, LoggerIds), LoggerIds)
+        end,
+        [
+            trace_topic_test_topic_migrate_new,
+            trace_topic_test_topic_migrate_old
+        ]
+    ),
+    ok.
+
+build_new_trace_data() ->
+    Now = erlang:system_time(second),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, <<"test_topic_migrate_new">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/test/migrate/new">>},
+        {<<"start_at">>, Now - 10}
+    ]).
+
+build_old_trace_data() ->
+    Now = erlang:system_time(second),
+    OldAttrs = [name, type, filter, enable, start_at, end_at],
+    {atomic, ok} = mnesia:transform_table(emqx_trace, ignore, OldAttrs, emqx_trace),
+    OldTrace =
+        {emqx_trace, <<"test_topic_migrate_old">>, topic, <<"topic">>, true, Now - 10, Now + 100},
+    ok = mnesia:dirty_write(OldTrace),
     ok.
 
 reload() ->

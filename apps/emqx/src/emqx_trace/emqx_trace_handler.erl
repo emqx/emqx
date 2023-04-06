@@ -160,14 +160,14 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
-formatter(#{type := _Type}) ->
+formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         template => [time, " [", level, "] ", msg, "\n"],
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
-        payload_encode => payload_encode()
+        payload_encode => PayloadEncode
     }}.
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->

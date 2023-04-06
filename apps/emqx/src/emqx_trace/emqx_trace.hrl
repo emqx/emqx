@@ -24,6 +24,8 @@
     filter ::
         emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address() | undefined | '_',
     enable = true :: boolean() | '_',
+    payload_encode = text :: hex | text | hidden | '_',
+    extra = #{} :: map() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'
 }).

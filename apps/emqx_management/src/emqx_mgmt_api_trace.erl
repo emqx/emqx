@@ -94,7 +94,8 @@ schema("/trace") ->
                 409 => emqx_dashboard_swagger:error_codes(
                     [
                         'ALREADY_EXISTS',
-                        'DUPLICATE_CONDITION'
+                        'DUPLICATE_CONDITION',
+                        'BAD_TYPE'
                     ],
                     <<"trace already exists">>
                 )
@@ -265,6 +266,19 @@ fields(trace) ->
                     example => running
                 }
             )},
+        {payload_encode,
+            hoconsc:mk(hoconsc:enum([hex, text, hidden]), #{
+                desc =>
+                    ""
+                    "Determine the format of the payload format in the trace file.<br/>\n"
+                    "`text`: Text-based protocol or plain text protocol.\n"
+                    " It is recommended when payload is JSON encoded.<br/>\n"
+                    "`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br/>\n"
+                    "`hidden`: payload is obfuscated as `******`"
+                    "",
+                default => text,
+                required => false
+            })},
         {start_at,
             hoconsc:mk(
                 emqx_datetime:epoch_second(),
@@ -420,6 +434,11 @@ trace(post, #{body := Param}) ->
             {409, #{
                 code => 'DUPLICATE_CONDITION',
                 message => ?TO_BIN([Name, " Duplication Condition"])
+            }};
+        {error, {bad_type, _}} ->
+            {409, #{
+                code => 'BAD_TYPE',
+                message => <<"Rolling upgrade in progress, create failed">>
             }};
         {error, Reason} ->
             {400, #{

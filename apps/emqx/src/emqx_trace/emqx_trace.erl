@@ -59,7 +59,8 @@
 -ifdef(TEST).
 -export([
     log_file/2,
-    find_closest_time/2
+    find_closest_time/2,
+    migrate_trace/0
 ]).
 -endif.
 
@@ -230,6 +231,7 @@ init([]) ->
         {attributes, record_info(fields, ?TRACE)}
     ]),
     ok = mria:wait_for_tables([?TRACE]),
+    migrate_trace(),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     ok = filelib:ensure_dir(filename:join([trace_dir(), dummy])),
     ok = filelib:ensure_dir(filename:join([zip_dir(), dummy])),
@@ -358,9 +360,10 @@ start_trace(Trace) ->
         name = Name,
         type = Type,
         filter = Filter,
-        start_at = Start
+        start_at = Start,
+        payload_encode = PayloadEncode
     } = Trace,
-    Who = #{name => Name, type => Type, filter => Filter},
+    Who = #{name => Name, type => Type, filter => Filter, payload_encode => PayloadEncode},
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
@@ -490,6 +493,8 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
     end;
 to_trace(#{type := Type}, _Rec) ->
     {error, io_lib:format("required ~s field", [Type])};
+to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->
+    to_trace(maps:remove(payload_encode, Trace), Rec#?TRACE{payload_encode = PayloadEncode});
 to_trace(#{start_at := StartAt} = Trace, Rec) ->
     {ok, Sec} = to_system_second(StartAt),
     to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = Sec});
@@ -573,3 +578,30 @@ filter_cli_handler(Names) ->
 
 now_second() ->
     os:system_time(second).
+
+migrate_trace() ->
+    Fields = record_info(fields, ?TRACE),
+    case mnesia:table_info(emqx_trace, attributes) =:= Fields of
+        true ->
+            ok;
+        false ->
+            TransFun = fun(Trace) ->
+                case Trace of
+                    {?TRACE, Name, Type, Filter, Enable, StartAt, EndAt} ->
+                        #?TRACE{
+                            name = Name,
+                            type = Type,
+                            filter = Filter,
+                            enable = Enable,
+                            start_at = StartAt,
+                            end_at = EndAt,
+                            payload_encode = text,
+                            extra = #{}
+                        };
+                    #?TRACE{} ->
+                        Trace
+                end
+            end,
+            {atomic, ok} = mnesia:transform_table(?TRACE, TransFun, Fields, ?TRACE),
+            ok
+    end.

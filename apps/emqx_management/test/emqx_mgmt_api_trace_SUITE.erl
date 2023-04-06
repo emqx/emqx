@@ -174,6 +174,13 @@ t_create_failed(_Config) ->
         {error, {"HTTP/1.1", 409, _}},
         request_api(post, api_path("trace"), [GoodName2 | Trace])
     ),
+    %% new name but bad payload-encode
+    GoodName3 = {<<"name">>, <<"test-name-2">>},
+    PayloadEncode = {<<"payload_encode">>, <<"bad">>},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}},
+        request_api(post, api_path("trace"), [GoodName3, PayloadEncode | Trace])
+    ),
 
     unload(),
     emqx_trace:clear(),

@@ -229,7 +229,7 @@ roots(low) ->
         {"trace",
             sc(
                 ref("trace"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"crl_cache",
             sc(
@@ -1853,6 +1853,8 @@ fields("trace") ->
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
+                deprecated => {since, "5.0.22"},
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(fields_trace_payload_encode)
             })}
     ].
