@@ -2634,6 +2634,39 @@ t_sqlparse_invalid_json(_Config) ->
             }
         )
     ).
+
+t_sqlparse_both_string_types_in_from(_Config) ->
+    %% Here is an SQL select statement with both string types in the FROM clause
+    SqlSelect =
+        "select clientid, topic as tp "
+        "from 't/tt', \"$events/client_connected\" ",
+    ?assertMatch(
+        {ok, #{<<"clientid">> := <<"abc">>, <<"tp">> := <<"t/tt">>}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => SqlSelect,
+                context => #{clientid => <<"abc">>, topic => <<"t/tt">>}
+            }
+        )
+    ),
+    %% Here is an SQL foreach statement with both string types in the FROM clause
+    SqlForeach =
+        "foreach payload.sensors "
+        "from 't/#', \"$events/client_connected\" ",
+    ?assertMatch(
+        {ok, []},
+        emqx_rule_sqltester:test(
+            #{
+                sql => SqlForeach,
+                context =>
+                    #{
+                        payload => <<"{\"sensors\": 1}">>,
+                        topic => <<"t/a">>
+                    }
+            }
+        )
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases for telemetry functions
 %%------------------------------------------------------------------------------
