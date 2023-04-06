@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_impl_kafka_consumer).
+-module(emqx_bridge_kafka_impl_consumer).
 
 -behaviour(emqx_resource).
 
@@ -52,8 +52,9 @@
     ssl := _,
     any() => term()
 }.
--type subscriber_id() :: emqx_ee_bridge_kafka_consumer_sup:child_id().
+-type subscriber_id() :: emqx_bridge_kafka_consumer_sup:child_id().
 -type kafka_topic() :: brod:topic().
+-type kafka_message() :: #kafka_message{}.
 -type state() :: #{
     kafka_topics := nonempty_list(kafka_topic()),
     subscriber_id := subscriber_id(),
@@ -129,14 +130,14 @@ on_start(InstanceId, Config) ->
         ssl := SSL,
         topic_mapping := _
     } = Config,
-    BootstrapHosts = emqx_bridge_impl_kafka:hosts(BootstrapHosts0),
+    BootstrapHosts = emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
     KafkaType = kafka_consumer,
     %% Note: this is distinct per node.
     ClientID = make_client_id(InstanceId, KafkaType, BridgeName),
     ClientOpts0 =
         case Auth of
             none -> [];
-            Auth -> [{sasl, emqx_bridge_impl_kafka:sasl(Auth)}]
+            Auth -> [{sasl, emqx_bridge_kafka_impl:sasl(Auth)}]
         end,
     ClientOpts = add_ssl_opts(ClientOpts0, SSL),
     case brod:start_client(BootstrapHosts, ClientID, ClientOpts) of
@@ -191,7 +192,7 @@ init(GroupData, State0) ->
     State = State0#{kafka_topic => KafkaTopic},
     {ok, State}.
 
--spec handle_message(#kafka_message{}, consumer_state()) -> {ok, commit, consumer_state()}.
+-spec handle_message(kafka_message(), consumer_state()) -> {ok, commit, consumer_state()}.
 handle_message(Message, State) ->
     ?tp_span(
         kafka_consumer_handle_message,
@@ -240,13 +241,13 @@ add_ssl_opts(ClientOpts, #{enable := false}) ->
 add_ssl_opts(ClientOpts, SSL) ->
     [{ssl, emqx_tls_lib:to_client_opts(SSL)} | ClientOpts].
 
--spec make_subscriber_id(atom() | binary()) -> emqx_ee_bridge_kafka_consumer_sup:child_id().
+-spec make_subscriber_id(atom() | binary()) -> emqx_bridge_kafka_consumer_sup:child_id().
 make_subscriber_id(BridgeName) ->
     BridgeNameBin = to_bin(BridgeName),
     <<"kafka_subscriber:", BridgeNameBin/binary>>.
 
 ensure_consumer_supervisor_started() ->
-    Mod = emqx_ee_bridge_kafka_consumer_sup,
+    Mod = emqx_bridge_kafka_consumer_sup,
     ChildSpec =
         #{
             id => Mod,
@@ -327,7 +328,7 @@ start_consumer(Config, InstanceId, ClientID) ->
     %% spawns one worker for each assigned topic-partition
     %% automatically, so we should not spawn duplicate workers.
     SubscriberId = make_subscriber_id(BridgeName),
-    case emqx_ee_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
+    case emqx_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
         {ok, _ConsumerPid} ->
             ?tp(
                 kafka_consumer_subscriber_started,
@@ -342,18 +343,18 @@ start_consumer(Config, InstanceId, ClientID) ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer",
                 instance_id => InstanceId,
-                kafka_hosts => emqx_bridge_impl_kafka:hosts(BootstrapHosts0),
+                kafka_hosts => emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
                 reason => emqx_misc:redact(Reason2)
             }),
             stop_client(ClientID),
             throw(failed_to_start_kafka_consumer)
     end.
 
--spec stop_subscriber(emqx_ee_bridge_kafka_consumer_sup:child_id()) -> ok.
+-spec stop_subscriber(emqx_bridge_kafka_consumer_sup:child_id()) -> ok.
 stop_subscriber(SubscriberId) ->
     _ = log_when_error(
         fun() ->
-            emqx_ee_bridge_kafka_consumer_sup:ensure_child_deleted(SubscriberId)
+            emqx_bridge_kafka_consumer_sup:ensure_child_deleted(SubscriberId)
         end,
         #{
             msg => "failed_to_delete_kafka_subscriber",
@@ -437,7 +438,7 @@ do_get_status1(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
     end.
 
 are_subscriber_workers_alive(SubscriberId) ->
-    Children = supervisor:which_children(emqx_ee_bridge_kafka_consumer_sup),
+    Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
     case lists:keyfind(SubscriberId, 1, Children) of
         false ->
             false;
@@ -479,7 +480,7 @@ is_dry_run(InstanceId) ->
 make_client_id(InstanceId, KafkaType, KafkaName) ->
     case is_dry_run(InstanceId) of
         false ->
-            ClientID0 = emqx_bridge_impl_kafka:make_client_id(KafkaType, KafkaName),
+            ClientID0 = emqx_bridge_kafka_impl:make_client_id(KafkaType, KafkaName),
             binary_to_atom(ClientID0);
         true ->
             %% It is a dry run and we don't want to leak too many

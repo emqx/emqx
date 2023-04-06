@@ -1,4 +1,4 @@
-emqx_ee_bridge_kafka {
+emqx_bridge_kafka {
     config_enable {
         desc {
             en: "Enable (true) or disable (false) this Kafka bridge."

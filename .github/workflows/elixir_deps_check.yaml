@@ -23,7 +23,18 @@ jobs:
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
+        # we check only enterprise because `rebar3 tree`, even if an
+        # enterprise app is excluded from `project_app_dirs` in
+        # `rebar.config.erl`, will still list dependencies from it.
+        # Since the enterprise profile is a superset of the
+        # community one and thus more complete, we use the former.
+        env:
+          MIX_ENV: emqx-enterprise
+          PROFILE: emqx-enterprise
       - name: check elixir deps
         run: ./scripts/check-elixir-deps-discrepancies.exs
+        env:
+          MIX_ENV: emqx-enterprise
+          PROFILE: emqx-enterprise
 
 ...

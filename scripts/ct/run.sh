@@ -107,6 +107,10 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
         ;;
+    apps/emqx_bridge_kafka)
+        ## ensure enterprise profile when testing ee applications
+        export PROFILE='emqx-enterprise'
+        ;;
     *)
         export PROFILE="${PROFILE:-emqx}"
         ;;
@@ -172,7 +176,7 @@ for dep in ${CT_DEPS}; do
             ;;
         rocketmq)
             FILES+=( '.ci/docker-compose-file/docker-compose-rocketmq.yaml' )
-            ;; 
+            ;;
         cassandra)
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
             ;;

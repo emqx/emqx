@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_kafka_tests).
+-module(emqx_bridge_kafka_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
