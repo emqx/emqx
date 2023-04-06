@@ -9,7 +9,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, namespace/0, tags/0]).
+-export([roots/0, fields/1, namespace/0, tags/0, desc/1]).
 
 -export([translate/1]).
 
@@ -124,6 +124,11 @@ fields(transport_options) ->
         props_with(
             [headers, max_retries, request_timeout], emqx_connector_http:fields("request")
         ).
+
+desc(s3) ->
+    "S3 connection options";
+desc(transport_options) ->
+    "Options for the HTTP transport layer used by the S3 client".
 
 translate(Conf) ->
     Options = #{atom_key => true},
