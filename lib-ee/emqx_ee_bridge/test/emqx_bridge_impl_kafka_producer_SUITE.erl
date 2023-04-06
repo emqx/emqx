@@ -309,7 +309,7 @@ kafka_bridge_rest_api_helper(Config) ->
     AtomsAfter = erlang:system_info(atom_count),
     ?assertEqual(AtomsBefore, AtomsAfter),
     %% Create a rule that uses the bridge
-    {ok, 201, _Rule} = http_post(
+    {ok, 201, Rule} = http_post(
         ["rules"],
         #{
             <<"name">> => <<"kafka_bridge_rest_api_helper_rule">>,
@@ -318,6 +318,7 @@ kafka_bridge_rest_api_helper(Config) ->
             <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
         }
     ),
+    #{<<"id">> := RuleId} = emqx_json:decode(Rule, [return_maps]),
     %% counters should be empty before
     ?assertEqual(0, emqx_resource_metrics:matched_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:success_get(ResourceId)),
@@ -346,6 +347,8 @@ kafka_bridge_rest_api_helper(Config) ->
     %% Check crucial counters and gauges
     ?assertEqual(1, emqx_resource_metrics:matched_get(ResourceId)),
     ?assertEqual(1, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
+    ?assertEqual(0, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.failed')),
     ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
