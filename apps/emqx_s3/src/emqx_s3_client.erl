@@ -47,7 +47,8 @@
     upload_options := upload_options(),
     bucket := string(),
     headers := erlcloud_headers(),
-    url_expire_time := non_neg_integer()
+    url_expire_time := non_neg_integer(),
+    pool_type := pool_type()
 }.
 
 -type config() :: #{
@@ -60,7 +61,7 @@
     url_expire_time := pos_integer(),
     access_key_id := string() | undefined,
     secret_access_key := string() | undefined,
-    http_pool := ehttpc:pool_name(),
+    http_pool := http_pool(),
     pool_type := pool_type(),
     request_timeout := timeout() | undefined,
     max_retries := non_neg_integer() | undefined
@@ -268,7 +269,7 @@ request_fun(HttpPool, PoolType, MaxRetries) ->
 ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
     try timer:tc(fun() -> ehttpc:request(HttpPool, Method, Request, Timeout, MaxRetries) end) of
         {Time, {ok, StatusCode, RespHeaders}} ->
-            ?SLOG(debug, #{
+            ?SLOG(info, #{
                 msg => "s3_ehttpc_request_ok",
                 status_code => StatusCode,
                 headers => RespHeaders,
@@ -278,7 +279,7 @@ ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
                 {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), undefined
             }};
         {Time, {ok, StatusCode, RespHeaders, RespBody}} ->
-            ?SLOG(debug, #{
+            ?SLOG(info, #{
                 msg => "s3_ehttpc_request_ok",
                 status_code => StatusCode,
                 headers => RespHeaders,
