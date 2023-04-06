@@ -337,7 +337,7 @@ http_config(
                 SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, HTTPOpts)),
                 {tls, SSLOpts}
         end,
-    % NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
+    NTransportOpts = maybe_ipv6_probe(TransportOpts, maps:get(ipv6_probe, HTTPOpts, true)),
     [
         {host, Host},
         {port, Port},
@@ -346,9 +346,14 @@ http_config(
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},
-        {transport_opts, TransportOpts},
+        {transport_opts, NTransportOpts},
         {enable_pipelining, EnablePipelining}
     ].
+
+maybe_ipv6_probe(TransportOpts, true) ->
+    emqx_misc:ipv6_probe(TransportOpts);
+maybe_ipv6_probe(TransportOpts, false) ->
+    TransportOpts.
 
 http_pool_cleanup_interval(ProfileConfig) ->
     maps:get(

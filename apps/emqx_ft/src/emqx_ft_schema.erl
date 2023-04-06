@@ -52,8 +52,9 @@ fields(file_transfer) ->
                     ref(local_storage)
                 ]),
                 #{
-                    required => true,
-                    desc => ?DESC("storage")
+                    required => false,
+                    desc => ?DESC("storage"),
+                    default => default_storage()
                 }
             )}
     ];
@@ -184,7 +185,9 @@ desc(local_storage_exporter) ->
 desc(s3_exporter) ->
     "S3 Exporter settings for the File transfer local storage backend";
 desc(local_storage_segments_gc) ->
-    "Garbage collection settings for the File transfer local segments storage".
+    "Garbage collection settings for the File transfer local segments storage";
+desc(_) ->
+    undefined.
 
 schema(filemeta) ->
     #{
@@ -221,3 +224,11 @@ converter(checksum) ->
 
 ref(Ref) ->
     ref(?MODULE, Ref).
+
+default_storage() ->
+    #{
+        <<"type">> => <<"local">>,
+        <<"exporter">> => #{
+            <<"type">> => <<"local">>
+        }
+    }.

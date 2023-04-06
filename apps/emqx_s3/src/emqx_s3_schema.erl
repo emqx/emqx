@@ -118,9 +118,20 @@ fields(s3) ->
             )}
     ];
 fields(transport_options) ->
-    props_without(
-        [base_url, max_retries, retry_interval, request], emqx_connector_http:fields(config)
-    ) ++
+    [
+        {ipv6_probe,
+            mk(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC("ipv6_probe"),
+                    required => false
+                }
+            )}
+    ] ++
+        props_without(
+            [base_url, max_retries, retry_interval, request], emqx_connector_http:fields(config)
+        ) ++
         props_with(
             [headers, max_retries, request_timeout], emqx_connector_http:fields("request")
         ).
