@@ -4,4 +4,8 @@ For EMQX: Apache License 2.0, see APL.txt,
 which applies to all source files except for lib-ee sub-directory.
 
 For EMQX Enterprise (since version 5.0): Business Source License 1.1,
-see lib-ee/BSL.txt, which applies to source code in lib-ee sub-directory.
+see lib-ee/BSL.txt, which applies to source code in lib-ee
+sub-directory and some of the apps under the apps directory.
+
+Source code under apps that uses BSL License:
+- apps/emqx_bridge_kafka

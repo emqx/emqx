@@ -10,10 +10,21 @@ workers from `emqx_resource`.  It implements the connection management
 and interaction without need for a separate connector app, since it's
 not used by authentication and authorization applications.
 
-## Contributing
+# Documentation links
+
+For more information on Apache Kafka, please see its [official
+site](https://kafka.apache.org/).
+
+# Configurations
+
+Please see [our official
+documentation](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-kafka.html)
+for more detailed info.
+
+# Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
 
-## License
+# License
 
 See [BSL](./BSL.txt).
