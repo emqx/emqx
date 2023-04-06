@@ -82,7 +82,7 @@
 -type segment() :: {offset(), _Content :: binary()}.
 
 -define(STORE_SEGMENT_TIMEOUT, 10000).
--define(ASSEMBLE_TIMEOUT, 60000).
+-define(ASSEMBLE_TIMEOUT, 300000).
 
 %%--------------------------------------------------------------------
 %% API for app
