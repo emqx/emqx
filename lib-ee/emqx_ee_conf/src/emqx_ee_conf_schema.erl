@@ -47,9 +47,9 @@ ee_roots() ->
 ee_delegate(Method, [EEMod | EEMods], Name) ->
     case lists:member(Name, apply(EEMod, roots, [])) of
         true ->
-            EEMod:Method(Name);
+            apply(EEMod, Method, [Name]);
         false ->
             ee_delegate(Method, EEMods, Name)
     end;
 ee_delegate(Method, [], Name) ->
-    emqx_conf_schema:Method(Name).
+    apply(emqx_conf_schema, Method, [Name]).
