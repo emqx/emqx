@@ -121,13 +121,13 @@ fields(sampler_current) ->
 
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
-    RawNode = maps:get(node, Bindings, all),
-    with_node(RawNode, dashboard_samplers_fun(Latest)).
+    RawNode = maps:get(node, Bindings, <<"all">>),
+    emqx_api_lib:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest)).
 
 dashboard_samplers_fun(Latest) ->
     fun(NodeOrCluster) ->
         case emqx_dashboard_monitor:samplers(NodeOrCluster, Latest) of
-            {badrpc, _} = Error -> Error;
+            {badrpc, _} = Error -> {error, Error};
             Samplers -> {ok, Samplers}
         end
     end.
@@ -135,20 +135,15 @@ dashboard_samplers_fun(Latest) ->
 monitor_current(get, #{bindings := []}) ->
     with_node(erlang:node(), fun emqx_dashboard_monitor:current_rate/1);
 monitor_current(get, #{bindings := Bindings}) ->
-    RawNode = maps:get(node, Bindings, all),
-    with_node(RawNode, fun emqx_dashboard_monitor:current_rate/1).
+    RawNode = maps:get(node, Bindings, <<"all">>),
+    emqx_api_lib:with_node_or_cluster(RawNode, fun current_rate/1).
 
-with_node(RawNode, Fun) ->
-    case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
-        {ok, NodeOrCluster} ->
-            case Fun(NodeOrCluster) of
-                {badrpc, {Node, Reason}} ->
-                    {404, 'NOT_FOUND', io_lib:format("Node not found: ~p (~p)", [Node, Reason])};
-                {ok, Result} ->
-                    {200, Result}
-            end;
-        _Error ->
-            {404, 'NOT_FOUND', io_lib:format("Node not found: ~p", [RawNode])}
+current_rate(Node) ->
+    case emqx_dashboard_monitor:current_rate(Node) of
+        {badrpc, _} = BadRpc ->
+            {error, BadRpc};
+        {ok, _} = OkResult ->
+            OkResult
     end.
 
 %% -------------------------------------------------------------------------------------------------
