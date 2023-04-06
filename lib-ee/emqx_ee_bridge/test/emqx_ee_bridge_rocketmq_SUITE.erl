@@ -24,17 +24,24 @@
 
 all() ->
     [
-        {group, with_batch},
-        {group, without_batch}
+        {group, async},
+        {group, sync}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
+        {async, BatchingGroups},
+        {sync, BatchingGroups},
         {with_batch, TCs},
         {without_batch, TCs}
     ].
 
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
     Config = [{batch_size, ?BATCH_SIZE} | Config0],
     common_init(Config);
@@ -84,7 +91,6 @@ common_init(ConfigT) ->
     Config0 = [
         {host, Host},
         {port, Port},
-        {query_mode, sync},
         {proxy_name, "rocketmq"}
         | ConfigT
     ],

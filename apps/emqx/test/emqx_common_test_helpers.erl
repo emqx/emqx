@@ -660,6 +660,7 @@ start_slave(Name, Opts) when is_list(Opts) ->
 start_slave(Name, Opts) when is_map(Opts) ->
     SlaveMod = maps:get(peer_mod, Opts, ct_slave),
     Node = node_name(Name),
+    put_peer_mod(Node, SlaveMod),
     DoStart =
         fun() ->
             case SlaveMod of
@@ -669,8 +670,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
                         [
                             {kill_if_fail, true},
                             {monitor_master, true},
-                            {init_timeout, 10000},
-                            {startup_timeout, 10000},
+                            {init_timeout, 20_000},
+                            {startup_timeout, 20_000},
                             {erl_flags, erl_flags()}
                         ]
                     );
@@ -687,7 +688,6 @@ start_slave(Name, Opts) when is_map(Opts) ->
             throw(Other)
     end,
     pong = net_adm:ping(Node),
-    put_peer_mod(Node, SlaveMod),
     setup_node(Node, Opts),
     ok = snabbkaffe:forward_trace(Node),
     Node.

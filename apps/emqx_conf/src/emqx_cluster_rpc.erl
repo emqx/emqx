@@ -270,9 +270,6 @@ fast_forward_to_commit(Node, ToTnxId) ->
 
 %% @private
 init([Node, RetryMs]) ->
-    %% Workaround for https://github.com/emqx/mria/issues/94:
-    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
-    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
     %% The init transaction ID is set in emqx_conf_app after
@@ -286,6 +283,9 @@ init([Node, RetryMs]) ->
 
 %% @private
 handle_continue(?CATCH_UP, State) ->
+    %% emqx app must be started before
+    %% trying to catch up the rpc commit logs
+    ok = wait_for_emqx_ready(),
     {noreply, State, catch_up(State)}.
 
 handle_call(reset, _From, State) ->
@@ -572,3 +572,37 @@ maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
     {atomic, _} = transaction(fun ?MODULE:commit/2, [Node, TnxId]),
     ok.
+
+%% @priv Cannot proceed until emqx app is ready.
+%% Otherwise the committed transaction catch up may fail.
+wait_for_emqx_ready() ->
+    %% wait 10 seconds for emqx to start
+    ok = do_wait_for_emqx_ready(10).
+
+%% Wait for emqx app to be ready,
+%% write a log message every 1 second
+do_wait_for_emqx_ready(0) ->
+    timeout;
+do_wait_for_emqx_ready(N) ->
+    %% check interval is 100ms
+    %% makes the total wait time 1 second
+    case do_wait_for_emqx_ready2(10) of
+        ok ->
+            ok;
+        timeout ->
+            ?SLOG(warning, #{msg => "stil_waiting_for_emqx_app_to_be_ready"}),
+            do_wait_for_emqx_ready(N - 1)
+    end.
+
+%% Wait for emqx app to be ready,
+%% check interval is 100ms
+do_wait_for_emqx_ready2(0) ->
+    timeout;
+do_wait_for_emqx_ready2(N) ->
+    case emqx:is_running() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            do_wait_for_emqx_ready2(N - 1)
+    end.

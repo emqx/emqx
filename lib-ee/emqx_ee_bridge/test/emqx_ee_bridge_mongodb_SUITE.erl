@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -16,9 +17,8 @@
 
 all() ->
     [
-        {group, rs},
-        {group, sharded},
-        {group, single}
+        {group, async},
+        {group, sync}
         | (emqx_common_test_helpers:all(?MODULE) -- group_tests())
     ].
 
@@ -31,12 +31,23 @@ group_tests() ->
     ].
 
 groups() ->
+    TypeGroups = [
+        {group, rs},
+        {group, sharded},
+        {group, single}
+    ],
     [
+        {async, TypeGroups},
+        {sync, TypeGroups},
         {rs, group_tests()},
         {sharded, group_tests()},
         {single, group_tests()}
     ].
 
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(Type = rs, Config) ->
     MongoHost = os:getenv("MONGO_RS_HOST", "mongo1"),
     MongoPort = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
@@ -44,7 +55,7 @@ init_per_group(Type = rs, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -63,7 +74,7 @@ init_per_group(Type = sharded, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -82,7 +93,7 @@ init_per_group(Type = single, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -99,6 +110,7 @@ end_per_group(_Type, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Config.
 
 end_per_suite(_Config) ->
@@ -109,11 +121,13 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     catch clear_db(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
     catch clear_db(Config),
     delete_bridge(Config),
+    snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -140,7 +154,8 @@ mongo_type_bin(sharded) ->
 mongo_type_bin(single) ->
     <<"mongodb_single">>.
 
-mongo_config(MongoHost, MongoPort0, rs = Type) ->
+mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Servers = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -154,13 +169,19 @@ mongo_config(MongoHost, MongoPort0, rs = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Servers]
+            [
+                Name,
+                Servers,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, sharded = Type) ->
+mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Servers = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -173,13 +194,19 @@ mongo_config(MongoHost, MongoPort0, sharded = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Servers]
+            [
+                Name,
+                Servers,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, single = Type) ->
+mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Server = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -192,10 +219,15 @@ mongo_config(MongoHost, MongoPort0, single = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Server]
+            [
+                Name,
+                Server,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)}.
 
@@ -248,7 +280,7 @@ find_all(Config) ->
     Name = ?config(mongo_name, Config),
     #{<<"collection">> := Collection} = ?config(mongo_config, Config),
     ResourceID = emqx_bridge_resource:resource_id(Type, Name),
-    emqx_resource:query(ResourceID, {find, Collection, #{}, #{}}).
+    emqx_resource:simple_sync_query(ResourceID, {find, Collection, #{}, #{}}).
 
 send_message(Config, Payload) ->
     Name = ?config(mongo_name, Config),
@@ -266,7 +298,12 @@ t_setup_via_config_and_publish(Config) ->
         create_bridge(Config)
     ),
     Val = erlang:unique_integer(),
-    ok = send_message(Config, #{key => Val}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"key">> := Val}]},
         find_all(Config)
@@ -286,7 +323,12 @@ t_setup_via_http_api_and_publish(Config) ->
         create_bridge_http(MongoConfig)
     ),
     Val = erlang:unique_integer(),
-    ok = send_message(Config, #{key => Val}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"key">> := Val}]},
         find_all(Config)
@@ -297,7 +339,12 @@ t_payload_template(Config) ->
     {ok, _} = create_bridge(Config, #{<<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>}),
     Val = erlang:unique_integer(),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    ok = send_message(Config, #{key => Val, clientid => ClientId}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val, clientid => ClientId}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"foo">> := ClientId}]},
         find_all(Config)
@@ -314,11 +361,16 @@ t_collection_template(Config) ->
     ),
     Val = erlang:unique_integer(),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    ok = send_message(Config, #{
-        key => Val,
-        clientid => ClientId,
-        mycollectionvar => <<"mycol">>
-    }),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{
+                key => Val,
+                clientid => ClientId,
+                mycollectionvar => <<"mycol">>
+            }),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"foo">> := ClientId}]},
         find_all(Config)

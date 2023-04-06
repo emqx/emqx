@@ -64,7 +64,7 @@ values(common_config) ->
         authentication => #{
             mechanism => <<"plain">>,
             username => <<"username">>,
-            password => <<"password">>
+            password => <<"******">>
         },
         bootstrap_hosts => <<"localhost:9092">>,
         connect_timeout => <<"5s">>,
@@ -233,7 +233,7 @@ fields(socket_opts) ->
                 boolean(),
                 #{
                     default => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(socket_nodelay)
                 }
             )}

@@ -73,15 +73,16 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     NonBatchCases = [t_write_timeout],
+    QueryModeGroups = [{group, async}, {group, sync}],
+    BatchingGroups = [
+        %{group, with_batch},
+        {group, without_batch}
+    ],
     [
-        {tcp, [
-            %{group, with_batch},
-            {group, without_batch}
-        ]},
-        {tls, [
-            %{group, with_batch},
-            {group, without_batch}
-        ]},
+        {tcp, QueryModeGroups},
+        {tls, QueryModeGroups},
+        {async, BatchingGroups},
+        {sync, BatchingGroups},
         {with_batch, TCs -- NonBatchCases},
         {without_batch, TCs}
     ].
@@ -93,7 +94,6 @@ init_per_group(tcp, Config) ->
         {cassa_host, Host},
         {cassa_port, Port},
         {enable_tls, false},
-        {query_mode, sync},
         {proxy_name, "cassa_tcp"}
         | Config
     ];
@@ -104,10 +104,13 @@ init_per_group(tls, Config) ->
         {cassa_host, Host},
         {cassa_port, Port},
         {enable_tls, true},
-        {query_mode, sync},
         {proxy_name, "cassa_tls"}
         | Config
     ];
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
     Config = [{enable_batch, true} | Config0],
     common_init(Config);
@@ -139,14 +142,15 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    connect_and_clear_table(Config),
     ok = snabbkaffe:stop(),
+    connect_and_clear_table(Config),
     delete_bridge(Config),
     ok.
 
@@ -171,6 +175,7 @@ common_init(Config0) ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
             emqx_mgmt_api_test_util:init_suite(),
             % Connect to cassnadra directly and create the table
+            catch connect_and_drop_table(Config0),
             connect_and_create_table(Config0),
             {Name, CassaConf} = cassa_config(BridgeType, Config0),
             Config =
@@ -250,9 +255,13 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     Config.
 
 create_bridge(Config) ->
+    create_bridge(Config, _Overrides = #{}).
+
+create_bridge(Config, Overrides) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     Name = ?config(cassa_name, Config),
-    BridgeConfig = ?config(cassa_config, Config),
+    BridgeConfig0 = ?config(cassa_config, Config),
+    BridgeConfig = emqx_map_lib:deep_merge(BridgeConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, BridgeConfig).
 
 delete_bridge(Config) ->
@@ -287,6 +296,27 @@ query_resource(Config, Request) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+
+query_resource_async(Config, Request) ->
+    Name = ?config(cassa_name, Config),
+    BridgeType = ?config(cassa_bridge_type, Config),
+    Ref = alias([reply]),
+    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    Return = emqx_resource:query(ResourceID, Request, #{
+        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    }),
+    {Return, Ref}.
+
+receive_result(Ref, Timeout) when is_reference(Ref) ->
+    receive
+        {result, Ref, Result} ->
+            {ok, Result};
+        {Ref, Result} ->
+            {ok, Result}
+    after Timeout ->
+        timeout
+    end.
 
 connect_direct_cassa(Config) ->
     Opts = #{
@@ -546,15 +576,27 @@ t_write_failure(Config) ->
 %    ok.
 
 t_simple_sql_query(Config) ->
+    EnableBatch = ?config(enable_batch, Config),
+    QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {query, <<"SELECT count(1) AS T FROM system.local">>},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
-        false -> ?assertMatch({ok, {<<"system.local">>, _, [[1]]}}, Result)
+    Result =
+        case QueryMode of
+            sync ->
+                query_resource(Config, Request);
+            async ->
+                {_, Ref} = query_resource_async(Config, Request),
+                {ok, Res} = receive_result(Ref, 2_000),
+                Res
+        end,
+    case EnableBatch of
+        true ->
+            ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
+        false ->
+            ?assertMatch({ok, {<<"system.local">>, _, [[1]]}}, Result)
     end,
     ok.
 
@@ -565,22 +607,56 @@ t_missing_data(Config) ->
     ),
     %% emqx_ee_connector_cassa will send missed data as a `null` atom
     %% to ecql driver
-    Result = send_message(Config, #{}),
+    {_, {ok, Event}} =
+        ?wait_async_action(
+            send_message(Config, #{}),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
     ?assertMatch(
         %% TODO: match error msgs
-        {error, {unrecoverable_error, {8704, <<"Expected 8 or 0 byte long for date (4)">>}}},
-        Result
+        #{
+            result :=
+                {error, {unrecoverable_error, {8704, <<"Expected 8 or 0 byte long for date (4)">>}}}
+        },
+        Event
     ),
     ok.
 
 t_bad_sql_parameter(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    EnableBatch = ?config(enable_batch, Config),
+    Name = ?config(cassa_name, Config),
+    ResourceId = emqx_bridge_resource:resource_id(cassandra, Name),
     ?assertMatch(
         {ok, _},
-        create_bridge(Config)
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"request_timeout">> => 500,
+                    <<"resume_interval">> => 100,
+                    <<"health_check_interval">> => 100
+                }
+            }
+        )
     ),
     Request = {query, <<"">>, [bad_parameter]},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
+    Result =
+        case QueryMode of
+            sync ->
+                query_resource(Config, Request);
+            async ->
+                {_, Ref} = query_resource_async(Config, Request),
+                case receive_result(Ref, 5_000) of
+                    {ok, Res} ->
+                        Res;
+                    timeout ->
+                        ct:pal("mailbox:\n  ~p", [process_info(self(), messages)]),
+                        ct:fail("no response received")
+                end
+        end,
+    case EnableBatch of
         true ->
             ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
         false ->

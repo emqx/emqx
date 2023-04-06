@@ -30,18 +30,6 @@ namespace() -> "resource_schema".
 
 roots() -> [].
 
-fields("resource_opts_sync_only") ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts_sync_only"),
-                resource_opts_meta()
-            )}
-    ];
-fields("creation_opts_sync_only") ->
-    Fields = fields("creation_opts"),
-    QueryMod = {query_mode, fun query_mode_sync_only/1},
-    lists:keyreplace(query_mode, 1, Fields, QueryMod);
 fields("resource_opts") ->
     [
         {resource_opts,
@@ -82,7 +70,7 @@ worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
 
 resume_interval(type) -> emqx_schema:duration_ms();
-resume_interval(importance) -> hidden;
+resume_interval(importance) -> ?IMPORTANCE_HIDDEN;
 resume_interval(desc) -> ?DESC("resume_interval");
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
@@ -116,12 +104,6 @@ query_mode(desc) -> ?DESC("query_mode");
 query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
-
-query_mode_sync_only(type) -> enum([sync]);
-query_mode_sync_only(desc) -> ?DESC("query_mode_sync_only");
-query_mode_sync_only(default) -> sync;
-query_mode_sync_only(required) -> false;
-query_mode_sync_only(_) -> undefined.
 
 request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
 request_timeout(desc) -> ?DESC("request_timeout");
@@ -167,7 +149,4 @@ max_queue_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
 max_queue_bytes(required) -> false;
 max_queue_bytes(_) -> undefined.
 
-desc("creation_opts") ->
-    ?DESC("creation_opts");
-desc("creation_opts_sync_only") ->
-    ?DESC("creation_opts").
+desc("creation_opts") -> ?DESC("creation_opts").

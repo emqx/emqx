@@ -93,7 +93,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.19.5", override: true, runtime: false},
-      {:hackney, github: "benoitc/hackney", tag: "1.18.1", override: true}
+      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
