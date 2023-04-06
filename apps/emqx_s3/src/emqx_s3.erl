@@ -37,6 +37,7 @@
     max_retries => pos_integer(),
     pool_size => pos_integer(),
     pool_type => atom(),
+    ipv6_probe => boolean(),
     ssl => map()
 }.
 

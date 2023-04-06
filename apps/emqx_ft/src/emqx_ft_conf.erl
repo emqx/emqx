@@ -42,25 +42,40 @@
 -type milliseconds() :: non_neg_integer().
 -type seconds() :: non_neg_integer().
 
+%% 5 minutes (s)
+-define(DEFAULT_MIN_SEGMENTS_TTL, 300).
+%% 1 day (s)
+-define(DEFAULT_MAX_SEGMENTS_TTL, 86400).
+%% 1 minute (ms)
+-define(DEFAULT_GC_INTERVAL, 60000).
+
 %%--------------------------------------------------------------------
 %% Accessors
 %%--------------------------------------------------------------------
 
--spec storage() -> _Storage | disabled.
+-spec storage() -> _Storage.
 storage() ->
-    emqx_config:get([file_transfer, storage], disabled).
+    emqx_config:get([file_transfer, storage]).
 
 -spec gc_interval(_Storage) -> milliseconds().
 gc_interval(_Storage) ->
     Conf = assert_storage(local),
-    emqx_map_lib:deep_get([segments, gc, interval], Conf).
+    emqx_map_lib:deep_get([segments, gc, interval], Conf, ?DEFAULT_GC_INTERVAL).
 
 -spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
 segments_ttl(_Storage) ->
     Conf = assert_storage(local),
     {
-        emqx_map_lib:deep_get([segments, gc, minimum_segments_ttl], Conf),
-        emqx_map_lib:deep_get([segments, gc, maximum_segments_ttl], Conf)
+        emqx_map_lib:deep_get(
+            [segments, gc, minimum_segments_ttl],
+            Conf,
+            ?DEFAULT_MIN_SEGMENTS_TTL
+        ),
+        emqx_map_lib:deep_get(
+            [segments, gc, maximum_segments_ttl],
+            Conf,
+            ?DEFAULT_MAX_SEGMENTS_TTL
+        )
     }.
 
 assert_storage(Type) ->
@@ -79,7 +94,7 @@ assert_storage(Type) ->
 load() ->
     ok = emqx_ft_storage_exporter:update_exporter(
         undefined,
-        emqx_config:get([file_transfer, storage])
+        storage()
     ),
     emqx_conf:add_handler([file_transfer], ?MODULE).
 
