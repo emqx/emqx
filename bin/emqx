@@ -518,6 +518,7 @@ case "$1" in
 esac
 
 PROTO_DIST=$(grep -E '^[ \t]*cluster.proto_dist[ \t]*=[ \t]*' "$RUNNER_ETC_DIR/emqx.conf" 2> /dev/null | tail -1 | awk -F"= " '{print $NF}')
+PROTO_DIST="${PROTO_DIST:-inet_tcp}"
 
 if [ -n "$WITH_EPMD" ]; then
     EPMD_ARG="-start_epmd true -proto_dist $PROTO_DIST"
@@ -526,7 +527,7 @@ else
 
     # this environment variable is required by ekka_dist module
     # because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
-    export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
+    export EKKA_PROTO_DIST_MOD="$PROTO_DIST"
 fi
 
 if [ "$PROTO_DIST" = 'inet_tls' ]; then
