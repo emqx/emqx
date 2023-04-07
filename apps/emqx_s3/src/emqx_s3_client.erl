@@ -189,7 +189,7 @@ list(#{bucket := Bucket, aws_config := AwsConfig}, Options) ->
 
 -spec uri(client(), key()) -> iodata().
 uri(#{bucket := Bucket, aws_config := AwsConfig, url_expire_time := ExpireTime}, Key) ->
-    erlcloud_s3:make_get_url(ExpireTime, Bucket, erlcloud_key(Key), AwsConfig).
+    erlcloud_s3:make_presigned_v4_url(ExpireTime, Bucket, get, erlcloud_key(Key), [], AwsConfig).
 
 -spec format(client()) -> term().
 format(#{aws_config := AwsConfig} = Client) ->
