@@ -13,6 +13,13 @@ RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
+if [ ! -z  "$ALINK_ETC_DIR" ];then
+    echo "use alink etc:$ALINK_ETC_DIR"
+    RUNNER_ETC_DIR=$ALINK_ETC_DIR
+fi
+
+echo "etc is $RUNNER_ETC_DIR"
+
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
