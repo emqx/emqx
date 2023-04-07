@@ -11,3 +11,4 @@ clickhouse
 dynamo
 rocketmq
 cassandra
+sqlserver

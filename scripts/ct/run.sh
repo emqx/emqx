@@ -180,6 +180,9 @@ for dep in ${CT_DEPS}; do
         cassandra)
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
             ;;
+        sqlserver)
+            FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
