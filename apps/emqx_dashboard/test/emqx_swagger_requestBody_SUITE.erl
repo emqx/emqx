@@ -33,7 +33,6 @@ init_per_suite(Config) ->
     mria:start(),
     application:load(emqx_dashboard),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
     Config.
 
 set_special_configs(emqx_dashboard) ->

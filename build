@@ -117,8 +117,7 @@ make_docs() {
     mkdir -p "$docdir" "$dashboard_www_static"
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
-        "I18nFile = filename:join([apps, emqx_dashboard, priv, 'i18n.conf']), \
-         ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE, I18nFile), \
+        "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
     cp "$docdir"/bridge-api-*.json "$dashboard_www_static"
     cp "$docdir"/hot-config-schema-*.json "$dashboard_www_static"

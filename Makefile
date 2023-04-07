@@ -239,7 +239,6 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 .PHONY:
 merge-config:
 	@$(SCRIPTS)/merge-config.escript
-	@$(SCRIPTS)/merge-i18n.escript
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
