@@ -60,7 +60,14 @@ get_override_config_file() ->
                         TnxId = emqx_cluster_rpc:get_node_tnx_id(Node),
                         WallClock = erlang:statistics(wall_clock),
                         Conf = emqx_config_handler:get_raw_cluster_override_conf(),
-                        #{wall_clock => WallClock, conf => Conf, tnx_id => TnxId, node => Node}
+                        HasDeprecateConf = emqx_config:has_deprecated_conf(),
+                        #{
+                            wall_clock => WallClock,
+                            conf => Conf,
+                            tnx_id => TnxId,
+                            node => Node,
+                            has_deprecated_conf => HasDeprecateConf
+                        }
                     end,
                     case mria:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
                         {atomic, Res} -> {ok, Res};
@@ -153,10 +160,10 @@ copy_override_conf_from_core_node() ->
                             {ok, ?DEFAULT_INIT_TXN_ID};
                         false ->
                             %% retry in some time
-                            Jitter = rand:uniform(2_000),
-                            Timeout = 10_000 + Jitter,
+                            Jitter = rand:uniform(2000),
+                            Timeout = 10000 + Jitter,
                             ?SLOG(info, #{
-                                msg => "copy_override_conf_from_core_node_retry",
+                                msg => "copy_cluster_conf_from_core_node_retry",
                                 timeout => Timeout,
                                 nodes => Nodes,
                                 failed => Failed,
@@ -168,18 +175,16 @@ copy_override_conf_from_core_node() ->
                 _ ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
+                    HasDeprecatedConf = maps:get(has_deprecated_conf, Info, false),
                     ?SLOG(debug, #{
-                        msg => "copy_override_conf_from_core_node_success",
+                        msg => "copy_cluster_conf_from_core_node_success",
                         node => Node,
-                        cluster_override_conf_file => application:get_env(
-                            emqx, cluster_override_conf_file
-                        ),
-                        local_override_conf_file => application:get_env(
-                            emqx, local_override_conf_file
-                        ),
-                        data_dir => emqx:data_dir()
+                        has_deprecated_conf => HasDeprecatedConf,
+                        data_dir => emqx:data_dir(),
+                        tnx_id => TnxId
                     }),
                     ok = emqx_config:save_to_override_conf(
+                        HasDeprecatedConf,
                         RawOverrideConf,
                         #{override_to => cluster}
                     ),

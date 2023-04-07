@@ -24,6 +24,7 @@
     init_load/2,
     init_load/3,
     read_override_conf/1,
+    has_deprecated_conf/0,
     delete_override_conf_files/0,
     check_config/2,
     fill_defaults/1,
@@ -32,7 +33,7 @@
     save_configs/6,
     save_to_app_env/1,
     save_to_config_map/2,
-    save_to_override_conf/2
+    save_to_override_conf/3
 ]).
 -export([raw_conf_with_default/4]).
 -export([remove_default_conf/2]).
@@ -331,14 +332,35 @@ init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
     init_load(SchemaMod, parse_hocon(Conf), Opts);
 init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    RootNames = get_root_names(),
-    %% Merge environment variable overrides on top
-    RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
-    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithEnvs, Opts),
-    %% check configs against the schema
-    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
-    save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConfAll).
+    case has_deprecated_conf() of
+        false ->
+            RootNames = get_root_names(),
+            %% Merge environment variable overrides on top
+            RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
+            RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithEnvs, Opts),
+            %% check configs against the schema
+            {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+            save_to_app_env(AppEnvs),
+            ok = save_to_config_map(CheckedConf, RawConfAll);
+        true ->
+            %% deprecated conf will be removed in 5.1
+            %% Merge environment variable overrides on top
+            RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
+            Overrides = read_override_confs(),
+            RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
+            RootNames = get_root_names(),
+            RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
+            %% check configs against the schema
+            {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+            save_to_app_env(AppEnvs),
+            ok = save_to_config_map(CheckedConf, RawConfAll)
+    end.
+
+%% @doc Read merged cluster + local overrides.
+read_override_confs() ->
+    ClusterOverrides = read_override_conf(#{override_to => cluster}),
+    LocalOverrides = read_override_conf(#{override_to => local}),
+    hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
 raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
@@ -369,11 +391,9 @@ schema_default(Schema) ->
     end.
 
 parse_hocon(Conf) ->
-    %% merge cluster-override.conf to local-override.conf
-    %% cluster-override.conf is deprecated, now is cluster.conf
-    merge_deprecated_cluster_override_to_local_override(),
+    HasDeprecatedConf = has_deprecated_conf(),
     IncDirs = include_dirs(),
-    case do_parse_hocon(Conf, IncDirs) of
+    case do_parse_hocon(HasDeprecatedConf, Conf, IncDirs) of
         {ok, HoconMap} ->
             HoconMap;
         {error, Reason} ->
@@ -387,14 +407,20 @@ parse_hocon(Conf) ->
             error(failed_to_load_hocon_conf)
     end.
 
-do_parse_hocon(Conf, IncDirs) ->
+do_parse_hocon(true, Conf, IncDirs) ->
+    Opts = #{format => map, include_dirs => IncDirs},
+    case is_binary(Conf) of
+        true -> hocon:binary(Conf, Opts);
+        false -> hocon:files(Conf, Opts)
+    end;
+do_parse_hocon(false, Conf, IncDirs) ->
     Opts = #{format => map, include_dirs => IncDirs},
     case is_binary(Conf) of
         true ->
             hocon:binary(Conf, Opts);
         false ->
-            LocalFile = override_conf_file(#{override_to => local}),
-            ClusterFile = override_conf_file(#{override_to => cluster}),
+            LocalFile = deprecated_override_conf_file(#{override_to => local}),
+            ClusterFile = deprecated_override_conf_file(#{override_to => cluster}),
             hocon:files([ClusterFile] ++ Conf ++ [LocalFile], Opts)
     end.
 
@@ -467,10 +493,14 @@ fill_defaults(SchemaMod, RawConf, Opts0) ->
 %% Delete override config files.
 -spec delete_override_conf_files() -> ok.
 delete_override_conf_files() ->
-    F1 = override_conf_file(#{override_to => local}),
-    F2 = override_conf_file(#{override_to => cluster}),
+    F1 = deprecated_override_conf_file(#{override_to => local}),
+    F2 = deprecated_override_conf_file(#{override_to => cluster}),
+    F3 = conf_file(#{override_to => local}),
+    F4 = conf_file(#{override_to => cluster}),
     ok = ensure_file_deleted(F1),
-    ok = ensure_file_deleted(F2).
+    ok = ensure_file_deleted(F2),
+    ok = ensure_file_deleted(F3),
+    ok = ensure_file_deleted(F4).
 
 ensure_file_deleted(F) ->
     case file:delete(F) of
@@ -481,24 +511,39 @@ ensure_file_deleted(F) ->
 
 -spec read_override_conf(map()) -> raw_config().
 read_override_conf(#{} = Opts) ->
-    File = override_conf_file(Opts),
+    File =
+        case has_deprecated_conf() of
+            true -> deprecated_override_conf_file(Opts);
+            false -> conf_file(Opts)
+        end,
     load_hocon_file(File, map).
 
-read_deprecated_override_conf() ->
-    ClusterFile = override_conf_file(#{override_to => cluster}),
-    DeprecatedFile = filename:join(filename:dirname(ClusterFile), "cluster-override.conf"),
-    Conf = load_hocon_file(DeprecatedFile, map),
-    _ = file:delete(DeprecatedFile),
-    Conf.
+has_deprecated_conf() ->
+    DeprecatedFile = deprecated_cluster_conf_file(),
+    filelib:is_regular(DeprecatedFile).
 
-override_conf_file(Opts) when is_map(Opts) ->
+deprecated_cluster_conf_file() ->
+    ClusterFile = deprecated_override_conf_file(#{override_to => cluster}),
+    filename:join(filename:dirname(ClusterFile), "cluster-override.conf").
+
+deprecated_override_conf_file(Opts) when is_map(Opts) ->
     Key =
         case maps:get(override_to, Opts, cluster) of
             local -> local_override_conf_file;
             cluster -> cluster_override_conf_file
         end,
     application:get_env(emqx, Key, undefined);
-override_conf_file(Which) when is_atom(Which) ->
+deprecated_override_conf_file(Which) when is_atom(Which) ->
+    application:get_env(emqx, Which, undefined).
+
+conf_file(Opts) when is_map(Opts) ->
+    Key =
+        case maps:get(override_to, Opts, cluster) of
+            local -> local_conf_file;
+            cluster -> cluster_conf_file
+        end,
+    application:get_env(emqx, Key, undefined);
+conf_file(Which) when is_atom(Which) ->
     application:get_env(emqx, Which, undefined).
 
 -spec save_schema_mod_and_names(module()) -> ok.
@@ -539,7 +584,8 @@ save_configs(Paths0, AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     OverrideConf1 = remove_default_conf(OverrideConf, Default),
     %% We first try to save to files, because saving to files is more error prone
     %% than saving into memory.
-    ok = save_to_override_conf(OverrideConf1, Opts),
+    HasDeprecated = has_deprecated_conf(),
+    ok = save_to_override_conf(HasDeprecated, OverrideConf1, Opts),
     save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
@@ -592,11 +638,12 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put(Conf),
     ?MODULE:put_raw(RawConf).
 
--spec save_to_override_conf(raw_config(), update_opts()) -> ok | {error, term()}.
-save_to_override_conf(undefined, _) ->
+-spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
+save_to_override_conf(_, undefined, _) ->
     ok;
-save_to_override_conf(RawConf, Opts) ->
-    case override_conf_file(Opts) of
+%% TODO: Remove deprecated override conf file when 5.1
+save_to_override_conf(true, RawConf, Opts) ->
+    case deprecated_override_conf_file(Opts) of
         undefined ->
             ok;
         FileName ->
@@ -607,6 +654,24 @@ save_to_override_conf(RawConf, Opts) ->
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "failed_to_write_override_file",
+                        filename => FileName,
+                        reason => Reason
+                    }),
+                    {error, Reason}
+            end
+    end;
+save_to_override_conf(false, RawConf, Opts) ->
+    case conf_file(Opts) of
+        undefined ->
+            ok;
+        FileName ->
+            ok = filelib:ensure_dir(FileName),
+            case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_save_conf_file",
                         filename => FileName,
                         reason => Reason
                     }),
@@ -756,17 +821,6 @@ atom_conf_path(Path, ExpFun, OnFail) ->
                 {raise_error, Err} ->
                     error(Err)
             end
-    end.
-
-merge_deprecated_cluster_override_to_local_override() ->
-    case read_deprecated_override_conf() of
-        DeprecatedConf when DeprecatedConf =/= #{} ->
-            LocalOverrides = read_override_conf(#{override_to => local}),
-            MergedConf = hocon:deep_merge(LocalOverrides, DeprecatedConf),
-            _ = save_to_override_conf(MergedConf, #{override_to => local}),
-            ok;
-        _ ->
-            ok
     end.
 
 -ifdef(TEST).

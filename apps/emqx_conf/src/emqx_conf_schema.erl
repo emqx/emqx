@@ -1028,7 +1028,9 @@ translation("emqx") ->
     [
         {"config_files", fun tr_config_files/1},
         {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1},
-        {"local_override_conf_file", fun tr_local_override_conf_file/1}
+        {"local_override_conf_file", fun tr_local_override_conf_file/1},
+        {"cluster_conf_file", fun tr_cluster_conf_file/1},
+        {"local_conf_file", fun tr_local_conf_file/1}
     ];
 translation("gen_rpc") ->
     [{"default_client_driver", fun tr_default_config_driver/1}];
@@ -1076,12 +1078,18 @@ tr_config_files(_Conf) ->
     end.
 
 tr_cluster_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "cluster.conf").
+    tr_conf_file(Conf, "cluster-override.conf").
 
 tr_local_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "local.conf").
+    tr_conf_file(Conf, "local-overide.conf").
 
-tr_override_conf_file(Conf, Filename) ->
+tr_cluster_conf_file(Conf) ->
+    tr_conf_file(Conf, "cluster.hocon").
+
+tr_local_conf_file(Conf) ->
+    tr_conf_file(Conf, "local.hocon").
+
+tr_conf_file(Conf, Filename) ->
     DataDir = conf_get("node.data_dir", Conf),
     %% assert, this config is not nullable
     [_ | _] = DataDir,
