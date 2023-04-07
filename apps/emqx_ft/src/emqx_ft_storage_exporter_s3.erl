@@ -130,9 +130,12 @@ s3_headers({ClientId, FileId}, Filemeta) ->
         <<"x-amz-meta-clientid">> => ClientId,
         %% It [Topic Name] MUST be a UTF-8 Encoded String
         <<"x-amz-meta-fileid">> => FileId,
-        <<"x-amz-meta-filemeta">> => emqx_json:encode(emqx_ft:encode_filemeta(Filemeta)),
+        <<"x-amz-meta-filemeta">> => s3_header_filemeta(Filemeta),
         <<"x-amz-meta-filemeta-vsn">> => ?FILEMETA_VSN
     }.
+
+s3_header_filemeta(Filemeta) ->
+    emqx_json:encode(emqx_ft:encode_filemeta(Filemeta), [force_utf8, uescape]).
 
 list(Client, Options) ->
     case list_key_info(Client, Options) of
