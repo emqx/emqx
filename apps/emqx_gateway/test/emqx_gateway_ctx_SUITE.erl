@@ -28,6 +28,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(
         emqx_access_control,
