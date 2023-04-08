@@ -85,7 +85,7 @@
     check_schema => boolean() | filter(),
     translate_body => boolean(),
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
-    i18n_lang => atom()
+    i18n_lang => atom() | string() | binary()
 }.
 
 -type route_path() :: string() | binary().
@@ -238,8 +238,12 @@ parse_spec_ref(Module, Path, Options) ->
             erlang:apply(Module, schema, [Path])
             %% better error message
         catch
-            error:Reason ->
-                throw({error, #{mfa => {Module, schema, [Path]}, reason => Reason}})
+            error:Reason:Stacktrace ->
+                erlang:raise(
+                    error,
+                    #{mfa => {Module, schema, [Path]}, reason => Reason},
+                    Stacktrace
+                )
         end,
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->

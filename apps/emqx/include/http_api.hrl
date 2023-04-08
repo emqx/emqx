@@ -57,7 +57,7 @@
 -define(ERROR_CODES, [
     {?BAD_USERNAME_OR_PWD, <<"Bad username or password">>},
     {?BAD_API_KEY_OR_SECRET, <<"Bad API key or secret">>},
-    {'BAD_REQUEST', <<"Request parameters are not legal">>},
+    {'BAD_REQUEST', <<"Request parameters are not valid">>},
     {'NOT_MATCH', <<"Conditions are not matched">>},
     {'ALREADY_EXISTS', <<"Resource already existed">>},
     {'BAD_CONFIG_SCHEMA', <<"Configuration data is not legal">>},
