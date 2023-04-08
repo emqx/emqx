@@ -29,6 +29,12 @@
 -export([schema_module/0]).
 -export([gen_example_conf/2]).
 
+%% TODO: move to emqx_dashboard when we stop building api schema at build time
+-export([
+    hotconf_schema_json/1,
+    bridge_schema_json/1
+]).
+
 %% for rpc
 -export([get_node_and_config/1]).
 
@@ -136,6 +142,7 @@ reset(Node, KeyPath, Opts) ->
     emqx_conf_proto_v2:reset(Node, KeyPath, Opts).
 
 %% @doc Called from build script.
+%% TODO: move to a external escript after all refactoring is done
 dump_schema(Dir, SchemaModule) ->
     _ = application:load(emqx_dashboard),
     ok = emqx_dashboard_desc_cache:init(),
@@ -169,19 +176,37 @@ gen_schema_json(Dir, SchemaModule, Lang) ->
     IoData = emqx_utils_json:encode(JsonMap, [pretty, force_utf8]),
     ok = file:write_file(SchemaJsonFile, IoData).
 
+%% TODO: delete this function when we stop generating this JSON at build time.
 gen_api_schema_json(Dir, Lang) ->
     gen_api_schema_json_hotconf(Dir, Lang),
     gen_api_schema_json_bridge(Dir, Lang).
 
+%% TODO: delete this function when we stop generating this JSON at build time.
 gen_api_schema_json_hotconf(Dir, Lang) ->
-    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
     File = schema_filename(Dir, "hot-config-schema-", Lang),
-    ok = do_gen_api_schema_json(File, emqx_mgmt_api_configs, SchemaInfo, Lang).
+    IoData = hotconf_schema_json(Lang),
+    ok = write_api_schema_json_file(File, IoData).
 
+%% TODO: delete this function when we stop generating this JSON at build time.
 gen_api_schema_json_bridge(Dir, Lang) ->
-    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
     File = schema_filename(Dir, "bridge-api-", Lang),
-    ok = do_gen_api_schema_json(File, emqx_bridge_api, SchemaInfo, Lang).
+    IoData = bridge_schema_json(Lang),
+    ok = write_api_schema_json_file(File, IoData).
+
+%% TODO: delete this function when we stop generating this JSON at build time.
+write_api_schema_json_file(File, IoData) ->
+    io:format(user, "===< Generating: ~s~n", [File]),
+    file:write_file(File, IoData).
+
+%% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
+hotconf_schema_json(Lang) ->
+    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo, Lang).
+
+%% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
+bridge_schema_json(Lang) ->
+    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo, Lang).
 
 schema_filename(Dir, Prefix, Lang) ->
     Filename = Prefix ++ Lang ++ ".json",
@@ -245,9 +270,9 @@ gen_example(File, SchemaModule) ->
     Example = hocon_schema_example:gen(SchemaModule, Opts),
     file:write_file(File, Example).
 
-%% Only gen hot_conf schema, not all configuration fields.
-do_gen_api_schema_json(File, SchemaMod, SchemaInfo, Lang) ->
-    io:format(user, "===< Generating: ~s~n", [File]),
+%% TODO: move this to emqx_dashboard when we stop generating
+%% this JSON at build time.
+gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Lang) ->
     {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
         SchemaMod,
         #{
@@ -282,15 +307,14 @@ do_gen_api_schema_json(File, SchemaMod, SchemaInfo, Lang) ->
         ApiSpec0
     ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    IoData = emqx_utils_json:encode(
+    emqx_utils_json:encode(
         #{
             info => SchemaInfo,
             paths => ApiSpec,
             components => #{schemas => Components}
         },
         [pretty, force_utf8]
-    ),
-    file:write_file(File, IoData).
+    ).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
 -define(TO_COMPONENTS_SCHEMA(_M_, _F_),
