@@ -1,0 +1,32 @@
+emqx_stomp_schema {
+    stomp {
+        desc {
+            en: """The Stomp Gateway configuration.
+This gateway supports v1.2/1.1/1.0"""
+            zh: """Stomp 网关配置。当前实现支持 v1.2/1.1/1.0 协议版本"""
+        }
+    }
+
+    stom_frame_max_headers {
+        desc {
+            en: """The maximum number of Header"""
+            zh: """允许的 Header 最大数量"""
+        }
+    }
+
+    stomp_frame_max_headers_length {
+        desc {
+            en: """The maximum string length of the Header Value"""
+            zh: """允许的 Header 字符串的最大长度"""
+        }
+    }
+
+    stom_frame_max_body_length {
+        desc {
+            en: """Maximum number of bytes of Body allowed per Stomp packet"""
+            zh: """允许的 Stomp 报文 Body 的最大字节数"""
+        }
+    }
+
+
+}
