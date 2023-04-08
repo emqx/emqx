@@ -239,6 +239,10 @@ parse_spec_ref(Module, Path, Options) ->
             %% better error message
         catch
             error:Reason:Stacktrace ->
+                %% raise a new error with the same stacktrace.
+                %% it's a bug if this happens.
+                %% i.e. if a path is listed in the spec but the module doesn't
+                %% implement it or crashes when trying to build the schema.
                 erlang:raise(
                     error,
                     #{mfa => {Module, schema, [Path]}, reason => Reason},

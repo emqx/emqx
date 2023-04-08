@@ -277,11 +277,11 @@ t_bad_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{
+    ?assertError(
+        #{
             mfa := {?MODULE, schema, ["/ref/none"]},
             reason := function_clause
-        }},
+        },
         validate(Path, #{}, [])
     ),
     ok.

@@ -307,8 +307,11 @@ t_nest_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{mfa := {?MODULE, schema, [Path]}}},
+    ?assertError(
+        #{
+            mfa := {?MODULE, schema, [Path]},
+            reason := function_clause
+        },
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
     ),
     ok.
