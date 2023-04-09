@@ -60,7 +60,7 @@ lookup(Lang, Namespace, Id, Tag) ->
 %% @doc Lookup the description of the configuration item from the given cache.
 lookup(EtsTab, Lang0, Namespace, Id, Tag) ->
     Lang = bin(Lang0),
-    case ets:lookup(EtsTab, {Lang, bin(Namespace), bin(Id), bin(Tag)}) of
+    try ets:lookup(EtsTab, {Lang, bin(Namespace), bin(Id), bin(Tag)}) of
         [{_, Desc}] ->
             Desc;
         [] when Lang =/= <<"en">> ->
@@ -68,6 +68,11 @@ lookup(EtsTab, Lang0, Namespace, Id, Tag) ->
             lookup(EtsTab, <<"en">>, Namespace, Id, Tag);
         _ ->
             %% undefined but not <<>>
+            undefined
+    catch
+        error:badarg ->
+            %% schema is not initialized
+            %% most likely in test cases
             undefined
     end.
 
