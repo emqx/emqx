@@ -113,7 +113,10 @@
 
 -export([apply_reply_fun/2]).
 
--export_type([resource_data/0]).
+-export_type([
+    resource_id/0,
+    resource_data/0
+]).
 
 -optional_callbacks([
     on_query/3,
@@ -362,7 +365,7 @@ is_buffer_supported(Module) ->
             false
     end.
 
--spec call_start(manager_id(), module(), resource_config()) ->
+-spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(MgrId, Mod, Config) ->
     try
@@ -374,7 +377,7 @@ call_start(MgrId, Mod, Config) ->
             {error, #{exception => Kind, reason => Error, stacktrace => Stacktrace}}
     end.
 
--spec call_health_check(manager_id(), module(), resource_state()) ->
+-spec call_health_check(resource_id(), module(), resource_state()) ->
     resource_status()
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}
@@ -382,7 +385,7 @@ call_start(MgrId, Mod, Config) ->
 call_health_check(MgrId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(MgrId, ResourceState)).
 
--spec call_stop(manager_id(), module(), resource_state()) -> term().
+-spec call_stop(resource_id(), module(), resource_state()) -> term().
 call_stop(MgrId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_stop(MgrId, ResourceState)).
 

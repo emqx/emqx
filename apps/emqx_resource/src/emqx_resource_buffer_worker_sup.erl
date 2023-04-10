@@ -52,6 +52,7 @@ init([]) ->
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
 
+-spec start_workers(emqx_resource:resource_id(), _Opts :: #{atom() => _}) -> ok.
 start_workers(ResId, Opts) ->
     WorkerPoolSize = worker_pool_size(Opts),
     _ = ensure_worker_pool(ResId, hash, [{size, WorkerPoolSize}]),
@@ -63,6 +64,7 @@ start_workers(ResId, Opts) ->
         lists:seq(1, WorkerPoolSize)
     ).
 
+-spec stop_workers(emqx_resource:resource_id(), _Opts :: #{atom() => _}) -> ok.
 stop_workers(ResId, Opts) ->
     WorkerPoolSize = worker_pool_size(Opts),
     lists:foreach(
@@ -75,6 +77,7 @@ stop_workers(ResId, Opts) ->
     ensure_worker_pool_removed(ResId),
     ok.
 
+-spec worker_pids(emqx_resource:resource_id()) -> [pid()].
 worker_pids(ResId) ->
     lists:map(
         fun({_Name, Pid}) ->

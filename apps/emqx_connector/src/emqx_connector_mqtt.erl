@@ -248,13 +248,12 @@ make_sub_confs(EmptyMap, _Conf, _) when map_size(EmptyMap) == 0 ->
     undefined;
 make_sub_confs(undefined, _Conf, _) ->
     undefined;
-make_sub_confs(SubRemoteConf, Conf, InstanceId) ->
-    ResId = emqx_resource_manager:manager_id_to_resource_id(InstanceId),
+make_sub_confs(SubRemoteConf, Conf, ResourceId) ->
     case maps:find(hookpoint, Conf) of
         error ->
             error({no_hookpoint_provided, Conf});
         {ok, HookPoint} ->
-            MFA = {?MODULE, on_message_received, [HookPoint, ResId]},
+            MFA = {?MODULE, on_message_received, [HookPoint, ResourceId]},
             SubRemoteConf#{on_message_received => MFA}
     end.
 
