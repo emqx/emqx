@@ -100,7 +100,7 @@ set_data_dir_env() ->
     ok = file:write_file(NewConfigFile, DataDir, [append]),
     application:set_env(emqx, config_files, [NewConfigFile]),
     application:set_env(emqx, data_dir, Node),
-    application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster.hocon"),
+    application:set_env(emqx, cluster_conf_file, Node ++ "/configs/cluster.hocon"),
     ok.
 
 assert_data_copy_done([First0 | Rest]) ->
@@ -108,6 +108,7 @@ assert_data_copy_done([First0 | Rest]) ->
     {ok, FakeCertFile} = file:read_file(First ++ "/certs/fake-cert"),
     {ok, FakeAuthzFile} = file:read_file(First ++ "/authz/fake-authz"),
     {ok, FakeOverrideFile} = file:read_file(First ++ "/configs/cluster.hocon"),
+    {ok, ExpectFake} = hocon:binary(FakeOverrideFile),
     lists:foreach(
         fun(Node0) ->
             Node = atom_to_list(Node0),
@@ -117,8 +118,8 @@ assert_data_copy_done([First0 | Rest]) ->
                 #{node => Node}
             ),
             ?assertEqual(
-                {ok, FakeOverrideFile},
-                file:read_file(Node ++ "/configs/cluster.hocon"),
+                {ok, ExpectFake},
+                hocon:files([Node ++ "/configs/cluster.hocon"]),
                 #{node => Node}
             ),
             ?assertEqual(
