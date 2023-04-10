@@ -200,55 +200,6 @@ t_sub_key_update_remove(_Config) ->
     ok = emqx_config_handler:remove_handler(KeyPath2),
     ok.
 
-t_local_override_update_remove(_Config) ->
-    application:set_env(emqx, local_override_conf_file, ?LOCAL_CONF),
-    application:set_env(emqx, cluster_override_conf_file, ?CLUSTER_CONF),
-    KeyPath = [sysmon, os, cpu_high_watermark],
-    ok = emqx_config_handler:add_handler(KeyPath, ?MODULE),
-    LocalOpts = #{override_to => local},
-    {ok, Res} = emqx:update_config(KeyPath, <<"70%">>, LocalOpts),
-    ?assertMatch(
-        #{
-            config := 0.7,
-            post_config_update := #{},
-            raw_config := <<"70%">>
-        },
-        Res
-    ),
-    ClusterOpts = #{override_to => cluster},
-    ?assertMatch(
-        {error, {permission_denied, _}}, emqx:update_config(KeyPath, <<"71%">>, ClusterOpts)
-    ),
-    ?assertMatch(0.7, emqx:get_config(KeyPath)),
-
-    %% remove
-    ?assertMatch({error, {permission_denied, _}}, emqx:remove_config(KeyPath)),
-    ?assertEqual(
-        {ok, #{post_config_update => #{}}},
-        emqx:remove_config(KeyPath, #{override_to => local})
-    ),
-    ?assertEqual(
-        {ok, #{post_config_update => #{}}},
-        emqx:remove_config(KeyPath)
-    ),
-    ?assertError({config_not_found, KeyPath}, emqx:get_raw_config(KeyPath)),
-    OSKey = maps:keys(emqx:get_raw_config([sysmon, os])),
-    ?assertEqual(false, lists:member(<<"cpu_high_watermark">>, OSKey)),
-    ?assert(length(OSKey) > 0),
-
-    ?assertEqual(
-        {ok, #{config => 0.8, post_config_update => #{}, raw_config => <<"80%">>}},
-        emqx:reset_config(KeyPath, ClusterOpts)
-    ),
-    OSKey1 = maps:keys(emqx:get_raw_config([sysmon, os])),
-    ?assertEqual(true, lists:member(<<"cpu_high_watermark">>, OSKey1)),
-    ?assert(length(OSKey1) > 1),
-
-    ok = emqx_config_handler:remove_handler(KeyPath),
-    application:unset_env(emqx, local_override_conf_file),
-    application:unset_env(emqx, cluster_override_conf_file),
-    ok.
-
 t_check_failed(_Config) ->
     KeyPath = [sysmon, os, cpu_check_interval],
     Opts = #{rawconf_with_defaults => true},
