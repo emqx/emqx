@@ -33,8 +33,9 @@
     on_start/2,
     on_stop/2,
     on_query/3,
-    %% TODO: not_supported_now
-    %%on_batch_query/3,
+    on_query_async/4,
+    on_batch_query/3,
+    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -45,7 +46,7 @@
 ]).
 
 %% callbacks for query executing
--export([query/3, prepared_query/3]).
+-export([query/4, prepared_query/4, batch_query/3]).
 
 -export([do_get_status/1]).
 
@@ -96,7 +97,7 @@ keyspace(_) -> undefined.
 %%--------------------------------------------------------------------
 %% callbacks for emqx_resource
 
-callback_mode() -> always_sync.
+callback_mode() -> async_if_possible.
 
 -spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
 on_start(
@@ -172,6 +173,28 @@ on_stop(InstId, #{poolname := PoolName}) ->
 on_query(
     InstId,
     Request,
+    State
+) ->
+    do_signle_query(InstId, Request, sync, State).
+
+-spec on_query_async(
+    emqx_resource:resource_id(),
+    request(),
+    {function(), list()},
+    state()
+) -> ok | {error, {recoverable_error | unrecoverable_error, term()}}.
+on_query_async(
+    InstId,
+    Request,
+    Callback,
+    State
+) ->
+    do_signle_query(InstId, Request, {async, Callback}, State).
+
+do_signle_query(
+    InstId,
+    Request,
+    Async,
     #{poolname := PoolName} = State
 ) ->
     {Type, PreparedKeyOrSQL, Params} = parse_request_to_cql(Request),
@@ -187,7 +210,59 @@ on_query(
         }
     ),
     {PreparedKeyOrSQL1, Data} = proc_cql_params(Type, PreparedKeyOrSQL, Params, State),
-    Res = exec_cql_query(InstId, PoolName, Type, PreparedKeyOrSQL1, Data),
+    Res = exec_cql_query(InstId, PoolName, Type, Async, PreparedKeyOrSQL1, Data),
+    handle_result(Res).
+
+-spec on_batch_query(
+    emqx_resource:resource_id(),
+    [request()],
+    state()
+) -> ok | {error, {recoverable_error | unrecoverable_error, term()}}.
+on_batch_query(
+    InstId,
+    Requests,
+    State
+) ->
+    do_batch_query(InstId, Requests, sync, State).
+
+-spec on_batch_query_async(
+    emqx_resource:resource_id(),
+    [request()],
+    {function(), list()},
+    state()
+) -> ok | {error, {recoverable_error | unrecoverable_error, term()}}.
+on_batch_query_async(
+    InstId,
+    Requests,
+    Callback,
+    State
+) ->
+    do_batch_query(InstId, Requests, {async, Callback}, State).
+
+do_batch_query(
+    InstId,
+    Requests,
+    Async,
+    #{poolname := PoolName} = State
+) ->
+    CQLs =
+        lists:map(
+            fun(Request) ->
+                {Type, PreparedKeyOrSQL, Params} = parse_request_to_cql(Request),
+                proc_cql_params(Type, PreparedKeyOrSQL, Params, State)
+            end,
+            Requests
+        ),
+    ?tp(
+        debug,
+        cassandra_connector_received_cql_batch_query,
+        #{
+            connector => InstId,
+            cqls => CQLs,
+            state => State
+        }
+    ),
+    Res = exec_cql_batch_query(InstId, PoolName, Async, CQLs),
     handle_result(Res).
 
 parse_request_to_cql({send_message, Params}) ->
@@ -203,17 +278,32 @@ proc_cql_params(
     Params,
     #{prepare_statement := Prepares, params_tokens := ParamsTokens}
 ) ->
-    PreparedKey = maps:get(PreparedKey0, Prepares),
+    %% assert
+    _PreparedKey = maps:get(PreparedKey0, Prepares),
     Tokens = maps:get(PreparedKey0, ParamsTokens),
-    {PreparedKey, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))};
+    {PreparedKey0, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))};
 proc_cql_params(query, SQL, Params, _State) ->
     {SQL1, Tokens} = emqx_plugin_libs_rule:preproc_sql(SQL, '?'),
     {SQL1, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))}.
 
-exec_cql_query(InstId, PoolName, Type, PreparedKey, Data) when
+exec_cql_query(InstId, PoolName, Type, Async, PreparedKey, Data) when
     Type == query; Type == prepared_query
 ->
-    case ecpool:pick_and_do(PoolName, {?MODULE, Type, [PreparedKey, Data]}, no_handover) of
+    case ecpool:pick_and_do(PoolName, {?MODULE, Type, [Async, PreparedKey, Data]}, no_handover) of
+        {error, Reason} = Result ->
+            ?tp(
+                error,
+                cassandra_connector_query_return,
+                #{connector => InstId, error => Reason}
+            ),
+            Result;
+        Result ->
+            ?tp(debug, cassandra_connector_query_return, #{result => Result}),
+            Result
+    end.
+
+exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
+    case ecpool:pick_and_do(PoolName, {?MODULE, batch_query, [Async, CQLs]}, no_handover) of
         {error, Reason} = Result ->
             ?tp(
                 error,
@@ -261,11 +351,20 @@ do_check_prepares(State = #{poolname := PoolName, prepare_cql := {error, Prepare
 %%--------------------------------------------------------------------
 %% callbacks query
 
-query(Conn, SQL, Params) ->
-    ecql:query(Conn, SQL, Params).
+query(Conn, sync, CQL, Params) ->
+    ecql:query(Conn, CQL, Params);
+query(Conn, {async, Callback}, CQL, Params) ->
+    ecql:async_query(Conn, CQL, Params, one, Callback).
 
-prepared_query(Conn, PreparedKey, Params) ->
-    ecql:execute(Conn, PreparedKey, Params).
+prepared_query(Conn, sync, PreparedKey, Params) ->
+    ecql:execute(Conn, PreparedKey, Params);
+prepared_query(Conn, {async, Callback}, PreparedKey, Params) ->
+    ecql:async_execute(Conn, PreparedKey, Params, Callback).
+
+batch_query(Conn, sync, Rows) ->
+    ecql:batch(Conn, Rows);
+batch_query(Conn, {async, Callback}, Rows) ->
+    ecql:async_batch(Conn, Rows, Callback).
 
 %%--------------------------------------------------------------------
 %% callbacks for ecpool
