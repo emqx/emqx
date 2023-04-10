@@ -5,6 +5,7 @@
 {emqx_bridge,1}.
 {emqx_bridge,2}.
 {emqx_bridge,3}.
+{emqx_bridge,4}.
 {emqx_broker,1}.
 {emqx_cm,1}.
 {emqx_conf,1}.

@@ -37,7 +37,6 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
-    lookup_cached/2,
     get_metrics/1,
     reset_metrics/1
 ]).
@@ -231,25 +230,14 @@ set_resource_status_connecting(ResId) ->
 -spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup(ResId) ->
     case safe_call(ResId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> lookup_cached(ResId, [metrics]);
+        {error, timeout} -> lookup_cached(ResId);
         Result -> Result
     end.
 
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    lookup_cached(ResId, []).
-
-%% @doc Lookup the group and data of a resource from the cache
--spec lookup_cached(resource_id(), [Option]) ->
-    {ok, resource_group(), resource_data()} | {error, not_found}
-when
-    Option :: metrics.
-lookup_cached(ResId, Options) ->
-    NeedMetrics = lists:member(metrics, Options),
     case read_cache(ResId) of
-        {Group, Data} when NeedMetrics ->
-            {ok, Group, data_record_to_external_map_with_metrics(Data)};
         {Group, Data} ->
             {ok, Group, data_record_to_external_map(Data)};
         not_found ->
@@ -366,7 +354,7 @@ handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
 % Called when the state-data of the resource is being looked up.
 handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
-    Reply = {ok, Group, data_record_to_external_map_with_metrics(Data)},
+    Reply = {ok, Group, data_record_to_external_map(Data)},
     {keep_state_and_data, [{reply, From, Reply}]};
 % Called when doing a manually health check.
 handle_event({call, From}, health_check, stopped, _Data) ->

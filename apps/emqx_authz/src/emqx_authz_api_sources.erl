@@ -344,8 +344,8 @@ lookup_from_local_node(Type) ->
             case emqx_resource:get_instance(ResourceId) of
                 {error, not_found} ->
                     {error, {NodeId, not_found_resource}};
-                {ok, _, #{status := Status, metrics := ResourceMetrics}} ->
-                    {ok, {NodeId, Status, Metrics, ResourceMetrics}}
+                {ok, _, #{status := Status}} ->
+                    {ok, {NodeId, Status, Metrics, emqx_resource:get_metrics(ResourceId)}}
             end;
         _ ->
             Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),

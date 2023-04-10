@@ -1201,13 +1201,16 @@ t_metrics(Config) ->
         request_json(get, uri(["bridges", BridgeID, "metrics"]), Config)
     ),
 
-    %% check that metrics isn't returned when listing all bridges
+    %% check for absence of metrics when listing all bridges
     {ok, 200, Bridges} = request_json(get, uri(["bridges"]), Config),
-    ?assert(
-        lists:all(
-            fun(E) -> not maps:is_key(<<"metrics">>, E) end,
-            Bridges
-        )
+    ?assertNotMatch(
+        [
+            #{
+                <<"metrics">> := #{},
+                <<"node_metrics">> := [_ | _]
+            }
+        ],
+        Bridges
     ),
     ok.
 
