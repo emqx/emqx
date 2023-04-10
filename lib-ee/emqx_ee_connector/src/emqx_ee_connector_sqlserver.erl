@@ -502,15 +502,18 @@ parse_sql_template([], SingleInsertTks, BatchInsertTks) ->
 
 %% single insert
 apply_template(
-    {?ACTION_SEND_MESSAGE = Key, Msg} = Query,
-    #{?SINGLE_INSERT_TEMP := SingleInsertTks} = _Templates
+    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query,
+    #{?SINGLE_INSERT_TEMP := _SingleInsertTks} = Templates
 ) ->
-    case maps:get(Key, SingleInsertTks, undefined) of
-        undefined ->
-            Query;
-        Template ->
-            {Key, emqx_plugin_libs_rule:proc_tmpl(Template, Msg)}
-    end;
+    %% TODO: fix emqx_plugin_libs_rule:proc_tmpl/2
+    %% it won't add single quotes for string
+    apply_template([Query], Templates);
+%% case maps:get(Key, SingleInsertTks, undefined) of
+%%     undefined ->
+%%         Query;
+%%     Template ->
+%%         {Key, emqx_plugin_libs_rule:proc_tmpl(Template, Msg)}
+%% end;
 %% batch inserts
 apply_template(
     [{?ACTION_SEND_MESSAGE = Key, _Msg} | _T] = BatchReqs,
