@@ -195,7 +195,8 @@ schema(filemeta) ->
             {name,
                 hoconsc:mk(string(), #{
                     required => true,
-                    validator => validator(filename)
+                    validator => validator(filename),
+                    converter => converter(unicode_string)
                 })},
             {size, hoconsc:mk(non_neg_integer())},
             {expire_at, hoconsc:mk(non_neg_integer())},
@@ -220,6 +221,17 @@ converter(checksum) ->
             _ = is_binary(Hex) orelse throw({expected_type, string}),
             _ = byte_size(Hex) =:= 64 orelse throw({expected_length, 64}),
             {sha256, binary:decode_hex(Hex)}
+    end;
+converter(unicode_string) ->
+    fun
+        (undefined, #{}) ->
+            undefined;
+        (Str, #{make_serializable := true}) ->
+            _ = is_list(Str) orelse throw({expected_type, string}),
+            unicode:characters_to_binary(Str);
+        (Str, #{}) ->
+            _ = is_binary(Str) orelse throw({expected_type, string}),
+            unicode:characters_to_list(Str)
     end.
 
 ref(Ref) ->

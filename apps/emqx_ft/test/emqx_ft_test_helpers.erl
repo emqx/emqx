@@ -78,11 +78,13 @@ upload_file(ClientId, FileId, Name, Data, Node) ->
     {ok, C1} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, Port}]),
     {ok, _} = emqtt:connect(C1),
     Meta = #{
-        name => unicode:characters_to_binary(Name),
+        name => Name,
         expire_at => erlang:system_time(_Unit = second) + 3600,
         size => Size
     },
-    MetaPayload = emqx_json:encode(Meta),
+    MetaPayload = emqx_json:encode(emqx_ft:encode_filemeta(Meta)),
+
+    ct:pal("MetaPayload = ~ts", [MetaPayload]),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
     {ok, _} = emqtt:publish(C1, MetaTopic, MetaPayload, 1),

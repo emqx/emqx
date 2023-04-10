@@ -54,6 +54,8 @@ groups() ->
             t_happy_path_multi,
             t_abort_multi,
             t_abort_simple_put,
+            t_signed_url_download,
+            t_signed_nonascii_url_download,
 
             {group, noconn_errors},
             {group, timeout_errors},
@@ -191,6 +193,40 @@ t_happy_path_multi(Config) ->
         ?config(test_aws_config, Config),
         ?config(bucket, Config),
         Key
+    ).
+
+t_signed_url_download(_Config) ->
+    Prefix = emqx_s3_test_helpers:unique_key(),
+    Key = Prefix ++ "/ascii.txt",
+
+    {ok, Data} = upload(Key, 1024, 5),
+
+    SignedUrl = emqx_s3:with_client(profile_id(), fun(Client) ->
+        emqx_s3_client:uri(Client, Key)
+    end),
+
+    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, [], []),
+
+    ?assertEqual(
+        iolist_to_binary(Data),
+        iolist_to_binary(Body)
+    ).
+
+t_signed_nonascii_url_download(_Config) ->
+    Prefix = emqx_s3_test_helpers:unique_key(),
+    Key = Prefix ++ "/unicode-🫠.txt",
+
+    {ok, Data} = upload(Key, 1024 * 1024, 8),
+
+    SignedUrl = emqx_s3:with_client(profile_id(), fun(Client) ->
+        emqx_s3_client:uri(Client, Key)
+    end),
+
+    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, [], []),
+
+    ?assertEqual(
+        iolist_to_binary(Data),
+        iolist_to_binary(Body)
     ).
 
 t_abort_multi(Config) ->
@@ -532,3 +568,24 @@ data(Byte, ChunkSize, ChunkCount) ->
 list_objects(Config) ->
     Props = erlcloud_s3:list_objects(?config(bucket, Config), [], ?config(test_aws_config, Config)),
     proplists:get_value(contents, Props).
+
+upload(Key, ChunkSize, ChunkCount) ->
+    {ok, Pid} = emqx_s3:start_uploader(profile_id(), #{key => Key}),
+
+    _ = erlang:monitor(process, Pid),
+
+    Data = data($a, ChunkSize, ChunkCount),
+
+    ok = lists:foreach(
+        fun(Chunk) -> ?assertEqual(ok, emqx_s3_uploader:write(Pid, Chunk)) end,
+        Data
+    ),
+
+    ok = emqx_s3_uploader:complete(Pid),
+
+    ok = ?assertProcessExited(
+        normal,
+        Pid
+    ),
+
+    {ok, Data}.

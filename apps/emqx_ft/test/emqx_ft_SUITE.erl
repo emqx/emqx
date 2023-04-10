@@ -169,39 +169,38 @@ t_invalid_filename(Config) ->
     C = ?config(client, Config),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f1">>), emqx_json:encode(meta(".", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f1">>), encode_meta(meta(".", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("..", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f2">>), encode_meta(meta("..", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f2">>), emqx_json:encode(meta("../nice", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f2">>), encode_meta(meta("../nice", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f3">>), emqx_json:encode(meta("/etc/passwd", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f3">>), encode_meta(meta("/etc/passwd", <<>>)), 1)
     ),
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(<<"f4">>), emqx_json:encode(meta("146%", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f4">>), encode_meta(meta("146%", <<>>)), 1)
     ).
 
 t_simple_transfer(Config) ->
     C = ?config(client, Config),
 
-    Filename = <<"topsecret.pdf">>,
+    Filename = "topsecret.pdf",
     FileId = <<"f1">>,
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
     Meta = #{size := Filesize} = meta(Filename, Data),
-    MetaPayload = emqx_json:encode(Meta),
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
     ),
 
     lists:foreach(
@@ -246,23 +245,21 @@ t_nasty_clientids_fileids(_Config) ->
 t_meta_conflict(Config) ->
     C = ?config(client, Config),
 
-    Filename = <<"topsecret.pdf">>,
+    Filename = "topsecret.pdf",
     FileId = <<"f1">>,
 
     Meta = meta(Filename, [<<"x">>]),
-    MetaPayload = emqx_json:encode(Meta),
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
     ),
 
-    ConflictMeta = Meta#{name => <<"conflict.pdf">>},
-    ConflictMetaPayload = emqx_json:encode(ConflictMeta),
+    ConflictMeta = Meta#{name => "conflict.pdf"},
 
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(FileId), ConflictMetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(FileId), encode_meta(ConflictMeta), 1)
     ).
 
 t_no_meta(Config) ->
@@ -284,17 +281,16 @@ t_no_meta(Config) ->
 t_no_segment(Config) ->
     C = ?config(client, Config),
 
-    Filename = <<"topsecret.pdf">>,
+    Filename = "topsecret.pdf",
     FileId = <<"f1">>,
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
     Meta = #{size := Filesize} = meta(Filename, Data),
-    MetaPayload = emqx_json:encode(Meta),
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
     ),
 
     lists:foreach(
@@ -335,13 +331,13 @@ t_invalid_meta(Config) ->
 t_invalid_checksum(Config) ->
     C = ?config(client, Config),
 
-    Filename = <<"topsecret.pdf">>,
+    Filename = "topsecret.pdf",
     FileId = <<"f1">>,
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
 
     Meta = #{size := Filesize} = meta(Filename, Data),
-    MetaPayload = emqx_json:encode(Meta#{checksum => sha256hex(<<"invalid">>)}),
+    MetaPayload = encode_meta(Meta#{checksum => {sha256, sha256(<<"invalid">>)}}),
 
     ?assertRCName(
         success,
@@ -366,7 +362,7 @@ t_invalid_checksum(Config) ->
 t_corrupted_segment_retry(Config) ->
     C = ?config(client, Config),
 
-    Filename = <<"corruption.pdf">>,
+    Filename = "corruption.pdf",
     FileId = <<"4242-4242">>,
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
@@ -379,11 +375,11 @@ t_corrupted_segment_retry(Config) ->
         Checksum1,
         Checksum2,
         Checksum3
-    ] = [sha256hex(S) || S <- Data],
+    ] = [binary:encode_hex(sha256(S)) || S <- Data],
 
     Meta = #{size := Filesize} = meta(Filename, Data),
 
-    ?assertRCName(success, emqtt:publish(C, mk_init_topic(FileId), emqx_json:encode(Meta), 1)),
+    ?assertRCName(success, emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)),
 
     ?assertRCName(
         success,
@@ -421,7 +417,7 @@ t_switch_node(Config) ->
     {ok, C1} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, AdditionalNodePort}]),
     {ok, _} = emqtt:connect(C1),
 
-    Filename = <<"multinode_upload.txt">>,
+    Filename = "multinode_upload.txt",
     FileId = <<"f1">>,
 
     Data = [<<"first">>, <<"second">>, <<"third">>],
@@ -430,11 +426,10 @@ t_switch_node(Config) ->
     %% First, publist metadata and the first segment to the additional node
 
     Meta = #{size := Filesize} = meta(Filename, Data),
-    MetaPayload = emqx_json:encode(Meta),
 
     ?assertRCName(
         success,
-        emqtt:publish(C1, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C1, mk_init_topic(FileId), encode_meta(Meta), 1)
     ),
     ?assertRCName(
         success,
@@ -593,7 +588,7 @@ disown_mqtt_client(Context = #{}) ->
 send_filemeta(Meta, Context = #{client := Client, fileid := FileId}) ->
     ?assertRCName(
         success,
-        emqtt:publish(Client, mk_init_topic(FileId), emqx_json:encode(Meta), 1)
+        emqtt:publish(Client, mk_init_topic(FileId), encode_meta(Meta), 1)
     ),
     Context.
 
@@ -650,17 +645,20 @@ with_offsets(Items) ->
     ),
     List.
 
-sha256hex(Data) ->
-    binary:encode_hex(crypto:hash(sha256, Data)).
+sha256(Data) ->
+    crypto:hash(sha256, Data).
 
 meta(FileName, Data) ->
     FullData = iolist_to_binary(Data),
     #{
         name => FileName,
-        checksum => sha256hex(FullData),
+        checksum => {sha256, sha256(FullData)},
         expire_at => erlang:system_time(_Unit = second) + 3600,
         size => byte_size(FullData)
     }.
+
+encode_meta(Meta) ->
+    emqx_json:encode(emqx_ft:encode_filemeta(Meta)).
 
 list_files(ClientId) ->
     {ok, Files} = emqx_ft_storage:files(),
