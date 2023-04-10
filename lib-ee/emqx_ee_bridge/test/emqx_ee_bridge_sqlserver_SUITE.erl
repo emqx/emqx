@@ -224,22 +224,9 @@ t_get_status(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
 
-    Name = ?config(sqlserver_name, Config),
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
+    health_check_resource_ok(Config),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        case emqx_resource_manager:health_check(ResourceID) of
-            {ok, Status} when Status =:= disconnected orelse Status =:= connecting ->
-                ok;
-            {error, timeout} ->
-                ok;
-            Other ->
-                ?assert(
-                    false, lists:flatten(io_lib:format("invalid health check result:~p~n", [Other]))
-                )
-        end
+        health_check_resource_down(Config)
     end),
     ok.
 
@@ -247,18 +234,11 @@ t_create_disconnected(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    ?check_trace(
-        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            ?assertMatch({ok, _}, create_bridge(Config))
-        end),
-        fun(Trace) ->
-            ?assertMatch(
-                [#{error := {start_pool_failed, _, _}}],
-                ?of_kind(sqlserver_connector_start_failed, Trace)
-            ),
-            ok
-        end
-    ),
+    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+        ?assertMatch({ok, _}, create_bridge(Config)),
+        health_check_resource_down(Config)
+    end),
+    health_check_resource_ok(Config),
     ok.
 
 t_write_failure(Config) ->
@@ -521,6 +501,26 @@ query_resource_async(Config, Request) ->
         timeout => 500, async_reply_fun => {AsyncReplyFun, []}
     }),
     {Return, Ref}.
+
+resource_id(Config) ->
+    Name = ?config(sqlserver_name, Config),
+    BridgeType = ?config(sqlserver_bridge_type, Config),
+    _ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name).
+
+health_check_resource_ok(Config) ->
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))).
+
+health_check_resource_down(Config) ->
+    case emqx_resource_manager:health_check(resource_id(Config)) of
+        {ok, Status} when Status =:= disconnected orelse Status =:= connecting ->
+            ok;
+        {error, timeout} ->
+            ok;
+        Other ->
+            ?assert(
+                false, lists:flatten(io_lib:format("invalid health check result:~p~n", [Other]))
+            )
+    end.
 
 receive_result(Ref, Timeout) ->
     receive
