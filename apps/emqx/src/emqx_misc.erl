@@ -246,7 +246,7 @@ do_check_oom([]) ->
     ok;
 do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        true -> {shutdown, Reason};
+        true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
         false -> do_check_oom(Rest)
     end.
 
