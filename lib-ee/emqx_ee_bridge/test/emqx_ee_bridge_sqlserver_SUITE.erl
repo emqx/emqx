@@ -30,7 +30,9 @@
     " msgid   VARCHAR(64) NULL,"
     " topic   VARCHAR(100) NULL,"
     " qos     tinyint NOT NULL DEFAULT 0,"
-    " payload NVARCHAR(100) NULL,"
+    %% use VARCHAR to use utf8 encoding
+    %% for default, sqlserver use utf16 encoding NVARCHAR()
+    " payload VARCHAR(100) NULL,"
     " arrived DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
 ).
 
