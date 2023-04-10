@@ -204,7 +204,9 @@ roots(low) ->
         {"stats",
             sc(
                 ref("stats"),
-                #{}
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"sysmon",
             sc(
@@ -339,6 +341,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(stats_enable)
                 }
             )}
@@ -609,8 +612,7 @@ fields("mqtt") ->
             )}
     ];
 fields("zone") ->
-    Fields = emqx_zone_schema:roots(),
-    [{F, ref(emqx_zone_schema, F)} || F <- Fields];
+    emqx_zone_schema:zone();
 fields("flapping_detect") ->
     [
         {"enable",
@@ -1971,10 +1973,7 @@ desc("persistent_session_builtin") ->
 desc("persistent_table_mria_opts") ->
     "Tuning options for the mria table.";
 desc("stats") ->
-    "Enable/disable statistic data collection.\n"
-    "Statistic data such as message receive/send count/rate etc. "
-    "It provides insights of system performance and helps to diagnose issues. "
-    "You can find statistic data from the dashboard, or from the '/stats' API.";
+    "deprecated since 5.0.23";
 desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
