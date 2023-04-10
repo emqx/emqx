@@ -71,3 +71,4 @@ apps/emqx/test/emqx_static_checks_data/master.bpapi
 lux_logs/
 /.prepare
 bom.json
+.dockerignore
