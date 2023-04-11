@@ -53,7 +53,7 @@ emqx_rule_engine_api {
     api1_resp {
         desc {
             en: "List of rules"
-            zh: "列出所有规则"
+            zh: "规则列表"
         }
         label: {
             en: "List Rules"
@@ -122,7 +122,7 @@ emqx_rule_engine_api {
                         }
                    label: {
                            en: "Delete Cluster Rule"
-                           zh: "删除集群规则"
+                           zh: "基于给定 ID 新建一条规则"
                           }
                   }
     api7 {

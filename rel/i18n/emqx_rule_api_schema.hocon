@@ -641,7 +641,7 @@ emqx_rule_api_schema {
     root_rule_engine {
                    desc {
                          en: "Rule engine configurations. This API can be used to change EMQX rule engine settings. But not for the rules. To list, create, or update rules, call the '/rules' API instead."
-                         zh: "规则引擎配置。该 API 可用于查看和修改规则引擎相关的一些设置。但不可用于规则，请调用 '/rules' API 来对规则进行操作。"
+                         zh: "规则引擎配置。该 API 可用于查看和修改规则引擎相关的一些设置。但不可用于规则，如需查看或修改规则，请调用 '/rules' API 进行操作。"
                         }
                    label: {
                            en: "Rule engine configuration"
