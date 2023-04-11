@@ -50,8 +50,6 @@
 
 -define(ACTION_SEND_MESSAGE, send_message).
 
--define(SINGLE_INSERT, single_insert).
-
 -define(SYNC_QUERY_MODE, handover).
 -define(ASYNC_QUERY_MODE(REPLY), {handover_async, {?MODULE, do_async_reply, [REPLY]}}).
 
@@ -63,7 +61,6 @@
     maps:get(request_timeout, RESOURCE_OPTS, ?DEFAULT_REQUEST_TIMEOUT)
 ).
 
--define(SINGLE_INSERT_TEMP, single_insert_temp).
 -define(BATCH_INSERT_TEMP, batch_insert_temp).
 
 -define(BATCH_INSERT_PART, batch_insert_part).
@@ -464,20 +461,18 @@ parse_sql_template(Config) ->
             SQLTemplate -> #{?ACTION_SEND_MESSAGE => SQLTemplate}
         end,
 
-    SingleInsertTks = #{},
     BatchInsertTks = #{},
-    parse_sql_template(maps:to_list(RawSQLTemplates), SingleInsertTks, BatchInsertTks).
+    parse_sql_template(maps:to_list(RawSQLTemplates), BatchInsertTks).
 
-parse_sql_template([{Key, H} | T], SingleInsertTks, BatchInsertTks) ->
+parse_sql_template([{Key, H} | T], BatchInsertTks) ->
     case emqx_plugin_libs_rule:detect_sql_type(H) of
         {ok, select} ->
-            parse_sql_template(T, SingleInsertTks, BatchInsertTks);
+            parse_sql_template(T, BatchInsertTks);
         {ok, insert} ->
             case emqx_plugin_libs_rule:split_insert_sql(H) of
                 {ok, {InsertSQL, Params}} ->
                     parse_sql_template(
                         T,
-                        SingleInsertTks#{Key => emqx_plugin_libs_rule:preproc_tmpl(H)},
                         BatchInsertTks#{
                             Key =>
                                 #{
@@ -490,32 +485,24 @@ parse_sql_template([{Key, H} | T], SingleInsertTks, BatchInsertTks) ->
                     );
                 {error, Reason} ->
                     ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
-                    parse_sql_template(T, SingleInsertTks, BatchInsertTks)
+                    parse_sql_template(T, BatchInsertTks)
             end;
         {error, Reason} ->
             ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
-            parse_sql_template(T, SingleInsertTks, BatchInsertTks)
+            parse_sql_template(T, BatchInsertTks)
     end;
-parse_sql_template([], SingleInsertTks, BatchInsertTks) ->
+parse_sql_template([], BatchInsertTks) ->
     #{
-        ?SINGLE_INSERT_TEMP => SingleInsertTks,
         ?BATCH_INSERT_TEMP => BatchInsertTks
     }.
 
 %% single insert
 apply_template(
-    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query,
-    #{?SINGLE_INSERT_TEMP := _SingleInsertTks} = Templates
+    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates
 ) ->
     %% TODO: fix emqx_plugin_libs_rule:proc_tmpl/2
     %% it won't add single quotes for string
     apply_template([Query], Templates);
-%% case maps:get(Key, SingleInsertTks, undefined) of
-%%     undefined ->
-%%         Query;
-%%     Template ->
-%%         {Key, emqx_plugin_libs_rule:proc_tmpl(Template, Msg)}
-%% end;
 %% batch inserts
 apply_template(
     [{?ACTION_SEND_MESSAGE = Key, _Msg} | _T] = BatchReqs,
@@ -530,7 +517,8 @@ apply_template(
     end;
 apply_template(Query, Templates) ->
     %% TODO: more detail infomatoin
-    ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}).
+    ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}),
+    {error, failed_to_apply_sql_template}.
 
 do_async_reply(Result, {ReplyFun, Args}) ->
     erlang:apply(ReplyFun, Args ++ Result).
