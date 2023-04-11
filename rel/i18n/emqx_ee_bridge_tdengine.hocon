@@ -39,7 +39,7 @@ will be forwarded."""
 
     desc_config {
         desc {
-            en: """Configuration for an TDengine bridge."""
+            en: """Configuration for a TDengine bridge."""
             zh: """TDengine 桥接配置"""
         }
         label: {
