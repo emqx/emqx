@@ -19,7 +19,7 @@
 -export([open/0]).
 -export([close/1]).
 -export([store/5]).
--export([iterate/3]).
+-export([iterate/2]).
 
 -type topic() :: list(binary()).
 -type time() :: integer().
@@ -41,9 +41,9 @@ store(Tab, MessageID, PublishedAt, Topic, Payload) ->
     true = ets:insert(Tab, {{PublishedAt, MessageID}, Topic, Payload}),
     ok.
 
--spec iterate(t(), emqx_topic:words(), time()) ->
+-spec iterate(t(), emqx_replay:replay()) ->
     [binary()].
-iterate(Tab, TopicFilter, StartTime) ->
+iterate(Tab, {TopicFilter, StartTime}) ->
     ets:foldr(
         fun({{PublishedAt, _}, Topic, Payload}, Acc) ->
             case emqx_topic:match(Topic, TopicFilter) of
