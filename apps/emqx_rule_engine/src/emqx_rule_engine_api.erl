@@ -447,20 +447,12 @@ param_path_id() ->
 '/rule_engine'(get, _Params) ->
     {200, format_rule_engine_resp(emqx_conf:get([rule_engine]))};
 '/rule_engine'(put, #{body := Params}) ->
-    ?CHECK_PARAMS(
-        Params,
-        rule_engine,
-        case emqx_conf:update([rule_engine], Params, #{override_to => cluster}) of
-            {ok, #{config := Config}} ->
-                {200, format_rule_engine_resp(Config)};
-            {error, Reason} ->
-                ?SLOG(error, #{
-                    msg => "update_rule_engine_failed",
-                    reason => Reason
-                }),
-                {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
-        end
-    ).
+    case rule_engine_update(Params) of
+        {ok, Config} ->
+            {200, format_rule_engine_resp(Config)};
+        {error, Reason} ->
+            {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -731,3 +723,20 @@ run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, like, Pattern} | Fuzzy]) -
         run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E, [_ | Fuzzy]) ->
     run_fuzzy_match(E, Fuzzy).
+
+rule_engine_update(Params) ->
+    case emqx_rule_api_schema:check_params(Params, rule_engine) of
+        {ok, _CheckedParams} ->
+            case emqx_conf:update([rule_engine], Params, #{override_to => cluster}) of
+                {ok, #{config := Config}} ->
+                    {ok, Config};
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "update_rule_engine_failed",
+                        reason => Reason
+                    }),
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
