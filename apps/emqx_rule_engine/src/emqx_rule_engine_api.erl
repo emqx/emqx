@@ -475,8 +475,6 @@ encode_nested_error(RuleError, Reason) ->
             {RuleError, Reason}
     end.
 
-format_rule_info_resp(Rules) when is_list(Rules) ->
-    [format_rule_info_resp(R) || R <- Rules];
 format_rule_info_resp({Id, Rule}) ->
     format_rule_info_resp(Rule#{id => Id});
 format_rule_info_resp(#{
@@ -500,32 +498,8 @@ format_rule_info_resp(#{
         description => Descr
     }.
 
-format_rule_engine_resp(#{rules := Rules} = Config) ->
-    Config#{rules => maps:map(fun format_rule_resp/2, Rules)}.
-
-format_rule_resp(
-    _Id,
-    #{
-        name := Name,
-        actions := Action,
-        sql := SQL,
-        enable := Enable,
-        description := Descr
-    } = Rule
-) ->
-    Format = #{
-        name => Name,
-        actions => format_action(Action),
-        sql => SQL,
-        enable => Enable,
-        description => Descr
-    },
-    case Rule of
-        #{metadata := MetaData = #{created_at := CreatedAt}} ->
-            Format#{metadata => MetaData#{created_at => format_datetime(CreatedAt, millisecond)}};
-        _ ->
-            Format
-    end.
+format_rule_engine_resp(Config) ->
+    maps:remove(rules, Config).
 
 format_datetime(Timestamp, Unit) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
@@ -727,16 +701,10 @@ run_fuzzy_match(E, [_ | Fuzzy]) ->
 rule_engine_update(Params) ->
     case emqx_rule_api_schema:check_params(Params, rule_engine) of
         {ok, _CheckedParams} ->
-            case emqx_conf:update([rule_engine], Params, #{override_to => cluster}) of
-                {ok, #{config := Config}} ->
-                    {ok, Config};
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "update_rule_engine_failed",
-                        reason => Reason
-                    }),
-                    {error, Reason}
-            end;
+            {ok, #{config := Config}} = emqx_conf:update([rule_engine], Params, #{
+                override_to => cluster
+            }),
+            {ok, Config};
         {error, Reason} ->
             {error, Reason}
     end.
