@@ -676,7 +676,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
                         ]
                     );
                 slave ->
-                    slave:start_link(host(), Name, ebin_path())
+                    Env = " -env HOCON_ENV_OVERRIDE_PREFIX EMQX_",
+                    slave:start_link(host(), Name, ebin_path() ++ Env)
             end
         end,
     case DoStart() of
@@ -749,6 +750,20 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% `emqx_conf' app and correctly catch up the config.
     StartAutocluster = maps:get(start_autocluster, Opts, false),
 
+    ct:pal(
+        "setting up node ~p:\n  ~p",
+        [
+            Node,
+            #{
+                start_autocluster => StartAutocluster,
+                load_apps => LoadApps,
+                apps => Apps,
+                env => Env,
+                start_apps => StartApps
+            }
+        ]
+    ),
+
     %% Load env before doing anything to avoid overriding
     [ok = erpc:call(Node, ?MODULE, load, [App]) || App <- [gen_rpc, ekka, mria, emqx | LoadApps]],
 
@@ -773,10 +788,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
         end,
 
     %% Setting env before starting any applications
-    [
-        ok = rpc:call(Node, application, set_env, [Application, Key, Value])
-     || {Application, Key, Value} <- Env
-    ],
+    set_envs(Node, Env),
 
     %% Here we start the apps
     EnvHandlerForRpc =
@@ -794,8 +806,9 @@ setup_node(Node, Opts) when is_map(Opts) ->
                         node(),
                         integer_to_list(erlang:unique_integer())
                     ]),
+                    Cookie = atom_to_list(erlang:get_cookie()),
                     os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
-                    os:putenv("EMQX_NODE__COOKIE", atom_to_list(erlang:get_cookie())),
+                    os:putenv("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
                     os:unsetenv("EMQX_NODE__DATA_DIR"),
                     os:unsetenv("EMQX_NODE__COOKIE"),
@@ -826,7 +839,15 @@ setup_node(Node, Opts) when is_map(Opts) ->
             ok;
         _ ->
             StartAutocluster andalso
-                (ok = rpc:call(Node, emqx_machine_boot, start_autocluster, [])),
+                begin
+                    %% Note: we need to re-set the env because
+                    %% starting the apps apparently make some of them
+                    %% to be lost...  This is particularly useful for
+                    %% setting extra apps to be restarted after
+                    %% joining.
+                    set_envs(Node, Env),
+                    ok = erpc:call(Node, emqx_machine_boot, start_autocluster, [])
+                end,
             case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->
                     ok;
@@ -881,6 +902,14 @@ merge_opts(Opts1, Opts2) ->
         end,
         Opts1,
         Opts2
+    ).
+
+set_envs(Node, Env) ->
+    lists:foreach(
+        fun({Application, Key, Value}) ->
+            ok = rpc:call(Node, application, set_env, [Application, Key, Value])
+        end,
+        Env
     ).
 
 erl_flags() ->

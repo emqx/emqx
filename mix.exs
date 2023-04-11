@@ -83,6 +83,8 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
+      # in conflict by erlavro and rocketmq
+      {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
       # dependencies of dependencies; we choose specific refs to match
       # what rebar3 chooses.
       # in conflict by gun and emqtt
@@ -317,7 +319,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_license: :permanent,
           emqx_ee_conf: :load,
           emqx_ee_connector: :permanent,
-          emqx_ee_bridge: :permanent
+          emqx_ee_bridge: :permanent,
+          emqx_ee_schema_registry: :permanent
         ],
         else: []
       )

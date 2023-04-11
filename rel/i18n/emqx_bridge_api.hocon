@@ -57,7 +57,7 @@ emqx_bridge_api {
     desc_api1 {
                    desc {
                          en: """List all created bridges"""
-                         zh: """列出所有 Birdge"""
+                         zh: """列出所有 Bridge"""
                         }
                    label: {
                            en: "List All Bridges"
