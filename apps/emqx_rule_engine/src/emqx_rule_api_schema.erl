@@ -26,7 +26,7 @@
 
 -export([roots/0, fields/1]).
 
--type tag() :: rule_creation | rule_test.
+-type tag() :: rule_creation | rule_test | rule_engine.
 
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
 check_params(Params, Tag) ->
