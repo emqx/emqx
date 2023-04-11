@@ -342,9 +342,11 @@ do_get_status(Conn, RequestTimeout) ->
 %% About the connection string attribute `Encrypt`:
 %% The default value is `yes` in odbc version 18.0+ and `no` in previous versions.
 %% And encrypted connections always verify the server's certificate.
-%% So `Encrypt=YES;TrustServerCertificate=YES` must be set in the connection string when connecting to a server that has a self-signed certificate.
+%% So `Encrypt=YES;TrustServerCertificate=YES` must be set in the connection string
+%% when connecting to a server that has a self-signed certificate.
 %% See also:
-%% https://learn.microsoft.com/en-us/sql/connect/odbc/dsn-connection-string-attribute?source=recommendations&view=sql-server-ver16#encrypt
+%% 'https://learn.microsoft.com/en-us/sql/connect/odbc/
+%%      dsn-connection-string-attribute?source=recommendations&view=sql-server-ver16#encrypt'
 conn_str([], Acc) ->
     %% we should use this for msodbcsql 18+
     %% lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
