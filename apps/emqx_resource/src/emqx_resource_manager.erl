@@ -258,7 +258,7 @@ reset_metrics(ResId) ->
 list_all() ->
     try
         [
-            data_record_to_external_map_with_metrics(Data)
+            data_record_to_external_map(Data)
          || {_Id, _Group, Data} <- ets:tab2list(?ETS_TABLE)
         ]
     catch
@@ -668,11 +668,6 @@ data_record_to_external_map(Data) ->
         status => Data#data.status,
         state => Data#data.state
     }.
-
--spec data_record_to_external_map_with_metrics(data()) -> resource_data().
-data_record_to_external_map_with_metrics(Data) ->
-    DataMap = data_record_to_external_map(Data),
-    DataMap#{metrics => get_metrics(Data#data.id)}.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
 wait_for_ready(ResId, WaitTime) ->

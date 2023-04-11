@@ -327,9 +327,12 @@ fetch_creation_opts(Opts) ->
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
--spec list_instances_verbose() -> [resource_data()].
+-spec list_instances_verbose() -> [_ResourceDataWithMetrics :: map()].
 list_instances_verbose() ->
-    emqx_resource_manager:list_all().
+    [
+        Res#{metrics => get_metrics(ResId)}
+     || #{id := ResId} = Res <- emqx_resource_manager:list_all()
+    ].
 
 -spec list_instances_by_type(module()) -> [resource_id()].
 list_instances_by_type(ResourceType) ->
