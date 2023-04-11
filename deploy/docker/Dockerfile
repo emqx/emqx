@@ -29,17 +29,24 @@ COPY --from=builder /emqx-rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 
-RUN apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates procps; \
+RUN groupadd -r -g 1000 emqx && \
+    useradd -r -m -u 1000 -g emqx emqx && \
+    chgrp -Rf emqx /opt/emqx && \
+    chmod -Rf g+w /opt/emqx && \
+    chown -Rf emqx /opt/emqx
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates procps && \
+    apt remove --auto-remove -y --allow-remove-essential \
+      libdb5.3 \
+      libgcrypt20 \
+      perl \
+      e2fsprogs \
+      ncurses-base \
+      ncurses-bin && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/emqx
-
-RUN groupadd -r -g 1000 emqx; \
-    useradd -r -m -u 1000 -g emqx emqx; \
-    chgrp -Rf emqx /opt/emqx; \
-    chmod -Rf g+w /opt/emqx; \
-    chown -Rf emqx /opt/emqx
 
 USER emqx
 
