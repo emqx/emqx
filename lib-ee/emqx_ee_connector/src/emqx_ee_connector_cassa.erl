@@ -175,7 +175,7 @@ on_query(
     Request,
     State
 ) ->
-    do_signle_query(InstId, Request, sync, State).
+    do_single_query(InstId, Request, sync, State).
 
 -spec on_query_async(
     emqx_resource:resource_id(),
@@ -189,9 +189,9 @@ on_query_async(
     Callback,
     State
 ) ->
-    do_signle_query(InstId, Request, {async, Callback}, State).
+    do_single_query(InstId, Request, {async, Callback}, State).
 
-do_signle_query(
+do_single_query(
     InstId,
     Request,
     Async,

@@ -591,20 +591,24 @@ t_missing_data(Config) ->
     ),
     %% emqx_ee_connector_cassa will send missed data as a `null` atom
     %% to ecql driver
-    send_message(Config, #{}),
-    ?block_until(
-        #{
-            ?snk_kind := buffer_worker_flush_ack,
-            result := {async_return, ok}
-        },
-        2_000
-    ),
-    ?block_until(
-        #{
-            ?snk_kind := handle_async_reply_enter,
-            result := {error, {8704, _}}
-        },
-        2_000
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                send_message(Config, #{}),
+                #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            %% 1. ecql driver will return `ok` first in async query
+            Trace = ?of_kind(cassandra_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            %% 2. then it will return an error in callback function
+            Trace1 = ?of_kind(handle_async_reply, Trace0),
+            ?assertMatch([#{result := {error, {8704, _}}}], Trace1),
+            ok
+        end
     ),
     ok.
 
