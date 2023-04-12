@@ -138,7 +138,7 @@ list(get, #{query_string := Qs}) ->
                     end
                 end,
                 [],
-                mria:running_nodes()
+                emqx:running_nodes()
             ),
             {200, Data}
     end.
