@@ -29,7 +29,7 @@ esac
 is_node_up() {
   local node="$1"
   docker exec -i "$node" \
-         bash -c "emqx eval-erl \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
+         bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
 }
 
 is_node_listening() {

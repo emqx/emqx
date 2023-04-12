@@ -39,7 +39,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.113"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.114"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.9"}}}.
@@ -389,6 +389,11 @@ relx_apps(ReleaseType, Edition) ->
             emqx_authz,
             emqx_auto_subscribe,
             emqx_gateway,
+            emqx_stomp,
+            emqx_mqttsn,
+            emqx_coap,
+            emqx_lwm2m,
+            emqx_exproto,
             emqx_exhook,
             emqx_bridge,
             emqx_rule_engine,
@@ -422,7 +427,8 @@ relx_apps_per_edition(ee) ->
         emqx_license,
         {emqx_ee_conf, load},
         emqx_ee_connector,
-        emqx_ee_bridge
+        emqx_ee_bridge,
+        emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
     [].
@@ -449,7 +455,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
         %% for relup
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
-        {copy, "apps/emqx_gateway/src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
+        {copy, "apps/emqx_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
         {template, "bin/emqx.cmd", "bin/emqx.cmd"},
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},

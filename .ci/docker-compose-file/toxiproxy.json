@@ -77,5 +77,23 @@
     "listen": "0.0.0.0:9295",
     "upstream": "kafka-1.emqx.net:9295",
     "enabled": true
+  },
+  {
+    "name": "rocketmq",
+    "listen": "0.0.0.0:9876",
+    "upstream": "rocketmq_namesrv:9876",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tcp",
+    "listen": "0.0.0.0:9042",
+    "upstream": "cassandra:9042",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tls",
+    "listen": "0.0.0.0:9142",
+    "upstream": "cassandra:9142",
+    "enabled": true
   }
 ]

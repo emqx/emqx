@@ -23,6 +23,14 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
+-define(SIMPLE_RULE(NAME_SUFFIX), #{
+    <<"description">> => <<"A simple rule">>,
+    <<"enable">> => true,
+    <<"actions">> => [#{<<"function">> => <<"console">>}],
+    <<"sql">> => <<"SELECT * from \"t/1\"">>,
+    <<"name">> => <<"test_rule", NAME_SUFFIX/binary>>
+}).
+-define(SIMPLE_RULE(ID, NAME_SUFFIX), ?SIMPLE_RULE(NAME_SUFFIX)#{<<"id">> => ID}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -37,6 +45,9 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
     ok.
 
+init_per_testcase(t_crud_rule_api, Config) ->
+    meck:new(emqx_json, [passthrough]),
+    init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     Config.
 
@@ -48,7 +59,7 @@ end_per_testcase(_, _Config) ->
         emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
     lists:foreach(
         fun(#{id := Id}) ->
-            emqx_rule_engine_api:'/rules/:id'(
+            {204} = emqx_rule_engine_api:'/rules/:id'(
                 delete,
                 #{bindings => #{id => Id}}
             )
@@ -57,45 +68,38 @@ end_per_testcase(_, _Config) ->
     ).
 
 t_crud_rule_api(_Config) ->
-    RuleID = <<"my_rule">>,
-    Params0 = #{
-        <<"description">> => <<"A simple rule">>,
-        <<"enable">> => true,
-        <<"id">> => RuleID,
-        <<"actions">> => [#{<<"function">> => <<"console">>}],
-        <<"sql">> => <<"SELECT * from \"t/1\"">>,
-        <<"name">> => <<"test_rule">>
-    },
-    {201, Rule} = emqx_rule_engine_api:'/rules'(post, #{body => Params0}),
-    %% if we post again with the same params, it return with 400 "rule id already exists"
-    ?assertMatch(
-        {400, #{code := _, message := _Message}},
-        emqx_rule_engine_api:'/rules'(post, #{body => Params0})
-    ),
+    RuleId = <<"my_rule">>,
+    Rule = simple_rule_fixture(RuleId, <<>>),
+    ?assertEqual(RuleId, maps:get(id, Rule)),
 
-    ?assertEqual(RuleID, maps:get(id, Rule)),
     {200, #{data := Rules}} = emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
+    %% if we post again with the same id, it return with 400 "rule id already exists"
+    ?assertMatch(
+        {400, #{code := _, message := _Message}},
+        emqx_rule_engine_api:'/rules'(post, #{body => ?SIMPLE_RULE(RuleId, <<"some_other">>)})
+    ),
+
     {204} = emqx_rule_engine_api:'/rules/:id/metrics/reset'(put, #{
-        bindings => #{id => RuleID}
+        bindings => #{id => RuleId}
     }),
 
-    {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
+    {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}}),
     ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule, Rule1),
 
-    {200, Metrics} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{bindings => #{id => RuleID}}),
+    {200, Metrics} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{bindings => #{id => RuleId}}),
     ct:pal("RMetrics : ~p", [Metrics]),
-    ?assertMatch(#{id := RuleID, metrics := _, node_metrics := _}, Metrics),
+    ?assertMatch(#{id := RuleId, metrics := _, node_metrics := _}, Metrics),
 
     {200, Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
-        bindings => #{id => RuleID},
-        body => Params0#{<<"sql">> => <<"select * from \"t/b\"">>}
+        bindings => #{id => RuleId},
+        body => ?SIMPLE_RULE(RuleId)#{<<"sql">> => <<"select * from \"t/b\"">>}
     }),
 
-    {200, Rule3} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
+    {200, Rule3} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}}),
     %ct:pal("RShow : ~p", [Rule3]),
     ?assertEqual(Rule3, Rule2),
     ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
@@ -112,14 +116,14 @@ t_crud_rule_api(_Config) ->
         {204},
         emqx_rule_engine_api:'/rules/:id'(
             delete,
-            #{bindings => #{id => RuleID}}
+            #{bindings => #{id => RuleId}}
         )
     ),
 
     %ct:pal("Show After Deleted: ~p", [NotFound]),
     ?assertMatch(
         {404, #{code := _, message := _Message}},
-        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}})
+        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}})
     ),
 
     {400, #{
@@ -174,30 +178,15 @@ t_crud_rule_api(_Config) ->
     ok.
 
 t_list_rule_api(_Config) ->
-    AddIds =
-        lists:map(
-            fun(Seq0) ->
-                Seq = integer_to_binary(Seq0),
-                Params = #{
-                    <<"description">> => <<"A simple rule">>,
-                    <<"enable">> => true,
-                    <<"actions">> => [#{<<"function">> => <<"console">>}],
-                    <<"sql">> => <<"SELECT * from \"t/1\"">>,
-                    <<"name">> => <<"test_rule", Seq/binary>>
-                },
-                {201, #{id := Id}} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
-                Id
-            end,
-            lists:seq(1, 20)
-        ),
-
+    AddIds = rules_fixture(20),
+    ct:pal("rule ids: ~p", [AddIds]),
     {200, #{data := Rules, meta := #{count := Count}}} =
         emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
     ?assertEqual(20, length(AddIds)),
     ?assertEqual(20, length(Rules)),
     ?assertEqual(20, Count),
 
-    [RuleID | _] = AddIds,
+    [RuleId | _] = AddIds,
     UpdateParams = #{
         <<"description">> => <<"中文的描述也能搜索"/utf8>>,
         <<"enable">> => false,
@@ -206,7 +195,7 @@ t_list_rule_api(_Config) ->
         <<"name">> => <<"test_rule_update1">>
     },
     {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
-        bindings => #{id => RuleID},
+        bindings => #{id => RuleId},
         body => UpdateParams
     }),
     QueryStr1 = #{query_string => #{<<"enable">> => false}},
@@ -229,20 +218,13 @@ t_list_rule_api(_Config) ->
     {200, Result5} = emqx_rule_engine_api:'/rules'(get, QueryStr5),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result5)),
 
-    QueryStr6 = #{query_string => #{<<"like_id">> => RuleID}},
+    QueryStr6 = #{query_string => #{<<"like_id">> => RuleId}},
     {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
     ok.
 
 t_reset_metrics_on_disable(_Config) ->
-    Params = #{
-        <<"description">> => <<"A simple rule">>,
-        <<"enable">> => true,
-        <<"actions">> => [#{<<"function">> => <<"console">>}],
-        <<"sql">> => <<"SELECT * from \"t/1\"">>,
-        <<"name">> => atom_to_binary(?FUNCTION_NAME)
-    },
-    {201, #{id := RuleId}} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+    #{id := RuleId} = simple_rule_fixture(),
 
     %% generate some fake metrics
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched', 10),
@@ -256,7 +238,7 @@ t_reset_metrics_on_disable(_Config) ->
     %% disable the rule; metrics should be reset
     {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
         bindings => #{id => RuleId},
-        body => Params#{<<"enable">> := false}
+        body => #{<<"enable">> => false}
     }),
 
     {200, #{metrics := Metrics1}} = emqx_rule_engine_api:'/rules/:id/metrics'(
@@ -281,3 +263,45 @@ test_rule_params(Sql, Payload) ->
             <<"sql">> => Sql
         }
     }.
+
+t_rule_engine(_) ->
+    _ = simple_rule_fixture(),
+    {200, Config} = emqx_rule_engine_api:'/rule_engine'(get, #{}),
+    ?assert(not maps:is_key(rules, Config)),
+    {200, #{
+        jq_function_default_timeout := 12000
+        % hidden! jq_implementation_module := jq_port
+    }} = emqx_rule_engine_api:'/rule_engine'(put, #{
+        body => #{
+            <<"jq_function_default_timeout">> => <<"12s">>,
+            <<"jq_implementation_module">> => <<"jq_port">>
+        }
+    }),
+    SomeRule = #{<<"sql">> => <<"SELECT * FROM \"t/#\"">>},
+    {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{
+        body => #{<<"rules">> => #{<<"some_rule">> => SomeRule}}
+    }),
+    {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).
+
+rules_fixture(N) ->
+    lists:map(
+        fun(Seq0) ->
+            Seq = integer_to_binary(Seq0),
+            #{id := Id} = simple_rule_fixture(Seq),
+            Id
+        end,
+        lists:seq(1, N)
+    ).
+
+simple_rule_fixture() ->
+    simple_rule_fixture(<<>>).
+
+simple_rule_fixture(NameSuffix) ->
+    create_rule(?SIMPLE_RULE(NameSuffix)).
+
+simple_rule_fixture(Id, NameSuffix) ->
+    create_rule(?SIMPLE_RULE(Id, NameSuffix)).
+
+create_rule(Params) ->
+    {201, Rule} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+    Rule.

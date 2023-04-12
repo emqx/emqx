@@ -62,6 +62,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
     Conf.
@@ -116,11 +117,11 @@ t_gateway_registry_usage(_) ->
 t_gateway_registry_list(_) ->
     emqx_gateway_cli:'gateway-registry'(["list"]),
     ?assertEqual(
-        "Registered Name: coap, Callback Module: emqx_coap_impl\n"
-        "Registered Name: exproto, Callback Module: emqx_exproto_impl\n"
-        "Registered Name: lwm2m, Callback Module: emqx_lwm2m_impl\n"
-        "Registered Name: mqttsn, Callback Module: emqx_sn_impl\n"
-        "Registered Name: stomp, Callback Module: emqx_stomp_impl\n",
+        "Registered Name: coap, Callback Module: emqx_coap\n"
+        "Registered Name: exproto, Callback Module: emqx_exproto\n"
+        "Registered Name: lwm2m, Callback Module: emqx_lwm2m\n"
+        "Registered Name: mqttsn, Callback Module: emqx_mqttsn\n"
+        "Registered Name: stomp, Callback Module: emqx_stomp\n",
         acc_print()
     ).
 

@@ -46,7 +46,7 @@ values(_Method) ->
         database => <<"mqtt">>,
         pool_size => 8,
         username => <<"root">>,
-        password => <<"public">>,
+        password => <<"******">>,
         template => ?DEFAULT_TEMPLATE,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{

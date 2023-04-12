@@ -74,13 +74,13 @@ ensure_timer(#{interval := Interval} = State) ->
 check_pid(#{name := Name, pid := OldPid, callback := Callback} = State) ->
     case whereis(Name) of
         undefined ->
-            ?tp(debug, emqx_license_installer_noproc, #{pid => OldPid}),
+            ?tp(debug, emqx_license_installer_noproc, #{old_pid => OldPid}),
             State;
         OldPid ->
-            ?tp(debug, emqx_license_installer_nochange, #{pid => OldPid}),
+            ?tp(debug, emqx_license_installer_nochange, #{old_pid => OldPid}),
             State;
         NewPid ->
             _ = Callback(),
-            ?tp(debug, emqx_license_installer_called, #{pid => OldPid}),
+            ?tp(debug, emqx_license_installer_called, #{old_pid => OldPid}),
             State#{pid => NewPid}
     end.

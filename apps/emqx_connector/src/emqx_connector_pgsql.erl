@@ -44,7 +44,8 @@
     execute_batch/3
 ]).
 
--export([do_get_status/1]).
+%% for ecpool workers usage
+-export([do_get_status/1, prepare_sql_to_conn/2]).
 
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT

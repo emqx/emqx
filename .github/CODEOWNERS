@@ -22,5 +22,8 @@
 ## CI
 /deploy/  @emqx/emqx-review-board @Rory-Z
 
+## @Meggielqk owns all files in any i18n directory anywhere in the project
+/i18n/ @Meggielqk
+
 ## no owner for changelogs, anyone can approve
 /changes

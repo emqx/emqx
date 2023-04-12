@@ -1,0 +1,127 @@
+emqx_lwm2m_schema {
+
+    lwm2m {
+        desc {
+            en: """The LwM2M Gateway configuration. This gateway only supports the v1.0.1 protocol."""
+            zh: """LwM2M 网关配置。仅支持 v1.0.1 协议。"""
+        }
+    }
+
+    lwm2m_xml_dir {
+        desc {
+            en: """The Directory for LwM2M Resource definition."""
+            zh: """LwM2M Resource 定义的 XML 文件目录路径。"""
+        }
+    }
+
+    lwm2m_lifetime_min {
+        desc {
+            en: """Minimum value of lifetime allowed to be set by the LwM2M client."""
+            zh: """允许 LwM2M 客户端允许设置的心跳最小值。"""
+        }
+    }
+
+    lwm2m_lifetime_max {
+        desc {
+            en: """Maximum value of lifetime allowed to be set by the LwM2M client."""
+            zh: """允许 LwM2M 客户端允许设置的心跳最大值。"""
+        }
+    }
+
+    lwm2m_qmode_time_window {
+        desc {
+            en: """The value of the time window during which the network link is considered valid by the LwM2M Gateway in QMode mode.
+For example, after receiving an update message from a client, any messages within this time window are sent directly to the LwM2M client, and all messages beyond this time window are temporarily stored in memory."""
+
+            zh: """在QMode模式下，LwM2M网关认为网络链接有效的时间窗口的值。
+例如，在收到客户端的更新信息后，在这个时间窗口内的任何信息都会直接发送到LwM2M客户端，而超过这个时间窗口的所有信息都会暂时储存在内存中。"""
+        }
+    }
+
+    lwm2m_auto_observe {
+        desc {
+            en: """Automatically observe the object list of REGISTER packet."""
+            zh: """自动 Observe REGISTER 数据包的 Object 列表。"""
+        }
+    }
+
+    lwm2m_update_msg_publish_condition {
+        desc {
+            en: """Policy for publishing UPDATE event message.<br/>
+  - always: send update events as long as the UPDATE request is received.<br/>
+  - contains_object_list: send update events only if the UPDATE request carries any Object List"""
+            zh: """发布UPDATE事件消息的策略。<br/>
+  - always: 只要收到 UPDATE 请求，就发送更新事件。<br/>
+  - contains_object_list: 仅当 UPDATE 请求携带 Object 列表时才发送更新事件。"""
+        }
+    }
+
+    lwm2m_translators {
+        desc {
+            en: """Topic configuration for LwM2M's gateway publishing and subscription."""
+            zh: """LwM2M 网关订阅/发布消息的主题映射配置。"""
+        }
+    }
+
+    lwm2m_translators_command {
+        desc {
+            en: """The topic for receiving downstream commands.
+For each new LwM2M client that succeeds in going online, the gateway creates a subscription relationship to receive downstream commands and send it to the LwM2M client"""
+
+            zh: """下行命令主题。
+对于每个成功上线的新 LwM2M 客户端，网关会创建一个订阅关系来接收下行消息并将其发送给客户端。"""
+        }
+    }
+
+    lwm2m_translators_response {
+        desc {
+            en: """The topic for gateway to publish the acknowledge events from LwM2M client"""
+            zh: """用于网关发布来自 LwM2M 客户端的确认事件的主题。"""
+        }
+    }
+
+    lwm2m_translators_notify {
+        desc {
+            en: """The topic for gateway to publish the notify events from LwM2M client.
+After succeed observe a resource of LwM2M client, Gateway will send the notify events via this topic, if the client reports any resource changes"""
+
+            zh: """用于发布来自 LwM2M 客户端的通知事件的主题。
+在成功 Observe 到 LwM2M 客户端的资源后，如果客户端报告任何资源状态的变化，网关将通过该主题发送通知事件。"""
+        }
+    }
+
+    lwm2m_translators_register {
+        desc {
+            en: """The topic for gateway to publish the register events from LwM2M client."""
+            zh: """用于发布来自 LwM2M 客户端的注册事件的主题。"""
+        }
+    }
+
+    lwm2m_translators_update {
+        desc {
+            en: """The topic for gateway to publish the update events from LwM2M client"""
+            zh: """用于发布来自LwM2M客户端的更新事件的主题。"""
+        }
+    }
+
+    translator {
+        desc {
+            en: """MQTT topic that corresponds to a particular type of event."""
+            zh: """配置某网关客户端对于发布消息或订阅的主题和 QoS 等级。"""
+        }
+    }
+
+    translator_topic {
+        desc {
+            en: """Topic Name"""
+            zh: """主题名称"""
+        }
+    }
+
+    translator_qos {
+        desc {
+            en: """QoS Level"""
+            zh: """QoS 等级"""
+        }
+    }
+}

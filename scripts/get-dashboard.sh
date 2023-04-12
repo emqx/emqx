@@ -20,7 +20,7 @@ case "$VERSION" in
 esac
 
 DASHBOARD_PATH='apps/emqx_dashboard/priv'
-DASHBOARD_REPO='emqx-dashboard-web-new'
+DASHBOARD_REPO='emqx-dashboard5'
 DIRECT_DOWNLOAD_URL="https://github.com/emqx/${DASHBOARD_REPO}/releases/download/${VERSION}/${RELEASE_ASSET_FILE}"
 
 case $(uname) in

@@ -4,12 +4,8 @@
 
 main(_) ->
     BaseConf = <<"">>,
-    Cfgs0 = get_all_cfgs("apps/"),
-    Cfgs1 = get_all_cfgs("lib-ee/"),
-    Conf0 = merge(BaseConf, Cfgs0),
-    Conf = [merge(Conf0, Cfgs1),
-            io_lib:nl()
-           ],
+    Cfgs0 = get_all_files(),
+    Conf = merge(BaseConf, Cfgs0),
     OutputFile = "apps/emqx_dashboard/priv/i18n.conf",
     ok = filelib:ensure_dir(OutputFile),
     ok = file:write_file(OutputFile, Conf).
@@ -25,39 +21,7 @@ merge(BaseConf, Cfgs) ->
               end
       end, BaseConf, Cfgs).
 
-get_all_cfgs(Root) ->
-    Apps = filelib:wildcard("*", Root) -- ["emqx_machine"],
-    Dirs = [filename:join([Root, App]) || App <- Apps],
-    lists:foldl(fun get_cfgs/2, [], Dirs).
-
-get_all_cfgs(Dir, Cfgs) ->
-    Fun = fun(E, Acc) ->
-                  Path = filename:join([Dir, E]),
-                  get_cfgs(Path, Acc)
-          end,
-    lists:foldl(Fun, Cfgs, filelib:wildcard("*", Dir)).
-
-get_cfgs(Dir, Cfgs) ->
-    case filelib:is_dir(Dir) of
-        false ->
-            Cfgs;
-        _ ->
-            Files = filelib:wildcard("*", Dir),
-            case lists:member("i18n", Files) of
-                false ->
-                    try_enter_child(Dir, Files, Cfgs);
-                true ->
-                    EtcDir = filename:join([Dir, "i18n"]),
-                    Confs = filelib:wildcard("*.conf", EtcDir),
-                    NewCfgs = [filename:join([EtcDir, Name]) || Name <- Confs],
-                    try_enter_child(Dir, Files, NewCfgs ++ Cfgs)
-            end
-    end.
-
-try_enter_child(Dir, Files, Cfgs) ->
-    case lists:member("src", Files) of
-        false ->
-            Cfgs;
-        true ->
-            get_all_cfgs(filename:join([Dir, "src"]), Cfgs)
-    end.
+get_all_files() ->
+    Dir = filename:join(["rel","i18n"]),
+    Files = filelib:wildcard("*.hocon", Dir),
+    lists:map(fun(Name) -> filename:join([Dir, Name]) end, Files).

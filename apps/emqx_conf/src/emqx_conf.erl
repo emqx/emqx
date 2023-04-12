@@ -156,7 +156,15 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
 gen_schema_json(Dir, I18nFile, SchemaModule, Lang) ->
     SchemaJsonFile = filename:join([Dir, "schema-" ++ Lang ++ ".json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    Opts = #{desc_file => I18nFile, lang => Lang},
+    %% EMQX_SCHEMA_FULL_DUMP is quite a hidden API
+    %% it is used to dump the full schema for EMQX developers and supporters
+    IncludeImportance =
+        case os:getenv("EMQX_SCHEMA_FULL_DUMP") =:= "1" of
+            true -> ?IMPORTANCE_HIDDEN;
+            false -> ?IMPORTANCE_LOW
+        end,
+    io:format(user, "===< Including fields from importance level: ~p~n", [IncludeImportance]),
+    Opts = #{desc_file => I18nFile, lang => Lang, include_importance_up_from => IncludeImportance},
     JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData).
@@ -220,7 +228,8 @@ gen_example(File, SchemaModule, I18nFile, Lang) ->
         title => <<"EMQX Configuration Example">>,
         body => <<"">>,
         desc_file => I18nFile,
-        lang => Lang
+        lang => Lang,
+        include_importance_up_from => ?IMPORTANCE_MEDIUM
     },
     Example = hocon_schema_example:gen(SchemaModule, Opts),
     file:write_file(File, Example).

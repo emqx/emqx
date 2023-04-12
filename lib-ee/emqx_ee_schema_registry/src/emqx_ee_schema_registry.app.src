@@ -1,0 +1,15 @@
+{application, emqx_ee_schema_registry, [
+    {description, "EMQX Schema Registry"},
+    {vsn, "0.1.0"},
+    {registered, [emqx_ee_schema_registry_sup]},
+    {mod, {emqx_ee_schema_registry_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        erlavro
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

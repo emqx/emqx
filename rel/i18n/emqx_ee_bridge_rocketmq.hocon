@@ -1,0 +1,70 @@
+emqx_ee_bridge_rocketmq {
+
+    local_topic {
+        desc {
+            en: """The MQTT topic filter to be forwarded to RocketMQ. All MQTT `PUBLISH` messages with the topic
+matching the `local_topic` will be forwarded.</br>
+NOTE: if the bridge is used as a rule action, `local_topic` should be left empty otherwise the messages will be duplicated."""
+            zh: """发送到 'local_topic' 的消息都会转发到 RocketMQ。 </br>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发。"""
+        }
+        label {
+                en: "Local Topic"
+                zh: "本地 Topic"
+            }
+    }
+
+    template {
+        desc {
+            en: """Template, the default value is empty. When this value is empty the whole message will be stored in the RocketMQ"""
+            zh: """模板, 默认为空，为空时将会将整个消息转发给 RocketMQ"""
+            }
+        label {
+            en: "Template"
+            zh: "模板"
+        }
+    }
+    config_enable {
+        desc {
+            en: """Enable or disable this bridge"""
+            zh: """启用/禁用桥接"""
+        }
+        label {
+            en: "Enable Or Disable Bridge"
+            zh: "启用/禁用桥接"
+        }
+        }
+
+    desc_config {
+        desc {
+            en: """Configuration for a RocketMQ bridge."""
+            zh: """RocketMQ 桥接配置"""
+        }
+        label: {
+            en: "RocketMQ Bridge Configuration"
+            zh: "RocketMQ 桥接配置"
+        }
+    }
+
+    desc_type {
+        desc {
+            en: """The Bridge Type"""
+            zh: """Bridge 类型"""
+        }
+        label {
+            en: "Bridge Type"
+            zh: "桥接类型"
+        }
+    }
+
+    desc_name {
+        desc {
+            en: """Bridge name."""
+            zh: """桥接名字"""
+        }
+        label {
+            en: "Bridge Name"
+            zh: "桥接名字"
+        }
+    }
+}

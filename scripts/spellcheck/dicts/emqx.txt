@@ -1,6 +1,7 @@
 ACL
 AES
 APIs
+Avro
 BPAPI
 BSON
 Backplane
@@ -271,3 +272,5 @@ nif
 TDengine
 clickhouse
 FormatType
+RocketMQ
+Keyspace

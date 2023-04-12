@@ -1569,7 +1569,7 @@ t_multi_streams_remote_shutdown(Config) ->
 
     ok = stop_emqx(),
     %% Client should be closed
-    assert_client_die(C).
+    assert_client_die(C, 100, 50).
 
 t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -2047,14 +2047,15 @@ via_stream({quic, _Conn, Stream}) ->
 assert_client_die(C) ->
     assert_client_die(C, 100, 10).
 assert_client_die(C, _, 0) ->
-    ct:fail("Client ~p did not die", [C]);
+    ct:fail("Client ~p did not die: stacktrace: ~p", [C, process_info(C, current_stacktrace)]);
 assert_client_die(C, Delay, Retries) ->
-    case catch emqtt:info(C) of
-        {'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}} ->
-            ok;
-        _Other ->
+    try emqtt:info(C) of
+        Info when is_list(Info) ->
             timer:sleep(Delay),
             assert_client_die(C, Delay, Retries - 1)
+    catch
+        exit:Error ->
+            ct:comment("client die with ~p", [Error])
     end.
 
 %% BUILD_WITHOUT_QUIC

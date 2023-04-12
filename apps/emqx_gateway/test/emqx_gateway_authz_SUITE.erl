@@ -66,6 +66,7 @@ end_per_group(AuthName, Conf) ->
 
 init_per_suite(Config) ->
     emqx_config:erase(gateway),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     init_gateway_conf(),
     meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_authz_file, create, fun(S) -> S end),
@@ -225,7 +226,7 @@ t_case_sn_subscribe(_) ->
         )
     end,
     Sub(<<"/subscribe">>, fun(Data) ->
-        {ok, Msg, _, _} = emqx_sn_frame:parse(Data, undefined),
+        {ok, Msg, _, _} = emqx_mqttsn_frame:parse(Data, undefined),
         ?assertMatch({mqtt_sn_message, _, {_, 3, 0, Payload}}, Msg)
     end),
     Sub(<<"/badsubscribe">>, fun(Data) ->

@@ -31,8 +31,7 @@
     connect/1,
     do_get_status/1,
     do_async_reply/2,
-    worker_do_query/4,
-    worker_do_get_status/1
+    worker_do_query/4
 ]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -165,17 +164,13 @@ on_get_status(_InstanceId, #{poolname := Pool}) ->
     Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
     status_result(Health).
 
-do_get_status(Conn) ->
+do_get_status(_Conn) ->
     %% because the dynamodb driver connection process is the ecpool worker self
     %% so we must call the checker function inside the worker
-    ListTables = ecpool_worker:exec(Conn, {?MODULE, worker_do_get_status, []}, infinity),
-    case ListTables of
+    case erlcloud_ddb2:list_tables() of
         {ok, _} -> true;
         _ -> false
     end.
-
-worker_do_get_status(_) ->
-    erlcloud_ddb2:list_tables().
 
 status_result(_Status = true) -> connected;
 status_result(_Status = false) -> connecting.

@@ -50,7 +50,7 @@ values(_Method, Type) ->
         database => <<"mqtt">>,
         pool_size => 8,
         username => <<"default">>,
-        password => <<"public">>,
+        password => <<"******">>,
         sql => ?DEFAULT_SQL,
         batch_value_separator => ?DEFAULT_BATCH_VALUE_SEPARATOR,
         local_topic => <<"local/topic/#">>,
@@ -103,8 +103,7 @@ fields("config") ->
     ] ++
         emqx_ee_connector_clickhouse:fields(config);
 fields("creation_opts") ->
-    Opts = emqx_resource_schema:fields("creation_opts"),
-    [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
+    emqx_resource_schema:fields("creation_opts");
 fields("post") ->
     fields("post", clickhouse);
 fields("put") ->
@@ -127,10 +126,6 @@ desc(_) ->
 %% -------------------------------------------------------------------------------------------------
 %% internal
 %% -------------------------------------------------------------------------------------------------
-is_hidden_opts(Field) ->
-    lists:member(Field, [
-        async_inflight_window
-    ]).
 
 type_field(Type) ->
     {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.

@@ -147,7 +147,7 @@ make_rel() {
 
 make_elixir_rel() {
   ./scripts/pre-compile.sh "$PROFILE"
-  export_release_vars "$PROFILE"
+  export_elixir_release_vars "$PROFILE"
   # for some reason, this has to be run outside "do"...
   mix local.rebar --if-missing --force
   # shellcheck disable=SC1010
@@ -362,7 +362,7 @@ function join {
 
 # used to control the Elixir Mix Release output
 # see docstring in `mix.exs`
-export_release_vars() {
+export_elixir_release_vars() {
   local profile="$1"
   case "$profile" in
     emqx|emqx-enterprise)
@@ -376,27 +376,6 @@ export_release_vars() {
       exit 1
   esac
   export MIX_ENV="$profile"
-
-  local erl_opts=()
-
-  case "$(is_enterprise "$profile")" in
-    'yes')
-      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ee}" )
-      ;;
-    'no')
-      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ce}" )
-      ;;
-  esac
-
-  # At this time, Mix provides no easy way to pass `erl_opts' to
-  # dependencies.  The workaround is to set this variable before
-  # compiling the project, so that `emqx_release.erl' picks up
-  # `emqx_vsn' as if it was compiled by rebar3.
-  erl_opts+=( "{compile_info,[{emqx_vsn,\"${PKG_VSN}\"}]}" )
-  erl_opts+=( "{d,snk_kind,msg}" )
-
-  ERL_COMPILER_OPTIONS="[$(join , "${erl_opts[@]}")]"
-  export ERL_COMPILER_OPTIONS
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"

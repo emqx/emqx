@@ -17,7 +17,7 @@ jobs:
         profile:
           - emqx
           - emqx-enterprise
-    container: ghcr.io/emqx/emqx-builder/5.0-32:1.13.4-25.1.2-2-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-25.1.2-3-ubuntu22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v3
