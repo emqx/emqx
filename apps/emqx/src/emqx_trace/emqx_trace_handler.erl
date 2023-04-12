@@ -44,7 +44,8 @@
 -type tracer() :: #{
     name := binary(),
     type := clientid | topic | ip_address,
-    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
+    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
+    payload_encode := text | hidden | hex
 }.
 
 -define(CONFIG(_LogFile_), #{
@@ -70,7 +71,12 @@
     LogFilePath :: string()
 ) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
-    Who = #{type => Type, filter => ensure_bin(Filter), name => ensure_bin(Name)},
+    Who = #{
+        type => Type,
+        filter => ensure_bin(Filter),
+        name => ensure_bin(Name),
+        payload_encode => payload_encode()
+    },
     install(Who, Level, LogFile).
 
 -spec install(

@@ -273,7 +273,8 @@ fields(trace) ->
                     "Determine the format of the payload format in the trace file.<br/>\n"
                     "`text`: Text-based protocol or plain text protocol.\n"
                     " It is recommended when payload is JSON encoded.<br/>\n"
-                    "`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br/>\n"
+                    "`hex`: Binary hexadecimal encode."
+                    "It is recommended when payload is a custom binary protocol.<br/>\n"
                     "`hidden`: payload is obfuscated as `******`"
                     "",
                 default => text,
