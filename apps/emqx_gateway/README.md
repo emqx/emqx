@@ -79,7 +79,7 @@ your device protocol and integrate it with EMQX.
 
 Refer to: [ExProto Gateway](../emqx_exproto/README.md)
 
-## Understard emqx_gateway framework
+## Understand emqx_gateway framework
 
 *WIP*
 
