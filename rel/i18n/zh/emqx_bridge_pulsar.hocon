@@ -1,0 +1,173 @@
+emqx_bridge_pulsar {
+
+  pulsar_producer_struct {
+    desc = "Pulsar 桥接配置"
+    label = "Pulsar 桥接配置"
+  }
+
+  desc_type {
+    desc = "桥接类型"
+    label = "桥接类型"
+  }
+
+  desc_name {
+    desc = "桥接名字，可读描述"
+    label = "桥接名字"
+  }
+
+  config_enable {
+    desc = "启用（true）或停用该（false）Pulsar 数据桥接。"
+    label = "启用或停用"
+  }
+
+  servers {
+    desc = "以<code>scheme://host[:port]</code>形式分隔的Pulsar URL列表，"
+           "供客户端连接使用。支持的方案是 <code>pulsar://</code> （默认）"
+           "和<code>pulsar+ssl://</code>。默认的端口是6650。"
+    label = "服务员"
+  }
+
+  authentication {
+    desc = "认证参数。"
+    label = "认证"
+  }
+
+  producer_batch_size {
+    desc = "在一个Pulsar消息中批处理的单个请求的最大数量。"
+    label = "批量大小"
+  }
+
+  producer_compression {
+    desc = "压缩方法。"
+    label = "压缩"
+  }
+
+  producer_send_buffer {
+    desc = "TCP socket 的发送缓存调优。默认值是针对高吞吐量的一个推荐值。"
+    label = "Socket 发送缓存大小"
+  }
+
+  producer_sync_timeout {
+    desc = "同步发布时，从Pulsar接收发送回执的最长等待时间。"
+    label = "同步发布超时"
+  }
+
+  auth_basic_username {
+    desc = "基本认证用户名。"
+    label = "用户名"
+  }
+
+  auth_basic_password {
+    desc = "基本认证密码。"
+    label = "密码"
+  }
+
+  auth_token_jwt {
+    desc = "JWT认证令牌。"
+    label = "JWT"
+  }
+
+  producer_max_batch_bytes {
+    desc = "最大消息批量字节数。"
+           "大多数 Pulsar 环境的默认最低值是 5 MB，EMQX 的默认值比 5 MB 更小是因为需要"
+           "补偿 Pulsar 消息编码所需要的额外字节（尤其是当每条消息都很小的情况下）。"
+           "当单个消息的大小超过该限制时，它仍然会被发送，（相当于该批量中只有单个消息）。"
+    label = "最大批量字节数"
+  }
+
+  producer_retention_period {
+    desc = "当没有连接到Pulsar代理时，信息将被缓冲的时间。 较长的时间意味着将使用更多的内存/磁盘"
+    label = "保留期"
+  }
+
+  producer_local_topic {
+    desc = "MQTT 主题数据源由桥接指定，或留空由规则动作指定。"
+    label = "源 MQTT 主题"
+  }
+
+  producer_pulsar_topic {
+    desc = "Pulsar 主题名称"
+    label = "Pulsar 主题名称"
+  }
+
+  producer_strategy {
+    desc = "设置消息发布时应该如何选择 Pulsar 分区。\n\n"
+           "<code>random</code>: 为每个消息随机选择一个分区。\n"
+           "<code>roundrobin</code>: 依次为每条信息挑选可用的生产商。\n"
+           "<code>first_key_dispatch</code>: 将一批信息中的第一条信息的Pulsar信息密钥哈希到一个分区编号。"
+    label = "分区选择策略"
+  }
+
+  producer_buffer {
+    desc = "配置消息缓存的相关参数。\n\n"
+           "当 EMQX 需要发送的消息超过 Pulsar 处理能力，或者当 Pulsar 临时下线时，EMQX 内部会将消息缓存起来。"
+    label = "消息缓存"
+  }
+
+  buffer_mode {
+    desc = "消息缓存模式。\n"
+           "<code>memory</code>: 所有的消息都缓存在内存里。如果 EMQX 服务重启，缓存的消息会丢失。\n"
+           "<code>disk</code>: 缓存到磁盘上。EMQX 重启后会继续发送重启前未发送完成的消息。\n"
+           "<code>hybrid</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
+           "（配置项 <code>segment_bytes</code> 描述了该限制）后，后续的消息会缓存到磁盘上。"
+           "与 <code>memory</code> 模式一样，如果 EMQX 服务重启，缓存的消息会丢失。"
+    label = "缓存模式"
+  }
+
+  buffer_per_partition_limit {
+    desc = "为每个 Pulsar 分区设置的最大缓存字节数。当超过这个上限之后，老的消息会被丢弃，"
+           "为新的消息腾出空间。"
+    label = "Pulsar 分区缓存上限"
+  }
+
+  buffer_segment_bytes {
+    desc = "当缓存模式是 <code>disk</code> 或 <code>hybrid</code> 时适用。"
+           "该配置用于指定缓存到磁盘上的文件的大小。"
+    label = "缓存文件大小"
+  }
+
+  buffer_memory_overload_protection {
+    desc = "缓存模式是 <code>memory</code> 或 <code>hybrid</code> 时适用。"
+           "当系统处于高内存压力时，从队列中丢弃旧的消息以减缓内存增长。"
+           "内存压力值由配置项 <code>sysmon.os.sysmem_high_watermark</code> 决定。"
+           "注意，该配置仅在 Linux 系统中有效。"
+    label = "内存过载保护"
+  }
+
+  producer_message_opts {
+    desc = "用于生成 Pulsar 消息的模版。"
+    label = "Pulsar 消息模版"
+  }
+
+  producer_key_template {
+    desc = "生成 Pulsar 消息 Key 的模版。"
+    label = "消息的 Key"
+  }
+
+  producer_value_template {
+    desc = "生成 Pulsar 消息 Value 的模版。"
+    label = "消息的 Value"
+  }
+
+  auth_basic {
+    desc = "基本认证的参数。"
+    label = "基本认证参数"
+  }
+
+  auth_token {
+    desc = "令牌认证的参数。"
+    label = "Token auth params"
+  }
+
+  producer_buffer {
+    desc = "配置消息缓存的相关参数。\n\n"
+           "当 EMQX 需要发送的消息超过 Pulsar 处理能力，或者当 Pulsar 临时下线时，EMQX 内部会将消息缓存起来。"
+    label = "消息缓存"
+  }
+
+  producer_pulsar_message {
+    desc = "用于生成 Pulsar 消息的模版。"
+    label = "Pulsar 消息模版"
+  }
+
+}

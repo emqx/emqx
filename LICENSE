@@ -9,3 +9,4 @@ sub-directory and some of the apps under the apps directory.
 
 Source code under apps that uses BSL License:
 - apps/emqx_bridge_kafka
+- apps/emqx_bridge_pulsar
