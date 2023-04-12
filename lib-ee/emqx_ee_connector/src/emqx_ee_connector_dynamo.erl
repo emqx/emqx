@@ -114,23 +114,23 @@ on_start(
 
     Templates = parse_template(Config),
     State = #{
-        poolname => InstanceId,
+        pool_name => InstanceId,
         database => Database,
         templates => Templates
     },
-    case emqx_plugin_libs_pool:start_pool(InstanceId, ?MODULE, Options) of
+    case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
         Error ->
             Error
     end.
 
-on_stop(InstanceId, #{poolname := PoolName} = _State) ->
+on_stop(InstanceId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_dynamo_connector",
         connector => InstanceId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, handover, State).
@@ -160,8 +160,8 @@ on_batch_query_async(InstanceId, [{send_message, _} | _] = Query, Reply, State) 
 on_batch_query_async(_InstanceId, Query, _Reply, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{poolname := Pool}) ->
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
+on_get_status(_InstanceId, #{pool_name := PoolName}) ->
+    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
     status_result(Health).
 
 do_get_status(_Conn) ->
@@ -183,7 +183,7 @@ do_query(
     InstanceId,
     Query,
     ApplyMode,
-    #{poolname := PoolName, templates := Templates, database := Database} = State
+    #{pool_name := PoolName, templates := Templates, database := Database} = State
 ) ->
     ?TRACE(
         "QUERY",

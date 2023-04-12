@@ -14,31 +14,27 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugin_libs_pool).
+-module(emqx_resource_pool).
 
 -export([
-    start_pool/3,
-    stop_pool/1,
-    pool_name/1,
-    health_check_ecpool_workers/2,
-    health_check_ecpool_workers/3
+    start/3,
+    stop/1,
+    health_check_workers/2,
+    health_check_workers/3
 ]).
 
 -include_lib("emqx/include/logger.hrl").
 
 -define(HEALTH_CHECK_TIMEOUT, 15000).
 
-pool_name(ID) when is_binary(ID) ->
-    list_to_atom(binary_to_list(ID)).
-
-start_pool(Name, Mod, Options) ->
+start(Name, Mod, Options) ->
     case ecpool:start_sup_pool(Name, Mod, Options) of
         {ok, _} ->
             ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name}),
             ok;
         {error, {already_started, _Pid}} ->
-            stop_pool(Name),
-            start_pool(Name, Mod, Options);
+            stop(Name),
+            start(Name, Mod, Options);
         {error, Reason} ->
             NReason = parse_reason(Reason),
             ?SLOG(error, #{
@@ -49,7 +45,7 @@ start_pool(Name, Mod, Options) ->
             {error, {start_pool_failed, Name, NReason}}
     end.
 
-stop_pool(Name) ->
+stop(Name) ->
     case ecpool:stop_sup_pool(Name) of
         ok ->
             ?SLOG(info, #{msg => "stop_ecpool_ok", pool_name => Name});
@@ -64,10 +60,10 @@ stop_pool(Name) ->
             error({stop_pool_failed, Name, Reason})
     end.
 
-health_check_ecpool_workers(PoolName, CheckFunc) ->
-    health_check_ecpool_workers(PoolName, CheckFunc, ?HEALTH_CHECK_TIMEOUT).
+health_check_workers(PoolName, CheckFunc) ->
+    health_check_workers(PoolName, CheckFunc, ?HEALTH_CHECK_TIMEOUT).
 
-health_check_ecpool_workers(PoolName, CheckFunc, Timeout) ->
+health_check_workers(PoolName, CheckFunc, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
         fun(Worker) ->

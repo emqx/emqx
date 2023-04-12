@@ -26,7 +26,6 @@
 ]).
 -export([reply_delegator/3]).
 
--type bridge_id() :: binary().
 -type jwt_worker() :: binary().
 -type service_account_json() :: emqx_ee_bridge_gcp_pubsub:service_account_json().
 -type config() :: #{
@@ -43,7 +42,7 @@
     jwt_worker_id := jwt_worker(),
     max_retries := non_neg_integer(),
     payload_template := emqx_plugin_libs_rule:tmpl_token(),
-    pool_name := atom(),
+    pool_name := binary(),
     project_id := binary(),
     pubsub_topic := binary(),
     request_timeout := timer:time()
@@ -102,14 +101,13 @@ on_start(
         jwt_worker_id := JWTWorkerId,
         project_id := ProjectId
     } = ensure_jwt_worker(InstanceId, Config),
-    PoolName = emqx_plugin_libs_pool:pool_name(InstanceId),
     State = #{
         connect_timeout => ConnectTimeout,
         instance_id => InstanceId,
         jwt_worker_id => JWTWorkerId,
         max_retries => MaxRetries,
         payload_template => emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
-        pool_name => PoolName,
+        pool_name => InstanceId,
         project_id => ProjectId,
         pubsub_topic => PubSubTopic,
         request_timeout => RequestTimeout
@@ -118,20 +116,20 @@ on_start(
         gcp_pubsub_on_start_before_starting_pool,
         #{
             instance_id => InstanceId,
-            pool_name => PoolName,
+            pool_name => InstanceId,
             pool_opts => PoolOpts
         }
     ),
-    ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => PoolName}),
-    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+    ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => InstanceId}),
+    case ehttpc_sup:start_pool(InstanceId, PoolOpts) of
         {ok, _} ->
             {ok, State};
         {error, {already_started, _}} ->
-            ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => PoolName}),
+            ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => InstanceId}),
             {ok, State};
         {error, Reason} ->
             ?tp(gcp_pubsub_ehttpc_pool_start_failure, #{
-                pool_name => PoolName,
+                pool_name => InstanceId,
                 reason => Reason
             }),
             {error, Reason}
@@ -140,10 +138,7 @@ on_start(
 -spec on_stop(manager_id(), state()) -> ok | {error, term()}.
 on_stop(
     InstanceId,
-    _State = #{
-        jwt_worker_id := JWTWorkerId,
-        pool_name := PoolName
-    }
+    _State = #{jwt_worker_id := JWTWorkerId, pool_name := PoolName}
 ) ->
     ?tp(gcp_pubsub_stop, #{instance_id => InstanceId, jwt_worker_id => JWTWorkerId}),
     ?SLOG(info, #{
@@ -155,7 +150,7 @@ on_stop(
     ehttpc_sup:stop_pool(PoolName).
 
 -spec on_query(
-    bridge_id(),
+    resource_id(),
     {send_message, map()},
     state()
 ) ->
@@ -163,32 +158,32 @@ on_stop(
     | {ok, status_code(), headers(), body()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(BridgeId, {send_message, Selected}, State) ->
+on_query(ResourceId, {send_message, Selected}, State) ->
     Requests = [{send_message, Selected}],
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => BridgeId, state => State}
+        #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_sync(State, Requests, BridgeId).
+    do_send_requests_sync(State, Requests, ResourceId).
 
 -spec on_query_async(
-    bridge_id(),
+    resource_id(),
     {send_message, map()},
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, pid()}.
-on_query_async(BridgeId, {send_message, Selected}, ReplyFunAndArgs, State) ->
+on_query_async(ResourceId, {send_message, Selected}, ReplyFunAndArgs, State) ->
     Requests = [{send_message, Selected}],
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => BridgeId, state => State}
+        #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, BridgeId).
+    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
 
 -spec on_batch_query(
-    bridge_id(),
+    resource_id(),
     [{send_message, map()}],
     state()
 ) ->
@@ -196,34 +191,30 @@ on_query_async(BridgeId, {send_message, Selected}, ReplyFunAndArgs, State) ->
     | {ok, status_code(), headers(), body()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_batch_query(BridgeId, Requests, State) ->
+on_batch_query(ResourceId, Requests, State) ->
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => BridgeId, state => State}
+        #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_sync(State, Requests, BridgeId).
+    do_send_requests_sync(State, Requests, ResourceId).
 
 -spec on_batch_query_async(
-    bridge_id(),
+    resource_id(),
     [{send_message, map()}],
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, pid()}.
-on_batch_query_async(BridgeId, Requests, ReplyFunAndArgs, State) ->
+on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => BridgeId, state => State}
+        #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, BridgeId).
+    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
 
 -spec on_get_status(manager_id(), state()) -> connected | disconnected.
-on_get_status(InstanceId, State) ->
-    #{
-        connect_timeout := Timeout,
-        pool_name := PoolName
-    } = State,
+on_get_status(InstanceId, #{connect_timeout := Timeout, pool_name := PoolName} = State) ->
     case do_get_status(InstanceId, PoolName, Timeout) of
         true ->
             connected;
@@ -245,8 +236,7 @@ on_get_status(InstanceId, State) ->
         project_id := binary()
     }.
 ensure_jwt_worker(InstanceId, #{
-    service_account_json := ServiceAccountJSON,
-    pubsub_topic := PubSubTopic
+    service_account_json := ServiceAccountJSON
 }) ->
     #{
         project_id := ProjectId,
@@ -276,14 +266,8 @@ ensure_jwt_worker(InstanceId, #{
             {ok, Worker0} ->
                 Worker0;
             Error ->
-                ?tp(
-                    gcp_pubsub_bridge_jwt_worker_failed_to_start,
-                    #{instance_id => InstanceId, reason => Error}
-                ),
-                ?SLOG(error, #{
-                    msg => "failed_to_start_gcp_pubsub_jwt_worker",
-                    instance_id => InstanceId,
-                    pubsub_topic => PubSubTopic,
+                ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
+                    connector => InstanceId,
                     reason => Error
                 }),
                 _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
@@ -301,26 +285,14 @@ ensure_jwt_worker(InstanceId, #{
             demonitor(MRef, [flush]),
             ok;
         {'DOWN', MRef, process, Worker, Reason} ->
-            ?tp(
-                gcp_pubsub_bridge_jwt_worker_failed_to_start,
-                #{
-                    resource_id => InstanceId,
-                    reason => Reason
-                }
-            ),
-            ?SLOG(error, #{
-                msg => "gcp_pubsub_bridge_jwt_worker_failed_to_start",
+            ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
                 connector => InstanceId,
                 reason => Reason
             }),
             _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
             throw(failed_to_start_jwt_worker)
     after 10_000 ->
-        ?tp(gcp_pubsub_bridge_jwt_timeout, #{resource_id => InstanceId}),
-        ?SLOG(warning, #{
-            msg => "gcp_pubsub_bridge_jwt_timeout",
-            connector => InstanceId
-        }),
+        ?tp(warning, "gcp_pubsub_bridge_jwt_timeout", #{connector => InstanceId}),
         demonitor(MRef, [flush]),
         _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
         throw(timeout_creating_jwt)
@@ -569,7 +541,7 @@ reply_delegator(_ResourceId, ReplyFunAndArgs, Result) ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
     end.
 
--spec do_get_status(manager_id(), atom(), timer:time()) -> boolean().
+-spec do_get_status(manager_id(), binary(), timer:time()) -> boolean().
 do_get_status(InstanceId, PoolName, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
     DoPerWorker =

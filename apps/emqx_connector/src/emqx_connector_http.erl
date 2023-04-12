@@ -231,9 +231,8 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     State = #{
-        pool_name => PoolName,
+        pool_name => InstId,
         pool_type => PoolType,
         host => Host,
         port => Port,
@@ -241,7 +240,7 @@ on_start(
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
-    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+    case ehttpc_sup:start_pool(InstId, PoolOpts) of
         {ok, _} -> {ok, State};
         {error, {already_started, _}} -> {ok, State};
         {error, Reason} -> {error, Reason}
