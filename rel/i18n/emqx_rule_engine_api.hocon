@@ -50,7 +50,16 @@ emqx_rule_engine_api {
                          zh: "根据规则来源 Topic 过滤, 使用 MQTT Topic 匹配"
                         }
                   }
-
+    api1_resp {
+        desc {
+            en: "List of rules"
+            zh: "规则列表"
+        }
+        label: {
+            en: "List Rules"
+            zh: "列出所有规则"
+        }
+    }
     api2 {
                    desc {
                          en: "Create a new rule using given Id"
@@ -113,10 +122,9 @@ emqx_rule_engine_api {
                         }
                    label: {
                            en: "Delete Cluster Rule"
-                           zh: "删除集群规则"
+                           zh: "基于给定 ID 新建一条规则"
                           }
                   }
-
     api7 {
                    desc {
                          en: "Reset a rule metrics"
@@ -127,7 +135,6 @@ emqx_rule_engine_api {
                            zh: "重置规则计数"
                           }
                   }
-
     api8 {
                    desc {
                          en: "Test a rule"
@@ -138,14 +145,24 @@ emqx_rule_engine_api {
                            zh: "测试规则"
                           }
                   }
-    desc9 {
+    api9 {
                    desc {
-                         en: "List of rules"
-                         zh: "列出所有规则"
+                         en: "Get rule engine configuration."
+                         zh: "获取规则引擎配置。"
                         }
-                   label: {
-                           en: "List Rules"
-                           zh: "列出所有规则"
+                   label {
+                          en: "Get configuration"
+                          zh: "获取配置"
+                         }
+    }
+    api10 {
+                   desc {
+                         en: "Update rule engine configuration."
+                         zh: "更新规则引擎配置。"
+                        }
+                   label {
+                          en: "Update configuration"
+                          zh: "更新配置"
                           }
-                  }
+    }
 }
