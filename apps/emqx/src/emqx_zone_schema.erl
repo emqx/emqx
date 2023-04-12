@@ -55,7 +55,10 @@ zone_without_hidden() ->
 
 hidden() ->
     [
-        "stats"
+        "stats",
+        "overload_protection",
+        "conn_congestion",
+        "flapping_detect"
     ].
 
 %% zone schemas are clones from the same name from root level
