@@ -132,6 +132,8 @@ dashboard_samplers_fun(Latest) ->
         end
     end.
 
+monitor_current(get, #{bindings := []}) ->
+    emqx_api_lib:with_node_or_cluster(erlang:node(), fun emqx_dashboard_monitor:current_rate/1);
 monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, <<"all">>),
     emqx_api_lib:with_node_or_cluster(RawNode, fun current_rate/1).

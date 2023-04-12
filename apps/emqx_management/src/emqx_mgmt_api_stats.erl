@@ -129,7 +129,19 @@ list(get, #{query_string := Qs}) ->
         _ ->
             Data = [
                 maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}])
-             || Node <- mria:running_nodes()
+             || Node <- running_nodes()
             ],
             {200, Data}
     end.
+
+%%%==============================================================================================
+%% Internal
+
+running_nodes() ->
+    Nodes = erlang:nodes([visible, this]),
+    RpcResults = emqx_proto_v2:are_running(Nodes),
+    [
+        Node
+     || {Node, IsRunning} <- lists:zip(Nodes, RpcResults),
+        IsRunning =:= {ok, true}
+    ].
