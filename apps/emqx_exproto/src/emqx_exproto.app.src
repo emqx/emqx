@@ -1,0 +1,10 @@
+{application, emqx_exproto, [
+    {description, "ExProto Gateway"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib, grpc, emqx, emqx_gateway]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

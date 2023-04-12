@@ -272,8 +272,13 @@ fast_forward_to_commit(Node, ToTnxId) ->
 init([Node, RetryMs]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
+    %% The init transaction ID is set in emqx_conf_app after
+    %% it has fetched the latest config from one of the core nodes
     TnxId = emqx_app:get_init_tnx_id(),
     ok = maybe_init_tnx_id(Node, TnxId),
+    %% Now continue with the normal catch-up process
+    %% That is: apply the missing transactions after the config
+    %% was copied until now.
     {ok, State, {continue, ?CATCH_UP}}.
 
 %% @private
@@ -396,6 +401,7 @@ get_cluster_tnx_id() ->
         Id -> Id
     end.
 
+%% The entry point of a config change transaction.
 init_mfa(Node, MFA) ->
     mnesia:write_lock_table(?CLUSTER_MFA),
     LatestId = get_cluster_tnx_id(),

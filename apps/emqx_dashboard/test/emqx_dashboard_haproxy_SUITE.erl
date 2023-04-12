@@ -26,10 +26,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps(
-        [emqx_management, emqx_dashboard],
-        fun set_special_configs/1
-    ),
+    emqx_mgmt_api_test_util:init_suite([emqx_management], fun set_special_configs/1),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -38,12 +35,8 @@ set_special_configs(emqx_dashboard) ->
 set_special_configs(_) ->
     ok.
 
-end_per_suite(Config) ->
-    application:unload(emqx_management),
-    mnesia:clear_table(?ADMIN),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    mria:stop(),
-    Config.
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 t_status(_Config) ->
     ProxyInfo = #{

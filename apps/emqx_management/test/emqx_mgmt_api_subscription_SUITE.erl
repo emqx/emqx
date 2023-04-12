@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(CLIENTID, <<"api_clientid">>).
 -define(USERNAME, <<"api_username">>).
@@ -141,6 +142,18 @@ t_subscription_fuzzy_search(Config) ->
         request_json(get, [{"page", "2"} | LimitMatchQuery], Headers),
     ?assertEqual(#{<<"page">> => 2, <<"limit">> => 3, <<"hasnext">> => false}, MatchMeta2P2),
     ?assertEqual(1, length(maps:get(<<"data">>, MatchData2P2))).
+
+%% checks that we can list when there are subscriptions made by
+%% `emqx:subscribe'.
+t_list_with_internal_subscription(_Config) ->
+    emqx:subscribe(<<"some/topic">>),
+    QS = [],
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    ?assertMatch(
+        #{<<"data">> := [#{<<"clientid">> := null}]},
+        request_json(get, QS, Headers)
+    ),
+    ok.
 
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),

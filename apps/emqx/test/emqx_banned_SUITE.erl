@@ -186,9 +186,8 @@ t_session_taken(_) ->
                     false
             end
         end,
-        3000
+        6000
     ),
-
     Publish(),
 
     C2 = Connect(),

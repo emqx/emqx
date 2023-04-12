@@ -41,6 +41,7 @@
     callback_mode := callback_mode(),
     query_mode := query_mode(),
     config := resource_config(),
+    error := term(),
     state := resource_state(),
     status := resource_status(),
     metrics => emqx_metrics_worker:metrics()
@@ -73,7 +74,7 @@
     max_queue_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
-    async_inflight_window => pos_integer()
+    inflight_window => pos_integer()
 }.
 -type query_result() ::
     ok

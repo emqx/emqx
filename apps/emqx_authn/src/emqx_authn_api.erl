@@ -1419,14 +1419,14 @@ request_user_create_examples() ->
             summary => <<"Regular user">>,
             value => #{
                 user_id => <<"user1">>,
-                password => <<"secret">>
+                password => <<"******">>
             }
         },
         super_user => #{
             summary => <<"Superuser">>,
             value => #{
                 user_id => <<"user2">>,
-                password => <<"secret">>,
+                password => <<"******">>,
                 is_superuser => true
             }
         }
@@ -1437,13 +1437,13 @@ request_user_update_examples() ->
         regular_user => #{
             summary => <<"Update regular user">>,
             value => #{
-                password => <<"newsecret">>
+                password => <<"******">>
             }
         },
         super_user => #{
             summary => <<"Update user and promote to superuser">>,
             value => #{
-                password => <<"newsecret">>,
+                password => <<"******">>,
                 is_superuser => true
             }
         }

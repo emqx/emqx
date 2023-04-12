@@ -146,6 +146,12 @@ on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
         {error, timeout}
     end.
 
+on_query_async(_InstId, block, ReplyFun, #{pid := Pid}) ->
+    Pid ! {block, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, resume, ReplyFun, #{pid := Pid}) ->
+    Pid ! {resume, ReplyFun},
+    {ok, Pid};
 on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
     Pid ! {inc, N, ReplyFun},
     {ok, Pid};
@@ -274,6 +280,10 @@ counter_loop(
             block ->
                 ct:pal("counter recv: ~p", [block]),
                 State#{status => blocked};
+            {block, ReplyFun} ->
+                ct:pal("counter recv: ~p", [block]),
+                apply_reply(ReplyFun, ok),
+                State#{status => blocked};
             {block_now, ReplyFun} ->
                 ct:pal("counter recv: ~p", [block_now]),
                 apply_reply(
@@ -283,6 +293,11 @@ counter_loop(
             resume ->
                 {messages, Msgs} = erlang:process_info(self(), messages),
                 ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
+                State#{status => running};
+            {resume, ReplyFun} ->
+                {messages, Msgs} = erlang:process_info(self(), messages),
+                ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
+                apply_reply(ReplyFun, ok),
                 State#{status => running};
             {inc, N, ReplyFun} when Status == running ->
                 %ct:pal("async counter recv: ~p", [{inc, N}]),

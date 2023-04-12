@@ -16,6 +16,9 @@ nl_at_eof() {
         scripts/erlfmt)
             return
             ;;
+        *.jks)
+            return
+            ;;
     esac
     local lastbyte
     lastbyte="$(tail -c 1 "$file" 2>&1)"

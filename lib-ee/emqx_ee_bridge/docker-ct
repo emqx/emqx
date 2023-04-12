@@ -10,3 +10,5 @@ pgsql
 tdengine
 clickhouse
 dynamo
+rocketmq
+cassandra

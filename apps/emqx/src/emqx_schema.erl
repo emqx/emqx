@@ -44,6 +44,7 @@
 -type port_number() :: 1..65536.
 -type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
 -type url() :: binary().
+-type json_binary() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -58,6 +59,7 @@
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
+-typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
 
 -export([
     validate_heap_size/1,
@@ -84,7 +86,8 @@
     to_ip_port/1,
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1,
-    to_url/1
+    to_url/1,
+    to_json_binary/1
 ]).
 
 -export([
@@ -112,7 +115,8 @@
     ip_port/0,
     cipher/0,
     comma_separated_atoms/0,
-    url/0
+    url/0,
+    json_binary/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -226,6 +230,11 @@ roots(low) ->
             sc(
                 ref("trace"),
                 #{}
+            )},
+        {"crl_cache",
+            sc(
+                ref("crl_cache"),
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ].
 
@@ -791,6 +800,37 @@ fields("listeners") ->
                 #{
                     desc => ?DESC(fields_listeners_quic),
                     required => {false, recursively}
+                }
+            )}
+    ];
+fields("crl_cache") ->
+    %% Note: we make the refresh interval and HTTP timeout global (not
+    %% per-listener) because multiple SSL listeners might point to the
+    %% same URL.  If they had diverging timeout options, it would be
+    %% confusing.
+    [
+        {"refresh_interval",
+            sc(
+                duration(),
+                #{
+                    default => <<"15m">>,
+                    desc => ?DESC("crl_cache_refresh_interval")
+                }
+            )},
+        {"http_timeout",
+            sc(
+                duration(),
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC("crl_cache_refresh_http_timeout")
+                }
+            )},
+        {"capacity",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC("crl_cache_capacity")
                 }
             )}
     ];
@@ -1456,7 +1496,7 @@ fields("broker") ->
         {"perf",
             sc(
                 ref("broker_perf"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"shared_subscription_group",
             sc(
@@ -1844,7 +1884,9 @@ mqtt_listener(Bind) ->
                         default => <<"3s">>
                     }
                 )},
-            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
+            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, (authentication(listener))#{
+                importance => ?IMPORTANCE_HIDDEN
+            }}
         ].
 
 base_listener(Bind) ->
@@ -2065,6 +2107,8 @@ desc("shared_subscription_group") ->
     "Per group dispatch strategy for shared subscription";
 desc("ocsp") ->
     "Per listener OCSP Stapling configuration.";
+desc("crl_cache") ->
+    "Global CRL cache options.";
 desc(_) ->
     undefined.
 
@@ -2261,8 +2305,16 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         #{
                             required => false,
                             %% TODO: remove after e5.0.2
-                            hidden => true,
+                            importance => ?IMPORTANCE_HIDDEN,
                             validator => fun ocsp_inner_validator/1
+                        }
+                    )},
+                {"enable_crl_check",
+                    sc(
+                        boolean(),
+                        #{
+                            default => false,
+                            desc => ?DESC("server_ssl_opts_schema_enable_crl_check")
                         }
                     )}
             ]
@@ -2270,7 +2322,8 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
 
 mqtt_ssl_listener_ssl_options_validator(Conf) ->
     Checks = [
-        fun ocsp_outer_validator/1
+        fun ocsp_outer_validator/1,
+        fun crl_outer_validator/1
     ],
     case emqx_misc:pipeline(Checks, Conf, not_used) of
         {ok, _, _} ->
@@ -2303,6 +2356,18 @@ ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->
     assert_required_field(
         Conf, <<"issuer_pem">>, "The issuer PEM path is required for OCSP stapling"
     ),
+    ok.
+
+crl_outer_validator(
+    #{<<"enable_crl_check">> := true} = SSLOpts
+) ->
+    case maps:get(<<"verify">>, SSLOpts) of
+        verify_peer ->
+            ok;
+        _ ->
+            {error, "verify must be verify_peer when CRL check is enabled"}
+    end;
+crl_outer_validator(_SSLOpts) ->
     ok.
 
 %% @doc Make schema for SSL client.
@@ -2511,6 +2576,14 @@ to_url(Str) ->
         {ok, URIMap} ->
             URIString = emqx_http_lib:normalize(URIMap),
             {ok, iolist_to_binary(URIString)};
+        Error ->
+            Error
+    end.
+
+to_json_binary(Str) ->
+    case emqx_json:safe_decode(Str) of
+        {ok, _} ->
+            {ok, iolist_to_binary(Str)};
         Error ->
             Error
     end.
@@ -2938,7 +3011,7 @@ quic_feature_toggle(Desc) ->
         typerefl:alias("boolean", typerefl:union([true, false, 0, 1])),
         #{
             desc => Desc,
-            hidden => true,
+            importance => ?IMPORTANCE_HIDDEN,
             required => false,
             converter => fun
                 (true) -> 1;
@@ -2953,7 +3026,7 @@ quic_lowlevel_settings_uint(Low, High, Desc) ->
         range(Low, High),
         #{
             required => false,
-            hidden => true,
+            importance => ?IMPORTANCE_HIDDEN,
             desc => Desc
         }
     ).
@@ -2964,9 +3037,9 @@ is_quic_ssl_opts(Name) ->
         "cacertfile",
         "certfile",
         "keyfile",
-        "verify"
+        "verify",
+        "password"
         %% Followings are planned
-        %% , "password"
         %% , "hibernate_after"
         %% , "fail_if_no_peer_cert"
         %% , "handshake_timeout"

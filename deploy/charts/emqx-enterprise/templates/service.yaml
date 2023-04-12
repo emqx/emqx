@@ -114,7 +114,7 @@ metadata:
 spec:
   type: ClusterIP
   sessionAffinity: None
-  clusterIP: None
+  clusterIP: {{ .Values.service.clusterIP | default "None" }}
   publishNotReadyAddresses: true
   ports:
   - name: mqtt

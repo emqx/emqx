@@ -492,7 +492,9 @@ authz_fields() ->
                 ?ARRAY(?UNION(UnionMemberSelector)),
                 #{
                     default => [],
-                    desc => ?DESC(sources)
+                    desc => ?DESC(sources),
+                    %% doc_lift is force a root level reference instead of nesting sub-structs
+                    extra => #{doc_lift => true}
                 }
             )}
     ].

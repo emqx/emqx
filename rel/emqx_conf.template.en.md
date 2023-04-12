@@ -4,13 +4,12 @@ and a superset of JSON.
 
 ## Layered
 
-EMQX configuration consists of 3 layers.
+EMQX configuration consists of two layers.
 From bottom up:
 
 1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
    Changes in this layer require a full node restart to take effect.
 1. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
-1. Local node overrides: `$EMQX_NODE__DATA_DIR/configs/local-override.conf`
 
 When environment variable `$EMQX_NODE__DATA_DIR` is not set, config `node.data_dir`
 is used.

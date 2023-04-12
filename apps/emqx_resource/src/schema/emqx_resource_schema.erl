@@ -30,19 +30,6 @@ namespace() -> "resource_schema".
 
 roots() -> [].
 
-fields("resource_opts_sync_only") ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts_sync_only"),
-                resource_opts_meta()
-            )}
-    ];
-fields("creation_opts_sync_only") ->
-    Fields0 = fields("creation_opts"),
-    Fields1 = lists:keydelete(async_inflight_window, 1, Fields0),
-    QueryMod = {query_mode, fun query_mode_sync_only/1},
-    lists:keyreplace(query_mode, 1, Fields1, QueryMod);
 fields("resource_opts") ->
     [
         {resource_opts,
@@ -61,7 +48,7 @@ fields("creation_opts") ->
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
         {request_timeout, fun request_timeout/1},
-        {async_inflight_window, fun async_inflight_window/1},
+        {inflight_window, fun inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
@@ -83,7 +70,7 @@ worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
 
 resume_interval(type) -> emqx_schema:duration_ms();
-resume_interval(hidden) -> true;
+resume_interval(importance) -> ?IMPORTANCE_HIDDEN;
 resume_interval(desc) -> ?DESC("resume_interval");
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
@@ -118,12 +105,6 @@ query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
 
-query_mode_sync_only(type) -> enum([sync]);
-query_mode_sync_only(desc) -> ?DESC("query_mode_sync_only");
-query_mode_sync_only(default) -> sync;
-query_mode_sync_only(required) -> false;
-query_mode_sync_only(_) -> undefined.
-
 request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
 request_timeout(desc) -> ?DESC("request_timeout");
 request_timeout(default) -> <<"15s">>;
@@ -143,11 +124,12 @@ enable_queue(deprecated) -> {since, "v5.0.14"};
 enable_queue(desc) -> ?DESC("enable_queue");
 enable_queue(_) -> undefined.
 
-async_inflight_window(type) -> pos_integer();
-async_inflight_window(desc) -> ?DESC("async_inflight_window");
-async_inflight_window(default) -> ?DEFAULT_INFLIGHT;
-async_inflight_window(required) -> false;
-async_inflight_window(_) -> undefined.
+inflight_window(type) -> pos_integer();
+inflight_window(aliases) -> [async_inflight_window];
+inflight_window(desc) -> ?DESC("inflight_window");
+inflight_window(default) -> ?DEFAULT_INFLIGHT;
+inflight_window(required) -> false;
+inflight_window(_) -> undefined.
 
 batch_size(type) -> pos_integer();
 batch_size(desc) -> ?DESC("batch_size");
@@ -167,7 +149,4 @@ max_queue_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
 max_queue_bytes(required) -> false;
 max_queue_bytes(_) -> undefined.
 
-desc("creation_opts") ->
-    ?DESC("creation_opts");
-desc("creation_opts_sync_only") ->
-    ?DESC("creation_opts").
+desc("creation_opts") -> ?DESC("creation_opts").

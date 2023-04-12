@@ -37,6 +37,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Cfg) ->
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway]),
     Cfg.
