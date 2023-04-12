@@ -350,7 +350,7 @@ parse_server_test_() ->
             )
         ),
         ?T(
-            "multiple servers wihtout port, mixed list(binary|string)",
+            "multiple servers without port, mixed list(binary|string)",
             ?assertEqual(
                 ["host1", "host2"],
                 Parse2([<<"host1">>, "host2"], #{no_port => true})
@@ -446,6 +446,171 @@ parse_server_test_() ->
             ?assertError(
                 "bad_schema",
                 emqx_schema:parse_server("whatever", #{default_port => 10, no_port => true})
+            )
+        ),
+        ?T(
+            "scheme, hostname and port",
+            ?assertEqual(
+                {"pulsar+ssl", "host", 6651},
+                emqx_schema:parse_server(
+                    "pulsar+ssl://host:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, default port",
+            ?assertEqual(
+                {"pulsar", "host", 6650},
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, no port",
+            ?assertEqual(
+                {"pulsar", "host"},
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, missing port",
+            ?assertThrow(
+                "missing_port_number",
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        no_port => false,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, no default port",
+            ?assertEqual(
+                {"pulsar", "host"},
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        default_scheme => "pulsar",
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, default port",
+            ?assertEqual(
+                {"pulsar", "host", 6650},
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "just hostname, expecting missing scheme",
+            ?assertThrow(
+                "missing_scheme",
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, defined port",
+            ?assertEqual(
+                {"pulsar", "host", 6651},
+                emqx_schema:parse_server(
+                    "host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "inconsistent scheme opts",
+            ?assertError(
+                "bad_schema",
+                emqx_schema:parse_server(
+                    "pulsar+ssl://host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "something",
+                        supported_schemes => ["not", "supported"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, defined port",
+            ?assertEqual(
+                {"pulsar", "host", 6651},
+                emqx_schema:parse_server(
+                    "host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "unsupported scheme",
+            ?assertThrow(
+                "unsupported_scheme",
+                emqx_schema:parse_server(
+                    "pulsar+quic://host:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "multiple hostnames with schemes (1)",
+            ?assertEqual(
+                [
+                    {"pulsar", "host", 6649},
+                    {"pulsar+ssl", "other.host", 6651},
+                    {"pulsar", "yet.another", 6650}
+                ],
+                emqx_schema:parse_servers(
+                    "pulsar://host:6649, pulsar+ssl://other.host:6651,pulsar://yet.another",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
             )
         )
     ].
