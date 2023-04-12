@@ -147,6 +147,16 @@ ensure_loaded() ->
     _ = emqx_ee_bridge:module_info(),
     ok.
 
+mongo_type(Config) ->
+    case ?config(mongo_type, Config) of
+        rs ->
+            {rs, maps:get(<<"replica_set_name">>, ?config(mongo_config, Config))};
+        sharded ->
+            sharded;
+        single ->
+            single
+    end.
+
 mongo_type_bin(rs) ->
     <<"mongodb_rs">>;
 mongo_type_bin(sharded) ->
@@ -263,17 +273,14 @@ create_bridge_http(Params) ->
     end.
 
 clear_db(Config) ->
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    Name = ?config(mongo_name, Config),
-    #{<<"collection">> := Collection} = ?config(mongo_config, Config),
-    ResourceID = emqx_bridge_resource:resource_id(Type, Name),
-    {ok, _, #{state := #{connector_state := #{poolname := PoolName}}}} =
-        emqx_resource:get_instance(ResourceID),
-    Selector = #{},
-    {true, _} = ecpool:pick_and_do(
-        PoolName, {mongo_api, delete, [Collection, Selector]}, no_handover
-    ),
-    ok.
+    Type = mongo_type(Config),
+    Host = ?config(mongo_host, Config),
+    Port = ?config(mongo_port, Config),
+    Server = Host ++ ":" ++ integer_to_list(Port),
+    #{<<"database">> := Db, <<"collection">> := Collection} = ?config(mongo_config, Config),
+    {ok, Client} = mongo_api:connect(Type, [Server], [], [{database, Db}, {w_mode, unsafe}]),
+    {true, _} = mongo_api:delete(Client, Collection, _Selector = #{}),
+    mongo_api:disconnect(Client).
 
 find_all(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
