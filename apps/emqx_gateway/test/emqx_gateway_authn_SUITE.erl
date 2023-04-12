@@ -66,6 +66,7 @@ end_per_group(AuthName, Conf) ->
     Conf.
 
 init_per_suite(Config) ->
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_config:erase(gateway),
     init_gateway_conf(),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),

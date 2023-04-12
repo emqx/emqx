@@ -72,10 +72,10 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    NonBatchCases = [t_write_timeout],
+    NonBatchCases = [t_write_timeout, t_simple_sql_query],
     QueryModeGroups = [{group, async}, {group, sync}],
     BatchingGroups = [
-        %{group, with_batch},
+        {group, with_batch},
         {group, without_batch}
     ],
     [
@@ -404,12 +404,7 @@ t_setup_via_config_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            case ?config(enable_batch, Config) of
-                true ->
-                    ?assertMatch([#{result := {_, [ok]}}], Trace);
-                false ->
-                    ?assertMatch([#{result := ok}], Trace)
-            end,
+            ?assertMatch([#{result := ok}], Trace),
             ok
         end
     ),
@@ -448,12 +443,7 @@ t_setup_via_http_api_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            case ?config(enable_batch, Config) of
-                true ->
-                    ?assertMatch([#{result := {_, [{ok, 1}]}}], Trace);
-                false ->
-                    ?assertMatch([#{result := ok}], Trace)
-            end,
+            ?assertMatch([#{result := ok}], Trace),
             ok
         end
     ),
@@ -540,8 +530,8 @@ t_write_failure(Config) ->
         fun(Trace0) ->
             ct:pal("trace: ~p", [Trace0]),
             Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
-            ?assertMatch([#{result := {error, _}} | _], Trace),
-            [#{result := {error, Error}} | _] = Trace,
+            ?assertMatch([#{result := {async_return, {error, _}}} | _], Trace),
+            [#{result := {async_return, {error, Error}}} | _] = Trace,
             case Error of
                 {resource_error, _} ->
                     ok;
@@ -576,7 +566,6 @@ t_write_failure(Config) ->
 %    ok.
 
 t_simple_sql_query(Config) ->
-    EnableBatch = ?config(enable_batch, Config),
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
@@ -592,12 +581,7 @@ t_simple_sql_query(Config) ->
                 {ok, Res} = receive_result(Ref, 2_000),
                 Res
         end,
-    case EnableBatch of
-        true ->
-            ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
-        false ->
-            ?assertMatch({ok, {<<"system.local">>, _, [[1]]}}, Result)
-    end,
+    ?assertMatch({ok, {<<"system.local">>, _, [[1]]}}, Result),
     ok.
 
 t_missing_data(Config) ->
@@ -607,27 +591,29 @@ t_missing_data(Config) ->
     ),
     %% emqx_ee_connector_cassa will send missed data as a `null` atom
     %% to ecql driver
-    {_, {ok, Event}} =
-        ?wait_async_action(
-            send_message(Config, #{}),
-            #{?snk_kind := buffer_worker_flush_ack},
-            2_000
-        ),
-    ?assertMatch(
-        %% TODO: match error msgs
-        #{
-            result :=
-                {error, {unrecoverable_error, {8704, <<"Expected 8 or 0 byte long for date (4)">>}}}
-        },
-        Event
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                send_message(Config, #{}),
+                #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            %% 1. ecql driver will return `ok` first in async query
+            Trace = ?of_kind(cassandra_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            %% 2. then it will return an error in callback function
+            Trace1 = ?of_kind(handle_async_reply, Trace0),
+            ?assertMatch([#{result := {error, {8704, _}}}], Trace1),
+            ok
+        end
     ),
     ok.
 
 t_bad_sql_parameter(Config) ->
     QueryMode = ?config(query_mode, Config),
-    EnableBatch = ?config(enable_batch, Config),
-    Name = ?config(cassa_name, Config),
-    ResourceId = emqx_bridge_resource:resource_id(cassandra, Name),
     ?assertMatch(
         {ok, _},
         create_bridge(
@@ -656,14 +642,7 @@ t_bad_sql_parameter(Config) ->
                         ct:fail("no response received")
                 end
         end,
-    case EnableBatch of
-        true ->
-            ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
-        false ->
-            ?assertMatch(
-                {error, {unrecoverable_error, _}}, Result
-            )
-    end,
+    ?assertMatch({error, _}, Result),
     ok.
 
 t_nasty_sql_string(Config) ->
