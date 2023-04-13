@@ -233,19 +233,19 @@ if [ -d "${CHECKS_DIR}" ]; then
 fi
 
 generate_changelog () {
-    local from_tag num_en num_zh
+    local from_tag
     from_tag="${PREV_TAG:-}"
     if [[ -z $from_tag ]]; then
         from_tag="$(./scripts/find-prev-rel-tag.sh "$PROFILE")"
     fi
-    num_en=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.en.md')
-    num_zh=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.zh.md')
-    if [ "$num_en" -ne "$num_zh" ]; then
-        echo "Number of English and Chinese changelog files added since ${from_tag} do not match."
-        exit 1
-    fi
+    # num_en=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.en.md')
+    # num_zh=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.zh.md')
+    # if [ "$num_en" -ne "$num_zh" ]; then
+    #     echo "Number of English and Chinese changelog files added since ${from_tag} do not match."
+    #     exit 1
+    # fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
-    ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
+    # ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
     git add changes/"${TAG}".*.md
     if [ -n "$(git diff --staged --stat)" ]; then
         git commit -m "docs: Generate changelog for ${TAG}"
