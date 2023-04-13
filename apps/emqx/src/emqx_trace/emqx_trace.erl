@@ -148,7 +148,11 @@ list(Enable) ->
 
 -spec create([{Key :: binary(), Value :: binary()}] | #{atom() => binary()}) ->
     {ok, #?TRACE{}}
-    | {error, {duplicate_condition, iodata()} | {already_existed, iodata()} | iodata()}.
+    | {error,
+        {duplicate_condition, iodata()}
+        | {already_existed, iodata()}
+        | {error, {bad_type, any()}}
+        | iodata()}.
 create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
