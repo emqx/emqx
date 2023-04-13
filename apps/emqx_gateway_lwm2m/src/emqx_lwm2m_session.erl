@@ -386,11 +386,11 @@ is_alternate_path(LinkAttrs) ->
         LinkAttrs
     ).
 
-trim(Str) -> binary_util:trim(Str, $\s).
+trim(Str) -> emqx_utils_binary:trim(Str, $\s).
 
 delink(Str) ->
-    Ltrim = binary_util:ltrim(Str, $<),
-    binary_util:rtrim(Ltrim, $>).
+    Ltrim = emqx_utils_binary:ltrim(Str, $<),
+    emqx_utils_binary:rtrim(Ltrim, $>).
 
 get_lifetime(#{<<"lt">> := LT}) ->
     case LT of

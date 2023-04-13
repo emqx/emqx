@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(binary_util).
+-module(emqx_utils_binary).
 
 %% copied from https://github.com/arcusfelis/binary2
 
