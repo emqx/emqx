@@ -614,7 +614,9 @@ t_event_client_disconnected_normal(_Config) ->
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
-            ?assertMatch(#{<<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps]))
+            ?assertMatch(
+                #{<<"reason">> := <<"normal">>}, emqx_utils_json:decode(Payload, [return_maps])
+            )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_normal)
     end,
@@ -651,7 +653,9 @@ t_event_client_disconnected_kicked(_Config) ->
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
-            ?assertMatch(#{<<"reason">> := <<"kicked">>}, emqx_json:decode(Payload, [return_maps]))
+            ?assertMatch(
+                #{<<"reason">> := <<"kicked">>}, emqx_utils_json:decode(Payload, [return_maps])
+            )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_kicked)
     end,
@@ -692,7 +696,7 @@ t_event_client_disconnected_discarded(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"discarded">>}, emqx_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"discarded">>}, emqx_utils_json:decode(Payload, [return_maps])
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_discarded)
@@ -737,7 +741,7 @@ t_event_client_disconnected_takenover(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"takenover">>}, emqx_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"takenover">>}, emqx_utils_json:decode(Payload, [return_maps])
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_discarded)
@@ -2800,7 +2804,7 @@ verify_event(EventName) ->
             [
                 begin
                     %% verify fields can be formatted to JSON string
-                    _ = emqx_json:encode(Fields),
+                    _ = emqx_utils_json:encode(Fields),
                     %% verify metadata fields
                     verify_metadata_fields(EventName, Fields),
                     %% verify available fields for each event name

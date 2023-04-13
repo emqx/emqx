@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_json_SUITE).
+-module(emqx_utils_json_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -import(
-    emqx_json,
+    emqx_utils_json,
     [
         encode/1,
         decode/1,
@@ -51,7 +51,7 @@
 %% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
 %%--------------------------------------------------------------------
 
-%% but in emqx_json, we use the jsx style for it:
+%% but in emqx_utils_json, we use the jsx style for it:
 %%--------------------------------------------------------------------
 %% Erlang                     JSON              Erlang
 %% -------------------------------------------------------------------
@@ -127,12 +127,12 @@ t_safe_decode_encode(_) ->
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{foo, bar}]),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{<<"foo">>, <<"bar">>}]),
     [[{<<"foo">>, <<"bar">>}]] = safe_encode_decode([[{<<"foo">>, <<"bar">>}]]),
-    {ok, Json} = emqx_json:safe_encode(#{<<"foo">> => <<"bar">>}),
-    {ok, #{<<"foo">> := <<"bar">>}} = emqx_json:safe_decode(Json, [return_maps]).
+    {ok, Json} = emqx_utils_json:safe_encode(#{<<"foo">> => <<"bar">>}),
+    {ok, #{<<"foo">> := <<"bar">>}} = emqx_utils_json:safe_decode(Json, [return_maps]).
 
 safe_encode_decode(Term) ->
-    {ok, Json} = emqx_json:safe_encode(Term),
-    case emqx_json:safe_decode(Json) of
+    {ok, Json} = emqx_utils_json:safe_encode(Term),
+    case emqx_utils_json:safe_decode(Json) of
         {ok, {NTerm}} -> NTerm;
         {ok, NTerm} -> NTerm
     end.

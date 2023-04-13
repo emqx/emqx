@@ -235,7 +235,7 @@ t_configs_node(_) ->
     ?assertEqual(error, ExpType),
     ?assertMatch({{_, 404, _}, _, _}, ExpRes),
     {_, _, Body} = ExpRes,
-    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body, [return_maps])),
 
     ?assertMatch({error, {_, 500, _}}, get_configs("bad_node")).
 
@@ -245,7 +245,7 @@ get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
         {ok, Res} ->
-            {ok, emqx_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error ->
             Error
     end.
@@ -264,8 +264,8 @@ get_configs(Node, Opts) ->
         end,
     URI = emqx_mgmt_api_test_util:api_path(Path),
     case emqx_mgmt_api_test_util:request_api(get, URI, [], [], [], Opts) of
-        {ok, {_, _, Res}} -> {ok, emqx_json:decode(Res, [return_maps])};
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -273,7 +273,7 @@ update_config(Name, Change) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};
+        {ok, Update} -> {ok, emqx_utils_json:decode(Update, [return_maps])};
         Error -> Error
     end.
 

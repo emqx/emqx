@@ -123,7 +123,7 @@ process_payload(From, MapMsg) ->
     do_process_payload(maps:get(payload, From, undefined), MapMsg).
 
 do_process_payload(undefined, Msg) ->
-    emqx_json:encode(Msg);
+    emqx_utils_json:encode(Msg);
 do_process_payload(Tks, Msg) ->
     replace_vars_in_str(Tks, Msg).
 

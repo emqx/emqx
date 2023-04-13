@@ -987,10 +987,10 @@ base64_decode(Data) when is_binary(Data) ->
     base64:decode(Data).
 
 json_encode(Data) ->
-    emqx_json:encode(Data).
+    emqx_utils_json:encode(Data).
 
 json_decode(Data) ->
-    emqx_json:decode(Data, [return_maps]).
+    emqx_utils_json:decode(Data, [return_maps]).
 
 term_encode(Term) ->
     erlang:term_to_binary(Term).

@@ -64,7 +64,7 @@ do_request(Method, PathParts, Body) ->
         {ok, Code, <<>>} ->
             {ok, Code, <<>>};
         {ok, Code, Res1} ->
-            Res2 = emqx_json:decode(Res1, [return_maps]),
+            Res2 = emqx_utils_json:decode(Res1, [return_maps]),
             Res3 = try_decode_error_message(Res2),
             {ok, Code, Res3};
         Error ->
@@ -72,7 +72,7 @@ do_request(Method, PathParts, Body) ->
     end.
 
 try_decode_error_message(#{<<"message">> := Msg0} = Res0) ->
-    case emqx_json:safe_decode(Msg0, [return_maps]) of
+    case emqx_utils_json:safe_decode(Msg0, [return_maps]) of
         {ok, Msg} ->
             Res0#{<<"message">> := Msg};
         {error, _} ->
@@ -102,7 +102,7 @@ t_crud(_Config) ->
             #{name => <<"s">>, type => <<"string">>}
         ]
     },
-    SourceBin = emqx_json:encode(Source),
+    SourceBin = emqx_utils_json:encode(Source),
     Params = #{
         <<"type">> => <<"avro">>,
         <<"source">> => SourceBin,

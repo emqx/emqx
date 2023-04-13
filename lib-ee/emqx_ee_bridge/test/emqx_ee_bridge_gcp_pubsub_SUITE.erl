@@ -204,7 +204,7 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
     ct:pal("probe result: ~p", [ProbeResult]),
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-            {ok, Res0} -> {ok, emqx_json:decode(Res0, [return_maps])};
+            {ok, Res0} -> {ok, emqx_utils_json:decode(Res0, [return_maps])};
             Error -> Error
         end,
     ct:pal("bridge creation result: ~p", [Res]),
@@ -222,7 +222,7 @@ create_rule_and_action_http(Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -234,7 +234,7 @@ success_http_handler() ->
         Rep = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
-            jiffy:encode(#{messageIds => [<<"6058891368195201">>]}),
+            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
             Req
         ),
         {ok, Rep, State}
@@ -274,7 +274,7 @@ gcp_pubsub_config(Config) ->
     PubSubTopic = proplists:get_value(pubsub_topic, Config, <<"mytopic">>),
     PipelineSize = proplists:get_value(pipeline_size, Config, 100),
     ServiceAccountJSON = proplists:get_value(pubsub_topic, Config, generate_service_account_json()),
-    ServiceAccountJSONStr = emqx_json:encode(ServiceAccountJSON),
+    ServiceAccountJSONStr = emqx_utils_json:encode(ServiceAccountJSON),
     GUID = emqx_guid:to_hexstr(emqx_guid:gen()),
     Name = <<(atom_to_binary(?MODULE))/binary, (GUID)/binary>>,
     ConfigString =
@@ -463,7 +463,7 @@ assert_valid_request_headers(Headers, ServiceAccountJSON) ->
     end.
 
 assert_valid_request_body(Body) ->
-    BodyMap = emqx_json:decode(Body, [return_maps]),
+    BodyMap = emqx_utils_json:decode(Body, [return_maps]),
     ?assertMatch(#{<<"messages">> := [_ | _]}, BodyMap),
     #{<<"messages">> := Messages} = BodyMap,
     lists:map(
@@ -471,7 +471,7 @@ assert_valid_request_body(Body) ->
             ?assertMatch(#{<<"data">> := <<_/binary>>}, Msg),
             #{<<"data">> := Content64} = Msg,
             Content = base64:decode(Content64),
-            Decoded = emqx_json:decode(Content, [return_maps]),
+            Decoded = emqx_utils_json:decode(Content, [return_maps]),
             ct:pal("decoded payload: ~p", [Decoded]),
             ?assert(is_map(Decoded)),
             Decoded
@@ -1014,7 +1014,7 @@ t_publish_timeout(Config) ->
             Rep = cowboy_req:reply(
                 200,
                 #{<<"content-type">> => <<"application/json">>},
-                jiffy:encode(#{messageIds => [<<"6058891368195201">>]}),
+                emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
                 Req
             ),
             {ok, Rep, State}
@@ -1180,7 +1180,7 @@ t_failure_with_body(Config) ->
             Rep = cowboy_req:reply(
                 400,
                 #{<<"content-type">> => <<"application/json">>},
-                jiffy:encode(#{}),
+                emqx_utils_json:encode(#{}),
                 Req
             ),
             {ok, Rep, State}

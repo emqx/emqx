@@ -182,7 +182,7 @@ t_api(_) ->
     {ok, 404, ErrResult} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
         #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
-        emqx_json:decode(ErrResult, [return_maps])
+        emqx_utils_json:decode(ErrResult, [return_maps])
     ),
 
     [
@@ -215,7 +215,8 @@ t_api(_) ->
     ),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
-        #{<<"type">> := <<"http">>, <<"enable">> := false}, emqx_json:decode(Result3, [return_maps])
+        #{<<"type">> := <<"http">>, <<"enable">> := false},
+        emqx_utils_json:decode(Result3, [return_maps])
     ),
 
     Keyfile = emqx_common_test_helpers:app_path(
@@ -253,7 +254,7 @@ t_api(_) ->
             <<"total">> := 0,
             <<"nomatch">> := 0
         }
-    } = emqx_json:decode(Status4, [return_maps]),
+    } = emqx_utils_json:decode(Status4, [return_maps]),
     ?assertMatch(
         #{
             <<"type">> := <<"mongodb">>,
@@ -265,7 +266,7 @@ t_api(_) ->
                 <<"verify">> := <<"verify_none">>
             }
         },
-        emqx_json:decode(Result4, [return_maps])
+        emqx_utils_json:decode(Result4, [return_maps])
     ),
 
     {ok, Cacert} = file:read_file(Cacertfile),
@@ -297,7 +298,7 @@ t_api(_) ->
                 <<"verify">> := <<"verify_none">>
             }
         },
-        emqx_json:decode(Result5, [return_maps])
+        emqx_utils_json:decode(Result5, [return_maps])
     ),
 
     {ok, 200, Status5_1} = request(get, uri(["authorization", "sources", "mongodb", "status"]), []),
@@ -308,7 +309,7 @@ t_api(_) ->
             <<"total">> := 0,
             <<"nomatch">> := 0
         }
-    } = emqx_json:decode(Status5_1, [return_maps]),
+    } = emqx_utils_json:decode(Status5_1, [return_maps]),
 
     #{
         ssl := #{
@@ -355,7 +356,7 @@ t_api(_) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := <<"Type mismatch", _/binary>>
         },
-        emqx_json:decode(TypeMismatch, [return_maps])
+        emqx_utils_json:decode(TypeMismatch, [return_maps])
     ),
 
     lists:foreach(
@@ -443,7 +444,7 @@ t_api(_) ->
                     <<"total">> := 1,
                     <<"nomatch">> := 0
                 }
-            } = emqx_json:decode(Status5, [return_maps])
+            } = emqx_utils_json:decode(Status5, [return_maps])
         end
     ),
 
@@ -469,7 +470,7 @@ t_api(_) ->
                     <<"total">> := 2,
                     <<"nomatch">> := 0
                 }
-            } = emqx_json:decode(Status6, [return_maps])
+            } = emqx_utils_json:decode(Status6, [return_maps])
         end
     ),
 
@@ -495,7 +496,7 @@ t_api(_) ->
                     <<"total">> := 3,
                     <<"nomatch">> := 0
                 }
-            } = emqx_json:decode(Status7, [return_maps])
+            } = emqx_utils_json:decode(Status7, [return_maps])
         end
     ),
     ok.
@@ -621,7 +622,7 @@ t_aggregate_metrics(_) ->
     ).
 
 get_sources(Result) ->
-    maps:get(<<"sources">>, emqx_json:decode(Result, [return_maps])).
+    maps:get(<<"sources">>, emqx_utils_json:decode(Result, [return_maps])).
 
 data_dir() -> emqx:data_dir().
 

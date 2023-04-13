@@ -385,7 +385,7 @@ action_listener(ID, Action, Running) ->
 request(Method, Url, QueryParams, Body) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body) of
-        {ok, Res} -> emqx_json:decode(Res, [return_maps]);
+        {ok, Res} -> emqx_utils_json:decode(Res, [return_maps]);
         Error -> Error
     end.
 

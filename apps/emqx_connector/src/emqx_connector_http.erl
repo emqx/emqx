@@ -516,7 +516,7 @@ process_request(
     }.
 
 process_request_body(undefined, Msg) ->
-    emqx_json:encode(Msg);
+    emqx_utils_json:encode(Msg);
 process_request_body(BodyTks, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 

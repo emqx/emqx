@@ -1,13 +1,20 @@
 %% -*- mode: erlang -*-
-{application, emqx_machine, [
-    {id, "emqx_machine"},
-    {description, "The EMQX Machine"},
+{application, emqx_utils, [
+    {description, "An OTP application"},
     % strict semver, bump manually!
-    {vsn, "0.2.2"},
-    {modules, []},
+    {vsn, "5.0.0"},
+    {modules, [
+        emqx_utils,
+        emqx_utils_binary,
+        emqx_utils_ets,
+        emqx_utils_json,
+        emqx_utils_maps
+    ]},
     {registered, []},
-    {applications, [kernel, stdlib, emqx_ctl]},
-    {mod, {emqx_machine_app, []}},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
     {env, []},
     {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},

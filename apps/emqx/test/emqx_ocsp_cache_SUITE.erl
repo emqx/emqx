@@ -430,7 +430,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
         Error ->
             Error
     end.
@@ -827,7 +827,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -839,7 +839,7 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
 
     ListenerData2 =
@@ -857,7 +857,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw2}} = update_listener_via_api(ListenerId, ListenerData2),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw2} =
-        emqx_json:decode(ResRaw2, [return_maps]),
+        emqx_utils_json:decode(ResRaw2, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -869,7 +869,7 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw2, [return_maps])
+        emqx_utils_json:decode(MsgRaw2, [return_maps])
     ),
 
     ListenerData3a =
@@ -889,7 +889,7 @@ do_t_validations(_Config) ->
     ListenerData3 = emqx_map_lib:deep_remove([<<"ssl_options">>, <<"certfile">>], ListenerData3a),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
-        emqx_json:decode(ResRaw3, [return_maps]),
+        emqx_utils_json:decode(ResRaw3, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -901,7 +901,7 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw3, [return_maps])
+        emqx_utils_json:decode(MsgRaw3, [return_maps])
     ),
 
     ok.

@@ -348,7 +348,7 @@ publish(Event, Payload) when
     Event == unsubscribed
 ->
     Topic = event_topic(Event, Payload),
-    safe_publish(Topic, emqx_json:encode(Payload)).
+    safe_publish(Topic, emqx_utils_json:encode(Payload)).
 
 metric_topic(Name) ->
     translate_topic("metrics/", Name).

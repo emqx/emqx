@@ -356,7 +356,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
 
 report_telemetry(State0 = #state{url = URL}) ->
     {State, Data} = get_telemetry(State0),
-    case emqx_json:safe_encode(Data) of
+    case emqx_utils_json:safe_encode(Data) of
         {ok, Bin} ->
             httpc_request(post, URL, [], Bin),
             ?tp(debug, telemetry_data_reported, #{});

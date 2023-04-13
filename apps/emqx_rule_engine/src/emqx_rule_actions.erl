@@ -213,7 +213,7 @@ replace_simple_var(Val, _Data, _Default) ->
     Val.
 
 format_msg([], Selected) ->
-    emqx_json:encode(Selected);
+    emqx_utils_json:encode(Selected);
 format_msg(Tokens, Selected) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
 

@@ -29,7 +29,7 @@
 -define(assertAuthenticatorsMatch(Guard, Path),
     (fun() ->
         {ok, 200, Response} = request(get, uri(Path)),
-        ?assertMatch(Guard, jiffy:decode(Response, [return_maps]))
+        ?assertMatch(Guard, emqx_utils_json:decode(Response, [return_maps]))
     end)()
 ).
 
@@ -234,7 +234,7 @@ test_authenticator(PathPrefix) ->
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http", "status"])
     ),
-    {ok, RList} = emqx_json:safe_decode(Res),
+    {ok, RList} = emqx_utils_json:safe_decode(Res),
     Snd = fun({_, Val}) -> Val end,
     LookupVal = fun LookupV(List, RestJson) ->
         case List of
@@ -353,7 +353,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 0,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData0, [return_maps]);
+            } = emqx_utils_json:decode(PageData0, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
@@ -361,7 +361,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 0,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData0, [return_maps])
+            } = emqx_utils_json:decode(PageData0, [return_maps])
     end,
 
     InvalidUsers = [
@@ -384,7 +384,7 @@ test_authenticator_users(PathPrefix) ->
     lists:foreach(
         fun(User) ->
             {ok, 201, UserData} = request(post, UsersUri, User),
-            CreatedUser = jiffy:decode(UserData, [return_maps]),
+            CreatedUser = emqx_utils_json:decode(UserData, [return_maps]),
             ?assertMatch(#{<<"user_id">> := _}, CreatedUser)
         end,
         ValidUsers
@@ -411,7 +411,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 1,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData01, [return_maps]);
+            } = emqx_utils_json:decode(PageData01, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
@@ -419,7 +419,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 1,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData01, [return_maps])
+            } = emqx_utils_json:decode(PageData01, [return_maps])
     end,
 
     {ok, 200, Page1Data} = request(get, UsersUri ++ "?page=1&limit=2"),
@@ -433,7 +433,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"count">> := 3
             }
     } =
-        jiffy:decode(Page1Data, [return_maps]),
+        emqx_utils_json:decode(Page1Data, [return_maps]),
 
     {ok, 200, Page2Data} = request(get, UsersUri ++ "?page=2&limit=2"),
 
@@ -445,7 +445,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 2,
                 <<"count">> := 3
             }
-    } = jiffy:decode(Page2Data, [return_maps]),
+    } = emqx_utils_json:decode(Page2Data, [return_maps]),
 
     ?assertEqual(2, length(Page1Users)),
     ?assertEqual(1, length(Page2Users)),
@@ -465,7 +465,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 3,
                 <<"count">> := 1
             }
-    } = jiffy:decode(Super1Data, [return_maps]),
+    } = emqx_utils_json:decode(Super1Data, [return_maps]),
 
     ?assertEqual(
         [<<"u2">>],
@@ -482,7 +482,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 3,
                 <<"count">> := 2
             }
-    } = jiffy:decode(Super2Data, [return_maps]),
+    } = emqx_utils_json:decode(Super2Data, [return_maps]),
 
     ?assertEqual(
         [<<"u1">>, <<"u3">>],
@@ -509,7 +509,7 @@ test_authenticator_user(PathPrefix) ->
 
     {ok, 200, UserData} = request(get, UsersUri ++ "/u1"),
 
-    FetchedUser = jiffy:decode(UserData, [return_maps]),
+    FetchedUser = emqx_utils_json:decode(UserData, [return_maps]),
     ?assertMatch(#{<<"user_id">> := <<"u1">>}, FetchedUser),
     ?assertNotMatch(#{<<"password">> := _}, FetchedUser),
 

@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_json).
+-module(emqx_utils_json).
 
 -compile(inline).
 
@@ -46,11 +46,11 @@
     ]}
 ).
 
--type encode_options() :: jiffy:encode_options().
--type decode_options() :: jiffy:decode_options().
+-type encode_options() :: emqx_utils_json:encode_options().
+-type decode_options() :: emqx_utils_json:decode_options().
 
 -type json_text() :: iolist() | binary().
--type json_term() :: jiffy:jiffy_decode_result().
+-type json_term() :: emqx_utils_json:jiffy_decode_result().
 
 -export_type([json_text/0, json_term/0]).
 -export_type([decode_options/0, encode_options/0]).
@@ -61,7 +61,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    to_binary(jiffy:encode(to_ejson(Term), Opts)).
+    to_binary(emqx_utils_json:encode(to_ejson(Term), Opts)).
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -83,7 +83,7 @@ decode(Json) -> decode(Json, []).
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
-    from_ejson(jiffy:decode(Json, Opts)).
+    from_ejson(emqx_utils_json:decode(Json, Opts)).
 
 -spec safe_decode(json_text()) ->
     {ok, json_term()} | {error, Reason :: term()}.

@@ -310,7 +310,7 @@ t_update(Cfg) ->
     ?assertMatch([], emqx_exhook_mgr:running()).
 
 decode_json(Data) ->
-    BinJosn = emqx_json:decode(Data, [return_maps]),
+    BinJosn = emqx_utils_json:decode(Data, [return_maps]),
     emqx_map_lib:unsafe_atom_key_map(BinJosn).
 
 request_api(Method, Url, Auth) ->
@@ -332,7 +332,7 @@ request_api(Method, Url, QueryParams, Auth, Body) ->
             "" -> Url;
             _ -> Url ++ "?" ++ QueryParams
         end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
+    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_utils_json:encode(Body)}).
 
 do_request_api(Method, Request) ->
     case httpc:request(Method, Request, [], [{body_format, binary}]) of

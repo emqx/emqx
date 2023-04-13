@@ -108,7 +108,8 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
         end,
     do_request_api(
         Method,
-        {NewUrl, build_http_header(AuthOrHeaders), "application/json", emqx_json:encode(Body)},
+        {NewUrl, build_http_header(AuthOrHeaders), "application/json",
+            emqx_utils_json:encode(Body)},
         Opts
     ).
 

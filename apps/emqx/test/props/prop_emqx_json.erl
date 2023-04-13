@@ -14,10 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(prop_emqx_json).
+-module(prop_emqx_utils_json).
 
 -import(
-    emqx_json,
+    emqx_utils_json,
     [
         decode/1,
         decode/2,

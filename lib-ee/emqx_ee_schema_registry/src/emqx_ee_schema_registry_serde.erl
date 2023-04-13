@@ -65,6 +65,6 @@ make_serde(avro, Name, Source0) ->
 inject_avro_name(Name, Source0) ->
     %% The schema checks that the source is a valid JSON when
     %% typechecking, so we shouldn't need to validate here.
-    Schema0 = emqx_json:decode(Source0, [return_maps]),
+    Schema0 = emqx_utils_json:decode(Source0, [return_maps]),
     Schema = Schema0#{<<"name">> => Name},
-    emqx_json:encode(Schema).
+    emqx_utils_json:encode(Schema).

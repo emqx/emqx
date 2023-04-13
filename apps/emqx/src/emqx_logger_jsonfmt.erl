@@ -92,7 +92,7 @@ format(Msg, Meta, Config) ->
                 }
         end,
     Data = maps:without([report_cb], Data0),
-    jiffy:encode(json_obj(Data, Config)).
+    emqx_utils_json:encode(json_obj(Data, Config)).
 
 maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of

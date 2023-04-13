@@ -394,7 +394,7 @@ create_rule_and_action_http(Config, Overrides) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -435,7 +435,7 @@ query_by_clientid(ClientId, Config) ->
         {"Content-Type", "application/json"}
     ],
     Body =
-        emqx_json:encode(#{
+        emqx_utils_json:encode(#{
             query => Query,
             dialect => #{
                 header => true,
@@ -545,7 +545,7 @@ t_start_ok(Config) ->
                 int_value => <<"-123">>,
                 uint_value => <<"123">>,
                 float_value => <<"24.5">>,
-                payload => emqx_json:encode(Payload)
+                payload => emqx_utils_json:encode(Payload)
             },
             assert_persisted_data(ClientId, Expected, PersistedData),
             ok
@@ -764,7 +764,7 @@ t_boolean_variants(Config) ->
                 bool => atom_to_binary(Translation),
                 int_value => <<"-123">>,
                 uint_value => <<"123">>,
-                payload => emqx_json:encode(Payload)
+                payload => emqx_utils_json:encode(Payload)
             },
             assert_persisted_data(ClientId, Expected, PersistedData),
             ok
@@ -1024,9 +1024,9 @@ t_missing_field(Config) ->
     ClientId0 = emqx_guid:to_hexstr(emqx_guid:gen()),
     ClientId1 = emqx_guid:to_hexstr(emqx_guid:gen()),
     %% Message with the field that we "forgot" to select in the rule
-    Msg0 = emqx_message:make(ClientId0, <<"t/topic">>, emqx_json:encode(#{foo => 123})),
+    Msg0 = emqx_message:make(ClientId0, <<"t/topic">>, emqx_utils_json:encode(#{foo => 123})),
     %% Message without any fields
-    Msg1 = emqx_message:make(ClientId1, <<"t/topic">>, emqx_json:encode(#{})),
+    Msg1 = emqx_message:make(ClientId1, <<"t/topic">>, emqx_utils_json:encode(#{})),
     ?check_trace(
         begin
             emqx:publish(Msg0),

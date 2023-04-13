@@ -1028,6 +1028,6 @@ deobfuscate(NewConf, OldConf) ->
     ).
 
 map_to_json(M) ->
-    emqx_json:encode(
+    emqx_utils_json:encode(
         emqx_map_lib:jsonable_map(M, fun(K, V) -> {K, emqx_map_lib:binary_string(V)} end)
     ).

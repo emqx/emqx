@@ -246,5 +246,5 @@ api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
+    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
     Jsx.

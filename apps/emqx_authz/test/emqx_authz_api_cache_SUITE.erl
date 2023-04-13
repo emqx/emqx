@@ -67,12 +67,12 @@ t_clean_cahce(_) ->
     ok = emqtt:publish(C, <<"a/b/c">>, <<"{\"x\":1,\"y\":1}">>, 0),
 
     {ok, 200, Result3} = request(get, uri(["clients", "emqx0", "authorization", "cache"])),
-    ?assertEqual(2, length(emqx_json:decode(Result3))),
+    ?assertEqual(2, length(emqx_utils_json:decode(Result3))),
 
     request(delete, uri(["authorization", "cache"])),
 
     {ok, 200, Result4} = request(get, uri(["clients", "emqx0", "authorization", "cache"])),
-    ?assertEqual(0, length(emqx_json:decode(Result4))),
+    ?assertEqual(0, length(emqx_utils_json:decode(Result4))),
 
     ok.
 

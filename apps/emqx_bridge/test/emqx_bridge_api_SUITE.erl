@@ -1304,4 +1304,4 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    emqx_json:decode(B, [return_maps]).
+    emqx_utils_json:decode(B, [return_maps]).

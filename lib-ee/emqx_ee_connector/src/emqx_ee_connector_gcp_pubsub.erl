@@ -334,14 +334,14 @@ ensure_jwt_worker(InstanceId, #{
 encode_payload(_State = #{payload_template := PayloadTemplate}, Selected) ->
     Interpolated =
         case PayloadTemplate of
-            [] -> emqx_json:encode(Selected);
+            [] -> emqx_utils_json:encode(Selected);
             _ -> emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, Selected)
         end,
     #{data => base64:encode(Interpolated)}.
 
 -spec to_pubsub_request([#{data := binary()}]) -> binary().
 to_pubsub_request(Payloads) ->
-    emqx_json:encode(#{messages => Payloads}).
+    emqx_utils_json:encode(#{messages => Payloads}).
 
 -spec publish_path(state()) -> binary().
 publish_path(

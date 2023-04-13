@@ -2583,7 +2583,7 @@ to_url(Str) ->
     end.
 
 to_json_binary(Str) ->
-    case emqx_json:safe_decode(Str) of
+    case emqx_utils_json:safe_decode(Str) of
         {ok, _} ->
             {ok, iolist_to_binary(Str)};
         Error ->
