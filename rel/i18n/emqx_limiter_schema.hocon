@@ -132,7 +132,7 @@ Once the limit is reached, new connections will be refused"""
 
   messages {
     desc {
-      en: """The messages limiter.
+      en: """The `messages` limiter.
 This is used to limit the inbound message numbers for this EMQX node
 Once the limit is reached, the restricted client will be slow down even be hung for a while."""
       zh: """流入速率控制器。
@@ -146,7 +146,7 @@ Once the limit is reached, the restricted client will be slow down even be hung 
 
   bytes {
     desc {
-      en: """The bytes limiter.
+      en: """The `bytes` limiter.
 This is used to limit the inbound bytes rate for this EMQX node.
 Once the limit is reached, the restricted client will be slow down even be hung for a while."""
       zh: """流入字节率控制器。

@@ -437,7 +437,7 @@ importance_of_type(_) ->
 
 alias_of_type(messages) ->
     [message_in];
-alias_of_type(bytess) ->
+alias_of_type(bytes) ->
     [bytes_in];
 alias_of_type(_) ->
     [].

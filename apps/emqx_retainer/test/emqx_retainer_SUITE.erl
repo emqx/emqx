@@ -758,23 +758,22 @@ with_conf(ConfMod, Case) ->
     end.
 
 make_limiter_cfg(Rate) ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     Client = #{
         rate => Rate,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+    #{client => Client, rate => Rate, initial => 0, burst => 0}.
 
 make_limiter_json(Rate) ->
     Client = #{
         <<"rate">> => Rate,
         <<"initial">> => 0,
-        <<"capacity">> => <<"infinity">>,
+        <<"burst">> => <<"0">>,
         <<"low_watermark">> => 0,
         <<"divisible">> => <<"false">>,
         <<"max_retry_time">> => <<"5s">>,
@@ -784,5 +783,5 @@ make_limiter_json(Rate) ->
         <<"client">> => Client,
         <<"rate">> => <<"infinity">>,
         <<"initial">> => 0,
-        <<"capacity">> => <<"infinity">>
+        <<"burst">> => <<"0">>
     }.
