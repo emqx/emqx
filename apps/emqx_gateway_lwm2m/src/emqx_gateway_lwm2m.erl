@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,16 +14,17 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The MQTT-SN Gateway implement interface
--module(emqx_mqttsn).
+%% @doc The LwM2M Gateway implement
+-module(emqx_gateway_lwm2m).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
 %% define a gateway named stomp
 -gateway(#{
-    name => mqttsn,
+    name => lwm2m,
     callback_module => ?MODULE,
-    config_schema_module => emqx_mqttsn_schema
+    config_schema_module => emqx_lwm2m_schema
 }).
 
 %% callback_module must implement the emqx_gateway_impl behaviour
@@ -46,7 +47,7 @@
 ).
 
 %%--------------------------------------------------------------------
-%% emqx_gateway_impl callbacks
+%% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
 on_gateway_load(
@@ -56,46 +57,36 @@ on_gateway_load(
     },
     Ctx
 ) ->
-    %% We Also need to start `emqx_mqttsn_broadcast` &
-    %% `emqx_mqttsn_registry` process
-    case maps:get(broadcast, Config, false) of
-        false ->
-            ok;
-        true ->
-            %% FIXME:
-            Port = 1884,
-            SnGwId = maps:get(gateway_id, Config, undefined),
-            _ = emqx_mqttsn_broadcast:start_link(SnGwId, Port),
-            ok
-    end,
-
-    PredefTopics = maps:get(predefined, Config, []),
-    {ok, RegistrySvr} = emqx_mqttsn_registry:start_link(GwName, PredefTopics),
-
-    NConfig = maps:without(
-        [broadcast, predefined],
-        Config#{registry => emqx_mqttsn_registry:lookup_name(RegistrySvr)}
-    ),
-
-    Listeners = emqx_gateway_utils:normalize_config(NConfig),
-
-    ModCfg = #{
-        frame_mod => emqx_mqttsn_frame,
-        chann_mod => emqx_mqttsn_channel
-    },
-
-    case
-        start_listeners(
-            Listeners, GwName, Ctx, ModCfg
-        )
-    of
-        {ok, ListenerPids} ->
-            {ok, ListenerPids, _GwState = #{ctx => Ctx}};
-        {error, {Reason, Listener}} ->
+    XmlDir = maps:get(xml_dir, Config),
+    case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
+        {ok, RegPid} ->
+            Listeners = emqx_gateway_utils:normalize_config(Config),
+            ModCfg = #{
+                frame_mod => emqx_coap_frame,
+                chann_mod => emqx_lwm2m_channel
+            },
+            case
+                emqx_gateway_utils:start_listeners(
+                    Listeners, GwName, Ctx, ModCfg
+                )
+            of
+                {ok, ListenerPids} ->
+                    {ok, ListenerPids, #{ctx => Ctx, registry => RegPid}};
+                {error, {Reason, Listener}} ->
+                    _ = emqx_lwm2m_xml_object_db:stop(),
+                    throw(
+                        {badconf, #{
+                            key => listeners,
+                            value => Listener,
+                            reason => Reason
+                        }}
+                    )
+            end;
+        {error, Reason} ->
             throw(
                 {badconf, #{
-                    key => listeners,
-                    value => Listener,
+                    key => xml_dir,
+                    value => XmlDir,
                     reason => Reason
                 }}
             )
@@ -123,7 +114,13 @@ on_gateway_unload(
         name := GwName,
         config := Config
     },
-    _GwState
+    _GwState = #{registry := _RegPid}
 ) ->
-    Listeners = normalize_config(Config),
-    stop_listeners(GwName, Listeners).
+    _ =
+        try
+            emqx_lwm2m_xml_object_db:stop()
+        catch
+            _:_ -> ok
+        end,
+    Listeners = emqx_gateway_utils:normalize_config(Config),
+    emqx_gateway_utils:stop_listeners(GwName, Listeners).

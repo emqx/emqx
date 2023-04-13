@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc The CoAP Gateway implement
--module(emqx_coap).
+-module(emqx_gateway_coap).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").

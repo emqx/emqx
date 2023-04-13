@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc The Stomp Gateway implement
--module(emqx_stomp).
+-module(emqx_gateway_stomp).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").

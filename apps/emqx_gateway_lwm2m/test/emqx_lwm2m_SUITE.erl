@@ -32,7 +32,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
 -include("emqx_lwm2m.hrl").
--include_lib("emqx_coap/include/emqx_coap.hrl").
+-include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

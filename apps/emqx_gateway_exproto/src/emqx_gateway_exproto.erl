@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc The ExProto Gateway implement
--module(emqx_exproto).
+-module(emqx_gateway_exproto).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").

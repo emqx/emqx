@@ -1,5 +1,5 @@
-{application, emqx_coap, [
-    {description, "CoAP Gateway"},
+{application, emqx_gateway_mqttsn, [
+    {description, "MQTT-SN Gateway"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [kernel, stdlib, emqx, emqx_gateway]},

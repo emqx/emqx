@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("emqx_coap/include/emqx_coap.hrl").
+-include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
 
 %% API
 -export([
