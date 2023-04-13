@@ -59,7 +59,7 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_gateway),
-    application:load(emqx_lwm2m),
+    application:load(emqx_gateway_lwm2m),
     DefaultConfig = emqx_lwm2m_SUITE:default_config(),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, DefaultConfig),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),

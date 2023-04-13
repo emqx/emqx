@@ -56,7 +56,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_coap),
+    application:load(emqx_gateway_coap),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_authn, emqx_gateway]),
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
