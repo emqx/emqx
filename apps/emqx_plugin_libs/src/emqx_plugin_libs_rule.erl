@@ -225,7 +225,7 @@ tcp_connectivity(Host, Port) ->
 ) ->
     ok | {error, Reason :: term()}.
 tcp_connectivity(Host, Port, Timeout) ->
-    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
+    case gen_tcp:connect(Host, Port, emqx_utils:ipv6_probe([]), Timeout) of
         {ok, Sock} ->
             gen_tcp:close(Sock),
             ok;

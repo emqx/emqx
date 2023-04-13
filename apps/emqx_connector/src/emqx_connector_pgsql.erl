@@ -95,7 +95,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_postgresql_connector",
         connector => InstId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
     SslOpts =
         case maps:get(enable, SSL) of

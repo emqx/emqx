@@ -615,7 +615,7 @@ t_workload_fits_prepared_statement_limit(Config) ->
         create_bridge(Config)
     ),
     Results = lists:append(
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun(_) ->
                 [
                     begin

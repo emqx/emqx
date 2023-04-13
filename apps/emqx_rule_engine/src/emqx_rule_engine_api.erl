@@ -343,7 +343,7 @@ param_path_id() ->
             {200, Result}
     end;
 '/rules'(post, #{body := Params0}) ->
-    case maps:get(<<"id">>, Params0, list_to_binary(emqx_misc:gen_id(8))) of
+    case maps:get(<<"id">>, Params0, list_to_binary(emqx_utils:gen_id(8))) of
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
         Id ->
@@ -459,11 +459,11 @@ param_path_id() ->
 %%------------------------------------------------------------------------------
 
 err_msg({RuleError, {_E, Reason, _S}}) ->
-    emqx_misc:readable_error_msg(encode_nested_error(RuleError, Reason));
+    emqx_utils:readable_error_msg(encode_nested_error(RuleError, Reason));
 err_msg({Reason, _Details}) ->
-    emqx_misc:readable_error_msg(Reason);
+    emqx_utils:readable_error_msg(Reason);
 err_msg(Msg) ->
-    emqx_misc:readable_error_msg(Msg).
+    emqx_utils:readable_error_msg(Msg).
 
 encode_nested_error(RuleError, Reason) when is_tuple(Reason) ->
     encode_nested_error(RuleError, element(1, Reason));

@@ -218,7 +218,7 @@ start_cluster(Cluster) ->
      || {Name, Opts} <- Cluster
     ],
     on_exit(fun() ->
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun(N) ->
                 ct:pal("stopping ~p", [N]),
                 ok = emqx_common_test_helpers:stop_slave(N)

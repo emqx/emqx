@@ -161,7 +161,7 @@ handle_call(enable, _From, State) ->
     FirstReportTimeoutMS = timer:seconds(10),
     {reply, ok, ensure_report_timer(FirstReportTimeoutMS, State)};
 handle_call(disable, _From, State = #state{timer = Timer}) ->
-    emqx_misc:cancel_timer(Timer),
+    emqx_utils:cancel_timer(Timer),
     {reply, ok, State#state{timer = undefined}};
 handle_call(get_node_uuid, _From, State = #state{node_uuid = UUID}) ->
     {reply, {ok, UUID}, State};
@@ -205,7 +205,7 @@ ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     ensure_report_timer(ReportInterval, State).
 
 ensure_report_timer(ReportInterval, State) ->
-    State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
+    State#state{timer = emqx_utils:start_timer(ReportInterval, time_to_report_telemetry_data)}.
 
 os_info() ->
     case erlang:system_info(os_type) of

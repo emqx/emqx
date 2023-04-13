@@ -272,7 +272,7 @@ t_setup_via_config_and_publish(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -309,7 +309,7 @@ t_setup_via_http_api_and_publish(Config) ->
         {ok, _},
         create_bridge_http(PgsqlConfig)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -375,7 +375,7 @@ t_write_failure(Config) ->
             #{?snk_kind := resource_connected_enter},
             20_000
         ),
-    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
+    SentData = #{id => emqx_utils:gen_id(), payload => ?PAYLOAD},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
             {error, {resource_error, #{reason := timeout}}}, send_message(Config, SentData)

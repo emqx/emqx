@@ -51,7 +51,7 @@ with_node_or_cluster(Node, Fun) ->
 
 -spec lookup_node(atom() | binary()) -> {ok, atom()} | not_found.
 lookup_node(BinNode) when is_binary(BinNode) ->
-    case emqx_misc:safe_to_existing_atom(BinNode, utf8) of
+    case emqx_utils:safe_to_existing_atom(BinNode, utf8) of
         {ok, Node} ->
             is_running_node(Node);
         _Error ->

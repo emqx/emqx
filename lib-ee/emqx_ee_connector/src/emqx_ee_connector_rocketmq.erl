@@ -265,7 +265,7 @@ client_id(InstanceId) ->
     erlang:binary_to_atom(Name, utf8).
 
 redact(Msg) ->
-    emqx_misc:redact(Msg, fun is_sensitive_key/1).
+    emqx_utils:redact(Msg, fun is_sensitive_key/1).
 
 is_sensitive_key(security_token) ->
     true;

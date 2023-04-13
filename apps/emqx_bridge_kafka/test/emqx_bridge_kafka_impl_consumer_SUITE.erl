@@ -299,7 +299,7 @@ init_per_testcase(TestCase, Config) when
             common_init_per_testcase(TestCase, Config)
     end;
 init_per_testcase(t_cluster_group = TestCase, Config0) ->
-    Config = emqx_misc:merge_opts(Config0, [{num_partitions, 6}]),
+    Config = emqx_utils:merge_opts(Config0, [{num_partitions, 6}]),
     common_init_per_testcase(TestCase, Config);
 init_per_testcase(t_multiple_topic_mappings = TestCase, Config0) ->
     KafkaTopicBase =
@@ -1543,7 +1543,7 @@ do_t_receive_after_recovery(Config) ->
                 %% 2) publish messages while the consumer is down.
                 %% we use `pmap' to avoid wolff sending the whole
                 %% batch to a single partition.
-                emqx_misc:pmap(fun(Msg) -> publish(Config, [Msg]) end, Messages1),
+                emqx_utils:pmap(fun(Msg) -> publish(Config, [Msg]) end, Messages1),
                 ok
             end),
             %% 3) restore and consume messages
@@ -1667,7 +1667,7 @@ t_cluster_group(Config) ->
                  || {Name, Opts} <- Cluster
                 ],
             on_exit(fun() ->
-                emqx_misc:pmap(
+                emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)
@@ -1889,7 +1889,7 @@ t_cluster_node_down(Config) ->
                     Cluster
                 ),
             on_exit(fun() ->
-                emqx_misc:pmap(
+                emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)

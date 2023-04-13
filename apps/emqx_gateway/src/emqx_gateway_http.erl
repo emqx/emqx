@@ -495,7 +495,7 @@ reason2msg(
 reason2msg(
     {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->
-    Bin = emqx_misc:readable_error_msg(Error),
+    Bin = emqx_utils:readable_error_msg(Error),
     <<"Invalid configurations: ", Bin/binary>>;
 reason2msg(_) ->
     error.

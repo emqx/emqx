@@ -2327,7 +2327,7 @@ mqtt_ssl_listener_ssl_options_validator(Conf) ->
         fun ocsp_outer_validator/1,
         fun crl_outer_validator/1
     ],
-    case emqx_misc:pipeline(Checks, Conf, not_used) of
+    case emqx_utils:pipeline(Checks, Conf, not_used) of
         {ok, _, _} ->
             ok;
         {error, Reason, _NotUsed} ->

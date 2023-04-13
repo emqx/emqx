@@ -95,7 +95,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_dynamo_connector",
         connector => InstanceId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
 
     {Schema, Server} = get_host_schema(to_str(Url)),

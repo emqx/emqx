@@ -144,7 +144,7 @@ terminate(_Reason, _State) ->
     ok.
 
 ensure_timer(Interval) ->
-    emqx_misc:start_timer(Interval, ?TIMER_MSG).
+    emqx_utils:start_timer(Interval, ?TIMER_MSG).
 
 %%--------------------------------------------------------------------
 %% prometheus callbacks

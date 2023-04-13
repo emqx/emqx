@@ -86,7 +86,7 @@ on_start(
     PoolType = random,
     Transport = tls,
     TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
-    NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
+    NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
         {port, Port},
@@ -587,7 +587,7 @@ do_get_status(InstanceId, PoolName, Timeout) ->
                     false
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         [_ | _] = Status ->
             lists:all(fun(St) -> St =:= true end, Status);
         [] ->

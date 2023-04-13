@@ -148,8 +148,8 @@ set_special_configs(_App) ->
     ok.
 
 init_per_testcase(t_api, Config) ->
-    meck:new(emqx_misc, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_misc, gen_id, fun() -> "fake" end),
+    meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_utils, gen_id, fun() -> "fake" end),
 
     meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
@@ -165,7 +165,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(t_api, _Config) ->
-    meck:unload(emqx_misc),
+    meck:unload(emqx_utils),
     meck:unload(emqx),
     ok;
 end_per_testcase(_, _Config) ->

@@ -85,7 +85,7 @@ to_remote_msg(MapMsg, #{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = emqx_misc:pub_props_to_packet(PubProps),
+        props = emqx_utils:pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
@@ -112,7 +112,7 @@ to_broker_msg(
     Retain = replace_simple_var(RetainToken, MapMsg),
     PubProps = maps:get(pub_props, MapMsg, #{}),
     set_headers(
-        Props#{properties => emqx_misc:pub_props_to_packet(PubProps)},
+        Props#{properties => emqx_utils:pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)

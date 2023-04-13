@@ -375,7 +375,7 @@ return_pause(infinity, PauseType, Fun, Diff, Limiter) ->
     {PauseType, ?MINIMUM_PAUSE, make_retry_context(Fun, Diff), Limiter};
 return_pause(Rate, PauseType, Fun, Diff, Limiter) ->
     Val = erlang:round(Diff * emqx_limiter_schema:default_period() / Rate),
-    Pause = emqx_misc:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE),
+    Pause = emqx_utils:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE),
     {PauseType, Pause, make_retry_context(Fun, Diff), Limiter}.
 
 -spec make_retry_context(undefined | retry_fun(Limiter), non_neg_integer()) ->

@@ -915,4 +915,4 @@ schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
 
 hocon_error_msg(Reason) ->
-    emqx_misc:readable_error_msg(Reason).
+    emqx_utils:readable_error_msg(Reason).

@@ -476,9 +476,9 @@ ensure_timer(ListenerID, State, Timeout) ->
     ensure_timer(ListenerID, {refresh, ListenerID}, State, Timeout).
 
 ensure_timer(ListenerID, Message, State, Timeout) ->
-    emqx_misc:cancel_timer(maps:get(?REFRESH_TIMER(ListenerID), State, undefined)),
+    emqx_utils:cancel_timer(maps:get(?REFRESH_TIMER(ListenerID), State, undefined)),
     State#{
-        ?REFRESH_TIMER(ListenerID) => emqx_misc:start_timer(
+        ?REFRESH_TIMER(ListenerID) => emqx_utils:start_timer(
             Timeout,
             Message
         )

@@ -184,7 +184,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 start_timer(Zone) ->
     WindTime = maps:get(window_time, get_policy(Zone)),
-    emqx_misc:start_timer(WindTime, {garbage_collect, Zone}).
+    emqx_utils:start_timer(WindTime, {garbage_collect, Zone}).
 
 start_timers() ->
     lists:foreach(

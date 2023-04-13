@@ -175,7 +175,7 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         flags = Flags,
         headers = #{
             republish_by => RuleId,
-            properties => emqx_misc:pub_props_to_packet(PubProps)
+            properties => emqx_utils:pub_props_to_packet(PubProps)
         },
         topic = Topic,
         payload = Payload,

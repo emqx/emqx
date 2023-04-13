@@ -975,7 +975,7 @@ t_with_redact_update(Config) ->
     ),
 
     %% update with redacted config
-    BridgeConf = emqx_misc:redact(Template),
+    BridgeConf = emqx_utils:redact(Template),
     BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
     {ok, 200, _} = request(put, uri(["bridges", BridgeID]), BridgeConf, Config),
     ?assertEqual(

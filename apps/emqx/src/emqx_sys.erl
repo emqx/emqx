@@ -62,7 +62,7 @@
 -endif.
 
 -import(emqx_topic, [systop/1]).
--import(emqx_misc, [start_timer/2]).
+-import(emqx_utils, [start_timer/2]).
 
 -record(state, {
     heartbeat :: maybe(reference()),
@@ -222,7 +222,7 @@ handle_info(Info, State) ->
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
     _ = emqx_config_handler:remove_handler(?CONF_KEY_PATH),
     unload_event_hooks(sys_event_messages()),
-    lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
+    lists:foreach(fun emqx_utils:cancel_timer/1, [TRef1, TRef2]).
 
 unload_event_hooks([]) ->
     ok;

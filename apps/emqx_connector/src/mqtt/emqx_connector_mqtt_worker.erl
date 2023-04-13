@@ -124,7 +124,7 @@ start_link(Name, BridgeOpts) ->
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "client_start_failed",
-                config => emqx_misc:redact(BridgeOpts),
+                config => emqx_utils:redact(BridgeOpts),
                 reason => Reason
             }),
             Error

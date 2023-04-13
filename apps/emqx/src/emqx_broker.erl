@@ -92,7 +92,7 @@
 start_link(Pool, Id) ->
     ok = create_tabs(),
     gen_server:start_link(
-        {local, emqx_misc:proc_name(?BROKER, Id)},
+        {local, emqx_utils:proc_name(?BROKER, Id)},
         ?MODULE,
         [Pool, Id],
         []

@@ -538,7 +538,7 @@ esockd_access_rules(StrRules) ->
         [A, CIDR] = string:tokens(S, " "),
         %% esockd rules only use words 'allow' and 'deny', both are existing
         %% comparison of strings may be better, but there is a loss of backward compatibility
-        case emqx_misc:safe_to_existing_atom(A) of
+        case emqx_utils:safe_to_existing_atom(A) of
             {ok, Action} ->
                 [
                     {
@@ -560,7 +560,7 @@ esockd_access_rules(StrRules) ->
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
+            [{tcp_options, emqx_utils:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
         false ->
             [{tcp_options, ?MQTT_SOCKOPTS} | Options]
     end.

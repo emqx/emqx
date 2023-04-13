@@ -809,7 +809,7 @@ test_publish_success_batch(Config) ->
     %% making 1-sized batches.  also important to note that the pool
     %% size for the resource (replayq buffering) must be set to 1 to
     %% avoid further segmentation of batches.
-    emqx_misc:pmap(fun emqx:publish/1, Messages),
+    emqx_utils:pmap(fun emqx:publish/1, Messages),
     DecodedMessages0 = assert_http_request(ServiceAccountJSON),
     ?assertEqual(BatchSize, length(DecodedMessages0)),
     DecodedMessages1 = assert_http_request(ServiceAccountJSON),

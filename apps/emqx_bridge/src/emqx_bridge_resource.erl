@@ -157,7 +157,7 @@ create(Type, Name, Conf, Opts0) ->
         msg => "create bridge",
         type => Type,
         name => Name,
-        config => emqx_misc:redact(Conf)
+        config => emqx_utils:redact(Conf)
     }),
     Opts = override_start_after_created(Conf, Opts0),
     {ok, _Data} = emqx_resource:create_local(
@@ -192,7 +192,7 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
                 msg => "update bridge",
                 type => Type,
                 name => Name,
-                config => emqx_misc:redact(Conf)
+                config => emqx_utils:redact(Conf)
             }),
             case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
@@ -202,7 +202,7 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
                         msg => "updating_a_non_existing_bridge",
                         type => Type,
                         name => Name,
-                        config => emqx_misc:redact(Conf)
+                        config => emqx_utils:redact(Conf)
                     }),
                     create(Type, Name, Conf, Opts);
                 {error, Reason} ->
@@ -236,8 +236,8 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpPath0 = iolist_to_binary([?TEST_ID_PREFIX, emqx_misc:gen_id(8)]),
-    TmpPath = emqx_misc:safe_filename(TmpPath0),
+    TmpPath0 = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    TmpPath = emqx_utils:safe_filename(TmpPath0),
     Conf = emqx_map_lib:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->

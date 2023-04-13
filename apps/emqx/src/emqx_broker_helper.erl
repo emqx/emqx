@@ -131,7 +131,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
-    SubPids = [SubPid | emqx_misc:drain_down(?BATCH_SIZE)],
+    SubPids = [SubPid | emqx_utils:drain_down(?BATCH_SIZE)],
     ok = emqx_pool:async_submit(
         fun lists:foreach/2, [fun clean_down/1, SubPids]
     ),

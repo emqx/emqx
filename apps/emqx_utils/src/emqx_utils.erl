@@ -14,13 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_misc).
+-module(emqx_utils).
 
 -compile(inline).
+%% [TODO] Cleanup so the instruction below is not necessary.
 -elvis([{elvis_style, god_modules, disable}]).
-
--include("types.hrl").
--include("logger.hrl").
 
 -export([
     merge_opts/2,
@@ -70,6 +68,8 @@
 ]).
 
 -export([clamp/3, redact/1, redact/2, is_redacted/2, is_redacted/3]).
+
+-type maybe(T) :: undefined | T.
 
 -dialyzer({nowarn_function, [nolink_apply/2]}).
 
@@ -221,6 +221,7 @@ drain_down(Cnt, Acc) ->
 %% `ok': There is nothing out of the ordinary.
 %% `shutdown': Some numbers (message queue length hit the limit),
 %%             hence shutdown for greater good (system stability).
+%% [FIXME] cross-dependency on `emqx_types`.
 -spec check_oom(emqx_types:oom_policy()) -> ok | {shutdown, term()}.
 check_oom(Policy) ->
     check_oom(self(), Policy).
@@ -279,6 +280,7 @@ proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
 %% Get Proc's Stats.
+%% [FIXME] cross-dependency on `emqx_types`.
 -spec proc_stats() -> emqx_types:stats().
 proc_stats() -> proc_stats(self()).
 
