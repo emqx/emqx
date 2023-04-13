@@ -1156,11 +1156,12 @@ t_start_and_consume_ok(Config) ->
                 ),
 
             %% Check that the bridge probe API doesn't leak atoms.
-            ProbeRes = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes0 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes1 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
@@ -1259,11 +1260,12 @@ t_multiple_topic_mappings(Config) ->
             {ok, _} = snabbkaffe:receive_events(SRef0),
 
             %% Check that the bridge probe API doesn't leak atoms.
-            ProbeRes = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes0 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes1 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
