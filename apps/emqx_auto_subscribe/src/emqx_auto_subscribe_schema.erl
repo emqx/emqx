@@ -31,14 +31,18 @@
 namespace() -> "auto_subscribe".
 
 roots() ->
-    ["auto_subscribe"].
+    [{"auto_subscribe", ?HOCON(?R_REF("auto_subscribe"), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields("auto_subscribe") ->
     [
         {topics,
             ?HOCON(
                 ?ARRAY(?R_REF("topic")),
-                #{desc => ?DESC(auto_subscribe), default => []}
+                #{
+                    desc => ?DESC(auto_subscribe),
+                    default => [],
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields("topic") ->
@@ -47,26 +51,31 @@ fields("topic") ->
             ?HOCON(binary(), #{
                 required => true,
                 example => topic_example(),
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("topic")
             })},
         {qos,
             ?HOCON(emqx_schema:qos(), #{
                 default => 0,
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("qos")
             })},
         {rh,
             ?HOCON(range(0, 2), #{
                 default => 0,
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("rh")
             })},
         {rap,
             ?HOCON(range(0, 1), #{
                 default => 0,
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("rap")
             })},
         {nl,
             ?HOCON(range(0, 1), #{
                 default => 0,
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(nl)
             })}
     ].
