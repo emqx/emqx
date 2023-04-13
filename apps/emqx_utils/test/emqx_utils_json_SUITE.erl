@@ -136,3 +136,7 @@ safe_encode_decode(Term) ->
         {ok, {NTerm}} -> NTerm;
         {ok, NTerm} -> NTerm
     end.
+
+t_is_json(_) ->
+    ?assert(emqx_utils_json:is_json(<<"{}">>)),
+    ?assert(not emqx_utils_json:is_json(<<"foo">>)).

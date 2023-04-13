@@ -46,11 +46,15 @@
     ]}
 ).
 
--type encode_options() :: emqx_utils_json:encode_options().
--type decode_options() :: emqx_utils_json:decode_options().
+-export([is_json/1]).
+
+-compile({inline, [is_json/1]}).
+
+-type encode_options() :: jiffy:encode_options().
+-type decode_options() :: jiffy:decode_options().
 
 -type json_text() :: iolist() | binary().
--type json_term() :: emqx_utils_json:jiffy_decode_result().
+-type json_term() :: jiffy:jiffy_decode_result().
 
 -export_type([json_text/0, json_term/0]).
 -export_type([decode_options/0, encode_options/0]).
@@ -79,7 +83,7 @@ safe_encode(Term, Opts) ->
     end.
 
 -spec decode(json_text()) -> json_term().
-decode(Json) -> decode(Json, []).
+decode(Json) -> decode(Json, [return_maps]).
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
@@ -99,6 +103,10 @@ safe_decode(Json, Opts) ->
         error:Reason ->
             {error, Reason}
     end.
+
+-spec is_json(json_text()) -> boolean().
+is_json(Json) ->
+    element(1, safe_decode(Json)) =:= ok.
 
 %%--------------------------------------------------------------------
 %% Helpers
