@@ -277,8 +277,7 @@ fields(trace) ->
                     "It is recommended when payload is a custom binary protocol.<br/>\n"
                     "`hidden`: payload is obfuscated as `******`"
                     "",
-                default => text,
-                required => false
+                default => text
             })},
         {start_at,
             hoconsc:mk(
