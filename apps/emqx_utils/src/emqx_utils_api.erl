@@ -14,14 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_api_lib).
+-module(emqx_utils_api).
 
 -export([
     with_node/2,
     with_node_or_cluster/2
 ]).
 
--include("emqx_api_lib.hrl").
+-include("emqx_utils_api.hrl").
 
 -define(NODE_NOT_FOUND(NODE), ?NOT_FOUND(<<"Node not found: ", NODE/binary>>)).
 

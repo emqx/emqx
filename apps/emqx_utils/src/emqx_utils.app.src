@@ -5,6 +5,7 @@
     {vsn, "5.0.0"},
     {modules, [
         emqx_utils,
+        emqx_utils_api,
         emqx_utils_binary,
         emqx_utils_ets,
         emqx_utils_json,

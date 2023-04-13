@@ -14,12 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_api_lib_SUITE).
+-module(emqx_utils_api_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_api_lib.hrl").
+-include("emqx_utils_api.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(DUMMY, dummy_module).
@@ -45,14 +45,14 @@ end_per_testcase(_Case, _Config) ->
     meck:unload(?DUMMY).
 
 t_with_node(_) ->
-    test_with(fun emqx_api_lib:with_node/2, [<<"all">>]).
+    test_with(fun emqx_utils_api:with_node/2, [<<"all">>]).
 
 t_with_node_or_cluster(_) ->
-    test_with(fun emqx_api_lib:with_node_or_cluster/2, []),
+    test_with(fun emqx_utils_api:with_node_or_cluster/2, []),
     meck:reset(?DUMMY),
     ?assertEqual(
         ?OK(success),
-        emqx_api_lib:with_node_or_cluster(
+        emqx_utils_api:with_node_or_cluster(
             <<"all">>,
             fun ?DUMMY:expect_success/1
         )

@@ -8,7 +8,7 @@
 -include("emqx_ee_schema_registry.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_lib.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 -export([
     namespace/0,
