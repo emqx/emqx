@@ -11,7 +11,7 @@ services:
       # See also:
       # https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-configure-environment-variables
       ACCEPT_EULA: "Y"
-      SA_PASSWORD: "mqtt_public"
+      MSSQL_SA_PASSWORD: "mqtt_public"
     restart: always
     # ports:
     #   - "1433:1433"
