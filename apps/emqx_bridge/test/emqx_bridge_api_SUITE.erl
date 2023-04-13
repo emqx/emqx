@@ -1221,7 +1221,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
     URL1 = ?URL(Port, "path1"),
     Name = ?BRIDGE_NAME,
     BadBridgeParams =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ?HTTP_BRIDGE(URL1, Name),
             #{
                 <<"request_timeout">> => <<"1s">>,

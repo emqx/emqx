@@ -232,7 +232,7 @@ process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     BinKeyPath = bin_path(ConfKeyPath),
     case check_permissions(remove, BinKeyPath, OldRawConf, Opts) of
         allow ->
-            NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
+            NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
             OverrideConf = remove_from_override_config(BinKeyPath, Opts),
             {ok, NewRawConf, OverrideConf, Opts};
         {deny, Reason} ->
@@ -445,7 +445,7 @@ remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
 remove_from_override_config(BinKeyPath, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
-    emqx_map_lib:deep_remove(BinKeyPath, OldConf).
+    emqx_utils_maps:deep_remove(BinKeyPath, OldConf).
 
 %% apply new config on top of override config
 merge_to_override_config(_RawConf, #{persistent := false}) ->
@@ -467,7 +467,7 @@ return_change_result(_ConfKeyPath, {remove, _Opts}) ->
 
 return_rawconf(ConfKeyPath, #{rawconf_with_defaults := true}) ->
     FullRawConf = emqx_config:fill_defaults(emqx_config:get_raw([])),
-    emqx_map_lib:deep_get(bin_path(ConfKeyPath), FullRawConf);
+    emqx_utils_maps:deep_get(bin_path(ConfKeyPath), FullRawConf);
 return_rawconf(ConfKeyPath, _) ->
     emqx_config:get_raw(ConfKeyPath).
 
@@ -485,16 +485,16 @@ atom(Atom) when is_atom(Atom) ->
 
 -dialyzer({nowarn_function, do_remove_handler/2}).
 do_remove_handler(ConfKeyPath, Handlers) ->
-    NewHandlers = emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers),
+    NewHandlers = emqx_utils_maps:deep_remove(ConfKeyPath ++ [?MOD], Handlers),
     remove_empty_leaf(ConfKeyPath, NewHandlers).
 
 remove_empty_leaf([], Handlers) ->
     Handlers;
 remove_empty_leaf(KeyPath, Handlers) ->
-    case emqx_map_lib:deep_find(KeyPath, Handlers) =:= {ok, #{}} of
+    case emqx_utils_maps:deep_find(KeyPath, Handlers) =:= {ok, #{}} of
         %% empty leaf
         true ->
-            Handlers1 = emqx_map_lib:deep_remove(KeyPath, Handlers),
+            Handlers1 = emqx_utils_maps:deep_remove(KeyPath, Handlers),
             SubKeyPath = lists:sublist(KeyPath, length(KeyPath) - 1),
             remove_empty_leaf(SubKeyPath, Handlers1);
         false ->
@@ -511,7 +511,7 @@ assert_callback_function(Mod) ->
     end,
     ok.
 
--spec schema(module(), emqx_map_lib:config_key_path()) -> hocon_schema:schema().
+-spec schema(module(), emqx_utils_maps:config_key_path()) -> hocon_schema:schema().
 schema(SchemaModule, [RootKey | _]) ->
     Roots = hocon_schema:roots(SchemaModule),
     {Field, Translations} =
@@ -550,10 +550,10 @@ save_handlers(Handlers) ->
 check_permissions(_Action, _ConfKeyPath, _NewRawConf, #{override_to := local}) ->
     allow;
 check_permissions(Action, ConfKeyPath, NewRawConf, _Opts) ->
-    case emqx_map_lib:deep_find(ConfKeyPath, NewRawConf) of
+    case emqx_utils_maps:deep_find(ConfKeyPath, NewRawConf) of
         {ok, NewRaw} ->
             LocalOverride = emqx_config:read_override_conf(#{override_to => local}),
-            case emqx_map_lib:deep_find(ConfKeyPath, LocalOverride) of
+            case emqx_utils_maps:deep_find(ConfKeyPath, LocalOverride) of
                 {ok, LocalRaw} ->
                     case is_mutable(Action, NewRaw, LocalRaw) of
                         ok ->

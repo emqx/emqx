@@ -207,7 +207,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(tdengine_bridge_type, Config),
     Name = ?config(tdengine_name, Config),
     TDConfig0 = ?config(tdengine_config, Config),
-    TDConfig = emqx_map_lib:deep_merge(TDConfig0, Overrides),
+    TDConfig = emqx_utils_maps:deep_merge(TDConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, TDConfig).
 
 delete_bridge(Config) ->

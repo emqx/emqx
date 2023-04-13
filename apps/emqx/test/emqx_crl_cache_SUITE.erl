@@ -997,7 +997,7 @@ do_t_update_listener(Config) ->
                     <<"enable_crl_check">> => true
                 }
         },
-    ListenerData1 = emqx_map_lib:deep_merge(ListenerData0, CRLConfig),
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, CRLConfig),
     {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
     ?assertMatch(
         #{
@@ -1040,7 +1040,7 @@ do_t_validations(_Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
     ListenerData1 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>

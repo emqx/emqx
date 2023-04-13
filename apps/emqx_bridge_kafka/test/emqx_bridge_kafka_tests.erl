@@ -92,7 +92,7 @@ kafka_consumer_test() ->
     ),
 
     %% Bad: can't repeat kafka topics.
-    BadConf1 = emqx_map_lib:deep_put(
+    BadConf1 = emqx_utils_maps:deep_put(
         [<<"bridges">>, <<"kafka_consumer">>, <<"my_consumer">>, <<"topic_mapping">>],
         Conf1,
         [
@@ -121,7 +121,7 @@ kafka_consumer_test() ->
     ),
 
     %% Bad: there must be at least 1 mapping.
-    BadConf2 = emqx_map_lib:deep_put(
+    BadConf2 = emqx_utils_maps:deep_put(
         [<<"bridges">>, <<"kafka_consumer">>, <<"my_consumer">>, <<"topic_mapping">>],
         Conf1,
         []

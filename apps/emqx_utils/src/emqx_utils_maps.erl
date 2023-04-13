@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_map_lib).
+-module(emqx_utils_maps).
 
 -export([
     deep_get/2,
@@ -332,7 +332,7 @@ deep_filter(M, F) when is_map(M) ->
 
 if_only_to_toggle_enable(OldConf, Conf) ->
     #{added := Added, removed := Removed, changed := Updated} =
-        emqx_map_lib:diff_maps(OldConf, Conf),
+        emqx_utils_maps:diff_maps(OldConf, Conf),
     case {Added, Removed, Updated} of
         {Added, Removed, #{enable := _} = Updated} when
             map_size(Added) =:= 0,

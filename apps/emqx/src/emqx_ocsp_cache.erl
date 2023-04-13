@@ -110,7 +110,7 @@ register_listener(ListenerID, Opts) ->
 -spec inject_sni_fun(emqx_listeners:listener_id(), map()) -> map().
 inject_sni_fun(ListenerID, Conf0) ->
     SNIFun = emqx_const_v1:make_sni_fun(ListenerID),
-    Conf = emqx_map_lib:deep_merge(Conf0, #{ssl_options => #{sni_fun => SNIFun}}),
+    Conf = emqx_utils_maps:deep_merge(Conf0, #{ssl_options => #{sni_fun => SNIFun}}),
     ok = ?MODULE:register_listener(ListenerID, Conf),
     Conf.
 
@@ -149,7 +149,7 @@ handle_call({register_listener, ListenerID, Conf}, _From, State0) ->
         msg => "registering_ocsp_cache",
         listener_id => ListenerID
     }),
-    RefreshInterval0 = emqx_map_lib:deep_get([ssl_options, ocsp, refresh_interval], Conf),
+    RefreshInterval0 = emqx_utils_maps:deep_get([ssl_options, ocsp, refresh_interval], Conf),
     RefreshInterval = max(RefreshInterval0, ?MIN_REFRESH_INTERVAL),
     State = State0#{{refresh_interval, ListenerID} => RefreshInterval},
     %% we need to pass the config along because this might be called

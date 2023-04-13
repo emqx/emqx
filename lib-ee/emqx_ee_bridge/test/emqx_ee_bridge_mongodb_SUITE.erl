@@ -245,7 +245,7 @@ create_bridge(Config, Overrides) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
     MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig = emqx_map_lib:deep_merge(MongoConfig0, Overrides),
+    MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
     ct:pal("creating ~p bridge with config:\n ~p", [Type, MongoConfig]),
     emqx_bridge:create(Type, Name, MongoConfig).
 

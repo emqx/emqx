@@ -193,10 +193,10 @@ t_clear_certs(Config) when is_list(Config) ->
     },
 
     %% create, make sure the cert files are created
-    NewConf = emqx_map_lib:deep_put(
+    NewConf = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("certfile")
     ),
-    NewConf2 = emqx_map_lib:deep_put(
+    NewConf2 = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
     ),
 
@@ -205,7 +205,7 @@ t_clear_certs(Config) when is_list(Config) ->
     ?assertMatch({ok, [_, _]}, ListResult1),
 
     %% update
-    UpdateConf = emqx_map_lib:deep_put(
+    UpdateConf = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
     ),
     _ = request(put, NewPath, [], UpdateConf),

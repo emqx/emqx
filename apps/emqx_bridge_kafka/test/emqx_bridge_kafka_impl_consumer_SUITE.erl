@@ -673,7 +673,7 @@ create_bridge(Config, Overrides) ->
     Type = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     emqx_bridge:create(Type, Name, KafkaConfig).
 
 delete_bridge(Config) ->
@@ -696,7 +696,7 @@ create_bridge_api(Config, Overrides) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
@@ -719,7 +719,7 @@ update_bridge_api(Config, Overrides) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     BridgeId = emqx_bridge_resource:bridge_id(TypeBin, Name),
     Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId]),

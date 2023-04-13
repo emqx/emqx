@@ -344,7 +344,7 @@ t_decode(Config) ->
 
 t_fail_rollback(Config) ->
     SerdeType = ?config(serde_type, Config),
-    OkSchema = emqx_map_lib:binary_key_map(schema_params(SerdeType)),
+    OkSchema = emqx_utils_maps:binary_key_map(schema_params(SerdeType)),
     BrokenSchema = OkSchema#{<<"source">> := <<"{}">>},
     %% hopefully, for this small map, the key order is used.
     Serdes = #{

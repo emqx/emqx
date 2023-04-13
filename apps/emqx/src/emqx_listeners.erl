@@ -427,12 +427,12 @@ pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
 pre_config_update([listeners, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
-    NewConfT = emqx_map_lib:deep_merge(RawConf, Request),
+    NewConfT = emqx_utils_maps:deep_merge(RawConf, Request),
     NewConf = ensure_override_limiter_conf(NewConfT, Request),
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
 pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf) ->
-    NewConf = emqx_map_lib:deep_merge(RawConf, Updated),
+    NewConf = emqx_utils_maps:deep_merge(RawConf, Updated),
     {ok, NewConf};
 pre_config_update(_Path, _Request, RawConf) ->
     {ok, RawConf}.
@@ -500,7 +500,7 @@ esockd_opts(ListenerId, Type, Opts0) ->
 
 ws_opts(Type, ListenerName, Opts) ->
     WsPaths = [
-        {emqx_map_lib:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
+        {emqx_utils_maps:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
             limiter => limiter(Opts),

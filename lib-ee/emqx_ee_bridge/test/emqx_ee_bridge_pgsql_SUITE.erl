@@ -229,7 +229,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     Name = ?config(pgsql_name, Config),
     PGConfig0 = ?config(pgsql_config, Config),
-    PGConfig = emqx_map_lib:deep_merge(PGConfig0, Overrides),
+    PGConfig = emqx_utils_maps:deep_merge(PGConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, PGConfig).
 
 delete_bridge(Config) ->

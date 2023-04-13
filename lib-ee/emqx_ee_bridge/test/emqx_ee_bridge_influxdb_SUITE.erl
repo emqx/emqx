@@ -354,7 +354,7 @@ create_bridge(Config, Overrides) ->
     Type = influxdb_type_bin(?config(influxdb_type, Config)),
     Name = ?config(influxdb_name, Config),
     InfluxDBConfig0 = ?config(influxdb_config, Config),
-    InfluxDBConfig = emqx_map_lib:deep_merge(InfluxDBConfig0, Overrides),
+    InfluxDBConfig = emqx_utils_maps:deep_merge(InfluxDBConfig0, Overrides),
     emqx_bridge:create(Type, Name, InfluxDBConfig).
 
 delete_bridge(Config) ->
@@ -390,7 +390,7 @@ create_rule_and_action_http(Config, Overrides) ->
         sql => <<"SELECT * FROM \"t/topic\"">>,
         actions => [BridgeId]
     },
-    Params = emqx_map_lib:deep_merge(Params0, Overrides),
+    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of

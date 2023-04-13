@@ -282,7 +282,7 @@ t_case_exproto(_) ->
 
 disable_authn(GwName, Type, Name) ->
     RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
-    ListenerCfg = emqx_map_lib:deep_get(
+    ListenerCfg = emqx_utils_maps:deep_get(
         [<<"listeners">>, atom_to_binary(Type), atom_to_binary(Name)], RawCfg
     ),
     {ok, _} = emqx_gateway_conf:update_listener(GwName, {Type, Name}, ListenerCfg#{

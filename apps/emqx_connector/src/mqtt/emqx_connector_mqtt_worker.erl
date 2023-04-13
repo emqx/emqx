@@ -410,7 +410,7 @@ handle_disconnect(_Reason) ->
     ok.
 
 maybe_publish_local(Msg, Vars, Props) ->
-    case emqx_map_lib:deep_get([local, topic], Vars, undefined) of
+    case emqx_utils_maps:deep_get([local, topic], Vars, undefined) of
         %% local topic is not set, discard it
         undefined ->
             ok;

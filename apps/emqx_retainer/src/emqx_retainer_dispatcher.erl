@@ -156,7 +156,7 @@ handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
     {noreply, State#{limiter := Limiter2}};
 handle_cast({refresh_limiter, Conf}, State) ->
-    BucketCfg = emqx_map_lib:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
+    BucketCfg = emqx_utils_maps:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
     {ok, Limiter} = emqx_limiter_server:connect(?APP, internal, BucketCfg),
     {noreply, State#{limiter := Limiter}};
 handle_cast(Msg, State) ->

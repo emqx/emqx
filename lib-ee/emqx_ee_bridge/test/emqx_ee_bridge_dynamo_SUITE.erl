@@ -193,7 +193,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(dynamo_bridge_type, Config),
     Name = ?config(dynamo_name, Config),
     DynamoConfig0 = ?config(dynamo_config, Config),
-    DynamoConfig = emqx_map_lib:deep_merge(DynamoConfig0, Overrides),
+    DynamoConfig = emqx_utils_maps:deep_merge(DynamoConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, DynamoConfig).
 
 delete_all_bridges() ->

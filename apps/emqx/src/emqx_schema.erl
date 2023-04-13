@@ -2348,7 +2348,7 @@ ocsp_outer_validator(_Conf) ->
     ok.
 
 ocsp_inner_validator(#{enable_ocsp_stapling := _} = Conf) ->
-    ocsp_inner_validator(emqx_map_lib:binary_key_map(Conf));
+    ocsp_inner_validator(emqx_utils_maps:binary_key_map(Conf));
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := false} = _Conf) ->
     ok;
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->

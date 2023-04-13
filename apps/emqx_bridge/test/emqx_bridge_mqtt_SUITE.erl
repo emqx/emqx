@@ -270,7 +270,7 @@ t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
         ?SERVER_CONF(<<"user1">>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => BridgeName,
-            <<"ingress">> => emqx_map_lib:deep_merge(
+            <<"ingress">> => emqx_utils_maps:deep_merge(
                 ?INGRESS_CONF,
                 #{<<"remote">> => #{<<"qos">> => 2}}
             )

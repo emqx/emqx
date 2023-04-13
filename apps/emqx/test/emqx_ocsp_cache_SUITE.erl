@@ -143,7 +143,7 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -184,7 +184,7 @@ init_per_testcase(_TestCase, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -679,7 +679,7 @@ do_t_update_listener(Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
     ?assertEqual(
         undefined,
-        emqx_map_lib:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
+        emqx_utils_maps:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
     ),
     assert_no_http_get(),
 
@@ -702,7 +702,7 @@ do_t_update_listener(Config) ->
                         }
                 }
         },
-    ListenerData1 = emqx_map_lib:deep_merge(ListenerData0, OCSPConfig),
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, OCSPConfig),
     {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
     ?assertMatch(
         #{
@@ -722,14 +722,14 @@ do_t_update_listener(Config) ->
     %% location
     ?assertNotEqual(
         IssuerPemPath,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
     ),
     ?assertNotEqual(
         IssuerPem,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
@@ -818,7 +818,7 @@ do_t_validations(_Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
     ListenerData1 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -843,7 +843,7 @@ do_t_validations(_Config) ->
     ),
 
     ListenerData2 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -873,7 +873,7 @@ do_t_validations(_Config) ->
     ),
 
     ListenerData3a =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -886,7 +886,9 @@ do_t_validations(_Config) ->
                     }
             }
         ),
-    ListenerData3 = emqx_map_lib:deep_remove([<<"ssl_options">>, <<"certfile">>], ListenerData3a),
+    ListenerData3 = emqx_utils_maps:deep_remove(
+        [<<"ssl_options">>, <<"certfile">>], ListenerData3a
+    ),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
         emqx_utils_json:decode(ResRaw3, [return_maps]),

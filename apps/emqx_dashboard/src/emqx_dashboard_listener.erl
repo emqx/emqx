@@ -119,7 +119,7 @@ remove_handler() ->
 
 pre_config_update(_Path, UpdateConf0, RawConf) ->
     UpdateConf = remove_sensitive_data(UpdateConf0),
-    NewConf = emqx_map_lib:deep_merge(RawConf, UpdateConf),
+    NewConf = emqx_utils_maps:deep_merge(RawConf, UpdateConf),
     ensure_ssl_cert(NewConf).
 
 -define(SENSITIVE_PASSWORD, <<"******">>).
@@ -134,7 +134,7 @@ remove_sensitive_data(Conf0) ->
         end,
     case Conf1 of
         #{<<"listeners">> := #{<<"https">> := #{<<"password">> := ?SENSITIVE_PASSWORD}}} ->
-            emqx_map_lib:deep_remove([<<"listeners">>, <<"https">>, <<"password">>], Conf1);
+            emqx_utils_maps:deep_remove([<<"listeners">>, <<"https">>, <<"password">>], Conf1);
         _ ->
             Conf1
     end.
@@ -152,7 +152,7 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     ok.
 
 get_listener(Type, Conf) ->
-    emqx_map_lib:deep_get([listeners, Type], Conf, undefined).
+    emqx_utils_maps:deep_get([listeners, Type], Conf, undefined).
 
 diff_listeners(_, Listener, Listener) -> {#{}, #{}};
 diff_listeners(Type, undefined, Start) -> {#{}, #{Type => Start}};
@@ -162,13 +162,14 @@ diff_listeners(Type, Stop, Start) -> {#{Type => Stop}, #{Type => Start}}.
 -define(DIR, <<"dashboard">>).
 
 ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"enable">> := true}}} = Conf) ->
-    Https = emqx_map_lib:deep_get([<<"listeners">>, <<"https">>], Conf, undefined),
+    Https = emqx_utils_maps:deep_get([<<"listeners">>, <<"https">>], Conf, undefined),
     Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>], [<<"cacertfile">>]]},
     case emqx_tls_lib:ensure_ssl_files(?DIR, Https, Opts) of
         {ok, undefined} ->
             {error, <<"ssl_cert_not_found">>};
         {ok, NewHttps} ->
-            {ok, emqx_map_lib:deep_merge(Conf, #{<<"listeners">> => #{<<"https">> => NewHttps}})};
+            {ok,
+                emqx_utils_maps:deep_merge(Conf, #{<<"listeners">> => #{<<"https">> => NewHttps}})};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             {error, Reason}

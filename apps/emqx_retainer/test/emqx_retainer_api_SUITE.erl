@@ -257,7 +257,7 @@ t_change_storage_type(_Config) ->
     #{data := Msgs0, meta := _} = decode_json(MsgsJson0),
     ?assertEqual(1, length(Msgs0)),
 
-    ChangedConf = emqx_map_lib:deep_merge(
+    ChangedConf = emqx_utils_maps:deep_merge(
         RawConf,
         #{
             <<"backend">> =>
@@ -312,7 +312,7 @@ t_change_storage_type(_Config) ->
 %%--------------------------------------------------------------------
 decode_json(Data) ->
     BinJson = emqx_utils_json:decode(Data, [return_maps]),
-    emqx_map_lib:unsafe_atom_key_map(BinJson).
+    emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

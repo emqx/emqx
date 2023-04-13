@@ -34,8 +34,8 @@ init_per_testcase(t_log_path, Config) ->
     emqx_config_logger:add_handler(),
     Log = emqx_conf:get_raw([log], #{}),
     File = "log/emqx-test.log",
-    Log1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
-    Log2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
+    Log1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
+    Log2 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
     {ok, #{}} = emqx_conf:update([log], Log2, #{rawconf_with_defaults => true}),
     Config;
 init_per_testcase(_, Config) ->
@@ -43,7 +43,7 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(t_log_path, Config) ->
     Log = emqx_conf:get_raw([log], #{}),
-    Log1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, false),
+    Log1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, false),
     {ok, #{}} = emqx_conf:update([log], Log1, #{rawconf_with_defaults => true}),
     emqx_config_logger:remove_handler(),
     Config;

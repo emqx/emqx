@@ -860,8 +860,8 @@ format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
 
 format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     Node = maps:get(node, ClientInfo0, WhichNode),
-    ClientInfo1 = emqx_map_lib:deep_remove([conninfo, clientid], ClientInfo0),
-    ClientInfo2 = emqx_map_lib:deep_remove([conninfo, username], ClientInfo1),
+    ClientInfo1 = emqx_utils_maps:deep_remove([conninfo, clientid], ClientInfo0),
+    ClientInfo2 = emqx_utils_maps:deep_remove([conninfo, username], ClientInfo1),
     StatsMap = maps:without(
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
@@ -958,4 +958,4 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
 
 to_topic_info(Data) ->
     M = maps:with([<<"topic">>, <<"qos">>, <<"nl">>, <<"rap">>, <<"rh">>], Data),
-    emqx_map_lib:safe_atom_key_map(M).
+    emqx_utils_maps:safe_atom_key_map(M).

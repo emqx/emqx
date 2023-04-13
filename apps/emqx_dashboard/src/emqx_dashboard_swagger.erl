@@ -474,7 +474,7 @@ maybe_add_summary_from_label(Spec, Hocon) ->
 get_i18n(Key, Struct, Default) ->
     {ok, #{cache := Cache, lang := Lang}} = emqx_dashboard:get_i18n(),
     Desc = hocon_schema:resolve_schema(Struct, Cache),
-    emqx_map_lib:deep_get([Key, Lang], Desc, Default).
+    emqx_utils_maps:deep_get([Key, Lang], Desc, Default).
 
 trans_label(Spec, Hocon, Default) ->
     Label =

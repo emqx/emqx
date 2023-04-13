@@ -261,7 +261,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     Name = ?config(cassa_name, Config),
     BridgeConfig0 = ?config(cassa_config, Config),
-    BridgeConfig = emqx_map_lib:deep_merge(BridgeConfig0, Overrides),
+    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, BridgeConfig).
 
 delete_bridge(Config) ->

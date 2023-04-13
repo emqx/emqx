@@ -186,7 +186,7 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
     %% without restarting the bridge.
     %%
     Opts = override_start_after_created(Conf, Opts0),
-    case emqx_map_lib:if_only_to_toggle_enable(OldConf, Conf) of
+    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
                 msg => "update bridge",
@@ -238,7 +238,7 @@ recreate(Type, Name, Conf, Opts) ->
 create_dry_run(Type, Conf0) ->
     TmpPath0 = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     TmpPath = emqx_utils:safe_filename(TmpPath0),
-    Conf = emqx_map_lib:safe_atom_key_map(Conf0),
+    Conf = emqx_utils_maps:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->
             {error, Reason};
