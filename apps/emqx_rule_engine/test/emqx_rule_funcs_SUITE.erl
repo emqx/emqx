@@ -1003,6 +1003,24 @@ prop_format_date_fun() ->
                         )
                     ]
             )
+    ),
+    %% When no offset is specified, the offset should be taken from the formatted time string
+    ArgsNoOffset = [<<"second">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ArgsOffset = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ?FORALL(
+        S,
+        erlang:system_time(second),
+        S ==
+            apply_func(
+                date_to_unix_ts,
+                ArgsNoOffset ++
+                    [
+                        apply_func(
+                            format_date,
+                            ArgsOffset ++ [S]
+                        )
+                    ]
+            )
     ).
 
 %%------------------------------------------------------------------------------
