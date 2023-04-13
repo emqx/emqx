@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_kafka_consumer_sup).
+-module(emqx_bridge_kafka_consumer_sup).
 
 -behaviour(supervisor).
 

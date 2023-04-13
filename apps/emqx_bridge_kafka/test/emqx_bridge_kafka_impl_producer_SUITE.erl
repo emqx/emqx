@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_impl_kafka_producer_SUITE).
+-module(emqx_bridge_kafka_impl_producer_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -12,7 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
--define(PRODUCER, emqx_bridge_impl_kafka_producer).
+-define(PRODUCER, emqx_bridge_kafka_impl_producer).
 
 %%------------------------------------------------------------------------------
 %% Things for REST API tests
@@ -40,6 +40,8 @@
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, "kafka").
+
+-define(APPS, [emqx_resource, emqx_bridge, emqx_rule_engine, emqx_bridge_kafka]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -76,7 +78,7 @@ init_per_suite(Config) ->
     _ = emqx_ee_bridge:module_info(),
     application:load(emqx_bridge),
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
+    ok = emqx_connector_test_helpers:start_apps(?APPS),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
     wait_until_kafka_is_up(),
@@ -96,7 +98,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
+    ok = emqx_connector_test_helpers:stop_apps(lists:reverse(?APPS)),
     _ = application:stop(emqx_connector),
     ok.
 

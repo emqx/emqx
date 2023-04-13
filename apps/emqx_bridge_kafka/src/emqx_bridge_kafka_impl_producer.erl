@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_impl_kafka_producer).
+-module(emqx_bridge_kafka_impl_producer).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
@@ -47,15 +47,15 @@ on_start(InstId, Config) ->
     BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
-    Hosts = emqx_bridge_impl_kafka:hosts(Hosts0),
-    ClientId = emqx_bridge_impl_kafka:make_client_id(BridgeType, BridgeName),
+    Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
+    ClientId = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
         connect_timeout => ConnTimeout,
         client_id => ClientId,
         request_timeout => MetaReqTimeout,
         extra_sock_opts => socket_opts(SocketOpts),
-        sasl => emqx_bridge_impl_kafka:sasl(Auth),
+        sasl => emqx_bridge_kafka_impl:sasl(Auth),
         ssl => ssl(SSL)
     },
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of

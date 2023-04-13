@@ -107,6 +107,8 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp umbrella_apps() do
+    enterprise_apps = enterprise_umbrella_apps()
+
     "apps/*"
     |> Path.wildcard()
     |> Enum.map(fn path ->
@@ -117,9 +119,20 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.reject(fn dep_spec ->
+      dep_spec
+      |> elem(0)
+      |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    umbrella_apps =
+      Enum.map(enterprise_umbrella_apps(), fn app_name ->
+        path = "apps/#{app_name}"
+        {app_name, path: path, manager: :rebar3, override: true}
+      end)
+
     "lib-ee/*"
     |> Path.wildcard()
     |> Enum.filter(&File.dir?/1)
@@ -131,10 +144,18 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
     []
+  end
+
+  # need to remove those when listing `/apps/`...
+  defp enterprise_umbrella_apps() do
+    MapSet.new([
+      :emqx_bridge_kafka
+    ])
   end
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
@@ -146,7 +167,8 @@ defmodule EMQXUmbrella.MixProject do
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
-      {:supervisor3, "1.1.11", override: true}
+      {:crc32cer, "0.1.8", override: true},
+      {:supervisor3, "1.1.12", override: true}
     ]
   end
 
@@ -320,6 +342,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_conf: :load,
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
+          emqx_bridge_kafka: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
         else: []

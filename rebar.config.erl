@@ -78,6 +78,9 @@ is_cover_enabled() ->
 is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
+is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app(_) -> true.
+
 is_jq_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_JQ") orelse
         is_win32()) orelse
@@ -122,8 +125,14 @@ project_app_dirs() ->
     project_app_dirs(get_edition_from_profile_env()).
 
 project_app_dirs(Edition) ->
-    ["apps/*"] ++
-        case is_enterprise(Edition) of
+    IsEnterprise = is_enterprise(Edition),
+    UmbrellaApps = [
+        Path
+     || Path <- filelib:wildcard("apps/*"),
+        is_community_umbrella_app(Path) orelse IsEnterprise
+    ],
+    UmbrellaApps ++
+        case IsEnterprise of
             true -> ["lib-ee/*"];
             false -> []
         end.
@@ -428,6 +437,7 @@ relx_apps_per_edition(ee) ->
         {emqx_ee_conf, load},
         emqx_ee_connector,
         emqx_ee_bridge,
+        emqx_bridge_kafka,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->

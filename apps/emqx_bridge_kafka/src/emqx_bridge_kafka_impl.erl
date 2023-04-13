@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 
 %% Kafka connection configuration
--module(emqx_bridge_impl_kafka).
+-module(emqx_bridge_kafka_impl).
 
 -export([
     hosts/1,

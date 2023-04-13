@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_impl_kafka_consumer_SUITE).
+-module(emqx_bridge_kafka_impl_consumer_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -15,6 +15,7 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(BRIDGE_TYPE_BIN, <<"kafka_consumer">>).
+-define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_bridge_kafka]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -67,7 +68,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
+    ok = emqx_connector_test_helpers:stop_apps(lists:reverse(?APPS)),
     _ = application:stop(emqx_connector),
     ok.
 
@@ -228,7 +229,7 @@ common_init_per_group() ->
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     application:load(emqx_bridge),
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
+    ok = emqx_connector_test_helpers:start_apps(?APPS),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
@@ -408,7 +409,7 @@ start_producers(TestCase, Config) ->
     DirectKafkaPort = ?config(direct_kafka_port, Config),
     UseTLS = ?config(use_tls, Config),
     UseSASL = ?config(use_sasl, Config),
-    Hosts = emqx_bridge_impl_kafka:hosts(
+    Hosts = emqx_bridge_kafka_impl:hosts(
         DirectKafkaHost ++ ":" ++ integer_to_list(DirectKafkaPort)
     ),
     SSL =
@@ -876,7 +877,7 @@ ensure_connected(Config) ->
 
 consumer_clientid(Config) ->
     KafkaName = ?config(kafka_name, Config),
-    binary_to_atom(emqx_bridge_impl_kafka:make_client_id(kafka_consumer, KafkaName)).
+    binary_to_atom(emqx_bridge_kafka_impl:make_client_id(kafka_consumer, KafkaName)).
 
 get_client_connection(Config) ->
     KafkaHost = ?config(kafka_host, Config),
@@ -885,7 +886,7 @@ get_client_connection(Config) ->
     brod_client:get_connection(ClientID, KafkaHost, KafkaPort).
 
 get_subscriber_workers() ->
-    [{_, SubscriberPid, _, _}] = supervisor:which_children(emqx_ee_bridge_kafka_consumer_sup),
+    [{_, SubscriberPid, _, _}] = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
     brod_group_subscriber_v2:get_workers(SubscriberPid).
 
 wait_downs(Refs, _Timeout) when map_size(Refs) =:= 0 ->
@@ -1069,7 +1070,7 @@ cluster(Config) ->
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
-            {apps, [emqx_conf, emqx_bridge, emqx_rule_engine]},
+            {apps, [emqx_conf, emqx_bridge, emqx_rule_engine, emqx_bridge_kafka]},
             {listener_ports, []},
             {peer_mod, PeerModule},
             {priv_data_dir, PrivDataDir},
@@ -1504,7 +1505,7 @@ do_t_receive_after_recovery(Config) ->
                 _Interval = 500,
                 _NAttempts = 20,
                 begin
-                    GroupId = emqx_bridge_impl_kafka_consumer:consumer_group_id(KafkaNameA),
+                    GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(KafkaNameA),
                     {ok, [#{partitions := Partitions}]} = brod:fetch_committed_offsets(
                         KafkaClientId, GroupId
                     ),
@@ -1745,8 +1746,12 @@ t_node_joins_existing_cluster(Config) ->
     ?check_trace(
         begin
             [{Name1, Opts1}, {Name2, Opts2} | _] = Cluster,
+            ct:pal("starting ~p", [Name1]),
             N1 = emqx_common_test_helpers:start_slave(Name1, Opts1),
-            on_exit(fun() -> ok = emqx_common_test_helpers:stop_slave(N1) end),
+            on_exit(fun() ->
+                ct:pal("stopping ~p", [N1]),
+                ok = emqx_common_test_helpers:stop_slave(N1)
+            end),
             setup_group_subscriber_spy(N1),
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
@@ -1785,8 +1790,12 @@ t_node_joins_existing_cluster(Config) ->
                 1,
                 30_000
             ),
+            ct:pal("starting ~p", [Name2]),
             N2 = emqx_common_test_helpers:start_slave(Name2, Opts2),
-            on_exit(fun() -> ok = emqx_common_test_helpers:stop_slave(N2) end),
+            on_exit(fun() ->
+                ct:pal("stopping ~p", [N2]),
+                ok = emqx_common_test_helpers:stop_slave(N2)
+            end),
             setup_group_subscriber_spy(N2),
             Nodes = [N1, N2],
             wait_for_cluster_rpc(N2),
@@ -1873,7 +1882,10 @@ t_cluster_node_down(Config) ->
             Nodes =
                 [N1, N2 | _] =
                 lists:map(
-                    fun({Name, Opts}) -> emqx_common_test_helpers:start_slave(Name, Opts) end,
+                    fun({Name, Opts}) ->
+                        ct:pal("starting ~p", [Name]),
+                        emqx_common_test_helpers:start_slave(Name, Opts)
+                    end,
                     Cluster
                 ),
             on_exit(fun() ->

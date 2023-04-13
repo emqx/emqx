@@ -8,8 +8,6 @@
         hstreamdb_erl,
         influxdb,
         tdengine,
-        wolff,
-        brod,
         clickhouse,
         erlcloud,
         rocketmq,
