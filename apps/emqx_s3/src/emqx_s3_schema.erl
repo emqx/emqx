@@ -105,7 +105,7 @@ fields(s3) ->
                 #{
                     default => private,
                     desc => ?DESC("acl"),
-                    required => true
+                    required => false
                 }
             )},
         {transport_options,

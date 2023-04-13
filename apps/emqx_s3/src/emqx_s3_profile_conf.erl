@@ -198,7 +198,7 @@ client_config(ProfileConfig, PoolName) ->
         port => maps:get(port, ProfileConfig),
         url_expire_time => maps:get(url_expire_time, ProfileConfig),
         headers => maps:get(headers, HTTPOpts, #{}),
-        acl => maps:get(acl, ProfileConfig),
+        acl => maps:get(acl, ProfileConfig, undefined),
         bucket => maps:get(bucket, ProfileConfig),
         access_key_id => maps:get(access_key_id, ProfileConfig, undefined),
         secret_access_key => maps:get(secret_access_key, ProfileConfig, undefined),
