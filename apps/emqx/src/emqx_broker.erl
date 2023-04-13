@@ -71,7 +71,7 @@
     code_change/3
 ]).
 
--import(emqx_tables, [lookup_value/2, lookup_value/3]).
+-import(emqx_utils_ets, [lookup_value/2, lookup_value/3]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -107,15 +107,15 @@ create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
     %% SubOption: {Topic, SubPid} -> SubOption
-    ok = emqx_tables:new(?SUBOPTION, [ordered_set | TabOpts]),
+    ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> Topic1, Topic2, Topic3, ...
     %% duplicate_bag: o(1) insert
-    ok = emqx_tables:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
+    ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
     %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
     %% bag: o(n) insert:(
-    ok = emqx_tables:new(?SUBSCRIBER, [bag | TabOpts]).
+    ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API

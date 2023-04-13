@@ -99,7 +99,7 @@ now_diff(TS) -> erlang:system_time(millisecond) - TS.
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?FLAPPING_TAB, [
+    ok = emqx_utils_ets:new(?FLAPPING_TAB, [
         public,
         set,
         {keypos, #flapping.clientid},

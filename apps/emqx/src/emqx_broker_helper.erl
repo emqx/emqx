@@ -73,11 +73,11 @@ register_sub(SubPid, SubId) when is_pid(SubPid) ->
 
 -spec lookup_subid(pid()) -> maybe(emqx_types:subid()).
 lookup_subid(SubPid) when is_pid(SubPid) ->
-    emqx_tables:lookup_value(?SUBMON, SubPid).
+    emqx_utils_ets:lookup_value(?SUBMON, SubPid).
 
 -spec lookup_subpid(emqx_types:subid()) -> maybe(pid()).
 lookup_subpid(SubId) ->
-    emqx_tables:lookup_value(?SUBID, SubId).
+    emqx_utils_ets:lookup_value(?SUBID, SubId).
 
 -spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
 get_sub_shard(SubPid, Topic) ->
@@ -105,15 +105,15 @@ reclaim_seq(Topic) ->
 
 init([]) ->
     %% Helper table
-    ok = emqx_tables:new(?HELPER, [{read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
     %% Shards: CPU * 32
     true = ets:insert(?HELPER, {shards, emqx_vm:schedulers() * 32}),
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),
     %% SubId: SubId -> SubPid
-    ok = emqx_tables:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
-    ok = emqx_tables:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% Stats timer
     ok = emqx_stats:update_interval(broker_stats, fun emqx_broker:stats_fun/0),
     {ok, #{pmon => emqx_pmon:new()}}.

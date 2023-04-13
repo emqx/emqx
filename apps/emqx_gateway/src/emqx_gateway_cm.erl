@@ -766,9 +766,9 @@ init(Options) ->
     TabOpts = [public, {write_concurrency, true}],
 
     {ChanTab, ConnTab, InfoTab} = cmtabs(GwName),
-    ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_tables:new(ConnTab, [bag | TabOpts]),
-    ok = emqx_tables:new(InfoTab, [ordered_set, compressed | TabOpts]),
+    ok = emqx_utils_ets:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(ConnTab, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(InfoTab, [ordered_set, compressed | TabOpts]),
 
     %% Start link cm-registry process
     %% XXX: Should I hang it under a higher level supervisor?

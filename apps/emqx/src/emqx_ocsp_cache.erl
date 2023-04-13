@@ -120,7 +120,7 @@ inject_sni_fun(ListenerID, Conf0) ->
 
 init(_Args) ->
     logger:set_process_metadata(#{domain => [emqx, ocsp, cache]}),
-    emqx_tables:new(?CACHE_TAB, [
+    emqx_utils_ets:new(?CACHE_TAB, [
         named_table,
         public,
         {heir, whereis(emqx_kernel_sup), none},

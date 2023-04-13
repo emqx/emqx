@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_tables_SUITE).
+-module(emqx_utils_ets_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -26,19 +26,19 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_new(_) ->
-    ok = emqx_tables:new(?TAB),
-    ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB),
+    ok = emqx_utils_ets:new(?TAB, [{read_concurrency, true}]),
     ?assertEqual(?TAB, ets:info(?TAB, name)).
 
 t_lookup_value(_) ->
-    ok = emqx_tables:new(?TAB, []),
+    ok = emqx_utils_ets:new(?TAB, []),
     true = ets:insert(?TAB, {key, val}),
-    ?assertEqual(val, emqx_tables:lookup_value(?TAB, key)),
-    ?assertEqual(undefined, emqx_tables:lookup_value(?TAB, badkey)).
+    ?assertEqual(val, emqx_utils_ets:lookup_value(?TAB, key)),
+    ?assertEqual(undefined, emqx_utils_ets:lookup_value(?TAB, badkey)).
 
 t_delete(_) ->
-    ok = emqx_tables:new(?TAB, []),
+    ok = emqx_utils_ets:new(?TAB, []),
     ?assertEqual(?TAB, ets:info(?TAB, name)),
-    ok = emqx_tables:delete(?TAB),
-    ok = emqx_tables:delete(?TAB),
+    ok = emqx_utils_ets:delete(?TAB),
+    ok = emqx_utils_ets:delete(?TAB),
     ?assertEqual(undefined, ets:info(?TAB, name)).

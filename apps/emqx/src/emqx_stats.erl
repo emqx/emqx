@@ -201,7 +201,7 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 %%--------------------------------------------------------------------
 
 init(#{tick_ms := TickMs}) ->
-    ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [public, set, {write_concurrency, true}]),
     Stats = lists:append([
         ?CONNECTION_STATS,
         ?CHANNEL_STATS,

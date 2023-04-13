@@ -68,7 +68,7 @@ trace_rule(Data, Envs, _Args) ->
 make_trace_fn_action() ->
     persistent_term:put({?MODULE, test_pid}, self()),
     Fn = <<(atom_to_binary(?MODULE))/binary, ":trace_rule">>,
-    emqx_tables:new(recorded_actions, [named_table, public, ordered_set]),
+    emqx_utils_ets:new(recorded_actions, [named_table, public, ordered_set]),
     #{function => Fn, args => #{}}.
 
 create_rule_http(RuleParams) ->
