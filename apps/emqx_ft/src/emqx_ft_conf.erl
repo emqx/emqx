@@ -26,6 +26,9 @@
 -export([storage/0]).
 -export([gc_interval/1]).
 -export([segments_ttl/1]).
+-export([init_timeout/0]).
+-export([store_segment_timeout/0]).
+-export([assemble_timeout/0]).
 
 %% Load/Unload
 -export([
@@ -85,6 +88,15 @@ assert_storage(Type) ->
         Conf ->
             error({inapplicable, Conf})
     end.
+
+init_timeout() ->
+    emqx_config:get([file_transfer, init_timeout]).
+
+assemble_timeout() ->
+    emqx_config:get([file_transfer, assemble_timeout]).
+
+store_segment_timeout() ->
+    emqx_config:get([file_transfer, store_segment_timeout]).
 
 %%--------------------------------------------------------------------
 %% API

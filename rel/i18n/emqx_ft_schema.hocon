@@ -1,5 +1,41 @@
 emqx_ft_schema {
 
+    init_timeout {
+        desc {
+            en: "Timeout for initializing the file transfer.<br/>"
+                "After reaching the timeout, `init` message will be acked with an error"
+            zh: ""
+        }
+        label {
+            en: "File Transfer Init Timeout"
+            zh: ""
+        }
+    }
+
+    assemble_timeout {
+        desc {
+            en: "Timeout for assembling and exporting file segments into a final file.<br/>"
+                "After reaching the timeout, `fin` message will be acked with an error"
+            zh: ""
+        }
+        label {
+            en: "File Assemble Timeout"
+            zh: ""
+        }
+    }
+
+    store_segment_timeout {
+        desc {
+            en: "Timeout for storing a file segment.<br/>"
+                "After reaching the timeout, message with the segment will be acked with an error"
+            zh: ""
+        }
+        label {
+            en: "Store Segment Timeout"
+            zh: ""
+        }
+    }
+
     storage {
         desc {
             en: "Storage settings for file transfer."
