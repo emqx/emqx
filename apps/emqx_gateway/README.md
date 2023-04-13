@@ -1,6 +1,6 @@
 # Gateway
 
-EMQX Gateway is an application that managing all gateways in EMQX.
+EMQX Gateway is an application framework that manages all gateways within EMQX.
 
 It provides a set of standards to define how to implement a certain type of
 protocol access on EMQX. For example:
