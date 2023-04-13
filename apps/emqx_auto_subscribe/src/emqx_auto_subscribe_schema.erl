@@ -40,8 +40,7 @@ fields("auto_subscribe") ->
                 ?ARRAY(?R_REF("topic")),
                 #{
                     desc => ?DESC(auto_subscribe),
-                    default => [],
-                    importance => ?IMPORTANCE_HIDDEN
+                    default => []
                 }
             )}
     ];
@@ -51,31 +50,26 @@ fields("topic") ->
             ?HOCON(binary(), #{
                 required => true,
                 example => topic_example(),
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("topic")
             })},
         {qos,
             ?HOCON(emqx_schema:qos(), #{
                 default => 0,
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("qos")
             })},
         {rh,
             ?HOCON(range(0, 2), #{
                 default => 0,
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("rh")
             })},
         {rap,
             ?HOCON(range(0, 1), #{
                 default => 0,
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC("rap")
             })},
         {nl,
             ?HOCON(range(0, 1), #{
                 default => 0,
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(nl)
             })}
     ].
