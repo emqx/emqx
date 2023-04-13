@@ -66,6 +66,11 @@
 -define(BATCH_INSERT_PART, batch_insert_part).
 -define(BATCH_PARAMS_TOKENS, batch_insert_tks).
 
+-define(FILE_MODE_755, 33261).
+%% 32768 + 8#00400 + 8#00200 + 8#00100 + 8#00040 + 8#00010 + 8#00004 + 8#00001
+%% See also
+%% https://www.erlang.org/doc/man/file.html#read_file_info-2
+
 %% Copied from odbc reference page
 %% https://www.erlang.org/doc/man/odbc.html
 
@@ -190,11 +195,11 @@ on_start(
     ODBCDir = code:priv_dir(odbc),
     OdbcserverDir = filename:join(ODBCDir, "bin/odbcserver"),
     {ok, Info = #file_info{mode = Mode}} = file:read_file_info(OdbcserverDir),
-    case 33261 =:= Mode of
+    case ?FILE_MODE_755 =:= Mode of
         true ->
             ok;
         false ->
-            _ = file:write_file_info(OdbcserverDir, Info#file_info{mode = 33261}),
+            _ = file:write_file_info(OdbcserverDir, Info#file_info{mode = ?FILE_MODE_755}),
             ok
     end,
 
