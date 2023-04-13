@@ -84,10 +84,10 @@ t_decode_encode(_) ->
     1.25 = decode(encode(1.25)),
     [] = decode(encode([])),
     [true, 1] = decode(encode([true, 1])),
-    [{}] = decode(encode([{}])),
-    [{<<"foo">>, <<"bar">>}] = decode(encode([{foo, bar}])),
-    [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}])),
-    [[{<<"foo">>, <<"bar">>}]] = decode(encode([[{<<"foo">>, <<"bar">>}]])),
+    [{}] = decode(encode([{}]), []),
+    [{<<"foo">>, <<"bar">>}] = decode(encode([{foo, bar}]), []),
+    [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}]), []),
+    [[{<<"foo">>, <<"bar">>}]] = decode(encode([[{<<"foo">>, <<"bar">>}]]), []),
     [
         [
             {<<"foo">>, <<"bar">>},
@@ -101,7 +101,8 @@ t_decode_encode(_) ->
                 {<<"a">>, <<"b">>}
             ],
             [{<<"x">>, <<"y">>}]
-        ])
+        ]),
+        []
     ),
     #{<<"foo">> := <<"bar">>} = decode(encode(#{<<"foo">> => <<"bar">>}), [return_maps]),
     JsonText = <<"{\"bool\":true,\"int\":10,\"foo\":\"bar\"}">>,
@@ -110,8 +111,12 @@ t_decode_encode(_) ->
         <<"int">> => 10,
         <<"foo">> => <<"bar">>
     },
-    ?assertEqual(JsonText, encode({decode(JsonText)})),
-    ?assertEqual(JsonMaps, decode(JsonText, [return_maps])).
+    ?assertEqual(JsonText, encode({decode(JsonText, [])})),
+    ?assertEqual(JsonMaps, decode(JsonText, [return_maps])),
+    ?assertEqual(
+        #{<<"foo">> => #{<<"bar">> => <<"baz">>}},
+        decode(encode(#{<<"foo">> => [{<<"bar">>, <<"baz">>}]}))
+    ).
 
 t_safe_decode_encode(_) ->
     safe_encode_decode(null),
@@ -123,7 +128,7 @@ t_safe_decode_encode(_) ->
     1.25 = safe_encode_decode(1.25),
     [] = safe_encode_decode([]),
     [true, 1] = safe_encode_decode([true, 1]),
-    [{}] = decode(encode([{}])),
+    [{}] = decode(encode([{}]), []),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{foo, bar}]),
     [{<<"foo">>, <<"bar">>}] = safe_encode_decode([{<<"foo">>, <<"bar">>}]),
     [[{<<"foo">>, <<"bar">>}]] = safe_encode_decode([[{<<"foo">>, <<"bar">>}]]),
@@ -132,7 +137,7 @@ t_safe_decode_encode(_) ->
 
 safe_encode_decode(Term) ->
     {ok, Json} = emqx_utils_json:safe_encode(Term),
-    case emqx_utils_json:safe_decode(Json) of
+    case emqx_utils_json:safe_decode(Json, []) of
         {ok, {NTerm}} -> NTerm;
         {ok, NTerm} -> NTerm
     end.

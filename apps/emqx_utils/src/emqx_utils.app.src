@@ -14,7 +14,8 @@
     {registered, []},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        jiffy
     ]},
     {env, []},
     {licenses, ["Apache-2.0"]},

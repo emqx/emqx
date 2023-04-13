@@ -152,7 +152,7 @@ object_resource_id(BaseName) ->
 value(Value, ResourceId, ObjDefinition) ->
     case emqx_lwm2m_xml_object:get_resource_type(ResourceId, ObjDefinition) of
         "String" ->
-            % keep binary type since it is same as a string for jsx
+            % keep binary type since it is same as a string for emqx_utils_json
             Value;
         "Integer" ->
             Size = byte_size(Value) * 8,

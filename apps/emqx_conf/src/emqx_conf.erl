@@ -166,7 +166,7 @@ gen_schema_json(Dir, I18nFile, SchemaModule, Lang) ->
     io:format(user, "===< Including fields from importance level: ~p~n", [IncludeImportance]),
     Opts = #{desc_file => I18nFile, lang => Lang, include_importance_up_from => IncludeImportance},
     JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
-    IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
+    IoData = emqx_utils_json:encode(JsonMap, [pretty, force_utf8]),
     ok = file:write_file(SchemaJsonFile, IoData).
 
 gen_api_schema_json(Dir, I18nFile, Lang) ->
@@ -268,13 +268,13 @@ do_gen_api_schema_json(File, SchemaMod, SchemaInfo) ->
         ApiSpec0
     ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    IoData = jsx:encode(
+    IoData = emqx_utils_json:encode(
         #{
             info => SchemaInfo,
             paths => ApiSpec,
             components => #{schemas => Components}
         },
-        [space, {indent, 4}]
+        [pretty, force_utf8]
     ),
     file:write_file(File, IoData).
 

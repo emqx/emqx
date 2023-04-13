@@ -157,7 +157,7 @@ api_path_without_base_path(Parts) ->
 %%
 %% Usage with RequestData:
 %% Payload = [{upload_type, <<"user_picture">>}],
-%% PayloadContent = jsx:encode(Payload),
+%% PayloadContent = emqx_utils_json:encode(Payload),
 %% RequestData = [
 %%     {<<"payload">>, PayloadContent}
 %% ]

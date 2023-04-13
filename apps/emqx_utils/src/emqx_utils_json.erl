@@ -65,7 +65,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    to_binary(emqx_utils_json:encode(to_ejson(Term), Opts)).
+    to_binary(jiffy:encode(to_ejson(Term), Opts)).
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -87,7 +87,7 @@ decode(Json) -> decode(Json, [return_maps]).
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
-    from_ejson(emqx_utils_json:decode(Json, Opts)).
+    from_ejson(jiffy:decode(Json, Opts)).
 
 -spec safe_decode(json_text()) ->
     {ok, json_term()} | {error, Reason :: term()}.
@@ -125,6 +125,8 @@ to_ejson([{_, _} | _] = L) ->
     {[{K, to_ejson(V)} || {K, V} <- L]};
 to_ejson(L) when is_list(L) ->
     [to_ejson(E) || E <- L];
+to_ejson(M) when is_map(M) ->
+    maps:map(fun(_K, V) -> to_ejson(V) end, M);
 to_ejson(T) ->
     T.
 

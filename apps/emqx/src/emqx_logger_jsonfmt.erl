@@ -62,11 +62,11 @@
 %% The JSON object is pretty-printed.
 %% NOTE: do not use this function for logging.
 best_effort_json(Input) ->
-    best_effort_json(Input, [space, {indent, 4}]).
+    best_effort_json(Input, [pretty]).
 best_effort_json(Input, Opts) ->
     Config = #{depth => unlimited, single_line => true},
     JsonReady = best_effort_json_obj(Input, Config),
-    jsx:encode(JsonReady, Opts).
+    emqx_utils_json:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map(Config0) ->

@@ -477,7 +477,7 @@ copy_certs(_, _) ->
 load_config(SchemaModule, Config, Opts) ->
     ConfigBin =
         case is_map(Config) of
-            true -> jsx:encode(Config);
+            true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
