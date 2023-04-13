@@ -49,12 +49,10 @@ clients.
 ### Raw Erlang Application
 
 This approach is the same as in EMQX 4.x. You need to implement an Erlang application,
-which is packaged in EMQX as a [Plugin](todo) or as a source code dependency.
+which is packaged in EMQX as a Plugin or as a source code dependency.
 In this approach, you do not need to respect any specifications of emqx_gateway,
 and you can freely implement the features you need.
 
-
-Steps guide: [Implement Gateway via Raw Application](doc/implement_gateway_via_raw_appliction.md)
 
 ### Respect emqx_gateway framework
 
@@ -67,8 +65,6 @@ This is the approach we recommend. In this approach, your implementation can be 
 by the emqx_gateway framework, even if it may require you to understand more details about it.
 
 
-Steps guide: [Implement Gateway via Gateway framework](doc/implement_gateway_via_gateway_framekwork.md)
-
 ### Use ExProto Gateway (Non-Erlang developers)
 
 If you want to implement your gateway using other programming languages such as
@@ -77,11 +73,6 @@ Java, Python, Go, etc.
 You need to implement a gRPC service in the other programming language to parse
 your device protocol and integrate it with EMQX.
 
-Refer to: [ExProto Gateway](../emqx_exproto/README.md)
-
-## Understand emqx_gateway framework
-
-*WIP*
 
 ## Contributing
 
@@ -89,4 +80,4 @@ Please see our [contributing.md](../../CONTRIBUTING.md).
 
 ## License
 
-See [LICENSE](../../LICENSE)
+See [LICENSE](../../APL.txt)
