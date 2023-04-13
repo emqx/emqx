@@ -1190,11 +1190,11 @@ To flush events, the handler discards the buffered log messages without logging.
   log_overload_kill_restart_after {
     desc {
       en: """The handler restarts automatically after a delay in the event of termination, unless the value `infinity` is set, which blocks any subsequent restarts."""
-      zh: """如果处理进程终止，它会在以指定的时间后后自动重新启动。 `infinity` 不自动重启。"""
+      zh: """处理进程停止后，会在该延迟时间后自动重新启动。除非该值设置为 <code>infinity</code>，这会阻止任何后续的重启。"""
     }
     label {
       en: "Handler Restart Timer"
-      zh: "处理进程重启机制"
+      zh: "处理进程重启延迟"
     }
   }
 
