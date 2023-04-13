@@ -21,6 +21,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 -export([
     publish/1,
@@ -54,13 +55,10 @@
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--include("emqx_trace.hrl").
-
 -ifdef(TEST).
 -export([
     log_file/2,
-    find_closest_time/2,
-    migrate_trace/0
+    find_closest_time/2
 ]).
 -endif.
 
@@ -151,7 +149,7 @@ list(Enable) ->
     | {error,
         {duplicate_condition, iodata()}
         | {already_existed, iodata()}
-        | {error, {bad_type, any()}}
+        | {bad_type, any()}
         | iodata()}.
 create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
@@ -227,15 +225,16 @@ format(Traces) ->
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
+    Fields = record_info(fields, ?TRACE),
     ok = mria:create_table(?TRACE, [
         {type, set},
         {rlog_shard, ?SHARD},
         {storage, disc_copies},
         {record_name, ?TRACE},
-        {attributes, record_info(fields, ?TRACE)}
+        {attributes, Fields}
     ]),
     ok = mria:wait_for_tables([?TRACE]),
-    migrate_trace(),
+    maybe_migrate_trace(Fields),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     ok = filelib:ensure_dir(filename:join([trace_dir(), dummy])),
     ok = filelib:ensure_dir(filename:join([zip_dir(), dummy])),
@@ -583,8 +582,7 @@ filter_cli_handler(Names) ->
 now_second() ->
     os:system_time(second).
 
-migrate_trace() ->
-    Fields = record_info(fields, ?TRACE),
+maybe_migrate_trace(Fields) ->
     case mnesia:table_info(emqx_trace, attributes) =:= Fields of
         true ->
             ok;

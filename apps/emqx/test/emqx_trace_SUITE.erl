@@ -22,11 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--record(emqx_trace, {
-    name, type, filter, enable = true, payload_encode = text, extra = #{}, start_at, end_at
-}).
 
 %%--------------------------------------------------------------------
 %% Setups
