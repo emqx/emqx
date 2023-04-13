@@ -43,7 +43,7 @@ gateway.stomp {
 
 ## How to develop your Gateway application
 
-There are three ways to develop Gateway application to accept your private protocol
+There are three ways to develop a Gateway application to accept your private protocol
 clients.
 
 ### Raw Erlang Application
