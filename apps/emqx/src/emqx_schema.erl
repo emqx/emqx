@@ -186,7 +186,7 @@ roots(medium) ->
         {"overload_protection",
             sc(
                 ref("overload_protection"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 roots(low) ->
@@ -224,7 +224,7 @@ roots(low) ->
         {"persistent_session_store",
             sc(
                 ref("persistent_session_store"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"trace",
             sc(

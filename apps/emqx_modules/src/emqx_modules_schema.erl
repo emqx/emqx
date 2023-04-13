@@ -34,8 +34,14 @@ roots() ->
     [
         "delayed",
         "telemetry",
-        array("rewrite", #{desc => "List of topic rewrite rules."}),
-        array("topic_metrics", #{desc => "List of topics whose metrics are reported."})
+        array("rewrite", #{
+            desc => "List of topic rewrite rules.",
+            importance => ?IMPORTANCE_HIDDEN
+        }),
+        array("topic_metrics", #{
+            desc => "List of topics whose metrics are reported.",
+            importance => ?IMPORTANCE_HIDDEN
+        })
     ].
 
 fields("telemetry") ->
