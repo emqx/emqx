@@ -44,7 +44,7 @@
 % DB defaults
 -define(SQL_SERVER_DATABASE, "mqtt").
 -define(SQL_SERVER_USERNAME, "sa").
--define(SQL_SERVER_PASSWORD, "mqtt_public").
+-define(SQL_SERVER_PASSWORD, "mqtt_public1").
 -define(BATCH_SIZE, 10).
 -define(REQUEST_TIMEOUT_MS, 500).
 
@@ -56,7 +56,7 @@
     ok = disconnect(Con)
 ).
 
-%% How to run it locally:
+%% How to run it locally (all commands are run in $PROJ_ROOT dir):
 %%   A: run ct on host
 %%     1. Start all deps services
 %%       sudo docker compose -f .ci/docker-compose-file/docker-compose.yaml \
@@ -65,7 +65,7 @@
 %%                           up --build
 %%
 %%     2. Run use cases with special environment variables
-%%       11433 is toxiproxy exported port
+%%       11433 is toxiproxy exported port.
 %%       Local:
 %%       ```
 %%       SQLSERVER_HOST=toxiproxy SQLSERVER_PORT=11433 \
@@ -239,6 +239,32 @@ t_create_disconnected(Config) ->
         health_check_resource_down(Config)
     end),
     health_check_resource_ok(Config),
+    ok.
+
+t_create_with_invalid_password(Config) ->
+    BridgeType = ?config(sqlserver_bridge_type, Config),
+    Name = ?config(sqlserver_name, Config),
+    SQLServerConfig0 = ?config(sqlserver_config, Config),
+    SQLServerConfig = SQLServerConfig0#{
+        <<"name">> => Name,
+        <<"type">> => BridgeType,
+        <<"password">> => <<"wrong_password">>
+    },
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                create_bridge_http(SQLServerConfig)
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := {start_pool_failed, _, _}}],
+                ?of_kind(sqlserver_connector_start_failed, Trace)
+            ),
+            ok
+        end
+    ),
     ok.
 
 t_write_failure(Config) ->
