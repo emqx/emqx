@@ -88,8 +88,8 @@
 -define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
 -define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
 
--define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024).
--define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
+-define(DEFAULT_QUEUE_SIZE, 256 * 1024 * 1024).
+-define(DEFAULT_QUEUE_SIZE_RAW, <<"256MB">>).
 
 -define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(15)).
 
