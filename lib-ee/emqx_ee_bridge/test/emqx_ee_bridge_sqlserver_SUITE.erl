@@ -489,7 +489,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
     Name = ?config(sqlserver_name, Config),
     SSConfig0 = ?config(sqlserver_config, Config),
-    SSConfig = emqx_map_lib:deep_merge(SSConfig0, Overrides),
+    SSConfig = emqx_utils_maps:deep_merge(SSConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, SSConfig).
 
 delete_bridge(Config) ->
