@@ -40,6 +40,7 @@ fields("resource_opts") ->
     ];
 fields("creation_opts") ->
     [
+        {queue_mode, fun queue_mode/1},
         {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
         {resume_interval, fun resume_interval/1},
@@ -53,7 +54,8 @@ fields("creation_opts") ->
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
         {enable_queue, fun enable_queue/1},
-        {max_queue_bytes, fun max_queue_bytes/1}
+        {max_queue_bytes, fun max_queue_bytes/1},
+        {queue_seg_bytes, fun queue_seg_bytes/1}
     ].
 
 resource_opts_meta() ->
@@ -148,5 +150,18 @@ max_queue_bytes(desc) -> ?DESC("max_queue_bytes");
 max_queue_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
 max_queue_bytes(required) -> false;
 max_queue_bytes(_) -> undefined.
+
+queue_mode(type) -> enum([memory_only, volatile_offload]);
+queue_mode(desc) -> ?DESC("queue_mode");
+queue_mode(default) -> memory_only;
+queue_mode(required) -> false;
+queue_mode(importance) -> ?IMPORTANCE_HIDDEN;
+queue_mode(_) -> undefined.
+
+queue_seg_bytes(type) -> emqx_schema:bytesize();
+queue_seg_bytes(desc) -> ?DESC("queue_seg_bytes");
+queue_seg_bytes(required) -> false;
+queue_seg_bytes(importance) -> ?IMPORTANCE_HIDDEN;
+queue_seg_bytes(_) -> undefined.
 
 desc("creation_opts") -> ?DESC("creation_opts").

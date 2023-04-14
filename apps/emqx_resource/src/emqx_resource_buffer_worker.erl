@@ -178,20 +178,7 @@ init({Id, Index, Opts}) ->
     process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Id, {Id, Index}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
-    SegBytes0 = maps:get(queue_seg_bytes, Opts, ?DEFAULT_QUEUE_SEG_SIZE),
-    TotalBytes = maps:get(max_queue_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
-    SegBytes = min(SegBytes0, TotalBytes),
-    QueueOpts =
-        #{
-            dir => disk_queue_dir(Id, Index),
-            marshaller => fun ?MODULE:queue_item_marshaller/1,
-            max_total_bytes => TotalBytes,
-            %% we don't want to retain the queue after
-            %% resource restarts.
-            offload => {true, volatile},
-            seg_bytes => SegBytes,
-            sizer => fun ?MODULE:estimate_size/1
-        },
+    QueueOpts = replayq_opts(Id, Index, Opts),
     Queue = replayq:open(QueueOpts),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Queue)),
     emqx_resource_metrics:inflight_set(Id, Index, 0),
@@ -214,7 +201,7 @@ init({Id, Index, Opts}) ->
         resume_interval => ResumeInterval,
         tref => undefined
     },
-    ?tp(buffer_worker_init, #{id => Id, index => Index}),
+    ?tp(buffer_worker_init, #{id => Id, index => Index, queue_opts => QueueOpts}),
     {ok, running, Data}.
 
 running(enter, _, #{tref := _Tref} = Data) ->
@@ -1678,6 +1665,32 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
             ok
     end,
     BatchTime.
+
+replayq_opts(Id, Index, Opts) ->
+    QueueMode = maps:get(queue_mode, Opts, memory_only),
+    TotalBytes = maps:get(max_queue_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
+    case QueueMode of
+        memory_only ->
+            #{
+                mem_only => true,
+                marshaller => fun ?MODULE:queue_item_marshaller/1,
+                max_total_bytes => TotalBytes,
+                sizer => fun ?MODULE:estimate_size/1
+            };
+        volatile_offload ->
+            SegBytes0 = maps:get(queue_seg_bytes, Opts, TotalBytes),
+            SegBytes = min(SegBytes0, TotalBytes),
+            #{
+                dir => disk_queue_dir(Id, Index),
+                marshaller => fun ?MODULE:queue_item_marshaller/1,
+                max_total_bytes => TotalBytes,
+                %% we don't want to retain the queue after
+                %% resource restarts.
+                offload => {true, volatile},
+                seg_bytes => SegBytes,
+                sizer => fun ?MODULE:estimate_size/1
+            }
+    end.
 
 %% The request timeout should be greater than the resume interval, as
 %% it defines how often the buffer worker tries to unblock. If request

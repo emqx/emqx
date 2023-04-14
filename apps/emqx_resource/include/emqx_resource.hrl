@@ -85,9 +85,6 @@
 
 -define(WORKER_POOL_SIZE, 16).
 
--define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
--define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
-
 -define(DEFAULT_QUEUE_SIZE, 256 * 1024 * 1024).
 -define(DEFAULT_QUEUE_SIZE_RAW, <<"256MB">>).
 
