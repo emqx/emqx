@@ -1,10 +1,10 @@
-# emqx_utils - Erlang utility library for EMQ X
+# Erlang utility library for EMQX
 
 ## Overview
 
-`emqx_utils` is a collection of utility functions for EMQ X, organized into
+`emqx_utils` is a collection of utility functions for EMQX, organized into
 several modules. It provides various functionalities to make it easier to work
-with EMQ X, such as binary manipulations, maps, JSON en- and decoding, ets table
+with EMQX, such as binary manipulations, maps, JSON en- and decoding, ets table
 handling, data conversions, and more.
 
 ## Features

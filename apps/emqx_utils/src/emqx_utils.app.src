@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_utils, [
-    {description, "An OTP application"},
+    {description, "Miscellaneous utilities for EMQX apps"},
     % strict semver, bump manually!
     {vsn, "5.0.0"},
     {modules, [
