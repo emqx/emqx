@@ -147,7 +147,10 @@ t_check(_) ->
     [self() ! {msg, I} || I <- lists:seq(1, 5)],
     ?assertEqual(ok, emqx_utils:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
-    ?assertEqual({shutdown, message_queue_too_long}, emqx_utils:check_oom(Policy)).
+    ?assertEqual(
+        {shutdown, #{reason => message_queue_too_long, value => 11, max => 10}},
+        emqx_utils:check_oom(Policy)
+    ).
 
 drain() ->
     drain([]).
