@@ -210,6 +210,7 @@ binary_string_kv(K, V, JsonableFun) ->
         {K1, V1} -> {binary_string(K1), V1}
     end.
 
+%% [FIXME] this doesn't belong here
 binary_string([]) ->
     [];
 binary_string(Val) when is_list(Val) ->
