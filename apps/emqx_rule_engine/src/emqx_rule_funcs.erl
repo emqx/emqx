@@ -1087,12 +1087,7 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
     ).
 
 date_to_unix_ts(TimeUnit, FormatString, InputString) ->
-    emqx_rule_date:parse_date(
-        time_unit(TimeUnit),
-        "Z",
-        emqx_plugin_libs_rule:str(FormatString),
-        emqx_plugin_libs_rule:str(InputString)
-    ).
+    date_to_unix_ts(TimeUnit, "Z", FormatString, InputString).
 
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     emqx_rule_date:parse_date(
