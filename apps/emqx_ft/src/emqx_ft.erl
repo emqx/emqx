@@ -81,9 +81,6 @@
 
 -type segment() :: {offset(), _Content :: binary()}.
 
--define(STORE_SEGMENT_TIMEOUT, 10000).
--define(ASSEMBLE_TIMEOUT, 300000).
-
 %%--------------------------------------------------------------------
 %% API for app
 %%--------------------------------------------------------------------
@@ -212,7 +209,7 @@ on_init(PacketId, Msg, Transfer, Meta) ->
     Callback = fun(Result) ->
         ?MODULE:on_complete("store_filemeta", PacketKey, Transfer, Result)
     end,
-    with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
+    with_responder(PacketKey, Callback, emqx_ft_conf:init_timeout(), fun() ->
         case store_filemeta(Transfer, Meta) of
             % Stored, ack through the responder right away
             ok ->
@@ -245,7 +242,7 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
     Callback = fun(Result) ->
         ?MODULE:on_complete("store_segment", PacketKey, Transfer, Result)
     end,
-    with_responder(PacketKey, Callback, ?STORE_SEGMENT_TIMEOUT, fun() ->
+    with_responder(PacketKey, Callback, emqx_ft_conf:store_segment_timeout(), fun() ->
         case store_segment(Transfer, Segment) of
             ok ->
                 emqx_ft_responder:ack(PacketKey, ok);
@@ -271,7 +268,7 @@ on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
     Callback = fun(Result) ->
         ?MODULE:on_complete("assemble", FinPacketKey, Transfer, Result)
     end,
-    with_responder(FinPacketKey, Callback, ?ASSEMBLE_TIMEOUT, fun() ->
+    with_responder(FinPacketKey, Callback, emqx_ft_conf:assemble_timeout(), fun() ->
         case assemble(Transfer, FinalSize) of
             %% Assembling completed, ack through the responder right away
             % ok ->

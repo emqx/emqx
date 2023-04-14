@@ -46,6 +46,33 @@ roots() -> [file_transfer].
 
 fields(file_transfer) ->
     [
+        {init_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    desc => ?DESC("init_timeout"),
+                    required => false,
+                    default => "10s"
+                }
+            )},
+        {store_segment_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    desc => ?DESC("store_segment_timeout"),
+                    required => false,
+                    default => "5m"
+                }
+            )},
+        {assemble_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    desc => ?DESC("assemble_timeout"),
+                    required => false,
+                    default => "5m"
+                }
+            )},
         {storage,
             mk(
                 hoconsc:union([

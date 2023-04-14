@@ -199,10 +199,12 @@ format(#{aws_config := AwsConfig} = Client) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-upload_options(Config) ->
+upload_options(#{acl := Acl}) when Acl =/= undefined ->
     [
-        {acl, maps:get(acl, Config)}
-    ].
+        {acl, Acl}
+    ];
+upload_options(#{}) ->
+    [].
 
 headers(#{headers := Headers}) ->
     headers_user_to_erlcloud_request(Headers);
