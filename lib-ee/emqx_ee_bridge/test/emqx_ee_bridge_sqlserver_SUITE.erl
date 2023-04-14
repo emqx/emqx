@@ -398,7 +398,7 @@ common_init(ConfigT) ->
         {sqlserver_port, Port},
         %% see also for `proxy_name` : $PROJ_ROOT/.ci/docker-compose-file/toxiproxy.json
         {proxy_name, "sqlserver"},
-        {batch_size, ?BATCH_SIZE}
+        {batch_size, batch_size(ConfigT)}
         | ConfigT
     ],
 
