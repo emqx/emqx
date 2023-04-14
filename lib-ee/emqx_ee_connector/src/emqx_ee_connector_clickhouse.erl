@@ -139,7 +139,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_clickhouse_connector",
         connector => InstanceID,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
     PoolName = emqx_plugin_libs_pool:pool_name(InstanceID),
     Options = [
@@ -181,7 +181,7 @@ log_start_error(Config, Reason, Stacktrace) ->
         #{
             msg => "clickhouse_connector_start_failed",
             error_reason => Reason,
-            config => emqx_misc:redact(Config)
+            config => emqx_utils:redact(Config)
         },
     ?SLOG(info, maps:merge(LogMessage, StacktraceMap)),
     ?tp(
@@ -318,7 +318,7 @@ do_get_status(PoolName, Timeout) ->
                     Error
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->

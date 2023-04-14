@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_misc_SUITE).
+-module(emqx_utils_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -32,7 +32,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_merge_opts(_) ->
-    Opts = emqx_misc:merge_opts(?SOCKOPTS, [
+    Opts = emqx_utils:merge_opts(?SOCKOPTS, [
         raw,
         binary,
         {backlog, 1024},
@@ -57,58 +57,59 @@ t_merge_opts(_) ->
     ).
 
 t_maybe_apply(_) ->
-    ?assertEqual(undefined, emqx_misc:maybe_apply(fun(A) -> A end, undefined)),
-    ?assertEqual(a, emqx_misc:maybe_apply(fun(A) -> A end, a)).
+    ?assertEqual(undefined, emqx_utils:maybe_apply(fun(A) -> A end, undefined)),
+    ?assertEqual(a, emqx_utils:maybe_apply(fun(A) -> A end, a)).
 
 t_run_fold(_) ->
-    ?assertEqual(1, emqx_misc:run_fold([], 1, state)),
+    ?assertEqual(1, emqx_utils:run_fold([], 1, state)),
     Add = fun(I, St) -> I + St end,
     Mul = fun(I, St) -> I * St end,
-    ?assertEqual(6, emqx_misc:run_fold([Add, Mul], 1, 2)).
+    ?assertEqual(6, emqx_utils:run_fold([Add, Mul], 1, 2)).
 
 t_pipeline(_) ->
-    ?assertEqual({ok, input, state}, emqx_misc:pipeline([], input, state)),
+    ?assertEqual({ok, input, state}, emqx_utils:pipeline([], input, state)),
     Funs = [
         fun(_I, _St) -> ok end,
         fun(_I, St) -> {ok, St + 1} end,
         fun(I, St) -> {ok, I + 1, St + 1} end,
         fun(I, St) -> {ok, I * 2, St * 2} end
     ],
-    ?assertEqual({ok, 4, 6}, emqx_misc:pipeline(Funs, 1, 1)),
+    ?assertEqual({ok, 4, 6}, emqx_utils:pipeline(Funs, 1, 1)),
     ?assertEqual(
-        {error, undefined, 1}, emqx_misc:pipeline([fun(_I) -> {error, undefined} end], 1, 1)
+        {error, undefined, 1}, emqx_utils:pipeline([fun(_I) -> {error, undefined} end], 1, 1)
     ),
     ?assertEqual(
-        {error, undefined, 2}, emqx_misc:pipeline([fun(_I, _St) -> {error, undefined, 2} end], 1, 1)
+        {error, undefined, 2},
+        emqx_utils:pipeline([fun(_I, _St) -> {error, undefined, 2} end], 1, 1)
     ).
 
 t_start_timer(_) ->
-    TRef = emqx_misc:start_timer(1, tmsg),
+    TRef = emqx_utils:start_timer(1, tmsg),
     timer:sleep(2),
     ?assertEqual([{timeout, TRef, tmsg}], drain()),
-    ok = emqx_misc:cancel_timer(TRef).
+    ok = emqx_utils:cancel_timer(TRef).
 
 t_cancel_timer(_) ->
-    Timer = emqx_misc:start_timer(0, foo),
-    ok = emqx_misc:cancel_timer(Timer),
+    Timer = emqx_utils:start_timer(0, foo),
+    ok = emqx_utils:cancel_timer(Timer),
     ?assertEqual([], drain()),
-    ok = emqx_misc:cancel_timer(undefined).
+    ok = emqx_utils:cancel_timer(undefined).
 
 t_proc_name(_) ->
-    ?assertEqual(emqx_pool_1, emqx_misc:proc_name(emqx_pool, 1)).
+    ?assertEqual(emqx_pool_1, emqx_utils:proc_name(emqx_pool, 1)).
 
 t_proc_stats(_) ->
     Pid1 = spawn(fun() -> exit(normal) end),
     timer:sleep(10),
-    ?assertEqual([], emqx_misc:proc_stats(Pid1)),
+    ?assertEqual([], emqx_utils:proc_stats(Pid1)),
     Pid2 = spawn(fun() ->
-        ?assertMatch([{mailbox_len, 0} | _], emqx_misc:proc_stats()),
+        ?assertMatch([{mailbox_len, 0} | _], emqx_utils:proc_stats()),
         timer:sleep(200)
     end),
     timer:sleep(10),
     Pid2 ! msg,
     timer:sleep(10),
-    ?assertMatch([{mailbox_len, 1} | _], emqx_misc:proc_stats(Pid2)).
+    ?assertMatch([{mailbox_len, 1} | _], emqx_utils:proc_stats(Pid2)).
 
 t_drain_deliver(_) ->
     self() ! {deliver, t1, m1},
@@ -118,24 +119,24 @@ t_drain_deliver(_) ->
             {deliver, t1, m1},
             {deliver, t2, m2}
         ],
-        emqx_misc:drain_deliver(2)
+        emqx_utils:drain_deliver(2)
     ).
 
 t_drain_down(_) ->
     {Pid1, _Ref1} = erlang:spawn_monitor(fun() -> ok end),
     {Pid2, _Ref2} = erlang:spawn_monitor(fun() -> ok end),
     timer:sleep(100),
-    ?assertEqual([Pid1, Pid2], lists:sort(emqx_misc:drain_down(2))),
-    ?assertEqual([], emqx_misc:drain_down(1)).
+    ?assertEqual([Pid1, Pid2], lists:sort(emqx_utils:drain_down(2))),
+    ?assertEqual([], emqx_utils:drain_down(1)).
 
 t_index_of(_) ->
-    try emqx_misc:index_of(a, []) of
+    try emqx_utils:index_of(a, []) of
         _ -> ct:fail(should_throw_error)
     catch
         error:Reason ->
             ?assertEqual(badarg, Reason)
     end,
-    ?assertEqual(3, emqx_misc:index_of(a, [b, c, a, e, f])).
+    ?assertEqual(3, emqx_utils:index_of(a, [b, c, a, e, f])).
 
 t_check(_) ->
     Policy = #{
@@ -144,11 +145,11 @@ t_check(_) ->
         enable => true
     },
     [self() ! {msg, I} || I <- lists:seq(1, 5)],
-    ?assertEqual(ok, emqx_misc:check_oom(Policy)),
+    ?assertEqual(ok, emqx_utils:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
     ?assertEqual(
         {shutdown, #{reason => message_queue_too_long, value => 11, max => 10}},
-        emqx_misc:check_oom(Policy)
+        emqx_utils:check_oom(Policy)
     ).
 
 drain() ->
@@ -162,22 +163,22 @@ drain(Acc) ->
     end.
 
 t_rand_seed(_) ->
-    ?assert(is_tuple(emqx_misc:rand_seed())).
+    ?assert(is_tuple(emqx_utils:rand_seed())).
 
 t_now_to_secs(_) ->
-    ?assert(is_integer(emqx_misc:now_to_secs(os:timestamp()))).
+    ?assert(is_integer(emqx_utils:now_to_secs(os:timestamp()))).
 
 t_now_to_ms(_) ->
-    ?assert(is_integer(emqx_misc:now_to_ms(os:timestamp()))).
+    ?assert(is_integer(emqx_utils:now_to_ms(os:timestamp()))).
 
 t_gen_id(_) ->
-    ?assertEqual(10, length(emqx_misc:gen_id(10))),
-    ?assertEqual(20, length(emqx_misc:gen_id(20))).
+    ?assertEqual(10, length(emqx_utils:gen_id(10))),
+    ?assertEqual(20, length(emqx_utils:gen_id(20))).
 
 t_pmap_normal(_) ->
     ?assertEqual(
         [5, 7, 9],
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun({A, B}) -> A + B end,
             [{2, 3}, {3, 4}, {4, 5}]
         )
@@ -186,7 +187,7 @@ t_pmap_normal(_) ->
 t_pmap_timeout(_) ->
     ?assertExit(
         timeout,
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun
                 (timeout) -> ct:sleep(1000);
                 ({A, B}) -> A + B
@@ -199,7 +200,7 @@ t_pmap_timeout(_) ->
 t_pmap_exception(_) ->
     ?assertError(
         foobar,
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun
                 (error) -> error(foobar);
                 ({A, B}) -> A + B

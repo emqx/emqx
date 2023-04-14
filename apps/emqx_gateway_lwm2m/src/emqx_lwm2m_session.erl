@@ -386,11 +386,11 @@ is_alternate_path(LinkAttrs) ->
         LinkAttrs
     ).
 
-trim(Str) -> binary_util:trim(Str, $\s).
+trim(Str) -> emqx_utils_binary:trim(Str, $\s).
 
 delink(Str) ->
-    Ltrim = binary_util:ltrim(Str, $<),
-    binary_util:rtrim(Ltrim, $>).
+    Ltrim = emqx_utils_binary:ltrim(Str, $<),
+    emqx_utils_binary:rtrim(Ltrim, $>).
 
 get_lifetime(#{<<"lt">> := LT}) ->
     case LT of
@@ -737,7 +737,7 @@ proto_publish(
         Epn,
         Qos,
         MountedTopic,
-        emqx_json:encode(Payload),
+        emqx_utils_json:encode(Payload),
         #{},
         Headers
     ),
@@ -786,7 +786,7 @@ deliver_to_coap(AlternatePath, JsonData, MQTT, CacheMode, WithContext, Session) 
     is_binary(JsonData)
 ->
     try
-        TermData = emqx_json:decode(JsonData, [return_maps]),
+        TermData = emqx_utils_json:decode(JsonData, [return_maps]),
         deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session)
     catch
         ExClass:Error:ST ->

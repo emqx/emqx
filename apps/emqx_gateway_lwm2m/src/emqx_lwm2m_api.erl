@@ -227,7 +227,7 @@ to_operations(Obj, ObjDefinition) ->
     }.
 
 path_list(Path) ->
-    case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(Path, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, ResId, ResInstId] -> [ObjId, ObjInsId, ResId, ResInstId];
         [ObjId, ObjInsId, ResId] -> [ObjId, ObjInsId, ResId];
         [ObjId, ObjInsId] -> [ObjId, ObjInsId];

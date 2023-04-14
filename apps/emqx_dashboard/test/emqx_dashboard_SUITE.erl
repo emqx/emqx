@@ -142,7 +142,7 @@ t_swagger_json(_Config) ->
     %% with auth
     Auth = auth_header_(<<"admin">>, <<"public_www1">>),
     {ok, 200, Body1} = request_api(get, Url, Auth),
-    ?assert(jsx:is_json(Body1)),
+    ?assert(emqx_utils_json:is_json(Body1)),
     %% without auth
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
         httpc:request(get, {Url, []}, [], [{body_format, binary}]),
@@ -246,5 +246,5 @@ api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
+    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
     Jsx.

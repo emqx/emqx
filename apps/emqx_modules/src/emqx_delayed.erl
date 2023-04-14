@@ -328,7 +328,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, #{stats_timer := StatsTimer} = State) ->
     emqx_conf:remove_handler([delayed]),
-    emqx_misc:cancel_timer(StatsTimer),
+    emqx_utils:cancel_timer(StatsTimer),
     do_load_or_unload(false, State).
 
 code_change(_Vsn, State, _Extra) ->
@@ -370,14 +370,14 @@ ensure_publish_timer({Ts, _Id}, State = #{publish_timer := undefined}) ->
 ensure_publish_timer({Ts, _Id}, State = #{publish_timer := TRef, publish_at := PubAt}) when
     Ts < PubAt
 ->
-    ok = emqx_misc:cancel_timer(TRef),
+    ok = emqx_utils:cancel_timer(TRef),
     ensure_publish_timer(Ts, ?NOW, State);
 ensure_publish_timer(_Key, State) ->
     State.
 
 ensure_publish_timer(Ts, Now, State) ->
     Interval = max(1, Ts - Now),
-    TRef = emqx_misc:start_timer(Interval, do_publish),
+    TRef = emqx_utils:start_timer(Interval, do_publish),
     State#{publish_timer := TRef, publish_at := Now + Interval}.
 
 do_publish(Key, Now) ->
@@ -418,7 +418,7 @@ do_load_or_unload(true, State) ->
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    emqx_misc:cancel_timer(PubTimer),
+    emqx_utils:cancel_timer(PubTimer),
     ets:delete_all_objects(?TAB),
     State#{publish_timer := undefined, publish_at := 0};
 do_load_or_unload(_, State) ->

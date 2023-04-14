@@ -86,7 +86,7 @@ on_start(
     PoolType = random,
     Transport = tls,
     TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
-    NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
+    NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
         {port, Port},
@@ -334,14 +334,14 @@ ensure_jwt_worker(InstanceId, #{
 encode_payload(_State = #{payload_template := PayloadTemplate}, Selected) ->
     Interpolated =
         case PayloadTemplate of
-            [] -> emqx_json:encode(Selected);
+            [] -> emqx_utils_json:encode(Selected);
             _ -> emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, Selected)
         end,
     #{data => base64:encode(Interpolated)}.
 
 -spec to_pubsub_request([#{data := binary()}]) -> binary().
 to_pubsub_request(Payloads) ->
-    emqx_json:encode(#{messages => Payloads}).
+    emqx_utils_json:encode(#{messages => Payloads}).
 
 -spec publish_path(state()) -> binary().
 publish_path(
@@ -587,7 +587,7 @@ do_get_status(InstanceId, PoolName, Timeout) ->
                     false
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         [_ | _] = Status ->
             lists:all(fun(St) -> St =:= true end, Status);
         [] ->

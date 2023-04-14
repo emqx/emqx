@@ -215,7 +215,7 @@ fields(Field) ->
 %% HTTP API Callbacks
 config(get, _Params, Req) ->
     Path = conf_path(Req),
-    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
+    {ok, Conf} = emqx_utils_maps:deep_find(Path, get_full_config()),
     {200, Conf};
 config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
@@ -349,7 +349,7 @@ gen_schema(_Conf) ->
     #{type => string}.
 
 with_default_value(Type, Value) ->
-    Type#{example => emqx_map_lib:binary_string(Value)}.
+    Type#{example => emqx_utils_maps:binary_string(Value)}.
 
 global_zone_roots() ->
     lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).

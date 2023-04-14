@@ -142,7 +142,7 @@
 -type app_envs() :: [proplists:property()].
 
 %% @doc For the given path, get root value enclosed in a single-key map.
--spec get_root(emqx_map_lib:config_key_path()) -> map().
+-spec get_root(emqx_utils_maps:config_key_path()) -> map().
 get_root([RootName | _]) ->
     #{RootName => do_get(?CONF, [RootName], #{})}.
 
@@ -153,14 +153,14 @@ get_root_raw([RootName | _]) ->
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
--spec get(emqx_map_lib:config_key_path()) -> term().
+-spec get(emqx_utils_maps:config_key_path()) -> term().
 get(KeyPath) -> do_get(?CONF, KeyPath).
 
--spec get(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get(emqx_utils_maps:config_key_path(), term()) -> term().
 get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 
--spec find(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find(emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find([]) ->
     Ref = make_ref(),
     case do_get(?CONF, [], Ref) of
@@ -170,12 +170,12 @@ find([]) ->
 find(KeyPath) ->
     atom_conf_path(
         KeyPath,
-        fun(AtomKeyPath) -> emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)) end,
+        fun(AtomKeyPath) -> emqx_utils_maps:deep_find(AtomKeyPath, get_root(KeyPath)) end,
         {return, {not_found, KeyPath}}
     ).
 
--spec find_raw(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find_raw(emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_raw([]) ->
     Ref = make_ref(),
     case do_get_raw([], Ref) of
@@ -183,9 +183,9 @@ find_raw([]) ->
         Res -> {ok, Res}
     end;
 find_raw(KeyPath) ->
-    emqx_map_lib:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
+    emqx_utils_maps:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
 
--spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
+-spec get_zone_conf(atom(), emqx_utils_maps:config_key_path()) -> term().
 get_zone_conf(Zone, KeyPath) ->
     case find(?ZONE_CONF_PATH(Zone, KeyPath)) of
         %% not found in zones, try to find the global config
@@ -195,7 +195,7 @@ get_zone_conf(Zone, KeyPath) ->
             Value
     end.
 
--spec get_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_zone_conf(atom(), emqx_utils_maps:config_key_path(), term()) -> term().
 get_zone_conf(Zone, KeyPath, Default) ->
     case find(?ZONE_CONF_PATH(Zone, KeyPath)) of
         %% not found in zones, try to find the global config
@@ -205,24 +205,24 @@ get_zone_conf(Zone, KeyPath, Default) ->
             Value
     end.
 
--spec put_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_zone_conf(atom(), emqx_utils_maps:config_key_path(), term()) -> ok.
 put_zone_conf(Zone, KeyPath, Conf) ->
     ?MODULE:put(?ZONE_CONF_PATH(Zone, KeyPath), Conf).
 
--spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
+-spec get_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path()) -> term().
 get_listener_conf(Type, Listener, KeyPath) ->
     ?MODULE:get(?LISTENER_CONF_PATH(Type, Listener, KeyPath)).
 
--spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path(), term()) -> term().
 get_listener_conf(Type, Listener, KeyPath, Default) ->
     ?MODULE:get(?LISTENER_CONF_PATH(Type, Listener, KeyPath), Default).
 
--spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path(), term()) -> ok.
 put_listener_conf(Type, Listener, KeyPath, Conf) ->
     ?MODULE:put(?LISTENER_CONF_PATH(Type, Listener, KeyPath), Conf).
 
--spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_listener_conf(Type, Listener, KeyPath) ->
     find(?LISTENER_CONF_PATH(Type, Listener, KeyPath)).
 
@@ -241,20 +241,20 @@ erase(RootName) ->
     persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))),
     ok.
 
--spec put(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put(emqx_utils_maps:config_key_path(), term()) -> ok.
 put(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_put(Path, Map, Value)
+        emqx_utils_maps:deep_put(Path, Map, Value)
     end,
     do_put(?CONF, Putter, KeyPath, Config).
 
 %% Puts value into configuration even if path doesn't exist
 %% For paths of non-existing atoms use force_put(KeyPath, Config, unsafe)
--spec force_put(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec force_put(emqx_utils_maps:config_key_path(), term()) -> ok.
 force_put(KeyPath, Config) ->
     force_put(KeyPath, Config, safe).
 
--spec force_put(emqx_map_lib:config_key_path(), term(), safe | unsafe) -> ok.
+-spec force_put(emqx_utils_maps:config_key_path(), term(), safe | unsafe) -> ok.
 force_put(KeyPath0, Config, Safety) ->
     KeyPath =
         case Safety of
@@ -262,19 +262,19 @@ force_put(KeyPath0, Config, Safety) ->
             unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
         end,
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_force_put(Path, Map, Value)
+        emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,
     do_put(?CONF, Putter, KeyPath, Config).
 
--spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
+-spec get_default_value(emqx_utils_maps:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
     BinKeyPath = [bin(Key) || Key <- KeyPath],
     case find_raw([RootName]) of
         {ok, RawConf} ->
-            RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
+            RawConf1 = emqx_utils_maps:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
             try fill_defaults(get_schema_mod(RootName), RawConf1, #{}) of
                 FullConf ->
-                    case emqx_map_lib:deep_find(BinKeyPath, FullConf) of
+                    case emqx_utils_maps:deep_find(BinKeyPath, FullConf) of
                         {not_found, _, _} -> {error, no_default_value};
                         {ok, Val} -> {ok, Val}
                     end
@@ -285,10 +285,10 @@ get_default_value([RootName | _] = KeyPath) ->
             {error, {rootname_not_found, RootName}}
     end.
 
--spec get_raw(emqx_map_lib:config_key_path()) -> term().
+-spec get_raw(emqx_utils_maps:config_key_path()) -> term().
 get_raw(KeyPath) -> do_get_raw(KeyPath).
 
--spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
 get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
 
 -spec put_raw(map()) -> ok.
@@ -301,10 +301,10 @@ put_raw(Config) ->
         hocon_maps:ensure_plain(Config)
     ).
 
--spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_force_put(Path, Map, Value)
+        emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,
     do_put(?RAW_CONF, Putter, KeyPath, Config).
 
@@ -430,7 +430,7 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
-    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.
+    {AppEnvs, emqx_utils_maps:unsafe_atom_key_map(CheckedConf)}.
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -645,11 +645,11 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
 do_deep_get(?CONF, KeyPath, Map, Default) ->
     atom_conf_path(
         KeyPath,
-        fun(AtomKeyPath) -> emqx_map_lib:deep_get(AtomKeyPath, Map, Default) end,
+        fun(AtomKeyPath) -> emqx_utils_maps:deep_get(AtomKeyPath, Map, Default) end,
         {return, Default}
     );
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
-    emqx_map_lib:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
+    emqx_utils_maps:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
 
 do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
     atom_conf_path(

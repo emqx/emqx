@@ -55,7 +55,7 @@ t_update(_Config) ->
     %% update ok
     {ok, SysMon} = get_config(<<"sysmon">>),
     #{<<"vm">> := #{<<"busy_port">> := BusyPort}} = SysMon,
-    NewSysMon = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, not BusyPort),
+    NewSysMon = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, not BusyPort),
     {ok, #{}} = update_config(<<"sysmon">>, NewSysMon),
     {ok, SysMon1} = get_config(<<"sysmon">>),
     #{<<"vm">> := #{<<"busy_port">> := BusyPort1}} = SysMon1,
@@ -63,7 +63,7 @@ t_update(_Config) ->
     assert_busy_port(BusyPort1),
 
     %% update failed
-    ErrorSysMon = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
+    ErrorSysMon = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         update_config(<<"sysmon">>, ErrorSysMon)
@@ -78,7 +78,7 @@ t_update(_Config) ->
     assert_busy_port(true),
 
     %% reset no_default_value config
-    NewSysMon1 = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, false),
+    NewSysMon1 = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, false),
     {ok, #{}} = update_config(<<"sysmon">>, NewSysMon1),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, reset_config(<<"sysmon">>, "")),
     {ok, SysMon4} = get_config(<<"sysmon">>),
@@ -94,27 +94,33 @@ t_log(_Config) ->
     {ok, Log} = get_config("log"),
     File = "log/emqx-test.log",
     %% update handler
-    Log1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
-    Log2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
+    Log1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
+    Log2 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
     {ok, #{}} = update_config(<<"log">>, Log2),
     {ok, Log3} = logger:get_handler_config(default),
     ?assertMatch(#{config := #{file := File}}, Log3),
-    ErrLog1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, 1),
+    ErrLog1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, 1),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog1)),
-    ErrLog2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enabfe">>], Log, true),
+    ErrLog2 = emqx_utils_maps:deep_put(
+        [<<"file_handlers">>, <<"default">>, <<"enabfe">>], Log, true
+    ),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog2)),
 
     %% add new handler
     File1 = "log/emqx-test1.log",
-    Handler = emqx_map_lib:deep_get([<<"file_handlers">>, <<"default">>], Log2),
-    NewLog1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>], Log2, Handler),
-    NewLog2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>, <<"file">>], NewLog1, File1),
+    Handler = emqx_utils_maps:deep_get([<<"file_handlers">>, <<"default">>], Log2),
+    NewLog1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"new">>], Log2, Handler),
+    NewLog2 = emqx_utils_maps:deep_put(
+        [<<"file_handlers">>, <<"new">>, <<"file">>], NewLog1, File1
+    ),
     {ok, #{}} = update_config(<<"log">>, NewLog2),
     {ok, Log4} = logger:get_handler_config(new),
     ?assertMatch(#{config := #{file := File1}}, Log4),
 
     %% disable new handler
-    Disable = emqx_map_lib:deep_put([<<"file_handlers">>, <<"new">>, <<"enable">>], NewLog2, false),
+    Disable = emqx_utils_maps:deep_put(
+        [<<"file_handlers">>, <<"new">>, <<"enable">>], NewLog2, false
+    ),
     {ok, #{}} = update_config(<<"log">>, Disable),
     ?assertEqual({error, {not_found, new}}, logger:get_handler_config(new)),
     ok.
@@ -127,25 +133,25 @@ t_global_zone(_Config) ->
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(
         emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
-        emqx_map_lib:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)
+        emqx_utils_maps:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)
     ),
-    NewZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
     {ok, #{}} = update_global_zone(NewZones),
     ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
 
-    BadZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
+    BadZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_global_zone(BadZones)),
 
     %% Remove max_qos_allowed from raw config, but we still get default value(2).
     Mqtt0 = emqx_conf:get_raw([<<"mqtt">>]),
-    ?assertEqual(1, emqx_map_lib:deep_get([<<"max_qos_allowed">>], Mqtt0)),
+    ?assertEqual(1, emqx_utils_maps:deep_get([<<"max_qos_allowed">>], Mqtt0)),
     Mqtt1 = maps:remove(<<"max_qos_allowed">>, Mqtt0),
     ok = emqx_config:put_raw([<<"mqtt">>], Mqtt1),
     Mqtt2 = emqx_conf:get_raw([<<"mqtt">>]),
     ?assertNot(maps:is_key(<<"max_qos_allowed">>, Mqtt2), Mqtt2),
     {ok, #{<<"mqtt">> := Mqtt3}} = get_global_zone(),
     %% the default value is 2
-    ?assertEqual(2, emqx_map_lib:deep_get([<<"max_qos_allowed">>], Mqtt3)),
+    ?assertEqual(2, emqx_utils_maps:deep_get([<<"max_qos_allowed">>], Mqtt3)),
     ok = emqx_config:put_raw([<<"mqtt">>], Mqtt0),
     ok.
 
@@ -237,7 +243,7 @@ t_configs_node(_) ->
     ?assertEqual(error, ExpType),
     ?assertMatch({{_, 404, _}, _, _}, ExpRes),
     {_, _, Body} = ExpRes,
-    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body, [return_maps])),
 
     ?assertMatch({error, {_, 500, _}}, get_configs("bad_node")).
 
@@ -247,7 +253,7 @@ get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
         {ok, Res} ->
-            {ok, emqx_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error ->
             Error
     end.
@@ -266,8 +272,8 @@ get_configs(Node, Opts) ->
         end,
     URI = emqx_mgmt_api_test_util:api_path(Path),
     case emqx_mgmt_api_test_util:request_api(get, URI, [], [], [], Opts) of
-        {ok, {_, _, Res}} -> {ok, emqx_json:decode(Res, [return_maps])};
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -275,7 +281,7 @@ update_config(Name, Change) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};
+        {ok, Update} -> {ok, emqx_utils_json:decode(Update, [return_maps])};
         Error -> Error
     end.
 

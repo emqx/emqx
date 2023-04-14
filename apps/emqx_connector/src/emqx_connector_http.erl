@@ -219,7 +219,7 @@ on_start(
                 SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, Config)),
                 {tls, SSLOpts}
         end,
-    NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
+    NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
         {port, Port},
@@ -425,7 +425,7 @@ do_get_status(PoolName, Timeout) ->
                     Error
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         % we crash in case of non-empty lists since we don't know what to do in that case
         [_ | _] = Results ->
             case [E || {error, _} = E <- Results] of
@@ -516,7 +516,7 @@ process_request(
     }.
 
 process_request_body(undefined, Msg) ->
-    emqx_json:encode(Msg);
+    emqx_utils_json:encode(Msg);
 process_request_body(BodyTks, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 
@@ -603,7 +603,7 @@ is_sensitive_key(_) ->
 %% Function that will do a deep traversal of Data and remove sensitive
 %% information (i.e., passwords)
 redact(Data) ->
-    emqx_misc:redact(Data, fun is_sensitive_key/1).
+    emqx_utils:redact(Data, fun is_sensitive_key/1).
 
 %% because the body may contain some sensitive data
 %% and at the same time the redact function will not scan the binary data

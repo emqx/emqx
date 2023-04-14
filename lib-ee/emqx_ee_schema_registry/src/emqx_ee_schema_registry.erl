@@ -67,7 +67,7 @@ get_schema(SchemaName) ->
 
 -spec add_schema(schema_name(), schema()) -> ok | {error, term()}.
 add_schema(Name, Schema) ->
-    RawSchema = emqx_map_lib:binary_key_map(Schema),
+    RawSchema = emqx_utils_maps:binary_key_map(Schema),
     Res = emqx_conf:update(
         [?CONF_KEY_ROOT, schemas, Name],
         RawSchema,
@@ -113,7 +113,7 @@ post_config_update(
         added := Added,
         changed := Changed0,
         removed := Removed
-    } = emqx_map_lib:diff_maps(NewSchemas, OldSchemas),
+    } = emqx_utils_maps:diff_maps(NewSchemas, OldSchemas),
     Changed = maps:map(fun(_N, {_Old, New}) -> New end, Changed0),
     RemovedNames = maps:keys(Removed),
     case RemovedNames of

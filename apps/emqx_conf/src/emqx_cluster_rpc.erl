@@ -501,15 +501,17 @@ log_and_alarm(IsSuccess, Res, #{kind := ?APPLY_KIND_INITIATE} = Meta) ->
     %% because nothing is committed
     case IsSuccess of
         true ->
-            ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => emqx_misc:redact(Res)});
+            ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)});
         false ->
-            ?SLOG(warning, Meta#{msg => "cluster_rpc_apply_result", result => emqx_misc:redact(Res)})
+            ?SLOG(warning, Meta#{
+                msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)
+            })
     end;
 log_and_alarm(true, Res, Meta) ->
-    ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => emqx_misc:redact(Res)}),
+    ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => emqx_utils:redact(Res)}),
     do_alarm(deactivate, Res, Meta);
 log_and_alarm(false, Res, Meta) ->
-    ?SLOG(error, Meta#{msg => "cluster_rpc_apply_failed", result => emqx_misc:redact(Res)}),
+    ?SLOG(error, Meta#{msg => "cluster_rpc_apply_failed", result => emqx_utils:redact(Res)}),
     do_alarm(activate, Res, Meta).
 
 do_alarm(Fun, Res, #{tnx_id := Id} = Meta) ->

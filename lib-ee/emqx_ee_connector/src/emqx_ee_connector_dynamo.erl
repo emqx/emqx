@@ -95,7 +95,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_dynamo_connector",
         connector => InstanceId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
 
     {Schema, Server} = get_host_schema(to_str(Url)),
@@ -322,7 +322,7 @@ convert_to_item(Msg) when is_map(Msg), map_size(Msg) > 0 ->
         Msg
     );
 convert_to_item(MsgBin) when is_binary(MsgBin) ->
-    Msg = emqx_json:decode(MsgBin),
+    Msg = emqx_utils_json:decode(MsgBin),
     convert_to_item(Msg);
 convert_to_item(Item) ->
     erlang:throw({invalid_item, Item}).
@@ -334,7 +334,7 @@ convert2binary(Value) when is_binary(Value); is_number(Value) ->
 convert2binary(Value) when is_list(Value) ->
     unicode:characters_to_binary(Value);
 convert2binary(Value) when is_map(Value) ->
-    emqx_json:encode(Value).
+    emqx_utils_json:encode(Value).
 
 do_async_reply(Result, {ReplyFun, [Context]}) ->
     ReplyFun(Context, Result).

@@ -1314,7 +1314,8 @@ t_delete_and_re_create_with_same_name(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => NumBufferWorkers,
-            queue_seg_bytes => 100,
+            buffer_mode => volatile_offload,
+            buffer_seg_bytes => 100,
             resume_interval => 1_000
         }
     ),
@@ -1373,7 +1374,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
                             query_mode => async,
                             batch_size => 1,
                             worker_pool_size => 2,
-                            queue_seg_bytes => 100,
+                            buffer_seg_bytes => 100,
                             resume_interval => 1_000
                         }
                     ),
@@ -1405,7 +1406,7 @@ t_always_overflow(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => 1,
-            max_queue_bytes => 1,
+            max_buffer_bytes => 1,
             resume_interval => 1_000
         }
     ),
@@ -2635,6 +2636,117 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                 )
             ),
 
+            ok
+        end
+    ).
+
+%% The default mode is currently `memory_only'.
+t_volatile_offload_mode(_Config) ->
+    MaxBufferBytes = 1_000,
+    DefaultOpts = #{
+        max_buffer_bytes => MaxBufferBytes,
+        worker_pool_size => 1
+    },
+    ?check_trace(
+        begin
+            emqx_connector_demo:set_callback_mode(async_if_possible),
+            %% Create without any specified segment bytes; should
+            %% default to equal max bytes.
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{buffer_mode => volatile_offload}
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            %% Create with segment bytes < max bytes
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => MaxBufferBytes div 2
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            %% Create with segment bytes = max bytes
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => MaxBufferBytes
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            %% Create with segment bytes > max bytes; should normalize
+            %% to max bytes.
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => 2 * MaxBufferBytes
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            ok
+        end,
+        fun(Trace) ->
+            HalfMaxBufferBytes = MaxBufferBytes div 2,
+            ?assertMatch(
+                [
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        %% uses the specified value since it's smaller
+                        %% than max bytes.
+                        seg_bytes := HalfMaxBufferBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    }
+                ],
+                ?projection(queue_opts, ?of_kind(buffer_worker_init, Trace))
+            ),
             ok
         end
     ).

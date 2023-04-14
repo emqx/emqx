@@ -168,7 +168,7 @@ When disabled the messages are buffered in RAM only."""
     }
   }
 
-  max_queue_bytes {
+  max_buffer_bytes {
     desc {
       en: """Maximum number of bytes to buffer for each buffer worker."""
       zh: """每个缓存 worker 允许使用的最大字节数。"""
@@ -176,6 +176,37 @@ When disabled the messages are buffered in RAM only."""
     label {
       en: """Max buffer queue size"""
       zh: """缓存队列最大长度"""
+    }
+  }
+
+  buffer_seg_bytes {
+    desc {
+      en: "Applicable when buffer mode is set to <code>volatile_offload</code>.\n"
+          "This value is to specify the size of each on-disk buffer file."
+      zh: "当缓存模式是 <code>volatile_offload</code> 时适用。"
+          "该配置用于指定缓存到磁盘上的文件的大小。"
+    }
+    label {
+      en: "Segment File Bytes"
+      zh: "缓存文件大小"
+    }
+  }
+
+  buffer_mode {
+    desc {
+      en: "Buffer operation mode.\n"
+          "<code>memory_only</mode>: Buffer all messages in memory."
+          "<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit"
+          " (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"
+      zh: "队列操作模式。\n"
+          "<code>memory_only</code>: 所有的消息都缓存在内存里。"
+          "<code>volatile_offload</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
+          "（配置项 <code>buffer_seg_bytes</code> 指定该限制）后，"
+          " 消息会开始缓存到磁盘上。"
+    }
+    label {
+      en: "Buffer Mode"
+      zh: "缓存模式"
     }
   }
 

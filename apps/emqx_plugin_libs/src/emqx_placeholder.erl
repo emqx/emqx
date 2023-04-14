@@ -240,7 +240,7 @@ sql_data(Bin) when is_binary(Bin) -> Bin;
 sql_data(Num) when is_number(Num) -> Num;
 sql_data(Bool) when is_boolean(Bool) -> Bool;
 sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
+sql_data(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 
 -spec bin(term()) -> binary().
 bin(Val) -> emqx_plugin_libs_rule:bin(Val).

@@ -131,7 +131,7 @@ t_lookup_read(Config) ->
             <<"path">> => <<"/3/0/0">>
         }
     },
-    CommandJson = emqx_json:encode(Command),
+    CommandJson = emqx_utils_json:encode(Command),
     ?LOGT("CommandJson=~p", [CommandJson]),
     test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
 
@@ -178,7 +178,7 @@ t_lookup_discover(Config) ->
             <<"path">> => <<"/3/0/7">>
         }
     },
-    CommandJson = emqx_json:encode(Command),
+    CommandJson = emqx_utils_json:encode(Command),
     test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
 
     timer:sleep(200),
@@ -350,10 +350,10 @@ no_received_request(ClientId, Path, Action) ->
         <<"codeMsg">> => <<"reply_not_received">>,
         <<"path">> => Path
     },
-    ?assertEqual(NotReceived, emqx_json:decode(Response, [return_maps])).
+    ?assertEqual(NotReceived, emqx_utils_json:decode(Response, [return_maps])).
 normal_received_request(ClientId, Path, Action) ->
     Response = call_lookup_api(ClientId, Path, Action),
-    RCont = emqx_json:decode(Response, [return_maps]),
+    RCont = emqx_utils_json:decode(Response, [return_maps]),
     ?assertEqual(list_to_binary(ClientId), maps:get(<<"clientid">>, RCont, undefined)),
     ?assertEqual(Path, maps:get(<<"path">>, RCont, undefined)),
     ?assertEqual(Action, maps:get(<<"action">>, RCont, undefined)),

@@ -95,7 +95,7 @@ t_api(_) ->
             <<"page">> := 1,
             <<"hasnext">> := false
         }
-    } = jsx:decode(Request1),
+    } = emqx_utils_json:decode(Request1),
     ?assertEqual(3, length(Rules1)),
 
     {ok, 200, Request1_1} =
@@ -119,7 +119,7 @@ t_api(_) ->
                 <<"hasnext">> => false
             }
         },
-        jsx:decode(Request1_1)
+        emqx_utils_json:decode(Request1_1)
     ),
 
     {ok, 200, Request2} =
@@ -128,7 +128,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
-    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
+    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = emqx_utils_json:decode(Request2),
 
     {ok, 204, _} =
         request(
@@ -142,7 +142,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             []
         ),
-    #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = jsx:decode(Request3),
+    #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = emqx_utils_json:decode(Request3),
     ?assertEqual(0, length(Rules2)),
 
     {ok, 204, _} =
@@ -202,8 +202,8 @@ t_api(_) ->
         <<"data">> := [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}],
         <<"meta">> := #{<<"count">> := 1, <<"limit">> := 100, <<"page">> := 1}
     } =
-        jsx:decode(Request4),
-    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = jsx:decode(Request5),
+        emqx_utils_json:decode(Request4),
+    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = emqx_utils_json:decode(Request5),
     ?assertEqual(3, length(Rules3)),
 
     {ok, 204, _} =
@@ -218,7 +218,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             []
         ),
-    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = jsx:decode(Request6),
+    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = emqx_utils_json:decode(Request6),
     ?assertEqual(0, length(Rules4)),
 
     {ok, 204, _} =
@@ -252,7 +252,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             []
         ),
-    #{<<"rules">> := Rules5} = jsx:decode(Request7),
+    #{<<"rules">> := Rules5} = emqx_utils_json:decode(Request7),
     ?assertEqual(3, length(Rules5)),
 
     {ok, 204, _} =
@@ -267,7 +267,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             []
         ),
-    #{<<"rules">> := Rules6} = jsx:decode(Request8),
+    #{<<"rules">> := Rules6} = emqx_utils_json:decode(Request8),
     ?assertEqual(0, length(Rules6)),
 
     {ok, 204, _} =
@@ -285,7 +285,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "users?page=2&limit=5"]),
             []
         ),
-    #{<<"data">> := Data1} = jsx:decode(Request9),
+    #{<<"data">> := Data1} = emqx_utils_json:decode(Request9),
     ?assertEqual(5, length(Data1)),
 
     {ok, 204, _} =
@@ -303,7 +303,7 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "clients?limit=5"]),
             []
         ),
-    #{<<"data">> := Data2} = jsx:decode(Request10),
+    #{<<"data">> := Data2} = emqx_utils_json:decode(Request10),
     ?assertEqual(5, length(Data2)),
 
     {ok, 400, Msg1} =

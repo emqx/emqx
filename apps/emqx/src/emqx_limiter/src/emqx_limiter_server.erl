@@ -572,7 +572,7 @@ find_limiter_cfg(Type, #{rate := _} = Cfg) ->
 find_limiter_cfg(Type, Cfg) ->
     {
         maps:get(Type, Cfg, undefined),
-        find_client_cfg(Type, emqx_map_lib:deep_get([client, Type], Cfg, undefined))
+        find_client_cfg(Type, emqx_utils_maps:deep_get([client, Type], Cfg, undefined))
     }.
 
 find_client_cfg(Type, BucketCfg) ->

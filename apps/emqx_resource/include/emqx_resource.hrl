@@ -70,7 +70,7 @@
     auto_restart_interval => pos_integer(),
     batch_size => pos_integer(),
     batch_time => pos_integer(),
-    max_queue_bytes => pos_integer(),
+    max_buffer_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
     inflight_window => pos_integer()
@@ -85,11 +85,8 @@
 
 -define(WORKER_POOL_SIZE, 16).
 
--define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
--define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
-
--define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024).
--define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
+-define(DEFAULT_BUFFER_BYTES, 256 * 1024 * 1024).
+-define(DEFAULT_BUFFER_BYTES_RAW, <<"256MB">>).
 
 -define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(15)).
 

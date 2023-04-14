@@ -356,7 +356,7 @@ mnesia(_) ->
 %% @doc Logger Command
 
 log(["set-level", Level]) ->
-    case emqx_misc:safe_to_existing_atom(Level) of
+    case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             case emqx_logger:set_log_level(Level1) of
                 ok -> emqx_ctl:print("~ts~n", [Level]);
@@ -369,7 +369,7 @@ log(["primary-level"]) ->
     Level = emqx_logger:get_primary_log_level(),
     emqx_ctl:print("~ts~n", [Level]);
 log(["primary-level", Level]) ->
-    case emqx_misc:safe_to_existing_atom(Level) of
+    case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             _ = emqx_logger:set_primary_log_level(Level1),
             ok;
@@ -392,7 +392,7 @@ log(["handlers", "list"]) ->
     ],
     ok;
 log(["handlers", "start", HandlerId]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
             case emqx_logger:start_log_handler(HandlerId1) of
                 ok ->
@@ -406,7 +406,7 @@ log(["handlers", "start", HandlerId]) ->
             emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "stop", HandlerId]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
             case emqx_logger:stop_log_handler(HandlerId1) of
                 ok ->
@@ -420,9 +420,9 @@ log(["handlers", "stop", HandlerId]) ->
             emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "set-level", HandlerId, Level]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
-            case emqx_misc:safe_to_existing_atom(Level) of
+            case emqx_utils:safe_to_existing_atom(Level) of
                 {ok, Level1} ->
                     case emqx_logger:set_log_handler_level(HandlerId1, Level1) of
                         ok ->
@@ -628,7 +628,7 @@ listeners([]) ->
         emqx_listeners:list()
     );
 listeners(["stop", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:stop_listener(ListenerId1) of
                 ok ->
@@ -640,7 +640,7 @@ listeners(["stop", ListenerId]) ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["start", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:start_listener(ListenerId1) of
                 ok ->
@@ -652,7 +652,7 @@ listeners(["start", ListenerId]) ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["restart", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:restart_listener(ListenerId1) of
                 ok ->

@@ -2341,7 +2341,7 @@ mqtt_ssl_listener_ssl_options_validator(Conf) ->
         fun ocsp_outer_validator/1,
         fun crl_outer_validator/1
     ],
-    case emqx_misc:pipeline(Checks, Conf, not_used) of
+    case emqx_utils:pipeline(Checks, Conf, not_used) of
         {ok, _, _} ->
             ok;
         {error, Reason, _NotUsed} ->
@@ -2362,7 +2362,7 @@ ocsp_outer_validator(_Conf) ->
     ok.
 
 ocsp_inner_validator(#{enable_ocsp_stapling := _} = Conf) ->
-    ocsp_inner_validator(emqx_map_lib:binary_key_map(Conf));
+    ocsp_inner_validator(emqx_utils_maps:binary_key_map(Conf));
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := false} = _Conf) ->
     ok;
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->
@@ -2597,7 +2597,7 @@ to_url(Str) ->
     end.
 
 to_json_binary(Str) ->
-    case emqx_json:safe_decode(Str) of
+    case emqx_utils_json:safe_decode(Str) of
         {ok, _} ->
             {ok, iolist_to_binary(Str)};
         Error ->

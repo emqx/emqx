@@ -14,14 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_api_lib).
+-module(emqx_utils_api).
 
 -export([
     with_node/2,
     with_node_or_cluster/2
 ]).
 
--include("emqx_api_lib.hrl").
+-include("emqx_utils_api.hrl").
 
 -define(NODE_NOT_FOUND(NODE), ?NOT_FOUND(<<"Node not found: ", NODE/binary>>)).
 
@@ -51,7 +51,7 @@ with_node_or_cluster(Node, Fun) ->
 
 -spec lookup_node(atom() | binary()) -> {ok, atom()} | not_found.
 lookup_node(BinNode) when is_binary(BinNode) ->
-    case emqx_misc:safe_to_existing_atom(BinNode, utf8) of
+    case emqx_utils:safe_to_existing_atom(BinNode, utf8) of
         {ok, Node} ->
             is_running_node(Node);
         _Error ->
