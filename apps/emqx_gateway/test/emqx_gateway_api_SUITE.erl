@@ -219,7 +219,7 @@ t_gateway_lwm2m(_) ->
         [
             emqx_common_test_helpers:proj_root(),
             "apps",
-            "emqx_lwm2m",
+            "emqx_gateway_lwm2m",
             "lwm2m_xml"
         ]
     ),
