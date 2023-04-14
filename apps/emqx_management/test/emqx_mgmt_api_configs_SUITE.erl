@@ -62,8 +62,8 @@ t_update(_Config) ->
     ?assertEqual(BusyPort, not BusyPort1),
     assert_busy_port(BusyPort1),
     %% Make sure the override config is updated, and remove the default value.
-    ?assertEqual(
-        #{<<"vm">> => #{<<"busy_port">> => BusyPort1}},
+    ?assertMatch(
+        #{<<"vm">> := #{<<"busy_port">> := BusyPort1}},
         maps:get(<<"sysmon">>, emqx_config:read_override_conf(#{override_to => cluster}))
     ),
 
@@ -136,7 +136,7 @@ t_global_zone(_Config) ->
     {ok, #{}} = update_global_zone(NewZones),
     ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
     %% Make sure the override config is updated, and remove the default value.
-    ?assertEqual(#{<<"max_qos_allowed">> => 1}, read_conf(<<"mqtt">>)),
+    ?assertMatch(#{<<"max_qos_allowed">> := 1}, read_conf(<<"mqtt">>)),
 
     BadZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_global_zone(BadZones)),
@@ -155,7 +155,16 @@ t_global_zone(_Config) ->
 
     DefaultZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 2),
     {ok, #{}} = update_global_zone(DefaultZones),
-    ?assertEqual(undefined, read_conf(<<"mqtt">>)),
+    #{<<"mqtt">> := Mqtt} = emqx_config:fill_defaults(emqx_schema, #{<<"mqtt">> => #{}}, #{}),
+    Default = maps:map(
+        fun
+            (_, V) when is_boolean(V) -> V;
+            (_, V) when is_atom(V) -> atom_to_binary(V);
+            (_, V) -> V
+        end,
+        Mqtt
+    ),
+    ?assertEqual(Default, read_conf(<<"mqtt">>)),
     ok.
 
 get_global_zone() ->

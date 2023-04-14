@@ -418,7 +418,7 @@ do_parse_hocon(false, Conf, IncDirs) ->
         true ->
             hocon:binary(Conf, Opts);
         false ->
-            ClusterFile = cluster_hocon_file(#{override_to => cluster}),
+            ClusterFile = cluster_hocon_file(),
             hocon:files([ClusterFile | Conf], Opts)
     end.
 
@@ -493,7 +493,7 @@ fill_defaults(SchemaMod, RawConf, Opts0) ->
 delete_override_conf_files() ->
     F1 = deprecated_conf_file(#{override_to => local}),
     F2 = deprecated_conf_file(#{override_to => cluster}),
-    F3 = cluster_hocon_file(#{override_to => cluster}),
+    F3 = cluster_hocon_file(),
     ok = ensure_file_deleted(F1),
     ok = ensure_file_deleted(F2),
     ok = ensure_file_deleted(F3).
@@ -510,7 +510,7 @@ read_override_conf(#{} = Opts) ->
     File =
         case has_deprecated_file() of
             true -> deprecated_conf_file(Opts);
-            false -> cluster_hocon_file(Opts)
+            false -> cluster_hocon_file()
         end,
     load_hocon_file(File, map).
 
@@ -531,16 +531,8 @@ deprecated_conf_file(Which) when is_atom(Which) ->
     application:get_env(emqx, Which, undefined).
 
 %% The newer version cluster-wide config persistence file.
-cluster_hocon_file(Opts) when is_map(Opts) ->
-    Key =
-        case maps:get(override_to, Opts, cluster) of
-            %% no local config file support
-            local -> undefined;
-            cluster -> cluster_hocon_file
-        end,
-    application:get_env(emqx, Key, undefined);
-cluster_hocon_file(Which) when is_atom(Which) ->
-    application:get_env(emqx, Which, undefined).
+cluster_hocon_file() ->
+    application:get_env(emqx, cluster_hocon_file, undefined).
 
 -spec save_schema_mod_and_names(module()) -> ok.
 save_schema_mod_and_names(SchemaMod) ->
@@ -619,8 +611,8 @@ save_to_override_conf(true, RawConf, Opts) ->
                     {error, Reason}
             end
     end;
-save_to_override_conf(false, RawConf, Opts) ->
-    case cluster_hocon_file(Opts) of
+save_to_override_conf(false, RawConf, _Opts) ->
+    case cluster_hocon_file() of
         undefined ->
             ok;
         FileName ->
