@@ -2635,7 +2635,6 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                     Trace2
                 )
             ),
-
             ok
         end
     ).
@@ -2795,6 +2794,42 @@ t_late_call_reply(_Config) ->
         []
     ),
     ok.
+
+t_resource_create_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, create_error => true},
+        connector_demo_start_error
+    ).
+
+t_resource_health_check_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, health_check_error => true},
+        connector_demo_health_check_error
+    ).
+
+do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    ResourceConfig,
+                    #{auto_restart_interval => 100, health_check_interval => 100}
+                ),
+                #{?snk_kind := resource_activate_alarm, resource_id := ?ID}
+            ),
+            ?assertMatch([#{activated := true, name := ?ID}], emqx_alarm:get_alarms(activated)),
+            {ok, SubRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := SubscribeEvent}), 4, 7000
+            ),
+            ?assertMatch({ok, [_, _, _, _]}, snabbkaffe:receive_events(SubRef))
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(resource_activate_alarm, Trace))
+        end
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers

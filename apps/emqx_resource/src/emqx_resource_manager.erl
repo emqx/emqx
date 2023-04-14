@@ -511,10 +511,10 @@ start_resource(Data, From) ->
                 id => Data#data.id,
                 reason => Reason
             }),
-            _ = maybe_alarm(disconnected, Data#data.id, Data#data.error),
+            _ = maybe_alarm(disconnected, Data#data.id, Err, Data#data.error),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            UpdatedData = Data#data{status = disconnected, error = Reason},
+            UpdatedData = Data#data{status = disconnected, error = Err},
             Actions = maybe_reply(retry_actions(UpdatedData), From, Err),
             {next_state, disconnected, update_state(UpdatedData, Data), Actions}
     end.
@@ -582,11 +582,11 @@ handle_connected_health_check(Data) ->
 
 with_health_check(#data{state = undefined} = Data, Func) ->
     Func(disconnected, Data);
-with_health_check(Data, Func) ->
+with_health_check(#data{error = PrevError} = Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
-    _ = maybe_alarm(Status, ResId, Err),
+    _ = maybe_alarm(Status, ResId, Err, PrevError),
     ok = maybe_resume_resource_workers(ResId, Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
@@ -605,21 +605,25 @@ update_state(Data, _DataWas) ->
 health_check_interval(Opts) ->
     maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
-maybe_alarm(connected, _ResId, _Error) ->
+maybe_alarm(connected, _ResId, _Error, _PrevError) ->
     ok;
-maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error) ->
+maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error, _PrevError) ->
     ok;
-maybe_alarm(_Status, ResId, Error) ->
+%% Assume that alarm is already active
+maybe_alarm(_Status, _ResId, Error, Error) ->
+    ok;
+maybe_alarm(_Status, ResId, Error, _PrevError) ->
     HrError =
         case Error of
-            undefined -> <<"Unknown reason">>;
-            _Else -> emqx_utils:readable_error_msg(Error)
+            {error, undefined} -> <<"Unknown reason">>;
+            {error, Reason} -> emqx_utils:readable_error_msg(Reason)
         end,
     emqx_alarm:activate(
         ResId,
         #{resource_id => ResId, reason => resource_down},
         <<"resource down: ", HrError/binary>>
-    ).
+    ),
+    ?tp(resource_activate_alarm, #{resource_id => ResId}).
 
 maybe_resume_resource_workers(ResId, connected) ->
     lists:foreach(
@@ -635,11 +639,11 @@ maybe_clear_alarm(ResId) ->
     emqx_alarm:deactivate(ResId).
 
 parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
-    {Status, Data#data.state, undefined};
+    {Status, Data#data.state, status_to_error(Status)};
 parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, undefined};
+    {Status, NewState, status_to_error(Status)};
 parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, Error};
+    {Status, NewState, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
     ?SLOG(
         error,
@@ -649,7 +653,16 @@ parse_health_check_result({error, Error}, Data) ->
             reason => Error
         }
     ),
-    {disconnected, Data#data.state, Error}.
+    {disconnected, Data#data.state, {error, Error}}.
+
+status_to_error(connected) ->
+    undefined;
+status_to_error(_) ->
+    {error, undefined}.
+
+%% Compatibility
+external_error({error, Reason}) -> Reason;
+external_error(Other) -> Other.
 
 maybe_reply(Actions, undefined, _Reply) ->
     Actions;
@@ -660,7 +673,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     #{
         id => Data#data.id,
-        error => Data#data.error,
+        error => external_error(Data#data.error),
         mod => Data#data.mod,
         callback_mode => Data#data.callback_mode,
         query_mode => Data#data.query_mode,
@@ -679,8 +692,8 @@ do_wait_for_ready(ResId, Retry) ->
     case read_cache(ResId) of
         {_Group, #data{status = connected}} ->
             ok;
-        {_Group, #data{status = disconnected, error = Reason}} ->
-            {error, Reason};
+        {_Group, #data{status = disconnected, error = Err}} ->
+            {error, external_error(Err)};
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
             do_wait_for_ready(ResId, Retry - 1)

@@ -62,6 +62,7 @@ set_callback_mode(Mode) ->
     persistent_term:put(?CM_KEY, Mode).
 
 on_start(_InstId, #{create_error := true}) ->
+    ?tp(connector_demo_start_error, #{}),
     error("some error");
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
@@ -243,6 +244,7 @@ batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}
     {ok, Pid}.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
+    ?tp(connector_demo_health_check_error, #{}),
     disconnected;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
