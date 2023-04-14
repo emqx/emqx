@@ -29,19 +29,9 @@ COPY --from=builder /emqx-rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates procps
-
-RUN apt-get update \
-    && apt-get install -y gnupg2 curl apt-utils \
-    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
-    && curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list \
-    && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev \
-    && sed -i 's/ODBC Driver 17 for SQL Server/ms-sql/g' /etc/odbcinst.ini
-
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/*;
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates procps; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/emqx
 
