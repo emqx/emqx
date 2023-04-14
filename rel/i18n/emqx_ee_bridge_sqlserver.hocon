@@ -32,7 +32,7 @@ will be forwarded."""
       en: """SQL Server Driver Name"""
       zh: """SQL Server Driver 名称"""
     }
-    desc {
+    label {
       en: """SQL Server Driver Name"""
       zh: """SQL Server Driver 名称"""
     }
