@@ -320,7 +320,7 @@ kafka_bridge_rest_api_helper(Config) ->
             <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
         }
     ),
-    #{<<"id">> := RuleId} = emqx_json:decode(Rule, [return_maps]),
+    #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule, [return_maps]),
     %% counters should be empty before
     ?assertEqual(0, emqx_resource_metrics:matched_get(ResourceId)),
     ?assertEqual(0, emqx_resource_metrics:success_get(ResourceId)),
