@@ -137,7 +137,7 @@ namespace() -> "bridge".
 tags() ->
     [<<"Bridge">>].
 
-roots() -> [bridges].
+roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields(bridges) ->
     [

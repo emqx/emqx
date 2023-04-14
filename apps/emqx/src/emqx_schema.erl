@@ -163,7 +163,7 @@ roots(high) ->
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
                 ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 roots(medium) ->
@@ -2762,7 +2762,11 @@ authentication(Which) ->
             Module ->
                 Module:root_type()
         end,
-    hoconsc:mk(Type, #{desc => Desc, converter => fun ensure_array/2}).
+    hoconsc:mk(Type, #{
+        desc => Desc,
+        converter => fun ensure_array/2,
+        importance => ?IMPORTANCE_HIDDEN
+    }).
 
 %% the older version schema allows individual element (instead of a chain) in config
 ensure_array(undefined, _) -> undefined;
