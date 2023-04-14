@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  sql_server:
+    container_name: sqlserver
+    # See also:
+    # https://mcr.microsoft.com/en-us/product/mssql/server/about
+    # https://hub.docker.com/_/microsoft-mssql-server
+    image: ${MS_IMAGE_ADDR}:${SQLSERVER_TAG}
+    environment:
+      # See also:
+      # https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-configure-environment-variables
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "mqtt_public1"
+    restart: always
+    # ports:
+    #   - "1433:1433"
+    networks:
+      - emqx_bridge

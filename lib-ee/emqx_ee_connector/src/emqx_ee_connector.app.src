@@ -5,13 +5,15 @@
     {applications, [
         kernel,
         stdlib,
+        ecpool,
         hstreamdb_erl,
         influxdb,
         tdengine,
         clickhouse,
         erlcloud,
         rocketmq,
-        ecql
+        ecql,
+        odbc
     ]},
     {env, []},
     {modules, []},

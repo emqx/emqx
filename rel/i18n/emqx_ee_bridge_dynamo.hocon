@@ -39,7 +39,7 @@ will be forwarded."""
 
     desc_config {
         desc {
-            en: """Configuration for an DynamoDB bridge."""
+            en: """Configuration for a DynamoDB bridge."""
             zh: """DynamoDB 桥接配置"""
         }
         label: {

@@ -34,7 +34,8 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
         ref(emqx_ee_bridge_rocketmq, Method),
-        ref(emqx_ee_bridge_cassa, Method)
+        ref(emqx_ee_bridge_cassa, Method),
+        ref(emqx_ee_bridge_sqlserver, Method)
     ].
 
 schema_modules() ->
@@ -53,7 +54,8 @@ schema_modules() ->
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
         emqx_ee_bridge_rocketmq,
-        emqx_ee_bridge_cassa
+        emqx_ee_bridge_cassa,
+        emqx_ee_bridge_sqlserver
     ].
 
 examples(Method) ->
@@ -91,7 +93,8 @@ resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
-resource_type(cassandra) -> emqx_ee_connector_cassa.
+resource_type(cassandra) -> emqx_ee_connector_cassa;
+resource_type(sqlserver) -> emqx_ee_connector_sqlserver.
 
 fields(bridges) ->
     [
@@ -152,7 +155,7 @@ fields(bridges) ->
                 }
             )}
     ] ++ kafka_structs() ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++
-        pgsql_structs() ++ clickhouse_structs().
+        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs().
 
 mongodb_structs() ->
     [
@@ -245,6 +248,18 @@ clickhouse_structs() ->
                 hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
                 #{
                     desc => <<"Clickhouse Bridge Config">>,
+                    required => false
+                }
+            )}
+    ].
+
+sqlserver_structs() ->
+    [
+        {sqlserver,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_sqlserver, "config")),
+                #{
+                    desc => <<"Microsoft SQL Server Bridge Config">>,
                     required => false
                 }
             )}

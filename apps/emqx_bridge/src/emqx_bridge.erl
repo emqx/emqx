@@ -69,7 +69,8 @@
     T == tdengine;
     T == dynamo;
     T == rocketmq;
-    T == cassandra
+    T == cassandra;
+    T == sqlserver
 ).
 
 load() ->
