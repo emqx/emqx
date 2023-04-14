@@ -220,7 +220,7 @@ info_example_basic(webhook) ->
             auto_restart_interval => 15000,
             query_mode => async,
             inflight_window => 100,
-            max_queue_bytes => 100 * 1024 * 1024
+            max_buffer_bytes => 100 * 1024 * 1024
         }
     };
 info_example_basic(mqtt) ->
@@ -245,7 +245,7 @@ mqtt_main_example() ->
             health_check_interval => <<"15s">>,
             auto_restart_interval => <<"60s">>,
             query_mode => sync,
-            max_queue_bytes => 100 * 1024 * 1024
+            max_buffer_bytes => 100 * 1024 * 1024
         },
         ssl => #{
             enable => false
