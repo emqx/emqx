@@ -195,25 +195,18 @@ When disabled the messages are buffered in RAM only."""
   queue_mode {
     desc {
       en: "Queue operation mode.\n"
-          "\n"
           "<code>memory_only</mode>: Buffer all messages in memory."
-          " The messages will be lost in case of EMQX node restart.\n"
           "<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit"
-          " (see <code>queue_seg_bytes</code> config for more information), then start offloading"
-          " messages to disk, Like <code>memory_only</code> mode, the messages will be lost in case of"
-          " EMQX node restart."
+          " (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"
       zh: "队列操作模式。\n"
-          "\n"
           "<code>memory_only</code>: 所有的消息都缓存在内存里。"
-          " 如果 EMQX 服务重启，缓存的消息会丢失。\n"
-          "<code>hybrid</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
-          "（配置项 <code>queue_seg_bytes</code> 描述了该限制）后，"
-          " 后续的消息会缓存到磁盘上。与 <code>memory_only</code> 模式一样，"
-          " 如果 EMQX 服务重启，缓存的消息会丢失。"
+          "<code>volatile_offload</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
+          "（配置项 <code>buffer_seg_bytes</code> 该限制）后，"
+          " 消息会缓存到磁盘上"
     }
     label {
-      en: "Queue Mode"
-      zh: "排队模式"
+      en: "Buffer Mode"
+      zh: "缓存模式"
     }
   }
 
