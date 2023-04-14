@@ -766,9 +766,9 @@ init(Options) ->
     TabOpts = [public, {write_concurrency, true}],
 
     {ChanTab, ConnTab, InfoTab} = cmtabs(GwName),
-    ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_tables:new(ConnTab, [bag | TabOpts]),
-    ok = emqx_tables:new(InfoTab, [ordered_set, compressed | TabOpts]),
+    ok = emqx_utils_ets:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(ConnTab, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(InfoTab, [ordered_set, compressed | TabOpts]),
 
     %% Start link cm-registry process
     %% XXX: Should I hang it under a higher level supervisor?
@@ -802,7 +802,7 @@ handle_info(
     {'DOWN', _MRef, process, Pid, _Reason},
     State = #state{gwname = GwName, chan_pmon = PMon}
 ) ->
-    ChanPids = [Pid | emqx_misc:drain_down(?DEFAULT_BATCH_SIZE)],
+    ChanPids = [Pid | emqx_utils:drain_down(?DEFAULT_BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
     CmTabs = cmtabs(GwName),

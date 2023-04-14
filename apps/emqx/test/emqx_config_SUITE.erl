@@ -57,5 +57,5 @@ t_fill_default_values(_) ->
         WithDefaults
     ),
     %% ensure JSON compatible
-    _ = emqx_json:encode(WithDefaults),
+    _ = emqx_utils_json:encode(WithDefaults),
     ok.

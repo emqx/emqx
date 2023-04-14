@@ -162,7 +162,7 @@ on_start(
             rs -> "starting_mongodb_replica_set_connector";
             sharded -> "starting_mongodb_sharded_connector"
         end,
-    ?SLOG(info, #{msg => Msg, connector => InstId, config => emqx_misc:redact(Config)}),
+    ?SLOG(info, #{msg => Msg, connector => InstId, config => emqx_utils:redact(Config)}),
     NConfig = #{hosts := Hosts} = maybe_resolve_srv_and_txt_records(Config),
     SslOpts =
         case maps:get(enable, SSL) of

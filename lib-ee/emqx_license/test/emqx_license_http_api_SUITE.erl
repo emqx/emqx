@@ -103,7 +103,7 @@ t_license_info(_Config) ->
             <<"start_at">> => <<"2022-01-11">>,
             <<"type">> => <<"trial">>
         },
-        emqx_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload, [return_maps])
     ),
     ok.
 
@@ -128,7 +128,7 @@ t_license_upload_key_success(_Config) ->
             <<"start_at">> => <<"2022-01-11">>,
             <<"type">> => <<"trial">>
         },
-        emqx_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload, [return_maps])
     ),
     ?assertMatch(
         #{max_connections := 999},
@@ -150,7 +150,7 @@ t_license_upload_key_bad_key(_Config) ->
             <<"code">> => <<"BAD_REQUEST">>,
             <<"message">> => <<"Bad license key">>
         },
-        emqx_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.
@@ -168,7 +168,7 @@ t_license_upload_key_not_json(_Config) ->
             <<"code">> => <<"BAD_REQUEST">>,
             <<"message">> => <<"Invalid request params">>
         },
-        emqx_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.

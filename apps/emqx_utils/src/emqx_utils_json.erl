@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_json).
+-module(emqx_utils_json).
 
 -compile(inline).
 
@@ -45,6 +45,10 @@
         decode/2
     ]}
 ).
+
+-export([is_json/1]).
+
+-compile({inline, [is_json/1]}).
 
 -type encode_options() :: jiffy:encode_options().
 -type decode_options() :: jiffy:decode_options().
@@ -79,7 +83,7 @@ safe_encode(Term, Opts) ->
     end.
 
 -spec decode(json_text()) -> json_term().
-decode(Json) -> decode(Json, []).
+decode(Json) -> decode(Json, [return_maps]).
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
@@ -100,6 +104,10 @@ safe_decode(Json, Opts) ->
             {error, Reason}
     end.
 
+-spec is_json(json_text()) -> boolean().
+is_json(Json) ->
+    element(1, safe_decode(Json)) =:= ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -117,6 +125,8 @@ to_ejson([{_, _} | _] = L) ->
     {[{K, to_ejson(V)} || {K, V} <- L]};
 to_ejson(L) when is_list(L) ->
     [to_ejson(E) || E <- L];
+to_ejson(M) when is_map(M) ->
+    maps:map(fun(_K, V) -> to_ejson(V) end, M);
 to_ejson(T) ->
     T.
 

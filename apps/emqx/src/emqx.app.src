@@ -16,7 +16,6 @@
         cowboy,
         sasl,
         os_mon,
-        jiffy,
         lc,
         hocon
     ]},

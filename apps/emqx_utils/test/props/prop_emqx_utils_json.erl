@@ -14,10 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(prop_emqx_json).
+-module(prop_emqx_utils_json).
 
 -import(
-    emqx_json,
+    emqx_utils_json,
     [
         decode/1,
         decode/2,
@@ -66,7 +66,7 @@ prop_object_proplist_to_proplist() ->
         begin
             {ok, J} = safe_encode(T),
             {ok, T} = safe_decode(J),
-            T = decode(encode(T)),
+            T = decode(encode(T), []),
             true
         end
     ).
@@ -108,7 +108,7 @@ prop_object_map_to_proplist() ->
             T = to_list(T0),
             {ok, J} = safe_encode(T0),
             {ok, T} = safe_decode(J),
-            T = decode(encode(T0)),
+            T = decode(encode(T0), []),
             true
         end
     ).

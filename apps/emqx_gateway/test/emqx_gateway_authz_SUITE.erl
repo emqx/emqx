@@ -165,7 +165,7 @@ t_case_lwm2m(_) ->
     Test("lwm2m", fun(SubTopic, Msg) ->
         ?assertEqual(true, lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics())),
         Payload = emqx_message:payload(Msg),
-        Cmd = emqx_json:decode(Payload, [return_maps]),
+        Cmd = emqx_utils_json:decode(Payload, [return_maps]),
         ?assertMatch(#{<<"msgType">> := <<"register">>, <<"data">> := _}, Cmd)
     end),
 
@@ -350,7 +350,7 @@ t_case_exproto_publish(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, 5000),
-                C = ?FUNCTOR(Bin, emqx_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(SvrMod:frame_connack(0)), C(Recv)),
 
                 Send = fun() ->
@@ -387,7 +387,7 @@ t_case_exproto_subscribe(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, WaitTime),
-                C = ?FUNCTOR(Bin, emqx_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(SvrMod:frame_connack(0)), C(Recv)),
 
                 SubBin = SvrMod:frame_subscribe(Topic, 0),

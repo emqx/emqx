@@ -96,7 +96,7 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         LName = binary_to_atom(maps:get(<<"name">>, LConf)),
 
         Path = [listeners, Type, LName],
-        case emqx_map_lib:deep_get(Path, RunningConf, undefined) of
+        case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
             undefined ->
                 ListenerId = emqx_gateway_utils:listener_id(
                     GwName, Type, LName

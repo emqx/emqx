@@ -272,7 +272,7 @@ handle_info({timeout, TRef, update_trace}, #{timer := TRef} = State) ->
     ?tp(update_trace_done, #{}),
     {noreply, State#{timer => NextTRef}};
 handle_info({mnesia_table_event, _Events}, State = #{timer := TRef}) ->
-    emqx_misc:cancel_timer(TRef),
+    emqx_utils:cancel_timer(TRef),
     handle_info({timeout, TRef, update_trace}, State);
 handle_info(Info, State) ->
     ?SLOG(error, #{unexpected_info => Info}),
@@ -280,7 +280,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, #{timer := TRef}) ->
     _ = mnesia:unsubscribe({table, ?TRACE, simple}),
-    emqx_misc:cancel_timer(TRef),
+    emqx_utils:cancel_timer(TRef),
     stop_all_trace_handler(),
     update_trace_handler(),
     _ = file:del_dir_r(zip_dir()),
@@ -302,7 +302,7 @@ update_trace(Traces) ->
     ok = stop_trace(NeedStop, Started),
     clean_stale_trace_files(),
     NextTime = find_closest_time(Traces, Now),
-    emqx_misc:start_timer(NextTime, update_trace).
+    emqx_utils:start_timer(NextTime, update_trace).
 
 stop_all_trace_handler() ->
     lists:foreach(

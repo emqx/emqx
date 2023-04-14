@@ -92,7 +92,7 @@ t_send_request_api(_) ->
             Req
         ),
         #{<<"token">> := RToken, <<"payload">> := RPayload} =
-            emqx_json:decode(Response, [return_maps]),
+            emqx_utils_json:decode(Response, [return_maps]),
         ?assertEqual(Token, RToken),
         ?assertEqual(Payload, RPayload)
     end,

@@ -73,7 +73,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->
-    emqx_misc:cancel_timer(TRef).
+    emqx_utils:cancel_timer(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -82,7 +82,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 ensure_timer(State = #{cleanup_ms := Ms}) ->
-    State#{timer := emqx_misc:start_timer(Ms, del_stale_mfa)}.
+    State#{timer := emqx_utils:start_timer(Ms, del_stale_mfa)}.
 
 %% @doc Keep the latest completed 100 records for querying and troubleshooting.
 del_stale_mfa(MaxHistory) ->

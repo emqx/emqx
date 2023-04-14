@@ -97,7 +97,7 @@ tlv_single_resource(BaseName, Id, Value, ObjDefinition) ->
     [#{path => BaseName, value => Val}].
 
 basename(OldBaseName, _ObjectId, ObjectInstanceId, ResourceId, 3) ->
-    case binary:split(binary_util:trim(OldBaseName, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, ResId] ->
             <<$/, ObjId/binary, $/, ObjInsId/binary, $/, ResId/binary>>;
         [ObjId, ObjInsId] ->
@@ -113,13 +113,13 @@ basename(OldBaseName, _ObjectId, ObjectInstanceId, ResourceId, 3) ->
             >>
     end;
 basename(OldBaseName, _ObjectId, ObjectInstanceId, _ResourceId, 2) ->
-    case binary:split(binary_util:trim(OldBaseName, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, _ResId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId, ObjInsId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId] -> <<$/, ObjId/binary, $/, (integer_to_binary(ObjectInstanceId))/binary>>
     end.
 % basename(OldBaseName, _ObjectId, _ObjectInstanceId, _ResourceId, 1) ->
-%    case binary:split(binary_util:trim(OldBaseName, $/), [<<$/>>], [global]) of
+%    case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
 %        [ObjId, _ObjInsId, _ResId]       -> <<$/, ObjId/binary>>;
 %        [ObjId, _ObjInsId]               -> <<$/, ObjId/binary>>;
 %        [ObjId]                          -> <<$/, ObjId/binary>>
@@ -129,7 +129,7 @@ make_path(RelativePath, Id) ->
     <<RelativePath/binary, $/, (integer_to_binary(Id))/binary>>.
 
 object_id(BaseName) ->
-    case binary:split(binary_util:trim(BaseName, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(BaseName, $/), [<<$/>>], [global]) of
         [ObjId] -> binary_to_integer(ObjId);
         [ObjId, _] -> binary_to_integer(ObjId);
         [ObjId, _, _] -> binary_to_integer(ObjId);
@@ -137,7 +137,7 @@ object_id(BaseName) ->
     end.
 
 object_resource_id(BaseName) ->
-    case binary:split(binary_util:trim(BaseName, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(BaseName, $/), [<<$/>>], [global]) of
         [_ObjIdBin1] ->
             error({invalid_basename, BaseName});
         [_ObjIdBin2, _] ->
@@ -152,7 +152,7 @@ object_resource_id(BaseName) ->
 value(Value, ResourceId, ObjDefinition) ->
     case emqx_lwm2m_xml_object:get_resource_type(ResourceId, ObjDefinition) of
         "String" ->
-            % keep binary type since it is same as a string for jsx
+            % keep binary type since it is same as a string for emqx_utils_json
             Value;
         "Integer" ->
             Size = byte_size(Value) * 8,
@@ -351,7 +351,7 @@ opaque_to_json(BaseName, Binary) ->
     [#{path => BaseName, value => base64:encode(Binary)}].
 
 translate_json(JSONBin) ->
-    JSONTerm = emqx_json:decode(JSONBin, [return_maps]),
+    JSONTerm = emqx_utils_json:decode(JSONBin, [return_maps]),
     BaseName = maps:get(<<"bn">>, JSONTerm, <<>>),
     ElementList = maps:get(<<"e">>, JSONTerm, []),
     translate_element(BaseName, ElementList, []).
@@ -371,8 +371,8 @@ translate_element(BaseName, [Element | ElementList], Acc) ->
     translate_element(BaseName, ElementList, NewAcc).
 
 full_path(BaseName, RelativePath) ->
-    Prefix = binary_util:rtrim(BaseName, $/),
-    Path = binary_util:ltrim(RelativePath, $/),
+    Prefix = emqx_utils_binary:rtrim(BaseName, $/),
+    Path = emqx_utils_binary:ltrim(RelativePath, $/),
     <<Prefix/binary, $/, Path/binary>>.
 
 get_element_value(#{<<"t">> := Value}) -> Value;

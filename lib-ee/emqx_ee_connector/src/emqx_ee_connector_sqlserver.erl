@@ -188,7 +188,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_sqlserver_connector",
         connector => InstanceId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
 
     ODBCDir = code:priv_dir(odbc),

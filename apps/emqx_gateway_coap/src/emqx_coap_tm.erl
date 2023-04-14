@@ -272,12 +272,12 @@ cancel_state_timer(#state_machine{timers = Timers} = Machine) ->
         undefined ->
             Machine;
         Ref ->
-            _ = emqx_misc:cancel_timer(Ref),
+            _ = emqx_utils:cancel_timer(Ref),
             Machine#state_machine{timers = maps:remove(state_timer, Timers)}
     end.
 
 process_timer(SeqId, {Type, Interval, Msg}, Timers) ->
-    Ref = emqx_misc:start_timer(Interval, {state_machine, {SeqId, Type, Msg}}),
+    Ref = emqx_utils:start_timer(Interval, {state_machine, {SeqId, Type, Msg}}),
     Timers#{Type => Ref}.
 
 -spec delete_machine(manager_key(), manager()) -> manager().
@@ -293,7 +293,7 @@ delete_machine(Id, Manager) ->
         } ->
             lists:foreach(
                 fun({_, Ref}) ->
-                    emqx_misc:cancel_timer(Ref)
+                    emqx_utils:cancel_timer(Ref)
                 end,
                 maps:to_list(Timers)
             ),

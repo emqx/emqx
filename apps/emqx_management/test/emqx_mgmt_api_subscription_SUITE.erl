@@ -55,7 +55,7 @@ t_subscription_api(Config) ->
     {ok, _, _} = emqtt:subscribe(Client, ?TOPIC2),
     Path = emqx_mgmt_api_test_util:api_path(["subscriptions"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
-    Data = emqx_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, Data),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
@@ -158,7 +158,7 @@ t_list_with_internal_subscription(_Config) ->
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),
-    emqx_json:decode(MatchRes, [return_maps]).
+    emqx_utils_json:decode(MatchRes, [return_maps]).
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).

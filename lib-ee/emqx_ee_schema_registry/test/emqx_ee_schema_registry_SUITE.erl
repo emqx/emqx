@@ -68,7 +68,7 @@ trace_rule(Data, Envs, _Args) ->
 make_trace_fn_action() ->
     persistent_term:put({?MODULE, test_pid}, self()),
     Fn = <<(atom_to_binary(?MODULE))/binary, ":trace_rule">>,
-    emqx_tables:new(recorded_actions, [named_table, public, ordered_set]),
+    emqx_utils_ets:new(recorded_actions, [named_table, public, ordered_set]),
     #{function => Fn, args => #{}}.
 
 create_rule_http(RuleParams) ->
@@ -95,7 +95,7 @@ create_rule_http(RuleParams) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -107,7 +107,7 @@ schema_params(avro) ->
             #{name => <<"s">>, type => <<"string">>}
         ]
     },
-    SourceBin = emqx_json:encode(Source),
+    SourceBin = emqx_utils_json:encode(Source),
     #{type => avro, source => SourceBin}.
 
 create_serde(SerdeType, SerdeName) ->
@@ -162,7 +162,7 @@ receive_published(Line) ->
             maps:update_with(
                 payload,
                 fun(Raw) ->
-                    case emqx_json:safe_decode(Raw, [return_maps]) of
+                    case emqx_utils_json:safe_decode(Raw, [return_maps]) of
                         {ok, Decoded} -> Decoded;
                         {error, _} -> Raw
                     end
@@ -218,7 +218,7 @@ start_cluster(Cluster) ->
      || {Name, Opts} <- Cluster
     ],
     on_exit(fun() ->
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun(N) ->
                 ct:pal("stopping ~p", [N]),
                 ok = emqx_common_test_helpers:stop_slave(N)
@@ -262,7 +262,7 @@ t_encode_decode(Config) ->
     {ok, #{<<"id">> := RuleId}} = create_rule_http(#{sql => sql_for(SerdeType, encode_decode1)}),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
-    PayloadBin = emqx_json:encode(Payload),
+    PayloadBin = emqx_utils_json:encode(Payload),
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(
@@ -311,7 +311,7 @@ t_encode(Config) ->
     {ok, #{<<"id">> := RuleId}} = create_rule_http(#{sql => sql_for(SerdeType, encode1)}),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
-    PayloadBin = emqx_json:encode(Payload),
+    PayloadBin = emqx_utils_json:encode(Payload),
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Published = receive_published(?LINE),
     ?assertMatch(
@@ -344,7 +344,7 @@ t_decode(Config) ->
 
 t_fail_rollback(Config) ->
     SerdeType = ?config(serde_type, Config),
-    OkSchema = emqx_map_lib:binary_key_map(schema_params(SerdeType)),
+    OkSchema = emqx_utils_maps:binary_key_map(schema_params(SerdeType)),
     BrokenSchema = OkSchema#{<<"source">> := <<"{}">>},
     %% hopefully, for this small map, the key order is used.
     Serdes = #{

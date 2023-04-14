@@ -38,22 +38,22 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 
--type update_config_key_path() :: [emqx_map_lib:config_key(), ...].
+-type update_config_key_path() :: [emqx_utils_maps:config_key(), ...].
 
 introduced_in() ->
     "5.0.0".
 
--spec get_config(node(), emqx_map_lib:config_key_path()) ->
+-spec get_config(node(), emqx_utils_maps:config_key_path()) ->
     term() | emqx_rpc:badrpc().
 get_config(Node, KeyPath) ->
     rpc:call(Node, emqx, get_config, [KeyPath]).
 
--spec get_config(node(), emqx_map_lib:config_key_path(), _Default) ->
+-spec get_config(node(), emqx_utils_maps:config_key_path(), _Default) ->
     term() | emqx_rpc:badrpc().
 get_config(Node, KeyPath, Default) ->
     rpc:call(Node, emqx, get_config, [KeyPath, Default]).
 
--spec get_all(emqx_map_lib:config_key_path()) -> emqx_rpc:multicall_result().
+-spec get_all(emqx_utils_maps:config_key_path()) -> emqx_rpc:multicall_result().
 get_all(KeyPath) ->
     rpc:multicall(emqx_conf, get_node_and_config, [KeyPath], 5000).
 

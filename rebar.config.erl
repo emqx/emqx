@@ -391,6 +391,7 @@ relx_apps(ReleaseType, Edition) ->
             {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
+            {emqx_utils, load},
             emqx_http_lib,
             emqx_resource,
             emqx_connector,

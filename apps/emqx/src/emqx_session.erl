@@ -941,7 +941,7 @@ age(Now, Ts) -> Now - Ts.
 %%--------------------------------------------------------------------
 
 set_field(Name, Value, Session) ->
-    Pos = emqx_misc:index_of(Name, record_info(fields, session)),
+    Pos = emqx_utils:index_of(Name, record_info(fields, session)),
     setelement(Pos + 1, Session, Value).
 
 get_mqueue(#session{mqueue = Q}) ->

@@ -207,7 +207,7 @@ send_message(BridgeId, Message) ->
     end.
 
 query_opts(Config) ->
-    case emqx_map_lib:deep_get([resource_opts, request_timeout], Config, false) of
+    case emqx_utils_maps:deep_get([resource_opts, request_timeout], Config, false) of
         Timeout when is_integer(Timeout) ->
             %% request_timeout is configured
             #{timeout => Timeout};
@@ -296,7 +296,7 @@ create(BridgeType, BridgeName, RawConf) ->
         brige_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => emqx_misc:redact(RawConf)
+        bridge_raw_config => emqx_utils:redact(RawConf)
     }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
@@ -367,7 +367,7 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
     perform_bridge_changes(Tasks, Result).
 
 diff_confs(NewConfs, OldConfs) ->
-    emqx_map_lib:diff_maps(
+    emqx_utils_maps:diff_maps(
         flatten_confs(NewConfs),
         flatten_confs(OldConfs)
     ).

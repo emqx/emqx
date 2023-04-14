@@ -407,7 +407,7 @@ do_verify(_JWT, [], _VerifyClaims) ->
 do_verify(JWT, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWT) of
         {true, Payload, _JWT} ->
-            Claims0 = emqx_json:decode(Payload, [return_maps]),
+            Claims0 = emqx_utils_json:decode(Payload, [return_maps]),
             Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->

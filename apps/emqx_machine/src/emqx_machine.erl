@@ -88,7 +88,7 @@ start_sysmon() ->
     end.
 
 node_status() ->
-    emqx_json:encode(#{
+    emqx_utils_json:encode(#{
         backend => mria_rlog:backend(),
         role => mria_rlog:role()
     }).

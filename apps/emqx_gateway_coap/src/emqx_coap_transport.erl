@@ -119,7 +119,7 @@ idle(out, #coap_message{type = non} = Msg, _) ->
         timeouts => [{stop_timeout, ?NON_LIFETIME}]
     });
 idle(out, Msg, Transport) ->
-    _ = emqx_misc:rand_seed(),
+    _ = emqx_utils:rand_seed(),
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
     out(Msg, #{
         next => wait_ack,

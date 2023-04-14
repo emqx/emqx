@@ -975,7 +975,7 @@ t_with_redact_update(Config) ->
     ),
 
     %% update with redacted config
-    BridgeConf = emqx_misc:redact(Template),
+    BridgeConf = emqx_utils:redact(Template),
     BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
     {ok, 200, _} = request(put, uri(["bridges", BridgeID]), BridgeConf, Config),
     ?assertEqual(
@@ -1221,7 +1221,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
     URL1 = ?URL(Port, "path1"),
     Name = ?BRIDGE_NAME,
     BadBridgeParams =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ?HTTP_BRIDGE(URL1, Name),
             #{
                 <<"request_timeout">> => <<"1s">>,
@@ -1304,4 +1304,4 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    emqx_json:decode(B, [return_maps]).
+    emqx_utils_json:decode(B, [return_maps]).

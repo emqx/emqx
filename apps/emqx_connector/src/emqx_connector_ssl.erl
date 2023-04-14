@@ -74,7 +74,7 @@ new_ssl_config(Config, _NewSSL) ->
 normalize_key_to_bin(undefined) ->
     undefined;
 normalize_key_to_bin(Map) when is_map(Map) ->
-    emqx_map_lib:binary_key_map(Map).
+    emqx_utils_maps:binary_key_map(Map).
 
 try_map_get(Key, Map, Default) when is_map(Map) ->
     maps:get(Key, Map, Default);

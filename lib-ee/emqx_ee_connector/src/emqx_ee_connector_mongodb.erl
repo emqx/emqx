@@ -84,4 +84,4 @@ render_message(PayloadTemplate, Message) ->
     %% Note: mongo expects a map as a document, so the rendered result
     %% must be JSON-serializable
     Rendered = emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, Message),
-    emqx_json:decode(Rendered, [return_maps]).
+    emqx_utils_json:decode(Rendered, [return_maps]).

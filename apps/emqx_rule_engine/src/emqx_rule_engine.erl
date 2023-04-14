@@ -115,7 +115,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
-        emqx_map_lib:diff_maps(NewRules, OldRules),
+        emqx_utils_maps:diff_maps(NewRules, OldRules),
     maps_foreach(
         fun({Id, {_Old, New}}) ->
             {ok, _} = update_rule(New#{id => bin(Id)})

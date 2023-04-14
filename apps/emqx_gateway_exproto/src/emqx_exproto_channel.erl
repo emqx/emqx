@@ -681,14 +681,14 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
 
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->
     ensure_timer(Name, remove_timer_ref(Name, Channel)).
 
 cancel_timer(Name, Channel = #channel{timers = Timers}) ->
-    emqx_misc:cancel_timer(maps:get(Name, Timers, undefined)),
+    emqx_utils:cancel_timer(maps:get(Name, Timers, undefined)),
     remove_timer_ref(Name, Channel).
 
 remove_timer_ref(Name, Channel = #channel{timers = Timers}) ->
@@ -792,4 +792,4 @@ proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
     binary_to_atom(ProtoName).
 
 anonymous_clientid() ->
-    iolist_to_binary(["exproto-", emqx_misc:gen_id()]).
+    iolist_to_binary(["exproto-", emqx_utils:gen_id()]).

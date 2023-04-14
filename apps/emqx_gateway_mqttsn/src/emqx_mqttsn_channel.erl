@@ -218,7 +218,7 @@ info(conn_state, #channel{conn_state = ConnState}) ->
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
-    emqx_misc:maybe_apply(fun emqx_session:info/1, Session);
+    emqx_utils:maybe_apply(fun emqx_session:info/1, Session);
 info(will_msg, #channel{will_msg = WillMsg}) ->
     WillMsg;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
@@ -282,7 +282,7 @@ enrich_clientinfo(
         feedvar(Override, Packet, ConnInfo, ClientInfo0),
         ClientInfo0
     ),
-    {ok, NPacket, NClientInfo} = emqx_misc:pipeline(
+    {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
             fun maybe_assign_clientid/2,
             %% FIXME: CALL After authentication successfully
@@ -414,7 +414,7 @@ process_connect(
                 Channel#channel{session = Session}
             );
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
-            Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
+            Pendings1 = lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = true,
@@ -595,7 +595,7 @@ handle_in(
     Channel = #channel{conn_state = idle}
 ) ->
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun enrich_conninfo/2,
                 fun run_conn_hooks/2,
@@ -718,7 +718,7 @@ handle_in(PubPkt = ?SN_PUBLISH_MSG(_Flags, TopicId0, MsgId, _Data), Channel) ->
                 Id
         end,
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun check_qos3_enable/2,
                 fun preproc_pub_pkt/2,
@@ -877,7 +877,7 @@ handle_in(
     end;
 handle_in(SubPkt = ?SN_SUBSCRIBE_MSG(_, MsgId, _), Channel) ->
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun preproc_subs_type/2,
                 fun check_subscribe_authz/2,
@@ -911,7 +911,7 @@ handle_in(
     Channel
 ) ->
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun preproc_unsub_type/2,
                 fun run_client_unsub_hook/2,
@@ -1823,7 +1823,7 @@ handle_call(
 ) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_misc:drain_deliver(),
+    Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
     shutdown_and_reply(takenover, AllPendings, Channel);
 %handle_call(list_authz_cache, _From, Channel) ->
@@ -2247,7 +2247,7 @@ ensure_register_timer(Channel) ->
 
 ensure_register_timer(RetryTimes, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(register_timer, ?TIMER_TABLE),
-    TRef = emqx_misc:start_timer(?REGISTER_TIMEOUT, {Msg, RetryTimes}),
+    TRef = emqx_utils:start_timer(?REGISTER_TIMEOUT, {Msg, RetryTimes}),
     Channel#channel{timers = Timers#{register_timer => TRef}}.
 
 cancel_timer(Name, Channel = #channel{timers = Timers}) ->
@@ -2255,7 +2255,7 @@ cancel_timer(Name, Channel = #channel{timers = Timers}) ->
         undefined ->
             Channel;
         TRef ->
-            emqx_misc:cancel_timer(TRef),
+            emqx_utils:cancel_timer(TRef),
             Channel#channel{timers = maps:without([Name], Timers)}
     end.
 
@@ -2270,7 +2270,7 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
 
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->

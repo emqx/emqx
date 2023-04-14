@@ -149,7 +149,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
         }
     },
     SvrOptions =
-        case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+        case emqx_utils_maps:deep_get([ssl, enable], Options, false) of
             false ->
                 [];
             true ->
@@ -201,7 +201,7 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
                     }}
                 )
         end,
-    case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+    case emqx_utils_maps:deep_get([ssl, enable], Options, false) of
         false ->
             SvrAddr = compose_http_uri(http, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});

@@ -240,7 +240,7 @@ authn(GwName) ->
     ChainName = emqx_gateway_utils:global_chain(GwName),
     wrap_chain_name(
         ChainName,
-        emqx_map_lib:jsonable_map(emqx:get_raw_config(Path))
+        emqx_utils_maps:jsonable_map(emqx:get_raw_config(Path))
     ).
 
 -spec authn(gateway_name(), binary()) -> map().
@@ -250,7 +250,7 @@ authn(GwName, ListenerId) ->
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
     wrap_chain_name(
         ChainName,
-        emqx_map_lib:jsonable_map(emqx:get_raw_config(Path))
+        emqx_utils_maps:jsonable_map(emqx:get_raw_config(Path))
     ).
 
 wrap_chain_name(ChainName, Conf) ->
@@ -404,7 +404,7 @@ return_http_error(Code, Msg) ->
 -spec reason2msg({atom(), map()} | any()) -> error | string().
 reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
     NValue =
-        case emqx_json:safe_encode(Value) of
+        case emqx_utils_json:safe_encode(Value) of
             {ok, Str} -> Str;
             {error, _} -> emqx_gateway_utils:stringfy(Value)
         end,
@@ -495,7 +495,7 @@ reason2msg(
 reason2msg(
     {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->
-    Bin = emqx_misc:readable_error_msg(Error),
+    Bin = emqx_utils:readable_error_msg(Error),
     <<"Invalid configurations: ", Bin/binary>>;
 reason2msg(_) ->
     error.

@@ -413,7 +413,7 @@ t_load_gateway_with_certs_content(_) ->
     ),
     {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
-    SslConf = emqx_map_lib:deep_get(
+    SslConf = emqx_utils_maps:deep_get(
         [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),
@@ -436,7 +436,7 @@ t_load_gateway_with_certs_content(_) ->
 %                 ),
 %    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
 %    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
-%    SslConf = emqx_map_lib:deep_get(
+%    SslConf = emqx_utils_maps:deep_get(
 %                [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
 %                emqx:get_raw_config([gateway, stomp])
 %               ),
@@ -471,7 +471,7 @@ t_add_listener_with_certs_content(_) ->
         emqx:get_raw_config([gateway, stomp])
     ),
 
-    SslConf = emqx_map_lib:deep_get(
+    SslConf = emqx_utils_maps:deep_get(
         [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),

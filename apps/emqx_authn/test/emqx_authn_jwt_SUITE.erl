@@ -467,7 +467,7 @@ jwks_handler(Req0, State) ->
     Req = cowboy_req:reply(
         200,
         #{<<"content-type">> => <<"application/json">>},
-        jiffy:encode(JWKS),
+        emqx_utils_json:encode(JWKS),
         Req0
     ),
     {ok, Req, State}.

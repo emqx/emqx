@@ -50,7 +50,7 @@
 
 start_link(Pool, Id) ->
     gen_server:start_link(
-        {local, emqx_misc:proc_name(?MODULE, Id)},
+        {local, emqx_utils:proc_name(?MODULE, Id)},
         ?MODULE,
         [Pool, Id],
         []

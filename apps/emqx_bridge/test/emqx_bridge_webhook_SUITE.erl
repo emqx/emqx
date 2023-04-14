@@ -175,7 +175,7 @@ bridge_async_config(#{port := Port} = Config) ->
         "    inflight_window = 100\n"
         "    auto_restart_interval = \"60s\"\n"
         "    health_check_interval = \"15s\"\n"
-        "    max_queue_bytes = \"1GB\"\n"
+        "    max_buffer_bytes = \"1GB\"\n"
         "    query_mode = \"~s\"\n"
         "    request_timeout = \"~s\"\n"
         "    start_after_created = \"true\"\n"
