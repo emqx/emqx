@@ -159,7 +159,7 @@ t_global_zone(_Config) ->
     ?assertEqual(2, emqx_utils_maps:deep_get([<<"max_qos_allowed">>], Mqtt3)),
     ok = emqx_config:put_raw([<<"mqtt">>], Mqtt0),
 
-    DefaultZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 2),
+    DefaultZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 2),
     {ok, #{}} = update_global_zone(DefaultZones),
     #{<<"mqtt">> := Mqtt} = emqx_config:fill_defaults(emqx_schema, #{<<"mqtt">> => #{}}, #{}),
     Default = maps:map(
@@ -324,7 +324,7 @@ reset_config(Name, Key) ->
 read_conf(RootKeys) when is_list(RootKeys) ->
     case emqx_config:read_override_conf(#{override_to => cluster}) of
         undefined -> undefined;
-        Conf -> emqx_map_lib:deep_get(RootKeys, Conf, undefined)
+        Conf -> emqx_utils_maps:deep_get(RootKeys, Conf, undefined)
     end;
 read_conf(RootKey) ->
     read_conf([RootKey]).
