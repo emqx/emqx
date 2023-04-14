@@ -46,13 +46,13 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_crud_rule_api, Config) ->
-    meck:new(emqx_json, [passthrough]),
+    meck:new(emqx_utils_json, [passthrough]),
     init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(t_crud_rule_api, Config) ->
-    meck:unload(emqx_json),
+    meck:unload(emqx_utils_json),
     end_per_testcase(common, Config);
 end_per_testcase(_, _Config) ->
     {200, #{data := Rules}} =
@@ -136,7 +136,7 @@ t_crud_rule_api(_Config) ->
         ),
     ?assertMatch(
         #{<<"select_and_transform_error">> := <<"decode_json_failed">>},
-        emqx_json:decode(SelectAndTransformJsonError, [return_maps])
+        emqx_utils_json:decode(SelectAndTransformJsonError, [return_maps])
     ),
     {400, #{
         code := 'BAD_REQUEST',
@@ -150,7 +150,7 @@ t_crud_rule_api(_Config) ->
         ),
     ?assertMatch(
         #{<<"select_and_transform_error">> := <<"badarg">>},
-        emqx_json:decode(SelectAndTransformBadArgError, [return_maps])
+        emqx_utils_json:decode(SelectAndTransformBadArgError, [return_maps])
     ),
     {400, #{
         code := 'BAD_REQUEST',
@@ -162,7 +162,7 @@ t_crud_rule_api(_Config) ->
         )
     ),
     ?assertMatch({match, _}, re:run(BadSqlMessage, "syntax error")),
-    meck:expect(emqx_json, safe_encode, 1, {error, foo}),
+    meck:expect(emqx_utils_json, safe_encode, 1, {error, foo}),
     ?assertMatch(
         {400, #{
             code := 'BAD_REQUEST',

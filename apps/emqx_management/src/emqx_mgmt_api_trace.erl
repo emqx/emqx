@@ -498,7 +498,7 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     %% We generate a session ID so that we name files
                     %% with unique names. Then we won't cause
                     %% overwrites for concurrent requests.
-                    SessionId = emqx_misc:gen_id(),
+                    SessionId = emqx_utils:gen_id(),
                     ZipDir = filename:join([emqx_trace:zip_dir(), SessionId]),
                     ok = file:make_dir(ZipDir),
                     %% Write files to ZipDir and create an in-memory zip file

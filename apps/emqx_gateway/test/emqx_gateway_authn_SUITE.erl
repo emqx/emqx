@@ -266,7 +266,7 @@ t_case_exproto(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, 5000),
-                C = ?FUNCTOR(Bin, emqx_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(Expect), C(Recv))
             end
         )
@@ -282,7 +282,7 @@ t_case_exproto(_) ->
 
 disable_authn(GwName, Type, Name) ->
     RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
-    ListenerCfg = emqx_map_lib:deep_get(
+    ListenerCfg = emqx_utils_maps:deep_get(
         [<<"listeners">>, atom_to_binary(Type), atom_to_binary(Name)], RawCfg
     ),
     {ok, _} = emqx_gateway_conf:update_listener(GwName, {Type, Name}, ListenerCfg#{

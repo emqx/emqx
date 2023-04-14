@@ -335,7 +335,7 @@ remove_tmp_fields(Ref) ->
 
 -spec path_list(Path :: binary()) -> {[PathWord :: binary()], [Query :: binary()]}.
 path_list(Path) ->
-    case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
+    case binary:split(emqx_utils_binary:trim(Path, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, ResId, LastPart] ->
             {ResInstId, QueryList} = query_list(LastPart),
             {[ObjId, ObjInsId, ResId, ResInstId], QueryList};
@@ -389,7 +389,7 @@ observe_seq(Options) ->
 add_alternate_path_prefix(<<"/">>, PathList) ->
     PathList;
 add_alternate_path_prefix(AlternatePath, PathList) ->
-    [binary_util:trim(AlternatePath, $/) | PathList].
+    [emqx_utils_binary:trim(AlternatePath, $/) | PathList].
 
 extract_path(Ref = #{}) ->
     drop_query(

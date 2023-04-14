@@ -299,7 +299,7 @@ init_per_testcase(TestCase, Config) when
             common_init_per_testcase(TestCase, Config)
     end;
 init_per_testcase(t_cluster_group = TestCase, Config0) ->
-    Config = emqx_misc:merge_opts(Config0, [{num_partitions, 6}]),
+    Config = emqx_utils:merge_opts(Config0, [{num_partitions, 6}]),
     common_init_per_testcase(TestCase, Config);
 init_per_testcase(t_multiple_topic_mappings = TestCase, Config0) ->
     KafkaTopicBase =
@@ -673,7 +673,7 @@ create_bridge(Config, Overrides) ->
     Type = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     emqx_bridge:create(Type, Name, KafkaConfig).
 
 delete_bridge(Config) ->
@@ -696,7 +696,7 @@ create_bridge_api(Config, Overrides) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
@@ -705,7 +705,7 @@ create_bridge_api(Config, Overrides) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
             Error ->
                 Error
         end,
@@ -719,7 +719,7 @@ update_bridge_api(Config, Overrides) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
-    KafkaConfig = emqx_map_lib:deep_merge(KafkaConfig0, Overrides),
+    KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
     BridgeId = emqx_bridge_resource:bridge_id(TypeBin, Name),
     Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId]),
@@ -728,7 +728,7 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("updating bridge (via http): ~p", [Params]),
     Res =
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
-            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_json:decode(Body0, [return_maps])};
+            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
             Error -> Error
         end,
     ct:pal("bridge update result: ~p", [Res]),
@@ -776,7 +776,7 @@ do_wait_for_expected_published_messages(Messages, Acc, _Timeout) when map_size(M
 do_wait_for_expected_published_messages(Messages0, Acc0, Timeout) ->
     receive
         {publish, Msg0 = #{payload := Payload}} ->
-            case emqx_json:safe_decode(Payload, [return_maps]) of
+            case emqx_utils_json:safe_decode(Payload, [return_maps]) of
                 {error, _} ->
                     ct:pal("unexpected message: ~p; discarding", [Msg0]),
                     do_wait_for_expected_published_messages(Messages0, Acc0, Timeout);
@@ -928,7 +928,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -1188,7 +1188,7 @@ t_start_and_consume_ok(Config) ->
                     <<"offset">> := OffsetReply,
                     <<"headers">> := #{<<"hkey">> := <<"hvalue">>}
                 },
-                emqx_json:decode(PayloadBin, [return_maps]),
+                emqx_utils_json:decode(PayloadBin, [return_maps]),
                 #{
                     offset_reply => OffsetReply,
                     kafka_topic => KafkaTopic,
@@ -1300,7 +1300,7 @@ t_multiple_topic_mappings(Config) ->
             %% as configured.
             Payloads =
                 lists:sort([
-                    case emqx_json:safe_decode(P, [return_maps]) of
+                    case emqx_utils_json:safe_decode(P, [return_maps]) of
                         {ok, Decoded} -> Decoded;
                         {error, _} -> P
                     end
@@ -1441,7 +1441,7 @@ do_t_failed_creation_then_fixed(Config) ->
             <<"offset">> := _,
             <<"headers">> := #{<<"hkey">> := <<"hvalue">>}
         },
-        emqx_json:decode(PayloadBin, [return_maps]),
+        emqx_utils_json:decode(PayloadBin, [return_maps]),
         #{
             kafka_topic => KafkaTopic,
             payload => Payload
@@ -1543,7 +1543,7 @@ do_t_receive_after_recovery(Config) ->
                 %% 2) publish messages while the consumer is down.
                 %% we use `pmap' to avoid wolff sending the whole
                 %% batch to a single partition.
-                emqx_misc:pmap(fun(Msg) -> publish(Config, [Msg]) end, Messages1),
+                emqx_utils:pmap(fun(Msg) -> publish(Config, [Msg]) end, Messages1),
                 ok
             end),
             %% 3) restore and consume messages
@@ -1636,7 +1636,7 @@ t_bridge_rule_action_source(Config) ->
                     <<"headers">> := #{<<"hkey">> := <<"hvalue">>},
                     <<"topic">> := KafkaTopic
                 },
-                emqx_json:decode(RawPayload, [return_maps])
+                emqx_utils_json:decode(RawPayload, [return_maps])
             ),
             ?retry(
                 _Interval = 200,
@@ -1667,7 +1667,7 @@ t_cluster_group(Config) ->
                  || {Name, Opts} <- Cluster
                 ],
             on_exit(fun() ->
-                emqx_misc:pmap(
+                emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)
@@ -1889,7 +1889,7 @@ t_cluster_node_down(Config) ->
                     Cluster
                 ),
             on_exit(fun() ->
-                emqx_misc:pmap(
+                emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
                         ok = emqx_common_test_helpers:stop_slave(N)
@@ -2004,7 +2004,7 @@ t_begin_offset_earliest(Config) ->
             %% the consumers
             Published = receive_published(#{n => NumMessages}),
             Payloads = lists:map(
-                fun(#{payload := P}) -> emqx_json:decode(P, [return_maps]) end,
+                fun(#{payload := P}) -> emqx_utils_json:decode(P, [return_maps]) end,
                 Published
             ),
             ?assert(

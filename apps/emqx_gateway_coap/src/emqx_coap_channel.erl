@@ -111,7 +111,7 @@ info(conn_state, #channel{conn_state = ConnState}) ->
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
-    emqx_misc:maybe_apply(fun emqx_coap_session:info/1, Session);
+    emqx_utils:maybe_apply(fun emqx_coap_session:info/1, Session);
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
@@ -366,7 +366,7 @@ ensure_timer(Name, Time, Msg, #channel{timers = Timers} = Channel) ->
     end.
 
 make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 ensure_keepalive_timer(Channel) ->
@@ -710,7 +710,7 @@ process_connection(
 ) ->
     Queries = emqx_coap_message:get_option(uri_query, Req),
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun enrich_conninfo/2,
                 fun run_conn_hooks/2,

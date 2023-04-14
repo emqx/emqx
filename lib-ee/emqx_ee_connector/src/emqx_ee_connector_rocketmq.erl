@@ -248,14 +248,14 @@ get_topic_key([Query | _], RawTopic, TopicTks) ->
 apply_template({Key, Msg} = _Req, Templates) ->
     case maps:get(Key, Templates, undefined) of
         undefined ->
-            emqx_json:encode(Msg);
+            emqx_utils_json:encode(Msg);
         Template ->
             emqx_plugin_libs_rule:proc_tmpl(Template, Msg)
     end;
 apply_template([{Key, _} | _] = Reqs, Templates) ->
     case maps:get(Key, Templates, undefined) of
         undefined ->
-            [emqx_json:encode(Msg) || {_, Msg} <- Reqs];
+            [emqx_utils_json:encode(Msg) || {_, Msg} <- Reqs];
         Template ->
             [emqx_plugin_libs_rule:proc_tmpl(Template, Msg) || {_, Msg} <- Reqs]
     end.
@@ -265,7 +265,7 @@ client_id(InstanceId) ->
     erlang:binary_to_atom(Name, utf8).
 
 redact(Msg) ->
-    emqx_misc:redact(Msg, fun is_sensitive_key/1).
+    emqx_utils:redact(Msg, fun is_sensitive_key/1).
 
 is_sensitive_key(security_token) ->
     true;

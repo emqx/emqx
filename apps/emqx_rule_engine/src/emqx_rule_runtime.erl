@@ -495,7 +495,7 @@ cache_payload(DecodedP) ->
 
 safe_decode_and_cache(MaybeJson) ->
     try
-        cache_payload(emqx_json:decode(MaybeJson, [return_maps]))
+        cache_payload(emqx_utils_json:decode(MaybeJson, [return_maps]))
     catch
         _:_ -> error({decode_json_failed, MaybeJson})
     end.

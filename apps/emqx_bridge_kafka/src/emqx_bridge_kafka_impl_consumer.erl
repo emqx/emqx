@@ -156,7 +156,7 @@ on_start(InstanceId, Config) ->
                 msg => "failed_to_start_kafka_consumer_client",
                 instance_id => InstanceId,
                 kafka_hosts => BootstrapHosts,
-                reason => emqx_misc:redact(Reason)
+                reason => emqx_utils:redact(Reason)
             }),
             throw(?CLIENT_DOWN_MESSAGE)
     end,
@@ -344,7 +344,7 @@ start_consumer(Config, InstanceId, ClientID) ->
                 msg => "failed_to_start_kafka_consumer",
                 instance_id => InstanceId,
                 kafka_hosts => emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
-                reason => emqx_misc:redact(Reason2)
+                reason => emqx_utils:redact(Reason2)
             }),
             stop_client(ClientID),
             throw(failed_to_start_kafka_consumer)

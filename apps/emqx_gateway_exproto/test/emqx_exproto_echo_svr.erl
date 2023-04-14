@@ -148,7 +148,7 @@ on_received_bytes(Stream, _Md) ->
         fun(Reqs) ->
             lists:foreach(
                 fun(#{conn := Conn, bytes := Bytes}) ->
-                    #{<<"type">> := Type} = Params = emqx_json:decode(Bytes, [return_maps]),
+                    #{<<"type">> := Type} = Params = emqx_utils_json:decode(Bytes, [return_maps]),
                     _ = handle_in(Conn, Type, Params)
                 end,
                 Reqs
@@ -284,16 +284,16 @@ handle_out(Conn, ?TYPE_DISCONNECT) ->
 %% Frame
 
 frame_connect(ClientInfo, Password) ->
-    emqx_json:encode(#{
+    emqx_utils_json:encode(#{
         type => ?TYPE_CONNECT,
         clientinfo => ClientInfo,
         password => Password
     }).
 frame_connack(Code) ->
-    emqx_json:encode(#{type => ?TYPE_CONNACK, code => Code}).
+    emqx_utils_json:encode(#{type => ?TYPE_CONNACK, code => Code}).
 
 frame_publish(Topic, Qos, Payload) ->
-    emqx_json:encode(#{
+    emqx_utils_json:encode(#{
         type => ?TYPE_PUBLISH,
         topic => Topic,
         qos => Qos,
@@ -301,19 +301,19 @@ frame_publish(Topic, Qos, Payload) ->
     }).
 
 frame_puback(Code) ->
-    emqx_json:encode(#{type => ?TYPE_PUBACK, code => Code}).
+    emqx_utils_json:encode(#{type => ?TYPE_PUBACK, code => Code}).
 
 frame_subscribe(Topic, Qos) ->
-    emqx_json:encode(#{type => ?TYPE_SUBSCRIBE, topic => Topic, qos => Qos}).
+    emqx_utils_json:encode(#{type => ?TYPE_SUBSCRIBE, topic => Topic, qos => Qos}).
 
 frame_suback(Code) ->
-    emqx_json:encode(#{type => ?TYPE_SUBACK, code => Code}).
+    emqx_utils_json:encode(#{type => ?TYPE_SUBACK, code => Code}).
 
 frame_unsubscribe(Topic) ->
-    emqx_json:encode(#{type => ?TYPE_UNSUBSCRIBE, topic => Topic}).
+    emqx_utils_json:encode(#{type => ?TYPE_UNSUBSCRIBE, topic => Topic}).
 
 frame_unsuback(Code) ->
-    emqx_json:encode(#{type => ?TYPE_UNSUBACK, code => Code}).
+    emqx_utils_json:encode(#{type => ?TYPE_UNSUBACK, code => Code}).
 
 frame_disconnect() ->
-    emqx_json:encode(#{type => ?TYPE_DISCONNECT}).
+    emqx_utils_json:encode(#{type => ?TYPE_DISCONNECT}).

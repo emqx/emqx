@@ -105,7 +105,7 @@ info(conn_state, #channel{conn_state = ConnState}) ->
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
-    emqx_misc:maybe_apply(fun emqx_lwm2m_session:info/1, Session);
+    emqx_utils:maybe_apply(fun emqx_lwm2m_session:info/1, Session);
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
@@ -286,7 +286,7 @@ handle_call(discard, _From, Channel) ->
 %                                                  pendings = Pendings}) ->
 %    ok = emqx_session:takeover(Session),
 %    %% TODO: Should not drain deliver here (side effect)
-%    Delivers = emqx_misc:drain_deliver(),
+%    Delivers = emqx_utils:drain_deliver(),
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takenover, AllPendings, Channel);
 
@@ -390,7 +390,7 @@ set_peercert_infos(Peercert, ClientInfo) ->
     ClientInfo#{dn => DN, cn => CN}.
 
 make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 update_life_timer(#channel{session = Session, timers = Timers} = Channel) ->
@@ -413,7 +413,7 @@ do_takeover(_DesireId, Msg, Channel) ->
 
 do_connect(Req, Result, Channel, Iter) ->
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun check_lwm2m_version/2,
                 fun enrich_conninfo/2,

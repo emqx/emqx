@@ -196,7 +196,7 @@ handler_id(Name, Type) ->
         do_handler_id(Name, Type)
     catch
         _:_ ->
-            Hash = emqx_misc:bin_to_hexstr(crypto:hash(md5, Name), lower),
+            Hash = emqx_utils:bin_to_hexstr(crypto:hash(md5, Name), lower),
             do_handler_id(Hash, Type)
     end.
 

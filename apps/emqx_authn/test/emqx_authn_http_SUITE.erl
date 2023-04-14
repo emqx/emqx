@@ -41,7 +41,7 @@
 
 -define(SERVER_RESPONSE_JSON(Result), ?SERVER_RESPONSE_JSON(Result, false)).
 -define(SERVER_RESPONSE_JSON(Result, IsSuperuser),
-    jiffy:encode(#{
+    emqx_utils_json:encode(#{
         result => Result,
         is_superuser => IsSuperuser
     })
@@ -172,11 +172,11 @@ t_no_value_for_placeholder(_Config) ->
         #{
             <<"cert_subject">> := <<"">>,
             <<"cert_common_name">> := <<"">>
-        } = jiffy:decode(RawBody, [return_maps]),
+        } = emqx_utils_json:decode(RawBody, [return_maps]),
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
-            jiffy:encode(#{result => allow, is_superuser => false}),
+            emqx_utils_json:encode(#{result => allow, is_superuser => false}),
             Req1
         ),
         {ok, Req, State}
@@ -444,7 +444,7 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
                     Req0
                 ),
                 {ok, Req, State}
@@ -459,7 +459,7 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => true}),
+                    emqx_utils_json:encode(#{result => allow, is_superuser => true}),
                     Req0
                 ),
                 {ok, Req, State}
@@ -512,11 +512,11 @@ samples() ->
                 #{
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
-                } = jiffy:decode(RawBody, [return_maps]),
+                } = emqx_utils_json:decode(RawBody, [return_maps]),
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
                     Req1
                 ),
                 {ok, Req, State}
@@ -539,7 +539,7 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
                     Req1
                 ),
                 {ok, Req, State}
@@ -565,11 +565,11 @@ samples() ->
                     <<"peerhost">> := <<"127.0.0.1">>,
                     <<"cert_subject">> := <<"cert_subject_data">>,
                     <<"cert_common_name">> := <<"cert_common_name_data">>
-                } = jiffy:decode(RawBody, [return_maps]),
+                } = emqx_utils_json:decode(RawBody, [return_maps]),
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
                     Req1
                 ),
                 {ok, Req, State}

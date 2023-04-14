@@ -119,7 +119,7 @@ t_has_routes(_) ->
     ?R:delete_route(<<"devices/+/messages">>).
 
 t_unexpected(_) ->
-    Router = emqx_misc:proc_name(?R, 1),
+    Router = emqx_utils:proc_name(?R, 1),
     ?assertEqual(ignored, gen_server:call(Router, bad_request)),
     ?assertEqual(ok, gen_server:cast(Router, bad_message)),
     Router ! bad_info.

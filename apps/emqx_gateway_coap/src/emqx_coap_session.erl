@@ -81,7 +81,7 @@
 %%%-------------------------------------------------------------------
 -spec new() -> session().
 new() ->
-    _ = emqx_misc:rand_seed(),
+    _ = emqx_utils:rand_seed(),
     #session{
         transport_manager = emqx_coap_tm:new(),
         observe_manager = emqx_coap_observe_res:new_manager(),

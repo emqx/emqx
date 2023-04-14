@@ -225,7 +225,7 @@ tcp_connectivity(Host, Port) ->
 ) ->
     ok | {error, Reason :: term()}.
 tcp_connectivity(Host, Port, Timeout) ->
-    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
+    case gen_tcp:connect(Host, Port, emqx_utils:ipv6_probe([]), Timeout) of
         {ok, Sock} ->
             gen_tcp:close(Sock),
             ok;
@@ -236,11 +236,11 @@ tcp_connectivity(Host, Port, Timeout) ->
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 str(Num) when is_number(Num) -> number_to_list(Num);
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-str(Map) when is_map(Map) -> binary_to_list(emqx_json:encode(Map));
+str(Map) when is_map(Map) -> binary_to_list(emqx_utils_json:encode(Map));
 str(List) when is_list(List) ->
     case io_lib:printable_list(List) of
         true -> List;
-        false -> binary_to_list(emqx_json:encode(List))
+        false -> binary_to_list(emqx_utils_json:encode(List))
     end;
 str(Data) ->
     error({invalid_str, Data}).
@@ -258,11 +258,11 @@ utf8_str(Str) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Num) when is_number(Num) -> number_to_binary(Num);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-bin(Map) when is_map(Map) -> emqx_json:encode(Map);
+bin(Map) when is_map(Map) -> emqx_utils_json:encode(Map);
 bin(List) when is_list(List) ->
     case io_lib:printable_list(List) of
         true -> list_to_binary(List);
-        false -> emqx_json:encode(List)
+        false -> emqx_utils_json:encode(List)
     end;
 bin(Data) ->
     error({invalid_bin, Data}).
@@ -312,7 +312,7 @@ float2str(Float, Precision) when is_float(Float) and is_integer(Precision) ->
     float_to_binary(Float, [{decimals, Precision}, compact]).
 
 map(Bin) when is_binary(Bin) ->
-    case emqx_json:decode(Bin, [return_maps]) of
+    case emqx_utils_json:decode(Bin, [return_maps]) of
         Map = #{} -> Map;
         _ -> error({invalid_map, Bin})
     end;

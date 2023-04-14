@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_map_lib_tests).
+-module(emqx_utils_maps_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 best_effort_recursive_sum_test_() ->
@@ -22,21 +22,21 @@ best_effort_recursive_sum_test_() ->
     [
         ?_assertEqual(
             #{foo => 3},
-            emqx_map_lib:best_effort_recursive_sum(#{foo => 1}, #{foo => 2}, DummyLogger)
+            emqx_utils_maps:best_effort_recursive_sum(#{foo => 1}, #{foo => 2}, DummyLogger)
         ),
         ?_assertEqual(
             #{foo => 3, bar => 6.0},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => 1, bar => 2.0}, #{foo => 2, bar => 4.0}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => 1, bar => 2},
-            emqx_map_lib:best_effort_recursive_sum(#{foo => 1}, #{bar => 2}, DummyLogger)
+            emqx_utils_maps:best_effort_recursive_sum(#{foo => 1}, #{bar => 2}, DummyLogger)
         ),
         ?_assertEqual(
             #{foo => #{bar => 42}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => #{bar => 2}}, #{foo => #{bar => 40}}, DummyLogger
             )
         ),
@@ -45,7 +45,9 @@ best_effort_recursive_sum_test_() ->
             Logger = fun(What) -> Self ! {log, What} end,
             ?assertEqual(
                 #{foo => 1, bar => 2},
-                emqx_map_lib:best_effort_recursive_sum(#{foo => 1, bar => 2}, #{bar => bar}, Logger)
+                emqx_utils_maps:best_effort_recursive_sum(
+                    #{foo => 1, bar => 2}, #{bar => bar}, Logger
+                )
             ),
             receive
                 {log, Log} ->
@@ -55,55 +57,55 @@ best_effort_recursive_sum_test_() ->
         end,
         ?_assertEqual(
             #{},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => foo}, #{foo => bar}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => 1},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => 1}, #{foo => bar}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => 1},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => bar}, #{foo => 1}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => 1}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => #{bar => 1}}, #{foo => 1}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => 1}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => 1}, #{foo => #{bar => 1}}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => 1}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => 1, bar => ignored}, #{foo => #{bar => 1}}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => 2}, bar => #{foo => 1}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => 1, bar => #{foo => 1}}, #{foo => #{bar => 2}, bar => 2}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => 2}, bar => #{foo => 1}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => #{bar => 2}, bar => 2}, #{foo => 1, bar => #{foo => 1}}, DummyLogger
             )
         ),
         ?_assertEqual(
             #{foo => #{bar => #{}}},
-            emqx_map_lib:best_effort_recursive_sum(
+            emqx_utils_maps:best_effort_recursive_sum(
                 #{foo => #{bar => #{foo => []}}}, #{foo => 1}, DummyLogger
             )
         )

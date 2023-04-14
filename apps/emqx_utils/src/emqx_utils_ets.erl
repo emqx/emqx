@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_tables).
+-module(emqx_utils_ets).
 
 -export([
     new/1,

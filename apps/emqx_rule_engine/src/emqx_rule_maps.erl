@@ -86,7 +86,7 @@ general_map_put(Key, Val, Map, OrgData) ->
     ).
 
 general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
-    try emqx_json:decode(Data, [return_maps]) of
+    try emqx_utils_json:decode(Data, [return_maps]) of
         Json -> general_find(KeyOrIndex, Json, OrgData, Handler)
     catch
         _:_ -> Handler(not_found)

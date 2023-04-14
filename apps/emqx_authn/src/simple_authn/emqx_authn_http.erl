@@ -357,7 +357,7 @@ qs([{K, V} | More], Acc) ->
     qs(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
 
 serialize_body(<<"application/json">>, Body) ->
-    emqx_json:encode(Body);
+    emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     qs(maps:to_list(Body)).
 
@@ -395,7 +395,7 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json", _/binary>>, Body) ->
-    {ok, emqx_json:decode(Body, [return_maps])};
+    {ok, emqx_utils_json:decode(Body, [return_maps])};
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     Flags = [<<"result">>, <<"is_superuser">>],
     RawMap = maps:from_list(cow_qs:parse_qs(Body)),

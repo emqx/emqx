@@ -311,7 +311,7 @@ t_json_body(_Config) ->
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>
                 },
-                jiffy:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -366,7 +366,7 @@ t_placeholder_and_body(_Config) ->
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
-                jiffy:decode(PostVars, [return_maps])
+                emqx_utils_json:decode(PostVars, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -418,7 +418,7 @@ t_no_value_for_placeholder(_Config) ->
                 #{
                     <<"mountpoint">> := <<"[]">>
                 },
-                jiffy:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,

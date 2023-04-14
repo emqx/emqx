@@ -423,7 +423,7 @@ do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
-    {ok, Payload} = emqx_json:safe_encode(normalize(Alarm)),
+    {ok, Payload} = emqx_utils_json:safe_encode(normalize(Alarm)),
     Message = emqx_message:make(
         ?MODULE,
         0,

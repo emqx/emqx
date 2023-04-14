@@ -144,7 +144,7 @@ parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     end;
 parse_http_resp_body(<<"application/json", _/binary>>, Body) ->
     try
-        result(emqx_json:decode(Body, [return_maps]))
+        result(emqx_utils_json:decode(Body, [return_maps]))
     catch
         _:_ -> error
     end.

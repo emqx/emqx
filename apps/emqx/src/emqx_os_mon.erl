@@ -180,8 +180,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 cancel_outdated_timer(#{mem_time_ref := MemRef, cpu_time_ref := CpuRef}) ->
-    emqx_misc:cancel_timer(MemRef),
-    emqx_misc:cancel_timer(CpuRef),
+    emqx_utils:cancel_timer(MemRef),
+    emqx_utils:cancel_timer(CpuRef),
     ok.
 
 start_cpu_check_timer() ->
@@ -204,7 +204,7 @@ start_mem_check_timer() ->
     end.
 
 start_timer(Interval, Msg) ->
-    emqx_misc:start_timer(Interval, Msg).
+    emqx_utils:start_timer(Interval, Msg).
 
 update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
     ?SLOG(warning, #{msg => "discarded_out_of_range_mem_alarm_threshold", value => HWM}),

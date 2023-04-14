@@ -223,7 +223,7 @@ merge_default(Udp, Options) ->
     case lists:keytake(Key, 1, Options) of
         {value, {Key, TcpOpts}, Options1} ->
             [
-                {Key, emqx_misc:merge_opts(Default, TcpOpts)}
+                {Key, emqx_utils:merge_opts(Default, TcpOpts)}
                 | Options1
             ];
         false ->
@@ -482,7 +482,7 @@ frame_options(Options) ->
 
 -spec init_gc_state(map()) -> emqx_gc:gc_state() | undefined.
 init_gc_state(Options) ->
-    emqx_misc:maybe_apply(fun emqx_gc:init/1, force_gc_policy(Options)).
+    emqx_utils:maybe_apply(fun emqx_gc:init/1, force_gc_policy(Options)).
 
 -spec force_gc_policy(map()) -> emqx_gc:opts() | undefined.
 force_gc_policy(Options) ->

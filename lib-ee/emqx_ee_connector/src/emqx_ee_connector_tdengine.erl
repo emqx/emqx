@@ -93,7 +93,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_tdengine_connector",
         connector => InstanceId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
 
     {Host, Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),

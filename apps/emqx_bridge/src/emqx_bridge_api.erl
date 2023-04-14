@@ -20,7 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_lib.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -668,7 +668,7 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
                     false ->
                         ?BRIDGE_NOT_ENABLED;
                     true ->
-                        case emqx_misc:safe_to_existing_atom(Node, utf8) of
+                        case emqx_utils:safe_to_existing_atom(Node, utf8) of
                             {ok, TargetNode} ->
                                 call_operation(TargetNode, OperFunc, [
                                     TargetNode, BridgeType, BridgeName
@@ -835,7 +835,7 @@ format_resource_data(ResData) ->
 format_resource_data(error, undefined, Result) ->
     Result;
 format_resource_data(error, Error, Result) ->
-    Result#{status_reason => emqx_misc:readable_error_msg(Error)};
+    Result#{status_reason => emqx_utils:readable_error_msg(Error)};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
 
@@ -1004,7 +1004,7 @@ supported_versions(get_metrics_from_all_nodes) -> [4];
 supported_versions(_Call) -> [1, 2, 3, 4].
 
 redact(Term) ->
-    emqx_misc:redact(Term).
+    emqx_utils:redact(Term).
 
 deobfuscate(NewConf, OldConf) ->
     maps:fold(
@@ -1015,7 +1015,7 @@ deobfuscate(NewConf, OldConf) ->
                 {ok, OldV} when is_map(V), is_map(OldV) ->
                     Acc#{K => deobfuscate(V, OldV)};
                 {ok, OldV} ->
-                    case emqx_misc:is_redacted(K, V) of
+                    case emqx_utils:is_redacted(K, V) of
                         true ->
                             Acc#{K => OldV};
                         _ ->
@@ -1028,6 +1028,6 @@ deobfuscate(NewConf, OldConf) ->
     ).
 
 map_to_json(M) ->
-    emqx_json:encode(
-        emqx_map_lib:jsonable_map(M, fun(K, V) -> {K, emqx_map_lib:binary_string(V)} end)
+    emqx_utils_json:encode(
+        emqx_utils_maps:jsonable_map(M, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end)
     ).

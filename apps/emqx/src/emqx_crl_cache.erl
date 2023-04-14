@@ -117,7 +117,7 @@ handle_call(Call, _From, State) ->
 handle_cast({evict, URL}, State0 = #state{refresh_timers = RefreshTimers0}) ->
     emqx_ssl_crl_cache:delete(URL),
     MTimer = maps:get(URL, RefreshTimers0, undefined),
-    emqx_misc:cancel_timer(MTimer),
+    emqx_utils:cancel_timer(MTimer),
     RefreshTimers = maps:without([URL], RefreshTimers0),
     State = State0#state{refresh_timers = RefreshTimers},
     ?tp(
@@ -223,9 +223,9 @@ ensure_timer(URL, State = #state{refresh_interval = Timeout}) ->
 ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
     ?tp(crl_cache_ensure_timer, #{url => URL, timeout => Timeout}),
     MTimer = maps:get(URL, RefreshTimers0, undefined),
-    emqx_misc:cancel_timer(MTimer),
+    emqx_utils:cancel_timer(MTimer),
     RefreshTimers = RefreshTimers0#{
-        URL => emqx_misc:start_timer(
+        URL => emqx_utils:start_timer(
             Timeout,
             {refresh, URL}
         )
@@ -297,7 +297,7 @@ handle_cache_overflow(State0) ->
             {_Time, OldestURL, InsertionTimes} = gb_trees:take_smallest(InsertionTimes0),
             emqx_ssl_crl_cache:delete(OldestURL),
             MTimer = maps:get(OldestURL, RefreshTimers0, undefined),
-            emqx_misc:cancel_timer(MTimer),
+            emqx_utils:cancel_timer(MTimer),
             RefreshTimers = maps:remove(OldestURL, RefreshTimers0),
             CachedURLs = sets:del_element(OldestURL, CachedURLs0),
             ?tp(debug, crl_cache_overflow, #{oldest_url => OldestURL}),

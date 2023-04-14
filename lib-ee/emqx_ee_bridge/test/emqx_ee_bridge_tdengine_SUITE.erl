@@ -207,7 +207,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(tdengine_bridge_type, Config),
     Name = ?config(tdengine_name, Config),
     TDConfig0 = ?config(tdengine_config, Config),
-    TDConfig = emqx_map_lib:deep_merge(TDConfig0, Overrides),
+    TDConfig = emqx_utils_maps:deep_merge(TDConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, TDConfig).
 
 delete_bridge(Config) ->
@@ -219,7 +219,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 

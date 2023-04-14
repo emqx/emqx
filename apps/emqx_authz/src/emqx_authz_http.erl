@@ -227,7 +227,7 @@ encode_path(Path) ->
     lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 serialize_body(<<"application/json">>, Body) ->
-    jsx:encode(Body);
+    emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 

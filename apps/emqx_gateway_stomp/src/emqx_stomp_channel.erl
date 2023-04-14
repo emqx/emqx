@@ -252,7 +252,7 @@ enrich_clientinfo(
         feedvar(Override, Packet, ConnInfo, ClientInfo0),
         ClientInfo0
     ),
-    {ok, NPacket, NClientInfo} = emqx_misc:pipeline(
+    {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
             fun maybe_assign_clientid/2,
             fun parse_heartbeat/2,
@@ -416,7 +416,7 @@ handle_in(
     {error, unexpected_connect, Channel};
 handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun enrich_conninfo/2,
                 fun negotiate_version/2,
@@ -474,7 +474,7 @@ handle_in(
     Topic = header(<<"destination">>, Headers),
     Ack = header(<<"ack">>, Headers, <<"auto">>),
     case
-        emqx_misc:pipeline(
+        emqx_utils:pipeline(
             [
                 fun parse_topic_filter/2,
                 fun check_subscribed_status/2,
@@ -796,7 +796,7 @@ handle_call(
             reply({error, no_subid}, Channel);
         SubId ->
             case
-                emqx_misc:pipeline(
+                emqx_utils:pipeline(
                     [
                         fun parse_topic_filter/2,
                         fun check_subscribed_status/2
@@ -869,7 +869,7 @@ handle_call(discard, _From, Channel) ->
 %                                                  pendings = Pendings}) ->
 %    ok = emqx_session:takeover(Session),
 %    %% TODO: Should not drain deliver here (side effect)
-%    Delivers = emqx_misc:drain_deliver(),
+%    Delivers = emqx_utils:drain_deliver(),
 %    AllPendings = lists:append(Delivers, Pendings),
 %    shutdown_and_reply(takenover, AllPendings, Channel);
 
@@ -1289,7 +1289,7 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
 
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->

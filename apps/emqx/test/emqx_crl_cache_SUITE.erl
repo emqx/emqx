@@ -402,7 +402,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
         Error ->
             Error
     end.
@@ -997,7 +997,7 @@ do_t_update_listener(Config) ->
                     <<"enable_crl_check">> => true
                 }
         },
-    ListenerData1 = emqx_map_lib:deep_merge(ListenerData0, CRLConfig),
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, CRLConfig),
     {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
     ?assertMatch(
         #{
@@ -1040,7 +1040,7 @@ do_t_validations(_Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
     ListenerData1 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -1052,7 +1052,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -1064,7 +1064,7 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
 
     ok.

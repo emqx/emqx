@@ -66,7 +66,7 @@ t_prometheus_api(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
-    Conf = emqx_json:decode(Response, [return_maps]),
+    Conf = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(
         #{
             <<"push_gateway_server">> := _,
@@ -84,7 +84,7 @@ t_prometheus_api(_) ->
     NewConf = Conf#{<<"interval">> => <<"2s">>, <<"vm_statistics_collector">> => <<"disabled">>},
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
-    Conf2 = emqx_json:decode(Response2, [return_maps]),
+    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
     ?assertMatch(NewConf, Conf2),
     ?assertEqual({ok, []}, application:get_env(prometheus, vm_statistics_collector_metrics)),
     ?assertEqual({ok, all}, application:get_env(prometheus, vm_memory_collector_metrics)),
@@ -106,7 +106,7 @@ t_stats_api(_) ->
     Headers = [{"accept", "application/json"}, Auth],
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
 
-    Data = emqx_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
 
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),

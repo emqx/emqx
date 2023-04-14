@@ -507,11 +507,11 @@ sort_name_by_order(Names, Orders) ->
     lists:sort(
         fun
             (A, B) when is_binary(A) ->
-                emqx_map_lib:deep_get([A, order], Orders) <
-                    emqx_map_lib:deep_get([B, order], Orders);
+                emqx_utils_maps:deep_get([A, order], Orders) <
+                    emqx_utils_maps:deep_get([B, order], Orders);
             (#{name := A}, #{name := B}) ->
-                emqx_map_lib:deep_get([A, order], Orders) <
-                    emqx_map_lib:deep_get([B, order], Orders)
+                emqx_utils_maps:deep_get([A, order], Orders) <
+                    emqx_utils_maps:deep_get([B, order], Orders)
         end,
         Names
     ).

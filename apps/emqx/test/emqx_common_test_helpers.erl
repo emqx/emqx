@@ -477,7 +477,7 @@ copy_certs(_, _) ->
 load_config(SchemaModule, Config, Opts) ->
     ConfigBin =
         case is_map(Config) of
-            true -> jsx:encode(Config);
+            true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
@@ -1036,7 +1036,7 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
             off -> #{<<"enabled">> => false};
             on -> #{<<"enabled">> => true}
         end,
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1056,7 +1056,7 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
         <<"toxicity">> => 1.0,
         <<"attributes">> => #{<<"timeout">> => 0}
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1091,7 +1091,7 @@ latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
             <<"jitter">> => 3_000
         }
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},

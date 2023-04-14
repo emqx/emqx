@@ -539,7 +539,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     Data#data{status = stopped}.
 
 make_test_id() ->
-    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    RandId = iolist_to_binary(emqx_utils:gen_id(16)),
     <<?TEST_ID_PREFIX, RandId/binary>>.
 
 handle_manually_health_check(From, Data) ->
@@ -613,7 +613,7 @@ maybe_alarm(_Status, ResId, Error) ->
     HrError =
         case Error of
             undefined -> <<"Unknown reason">>;
-            _Else -> emqx_misc:readable_error_msg(Error)
+            _Else -> emqx_utils:readable_error_msg(Error)
         end,
     emqx_alarm:activate(
         ResId,

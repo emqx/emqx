@@ -399,9 +399,11 @@ init([]) ->
     ok = mria:wait_for_tables([?TAB]),
     {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
     {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun ?MODULE:init_monitors/0),
-    ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
-    ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
-    ok = emqx_tables:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [public, set, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SHARED_SUBS, [protected, bag]),
+    ok = emqx_utils_ets:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
+        public, set, {write_concurrency, true}
+    ]),
     {ok, update_stats(#state{pmon = PMon})}.
 
 init_monitors() ->
