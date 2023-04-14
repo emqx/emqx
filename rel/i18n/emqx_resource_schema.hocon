@@ -201,8 +201,8 @@ When disabled the messages are buffered in RAM only."""
       zh: "队列操作模式。\n"
           "<code>memory_only</code>: 所有的消息都缓存在内存里。"
           "<code>volatile_offload</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
-          "（配置项 <code>buffer_seg_bytes</code> 该限制）后，"
-          " 消息会缓存到磁盘上"
+          "（配置项 <code>buffer_seg_bytes</code> 指定该限制）后，"
+          " 消息会开始缓存到磁盘上。"
     }
     label {
       en: "Buffer Mode"
