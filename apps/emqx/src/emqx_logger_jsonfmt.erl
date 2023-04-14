@@ -62,7 +62,7 @@
 %% The JSON object is pretty-printed.
 %% NOTE: do not use this function for logging.
 best_effort_json(Input) ->
-    best_effort_json(Input, [pretty]).
+    best_effort_json(Input, [pretty, force_utf8]).
 best_effort_json(Input, Opts) ->
     Config = #{depth => unlimited, single_line => true},
     JsonReady = best_effort_json_obj(Input, Config),
@@ -378,15 +378,15 @@ p_config() ->
 
 best_effort_json_test() ->
     ?assertEqual(
-        <<"{}">>,
+        <<"{\n  \n}">>,
         emqx_logger_jsonfmt:best_effort_json([])
     ),
     ?assertEqual(
-        <<"{\n    \"key\": []\n}">>,
+        <<"{\n  \"key\" : [\n    \n  ]\n}">>,
         emqx_logger_jsonfmt:best_effort_json(#{key => []})
     ),
     ?assertEqual(
-        <<"[\n    {\n        \"key\": []\n    }\n]">>,
+        <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
         emqx_logger_jsonfmt:best_effort_json([#{key => []}])
     ),
     ok.
