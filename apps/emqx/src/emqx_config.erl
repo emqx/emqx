@@ -514,6 +514,8 @@ read_override_conf(#{} = Opts) ->
         end,
     load_hocon_file(File, map).
 
+%% @doc Return `true' if this node is upgraded from older version which used cluster-override.conf for
+%% cluster-wide config persistence.
 has_deprecated_file() ->
     DeprecatedFile = deprecated_conf_file(#{override_to => cluster}),
     filelib:is_regular(DeprecatedFile).
