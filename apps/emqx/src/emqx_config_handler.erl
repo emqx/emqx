@@ -279,9 +279,7 @@ check_and_save_configs(
     OldConf = emqx_config:get_root(ConfKeyPath),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
-            ok = emqx_config:save_configs(
-                ConfKeyPath, AppEnvs, NewConf, NewRawConf, OverrideConf, Opts
-            ),
+            ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
             Result1 = return_change_result(ConfKeyPath, UpdateArgs),
             {ok, Result1#{post_config_update => Result0}};
         Error ->

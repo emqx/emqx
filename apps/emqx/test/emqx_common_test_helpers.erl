@@ -314,8 +314,7 @@ stop_apps(Apps) ->
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
-    application:unset_env(emqx, local_conf_file),
-    application:unset_env(emqx, cluster_conf_file),
+    application:unset_env(emqx, cluster_hocon_file),
     application:unset_env(gen_rpc, port_discovery),
     ok.
 
@@ -467,7 +466,6 @@ force_set_config_file_paths(emqx, Paths) ->
     %% we need init cluster conf, so we can save the cluster conf to the file
     application:set_env(emqx, local_override_conf_file, "local_override.conf"),
     application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
-    application:set_env(emqx, local_conf_file, "local.hocon"),
     application:set_env(emqx, cluster_conf_file, "cluster.hocon"),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->

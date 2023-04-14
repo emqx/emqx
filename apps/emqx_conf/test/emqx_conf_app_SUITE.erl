@@ -133,6 +133,7 @@ set_data_dir_env() ->
     ok = file:write_file(NewConfigFile, DataDir, [append]),
     application:set_env(emqx, config_files, [NewConfigFile]),
     application:set_env(emqx, data_dir, Node),
+    %% We set env both cluster.hocon and cluster-override.conf, but only one will be used
     application:set_env(emqx, cluster_conf_file, Node ++ "/configs/cluster.hocon"),
     application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
     ok.

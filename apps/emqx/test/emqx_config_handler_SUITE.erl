@@ -21,7 +21,6 @@
 
 -define(MOD, {mod}).
 -define(WKEY, '?').
--define(LOCAL_CONF, "/tmp/local.conf").
 -define(CLUSTER_CONF, "/tmp/cluster.conf").
 
 -include_lib("eunit/include/eunit.hrl").
@@ -38,7 +37,6 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_Case, Config) ->
-    _ = file:delete(?LOCAL_CONF),
     _ = file:delete(?CLUSTER_CONF),
     Config.
 
