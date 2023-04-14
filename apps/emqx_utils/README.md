@@ -1,43 +1,24 @@
-# [Application Name] - [Mandatory]
-> 0. App overview introduction
-> 1. let people know what your project can do specifically. Is it a base
-> library dependency, or what kind of functionality is provided to the user?
-> 2. Provide context and add a link to any reference visitors might be
-> unfamiliar with.
-> 3. Design details, implementation technology architecture, Roadmap, etc.
+# emqx_utils - Erlang utility library for EMQ X
 
-# [Features] - [Optional]
-> A List of features your application provided. If the feature is quite simple, just
-> list in the previous section.
+## Overview
 
-# [Limitation] - [Optional]
-> Explain the limitations of the implementation used in your application.
+`emqx_utils` is a collection of utility functions for EMQ X, organized into
+several modules. It provides various functionalities to make it easier to work
+with EMQ X, such as binary manipulations, maps, JSON en- and decoding, ets table
+handling, data conversions, and more.
 
-# [Documention links] - [Mandatory]
-> You can use the official docs link to provide a detailed explanation of
-> the concept and functions of this application.
+## Features
 
-# [Installation] - [Optional]
-> How users can obtain this application. In most cases, this section is unnecessary.
-> Most of the applications are released with the EMQX distribution package.
-> Otherwise, it is necessary to provide step-by-step instructions on how
-> to install this application.
+- `emqx_utils`: unsorted helper functions, formerly known as `emqx_misc` - NEEDS WORK
+- `emqx_utils_api`: collection of helper functions for API responses
+- `emqx_utils_binary`: binary reverse, join, trim etc
+- `emqx_utils_ets`: convenience functions for creating and looking up data in ets tables.
+- `emqx_utils_json`: JSON encoding and decoding
+- `emqx_utils_maps`: convenience functions for map lookup and manipulation like
+  deep_get etc.
 
-# [Usage] - [Optional]
-> This section explains how users can use the features provided by the application.
+## Contributing
 
-# [Basic Usage Guide] - [Optional]
-> Simple and reproducible introduction on how to use/start it.
-
-# [Configurations] - [Mandatory]
-> Most important configurations that this application depends on.
-> It would be best to attach official documentation if it's available.
-
-# [HTTP APIs] - [Optional]
-> Same as configuration.
-
-# [Other] - [Optional]
-> Other topics that users may need to know can be placed here.
-
-# Contributing - [Mandatory]
-Please see our [contributing.md](../../CONTRIBUTING.md).
+Please see our [contributing guidelines](../../CONTRIBUTING.md) for information
+on how to contribute to `emqx_utils`. We welcome bug reports, feature requests,
+and pull requests.
