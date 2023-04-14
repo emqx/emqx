@@ -1983,7 +1983,10 @@ desc("persistent_session_builtin") ->
 desc("persistent_table_mria_opts") ->
     "Tuning options for the mria table.";
 desc("stats") ->
-    "deprecated since 5.0.23";
+    "Enable/disable statistic data collection.\n"
+    "Statistic data such as message receive/send count/rate etc. "
+    "It provides insights of system performance and helps to diagnose issues. "
+    "You can find statistic data from the dashboard, or from the '/stats' API.";
 desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
