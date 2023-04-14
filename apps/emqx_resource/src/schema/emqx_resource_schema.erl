@@ -40,7 +40,7 @@ fields("resource_opts") ->
     ];
 fields("creation_opts") ->
     [
-        {queue_mode, fun queue_mode/1},
+        {buffer_mode, fun buffer_mode/1},
         {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
         {resume_interval, fun resume_interval/1},
@@ -54,8 +54,8 @@ fields("creation_opts") ->
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
         {enable_queue, fun enable_queue/1},
-        {max_queue_bytes, fun max_queue_bytes/1},
-        {queue_seg_bytes, fun queue_seg_bytes/1}
+        {max_buffer_bytes, fun max_buffer_bytes/1},
+        {buffer_seg_bytes, fun buffer_seg_bytes/1}
     ].
 
 resource_opts_meta() ->
@@ -145,23 +145,24 @@ batch_time(default) -> ?DEFAULT_BATCH_TIME_RAW;
 batch_time(required) -> false;
 batch_time(_) -> undefined.
 
-max_queue_bytes(type) -> emqx_schema:bytesize();
-max_queue_bytes(desc) -> ?DESC("max_queue_bytes");
-max_queue_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
-max_queue_bytes(required) -> false;
-max_queue_bytes(_) -> undefined.
+max_buffer_bytes(type) -> emqx_schema:bytesize();
+max_buffer_bytes(aliases) -> [max_queue_bytes];
+max_buffer_bytes(desc) -> ?DESC("max_buffer_bytes");
+max_buffer_bytes(default) -> ?DEFAULT_BUFFER_BYTES_RAW;
+max_buffer_bytes(required) -> false;
+max_buffer_bytes(_) -> undefined.
 
-queue_mode(type) -> enum([memory_only, volatile_offload]);
-queue_mode(desc) -> ?DESC("queue_mode");
-queue_mode(default) -> memory_only;
-queue_mode(required) -> false;
-queue_mode(importance) -> ?IMPORTANCE_HIDDEN;
-queue_mode(_) -> undefined.
+buffer_mode(type) -> enum([memory_only, volatile_offload]);
+buffer_mode(desc) -> ?DESC("buffer_mode");
+buffer_mode(default) -> memory_only;
+buffer_mode(required) -> false;
+buffer_mode(importance) -> ?IMPORTANCE_HIDDEN;
+buffer_mode(_) -> undefined.
 
-queue_seg_bytes(type) -> emqx_schema:bytesize();
-queue_seg_bytes(desc) -> ?DESC("queue_seg_bytes");
-queue_seg_bytes(required) -> false;
-queue_seg_bytes(importance) -> ?IMPORTANCE_HIDDEN;
-queue_seg_bytes(_) -> undefined.
+buffer_seg_bytes(type) -> emqx_schema:bytesize();
+buffer_seg_bytes(desc) -> ?DESC("buffer_seg_bytes");
+buffer_seg_bytes(required) -> false;
+buffer_seg_bytes(importance) -> ?IMPORTANCE_HIDDEN;
+buffer_seg_bytes(_) -> undefined.
 
 desc("creation_opts") -> ?DESC("creation_opts").

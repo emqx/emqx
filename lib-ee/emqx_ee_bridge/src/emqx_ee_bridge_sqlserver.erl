@@ -60,7 +60,7 @@ values(post) ->
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
             query_mode => async,
-            max_queue_bytes => ?DEFAULT_QUEUE_SIZE
+            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
         }
     };
 values(put) ->

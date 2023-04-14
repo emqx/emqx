@@ -168,7 +168,7 @@ When disabled the messages are buffered in RAM only."""
     }
   }
 
-  max_queue_bytes {
+  max_buffer_bytes {
     desc {
       en: """Maximum number of bytes to buffer for each buffer worker."""
       zh: """每个缓存 worker 允许使用的最大字节数。"""
@@ -179,7 +179,7 @@ When disabled the messages are buffered in RAM only."""
     }
   }
 
-  queue_seg_bytes {
+  buffer_seg_bytes {
     desc {
       en: "Applicable when buffer mode is set to <code>volatile_offload</code>.\n"
           "This value is to specify the size of each on-disk buffer file."
@@ -192,9 +192,9 @@ When disabled the messages are buffered in RAM only."""
     }
   }
 
-  queue_mode {
+  buffer_mode {
     desc {
-      en: "Queue operation mode.\n"
+      en: "Buffer operation mode.\n"
           "<code>memory_only</mode>: Buffer all messages in memory."
           "<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit"
           " (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"

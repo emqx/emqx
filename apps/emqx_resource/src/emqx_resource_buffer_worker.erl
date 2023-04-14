@@ -1667,9 +1667,9 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
     BatchTime.
 
 replayq_opts(Id, Index, Opts) ->
-    QueueMode = maps:get(queue_mode, Opts, memory_only),
-    TotalBytes = maps:get(max_queue_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
-    case QueueMode of
+    BufferMode = maps:get(buffer_mode, Opts, memory_only),
+    TotalBytes = maps:get(max_buffer_bytes, Opts, ?DEFAULT_BUFFER_BYTES),
+    case BufferMode of
         memory_only ->
             #{
                 mem_only => true,
@@ -1678,7 +1678,7 @@ replayq_opts(Id, Index, Opts) ->
                 sizer => fun ?MODULE:estimate_size/1
             };
         volatile_offload ->
-            SegBytes0 = maps:get(queue_seg_bytes, Opts, TotalBytes),
+            SegBytes0 = maps:get(buffer_seg_bytes, Opts, TotalBytes),
             SegBytes = min(SegBytes0, TotalBytes),
             #{
                 dir => disk_queue_dir(Id, Index),
