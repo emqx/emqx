@@ -17,7 +17,7 @@
 -ifndef(EMQX_API_LIB_HRL).
 -define(EMQX_API_LIB_HRL, true).
 
--define(ERROR_MSG(CODE, REASON), #{code => CODE, message => emqx_misc:readable_error_msg(REASON)}).
+-define(ERROR_MSG(CODE, REASON), #{code => CODE, message => emqx_utils:readable_error_msg(REASON)}).
 
 -define(OK(CONTENT), {200, CONTENT}).
 
