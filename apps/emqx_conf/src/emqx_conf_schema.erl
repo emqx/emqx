@@ -98,7 +98,10 @@ roots() ->
             {"rpc",
                 sc(
                     ?R_REF("rpc"),
-                    #{translate_to => ["gen_rpc"]}
+                    #{
+                        translate_to => ["gen_rpc"],
+                        importance => ?IMPORTANCE_HIDDEN
+                    }
                 )}
         ] ++
         emqx_schema:roots(medium) ++
