@@ -525,4 +525,4 @@ apply_template(Query, Templates) ->
     {error, failed_to_apply_sql_template}.
 
 do_async_reply(Result, {ReplyFun, Args}) ->
-    erlang:apply(ReplyFun, Args ++ Result).
+    erlang:apply(ReplyFun, Args ++ [Result]).
