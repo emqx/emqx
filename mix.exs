@@ -303,6 +303,7 @@ defmodule EMQXUmbrella.MixProject do
         tools: :load,
         covertool: :load,
         system_monitor: :load,
+        emqx_utils: :permanent,
         emqx_http_lib: :permanent,
         emqx_resource: :permanent,
         emqx_connector: :permanent,
