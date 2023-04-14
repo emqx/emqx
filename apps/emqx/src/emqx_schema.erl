@@ -2656,20 +2656,22 @@ to_atom(Str) when is_list(Str) ->
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
-validate_heap_size(Siz) ->
+validate_heap_size(Siz) when is_integer(Siz) ->
     MaxSiz =
         case erlang:system_info(wordsize) of
             % arch_64
-            8 ->
-                (1 bsl 59) - 1;
+            8 -> (1 bsl 59) - 1;
             % arch_32
-            4 ->
-                (1 bsl 27) - 1
+            4 -> (1 bsl 27) - 1
         end,
     case Siz > MaxSiz of
-        true -> error(io_lib:format("force_shutdown_policy: heap-size ~ts is too large", [Siz]));
-        false -> ok
-    end.
+        true ->
+            {error, #{reason => max_heap_size_too_large, maximum => MaxSiz}};
+        false ->
+            ok
+    end;
+validate_heap_size(_SizStr) ->
+    {error, invalid_heap_size}.
 
 validate_alarm_actions(Actions) ->
     UnSupported = lists:filter(
