@@ -103,6 +103,7 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    get_metrics/1,
     fetch_creation_opts/1,
     %% return all the instances of the same resource type
     list_instances_by_type/1,
@@ -311,7 +312,12 @@ set_resource_status_connecting(ResId) ->
 -spec get_instance(resource_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
-    emqx_resource_manager:lookup_cached(ResId, [metrics]).
+    emqx_resource_manager:lookup_cached(ResId).
+
+-spec get_metrics(resource_id()) ->
+    emqx_metrics_worker:metrics().
+get_metrics(ResId) ->
+    emqx_resource_manager:get_metrics(ResId).
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
@@ -321,9 +327,12 @@ fetch_creation_opts(Opts) ->
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
--spec list_instances_verbose() -> [resource_data()].
+-spec list_instances_verbose() -> [_ResourceDataWithMetrics :: map()].
 list_instances_verbose() ->
-    emqx_resource_manager:list_all().
+    [
+        Res#{metrics => get_metrics(ResId)}
+     || #{id := ResId} = Res <- emqx_resource_manager:list_all()
+    ].
 
 -spec list_instances_by_type(module()) -> [resource_id()].
 list_instances_by_type(ResourceType) ->

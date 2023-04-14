@@ -34,7 +34,7 @@
     unload/0,
     lookup/1,
     lookup/2,
-    lookup/3,
+    get_metrics/2,
     create/3,
     disable_enable/3,
     remove/2,
@@ -270,6 +270,9 @@ lookup(Type, Name, RawConf) ->
                 raw_config => maybe_upgrade(Type, RawConf)
             }}
     end.
+
+get_metrics(Type, Name) ->
+    emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name)).
 
 maybe_upgrade(mqtt, Config) ->
     emqx_bridge_compatible_config:maybe_upgrade(Config);

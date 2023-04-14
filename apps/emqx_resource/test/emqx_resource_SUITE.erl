@@ -349,7 +349,7 @@ t_query_counter_async_query(_) ->
             ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
-    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    #{counters := C} = emqx_resource:get_metrics(?ID),
     ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C),
     ok = emqx_resource:remove_local(?ID).
 
@@ -402,7 +402,7 @@ t_query_counter_async_callback(_) ->
             ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
-    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    #{counters := C} = emqx_resource:get_metrics(?ID),
     ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C),
     ?assertMatch(1000, ets:info(Tab0, size)),
     ?assert(
@@ -2702,7 +2702,7 @@ config() ->
     Config.
 
 tap_metrics(Line) ->
-    {ok, _, #{metrics := #{counters := C, gauges := G}}} = emqx_resource:get_instance(?ID),
+    #{counters := C, gauges := G} = emqx_resource:get_metrics(?ID),
     ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
     #{counters => C, gauges => G}.
 
