@@ -1,3 +1,8 @@
+%%--------------------------------------------------------------------
+%% Original file taken from https://github.com/arcusfelis/binary2
+%% Copyright (c) 2016 Michael Uvarov
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
 -module(emqx_utils_binary_tests).
 
 -import(emqx_utils_binary, [

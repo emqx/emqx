@@ -1,4 +1,6 @@
 %%--------------------------------------------------------------------
+%% Original file taken from https://github.com/arcusfelis/binary2
+%% Copyright (c) 2016 Michael Uvarov
 %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,8 +17,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_utils_binary).
-
-%% copied from https://github.com/arcusfelis/binary2
 
 %% Bytes
 -export([
