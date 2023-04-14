@@ -124,10 +124,7 @@ make_docs() {
 }
 
 assert_no_compile_time_only_deps() {
-    if [ "$("$FIND" "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
-        echo "gpb should not be included in the release"
-        exit 1
-    fi
+    :
 }
 
 make_rel() {

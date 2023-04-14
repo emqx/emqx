@@ -6,7 +6,8 @@
     {applications, [
         kernel,
         stdlib,
-        erlavro
+        erlavro,
+        gpb
     ]},
     {env, []},
     {modules, []},

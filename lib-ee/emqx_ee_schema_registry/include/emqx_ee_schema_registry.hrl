@@ -10,14 +10,19 @@
 
 -define(SCHEMA_REGISTRY_SHARD, emqx_ee_schema_registry_shard).
 -define(SERDE_TAB, emqx_ee_schema_registry_serde_tab).
+-define(PROTOBUF_CACHE_TAB, emqx_ee_schema_registry_protobuf_cache_tab).
 
 -type schema_name() :: binary().
 -type schema_source() :: binary().
 
 -type encoded_data() :: iodata().
 -type decoded_data() :: map().
--type serializer() :: fun((decoded_data()) -> encoded_data()).
--type deserializer() :: fun((encoded_data()) -> decoded_data()).
+-type serializer() ::
+    fun((decoded_data()) -> encoded_data())
+    | fun((decoded_data(), term()) -> encoded_data()).
+-type deserializer() ::
+    fun((encoded_data()) -> decoded_data())
+    | fun((encoded_data(), term()) -> decoded_data()).
 -type destructor() :: fun(() -> ok).
 -type serde_type() :: avro.
 -type serde_opts() :: map().
@@ -29,6 +34,18 @@
     destructor :: destructor()
 }).
 -type serde() :: #serde{}.
+
+-record(protobuf_cache, {
+    fingerprint,
+    module,
+    module_binary
+}).
+-type protobuf_cache() :: #protobuf_cache{
+    fingerprint :: binary(),
+    module :: module(),
+    module_binary :: binary()
+}.
+
 -type serde_map() :: #{
     name := schema_name(),
     serializer := serializer(),
