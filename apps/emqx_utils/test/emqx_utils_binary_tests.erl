@@ -26,8 +26,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--ifdef(TEST).
-
 trim1_test_() ->
     [
         ?_assertEqual(trim(<<>>), <<>>),
@@ -213,5 +211,3 @@ optimize_patterns_test_() ->
             optimize_patterns([<<"test">>, <<"t">>, <<"t">>])
         )
     ].
-
--endif.
