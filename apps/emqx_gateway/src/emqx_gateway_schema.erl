@@ -75,7 +75,7 @@ fields(gateway) ->
                     }
                 )}
         end,
-        emqx_gateway_utils:find_gateway_definations()
+        emqx_gateway_utils:find_gateway_definitions()
     );
 fields(clientinfo_override) ->
     [

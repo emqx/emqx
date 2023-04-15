@@ -45,7 +45,7 @@ load_default_gateway_applications() ->
         fun(Def) ->
             load_gateway_application(Def)
         end,
-        emqx_gateway_utils:find_gateway_definations()
+        emqx_gateway_utils:find_gateway_definitions()
     ).
 
 load_gateway_application(
