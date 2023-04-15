@@ -272,7 +272,7 @@ chkconfig(File) ->
     end.
 
 check_license(Config) ->
-    ok = application:load(emqx_license),
+    ok = ensure_application_load(emqx_license),
     %% This checks formal license validity to ensure
     %% that the node can successfully start with the given license.
 
@@ -368,7 +368,7 @@ add_lib_dir(RootDir, Name, Vsn) ->
             %%
             %% It helps to implement the feature of dynamically searching schema.
             %% See `emqx_gateway_schema:fields(gateway)`
-            is_emqx_application(Name) andalso application:load(Name),
+            is_emqx_application(Name) andalso ensure_application_load(Name),
             ok;
         {error, _} -> error(LibDir)
     end.
@@ -379,3 +379,10 @@ is_emqx_application("emqx_" ++ _Rest) ->
     true;
 is_emqx_application(_) ->
     false.
+
+ensure_application_load(Name) ->
+    case application:load(Name) of
+        ok -> ok;
+        {error, {already_loaded, _}} -> ok;
+        {error, Reason} -> error({failed_to_load_application, Name, Reason})
+    end.
