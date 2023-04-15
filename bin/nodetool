@@ -362,6 +362,20 @@ add_libs_dir() ->
 add_lib_dir(RootDir, Name, Vsn) ->
     LibDir = filename:join([RootDir, lib, atom_to_list(Name) ++ "-" ++ Vsn, ebin]),
     case code:add_patha(LibDir) of
-        true -> ok;
+        true ->
+            %% load all applications into application controller, before performing
+            %% the configuration check of HOCON
+            %%
+            %% It helps to implement the feature of dynamically searching schema.
+            %% See `emqx_gateway_schema:fields(gateway)`
+            is_emqx_application(Name) andalso application:load(Name),
+            ok;
         {error, _} -> error(LibDir)
     end.
+
+is_emqx_application(Name) when is_atom(Name) ->
+    is_emqx_application(atom_to_list(Name));
+is_emqx_application("emqx_" ++ _Rest) ->
+    true;
+is_emqx_application(_) ->
+    false.
