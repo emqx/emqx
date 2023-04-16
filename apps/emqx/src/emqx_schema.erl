@@ -145,17 +145,23 @@ roots(high) ->
         {"listeners",
             sc(
                 ref("listeners"),
-                #{}
-            )},
-        {"zones",
-            sc(
-                map("name", ref("zone")),
-                #{desc => ?DESC(zones)}
+                #{importance => ?IMPORTANCE_HIGH}
             )},
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{desc => ?DESC(mqtt)}
+                #{
+                    desc => ?DESC(mqtt),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"zones",
+            sc(
+                map("name", ref("zone")),
+                #{
+                    desc => ?DESC(zones),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
         %% NOTE: authorization schema here is only to keep emqx app prue
@@ -199,12 +205,16 @@ roots(low) ->
         {"conn_congestion",
             sc(
                 ref("conn_congestion"),
-                #{}
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"stats",
             sc(
                 ref("stats"),
-                #{}
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"sysmon",
             sc(
@@ -219,7 +229,7 @@ roots(low) ->
         {"flapping_detect",
             sc(
                 ref("flapping_detect"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"persistent_session_store",
             sc(
@@ -339,6 +349,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(stats_enable)
                 }
             )}
@@ -609,8 +620,7 @@ fields("mqtt") ->
             )}
     ];
 fields("zone") ->
-    Fields = emqx_zone_schema:roots(),
-    [{F, ref(emqx_zone_schema, F)} || F <- Fields];
+    emqx_zone_schema:zone();
 fields("flapping_detect") ->
     [
         {"enable",
@@ -618,23 +628,25 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
+                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
-                }
-            )},
-        {"max_count",
-            sc(
-                integer(),
-                #{
-                    default => 15,
-                    desc => ?DESC(flapping_detect_max_count)
                 }
             )},
         {"window_time",
             sc(
-                duration(),
+                hoconsc:union([disabled, duration()]),
                 #{
-                    default => <<"1m">>,
+                    default => disabled,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(flapping_detect_window_time)
+                }
+            )},
+        {"max_count",
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 15,
+                    desc => ?DESC(flapping_detect_max_count)
                 }
             )},
         {"ban_time",

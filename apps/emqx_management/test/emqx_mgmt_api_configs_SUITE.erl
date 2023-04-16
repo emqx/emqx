@@ -127,7 +127,9 @@ t_log(_Config) ->
 
 t_global_zone(_Config) ->
     {ok, Zones} = get_global_zone(),
-    ZonesKeys = lists:map(fun({K, _}) -> K end, hocon_schema:roots(emqx_zone_schema)),
+    ZonesKeys = lists:map(
+        fun({K, _}) -> list_to_binary(K) end, emqx_zone_schema:zone_without_hidden()
+    ),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(
         emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),

@@ -352,8 +352,7 @@ with_default_value(Type, Value) ->
     Type#{example => emqx_utils_maps:binary_string(Value)}.
 
 global_zone_roots() ->
-    lists:map(fun({K, _}) -> K end, global_zone_schema()).
+    lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
-    Roots = hocon_schema:roots(emqx_zone_schema),
-    lists:map(fun({RootKey, {_Root, Schema}}) -> {RootKey, Schema} end, Roots).
+    emqx_zone_schema:zone_without_hidden().

@@ -1137,7 +1137,7 @@ t_ws_cookie_init(_) ->
 %%--------------------------------------------------------------------
 
 t_flapping_detect(_) ->
-    emqx_config:put_zone_conf(default, [flapping_detect, enable], true),
+    emqx_config:put_zone_conf(default, [flapping_detect, window_time], 60000),
     Parent = self(),
     ok = meck:expect(
         emqx_cm,
