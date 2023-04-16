@@ -628,7 +628,7 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    deprecated => {since, "5.0.22"},
+                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},

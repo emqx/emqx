@@ -193,7 +193,7 @@ code_change(_OldVsn, State, _Extra) ->
 start_timer(Zone) ->
     case get_policy(window_time, Zone) of
         WindowTime when is_integer(WindowTime) ->
-            emqx_misc:start_timer(WindowTime, {garbage_collect, Zone});
+            emqx_utils:start_timer(WindowTime, {garbage_collect, Zone});
         disabled ->
             ok
     end.
