@@ -457,7 +457,7 @@ fields("node") ->
                     mapping => "vm_args.+e",
                     desc => ?DESC(max_ets_tables),
                     default => 262144,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -503,7 +503,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
                     default => crash_dump_file_default(),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -514,7 +514,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS",
                     default => <<"30s">>,
                     desc => ?DESC(node_crash_dump_seconds),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -525,7 +525,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES",
                     default => <<"100MB">>,
                     desc => ?DESC(node_crash_dump_bytes),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -536,7 +536,7 @@ fields("node") ->
                     mapping => "vm_args.-kernel net_ticktime",
                     default => <<"2m">>,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_dist_net_ticktime)
                 }
             )},
@@ -547,7 +547,7 @@ fields("node") ->
                     mapping => "emqx_machine.backtrace_depth",
                     default => 23,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_backtrace_depth)
                 }
             )},
@@ -558,7 +558,7 @@ fields("node") ->
                     mapping => "emqx_machine.applications",
                     default => [],
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_applications)
                 }
             )},
@@ -568,7 +568,7 @@ fields("node") ->
                 #{
                     desc => ?DESC(node_etc_dir),
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     deprecated => {since, "5.0.8"}
                 }
             )},
@@ -577,7 +577,7 @@ fields("node") ->
                 ?R_REF("cluster_call"),
                 #{
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"db_backend",
@@ -591,7 +591,7 @@ fields("node") ->
                     desc => ?DESC(db_backend)
                 }
             )},
-        {"db_role",
+        {"role",
             sc(
                 hoconsc:enum([core, replicant]),
                 #{
@@ -599,6 +599,7 @@ fields("node") ->
                     default => core,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIGH,
+                    aliases => [db_role],
                     desc => ?DESC(db_role)
                 }
             )},
@@ -620,7 +621,7 @@ fields("node") ->
                     mapping => "mria.tlog_push_mode",
                     default => async,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_tlog_push_mode)
                 }
             )},
