@@ -21,8 +21,7 @@
 
 -define(MOD, {mod}).
 -define(WKEY, '?').
--define(LOCAL_CONF, "/tmp/local-override.conf").
--define(CLUSTER_CONF, "/tmp/cluster-override.conf").
+-define(CLUSTER_CONF, "/tmp/cluster.conf").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -38,7 +37,6 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_Case, Config) ->
-    _ = file:delete(?LOCAL_CONF),
     _ = file:delete(?CLUSTER_CONF),
     Config.
 
@@ -198,62 +196,6 @@ t_sub_key_update_remove(_Config) ->
 
     ok = emqx_config_handler:remove_handler(KeyPath),
     ok = emqx_config_handler:remove_handler(KeyPath2),
-    ok.
-
-t_local_override_update_remove(_Config) ->
-    application:set_env(emqx, local_override_conf_file, ?LOCAL_CONF),
-    application:set_env(emqx, cluster_override_conf_file, ?CLUSTER_CONF),
-    KeyPath = [sysmon, os, cpu_high_watermark],
-    ok = emqx_config_handler:add_handler(KeyPath, ?MODULE),
-    LocalOpts = #{override_to => local},
-    {ok, Res} = emqx:update_config(KeyPath, <<"70%">>, LocalOpts),
-    ?assertMatch(
-        #{
-            config := 0.7,
-            post_config_update := #{},
-            raw_config := <<"70%">>
-        },
-        Res
-    ),
-    ClusterOpts = #{override_to => cluster},
-    ?assertMatch(
-        {error, {permission_denied, _}}, emqx:update_config(KeyPath, <<"71%">>, ClusterOpts)
-    ),
-    ?assertMatch(0.7, emqx:get_config(KeyPath)),
-
-    KeyPath2 = [sysmon, os, cpu_low_watermark],
-    ok = emqx_config_handler:add_handler(KeyPath2, ?MODULE),
-    ?assertMatch(
-        {error, {permission_denied, _}}, emqx:update_config(KeyPath2, <<"40%">>, ClusterOpts)
-    ),
-
-    %% remove
-    ?assertMatch({error, {permission_denied, _}}, emqx:remove_config(KeyPath)),
-    ?assertEqual(
-        {ok, #{post_config_update => #{}}},
-        emqx:remove_config(KeyPath, #{override_to => local})
-    ),
-    ?assertEqual(
-        {ok, #{post_config_update => #{}}},
-        emqx:remove_config(KeyPath)
-    ),
-    ?assertError({config_not_found, KeyPath}, emqx:get_raw_config(KeyPath)),
-    OSKey = maps:keys(emqx:get_raw_config([sysmon, os])),
-    ?assertEqual(false, lists:member(<<"cpu_high_watermark">>, OSKey)),
-    ?assert(length(OSKey) > 0),
-
-    ?assertEqual(
-        {ok, #{config => 0.8, post_config_update => #{}, raw_config => <<"80%">>}},
-        emqx:reset_config(KeyPath, ClusterOpts)
-    ),
-    OSKey1 = maps:keys(emqx:get_raw_config([sysmon, os])),
-    ?assertEqual(true, lists:member(<<"cpu_high_watermark">>, OSKey1)),
-    ?assert(length(OSKey1) > 1),
-
-    ok = emqx_config_handler:remove_handler(KeyPath),
-    ok = emqx_config_handler:remove_handler(KeyPath2),
-    application:unset_env(emqx, local_override_conf_file),
-    application:unset_env(emqx, cluster_override_conf_file),
     ok.
 
 t_check_failed(_Config) ->
@@ -426,9 +368,9 @@ wait_for_new_pid() ->
 callback_error(FailedPath, Update, Error) ->
     Opts = #{rawconf_with_defaults => true},
     ok = emqx_config_handler:add_handler(FailedPath, ?MODULE),
-    Old = emqx:get_raw_config(FailedPath),
+    Old = emqx:get_raw_config(FailedPath, undefined),
     ?assertEqual(Error, emqx:update_config(FailedPath, Update, Opts)),
-    New = emqx:get_raw_config(FailedPath),
+    New = emqx:get_raw_config(FailedPath, undefined),
     ?assertEqual(Old, New),
     ok = emqx_config_handler:remove_handler(FailedPath),
     ok.

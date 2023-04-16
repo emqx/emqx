@@ -43,7 +43,6 @@
     terminate/2,
     code_change/3
 ]).
--export([is_mutable/3]).
 
 -define(MOD, {mod}).
 -define(WKEY, '?').
@@ -230,26 +229,15 @@ process_update_request([_], _Handlers, {remove, _Opts}) ->
 process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
-    case check_permissions(remove, BinKeyPath, OldRawConf, Opts) of
-        allow ->
-            NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
-            OverrideConf = remove_from_override_config(BinKeyPath, Opts),
-            {ok, NewRawConf, OverrideConf, Opts};
-        {deny, Reason} ->
-            {error, {permission_denied, Reason}}
-    end;
+    NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
+    OverrideConf = remove_from_override_config(BinKeyPath, Opts),
+    {ok, NewRawConf, OverrideConf, Opts};
 process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
-            BinKeyPath = bin_path(ConfKeyPath),
-            case check_permissions(update, BinKeyPath, NewRawConf, Opts) of
-                allow ->
-                    OverrideConf = merge_to_override_config(NewRawConf, Opts),
-                    {ok, NewRawConf, OverrideConf, Opts};
-                {deny, Reason} ->
-                    {error, {permission_denied, Reason}}
-            end;
+            OverrideConf = merge_to_override_config(NewRawConf, Opts),
+            {ok, NewRawConf, OverrideConf, Opts};
         Error ->
             Error
     end.
@@ -271,8 +259,10 @@ do_update_config(
     SubOldRawConf = get_sub_config(ConfKeyBin, OldRawConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
     case do_update_config(SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ConfKeyPath) of
-        {ok, NewUpdateReq} -> merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
-        Error -> Error
+        {ok, NewUpdateReq} ->
+            merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
+        Error ->
+            Error
     end.
 
 check_and_save_configs(
@@ -546,98 +536,3 @@ load_prev_handlers() ->
 
 save_handlers(Handlers) ->
     application:set_env(emqx, ?MODULE, Handlers).
-
-check_permissions(_Action, _ConfKeyPath, _NewRawConf, #{override_to := local}) ->
-    allow;
-check_permissions(Action, ConfKeyPath, NewRawConf, _Opts) ->
-    case emqx_utils_maps:deep_find(ConfKeyPath, NewRawConf) of
-        {ok, NewRaw} ->
-            LocalOverride = emqx_config:read_override_conf(#{override_to => local}),
-            case emqx_utils_maps:deep_find(ConfKeyPath, LocalOverride) of
-                {ok, LocalRaw} ->
-                    case is_mutable(Action, NewRaw, LocalRaw) of
-                        ok ->
-                            allow;
-                        {error, Error} ->
-                            ?SLOG(error, #{
-                                msg => "prevent_remove_local_override_conf",
-                                config_key_path => ConfKeyPath,
-                                error => Error
-                            }),
-                            {deny, "Disable changed from local-override.conf"}
-                    end;
-                {not_found, _, _} ->
-                    allow
-            end;
-        {not_found, _, _} ->
-            allow
-    end.
-
-is_mutable(Action, NewRaw, LocalRaw) ->
-    try
-        KeyPath = [],
-        is_mutable(KeyPath, Action, NewRaw, LocalRaw)
-    catch
-        throw:Error -> Error
-    end.
-
--define(REMOVE_FAILED, "remove_failed").
--define(UPDATE_FAILED, "update_failed").
-
-is_mutable(KeyPath, Action, New = #{}, Local = #{}) ->
-    maps:foreach(
-        fun(Key, SubLocal) ->
-            case maps:find(Key, New) of
-                error -> ok;
-                {ok, SubNew} -> is_mutable(KeyPath ++ [Key], Action, SubNew, SubLocal)
-            end
-        end,
-        Local
-    );
-is_mutable(KeyPath, remove, Update, Origin) ->
-    throw({error, {?REMOVE_FAILED, KeyPath, Update, Origin}});
-is_mutable(_KeyPath, update, Val, Val) ->
-    ok;
-is_mutable(KeyPath, update, Update, Origin) ->
-    throw({error, {?UPDATE_FAILED, KeyPath, Update, Origin}}).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-is_mutable_update_test() ->
-    Action = update,
-    ?assertEqual(ok, is_mutable(Action, #{}, #{})),
-    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => #{}}}}, #{a => #{b => #{c => #{}}}})),
-    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 1}}})),
-    ?assertEqual(
-        {error, {?UPDATE_FAILED, [a, b, c], 1, 2}},
-        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 2}}})
-    ),
-    ?assertEqual(
-        {error, {?UPDATE_FAILED, [a, b, d], 2, 3}},
-        is_mutable(Action, #{a => #{b => #{c => 1, d => 2}}}, #{a => #{b => #{c => 1, d => 3}}})
-    ),
-    ok.
-
-is_mutable_remove_test() ->
-    Action = remove,
-    ?assertEqual(ok, is_mutable(Action, #{}, #{})),
-    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => #{}}}}, #{a1 => #{b => #{c => #{}}}})),
-    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b1 => #{c => 1}}})),
-    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c1 => 1}}})),
-
-    ?assertEqual(
-        {error, {?REMOVE_FAILED, [a, b, c], 1, 1}},
-        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 1}}})
-    ),
-    ?assertEqual(
-        {error, {?REMOVE_FAILED, [a, b, c], 1, 2}},
-        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 2}}})
-    ),
-    ?assertEqual(
-        {error, {?REMOVE_FAILED, [a, b, c], 1, 1}},
-        is_mutable(Action, #{a => #{b => #{c => 1, d => 2}}}, #{a => #{b => #{c => 1, d => 3}}})
-    ),
-    ok.
-
--endif.

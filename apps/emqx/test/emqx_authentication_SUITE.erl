@@ -95,13 +95,17 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    LogLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_log_level(debug),
     application:set_env(ekka, strict_mode, true),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    Config.
+    [{log_level, LogLevel} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
     emqx_common_test_helpers:stop_apps([]),
+    LogLevel = ?config(log_level),
+    emqx_logger:set_log_level(LogLevel),
     ok.
 
 init_per_testcase(Case, Config) ->
