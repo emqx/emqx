@@ -23,6 +23,7 @@
 %% API
 -export([
     new/3,
+    infinity_bucket/0,
     check/3,
     try_restore/2,
     available/1
@@ -57,6 +58,10 @@ new(Counter, Index, Rate) ->
         index => Index,
         rate => Rate
     }.
+
+-spec infinity_bucket() -> bucket_ref().
+infinity_bucket() ->
+    infinity.
 
 %% @doc check tokens
 -spec check(pos_integer(), bucket_ref(), Disivisble :: boolean()) ->
