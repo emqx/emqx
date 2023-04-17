@@ -35,7 +35,7 @@ jobs:
           - ["emqx-enterprise", "24.3.4.2-3", "amzn2", "erlang"]
           - ["emqx-enterprise", "25.1.2-3", "ubuntu20.04", "erlang"]
         builder:
-          - 5.0-33
+          - 5.0-34
         elixir:
           - '1.13.4'
 
