@@ -41,14 +41,13 @@
 -type config_key_path() :: [config_key()].
 -type convert_fun() :: fun((...) -> {K1 :: any(), V1 :: any()} | drop).
 
+-define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
 deep_get(ConfKeyPath, Map) ->
-    Ref = make_ref(),
-    Res = deep_get(ConfKeyPath, Map, Ref),
-    case Res =:= Ref of
-        true -> error({config_not_found, ConfKeyPath});
-        false -> Res
+    case deep_get(ConfKeyPath, Map, ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> error({config_not_found, ConfKeyPath});
+        Res -> Res
     end.
 
 -spec deep_get(config_key_path(), map(), term()) -> term().
