@@ -1,0 +1,45 @@
+emqx_authn_http {
+
+body.desc:
+"""HTTP request body。"""
+
+body.label:
+"""Request Body"""
+
+get.desc:
+"""使用 HTTP Server 作为认证服务的认证器的配置项 (使用 GET 请求)。"""
+
+headers.desc:
+"""HTTP Headers 列表"""
+
+headers.label:
+"""请求头"""
+
+headers_no_content_type.desc:
+"""HTTP Headers 列表 (无 <code>content-type</code>) 。"""
+
+headers_no_content_type.label:
+"""请求头(无 content-type)"""
+
+method.desc:
+"""HTTP 请求方法。"""
+
+method.label:
+"""请求方法"""
+
+post.desc:
+"""使用 HTTP Server 作为认证服务的认证器的配置项 (使用 POST 请求)。"""
+
+request_timeout.desc:
+"""HTTP 请求超时时长。"""
+
+request_timeout.label:
+"""请求超时时间"""
+
+url.desc:
+"""认证 HTTP 服务器地址。"""
+
+url.label:
+"""URL"""
+
+}

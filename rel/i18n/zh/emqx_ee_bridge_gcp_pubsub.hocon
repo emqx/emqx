@@ -1,0 +1,77 @@
+emqx_ee_bridge_gcp_pubsub {
+
+connect_timeout.desc:
+"""连接 HTTP 服务器的超时时间。"""
+
+connect_timeout.label:
+"""连接超时"""
+
+desc_config.desc:
+"""GCP PubSub 桥接配置"""
+
+desc_config.label:
+"""GCP PubSub 桥接配置"""
+
+desc_name.desc:
+"""桥接名字，可读描述"""
+
+desc_name.label:
+"""桥接名字"""
+
+desc_type.desc:
+"""桥接类型"""
+
+desc_type.label:
+"""桥接类型"""
+
+local_topic.desc:
+"""发送到 'local_topic' 的消息都会转发到 GCP PubSub。 </br>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 GCP PubSub。"""
+
+local_topic.label:
+"""本地 Topic"""
+
+max_retries.desc:
+"""请求出错时的最大重试次数。"""
+
+max_retries.label:
+"""最大重试次数"""
+
+payload_template.desc:
+"""用于格式化外发信息的模板。 如果未定义，将以JSON格式发送所有可用的上下文。"""
+
+payload_template.label:
+"""HTTP 请求消息体模板"""
+
+pipelining.desc:
+"""正整数，设置最大可发送的异步 HTTP 请求数量。当设置为 1 时，表示每次发送完成 HTTP 请求后都需要等待服务器返回，再继续发送下一个请求。"""
+
+pipelining.label:
+"""HTTP 流水线"""
+
+pool_size.desc:
+"""连接池大小。"""
+
+pool_size.label:
+"""连接池大小"""
+
+pubsub_topic.desc:
+"""要发布消息的GCP PubSub主题。"""
+
+pubsub_topic.label:
+"""GCP PubSub 主题"""
+
+request_timeout.desc:
+"""废弃的。在缓冲区设置中配置请求超时。"""
+
+request_timeout.label:
+"""HTTP 请求超时"""
+
+service_account_json.desc:
+"""包含将与 PubSub 一起使用的 GCP 服务账户凭证的 JSON。
+当创建GCP服务账户时（如https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount），可以选择下载 JSON 形式的凭证，然后在该配置项中使用。"""
+
+service_account_json.label:
+"""GCP 服务账户凭证"""
+
+}

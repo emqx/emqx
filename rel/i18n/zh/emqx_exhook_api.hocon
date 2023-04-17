@@ -1,0 +1,81 @@
+emqx_exhook_api {
+
+add_server.desc:
+"""添加 ExHook 服务器"""
+
+delete_server.desc:
+"""删除 Exhook 服务器"""
+
+get_detail.desc:
+"""查看 Exhook 服务器详细信息"""
+
+get_hooks.desc:
+"""获取 Exhook 服务器的钩子信息"""
+
+hook_metrics.desc:
+"""当前节点中该钩子的指标信息"""
+
+hook_name.desc:
+"""钩子的名称"""
+
+hook_params.desc:
+"""钩子注册时使用的参数"""
+
+list_all_servers.desc:
+"""查看ExHook 服务器列表"""
+
+metric_failed.desc:
+"""钩子执行失败的次数"""
+
+metric_max_rate.desc:
+"""钩子的最大调用速率"""
+
+metric_rate.desc:
+"""钩子的调用速率"""
+
+metric_succeed.desc:
+"""钩子执行成功的次数"""
+
+metrics.desc:
+"""指标信息"""
+
+move_api.desc:
+"""移动 Exhook 服务器顺序。
+注意: 移动的参数只能是：front | rear | before:{name} | after:{name}"""
+
+move_api.label:
+"""改变已注册的Exhook服务器的执行顺序"""
+
+move_position.desc:
+"""移动的方向"""
+
+node.desc:
+"""节点名称"""
+
+node_hook_metrics.desc:
+"""所有节点中该钩子的指标信息"""
+
+node_metrics.desc:
+"""所有节点中该服务器的指标信息"""
+
+node_status.desc:
+"""所有节点中该服务器的状态信息"""
+
+server_metrics.desc:
+"""当前节点中该服务器的指标信息"""
+
+server_name.desc:
+"""Exhook 服务器的名称"""
+
+status.desc:
+"""Exhook 服务器的状态。<br/>
+connected: 连接成功<br/>
+connecting: 连接失败，重连中<br/>
+disconnected: 连接失败，且未设置自动重连<br/>
+disabled: 该服务器未开启<br/>
+error: 查看该服务器状态时发生错误"""
+
+update_server.desc:
+"""更新 Exhook 服务器"""
+
+}

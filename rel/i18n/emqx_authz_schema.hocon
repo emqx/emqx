@@ -1,7 +1,251 @@
 emqx_authz_schema {
-  sources {
-    desc {
-      en: """Authorization data sources.<br/>
+
+deny.desc:
+"""The number of authentication failures."""
+
+deny.label:
+"""The Number of Authentication Failures"""
+
+redis_sentinel.desc:
+"""Authorization using a Redis Sentinel."""
+
+redis_sentinel.label:
+"""redis_sentinel"""
+
+rate.desc:
+"""The rate of matched, times/second."""
+
+rate.label:
+"""Rate"""
+
+status.desc:
+"""The status of the resource."""
+
+status.label:
+"""Status"""
+
+method.desc:
+"""HTTP method."""
+
+method.label:
+"""method"""
+
+query.desc:
+"""Database query used to retrieve authorization data."""
+
+query.label:
+"""query"""
+
+metrics_total.desc:
+"""The total number of times the authorization rule was triggered."""
+
+metrics_total.label:
+"""The Total Number of Times the Authorization Rule was Triggered"""
+
+redis_cluster.desc:
+"""Authorization using a Redis cluster."""
+
+redis_cluster.label:
+"""redis_cluster"""
+
+mysql.desc:
+"""Authorization using a MySQL database."""
+
+mysql.label:
+"""mysql"""
+
+postgresql.desc:
+"""Authorization using a PostgreSQL database."""
+
+postgresql.label:
+"""postgresql"""
+
+mongo_rs.desc:
+"""Authorization using a MongoDB replica set."""
+
+mongo_rs.label:
+"""mongo_rs"""
+
+type.desc:
+"""Backend type."""
+
+type.label:
+"""type"""
+
+mongo_sharded.desc:
+"""Authorization using a sharded MongoDB cluster."""
+
+mongo_sharded.label:
+"""mongo_sharded"""
+
+body.desc:
+"""HTTP request body."""
+
+body.label:
+"""Request Body"""
+
+url.desc:
+"""URL of the auth server."""
+
+url.label:
+"""URL"""
+
+node.desc:
+"""Node name."""
+
+node.label:
+"""Node Name."""
+
+headers.desc:
+"""List of HTTP Headers."""
+
+headers.label:
+"""Headers"""
+
+rate_last5m.desc:
+"""The average rate of matched in the last 5 minutes, times/second."""
+
+rate_last5m.label:
+"""Rate in Last 5min"""
+
+headers_no_content_type.desc:
+"""List of HTTP headers (without <code>content-type</code>)."""
+
+headers_no_content_type.label:
+"""headers_no_content_type"""
+
+node_error.desc:
+"""The error of node."""
+
+node_error.label:
+"""Error in Node"""
+
+mnesia.desc:
+"""Authorization using a built-in database (mnesia)."""
+
+mnesia.label:
+"""mnesia"""
+
+enable.desc:
+"""Set to <code>true</code> or <code>false</code> to disable this ACL provider"""
+
+enable.label:
+"""enable"""
+
+matched.desc:
+"""Count of this resource is queried."""
+
+matched.label:
+"""Matched"""
+
+node_status.desc:
+"""The status of the resource for each node."""
+
+node_status.label:
+"""Resource Status in Node"""
+
+rate_max.desc:
+"""The max rate of matched, times/second."""
+
+rate_max.label:
+"""Max Rate"""
+
+filter.desc:
+"""Conditional expression that defines the filter condition in the query.
+Filter supports the following placeholders<br/>
+ - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting<br/>
+ - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting"""
+
+filter.label:
+"""Filter"""
+
+path.desc:
+"""Path to the file which contains the ACL rules.
+If the file provisioned before starting EMQX node,
+it can be placed anywhere as long as EMQX has read access to it.
+That is, EMQX will treat it as read only.
+
+In case the rule-set is created or updated from EMQX Dashboard or HTTP API,
+a new file will be created and placed in `authz` subdirectory inside EMQX's `data_dir`,
+and the old file will not be used anymore."""
+
+path.label:
+"""path"""
+
+redis_single.desc:
+"""Authorization using a single Redis instance."""
+
+redis_single.label:
+"""redis_single"""
+
+failed.desc:
+"""Count of query failed."""
+
+failed.label:
+"""Failed"""
+
+metrics.desc:
+"""The metrics of the resource."""
+
+metrics.label:
+"""Metrics"""
+
+authorization.desc:
+"""Configuration related to the client authorization."""
+
+authorization.label:
+"""authorization"""
+
+collection.desc:
+"""`MongoDB` collection containing the authorization data."""
+
+collection.label:
+"""collection"""
+
+mongo_single.desc:
+"""Authorization using a single MongoDB instance."""
+
+mongo_single.label:
+"""mongo_single"""
+
+file.desc:
+"""Authorization using a static file."""
+
+file.label:
+"""file"""
+
+http_post.desc:
+"""Authorization using an external HTTP server (via POST requests)."""
+
+http_post.label:
+"""http_post"""
+
+request_timeout.desc:
+"""HTTP request timeout."""
+
+request_timeout.label:
+"""Request Timeout"""
+
+allow.desc:
+"""The number of times the authentication was successful."""
+
+allow.label:
+"""The Number of Times the Authentication was Successful"""
+
+cmd.desc:
+"""Database query used to retrieve authorization data."""
+
+cmd.label:
+"""cmd"""
+
+nomatch.desc:
+"""The number of times that no authorization rules were matched."""
+
+nomatch.label:
+"""The Number of Times that no Authorization Rules were Matched"""
+
+sources.desc:
+"""Authorization data sources.<br/>
 An array of authorization (ACL) data providers.
 It is designed as an array, not a hash-map, so the sources can be
 ordered to form a chain of access controls.<br/>
@@ -19,525 +263,25 @@ NOTE:
 The source elements are identified by their 'type'.
 It is NOT allowed to configure two or more sources of the same type."""
 
-      zh: """授权数据源。<br/>
-授权（ACL）数据源的列表。
-它被设计为一个数组，而不是一个散列映射，
-所以可以作为链式访问控制。<br/>
+sources.label:
+"""sources"""
 
-当授权一个 'publish' 或 'subscribe' 行为时，
-该配置列表中的所有数据源将按顺序进行检查。
-如果在某个客户端未找到时(使用 ClientID 或 Username)。
-将会移动到下一个数据源。直至得到 'allow' 或 'deny' 的结果。<br/>
+node_metrics.desc:
+"""The metrics of the resource for each node."""
 
-如果在任何数据源中都未找到对应的客户端信息。
-配置的默认行为 ('authorization.no_match') 将生效。<br/>
+node_metrics.label:
+"""Resource Metrics in Node"""
 
-注意：
-数据源使用 'type' 进行标识。
-使用同一类型的数据源多于一次不被允许。"""
-    }
-    label {
-      en: """sources"""
-      zh: """数据源"""
-    }
-  }
+success.desc:
+"""Count of query success."""
 
-  authorization {
-    desc {
-      en: """Configuration related to the client authorization."""
-      zh: """客户端授权相关配置"""
-    }
-    label {
-      en: """authorization"""
-      zh: """授权"""
-    }
-  }
+success.label:
+"""Success"""
 
-  enable {
-    desc {
-      en: """Set to <code>true</code> or <code>false</code> to disable this ACL provider"""
-      zh: """设为 <code>true</code> 或 <code>false</code> 以启用或禁用此访问控制数据源"""
-    }
-    label {
-      en: """enable"""
-      zh: """enable"""
-    }
-  }
+http_get.desc:
+"""Authorization using an external HTTP server (via GET requests)."""
 
-  type {
-    desc {
-      en: """Backend type."""
-      zh: """数据后端类型"""
-    }
-    label {
-      en: """type"""
-      zh: """type"""
-    }
-  }
+http_get.label:
+"""http_get"""
 
-#==== authz_file
-
-  file {
-    desc {
-      en: """Authorization using a static file."""
-      zh: """使用静态文件授权"""
-    }
-    label {
-      en: """file"""
-      zh: """文件"""
-    }
-  }
-
-  path {
-    desc {
-      en: """Path to the file which contains the ACL rules.
-If the file provisioned before starting EMQX node,
-it can be placed anywhere as long as EMQX has read access to it.
-That is, EMQX will treat it as read only.
-
-In case the rule-set is created or updated from EMQX Dashboard or HTTP API,
-a new file will be created and placed in `authz` subdirectory inside EMQX's `data_dir`,
-and the old file will not be used anymore."""
-      zh: """包含 ACL 规则的文件路径。
-如果在启动 EMQX 节点前预先配置该路径，
-那么可以将该文件置于任何 EMQX 可以访问到的位置。
-
-如果从 EMQX Dashboard 或 HTTP API 创建或修改了规则集，
-那么EMQX将会生成一个新的文件并将它存放在 `data_dir` 下的 `authz` 子目录中，
-并从此弃用旧的文件。"""
-    }
-    label {
-      en: """path"""
-      zh: """path"""
-    }
-  }
-
-#==== authz_http
-
-  http_get {
-    desc {
-      en: """Authorization using an external HTTP server (via GET requests)."""
-      zh: """使用外部 HTTP 服务器授权(GET 请求)。"""
-    }
-    label {
-      en: """http_get"""
-      zh: """http_get"""
-    }
-  }
-
-  http_post {
-    desc {
-      en: """Authorization using an external HTTP server (via POST requests)."""
-      zh: """使用外部 HTTP 服务器授权(POST 请求)。"""
-    }
-    label {
-      en: """http_post"""
-      zh: """http_post"""
-    }
-  }
-
-  method {
-    desc {
-      en: """HTTP method."""
-      zh: """HTTP 请求方法"""
-    }
-    label {
-      en: """method"""
-      zh: """method"""
-    }
-  }
-
-  url {
-    desc {
-      en: """URL of the auth server."""
-      zh: """授权 HTTP 服务器地址。"""
-    }
-    label {
-      en: """URL"""
-      zh: """URL"""
-    }
-  }
-
-  headers {
-    desc {
-      en: """List of HTTP Headers."""
-      zh: """HTTP Headers 列表"""
-    }
-    label {
-      en: """Headers"""
-      zh: """请求头"""
-    }
-  }
-
-  headers_no_content_type {
-    desc {
-      en: """List of HTTP headers (without <code>content-type</code>)."""
-      zh: """HTTP Headers 列表 (无 <code>content-type</code>) 。"""
-    }
-    label {
-      en: """headers_no_content_type"""
-      zh: """请求头(无 content-type)"""
-    }
-  }
-
-  body {
-    desc {
-      en: """HTTP request body."""
-      zh: """HTTP request body。"""
-    }
-    label {
-      en: """Request Body"""
-      zh: """Request Body"""
-    }
-  }
-
-  request_timeout {
-    desc {
-      en: """HTTP request timeout."""
-      zh: """HTTP 请求超时时长。"""
-    }
-    label {
-      en: """Request Timeout"""
-      zh: """请求超时时间"""
-    }
-  }
-
-#==== authz_mnesia
-
-  mnesia {
-    desc {
-      en: """Authorization using a built-in database (mnesia)."""
-      zh: """使用内部数据库授权（mnesia）。"""
-    }
-    label {
-      en: """mnesia"""
-      zh: """mnesia"""
-    }
-  }
-
-#==== authz_mongo
-
-  mongo_single {
-    desc {
-      en: """Authorization using a single MongoDB instance."""
-      zh: """使用 MongoDB 授权（单实例）。"""
-    }
-    label {
-      en: """mongo_single"""
-      zh: """mongo_single"""
-    }
-  }
-
-  mongo_rs {
-    desc {
-      en: """Authorization using a MongoDB replica set."""
-      zh: """使用 MongoDB 授权（副本集模式）"""
-    }
-    label {
-      en: """mongo_rs"""
-      zh: """mongo_rs"""
-    }
-  }
-
-  mongo_sharded {
-    desc {
-      en: """Authorization using a sharded MongoDB cluster."""
-      zh: """使用 MongoDB 授权（分片集群模式）。"""
-    }
-    label {
-      en: """mongo_sharded"""
-      zh: """mongo_sharded"""
-    }
-  }
-
-  collection {
-    desc {
-      en: """`MongoDB` collection containing the authorization data."""
-      zh: """`MongoDB` 授权数据集。"""
-    }
-    label {
-      en: """collection"""
-      zh: """数据集"""
-    }
-  }
-
-  filter {
-    desc {
-      en: """Conditional expression that defines the filter condition in the query.
-Filter supports the following placeholders<br/>
- - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting<br/>
- - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting"""
-      zh: """在查询中定义过滤条件的条件表达式。
-过滤器支持如下占位符：<br/>
-- <code>${username}</code>：将在运行时被替换为客户端连接时使用的用户名<br/>
-- <code>${clientid}</code>：将在运行时被替换为客户端连接时使用的客户端标识符"""
-    }
-    label {
-      en: """Filter"""
-      zh: """过滤器"""
-    }
-  }
-
-#==== authz_mysql
-
-  mysql {
-    desc {
-      en: """Authorization using a MySQL database."""
-      zh: """使用 MySOL 数据库授权"""
-    }
-    label {
-      en: """mysql"""
-      zh: """mysql"""
-    }
-  }
-
-#==== authz_pgsql
-
-  postgresql {
-    desc {
-      en: """Authorization using a PostgreSQL database."""
-      zh: """使用 PostgreSQL 数据库授权"""
-    }
-    label {
-      en: """postgresql"""
-      zh: """postgresql"""
-    }
-  }
-
-#==== authz_redis
-
-  redis_single {
-    desc {
-      en: """Authorization using a single Redis instance."""
-      zh: """使用 Redis 授权（单实例）。"""
-    }
-    label {
-      en: """redis_single"""
-      zh: """redis_single"""
-    }
-  }
-
-  redis_sentinel {
-    desc {
-      en: """Authorization using a Redis Sentinel."""
-      zh: """使用 Redis 授权（哨兵模式）。"""
-    }
-    label {
-      en: """redis_sentinel"""
-      zh: """redis_sentinel"""
-    }
-  }
-
-  redis_cluster {
-    desc {
-      en: """Authorization using a Redis cluster."""
-      zh: """使用 Redis 授权（集群模式）。"""
-    }
-    label {
-      en: """redis_cluster"""
-      zh: """redis_cluster"""
-    }
-  }
-
-  cmd {
-    desc {
-      en: """Database query used to retrieve authorization data."""
-      zh: """访问控制数据查查询命令"""
-    }
-    label {
-      en: """cmd"""
-      zh: """查询命令"""
-    }
-  }
-
-#==== common field for DBs (except redis)
-
-  query {
-    desc {
-      en: """Database query used to retrieve authorization data."""
-      zh: """访问控制数据查询语句/查询命令。"""
-    }
-    label {
-      en: """query"""
-      zh: """查询语句"""
-    }
-  }
-
-#==== metrics field
-
-  metrics {
-    desc {
-      en: """The metrics of the resource."""
-      zh: """资源统计指标。"""
-    }
-    label: {
-      en: """Metrics"""
-      zh: """指标"""
-    }
-  }
-
-  node_metrics {
-    desc {
-      en: """The metrics of the resource for each node."""
-      zh: """每个节点上资源的统计指标。"""
-    }
-    label: {
-      en: """Resource Metrics in Node"""
-      zh: """节点资源指标"""
-    }
-  }
-
-  status {
-    desc {
-      en: """The status of the resource."""
-      zh: """资源状态。"""
-    }
-    label: {
-      en: """Status"""
-      zh: """状态"""
-    }
-  }
-
-  node_status {
-    desc {
-      en: """The status of the resource for each node."""
-      zh: """每个节点上资源的状态。"""
-    }
-    label: {
-      en: """Resource Status in Node"""
-      zh: """节点资源状态"""
-    }
-  }
-
-  node_error {
-    desc {
-      en: """The error of node."""
-      zh: """节点上产生的错误。"""
-    }
-    label: {
-      en: """Error in Node"""
-      zh: """节点产生的错误"""
-    }
-  }
-
-  matched {
-    desc {
-      en: """Count of this resource is queried."""
-      zh: """请求命中次数。"""
-    }
-    label: {
-      en: """Matched"""
-      zh: """已命中"""
-    }
-  }
-
-  success {
-    desc {
-      en: """Count of query success."""
-      zh: """请求成功次数。"""
-    }
-    label: {
-      en: """Success"""
-      zh: """成功"""
-    }
-  }
-
-  failed {
-    desc {
-      en: """Count of query failed."""
-      zh: """请求失败次数。"""
-    }
-    label: {
-      en: """Failed"""
-      zh: """失败"""
-    }
-  }
-
-  rate {
-    desc {
-      en: """The rate of matched, times/second."""
-      zh: """命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Rate"""
-      zh: """速率"""
-    }
-  }
-
-  rate_max {
-    desc {
-      en: """The max rate of matched, times/second."""
-      zh: """最大命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Max Rate"""
-      zh: """最大速率"""
-    }
-  }
-
-  rate_last5m {
-    desc {
-      en: """The average rate of matched in the last 5 minutes, times/second."""
-      zh: """5分钟内平均命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Rate in Last 5min"""
-      zh: """5分钟内速率"""
-    }
-  }
-
-  node {
-    desc {
-      en: """Node name."""
-      zh: """节点名称。"""
-    }
-    label: {
-      en: """Node Name."""
-      zh: """节点名称。"""
-    }
-  }
-
-  metrics_total {
-    desc {
-      en: """The total number of times the authorization rule was triggered."""
-      zh: """授权实例被触发的总次数。"""
-    }
-    label: {
-      en: """The Total Number of Times the Authorization Rule was Triggered"""
-      zh: """授权实例被触发的总次数"""
-    }
-  }
-
-  nomatch {
-    desc {
-      en: """The number of times that no authorization rules were matched."""
-      zh: """没有匹配到任何授权规则的次数。"""
-    }
-    label: {
-      en: """The Number of Times that no Authorization Rules were Matched"""
-      zh: """没有匹配到任何授权规则的次数"""
-    }
-  }
-
-  allow {
-    desc {
-      en: """The number of times the authentication was successful."""
-      zh: """授权成功的次数。"""
-    }
-    label: {
-      en: """The Number of Times the Authentication was Successful"""
-      zh: """授权成功次数"""
-    }
-  }
-
-  deny {
-    desc {
-      en: """The number of authentication failures."""
-      zh: """授权失败的次数。"""
-    }
-    label: {
-      en: """The Number of Authentication Failures"""
-      zh: """授权失败次数"""
-    }
-  }
 }

@@ -1,52 +1,24 @@
 emqx_exproto_schema {
-    exproto {
-        desc {
-            en: """The Extension Protocol configuration"""
-            zh: """ExProto 网关"""
-        }
-    }
 
-    exproto_server {
-        desc {
-            en: """Configurations for starting the <code>ConnectionAdapter</code> service"""
-            zh: """配置 ExProto 网关需要启动的 <code>ConnectionAdapter</code> 服务。
-该服务用于提供客户端的认证、发布、订阅和数据下行等功能。"""
-        }
-    }
+exproto.desc:
+"""The Extension Protocol configuration"""
 
-    exproto_grpc_server_bind {
-        desc {
-            en: """Listening address and port for the gRPC server."""
-            zh: """服务监听地址和端口。"""
-        }
-    }
+exproto_grpc_handler_address.desc:
+"""gRPC server address."""
 
-    exproto_grpc_server_ssl {
-        desc {
-            en: """SSL configuration for the gRPC server."""
-            zh: """服务 SSL 配置。"""
-        }
-    }
+exproto_grpc_handler_ssl.desc:
+"""SSL configuration for the gRPC client."""
 
-    exproto_handler {
-        desc {
-            en: """Configurations for request to <code>ConnectionHandler</code> service"""
-            zh: """配置 ExProto 网关需要请求的 <code>ConnectionHandler</code> 服务地址。
-该服务用于给 ExProto 提供客户端的 Socket 事件处理、字节解码、订阅消息接收等功能。"""
-        }
-    }
+exproto_grpc_server_bind.desc:
+"""Listening address and port for the gRPC server."""
 
-    exproto_grpc_handler_address {
-        desc {
-            en: """gRPC server address."""
-            zh: """对端 gRPC 服务器地址。"""
-        }
-    }
+exproto_grpc_server_ssl.desc:
+"""SSL configuration for the gRPC server."""
 
-    exproto_grpc_handler_ssl {
-        desc {
-            en: """SSL configuration for the gRPC client."""
-            zh: """gRPC 客户端的 SSL 配置。"""
-        }
-    }
+exproto_handler.desc:
+"""Configurations for request to <code>ConnectionHandler</code> service"""
+
+exproto_server.desc:
+"""Configurations for starting the <code>ConnectionAdapter</code> service"""
+
 }

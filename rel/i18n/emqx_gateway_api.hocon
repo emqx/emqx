@@ -1,166 +1,73 @@
 emqx_gateway_api {
 
-    list_gateway {
-        desc {
-            en: """This API returns an overview info for the specified or all gateways.
-including current running status, number of connections, listener status, etc."""
-            zh: """该接口会返回指定或所有网关的概览状态，
-包括当前状态、连接数、监听器状态等。"""
-        }
-    }
+delete_gateway.desc:
+"""Unload the specified gateway"""
 
-    enable_gateway {
-        desc {
-            en: """Enable a gateway by confs."""
-            zh: """使用配置启动某一网关。"""
-        }
-    }
+enable_gateway.desc:
+"""Enable a gateway by confs."""
 
-    get_gateway {
-        desc {
-            en: """Get the gateway configurations"""
-            zh: """获取网关配置详情"""
-        }
-    }
+gateway_created_at.desc:
+"""The Gateway created datetime"""
 
-    delete_gateway {
-        desc {
-            en: """Unload the specified gateway"""
-            zh: """停用指定网关"""
-        }
-    }
+gateway_current_connections.desc:
+"""The Gateway current connected connections/clients"""
 
-    update_gateway {
-        desc {
-            en: """Update the gateway basic configurations and running status.<br/>
-Note: The Authentication and Listener configurations should be updated by other special APIs."""
-            zh: """更新指定网关的基础配置、和启用的状态。<br/>
-注：认证、和监听器的配置更新需参考对应的 API 接口。"""
-        }
-    }
+gateway_enable_in_path.desc:
+"""Whether to enable this gateway"""
 
-    gateway_name {
-        desc {
-            en: """Gateway Name"""
-            zh: """网关名称"""
-        }
-    }
+gateway_listener_id.desc:
+"""Listener ID"""
 
-    gateway_name_in_qs {
-        desc {
-            en: """Gateway Name.<br/>
+gateway_listener_name.desc:
+"""Listener Name"""
+
+gateway_listener_running.desc:
+"""Listener Running status"""
+
+gateway_listener_type.desc:
+"""Listener Type"""
+
+gateway_listeners.desc:
+"""The Gateway listeners overview"""
+
+gateway_max_connections.desc:
+"""The Gateway allowed maximum connections/clients"""
+
+gateway_name.desc:
+"""Gateway Name"""
+
+gateway_name_in_qs.desc:
+"""Gateway Name.<br/>
 It's enum with `stomp`, `mqttsn`, `coap`, `lwm2m`, `exproto`"""
-            zh: """网关名称.<br/>
-可取值为 `stomp`、`mqttsn`、`coap`、`lwm2m`、`exproto`"""
-        }
-    }
 
-    gateway_enable_in_path {
-        desc {
-            en: """Whether to enable this gateway"""
+gateway_node_status.desc:
+"""The status of the gateway on each node in the cluster"""
 
-            zh: """是否开启此网关"""
-        }
-    }
+gateway_started_at.desc:
+"""The Gateway started datetime"""
 
-    gateway_status {
-        desc {
-            en: """Gateway status"""
-            zh: """网关启用状态"""
-        }
-    }
+gateway_status.desc:
+"""Gateway status"""
 
-    gateway_status_in_qs {
-        desc {
-            en: """Filter gateways by status.<br/>
+gateway_status_in_qs.desc:
+"""Filter gateways by status.<br/>
 It is enum with `running`, `stopped`, `unloaded`"""
-            zh: """通过网关状态筛选<br/>
-可选值为 `running`、`stopped`、`unloaded`"""
-        }
-    }
 
-    gateway_created_at {
-        desc {
-            en: """The Gateway created datetime"""
-            zh: """网关创建时间"""
-        }
-    }
+gateway_stopped_at.desc:
+"""The Gateway stopped datetime"""
 
-    gateway_started_at {
-        desc {
-            en: """The Gateway started datetime"""
-            zh: """网关启用时间"""
-        }
-    }
+get_gateway.desc:
+"""Get the gateway configurations"""
 
-    gateway_stopped_at {
-        desc {
-            en: """The Gateway stopped datetime"""
-            zh: """网关停用时间"""
-        }
-    }
+list_gateway.desc:
+"""This API returns an overview info for the specified or all gateways.
+including current running status, number of connections, listener status, etc."""
 
-    gateway_max_connections {
-        desc {
-            en: """The Gateway allowed maximum connections/clients"""
-            zh: """最大连接数"""
-        }
-    }
+node.desc:
+"""Node Name"""
 
-    gateway_current_connections {
-        desc {
-            en: """The Gateway current connected connections/clients"""
-            zh: """当前连接数"""
-        }
-    }
-
-    gateway_listeners {
-        desc {
-            en: """The Gateway listeners overview"""
-            zh: """网关监听器列表"""
-        }
-    }
-
-    gateway_listener_id {
-        desc {
-            en: """Listener ID"""
-            zh: """监听器 ID"""
-        }
-    }
-
-    gateway_listener_name {
-        desc {
-            en: """Listener Name"""
-            zh: """监听器名称"""
-        }
-    }
-
-    gateway_listener_running {
-        desc {
-            en: """Listener Running status"""
-            zh: """监听器运行状态"""
-        }
-    }
-
-    gateway_listener_type {
-        desc {
-            en: """Listener Type"""
-            zh: """监听器类型"""
-        }
-    }
-
-    gateway_node_status {
-        desc {
-            en: """The status of the gateway on each node in the cluster"""
-            zh: """网关在集群中每个节点上的状态"""
-        }
-    }
-
-    node {
-        desc {
-            en: """Node Name"""
-            zh: """节点名称"""
-        }
-    }
+update_gateway.desc:
+"""Update the gateway basic configurations and running status.<br/>
+Note: The Authentication and Listener configurations should be updated by other special APIs."""
 
 }

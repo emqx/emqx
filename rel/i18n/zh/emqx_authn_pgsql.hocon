@@ -1,0 +1,12 @@
+emqx_authn_pgsql {
+
+authentication.desc:
+"""使用 PostgreSQL 作为认证数据源的认证器的配置项。"""
+
+query.desc:
+"""用于查询密码散列等用于认证的数据的 SQL 语句。"""
+
+query.label:
+"""查询语句"""
+
+}

@@ -1,0 +1,46 @@
+emqx_ee_bridge_clickhouse {
+
+batch_value_separator.desc:
+"""默认为逗号 ','，适用于 VALUE 格式。您也可以使用其他分隔符， 请参考 [INSERT INTO 语句](https://clickhouse.com/docs/en/sql-reference/statements/insert-into)。"""
+
+batch_value_separator.label:
+"""分隔符"""
+
+config_enable.desc:
+"""启用/禁用桥接"""
+
+config_enable.label:
+"""启用/禁用桥接"""
+
+desc_config.desc:
+"""Clickhouse 桥接配置"""
+
+desc_config.label:
+"""Clickhouse 桥接配置"""
+
+desc_name.desc:
+"""桥接名字"""
+
+desc_name.label:
+"""桥接名字"""
+
+desc_type.desc:
+"""Bridge 类型"""
+
+desc_type.label:
+"""桥接类型"""
+
+local_topic.desc:
+"""发送到 'local_topic' 的消息都会转发到 Clickhouse。 </br>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发。"""
+
+local_topic.label:
+"""本地 Topic"""
+
+sql_template.desc:
+"""可以使用 ${field} 占位符来引用消息与客户端上下文中的变量，请确保对应字段存在且数据格式符合预期。此处不支持 [SQL 预处理](https://docs.emqx.com/zh/enterprise/v5.0/data-integration/data-bridges.html#sql-预处理)。"""
+
+sql_template.label:
+"""SQL 模板"""
+
+}

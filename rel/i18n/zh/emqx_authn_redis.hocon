@@ -1,0 +1,18 @@
+emqx_authn_redis {
+
+cluster.desc:
+"""使用 Redis (Cluster) 作为认证数据源的认证器的配置项。"""
+
+cmd.desc:
+"""用于查询密码散列等用于认证的数据的 Redis Command，目前仅支持 <code>HGET</code> 与 <code>HMGET</code>。"""
+
+cmd.label:
+"""Command"""
+
+sentinel.desc:
+"""使用 Redis (Sentinel) 作为认证数据源的认证器的配置项。"""
+
+standalone.desc:
+"""使用 Redis (Standalone) 作为认证数据源的认证器的配置项。"""
+
+}

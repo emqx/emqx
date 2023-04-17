@@ -1,25 +1,15 @@
 emqx_ee_connector_clickhouse {
 
-    base_url {
-        desc {
-          en: """The HTTP URL to the Clickhouse server that you want to connect to (for example http://myhostname:8123)"""
-          zh: """你想连接到的Clickhouse服务器的HTTP URL（例如http://myhostname:8123）。"""
-        }
-        label: {
-              en: "Server URL"
-              zh: "服务器 URL"
-            }
-    }
+base_url.desc:
+"""The HTTP URL to the Clickhouse server that you want to connect to (for example http://myhostname:8123)"""
 
-    connect_timeout {
-        desc {
-          en: "The timeout when connecting to the Clickhouse server."
-          zh: "连接HTTP服务器的超时时间。"
-        }
-        label: {
-              en: "Clickhouse Timeout"
-              zh: "连接超时"
-            }
-    }
+base_url.label:
+"""Server URL"""
+
+connect_timeout.desc:
+"""The timeout when connecting to the Clickhouse server."""
+
+connect_timeout.label:
+"""Clickhouse Timeout"""
 
 }

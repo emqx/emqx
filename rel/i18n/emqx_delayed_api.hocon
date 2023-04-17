@@ -1,164 +1,72 @@
 emqx_delayed_api {
 
-  view_status_api {
-    desc {
-      en: "Get delayed status"
-      zh: "查看慢订阅状态"
-    }
-  }
+bad_msgid_format.desc:
+"""Bad Message ID format"""
 
-  update_api {
-    desc {
-      en: "Enable or disable delayed, set max delayed messages"
-      zh: "开启或者关闭功能，或者设置延迟消息数量上限"
-    }
-  }
+count.desc:
+"""Count of delayed messages"""
 
-  update_success {
-    desc {
-      en: "Enable or disable delayed successfully"
-      zh: "开启或者关闭功能操作成功"
-    }
-  }
+delayed_interval.desc:
+"""Delayed interval(second)"""
 
-  illegality_limit {
-    desc {
-      en: "Max limit illegality"
-      zh: "数量上限不合法"
-    }
-  }
+delayed_remaining.desc:
+"""Delayed remaining(second)"""
 
-  get_message_api {
-    desc {
-      en: "View delayed message"
-      zh: "查看延迟消息"
-    }
-  }
+delete_api.desc:
+"""Delete delayed message"""
 
-  node {
-    desc {
-      en: "The node where message from"
-      zh: "消息的来源节点"
-    }
-  }
+expected_at.desc:
+"""Expect publish time, in RFC 3339 format"""
 
-  msgid {
-    desc {
-      en: "Delayed Message ID"
-      zh: "延迟消息 ID"
-    }
-  }
+from_clientid.desc:
+"""From ClientID"""
 
-  bad_msgid_format {
-    desc {
-      en: "Bad Message ID format"
-      zh: "消息 ID 格式错误"
-    }
-  }
+from_username.desc:
+"""From Username"""
 
-  msgid_not_found {
-    desc {
-      en: "Message ID not found"
-      zh: "未找到对应消息"
-    }
-  }
+get_message_api.desc:
+"""View delayed message"""
 
-  delete_api {
-    desc {
-      en: "Delete delayed message"
-      zh: "删除延迟消息"
-    }
-  }
+illegality_limit.desc:
+"""Max limit illegality"""
 
-  list_api {
-    desc {
-      en: "List delayed messages"
-      zh: "查看延迟消息列表"
-    }
-  }
+list_api.desc:
+"""List delayed messages"""
 
-  view_page {
-    desc {
-      en: "View page"
-      zh: "查看的页数"
-    }
-  }
+msgid.desc:
+"""Delayed Message ID"""
 
-  view_limit {
-    desc {
-      en: "Page limit"
-      zh: "每页数量"
-    }
-  }
+msgid_not_found.desc:
+"""Message ID not found"""
 
-  count {
-    desc {
-      en: "Count of delayed messages"
-      zh: "延迟消息总数"
-    }
-  }
+node.desc:
+"""The node where message from"""
 
-  publish_at {
-    desc {
-      en: "Clinet publish message time, in RFC 3339 format"
-      zh: "客户端发送时间, RFC 3339 格式"
-    }
-  }
+payload.desc:
+"""Payload, base64 encoded. Payload will be set to 'PAYLOAD_TO_LARGE' if its length is larger than 2048 bytes"""
 
-  delayed_interval {
-    desc {
-      en: "Delayed interval(second)"
-      zh: "延迟时间(秒)"
-    }
-  }
+publish_at.desc:
+"""Clinet publish message time, in RFC 3339 format"""
 
-  delayed_remaining {
-    desc {
-      en: "Delayed remaining(second)"
-      zh: "剩余时间(秒)"
-    }
-  }
+qos.desc:
+"""QoS"""
 
-  expected_at {
-    desc {
-      en: "Expect publish time, in RFC 3339 format"
-      zh: "期望的发送时间, RFC 3339 格式"
-    }
-  }
+topic.desc:
+"""Topic"""
 
-  topic {
-    desc {
-      en: "Topic"
-      zh: "主题"
-    }
-  }
+update_api.desc:
+"""Enable or disable delayed, set max delayed messages"""
 
-  qos {
-    desc {
-      en: "QoS"
-      zh: "QoS"
-    }
-  }
+update_success.desc:
+"""Enable or disable delayed successfully"""
 
-  from_clientid {
-    desc {
-      en: "From ClientID"
-      zh: "消息的 ClientID"
-    }
-  }
+view_limit.desc:
+"""Page limit"""
 
-  from_username {
-    desc {
-      en: "From Username"
-      zh: "消息的 Username"
-    }
-  }
+view_page.desc:
+"""View page"""
 
-  payload {
-    desc {
-      en: "Payload, base64 encoded. Payload will be set to 'PAYLOAD_TO_LARGE' if its length is larger than 2048 bytes"
-      zh: "消息内容, base64 格式。如果消息的大小超过 2048 字节，则消息内容会被设置为 'PAYLOAD_TO_LARGE'"
-    }
-  }
+view_status_api.desc:
+"""Get delayed status"""
 
 }
