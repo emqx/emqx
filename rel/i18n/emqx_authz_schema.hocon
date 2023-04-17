@@ -120,11 +120,11 @@ node_error.desc:
 node_error.label:
 """Error in Node"""
 
-mnesia.desc:
+builtin_db.desc:
 """Authorization using a built-in database (mnesia)."""
 
-mnesia.label:
-"""mnesia"""
+builtin_db.label:
+"""Builtin Database"""
 
 enable.desc:
 """Set to <code>true</code> or <code>false</code> to disable this ACL provider"""

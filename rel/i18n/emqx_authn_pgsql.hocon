@@ -1,6 +1,6 @@
 emqx_authn_pgsql {
 
-authentication.desc:
+postgresql.desc:
 """Configuration of authenticator using PostgreSQL as authentication data source."""
 
 query.desc:

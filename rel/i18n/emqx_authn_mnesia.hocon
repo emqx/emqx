@@ -1,6 +1,6 @@
 emqx_authn_mnesia {
 
-authentication.desc:
+builtin_db.desc:
 """Configuration of authenticator using built-in database as data source."""
 
 user_id_type.desc:

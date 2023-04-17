@@ -1,6 +1,6 @@
 emqx_authn_mysql {
 
-authentication.desc:
+mysql.desc:
 """使用 MySQL 作为认证数据源的认证器的配置项。"""
 
 query.desc:

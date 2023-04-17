@@ -120,11 +120,11 @@ node_error.desc:
 node_error.label:
 """节点产生的错误"""
 
-mnesia.desc:
+builtin_db.desc:
 """使用内部数据库授权（mnesia）。"""
 
-mnesia.label:
-"""mnesia"""
+builtin_db.label:
+"""Buitin Database"""
 
 enable.desc:
 """设为 <code>true</code> 或 <code>false</code> 以启用或禁用此访问控制数据源"""

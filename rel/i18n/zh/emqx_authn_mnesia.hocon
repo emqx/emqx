@@ -1,6 +1,6 @@
 emqx_authn_mnesia {
 
-authentication.desc:
+builtin_db.desc:
 """使用内置数据库作为认证数据源的认证器的配置项。"""
 
 user_id_type.desc:

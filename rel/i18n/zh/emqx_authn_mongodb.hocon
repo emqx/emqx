@@ -39,7 +39,7 @@ salt_field.label:
 sharded-cluster.desc:
 """使用 MongoDB (Sharded Cluster) 作为认证数据源的认证器的配置项。"""
 
-standalone.desc:
+single.desc:
 """使用 MongoDB (Standalone) 作为认证数据源的认证器的配置项。"""
 
 }

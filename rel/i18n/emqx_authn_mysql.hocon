@@ -1,6 +1,6 @@
 emqx_authn_mysql {
 
-authentication.desc:
+mysql.desc:
 """Configuration of authenticator using MySQL as authentication data source."""
 
 query.desc:
