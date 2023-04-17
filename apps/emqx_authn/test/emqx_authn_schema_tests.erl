@@ -32,7 +32,7 @@ union_member_selector_mongo_test_() ->
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-mongodb:standalone"}),
+                ?ERR(#{matched_type := "authn:redis_single"}),
                 Check("{mongo_type: single}")
             )
         end},
