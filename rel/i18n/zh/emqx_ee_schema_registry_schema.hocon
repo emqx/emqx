@@ -6,6 +6,12 @@ avro_type.desc:
 avro_type.label:
 """阿帕奇-阿夫罗"""
 
+protobuf_type.desc:
+"""[协议缓冲器](https://protobuf.dev/) 序列化格式。"""
+
+protobuf_type.label:
+"""协议缓冲器"""
+
 schema_description.desc:
 """对该模式的描述。"""
 

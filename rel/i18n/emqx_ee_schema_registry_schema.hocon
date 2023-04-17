@@ -6,6 +6,12 @@ avro_type.desc:
 avro_type.label:
 """Apache Avro"""
 
+protobuf_type.desc:
+"""[Protocol Buffers](https://protobuf.dev/) serialization format."""
+
+protobuf_type.label:
+"""Protocol Buffers"""
+
 schema_description.desc:
 """A description for this schema."""
 
