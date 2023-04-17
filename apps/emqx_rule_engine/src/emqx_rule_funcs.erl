@@ -227,6 +227,7 @@
     now_timestamp/1,
     format_date/3,
     format_date/4,
+    date_to_unix_ts/3,
     date_to_unix_ts/4
 ]).
 
@@ -1084,6 +1085,9 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
             TimeEpoch
         )
     ).
+
+date_to_unix_ts(TimeUnit, FormatString, InputString) ->
+    date_to_unix_ts(TimeUnit, "Z", FormatString, InputString).
 
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     emqx_rule_date:parse_date(
