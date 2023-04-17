@@ -47,7 +47,7 @@
     listener_chain/3,
     make_deprecated_paths/1,
     make_compatible_schema/2,
-    find_gateway_definations/0
+    find_gateway_definitions/0
 ]).
 
 -export([stringfy/1]).
@@ -564,8 +564,8 @@ make_compatible_schema2(Path, SchemaFun) ->
         Schema
     ).
 
--spec find_gateway_definations() -> list(gateway_def()).
-find_gateway_definations() ->
+-spec find_gateway_definitions() -> list(gateway_def()).
+find_gateway_definitions() ->
     lists:flatten(
         lists:map(
             fun(App) ->
