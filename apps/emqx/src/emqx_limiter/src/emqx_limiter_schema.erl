@@ -31,20 +31,20 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
-    infinity_value/0
+    calc_capacity/1
 ]).
 
 -define(KILOBYTE, 1024).
 -define(BUCKET_KEYS, [
-    {bytes_in, bucket_infinity},
-    {message_in, bucket_infinity},
+    {bytes, bucket_infinity},
+    {messages, bucket_infinity},
     {connection, bucket_limit},
     {message_routing, bucket_infinity}
 ]).
 
 -type limiter_type() ::
-    bytes_in
-    | message_in
+    bytes
+    | messages
     | connection
     | message_routing
     %% internal limiter for unclassified resources
@@ -90,14 +90,17 @@
 
 namespace() -> limiter.
 
-roots() -> [limiter].
+roots() ->
+    [{limiter, hoconsc:mk(hoconsc:ref(?MODULE, limiter), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields(limiter) ->
     [
         {Type,
             ?HOCON(?R_REF(node_opts), #{
                 desc => ?DESC(Type),
-                default => #{}
+                default => #{},
+                importance => ?IMPORTANCE_HIDDEN,
+                aliases => alias_of_type(Type)
             })}
      || Type <- types()
     ] ++
@@ -107,6 +110,7 @@ fields(limiter) ->
                     ?R_REF(client_fields),
                     #{
                         desc => ?DESC(client),
+                        importance => ?IMPORTANCE_HIDDEN,
                         default => maps:from_list([
                             {erlang:atom_to_binary(Type), #{}}
                          || Type <- types()
@@ -124,30 +128,50 @@ fields(node_opts) ->
             })}
     ];
 fields(client_fields) ->
-    [
-        {Type,
-            ?HOCON(?R_REF(client_opts), #{
-                desc => ?DESC(Type),
-                default => #{}
-            })}
-     || Type <- types()
-    ];
+    client_fields(types(), #{default => #{}});
 fields(bucket_infinity) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
-        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => <<"infinity">>})},
-        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})}
+        {burst,
+            ?HOCON(capacity(), #{
+                desc => ?DESC(capacity),
+                default => <<"0">>,
+                importance => ?IMPORTANCE_HIDDEN,
+                aliases => [capacity]
+            })},
+        {initial,
+            ?HOCON(initial(), #{
+                default => <<"0">>,
+                desc => ?DESC(initial),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields(bucket_limit) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"1000/s">>})},
-        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => <<"1000">>})},
-        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})}
+        {burst,
+            ?HOCON(capacity(), #{
+                desc => ?DESC(burst),
+                default => <<"0">>,
+                importance => ?IMPORTANCE_HIDDEN,
+                aliases => [capacity]
+            })},
+        {initial,
+            ?HOCON(initial(), #{
+                default => <<"0">>,
+                desc => ?DESC(initial),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields(client_opts) ->
     [
         {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
-        {initial, ?HOCON(initial(), #{default => <<"0">>, desc => ?DESC(initial)})},
+        {initial,
+            ?HOCON(initial(), #{
+                default => <<"0">>,
+                desc => ?DESC(initial),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
         %% low_watermark add for emqx_channel and emqx_session
         %% both modules consume first and then check
         %% so we need to use this value to prevent excessive consumption
@@ -157,20 +181,24 @@ fields(client_opts) ->
                 initial(),
                 #{
                     desc => ?DESC(low_watermark),
-                    default => <<"0">>
+                    default => <<"0">>,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {capacity,
+        {burst,
             ?HOCON(capacity(), #{
-                desc => ?DESC(client_bucket_capacity),
-                default => <<"infinity">>
+                desc => ?DESC(burst),
+                default => <<"0">>,
+                importance => ?IMPORTANCE_HIDDEN,
+                aliases => [capacity]
             })},
         {divisible,
             ?HOCON(
                 boolean(),
                 #{
                     desc => ?DESC(divisible),
-                    default => false
+                    default => false,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {max_retry_time,
@@ -178,7 +206,8 @@ fields(client_opts) ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(max_retry_time),
-                    default => <<"10s">>
+                    default => <<"10s">>,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {failure_strategy,
@@ -186,16 +215,18 @@ fields(client_opts) ->
                 failure_strategy(),
                 #{
                     desc => ?DESC(failure_strategy),
-                    default => force
+                    default => force,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
 fields(listener_fields) ->
-    bucket_fields(?BUCKET_KEYS, listener_client_fields);
+    composite_bucket_fields(?BUCKET_KEYS, listener_client_fields);
 fields(listener_client_fields) ->
-    client_fields(?BUCKET_KEYS);
+    {Types, _} = lists:unzip(?BUCKET_KEYS),
+    client_fields(Types, #{required => false});
 fields(Type) ->
-    bucket_field(Type).
+    simple_bucket_field(Type).
 
 desc(limiter) ->
     "Settings for the rate limiter.";
@@ -230,19 +261,14 @@ get_bucket_cfg_path(Type, BucketName) ->
     [limiter, Type, bucket, BucketName].
 
 types() ->
-    [bytes_in, message_in, connection, message_routing, internal].
+    [bytes, messages, connection, message_routing, internal].
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-%% `infinity` to `infinity_value` rules:
-%% 1. all infinity capacity will change to infinity_value
-%% 2. if the rate of global and bucket  both are `infinity`,
-%%    use `infinity_value` as bucket rate. see `emqx_limiter_server:get_counter_rate/2`
-infinity_value() ->
-    %% 1 TB
-    1099511627776.
+calc_capacity(#{rate := infinity}) ->
+    infinity;
+calc_capacity(#{burst := infinity}) ->
+    infinity;
+calc_capacity(#{rate := Rate, burst := Burst}) ->
+    erlang:floor(1000 * Rate / default_period()) + Burst.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -335,7 +361,7 @@ to_quota(Str, Regex) ->
             {match, [Quota, ""]} ->
                 {ok, erlang:list_to_integer(Quota)};
             {match, ""} ->
-                {ok, infinity_value()};
+                {ok, infinity};
             _ ->
                 {error, Str}
         end
@@ -350,7 +376,8 @@ apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
 apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
-bucket_field(Type) when is_atom(Type) ->
+%% A bucket with only one type
+simple_bucket_field(Type) when is_atom(Type) ->
     fields(bucket_infinity) ++
         [
             {client,
@@ -358,16 +385,22 @@ bucket_field(Type) when is_atom(Type) ->
                     ?R_REF(?MODULE, client_opts),
                     #{
                         desc => ?DESC(client),
-                        required => false
+                        required => false,
+                        importance => importance_of_type(Type),
+                        aliases => alias_of_type(Type)
                     }
                 )}
         ].
-bucket_fields(Types, ClientRef) ->
+
+%% A bucket with multi types
+composite_bucket_fields(Types, ClientRef) ->
     [
         {Type,
             ?HOCON(?R_REF(?MODULE, Opts), #{
                 desc => ?DESC(?MODULE, Type),
-                required => false
+                required => false,
+                importance => importance_of_type(Type),
+                aliases => alias_of_type(Type)
             })}
      || {Type, Opts} <- Types
     ] ++
@@ -382,12 +415,29 @@ bucket_fields(Types, ClientRef) ->
                 )}
         ].
 
-client_fields(Types) ->
+client_fields(Types, Meta) ->
     [
         {Type,
-            ?HOCON(?R_REF(client_opts), #{
+            ?HOCON(?R_REF(client_opts), Meta#{
                 desc => ?DESC(Type),
-                required => false
+                importance => importance_of_type(Type),
+                aliases => alias_of_type(Type)
             })}
-     || {Type, _} <- Types
+     || Type <- Types
     ].
+
+importance_of_type(interval) ->
+    ?IMPORTANCE_HIDDEN;
+importance_of_type(message_routing) ->
+    ?IMPORTANCE_HIDDEN;
+importance_of_type(connection) ->
+    ?IMPORTANCE_HIDDEN;
+importance_of_type(_) ->
+    ?DEFAULT_IMPORTANCE.
+
+alias_of_type(messages) ->
+    [message_in];
+alias_of_type(bytes) ->
+    [bytes_in];
+alias_of_type(_) ->
+    [].

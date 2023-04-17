@@ -33,28 +33,6 @@ emqx_limiter_schema {
     }
   }
 
-  client_bucket_capacity {
-    desc {
-      en: """The capacity of per user."""
-      zh: """每个使用者的令牌容量上限"""
-    }
-    label: {
-      en: """Capacity"""
-      zh: """容量"""
-    }
-  }
-
-  capacity {
-    desc {
-      en: """The capacity of this token bucket."""
-      zh: """该令牌桶的容量"""
-    }
-    label: {
-      en: """Capacity"""
-      zh: """容量"""
-    }
-  }
-
   low_watermark {
     desc {
       en: """If the remaining tokens are lower than this value,
@@ -152,30 +130,30 @@ Once the limit is reached, new connections will be refused"""
     }
   }
 
-  message_in {
+  messages {
     desc {
-      en: """The message in limiter.
+      en: """The `messages` limiter.
 This is used to limit the inbound message numbers for this EMQX node
 Once the limit is reached, the restricted client will be slow down even be hung for a while."""
       zh: """流入速率控制器。
 这个用来控制当前节点上的消息流入速率，当达到最大速率后，会话将会被限速甚至被强制挂起一小段时间"""
     }
     label: {
-      en: """Message In"""
+      en: """Messages"""
       zh: """消息流入速率"""
     }
   }
 
-  bytes_in {
+  bytes {
     desc {
-      en: """The bytes_in limiter.
+      en: """The `bytes` limiter.
 This is used to limit the inbound bytes rate for this EMQX node.
 Once the limit is reached, the restricted client will be slow down even be hung for a while."""
       zh: """流入字节率控制器。
 这个是用来控制当前节点上的数据流入的字节率，每条消息将会消耗和其二进制大小等量的令牌，当达到最大速率后，会话将会被限速甚至被强制挂起一小段时间"""
     }
     label: {
-      en: """Bytes In"""
+      en: """Bytes"""
       zh: """流入字节率"""
     }
   }

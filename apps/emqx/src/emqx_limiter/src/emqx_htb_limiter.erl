@@ -139,7 +139,8 @@ make_token_bucket_limiter(Cfg, Bucket) ->
     Cfg#{
         tokens => emqx_limiter_server:get_initial_val(Cfg),
         lasttime => ?NOW,
-        bucket => Bucket
+        bucket => Bucket,
+        capacity => emqx_limiter_schema:calc_capacity(Cfg)
     }.
 
 %%@doc create a limiter server's reference
