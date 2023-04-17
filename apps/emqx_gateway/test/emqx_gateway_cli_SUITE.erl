@@ -117,11 +117,11 @@ t_gateway_registry_usage(_) ->
 t_gateway_registry_list(_) ->
     emqx_gateway_cli:'gateway-registry'(["list"]),
     ?assertEqual(
-        "Registered Name: coap, Callback Module: emqx_coap\n"
-        "Registered Name: exproto, Callback Module: emqx_exproto\n"
-        "Registered Name: lwm2m, Callback Module: emqx_lwm2m\n"
-        "Registered Name: mqttsn, Callback Module: emqx_mqttsn\n"
-        "Registered Name: stomp, Callback Module: emqx_stomp\n",
+        "Registered Name: coap, Callback Module: emqx_gateway_coap\n"
+        "Registered Name: exproto, Callback Module: emqx_gateway_exproto\n"
+        "Registered Name: lwm2m, Callback Module: emqx_gateway_lwm2m\n"
+        "Registered Name: mqttsn, Callback Module: emqx_gateway_mqttsn\n"
+        "Registered Name: stomp, Callback Module: emqx_gateway_stomp\n",
         acc_print()
     ).
 

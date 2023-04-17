@@ -1,19 +1,19 @@
 {application, emqx_ee_connector, [
     {description, "EMQX Enterprise connectors"},
-    {vsn, "0.1.9"},
+    {vsn, "0.1.10"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
+        ecpool,
         hstreamdb_erl,
         influxdb,
         tdengine,
-        wolff,
-        brod,
         clickhouse,
         erlcloud,
         rocketmq,
-        ecql
+        ecql,
+        odbc
     ]},
     {env, []},
     {modules, []},

@@ -78,6 +78,9 @@ is_cover_enabled() ->
 is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
+is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app(_) -> true.
+
 is_jq_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_JQ") orelse
         is_win32()) orelse
@@ -122,8 +125,14 @@ project_app_dirs() ->
     project_app_dirs(get_edition_from_profile_env()).
 
 project_app_dirs(Edition) ->
-    ["apps/*"] ++
-        case is_enterprise(Edition) of
+    IsEnterprise = is_enterprise(Edition),
+    UmbrellaApps = [
+        Path
+     || Path <- filelib:wildcard("apps/*"),
+        is_community_umbrella_app(Path) orelse IsEnterprise
+    ],
+    UmbrellaApps ++
+        case IsEnterprise of
             true -> ["lib-ee/*"];
             false -> []
         end.
@@ -382,6 +391,7 @@ relx_apps(ReleaseType, Edition) ->
             {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
+            {emqx_utils, load},
             emqx_http_lib,
             emqx_resource,
             emqx_connector,
@@ -389,11 +399,11 @@ relx_apps(ReleaseType, Edition) ->
             emqx_authz,
             emqx_auto_subscribe,
             emqx_gateway,
-            emqx_stomp,
-            emqx_mqttsn,
-            emqx_coap,
-            emqx_lwm2m,
-            emqx_exproto,
+            emqx_gateway_stomp,
+            emqx_gateway_mqttsn,
+            emqx_gateway_coap,
+            emqx_gateway_lwm2m,
+            emqx_gateway_exproto,
             emqx_exhook,
             emqx_bridge,
             emqx_rule_engine,
@@ -428,6 +438,7 @@ relx_apps_per_edition(ee) ->
         {emqx_ee_conf, load},
         emqx_ee_connector,
         emqx_ee_bridge,
+        emqx_bridge_kafka,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
@@ -455,7 +466,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
         %% for relup
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
-        {copy, "apps/emqx_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
+        {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
         {template, "bin/emqx.cmd", "bin/emqx.cmd"},
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},

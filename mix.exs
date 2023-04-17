@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.7", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.38.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.38.1", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -107,6 +107,8 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp umbrella_apps() do
+    enterprise_apps = enterprise_umbrella_apps()
+
     "apps/*"
     |> Path.wildcard()
     |> Enum.map(fn path ->
@@ -117,9 +119,20 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.reject(fn dep_spec ->
+      dep_spec
+      |> elem(0)
+      |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    umbrella_apps =
+      Enum.map(enterprise_umbrella_apps(), fn app_name ->
+        path = "apps/#{app_name}"
+        {app_name, path: path, manager: :rebar3, override: true}
+      end)
+
     "lib-ee/*"
     |> Path.wildcard()
     |> Enum.filter(&File.dir?/1)
@@ -131,10 +144,18 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
     []
+  end
+
+  # need to remove those when listing `/apps/`...
+  defp enterprise_umbrella_apps() do
+    MapSet.new([
+      :emqx_bridge_kafka
+    ])
   end
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
@@ -146,7 +167,8 @@ defmodule EMQXUmbrella.MixProject do
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
-      {:supervisor3, "1.1.11", override: true}
+      {:crc32cer, "0.1.8", override: true},
+      {:supervisor3, "1.1.12", override: true}
     ]
   end
 
@@ -223,11 +245,11 @@ defmodule EMQXUmbrella.MixProject do
           applications: applications(edition_type),
           skip_mode_validation_for: [
             :emqx_gateway,
-            :emqx_stomp,
-            :emqx_mqttsn,
-            :emqx_coap,
-            :emqx_lwm2m,
-            :emqx_exproto,
+            :emqx_gateway_stomp,
+            :emqx_gateway_mqttsn,
+            :emqx_gateway_coap,
+            :emqx_gateway_lwm2m,
+            :emqx_gateway_exproto,
             :emqx_dashboard,
             :emqx_resource,
             :emqx_connector,
@@ -281,6 +303,7 @@ defmodule EMQXUmbrella.MixProject do
         tools: :load,
         covertool: :load,
         system_monitor: :load,
+        emqx_utils: :load,
         emqx_http_lib: :permanent,
         emqx_resource: :permanent,
         emqx_connector: :permanent,
@@ -288,11 +311,11 @@ defmodule EMQXUmbrella.MixProject do
         emqx_authz: :permanent,
         emqx_auto_subscribe: :permanent,
         emqx_gateway: :permanent,
-        emqx_stomp: :permanent,
-        emqx_mqttsn: :permanent,
-        emqx_coap: :permanent,
-        emqx_lwm2m: :permanent,
-        emqx_exproto: :permanent,
+        emqx_gateway_stomp: :permanent,
+        emqx_gateway_mqttsn: :permanent,
+        emqx_gateway_coap: :permanent,
+        emqx_gateway_lwm2m: :permanent,
+        emqx_gateway_exproto: :permanent,
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
         emqx_rule_engine: :permanent,
@@ -320,6 +343,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_conf: :load,
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
+          emqx_bridge_kafka: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
         else: []

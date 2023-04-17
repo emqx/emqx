@@ -79,7 +79,7 @@ health_check_ecpool_workers(PoolName, CheckFunc, Timeout) ->
                     false
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         [_ | _] = Status ->
             lists:all(fun(St) -> St =:= true end, Status);
         [] ->

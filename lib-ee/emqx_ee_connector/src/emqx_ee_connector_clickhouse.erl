@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_connector_clickhouse).
@@ -151,7 +139,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_clickhouse_connector",
         connector => InstanceID,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
     PoolName = emqx_plugin_libs_pool:pool_name(InstanceID),
     Options = [
@@ -193,7 +181,7 @@ log_start_error(Config, Reason, Stacktrace) ->
         #{
             msg => "clickhouse_connector_start_failed",
             error_reason => Reason,
-            config => emqx_misc:redact(Config)
+            config => emqx_utils:redact(Config)
         },
     ?SLOG(info, maps:merge(LogMessage, StacktraceMap)),
     ?tp(
@@ -270,8 +258,15 @@ connect(Options) ->
         {pool_size, PoolSize}
     ],
     case clickhouse:start_link(FixedOptions) of
-        {ok, _Conn} = Ok ->
-            Ok;
+        {ok, Connection} ->
+            %% Check if we can connect and send a query
+            case clickhouse:detailed_status(Connection) of
+                ok ->
+                    {ok, Connection};
+                Error ->
+                    ok = clickhouse:stop(Connection),
+                    Error
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -323,7 +318,7 @@ do_get_status(PoolName, Timeout) ->
                     Error
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->

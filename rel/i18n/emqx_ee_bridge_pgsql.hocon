@@ -39,7 +39,7 @@ will be forwarded."""
 
     desc_config {
         desc {
-            en: """Configuration for an PostgreSQL bridge."""
+            en: """Configuration for a PostgreSQL bridge."""
             zh: """PostgreSQL 桥接配置"""
         }
         label: {

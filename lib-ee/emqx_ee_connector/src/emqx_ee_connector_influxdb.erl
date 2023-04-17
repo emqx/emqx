@@ -216,8 +216,8 @@ start_client(InstId, Config) ->
     ?SLOG(info, #{
         msg => "starting influxdb connector",
         connector => InstId,
-        config => emqx_misc:redact(Config),
-        client_config => emqx_misc:redact(ClientConfig)
+        config => emqx_utils:redact(Config),
+        client_config => emqx_utils:redact(ClientConfig)
     }),
     try
         do_start_client(InstId, ClientConfig, Config)
@@ -353,7 +353,7 @@ password(_) ->
     [].
 
 redact_auth(Term) ->
-    emqx_misc:redact(Term, fun is_auth_key/1).
+    emqx_utils:redact(Term, fun is_auth_key/1).
 
 is_auth_key(Key) when is_binary(Key) ->
     string:equal("authorization", Key, true);

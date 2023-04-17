@@ -115,7 +115,7 @@ clients(get, #{
                         fun ?MODULE:format_channel_info/2
                     );
                 Node0 ->
-                    case emqx_misc:safe_to_existing_atom(Node0) of
+                    case emqx_utils:safe_to_existing_atom(Node0) of
                         {ok, Node1} ->
                             QStringWithoutNode = maps:without([<<"node">>], QString),
                             emqx_mgmt_api:node_query(

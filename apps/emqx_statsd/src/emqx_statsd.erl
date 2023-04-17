@@ -144,7 +144,7 @@ flush_interval(_FlushInterval, SampleInterval) ->
     SampleInterval.
 
 ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
-    State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
+    State#{timer => emqx_utils:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
 
 check_multicall_result({Results, []}) ->
     case

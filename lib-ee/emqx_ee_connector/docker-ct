@@ -2,3 +2,4 @@ toxiproxy
 influxdb
 clickhouse
 cassandra
+sqlserver

@@ -247,13 +247,13 @@ nodes(get, _Params) ->
     list_nodes(#{}).
 
 node(get, #{bindings := #{node := NodeName}}) ->
-    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun get_node/1)).
+    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun get_node/1)).
 
 node_metrics(get, #{bindings := #{node := NodeName}}) ->
-    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_metrics/1)).
+    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_metrics/1)).
 
 node_stats(get, #{bindings := #{node := NodeName}}) ->
-    emqx_api_lib:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_stats/1)).
+    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_stats/1)).
 
 %%--------------------------------------------------------------------
 %% api apply

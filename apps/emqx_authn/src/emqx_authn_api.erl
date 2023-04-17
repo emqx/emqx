@@ -872,8 +872,8 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
                     case emqx_resource:get_instance(ResourceId) of
                         {error, not_found} ->
                             {error, {NodeId, not_found_resource}};
-                        {ok, _, #{status := Status, metrics := ResourceMetrics}} ->
-                            {ok, {NodeId, Status, Metrics, ResourceMetrics}}
+                        {ok, _, #{status := Status}} ->
+                            {ok, {NodeId, Status, Metrics, emqx_resource:get_metrics(ResourceId)}}
                     end
             end;
         {error, Reason} ->
@@ -929,7 +929,7 @@ aggregate_metrics([]) ->
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     ErrorLogger = fun(Reason) -> ?SLOG(info, #{msg => "bad_metrics_value", error => Reason}) end,
     Fun = fun(ElemMap, AccMap) ->
-        emqx_map_lib:best_effort_recursive_sum(AccMap, ElemMap, ErrorLogger)
+        emqx_utils_maps:best_effort_recursive_sum(AccMap, ElemMap, ErrorLogger)
     end,
     lists:foldl(Fun, HeadMetrics, AllMetrics).
 
@@ -1069,7 +1069,7 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
         true ->
             serialize_error({missing_parameter, password});
         false ->
-            UserInfo = emqx_map_lib:safe_atom_key_map(UserInfo0),
+            UserInfo = emqx_utils_maps:safe_atom_key_map(UserInfo0),
             case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};

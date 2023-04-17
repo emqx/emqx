@@ -40,7 +40,7 @@ groups() ->
 
     %% due to the poorly implemented driver or other reasons
     %% if we mix these cases with others, this suite will become flaky.
-    Flaky = [t_get_status, t_write_failure, t_write_timeout],
+    Flaky = [t_get_status, t_write_failure],
     TCs = TCs0 -- Flaky,
 
     [
@@ -193,7 +193,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(dynamo_bridge_type, Config),
     Name = ?config(dynamo_name, Config),
     DynamoConfig0 = ?config(dynamo_config, Config),
-    DynamoConfig = emqx_map_lib:deep_merge(DynamoConfig0, Overrides),
+    DynamoConfig = emqx_utils_maps:deep_merge(DynamoConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, DynamoConfig).
 
 delete_all_bridges() ->
@@ -208,7 +208,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -272,7 +272,7 @@ t_setup_via_config_and_publish(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -309,7 +309,7 @@ t_setup_via_http_api_and_publish(Config) ->
         {ok, _},
         create_bridge_http(PgsqlConfig)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -375,29 +375,10 @@ t_write_failure(Config) ->
             #{?snk_kind := resource_connected_enter},
             20_000
         ),
-    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
+    SentData = #{id => emqx_utils:gen_id(), payload => ?PAYLOAD},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
             {error, {resource_error, #{reason := timeout}}}, send_message(Config, SentData)
-        )
-    end),
-    ok.
-
-t_write_timeout(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    {{ok, _}, {ok, _}} =
-        ?wait_async_action(
-            create_bridge(Config),
-            #{?snk_kind := resource_connected_enter},
-            20_000
-        ),
-    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
-    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, #{reason := timeout}}},
-            query_resource(Config, {send_message, SentData})
         )
     end),
     ok.

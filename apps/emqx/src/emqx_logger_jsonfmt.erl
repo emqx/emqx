@@ -62,11 +62,11 @@
 %% The JSON object is pretty-printed.
 %% NOTE: do not use this function for logging.
 best_effort_json(Input) ->
-    best_effort_json(Input, [space, {indent, 4}]).
+    best_effort_json(Input, [pretty, force_utf8]).
 best_effort_json(Input, Opts) ->
     Config = #{depth => unlimited, single_line => true},
     JsonReady = best_effort_json_obj(Input, Config),
-    jsx:encode(JsonReady, Opts).
+    emqx_utils_json:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map(Config0) ->
@@ -92,7 +92,7 @@ format(Msg, Meta, Config) ->
                 }
         end,
     Data = maps:without([report_cb], Data0),
-    jiffy:encode(json_obj(Data, Config)).
+    emqx_utils_json:encode(json_obj(Data, Config)).
 
 maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
@@ -378,15 +378,15 @@ p_config() ->
 
 best_effort_json_test() ->
     ?assertEqual(
-        <<"{}">>,
+        <<"{\n  \n}">>,
         emqx_logger_jsonfmt:best_effort_json([])
     ),
     ?assertEqual(
-        <<"{\n    \"key\": []\n}">>,
+        <<"{\n  \"key\" : [\n    \n  ]\n}">>,
         emqx_logger_jsonfmt:best_effort_json(#{key => []})
     ),
     ?assertEqual(
-        <<"[\n    {\n        \"key\": []\n    }\n]">>,
+        <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
         emqx_logger_jsonfmt:best_effort_json([#{key => []}])
     ),
     ok.

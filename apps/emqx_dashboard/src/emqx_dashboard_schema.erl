@@ -42,6 +42,7 @@ fields("dashboard") ->
                 #{
                     default => <<"10s">>,
                     desc => ?DESC(sample_interval),
+                    importance => ?IMPORTANCE_HIDDEN,
                     validator => fun validate_sample_interval/1
                 }
             )},
@@ -61,6 +62,7 @@ fields("dashboard") ->
                 #{
                     desc => ?DESC(bootstrap_users_file),
                     required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => <<>>
                     %% deprecated => {since, "5.1.0"}
                 }
@@ -95,12 +97,14 @@ fields("https") ->
     [
         enable(false),
         bind(18084)
-        | common_listener_fields() ++
-            exclude_fields(
-                ["fail_if_no_peer_cert"],
-                emqx_schema:server_ssl_opts_schema(#{}, true)
-            )
+        | common_listener_fields() ++ server_ssl_opts()
     ].
+
+server_ssl_opts() ->
+    Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
+    Opts1 = exclude_fields(["fail_if_no_peer_cert"], Opts0),
+    {value, {_, Meta}, Opts2} = lists:keytake("password", 1, Opts1),
+    [{"password", Meta#{importance => ?IMPORTANCE_HIDDEN}} | Opts2].
 
 exclude_fields([], Fields) ->
     Fields;
@@ -210,6 +214,7 @@ default_username(default) -> <<"admin">>;
 default_username(required) -> true;
 default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
+default_username(importance) -> ?IMPORTANCE_HIDDEN;
 default_username(_) -> undefined.
 
 default_password(type) -> binary();
@@ -219,6 +224,7 @@ default_password('readOnly') -> true;
 default_password(sensitive) -> true;
 default_password(converter) -> fun emqx_schema:password_converter/2;
 default_password(desc) -> ?DESC(default_password);
+default_password(importance) -> ?IMPORTANCE_HIDDEN;
 default_password(_) -> undefined.
 
 cors(type) -> boolean();
@@ -231,6 +237,7 @@ i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
 i18n_lang(desc) -> ?DESC(i18n_lang);
+i18n_lang(importance) -> ?IMPORTANCE_HIDDEN;
 i18n_lang(_) -> undefined.
 
 validate_sample_interval(Second) ->

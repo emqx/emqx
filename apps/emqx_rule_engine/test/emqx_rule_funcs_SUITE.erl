@@ -686,7 +686,7 @@ t_jq(_) ->
                 %% Got timeout as expected
                 got_timeout
         end,
-    ConfigRootKey = emqx_rule_engine_schema:namespace(),
+    _ConfigRootKey = emqx_rule_engine_schema:namespace(),
     ?assertThrow(
         {jq_exception, {timeout, _}},
         apply_func(jq, [TOProgram, <<"-2">>])

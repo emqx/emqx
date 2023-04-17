@@ -512,7 +512,7 @@ t_send_after_enable(_) ->
         ),
         receive
             {request, post, _URL, _Headers, Body} ->
-                {ok, Decoded} = emqx_json:safe_decode(Body, [return_maps]),
+                {ok, Decoded} = emqx_utils_json:safe_decode(Body, [return_maps]),
                 ?assertMatch(
                     #{
                         <<"uuid">> := _,

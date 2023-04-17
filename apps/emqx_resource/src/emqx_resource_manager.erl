@@ -37,7 +37,6 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
-    lookup_cached/2,
     get_metrics/1,
     reset_metrics/1
 ]).
@@ -231,25 +230,14 @@ set_resource_status_connecting(ResId) ->
 -spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup(ResId) ->
     case safe_call(ResId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> lookup_cached(ResId, [metrics]);
+        {error, timeout} -> lookup_cached(ResId);
         Result -> Result
     end.
 
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    lookup_cached(ResId, []).
-
-%% @doc Lookup the group and data of a resource from the cache
--spec lookup_cached(resource_id(), [Option]) ->
-    {ok, resource_group(), resource_data()} | {error, not_found}
-when
-    Option :: metrics.
-lookup_cached(ResId, Options) ->
-    NeedMetrics = lists:member(metrics, Options),
     case read_cache(ResId) of
-        {Group, Data} when NeedMetrics ->
-            {ok, Group, data_record_to_external_map_with_metrics(Data)};
         {Group, Data} ->
             {ok, Group, data_record_to_external_map(Data)};
         not_found ->
@@ -270,7 +258,7 @@ reset_metrics(ResId) ->
 list_all() ->
     try
         [
-            data_record_to_external_map_with_metrics(Data)
+            data_record_to_external_map(Data)
          || {_Id, _Group, Data} <- ets:tab2list(?ETS_TABLE)
         ]
     catch
@@ -366,7 +354,7 @@ handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
 % Called when the state-data of the resource is being looked up.
 handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
-    Reply = {ok, Group, data_record_to_external_map_with_metrics(Data)},
+    Reply = {ok, Group, data_record_to_external_map(Data)},
     {keep_state_and_data, [{reply, From, Reply}]};
 % Called when doing a manually health check.
 handle_event({call, From}, health_check, stopped, _Data) ->
@@ -551,7 +539,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     Data#data{status = stopped}.
 
 make_test_id() ->
-    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    RandId = iolist_to_binary(emqx_utils:gen_id(16)),
     <<?TEST_ID_PREFIX, RandId/binary>>.
 
 handle_manually_health_check(From, Data) ->
@@ -625,7 +613,7 @@ maybe_alarm(_Status, ResId, Error) ->
     HrError =
         case Error of
             undefined -> <<"Unknown reason">>;
-            _Else -> emqx_misc:readable_error_msg(Error)
+            _Else -> emqx_utils:readable_error_msg(Error)
         end,
     emqx_alarm:activate(
         ResId,
@@ -680,11 +668,6 @@ data_record_to_external_map(Data) ->
         status => Data#data.status,
         state => Data#data.state
     }.
-
--spec data_record_to_external_map_with_metrics(data()) -> resource_data().
-data_record_to_external_map_with_metrics(Data) ->
-    DataMap = data_record_to_external_map(Data),
-    DataMap#{metrics => get_metrics(Data#data.id)}.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
 wait_for_ready(ResId, WaitTime) ->

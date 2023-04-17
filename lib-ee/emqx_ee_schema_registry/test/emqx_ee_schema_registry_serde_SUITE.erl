@@ -59,7 +59,7 @@ schema_params(avro) ->
             #{name => <<"s">>, type => <<"string">>}
         ]
     },
-    SourceBin = emqx_json:encode(Source),
+    SourceBin = emqx_utils_json:encode(Source),
     #{type => avro, source => SourceBin}.
 
 assert_roundtrip(SerdeName, Original) ->

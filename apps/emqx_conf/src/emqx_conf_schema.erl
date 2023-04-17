@@ -98,7 +98,10 @@ roots() ->
             {"rpc",
                 sc(
                     ?R_REF("rpc"),
-                    #{translate_to => ["gen_rpc"]}
+                    #{
+                        translate_to => ["gen_rpc"],
+                        importance => ?IMPORTANCE_HIDDEN
+                    }
                 )}
         ] ++
         emqx_schema:roots(medium) ++
@@ -454,7 +457,7 @@ fields("node") ->
                     mapping => "vm_args.+e",
                     desc => ?DESC(max_ets_tables),
                     default => 262144,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -500,7 +503,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
                     default => crash_dump_file_default(),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -511,7 +514,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS",
                     default => <<"30s">>,
                     desc => ?DESC(node_crash_dump_seconds),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -522,7 +525,7 @@ fields("node") ->
                     mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES",
                     default => <<"100MB">>,
                     desc => ?DESC(node_crash_dump_bytes),
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -533,7 +536,7 @@ fields("node") ->
                     mapping => "vm_args.-kernel net_ticktime",
                     default => <<"2m">>,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_dist_net_ticktime)
                 }
             )},
@@ -544,7 +547,7 @@ fields("node") ->
                     mapping => "emqx_machine.backtrace_depth",
                     default => 23,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_backtrace_depth)
                 }
             )},
@@ -555,7 +558,7 @@ fields("node") ->
                     mapping => "emqx_machine.applications",
                     default => [],
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_applications)
                 }
             )},
@@ -565,7 +568,7 @@ fields("node") ->
                 #{
                     desc => ?DESC(node_etc_dir),
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     deprecated => {since, "5.0.8"}
                 }
             )},
@@ -574,7 +577,7 @@ fields("node") ->
                 ?R_REF("cluster_call"),
                 #{
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"db_backend",
@@ -588,7 +591,7 @@ fields("node") ->
                     desc => ?DESC(db_backend)
                 }
             )},
-        {"db_role",
+        {"role",
             sc(
                 hoconsc:enum([core, replicant]),
                 #{
@@ -596,6 +599,7 @@ fields("node") ->
                     default => core,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIGH,
+                    aliases => [db_role],
                     desc => ?DESC(db_role)
                 }
             )},
@@ -617,7 +621,7 @@ fields("node") ->
                     mapping => "mria.tlog_push_mode",
                     default => async,
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_tlog_push_mode)
                 }
             )},
@@ -1025,7 +1029,8 @@ translation("emqx") ->
     [
         {"config_files", fun tr_config_files/1},
         {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1},
-        {"local_override_conf_file", fun tr_local_override_conf_file/1}
+        {"local_override_conf_file", fun tr_local_override_conf_file/1},
+        {"cluster_hocon_file", fun tr_cluster_hocon_file/1}
     ];
 translation("gen_rpc") ->
     [{"default_client_driver", fun tr_default_config_driver/1}];
@@ -1073,12 +1078,15 @@ tr_config_files(_Conf) ->
     end.
 
 tr_cluster_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "cluster-override.conf").
+    tr_conf_file(Conf, "cluster-override.conf").
 
 tr_local_override_conf_file(Conf) ->
-    tr_override_conf_file(Conf, "local-override.conf").
+    tr_conf_file(Conf, "local-override.conf").
 
-tr_override_conf_file(Conf, Filename) ->
+tr_cluster_hocon_file(Conf) ->
+    tr_conf_file(Conf, "cluster.hocon").
+
+tr_conf_file(Conf, Filename) ->
     DataDir = conf_get("node.data_dir", Conf),
     %% assert, this config is not nullable
     [_ | _] = DataDir,
@@ -1278,7 +1286,10 @@ emqx_schema_high_prio_roots() ->
         {"authorization",
             sc(
                 ?R_REF("authorization"),
-                #{desc => ?DESC(authorization)}
+                #{
+                    desc => ?DESC(authorization),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
 

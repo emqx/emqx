@@ -95,5 +95,11 @@
     "listen": "0.0.0.0:9142",
     "upstream": "cassandra:9142",
     "enabled": true
+  },
+  {
+    "name": "sqlserver",
+    "listen": "0.0.0.0:1433",
+    "upstream": "sqlserver:1433",
+    "enabled": true
   }
 ]

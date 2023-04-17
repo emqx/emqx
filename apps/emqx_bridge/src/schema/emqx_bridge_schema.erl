@@ -137,7 +137,7 @@ namespace() -> "bridge".
 tags() ->
     [<<"Bridge">>].
 
-roots() -> [bridges].
+roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields(bridges) ->
     [
@@ -251,7 +251,7 @@ do_convert_webhook_config(
     case {MReqTRoot, MReqTResource} of
         {{ok, ReqTRoot}, {ok, ReqTResource}} ->
             {_Parsed, ReqTRaw} = max({ReqTRoot, ReqTRootRaw}, {ReqTResource, ReqTResourceRaw}),
-            Conf1 = emqx_map_lib:deep_merge(
+            Conf1 = emqx_utils_maps:deep_merge(
                 Conf0,
                 #{
                     <<"request_timeout">> => ReqTRaw,

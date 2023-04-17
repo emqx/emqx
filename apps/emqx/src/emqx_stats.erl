@@ -201,7 +201,7 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 %%--------------------------------------------------------------------
 
 init(#{tick_ms := TickMs}) ->
-    ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [public, set, {write_concurrency, true}]),
     Stats = lists:append([
         ?CONNECTION_STATS,
         ?CHANNEL_STATS,
@@ -213,7 +213,7 @@ init(#{tick_ms := TickMs}) ->
     {ok, start_timer(#state{updates = [], tick_ms = TickMs}), hibernate}.
 
 start_timer(#state{tick_ms = Ms} = State) ->
-    State#state{timer = emqx_misc:start_timer(Ms, tick)}.
+    State#state{timer = emqx_utils:start_timer(Ms, tick)}.
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -301,7 +301,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->
-    emqx_misc:cancel_timer(TRef).
+    emqx_utils:cancel_timer(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

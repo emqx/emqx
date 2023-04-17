@@ -200,7 +200,7 @@ request(Method) -> request(Method, []).
 request(Method, Body) ->
     case request(Method, uri(["statsd"]), Body) of
         {ok, 200, Res} ->
-            {ok, emqx_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
         {ok, _Status, _} ->
             error
     end.

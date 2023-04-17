@@ -643,10 +643,10 @@ map(Data) ->
     emqx_plugin_libs_rule:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_misc:bin_to_hexstr(Bin, upper).
+    emqx_utils:bin_to_hexstr(Bin, upper).
 
 hexstr2bin(Str) when is_binary(Str) ->
-    emqx_misc:hexstr_to_bin(Str).
+    emqx_utils:hexstr_to_bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -944,7 +944,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_misc:bin_to_hexstr(crypto:hash(Type, Data), lower).
+    emqx_utils:bin_to_hexstr(crypto:hash(Type, Data), lower).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs
@@ -987,10 +987,10 @@ base64_decode(Data) when is_binary(Data) ->
     base64:decode(Data).
 
 json_encode(Data) ->
-    emqx_json:encode(Data).
+    emqx_utils_json:encode(Data).
 
 json_decode(Data) ->
-    emqx_json:decode(Data, [return_maps]).
+    emqx_utils_json:decode(Data, [return_maps]).
 
 term_encode(Term) ->
     erlang:term_to_binary(Term).

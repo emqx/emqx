@@ -33,7 +33,7 @@ end_per_suite(_) ->
 t_stats_api(_) ->
     S = emqx_mgmt_api_test_util:api_path(["stats?aggregate=false"]),
     {ok, S1} = emqx_mgmt_api_test_util:request_api(get, S),
-    [Stats1] = emqx_json:decode(S1, [return_maps]),
+    [Stats1] = emqx_utils_json:decode(S1, [return_maps]),
     SystemStats1 = emqx_mgmt:get_stats(),
     Fun1 =
         fun(Key) ->
@@ -43,7 +43,7 @@ t_stats_api(_) ->
     StatsPath = emqx_mgmt_api_test_util:api_path(["stats?aggregate=true"]),
     SystemStats = emqx_mgmt:get_stats(),
     {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
-    Stats = emqx_json:decode(StatsResponse, [return_maps]),
+    Stats = emqx_utils_json:decode(StatsResponse, [return_maps]),
     ?assertEqual(erlang:length(maps:keys(SystemStats)), erlang:length(maps:keys(Stats))),
     Fun =
         fun(Key) ->

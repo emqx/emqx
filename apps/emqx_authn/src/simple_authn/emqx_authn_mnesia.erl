@@ -332,7 +332,7 @@ run_fuzzy_filter(
 
 %% Example: data/user-credentials.json
 import_users_from_json(Bin, #{user_group := UserGroup}) ->
-    case emqx_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
         {ok, List} ->
             trans(fun ?MODULE:import/2, [UserGroup, List]);
         {error, Reason} ->

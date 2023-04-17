@@ -314,6 +314,7 @@ stop_apps(Apps) ->
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
+    application:unset_env(emqx, cluster_hocon_file),
     application:unset_env(gen_rpc, port_discovery),
     ok.
 
@@ -462,6 +463,10 @@ force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
     ok = file:write_file(Path, Bin, [append]),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(emqx, Paths) ->
+    %% we need init cluster conf, so we can save the cluster conf to the file
+    application:set_env(emqx, local_override_conf_file, "local_override.conf"),
+    application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
+    application:set_env(emqx, cluster_conf_file, "cluster.hocon"),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->
     ok.
@@ -477,7 +482,7 @@ copy_certs(_, _) ->
 load_config(SchemaModule, Config, Opts) ->
     ConfigBin =
         case is_map(Config) of
-            true -> jsx:encode(Config);
+            true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
@@ -1036,7 +1041,7 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
             off -> #{<<"enabled">> => false};
             on -> #{<<"enabled">> => true}
         end,
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1056,7 +1061,7 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
         <<"toxicity">> => 1.0,
         <<"attributes">> => #{<<"timeout">> => 0}
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1091,7 +1096,7 @@ latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
             <<"jitter">> => 3_000
         }
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},

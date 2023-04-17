@@ -58,7 +58,7 @@ t_clients(_) ->
     %% get /clients
     ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
     {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
-    ClientsResponse = emqx_json:decode(Clients, [return_maps]),
+    ClientsResponse = emqx_utils_json:decode(Clients, [return_maps]),
     ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
     ClientsPage = maps:get(<<"page">>, ClientsMeta),
     ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
@@ -70,7 +70,7 @@ t_clients(_) ->
     %% get /clients/:clientid
     Client1Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1)]),
     {ok, Client1} = emqx_mgmt_api_test_util:request_api(get, Client1Path),
-    Client1Response = emqx_json:decode(Client1, [return_maps]),
+    Client1Response = emqx_utils_json:decode(Client1, [return_maps]),
     ?assertEqual(Username1, maps:get(<<"username">>, Client1Response)),
     ?assertEqual(ClientId1, maps:get(<<"clientid">>, Client1Response)),
     ?assertEqual(120, maps:get(<<"expiry_interval">>, Client1Response)),
@@ -130,7 +130,7 @@ t_clients(_) ->
         "",
         AuthHeader
     ),
-    [SubscriptionsData] = emqx_json:decode(SubscriptionsRes, [return_maps]),
+    [SubscriptionsData] = emqx_utils_json:decode(SubscriptionsRes, [return_maps]),
     ?assertMatch(
         #{
             <<"clientid">> := ClientId1,
@@ -210,7 +210,7 @@ t_query_clients_with_time(_) ->
                     GteParamRfc3339 ++ GteParamStamp
         ],
     DecodedResults = [
-        emqx_json:decode(Response, [return_maps])
+        emqx_utils_json:decode(Response, [return_maps])
      || {ok, Response} <- RequestResults
     ],
     {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
@@ -247,7 +247,7 @@ t_keepalive(_Config) ->
     {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
     {ok, _} = emqtt:connect(C1),
     {ok, NewClient} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
-    #{<<"keepalive">> := 11} = emqx_json:decode(NewClient, [return_maps]),
+    #{<<"keepalive">> := 11} = emqx_utils_json:decode(NewClient, [return_maps]),
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
     ?assertEqual(11, Keepalive),

@@ -68,11 +68,11 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_registered_gateway(_) ->
     [
-        {coap, #{cbkmod := emqx_coap}},
-        {exproto, #{cbkmod := emqx_exproto}},
-        {lwm2m, #{cbkmod := emqx_lwm2m}},
-        {mqttsn, #{cbkmod := emqx_mqttsn}},
-        {stomp, #{cbkmod := emqx_stomp}}
+        {coap, #{cbkmod := emqx_gateway_coap}},
+        {exproto, #{cbkmod := emqx_gateway_exproto}},
+        {lwm2m, #{cbkmod := emqx_gateway_lwm2m}},
+        {mqttsn, #{cbkmod := emqx_gateway_mqttsn}},
+        {stomp, #{cbkmod := emqx_gateway_stomp}}
     ] = emqx_gateway:registered_gateway().
 
 t_load_unload_list_lookup(_) ->
@@ -192,7 +192,7 @@ setup_fake_usage_data(Lwm2mDataDir) ->
         [
             emqx_common_test_helpers:proj_root(),
             "apps",
-            "emqx_lwm2m",
+            "emqx_gateway_lwm2m",
             "lwm2m_xml"
         ]
     ),

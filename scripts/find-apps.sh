@@ -72,6 +72,9 @@ describe_app() {
         runner="docker"
     fi
     case "${app}" in
+        apps/emqx_bridge_kafka)
+            profile='emqx-enterprise'
+            ;;
         apps/*)
             profile='emqx'
             ;;

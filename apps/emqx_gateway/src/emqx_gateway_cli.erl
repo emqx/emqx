@@ -74,7 +74,7 @@ gateway(["load", Name, Conf]) ->
     case
         emqx_gateway_conf:load_gateway(
             bin(Name),
-            emqx_json:decode(Conf, [return_maps])
+            emqx_utils_json:decode(Conf, [return_maps])
         )
     of
         {ok, _} ->

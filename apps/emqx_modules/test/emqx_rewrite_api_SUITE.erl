@@ -75,7 +75,7 @@ t_mqtt_topic_rewrite(_) ->
 
     ?assertEqual(
         Rules,
-        emqx_json:decode(Result, [return_maps])
+        emqx_utils_json:decode(Result, [return_maps])
     ).
 
 t_mqtt_topic_rewrite_limit(_) ->

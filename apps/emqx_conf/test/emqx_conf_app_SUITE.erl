@@ -27,7 +27,7 @@ all() ->
 t_copy_conf_override_on_restarts(_Config) ->
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([core, core, core]),
+    Cluster = cluster([cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})]),
 
     %% 1. Start all nodes
     Nodes = start_cluster(Cluster),
@@ -41,7 +41,7 @@ t_copy_conf_override_on_restarts(_Config) ->
         %% crash and eventually all nodes should be ready.
         start_cluster_async(Cluster),
 
-        timer:sleep(15_000),
+        timer:sleep(15000),
 
         assert_config_load_done(Nodes),
 
@@ -50,23 +50,48 @@ t_copy_conf_override_on_restarts(_Config) ->
         stop_cluster(Nodes)
     end.
 
-t_copy_data_dir(_Config) ->
+t_copy_new_data_dir(_Config) ->
     net_kernel:start(['master1@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([{core, copy1}, {core, copy2}, {core, copy3}]),
+    Cluster = cluster([cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})]),
 
     %% 1. Start all nodes
     [First | Rest] = Nodes = start_cluster(Cluster),
     try
+        File = "/configs/cluster.hocon",
         assert_config_load_done(Nodes),
-        rpc:call(First, ?MODULE, create_data_dir, []),
+        rpc:call(First, ?MODULE, create_data_dir, [File]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
 
-        assert_data_copy_done(Nodes),
+        assert_data_copy_done(Nodes, File),
+        stop_cluster(Nodes),
+        ok
+    after
+        stop_cluster(Nodes)
+    end.
+
+t_copy_deprecated_data_dir(_Config) ->
+    net_kernel:start(['master2@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Cluster = cluster([cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})]),
+
+    %% 1. Start all nodes
+    [First | Rest] = Nodes = start_cluster(Cluster),
+    try
+        File = "/configs/cluster-override.conf",
+        assert_config_load_done(Nodes),
+        rpc:call(First, ?MODULE, create_data_dir, [File]),
+        {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
+        {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
+        ok = rpc:call(First, application, start, [emqx_conf]),
+        {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
+
+        assert_data_copy_done(Nodes, File),
         stop_cluster(Nodes),
         ok
     after
@@ -77,7 +102,7 @@ t_copy_data_dir(_Config) ->
 %% Helper functions
 %%------------------------------------------------------------------------------
 
-create_data_dir() ->
+create_data_dir(File) ->
     Node = atom_to_list(node()),
     ok = filelib:ensure_dir(Node ++ "/certs/"),
     ok = filelib:ensure_dir(Node ++ "/authz/"),
@@ -85,7 +110,7 @@ create_data_dir() ->
     ok = file:write_file(Node ++ "/certs/fake-cert", list_to_binary(Node)),
     ok = file:write_file(Node ++ "/authz/fake-authz", list_to_binary(Node)),
     Telemetry = <<"telemetry.enable = false">>,
-    ok = file:write_file(Node ++ "/configs/cluster-override.conf", Telemetry).
+    ok = file:write_file(Node ++ File, Telemetry).
 
 set_data_dir_env() ->
     Node = atom_to_list(node()),
@@ -100,14 +125,17 @@ set_data_dir_env() ->
     ok = file:write_file(NewConfigFile, DataDir, [append]),
     application:set_env(emqx, config_files, [NewConfigFile]),
     application:set_env(emqx, data_dir, Node),
+    %% We set env both cluster.hocon and cluster-override.conf, but only one will be used
+    application:set_env(emqx, cluster_hocon_file, Node ++ "/configs/cluster.hocon"),
     application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
     ok.
 
-assert_data_copy_done([First0 | Rest]) ->
+assert_data_copy_done([First0 | Rest], File) ->
     First = atom_to_list(First0),
     {ok, FakeCertFile} = file:read_file(First ++ "/certs/fake-cert"),
     {ok, FakeAuthzFile} = file:read_file(First ++ "/authz/fake-authz"),
-    {ok, FakeOverrideFile} = file:read_file(First ++ "/configs/cluster-override.conf"),
+    {ok, FakeOverrideFile} = file:read_file(First ++ File),
+    {ok, ExpectFake} = hocon:binary(FakeOverrideFile),
     lists:foreach(
         fun(Node0) ->
             Node = atom_to_list(Node0),
@@ -117,8 +145,8 @@ assert_data_copy_done([First0 | Rest]) ->
                 #{node => Node}
             ),
             ?assertEqual(
-                {ok, FakeOverrideFile},
-                file:read_file(Node ++ "/configs/cluster-override.conf"),
+                {ok, ExpectFake},
+                hocon:files([Node ++ File]),
                 #{node => Node}
             ),
             ?assertEqual(
@@ -173,3 +201,6 @@ cluster(Specs) ->
                 ok
         end}
     ]).
+
+cluster_spec({Type, Num}) ->
+    {Type, list_to_atom(atom_to_list(?MODULE) ++ integer_to_list(Num))}.

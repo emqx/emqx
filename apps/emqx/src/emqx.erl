@@ -164,29 +164,29 @@ run_hook(HookPoint, Args) ->
 run_fold_hook(HookPoint, Args, Acc) ->
     emqx_hooks:run_fold(HookPoint, Args, Acc).
 
--spec get_config(emqx_map_lib:config_key_path()) -> term().
+-spec get_config(emqx_utils_maps:config_key_path()) -> term().
 get_config(KeyPath) ->
     emqx_config:get(KeyPath).
 
--spec get_config(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_config(emqx_utils_maps:config_key_path(), term()) -> term().
 get_config(KeyPath, Default) ->
     emqx_config:get(KeyPath, Default).
 
--spec get_raw_config(emqx_map_lib:config_key_path()) -> term().
+-spec get_raw_config(emqx_utils_maps:config_key_path()) -> term().
 get_raw_config(KeyPath) ->
     emqx_config:get_raw(KeyPath).
 
--spec get_raw_config(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_raw_config(emqx_utils_maps:config_key_path(), term()) -> term().
 get_raw_config(KeyPath, Default) ->
     emqx_config:get_raw(KeyPath, Default).
 
--spec update_config(emqx_map_lib:config_key_path(), emqx_config:update_request()) ->
+-spec update_config(emqx_utils_maps:config_key_path(), emqx_config:update_request()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(KeyPath, UpdateReq) ->
     update_config(KeyPath, UpdateReq, #{}).
 
 -spec update_config(
-    emqx_map_lib:config_key_path(),
+    emqx_utils_maps:config_key_path(),
     emqx_config:update_request(),
     emqx_config:update_opts()
 ) ->
@@ -198,12 +198,12 @@ update_config([RootName | _] = KeyPath, UpdateReq, Opts) ->
         {{update, UpdateReq}, Opts}
     ).
 
--spec remove_config(emqx_map_lib:config_key_path()) ->
+-spec remove_config(emqx_utils_maps:config_key_path()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove_config(KeyPath) ->
     remove_config(KeyPath, #{}).
 
--spec remove_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
+-spec remove_config(emqx_utils_maps:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove_config([RootName | _] = KeyPath, Opts) ->
     emqx_config_handler:update_config(
@@ -212,7 +212,7 @@ remove_config([RootName | _] = KeyPath, Opts) ->
         {remove, Opts}
     ).
 
--spec reset_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
+-spec reset_config(emqx_utils_maps:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset_config([RootName | _] = KeyPath, Opts) ->
     case emqx_config:get_default_value(KeyPath) of

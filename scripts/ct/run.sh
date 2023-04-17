@@ -39,6 +39,7 @@ ONLY_UP='no'
 ATTACH='no'
 STOP='no'
 IS_CI='no'
+ODBC_REQUEST='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -107,6 +108,10 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
         ;;
+    apps/emqx_bridge_kafka)
+        ## ensure enterprise profile when testing ee applications
+        export PROFILE='emqx-enterprise'
+        ;;
     *)
         export PROFILE="${PROFILE:-emqx}"
         ;;
@@ -172,9 +177,13 @@ for dep in ${CT_DEPS}; do
             ;;
         rocketmq)
             FILES+=( '.ci/docker-compose-file/docker-compose-rocketmq.yaml' )
-            ;; 
+            ;;
         cassandra)
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
+            ;;
+        sqlserver)
+            ODBC_REQUEST='yes'
+            FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"
@@ -182,6 +191,12 @@ for dep in ${CT_DEPS}; do
             ;;
     esac
 done
+
+if [ "$ODBC_REQUEST" = 'yes' ]; then
+    INSTALL_ODBC="./scripts/install-odbc-driver.sh"
+else
+    INSTALL_ODBC="echo 'Driver msodbcsql driver not requested'"
+fi
 
 F_OPTIONS=""
 
@@ -225,6 +240,7 @@ docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base
 # the user must exist inside the container for `whoami` to work
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "useradd --uid $DOCKER_USER -M -d / emqx" || true
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $DOCKER_USER /var/lib/secret" || true
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "$INSTALL_ODBC" || true
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0

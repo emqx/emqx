@@ -31,41 +31,23 @@
     global_zone_configs/3
 ]).
 
--export([gen_schema/1]).
-
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
 -define(TAGS, ["Configs"]).
 
--define(EXCLUDES,
-    [
-        <<"exhook">>,
-        <<"gateway">>,
-        <<"plugins">>,
-        <<"bridges">>,
-        <<"rule_engine">>,
-        <<"authorization">>,
-        <<"authentication">>,
-        <<"rpc">>,
-        <<"connectors">>,
-        <<"slow_subs">>,
-        <<"psk_authentication">>,
-        <<"topic_metrics">>,
-        <<"rewrite">>,
-        <<"auto_subscribe">>,
-        <<"retainer">>,
-        <<"statsd">>,
-        <<"delayed">>,
-        <<"event_message">>,
-        <<"prometheus">>,
-        <<"telemetry">>,
-        <<"listeners">>,
-        <<"license">>,
-        <<"api_key">>
-    ] ++ global_zone_roots()
-).
+-define(ROOT_KEYS, [
+    <<"dashboard">>,
+    <<"alarm">>,
+    <<"sys_topics">>,
+    <<"sysmon">>,
+    <<"limiter">>,
+    <<"trace">>,
+    <<"log">>,
+    <<"persistent_session_store">>,
+    <<"zones">>
+]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -119,7 +101,6 @@ schema("/configs_reset/:rootname") ->
                     "- For a config entry that has default value, this resets it to the default value;\n"
                     "- For a config entry that has no default value, an error 400 will be returned"
                 >>,
-            summary => <<"Reset config entry">>,
             %% We only return "200" rather than the new configs that has been changed, as
             %% the schema of the changed configs is depends on the request parameter
             %% `conf_path`, it cannot be defined here.
@@ -214,12 +195,11 @@ fields(Field) ->
 %%%==============================================================================================
 %% HTTP API Callbacks
 config(get, _Params, Req) ->
+    [Path] = conf_path(Req),
+    {200, get_raw_config(Path)};
+config(put, #{body := NewConf}, Req) ->
     Path = conf_path(Req),
-    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
-    {200, Conf};
-config(put, #{body := Body}, Req) ->
-    Path = conf_path(Req),
-    case emqx_conf:update(Path, Body, ?OPTS) of
+    case emqx_conf:update(Path, NewConf, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
         {error, {permission_denied, Reason}} ->
@@ -229,28 +209,29 @@ config(put, #{body := Body}, Req) ->
     end.
 
 global_zone_configs(get, _Params, _Req) ->
-    Paths = global_zone_roots(),
-    Zones = lists:foldl(
-        fun(Path, Acc) -> maps:merge(Acc, get_config_with_default(Path)) end,
-        #{},
-        Paths
-    ),
-    {200, Zones};
+    {200, get_zones()};
 global_zone_configs(put, #{body := Body}, _Req) ->
+    PrevZones = get_zones(),
     Res =
         maps:fold(
             fun(Path, Value, Acc) ->
-                case emqx_conf:update([Path], Value, ?OPTS) of
-                    {ok, #{raw_config := RawConf}} ->
-                        Acc#{Path => RawConf};
-                    {error, Reason} ->
-                        ?SLOG(error, #{
-                            msg => "update global zone failed",
-                            reason => Reason,
-                            path => Path,
-                            value => Value
-                        }),
-                        Acc
+                PrevValue = maps:get(Path, PrevZones),
+                case Value =/= PrevValue of
+                    true ->
+                        case emqx_conf:update([Path], Value, ?OPTS) of
+                            {ok, #{raw_config := RawConf}} ->
+                                Acc#{Path => RawConf};
+                            {error, Reason} ->
+                                ?SLOG(error, #{
+                                    msg => "update global zone failed",
+                                    reason => Reason,
+                                    path => Path,
+                                    value => Value
+                                }),
+                                Acc
+                        end;
+                    false ->
+                        Acc#{Path => Value}
                 end
             end,
             #{},
@@ -298,11 +279,28 @@ conf_path_reset(Req) ->
 
 get_full_config() ->
     emqx_config:fill_defaults(
-        maps:without(
-            ?EXCLUDES,
+        maps:with(
+            ?ROOT_KEYS,
             emqx:get_raw_config([])
         ),
         #{obfuscate_sensitive_values => true}
+    ).
+
+get_raw_config(Path) ->
+    #{Path := Conf} =
+        emqx_config:fill_defaults(
+            #{Path => emqx:get_raw_config([Path])},
+            #{obfuscate_sensitive_values => true}
+        ),
+    Conf.
+
+get_zones() ->
+    lists:foldl(
+        fun(Path, Acc) ->
+            maps:merge(Acc, get_config_with_default(Path))
+        end,
+        #{},
+        global_zone_roots()
     ).
 
 get_config_with_default(Path) ->
@@ -317,43 +315,14 @@ conf_path_from_querystr(Req) ->
 config_list() ->
     Mod = emqx_conf:schema_module(),
     Roots = hocon_schema:roots(Mod),
-    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, ?EXCLUDES).
+    lists:foldl(fun(Key, Acc) -> [lists:keyfind(Key, 1, Roots) | Acc] end, [], ?ROOT_KEYS).
 
 conf_path(Req) ->
     <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
 
-%% TODO: generate from hocon schema
-gen_schema(Conf) when is_boolean(Conf) ->
-    with_default_value(#{type => boolean}, Conf);
-gen_schema(Conf) when is_binary(Conf); is_atom(Conf) ->
-    with_default_value(#{type => string}, Conf);
-gen_schema(Conf) when is_number(Conf) ->
-    with_default_value(#{type => number}, Conf);
-gen_schema(Conf) when is_list(Conf) ->
-    case io_lib:printable_unicode_list(Conf) of
-        true ->
-            gen_schema(unicode:characters_to_binary(Conf));
-        false ->
-            #{type => array, items => gen_schema(hd(Conf))}
-    end;
-gen_schema(Conf) when is_map(Conf) ->
-    #{
-        type => object,
-        properties =>
-            maps:map(fun(_K, V) -> gen_schema(V) end, Conf)
-    };
-gen_schema(_Conf) ->
-    %% the conf is not of JSON supported type, it may have been converted
-    %% by the hocon schema
-    #{type => string}.
-
-with_default_value(Type, Value) ->
-    Type#{example => emqx_map_lib:binary_string(Value)}.
-
 global_zone_roots() ->
-    lists:map(fun({K, _}) -> K end, global_zone_schema()).
+    lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
-    Roots = hocon_schema:roots(emqx_zone_schema),
-    lists:map(fun({RootKey, {_Root, Schema}}) -> {RootKey, Schema} end, Roots).
+    emqx_zone_schema:zone_without_hidden().
