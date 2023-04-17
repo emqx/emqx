@@ -88,7 +88,7 @@ check_pub(Zone, Flags) when is_map(Flags) ->
             error ->
                 Flags
         end,
-        maps:with(?PUBCAP_KEYS, get_caps(Zone))
+        get_caps(?PUBCAP_KEYS, Zone)
     ).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when
@@ -111,7 +111,7 @@ do_check_pub(_Flags, _Caps) ->
 ) ->
     ok_or_error(emqx_types:reason_code()).
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
-    Caps = maps:with(?SUBCAP_KEYS, get_caps(Zone)),
+    Caps = get_caps(?SUBCAP_KEYS, Zone),
     Flags = lists:foldl(
         fun
             (max_topic_levels, Map) ->
@@ -152,10 +152,12 @@ do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 
 get_caps(Zone) ->
-    lists:foldl(
-        fun({K, V}, Acc) ->
-            Acc#{K => emqx_config:get_zone_conf(Zone, [mqtt, K], V)}
-        end,
-        #{},
-        maps:to_list(?DEFAULT_CAPS)
+    get_caps(maps:keys(?DEFAULT_CAPS), Zone).
+get_caps(Keys, Zone) ->
+    maps:with(
+        Keys,
+        maps:merge(
+            ?DEFAULT_CAPS,
+            emqx_config:get_zone_conf(Zone, [mqtt])
+        )
     ).
