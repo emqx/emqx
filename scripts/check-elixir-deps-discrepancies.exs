@@ -36,6 +36,9 @@ rebar_deps =
 
         {:git, _, {:ref, ref}} ->
           to_string(ref)
+
+        {:git_subdir, _, {:ref, ref}, _} ->
+          to_string(ref)
       end
 
     {name, ref}

@@ -134,6 +134,9 @@
 %% when calling emqx_resource:stop/1
 -callback on_stop(resource_id(), resource_state()) -> term().
 
+%% when calling emqx_resource:get_callback_mode/1
+-callback callback_mode() -> callback_mode().
+
 %% when calling emqx_resource:query/3
 -callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 

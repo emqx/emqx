@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:3.11-management
+
+    restart: always
+    expose:
+      - "15672"
+      - "5672"
+    # We don't want to take ports from the host
+    # ports:
+    #   - "15672:15672"
+    #   - "5672:5672"
+    networks:
+      - emqx_bridge

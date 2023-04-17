@@ -1,0 +1,100 @@
+
+emqx_bridge_rabbitmq_connector {
+
+server.desc:
+"""The RabbitMQ server address that you want to connect to (for example, localhost)."""
+
+server.label:
+"""Server"""
+
+port.desc:
+"""The port number on which the RabbitMQ server is listening (default is 5672)."""
+
+port.label:
+"""Port"""
+
+username.desc:
+"""The username used to authenticate with the RabbitMQ server."""
+
+username.label:
+"""Username"""
+
+password.desc:
+"""The password used to authenticate with the RabbitMQ server."""
+
+password.label:
+"""Password"""
+
+pool_size.desc:
+"""The size of the connection pool."""
+
+pool_size.label:
+"""Pool Size"""
+
+timeout.desc:
+"""The timeout for waiting on the connection to be established."""
+
+timeout.label:
+"""Connection Timeout"""
+
+virtual_host.desc:
+"""The virtual host to use when connecting to the RabbitMQ server."""
+
+virtual_host.label:
+"""Virtual Host"""
+
+heartbeat.desc:
+"""The interval for sending heartbeat messages to the RabbitMQ server."""
+
+heartbeat.label:
+"""Heartbeat"""
+
+auto_reconnect.desc:
+"""The interval for attempting to reconnect to the RabbitMQ server if the connection is lost."""
+
+auto_reconnect.label:
+"""Auto Reconnect"""
+
+exchange.desc:
+"""The name of the RabbitMQ exchange where the messages will be sent."""
+
+exchange.label:
+"""Exchange"""
+
+exchange_type.desc:
+"""The type of the RabbitMQ exchange (direct, fanout, or topic)."""
+
+exchange_type.label:
+"""Exchange Type"""
+
+routing_key.desc:
+"""The routing key used to route messages to the correct queue in the RabbitMQ exchange."""
+
+routing_key.label:
+"""Routing Key"""
+
+delivery_mode.desc:
+"""The delivery mode for messages published to RabbitMQ. Delivery mode non_persistent (1) is suitable for messages that don't require persistence across RabbitMQ restarts, whereas delivery mode persistent (2) is designed for messages that must survive RabbitMQ restarts."""
+
+delivery_mode.label:
+"""Message Delivery Mode"""
+
+payload_template.desc:
+"""The template for formatting the payload of the message before sending it to RabbitMQ. Template placeholders, such as ${field1.sub_field}, will be substituted with the respective field's value. When left empty, the entire input message will be used as the payload, formatted as a JSON text. This behavior is equivalent to specifying ${.} as the payload template."""
+
+payload_template.label:
+"""Payload Template"""
+
+publish_confirmation_timeout.desc:
+"""The timeout for waiting for RabbitMQ to confirm message publication when using publisher confirms."""
+
+publish_confirmation_timeout.label:
+"""Publish Confirmation Timeout"""
+
+wait_for_publish_confirmations.desc:
+"""A boolean value that indicates whether to wait for RabbitMQ to confirm message publication when using publisher confirms."""
+
+wait_for_publish_confirmations.label:
+"""Wait for Publish Confirmations"""
+
+}

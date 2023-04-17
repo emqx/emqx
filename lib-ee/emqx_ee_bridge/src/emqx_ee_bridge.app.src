@@ -13,7 +13,8 @@
         emqx_bridge_opents,
         emqx_bridge_pulsar,
         emqx_bridge_sqlserver,
-        emqx_bridge_rocketmq
+        emqx_bridge_rocketmq,
+        emqx_bridge_rabbitmq
     ]},
     {env, []},
     {modules, []},
