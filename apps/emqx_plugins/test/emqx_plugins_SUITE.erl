@@ -45,7 +45,10 @@ all() ->
 
 groups() ->
     [
-        {copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]},
+        {copy_plugin, [sequence], [
+            group_t_copy_plugin_to_a_new_node,
+            group_t_copy_plugin_to_a_new_node_single_node
+        ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
 
@@ -600,6 +603,78 @@ group_t_copy_plugin_to_a_new_node(Config) ->
         {ok, #{running_status := running, config_status := enabled}},
         rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
     ).
+
+%% checks that we can start a cluster with a lone node.
+group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
+    PrivDataDir = ?config(priv_dir, Config),
+    ToInstallDir = filename:join(PrivDataDir, "plugins_copy_to"),
+    file:del_dir_r(ToInstallDir),
+    ok = filelib:ensure_path(ToInstallDir),
+    #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{CopyTo, CopyToOpts}] =
+        emqx_common_test_helpers:emqx_cluster(
+            [
+                {core, plugins_copy_to}
+            ],
+            #{
+                apps => [emqx_conf, emqx_plugins],
+                env => [
+                    {emqx, init_config_load_done, false},
+                    {emqx, boot_modules, []}
+                ],
+                env_handler => fun
+                    (emqx_plugins) ->
+                        ok = emqx_plugins:put_config(install_dir, ToInstallDir),
+                        %% this is to simulate an user setting the state
+                        %% via environment variables before starting the node
+                        ok = emqx_plugins:put_config(
+                            states,
+                            [#{name_vsn => NameVsn, enable => true}]
+                        ),
+                        ok;
+                    (_) ->
+                        ok
+                end,
+                priv_data_dir => PrivDataDir,
+                schema_mod => emqx_conf_schema,
+                peer_mod => slave,
+                load_schema => true
+            }
+        ),
+    [
+        {to_install_dir, ToInstallDir},
+        {copy_to_node_name, CopyTo},
+        {copy_to_opts, CopyToOpts},
+        {name_vsn, NameVsn},
+        {plugin_name, PluginName}
+        | Config
+    ];
+group_t_copy_plugin_to_a_new_node_single_node({'end', Config}) ->
+    CopyToNode = proplists:get_value(copy_to_node, Config),
+    ok = emqx_common_test_helpers:stop_slave(CopyToNode),
+    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
+    ok;
+group_t_copy_plugin_to_a_new_node_single_node(Config) ->
+    CopyTo = ?config(copy_to_node_name, Config),
+    CopyToOpts = ?config(copy_to_opts, Config),
+    ToInstallDir = ?config(to_install_dir, Config),
+    NameVsn = proplists:get_value(name_vsn, Config),
+    %% Start the node for the first time. The plugin should start
+    %% successfully even if it's not extracted yet.  Simply starting
+    %% the node would crash if not working properly.
+    CopyToNode = emqx_common_test_helpers:start_slave(CopyTo, CopyToOpts),
+    ct:pal("~p config:\n  ~p", [
+        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config, [[], #{}])
+    ]),
+    ct:pal("~p install_dir:\n  ~p", [
+        CopyToNode, erpc:call(CopyToNode, file, list_dir, [ToInstallDir])
+    ]),
+    ?assertMatch(
+        {ok, #{running_status := running, config_status := enabled}},
+        rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
+    ),
+    ok.
 
 make_tar(Cwd, NameWithVsn) ->
     make_tar(Cwd, NameWithVsn, NameWithVsn).
