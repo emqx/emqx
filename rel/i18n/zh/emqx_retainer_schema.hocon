@@ -1,0 +1,46 @@
+emqx_retainer_schema {
+
+backend.desc:
+"""保留消息的存储后端"""
+
+batch_deliver_limiter.desc:
+"""批量发送的限流器的名称。
+限流器可以用来防止短时间内向客户端发送太多的消息，从而避免过多的消息导致客户端队列堵塞甚至崩溃。
+这个名称需要是指向 `limiter.batch` 下的一个真实存在的限流器。
+如果这个字段为空，则不使用限流器。"""
+
+batch_deliver_number.desc:
+"""批量派发时每批的数量。0 代表一次性全部派发"""
+
+batch_read_number.desc:
+"""从存储后端批量加载时的每批数量上限，0 代表一次性读取"""
+
+enable.desc:
+"""是否开启消息保留功能"""
+
+flow_control.desc:
+"""流控设置"""
+
+max_payload_size.desc:
+"""消息大小最大值"""
+
+max_retained_messages.desc:
+"""消息保留的数量上限。0 表示无限"""
+
+mnesia_config_storage_type.desc:
+"""选择消息是存放在磁盘还是内存中"""
+
+mnesia_config_type.desc:
+"""后端类型"""
+
+msg_clear_interval.desc:
+"""消息清理间隔。0 代表不进行清理"""
+
+msg_expiry_interval.desc:
+"""消息保留时间。0 代表永久保留"""
+
+stop_publish_clear_msg.desc:
+"""是否不发送保留消息的清理消息，在 MQTT 5.0 中如果一条保留消息的消息体为空，则会清除掉之前存储
+的对应的保留消息，通过这个值控制是否停止发送清理消息"""
+
+}

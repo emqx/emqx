@@ -1,219 +1,118 @@
 emqx_authn_jwt {
-  use_jwks {
-    desc {
-      en: """Whether to use JWKS."""
-      zh: """是否使用 JWKS。"""
-    }
-    label {
-      en: """Whether to Use JWKS"""
-      zh: """是否使用 JWKS"""
-    }
-  }
 
-  algorithm {
-    desc {
-      en: """JWT signing algorithm, Supports HMAC (configured as <code>hmac-based</code>) and RSA, ECDSA (configured as <code>public-key</code>)."""
-      zh: """JWT 签名算法，支持 HMAC (配置为 <code>hmac-based</code>）和 RSA、ECDSA (配置为 <code>public-key</code>)。"""
-    }
-    label {
-      en: """JWT Signing Algorithm"""
-      zh: """JWT 签名算法"""
-    }
-  }
+acl_claim_name.desc:
+"""JWT claim name to use for getting ACL rules."""
 
-  public_key {
-    desc {
-      en: """The public key used to verify the JWT."""
-      zh: """用于验证 JWT 的公钥。"""
-    }
-    label {
-      en: """Public Key"""
-      zh: """公钥"""
-    }
-  }
+acl_claim_name.label:
+"""ACL claim name"""
 
-  secret_base64_encoded {
-    desc {
-      en: """Whether secret is base64 encoded."""
-      zh: """密钥是否为 Base64 编码。"""
-    }
-    label {
-      en: """Whether Secret is Base64 Encoded"""
-      zh: """密钥是否为 Base64 编码"""
-    }
-  }
+algorithm.desc:
+"""JWT signing algorithm, Supports HMAC (configured as <code>hmac-based</code>) and RSA, ECDSA (configured as <code>public-key</code>)."""
 
-  secret {
-    desc {
-      en: """The key to verify the JWT using HMAC algorithm."""
-      zh: """使用 HMAC 算法时用于验证 JWT 的密钥"""
-    }
-    label {
-      en: """Secret"""
-      zh: """Secret"""
-    }
-  }
+algorithm.label:
+"""JWT Signing Algorithm"""
 
-  endpoint {
-    desc {
-      en: """JWKS endpoint, it's a read-only endpoint that returns the server's public key set in the JWKS format."""
-      zh: """JWKS 端点， 它是一个以 JWKS 格式返回服务端的公钥集的只读端点。"""
-    }
-    label {
-      en: """JWKS Endpoint"""
-      zh: """JWKS Endpoint"""
-    }
-  }
+cacertfile.desc:
+"""Path to a file containing PEM-encoded CA certificates."""
 
-  refresh_interval {
-    desc {
-      en: """JWKS refresh interval."""
-      zh: """JWKS 刷新间隔。"""
-    }
-    label {
-      en: """JWKS Refresh Interval"""
-      zh: """JWKS 刷新间隔"""
-    }
-  }
+cacertfile.label:
+"""CA Certificate File"""
 
-  cacertfile {
-    desc {
-      en: """Path to a file containing PEM-encoded CA certificates."""
-      zh: """包含 PEM 编码的 CA 证书的文件的路径。"""
-    }
-    label {
-      en: """CA Certificate File"""
-      zh: """CA 证书文件"""
-    }
-  }
+certfile.desc:
+"""Path to a file containing the user certificate."""
 
-  certfile {
-    desc {
-      en: """Path to a file containing the user certificate."""
-      zh: """包含用户证书的文件的路径。"""
-    }
-    label {
-      en: """Certificate File"""
-      zh: """证书文件"""
-    }
-  }
+certfile.label:
+"""Certificate File"""
 
-  keyfile {
-    desc {
-      en: """Path to a file containing the user's private PEM-encoded key."""
-      zh: """包含 PEM 编码的用户私钥的文件的路径。"""
-    }
-    label {
-      en: """Key File"""
-      zh: """私钥文件"""
-    }
-  }
+enable.desc:
+"""Enable/disable SSL."""
 
-  verify {
-    desc {
-      en: """Enable or disable SSL peer verification."""
-      zh: """指定握手过程中是否校验对端证书。"""
-    }
-    label {
-      en: """Verify"""
-      zh: """Verify"""
-    }
-  }
+enable.label:
+"""Enable/disable SSL"""
 
-  server_name_indication {
-    desc {
-      en: """Server Name Indication (SNI)."""
-      zh: """服务器名称指示（SNI）。"""
-    }
-    label {
-      en: """Server Name Indication"""
-      zh: """服务器名称指示"""
-    }
-  }
+endpoint.desc:
+"""JWKS endpoint, it's a read-only endpoint that returns the server's public key set in the JWKS format."""
 
-  verify_claims {
-    desc {
-      en: """A list of custom claims to validate, which is a list of name/value pairs.
+endpoint.label:
+"""JWKS Endpoint"""
+
+from.desc:
+"""Field to take JWT from."""
+
+from.label:
+"""From Field"""
+
+hmac-based.desc:
+"""Configuration when the JWT for authentication is issued using the HMAC algorithm."""
+
+jwks.desc:
+"""Configuration when JWTs used for authentication need to be fetched from the JWKS endpoint."""
+
+keyfile.desc:
+"""Path to a file containing the user's private PEM-encoded key."""
+
+keyfile.label:
+"""Key File"""
+
+public-key.desc:
+"""Configuration when the JWT for authentication is issued using RSA or ECDSA algorithm."""
+
+public_key.desc:
+"""The public key used to verify the JWT."""
+
+public_key.label:
+"""Public Key"""
+
+refresh_interval.desc:
+"""JWKS refresh interval."""
+
+refresh_interval.label:
+"""JWKS Refresh Interval"""
+
+secret.desc:
+"""The key to verify the JWT using HMAC algorithm."""
+
+secret.label:
+"""Secret"""
+
+secret_base64_encoded.desc:
+"""Whether secret is base64 encoded."""
+
+secret_base64_encoded.label:
+"""Whether Secret is Base64 Encoded"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI)."""
+
+server_name_indication.label:
+"""Server Name Indication"""
+
+ssl.desc:
+"""SSL options."""
+
+ssl.label:
+"""SSL Options"""
+
+use_jwks.desc:
+"""Whether to use JWKS."""
+
+use_jwks.label:
+"""Whether to Use JWKS"""
+
+verify.desc:
+"""Enable or disable SSL peer verification."""
+
+verify.label:
+"""Verify"""
+
+verify_claims.desc:
+"""A list of custom claims to validate, which is a list of name/value pairs.
 Values can use the following placeholders:
 - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting
 - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting
 Authentication will verify that the value of claims in the JWT (taken from the Password field) matches what is required in <code>verify_claims</code>."""
-      zh: """需要验证的自定义声明列表，它是一个名称/值对列表。
-值可以使用以下占位符：
-- <code>${username}</code>: 将在运行时被替换为客户端连接时使用的用户名
-- <code>${clientid}</code>: 将在运行时被替换为客户端连接时使用的客户端标识符
-认证时将验证 JWT（取自 Password 字段）中 claims 的值是否与 <code>verify_claims</code> 中要求的相匹配。"""
-    }
-    label {
-      en: """Verify Claims"""
-      zh: """Verify Claims"""
-    }
-  }
 
-  ssl {
-    desc {
-      en: """SSL options."""
-      zh: """SSL 选项。"""
-    }
-    label {
-      en: """SSL Options"""
-      zh: """SSL 选项"""
-    }
-  }
-
-  enable {
-    desc {
-      en: """Enable/disable SSL."""
-      zh: """启用/禁用 SSL。"""
-    }
-    label {
-      en: """Enable/disable SSL"""
-      zh: """启用/禁用 SSL"""
-    }
-  }
-
-  hmac-based {
-    desc {
-      en: """Configuration when the JWT for authentication is issued using the HMAC algorithm."""
-      zh: """用于认证的 JWT 使用 HMAC 算法签发时的配置。"""
-    }
-  }
-
-  public-key {
-    desc {
-      en: """Configuration when the JWT for authentication is issued using RSA or ECDSA algorithm."""
-      zh: """用于认证的 JWT 使用 RSA 或 ECDSA 算法签发时的配置。"""
-    }
-  }
-
-  jwks {
-    desc {
-      en: """Configuration when JWTs used for authentication need to be fetched from the JWKS endpoint."""
-      zh: """用于认证的 JWTs 需要从 JWKS 端点获取时的配置。"""
-    }
-  }
-
-  acl_claim_name {
-    desc {
-      en: """JWT claim name to use for getting ACL rules."""
-      zh: """JWT claim name to use for getting ACL rules."""
-    }
-    label {
-      en: """ACL claim name"""
-      zh: """ACL claim name"""
-    }
-  }
-
-  from {
-    desc {
-      en: """Field to take JWT from."""
-      zh: """要从中获取 JWT 的字段。"""
-    }
-    label {
-      en: """From Field"""
-      zh: """源字段"""
-    }
-  }
-
+verify_claims.label:
+"""Verify Claims"""
 
 }

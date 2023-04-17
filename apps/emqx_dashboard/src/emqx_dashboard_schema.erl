@@ -233,6 +233,8 @@ cors(required) -> false;
 cors(desc) -> ?DESC(cors);
 cors(_) -> undefined.
 
+%% TODO: change it to string type
+%% It will be up to the dashboard package which languagues to support
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;

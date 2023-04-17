@@ -1,0 +1,65 @@
+emqx_gateway_api_listeners {
+
+add_listener.desc:
+"""为指定网关添加监听器。<br/>
+注：对于某网关不支持的监听器类型，该接口会返回 `400: BAD_REQUEST`。"""
+
+add_listener_authn.desc:
+"""为指定监听器开启认证器以实现客户端认证的能力。<br/>
+当某一监听器开启认证后，所有连接到该监听器的客户端会使用该认证器进行认证。"""
+
+add_user.desc:
+"""添加用户（仅支持 built_in_database 类型的认证器）"""
+
+current_connections.desc:
+"""当前连接数"""
+
+delete_listener.desc:
+"""删除指定监听器。被删除的监听器下所有已连接的客户端都会离线。"""
+
+delete_listener_authn.desc:
+"""移除指定监听器的认证器。"""
+
+delete_user.desc:
+"""删除用户（仅支持 built_in_database 类型的认证器）"""
+
+get_listener.desc:
+"""获取指定网关监听器的配置。"""
+
+get_listener_authn.desc:
+"""获取监听器的认证器配置。"""
+
+get_user.desc:
+"""获取用户信息（仅支持 built_in_database 类型的认证器）"""
+
+import_users.desc:
+"""导入用户（仅支持 built_in_database 类型的认证器）"""
+
+list_listeners.desc:
+"""获取网关监听器列表。该接口会返回监听器所有的配置（包括该监听器上的认证器），同时也会返回该监听器在集群中运行的状态。"""
+
+list_users.desc:
+"""获取用户列表（仅支持 built_in_database 类型的认证器）"""
+
+listener_id.desc:
+"""监听器 ID"""
+
+listener_node_status.desc:
+"""监听器在集群中每个节点上的状态"""
+
+listener_status.desc:
+"""监听器状态"""
+
+node.desc:
+"""节点名称"""
+
+update_listener.desc:
+"""更新某网关监听器的配置。被更新的监听器会执行重启，所有已连接到该监听器上的客户端都会被断开。"""
+
+update_listener_authn.desc:
+"""更新指定监听器的认证器配置，或停用/启用该认证器。"""
+
+update_user.desc:
+"""更新用户信息（仅支持 built_in_database 类型的认证器）"""
+
+}

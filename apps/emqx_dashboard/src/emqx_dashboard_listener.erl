@@ -15,8 +15,10 @@
 %%--------------------------------------------------------------------
 -module(emqx_dashboard_listener).
 
--include_lib("emqx/include/logger.hrl").
 -behaviour(emqx_config_handler).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([add_handler/0, remove_handler/0]).
@@ -54,12 +56,10 @@ init([]) ->
     {ok, undefined, {continue, regenerate_dispatch}}.
 
 handle_continue(regenerate_dispatch, _State) ->
-    NewState = regenerate_minirest_dispatch(),
-    {noreply, NewState, hibernate}.
+    %% initialize the swagger dispatches
+    ready = regenerate_minirest_dispatch(),
+    {noreply, ready, hibernate}.
 
-handle_call(is_ready, _From, retry) ->
-    NewState = regenerate_minirest_dispatch(),
-    {reply, NewState, NewState, hibernate};
 handle_call(is_ready, _From, State) ->
     {reply, State, State, hibernate};
 handle_call(_Request, _From, State) ->
@@ -68,6 +68,9 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State, hibernate}.
 
+handle_info(i18n_lang_changed, _State) ->
+    NewState = regenerate_minirest_dispatch(),
+    {noreply, NewState, hibernate};
 handle_info({update_listeners, OldListeners, NewListeners}, _State) ->
     ok = emqx_dashboard:stop_listeners(OldListeners),
     ok = emqx_dashboard:start_listeners(NewListeners),
@@ -83,29 +86,26 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% generate dispatch is very slow.
+%% generate dispatch is very slow, takes about 1s.
 regenerate_minirest_dispatch() ->
-    try
-        emqx_dashboard:init_i18n(),
-        lists:foreach(
-            fun(Listener) ->
-                minirest:update_dispatch(element(1, Listener))
-            end,
-            emqx_dashboard:list_listeners()
-        ),
-        ready
-    catch
-        T:E:S ->
-            ?SLOG(error, #{
-                msg => "regenerate_minirest_dispatch_failed",
-                reason => E,
-                type => T,
-                stacktrace => S
-            }),
-            retry
-    after
-        emqx_dashboard:clear_i18n()
-    end.
+    %% optvar:read waits for the var to be set
+    Names = emqx_dashboard:wait_for_listeners(),
+    {Time, ok} = timer:tc(fun() -> do_regenerate_minirest_dispatch(Names) end),
+    Lang = emqx:get_config([dashboard, i18n_lang]),
+    ?tp(info, regenerate_minirest_dispatch, #{
+        elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
+        listeners => Names,
+        i18n_lang => Lang
+    }),
+    ready.
+
+do_regenerate_minirest_dispatch(Names) ->
+    lists:foreach(
+        fun(Name) ->
+            ok = minirest:update_dispatch(Name)
+        end,
+        Names
+    ).
 
 add_handler() ->
     Roots = emqx_dashboard_schema:roots(),
@@ -117,6 +117,12 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(Roots),
     ok.
 
+pre_config_update(_Path, {change_i18n_lang, NewLang}, RawConf) ->
+    %% e.g. emqx_conf:update([dashboard], {change_i18n_lang, zh}, #{}).
+    %% TODO: check if there is such a language (all languages are cached in emqx_dashboard_desc_cache)
+    Update = #{<<"i18n_lang">> => NewLang},
+    NewConf = emqx_utils_maps:deep_merge(RawConf, Update),
+    {ok, NewConf};
 pre_config_update(_Path, UpdateConf0, RawConf) ->
     UpdateConf = remove_sensitive_data(UpdateConf0),
     NewConf = emqx_utils_maps:deep_merge(RawConf, UpdateConf),
@@ -139,6 +145,8 @@ remove_sensitive_data(Conf0) ->
             Conf1
     end.
 
+post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
+    delay_job(i18n_lang_changed);
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     OldHttp = get_listener(http, OldConf),
     OldHttps = get_listener(https, OldConf),
@@ -148,7 +156,12 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps),
     Stop = maps:merge(StopHttp, StopHttps),
     Start = maps:merge(StartHttp, StartHttps),
-    _ = erlang:send_after(500, ?MODULE, {update_listeners, Stop, Start}),
+    delay_job({update_listeners, Stop, Start}).
+
+%% in post_config_update, the config is not yet persisted to persistent_term
+%% so we need to delegate the listener update to the gen_server a bit later
+delay_job(Msg) ->
+    _ = erlang:send_after(500, ?MODULE, Msg),
     ok.
 
 get_listener(Type, Conf) ->

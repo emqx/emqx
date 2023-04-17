@@ -1,0 +1,12 @@
+emqx_auto_subscribe_api {
+
+list_auto_subscribe_api.desc:
+"""获取自动订阅主题列表"""
+
+update_auto_subscribe_api.desc:
+"""更新自动订阅主题列表"""
+
+update_auto_subscribe_api_response409.desc:
+"""超出自定订阅主题列表长度限制"""
+
+}

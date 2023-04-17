@@ -1,0 +1,18 @@
+emqx_slow_subs_schema {
+
+enable.desc:
+"""开启慢订阅"""
+
+expire_interval.desc:
+"""慢订阅记录的有效时间"""
+
+stats_type.desc:
+"""慢订阅的统计类型"""
+
+threshold.desc:
+"""慢订阅统计的阈值"""
+
+top_k_num.desc:
+"""慢订阅统计表的记录数量上限"""
+
+}

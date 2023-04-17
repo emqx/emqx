@@ -1,0 +1,93 @@
+emqx_rule_engine_api {
+
+api1.desc:
+"""列出所有规则"""
+
+api1.label:
+"""列出所有规则"""
+
+api10.desc:
+"""更新规则引擎配置。"""
+
+api10.label:
+"""更新配置"""
+
+api1_enable.desc:
+"""根据规则是否开启条件过滤"""
+
+api1_from.desc:
+"""根据规则来源 Topic 过滤, 需要完全匹配"""
+
+api1_like_description.desc:
+"""根据规则描述过滤, 使用子串模糊匹配"""
+
+api1_like_from.desc:
+"""根据规则来源 Topic 过滤, 使用子串模糊匹配"""
+
+api1_like_id.desc:
+"""根据规则 id 过滤, 使用子串模糊匹配"""
+
+api1_match_from.desc:
+"""根据规则来源 Topic 过滤, 使用 MQTT Topic 匹配"""
+
+api1_resp.desc:
+"""规则列表"""
+
+api1_resp.label:
+"""列出所有规则"""
+
+api2.desc:
+"""通过指定 ID 创建规则"""
+
+api2.label:
+"""通过指定 ID 创建规则"""
+
+api3.desc:
+"""列出所有能被规则使用的事件"""
+
+api3.label:
+"""列出所有能被规则使用的事件"""
+
+api4.desc:
+"""通过 ID 查询规则"""
+
+api4.label:
+"""查询规则"""
+
+api4_1.desc:
+"""通过给定的 Id 获得规则的指标数据"""
+
+api4_1.label:
+"""获得指标数据"""
+
+api5.desc:
+"""通过 ID 更新集群里所有节点上的规则"""
+
+api5.label:
+"""更新集群规则"""
+
+api6.desc:
+"""通过 ID 删除集群里所有节点上的规则"""
+
+api6.label:
+"""基于给定 ID 新建一条规则"""
+
+api7.desc:
+"""重置规则计数"""
+
+api7.label:
+"""重置规则计数"""
+
+api8.desc:
+"""测试一个规则"""
+
+api8.label:
+"""测试规则"""
+
+api9.desc:
+"""获取规则引擎配置。"""
+
+api9.label:
+"""获取配置"""
+
+}

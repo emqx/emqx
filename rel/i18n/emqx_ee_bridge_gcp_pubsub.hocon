@@ -1,145 +1,80 @@
 emqx_ee_bridge_gcp_pubsub {
-    desc_config {
-        desc {
-            en: """Configuration for a GCP PubSub bridge."""
-            zh: """GCP PubSub 桥接配置"""
-        }
-        label {
-            en: "GCP PubSub Bridge Configuration"
-            zh: "GCP PubSub 桥接配置"
-        }
-    }
 
-    desc_type {
-        desc {
-            en: """The Bridge Type"""
-            zh: """桥接类型"""
-        }
-        label {
-            en: "Bridge Type"
-            zh: "桥接类型"
-        }
-    }
-    desc_name {
-        desc {
-            en: """Bridge name, used as a human-readable description of the bridge."""
-            zh: """桥接名字，可读描述"""
-        }
-        label {
-            en: "Bridge Name"
-            zh: "桥接名字"
-        }
-    }
+connect_timeout.desc:
+"""The timeout when connecting to the HTTP server."""
 
-    connect_timeout {
-        desc {
-          en: "The timeout when connecting to the HTTP server."
-          zh: "连接 HTTP 服务器的超时时间。"
-        }
-        label: {
-              en: "Connect Timeout"
-              zh: "连接超时"
-            }
-    }
+connect_timeout.label:
+"""Connect Timeout"""
 
-    max_retries {
-        desc {
-          en: "Max retry times if an error occurs when sending a request."
-          zh: "请求出错时的最大重试次数。"
-        }
-        label: {
-              en: "Max Retries"
-              zh: "最大重试次数"
-            }
-    }
+desc_config.desc:
+"""Configuration for a GCP PubSub bridge."""
 
-    pool_size {
-        desc {
-          en: "The pool size."
-          zh: "连接池大小。"
-        }
-        label: {
-              en: "Pool Size"
-              zh: "连接池大小"
-            }
-    }
+desc_config.label:
+"""GCP PubSub Bridge Configuration"""
 
-    pipelining {
-        desc {
-          en: "A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."
-          zh: "正整数，设置最大可发送的异步 HTTP 请求数量。当设置为 1 时，表示每次发送完成 HTTP 请求后都需要等待服务器返回，再继续发送下一个请求。"
-        }
-        label: {
-              en: "HTTP Pipelineing"
-              zh: "HTTP 流水线"
-            }
-    }
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
 
-    request_timeout {
-        desc {
-          en: "Deprecated: Configure the request timeout in the buffer settings."
-          zh: "废弃的。在缓冲区设置中配置请求超时。"
-        }
-        label: {
-              en: "Request Timeout"
-              zh: "HTTP 请求超时"
-            }
-    }
+desc_name.label:
+"""Bridge Name"""
 
-    payload_template {
-        desc {
-          en: "The template for formatting the outgoing messages.  If undefined, will send all the available context in JSON format."
-          zh: "用于格式化外发信息的模板。 如果未定义，将以JSON格式发送所有可用的上下文。"
-        }
-        label: {
-              en: "Payload template"
-              zh: "HTTP 请求消息体模板"
-            }
-    }
+desc_type.desc:
+"""The Bridge Type"""
 
-    local_topic {
-        desc {
-            en: """The MQTT topic filter to be forwarded to GCP PubSub. All MQTT 'PUBLISH' messages with the topic
+desc_type.label:
+"""Bridge Type"""
+
+local_topic.desc:
+"""The MQTT topic filter to be forwarded to GCP PubSub. All MQTT 'PUBLISH' messages with the topic
 matching `local_topic` will be forwarded.</br>
 NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic
 will be forwarded."""
-            zh: """发送到 'local_topic' 的消息都会转发到 GCP PubSub。 </br>
-注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 GCP PubSub。"""
-        }
-        label {
-                en: "Local Topic"
-                zh: "本地 Topic"
-            }
-    }
 
-    pubsub_topic {
-        desc {
-          en: "The GCP PubSub topic to publish messages to."
-          zh: "要发布消息的GCP PubSub主题。"
-        }
-        label: {
-              en: "GCP PubSub Topic"
-              zh: "GCP PubSub 主题"
-            }
-    }
+local_topic.label:
+"""Local Topic"""
 
-    service_account_json {
-        desc {
-          en: "JSON containing the GCP Service Account credentials to be used with PubSub.\n"
-              "When a GCP Service Account is created "
-              "(as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), "
-              "you have the option of downloading the credentials in JSON form.  That's the "
-              "file needed."
-          zh: "包含将与 PubSub 一起使用的 GCP 服务账户凭证的 JSON。\n"
-              "当创建GCP服务账户时"
-              "（如https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount），"
-              "可以选择下载 JSON 形式的凭证，然后在该配置项中使用。"
-        }
-        label: {
-              en: "GCP Service Account Credentials"
-              zh: "GCP 服务账户凭证"
-            }
-    }
+max_retries.desc:
+"""Max retry times if an error occurs when sending a request."""
+
+max_retries.label:
+"""Max Retries"""
+
+payload_template.desc:
+"""The template for formatting the outgoing messages.  If undefined, will send all the available context in JSON format."""
+
+payload_template.label:
+"""Payload template"""
+
+pipelining.desc:
+"""A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
+
+pipelining.label:
+"""HTTP Pipelineing"""
+
+pool_size.desc:
+"""The pool size."""
+
+pool_size.label:
+"""Pool Size"""
+
+pubsub_topic.desc:
+"""The GCP PubSub topic to publish messages to."""
+
+pubsub_topic.label:
+"""GCP PubSub Topic"""
+
+request_timeout.desc:
+"""Deprecated: Configure the request timeout in the buffer settings."""
+
+request_timeout.label:
+"""Request Timeout"""
+
+service_account_json.desc:
+"""JSON containing the GCP Service Account credentials to be used with PubSub.
+When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""
+
+service_account_json.label:
+"""GCP Service Account Credentials"""
 
 }

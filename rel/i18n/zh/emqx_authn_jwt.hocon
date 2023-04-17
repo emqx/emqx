@@ -1,0 +1,118 @@
+emqx_authn_jwt {
+
+acl_claim_name.desc:
+"""JWT claim name to use for getting ACL rules."""
+
+acl_claim_name.label:
+"""ACL claim name"""
+
+algorithm.desc:
+"""JWT 签名算法，支持 HMAC (配置为 <code>hmac-based</code>）和 RSA、ECDSA (配置为 <code>public-key</code>)。"""
+
+algorithm.label:
+"""JWT 签名算法"""
+
+cacertfile.desc:
+"""包含 PEM 编码的 CA 证书的文件的路径。"""
+
+cacertfile.label:
+"""CA 证书文件"""
+
+certfile.desc:
+"""包含用户证书的文件的路径。"""
+
+certfile.label:
+"""证书文件"""
+
+enable.desc:
+"""启用/禁用 SSL。"""
+
+enable.label:
+"""启用/禁用 SSL"""
+
+endpoint.desc:
+"""JWKS 端点， 它是一个以 JWKS 格式返回服务端的公钥集的只读端点。"""
+
+endpoint.label:
+"""JWKS Endpoint"""
+
+from.desc:
+"""要从中获取 JWT 的字段。"""
+
+from.label:
+"""源字段"""
+
+hmac-based.desc:
+"""用于认证的 JWT 使用 HMAC 算法签发时的配置。"""
+
+jwks.desc:
+"""用于认证的 JWTs 需要从 JWKS 端点获取时的配置。"""
+
+keyfile.desc:
+"""包含 PEM 编码的用户私钥的文件的路径。"""
+
+keyfile.label:
+"""私钥文件"""
+
+public-key.desc:
+"""用于认证的 JWT 使用 RSA 或 ECDSA 算法签发时的配置。"""
+
+public_key.desc:
+"""用于验证 JWT 的公钥。"""
+
+public_key.label:
+"""公钥"""
+
+refresh_interval.desc:
+"""JWKS 刷新间隔。"""
+
+refresh_interval.label:
+"""JWKS 刷新间隔"""
+
+secret.desc:
+"""使用 HMAC 算法时用于验证 JWT 的密钥"""
+
+secret.label:
+"""Secret"""
+
+secret_base64_encoded.desc:
+"""密钥是否为 Base64 编码。"""
+
+secret_base64_encoded.label:
+"""密钥是否为 Base64 编码"""
+
+server_name_indication.desc:
+"""服务器名称指示（SNI）。"""
+
+server_name_indication.label:
+"""服务器名称指示"""
+
+ssl.desc:
+"""SSL 选项。"""
+
+ssl.label:
+"""SSL 选项"""
+
+use_jwks.desc:
+"""是否使用 JWKS。"""
+
+use_jwks.label:
+"""是否使用 JWKS"""
+
+verify.desc:
+"""指定握手过程中是否校验对端证书。"""
+
+verify.label:
+"""Verify"""
+
+verify_claims.desc:
+"""需要验证的自定义声明列表，它是一个名称/值对列表。
+值可以使用以下占位符：
+- <code>${username}</code>: 将在运行时被替换为客户端连接时使用的用户名
+- <code>${clientid}</code>: 将在运行时被替换为客户端连接时使用的客户端标识符
+认证时将验证 JWT（取自 Password 字段）中 claims 的值是否与 <code>verify_claims</code> 中要求的相匹配。"""
+
+verify_claims.label:
+"""Verify Claims"""
+
+}

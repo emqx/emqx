@@ -1,185 +1,90 @@
 emqx_authz_api_schema {
-  enable {
-    desc {
-      en: """Set to <code>true</code> or <code>false</code> to disable this ACL provider."""
-      zh: """设为 <code>true</code> 或 <code>false</code> 以启用或禁用此访问控制数据源。"""
-    }
-    label {
-      en: """enable"""
-      zh: """enable"""
-    }
-  }
 
-  type {
-    desc {
-      en: """Backend type."""
-      zh: """数据后端类型。"""
-    }
-    label {
-      en: """type"""
-      zh: """type"""
-    }
-  }
+body.desc:
+"""HTTP request body."""
 
-#==== authz_file
+body.label:
+"""body"""
 
-  rules {
-    desc {
-      en: """Authorization static file rules."""
-      zh: """静态授权文件规则。"""
-    }
-    label {
-      en: """rules"""
-      zh: """规则"""
-    }
-  }
+cmd.desc:
+"""Database query used to retrieve authorization data."""
 
-#==== authz_http
+cmd.label:
+"""cmd"""
 
-  method {
-    desc {
-      en: """HTTP method."""
-      zh: """HTTP 请求方法。"""
-    }
-    label {
-      en: """method"""
-      zh: """method"""
-    }
-  }
+collection.desc:
+"""`MongoDB` collection containing the authorization data."""
 
-  url {
-    desc {
-      en: """URL of the auth server."""
-      zh: """认证服务器 URL。"""
-    }
-    label {
-      en: """url"""
-      zh: """url"""
-    }
-  }
+collection.label:
+"""collection"""
 
-  headers {
-    desc {
-      en: """List of HTTP Headers."""
-      zh: """HTTP Headers 列表"""
-    }
-    label {
-      en: """Headers"""
-      zh: """请求头"""
-    }
-  }
+enable.desc:
+"""Set to <code>true</code> or <code>false</code> to disable this ACL provider."""
 
-  headers_no_content_type {
-    desc {
-      en: """List of HTTP headers (without <code>content-type</code>)."""
-      zh: """HTTP Headers 列表（无 <code>content-type</code>）。"""
-    }
-    label {
-      en: """headers_no_content_type"""
-      zh: """请求头(无 content-type)"""
-    }
-  }
+enable.label:
+"""enable"""
 
-  body {
-    desc {
-      en: """HTTP request body."""
-      zh: """HTTP 请求体。"""
-    }
-    label {
-      en: """body"""
-      zh: """请求体"""
-    }
-  }
-
-  request_timeout {
-    desc {
-      en: """Request timeout."""
-      zh: """请求超时时间。"""
-    }
-    label {
-      en: """request_timeout"""
-      zh: """请求超时"""
-    }
-  }
-
-#==== authz_mnesia
-
-# only common fields(`enable` and `type`)
-
-#==== authz_mongo
-
-  collection {
-    desc {
-      en: """`MongoDB` collection containing the authorization data."""
-      zh: """`MongoDB` 授权数据集。"""
-    }
-    label {
-      en: """collection"""
-      zh: """数据集"""
-    }
-  }
-
-  filter {
-    desc {
-      en: """Conditional expression that defines the filter condition in the query.
+filter.desc:
+"""Conditional expression that defines the filter condition in the query.
 Filter supports the following placeholders:
  - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting;
  - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting."""
-      zh: """在查询中定义过滤条件的条件表达式。
-过滤器支持如下占位符：
-- <code>${username}</code>: 将在运行时被替换为客户端连接时使用的用户名
-- <code>${clientid}</code>: 将在运行时被替换为客户端连接时使用的客户端标识符"""
-    }
-    label {
-      en: """Filter"""
-      zh: """过滤器"""
-    }
-  }
 
-#==== authz_mysql
+filter.label:
+"""Filter"""
 
-# `query`, is common field
+headers.desc:
+"""List of HTTP Headers."""
 
-#==== authz_pgsql
+headers.label:
+"""Headers"""
 
-# `query`, is common field
+headers_no_content_type.desc:
+"""List of HTTP headers (without <code>content-type</code>)."""
 
-#==== authz_redis
+headers_no_content_type.label:
+"""headers_no_content_type"""
 
-  cmd {
-    desc {
-      en: """Database query used to retrieve authorization data."""
-      zh: """访问控制数据查询命令。"""
-    }
-    label {
-      en: """cmd"""
-      zh: """查询命令"""
-    }
-  }
+method.desc:
+"""HTTP method."""
 
-#==== common field for DBs (except mongodb and redis)
+method.label:
+"""method"""
 
-  query {
-    desc {
-      en: """Database query used to retrieve authorization data."""
-      zh: """访问控制数据查询语句。"""
-    }
-    label {
-      en: """query"""
-      zh: """查询语句"""
-    }
-  }
+position.desc:
+"""Where to place the source."""
 
-#==== fields
+position.label:
+"""position"""
 
-  position {
-    desc {
-      en: """Where to place the source."""
-      zh: """认证数据源位置。"""
-    }
-    label {
-      en: """position"""
-      zh: """位置"""
-    }
-  }
+query.desc:
+"""Database query used to retrieve authorization data."""
+
+query.label:
+"""query"""
+
+request_timeout.desc:
+"""Request timeout."""
+
+request_timeout.label:
+"""request_timeout"""
+
+rules.desc:
+"""Authorization static file rules."""
+
+rules.label:
+"""rules"""
+
+type.desc:
+"""Backend type."""
+
+type.label:
+"""type"""
+
+url.desc:
+"""URL of the auth server."""
+
+url.label:
+"""url"""
+
 }
