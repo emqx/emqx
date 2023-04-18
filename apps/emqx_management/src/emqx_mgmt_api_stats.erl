@@ -145,12 +145,3 @@ list(get, #{query_string := Qs}) ->
 
 %%%==============================================================================================
 %% Internal
-
-running_nodes() ->
-    Nodes = erlang:nodes([visible, this]),
-    RpcResults = emqx_proto_v2:are_running(Nodes),
-    [
-        Node
-     || {Node, IsRunning} <- lists:zip(Nodes, RpcResults),
-        IsRunning =:= {ok, true}
-    ].
