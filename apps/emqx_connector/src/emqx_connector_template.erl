@@ -30,6 +30,7 @@
 -export([render_strict/2]).
 -export([render_strict/3]).
 
+-export([lookup_var/2]).
 -export([to_string/1]).
 
 -export_type([t/0]).

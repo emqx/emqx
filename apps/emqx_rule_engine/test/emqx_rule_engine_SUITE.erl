@@ -1364,14 +1364,13 @@ t_sqlselect_inject_props(_Config) ->
             actions => [Repub]
         }
     ),
-    Props = user_properties(#{<<"inject_key">> => <<"inject_val">>}),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, #{}, <<"{\"x\":1}">>, [{qos, 0}]),
     receive
-        {publish, #{topic := T, payload := Payload, properties := Props2}} ->
-            ?assertEqual(Props, Props2),
+        {publish, #{topic := T, payload := Payload, properties := Props}} ->
+            ?assertEqual(user_properties(#{<<"inject_key">> => <<"inject_val">>}), Props),
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1}">>, Payload)
     after 2000 ->
