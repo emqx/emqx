@@ -17,7 +17,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-24.3.4.2-3-debian11
+    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-debian11
 
     steps:
       - uses: actions/checkout@v3
@@ -50,7 +50,7 @@ jobs:
         os:
           - ["debian11", "debian:11-slim"]
         builder:
-          - 5.0-33
+          - 5.0-34
         otp:
           - 24.3.4.2-3
         elixir:
@@ -123,7 +123,7 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         builder:
-        - 5.0-33
+        - 5.0-34
         otp:
         - 24.3.4.2-3
         elixir:
