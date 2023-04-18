@@ -22,11 +22,11 @@
 ]).
 
 -define(DEFAULT_SQL, <<
-    "insert into t_mqtt_msg(msgid, topic, qos, payload)"
-    "values (${id}, ${topic}, ${qos}, ${payload})"
+    "insert into t_mqtt_msg(msgid, topic, qos, payload) "
+    "values ( ${id}, ${topic}, ${qos}, ${payload} )"
 >>).
 
--define(DEFAULT_DRIVER, <<"ms-sqlserver-18">>).
+-define(DEFAULT_DRIVER, <<"FreeTDS">>).
 
 conn_bridge_examples(Method) ->
     [
