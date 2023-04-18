@@ -7,9 +7,10 @@ and a superset of JSON.
 EMQX configuration consists of two layers.
 From bottom up:
 
-1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
+1. Cluster configs: `$EMQX_NODE__DATA_DIR/configs/cluster.hocon`
+2. `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
    Changes in this layer require a full node restart to take effect.
-2. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster.hocon`
+
 
 When environment variable `$EMQX_NODE__DATA_DIR` is not set, config `node.data_dir`
 is used.
@@ -144,8 +145,7 @@ For example, this environment variable sets an array value.
 ```
 export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
 ```
-
-However this also means a string value should be quoted if it happens to contain special
+However, this also means a string value should be quoted if it happens to contain special
 characters such as `=` and `:`.
 
 For example, a string value `"localhost:1883"` would be
