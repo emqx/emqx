@@ -24,7 +24,6 @@
 
 -include("emqx_prometheus.hrl").
 
--include_lib("prometheus/include/prometheus.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -114,16 +113,12 @@ handle_info(_Msg, State) ->
 
 push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
-    JobName1 = emqx_placeholder:preproc_tmpl(JobName),
-    JobName2 = binary_to_list(
-        emqx_placeholder:proc_tmpl(
-            JobName1,
-            #{<<"name">> => Name, <<"host">> => Ip}
-        )
+    JobName1 = emqx_connector_template:render_strict(
+        emqx_connector_template:parse(JobName),
+        #{<<"name">> => Name, <<"host">> => Ip}
     ),
-
-    Url = lists:concat([Uri, "/metrics/job/", JobName2]),
     Data = prometheus_text_format:format(),
+    Url = lists:concat([Uri, "/metrics/job/", unicode:characters_to_list(JobName1)]),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
         {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
