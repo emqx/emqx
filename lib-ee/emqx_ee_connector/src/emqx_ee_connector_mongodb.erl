@@ -148,7 +148,7 @@ create_mapping_of_references_to_tuple_values(Message) ->
                 Ref0 = emqx_guid:to_hexstr(emqx_guid:gen()),
                 Ref = <<"MONGO_DATE_REF_", Ref0/binary>>,
                 maps:put(Ref, Value, TupleMap);
-            (_key, _value, TupleMap) ->
+            (_Key, _Value, TupleMap) ->
                 TupleMap
         end,
         #{},
