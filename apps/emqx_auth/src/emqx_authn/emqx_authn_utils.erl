@@ -45,12 +45,12 @@
 ]).
 
 -define(AUTHN_PLACEHOLDERS, [
-    ?PH_USERNAME,
-    ?PH_CLIENTID,
-    ?PH_PASSWORD,
-    ?PH_PEERHOST,
-    ?PH_CERT_SUBJECT,
-    ?PH_CERT_CN_NAME
+    <<?VAR_USERNAME>>,
+    <<?VAR_CLIENTID>>,
+    <<?VAR_PASSWORD>>,
+    <<?VAR_PEERHOST>>,
+    <<?VAR_CERT_SUBJECT>>,
+    <<?VAR_CERT_CN_NAME>>
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
@@ -107,48 +107,62 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
     end.
 
 parse_deep(Template) ->
-    emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => ?AUTHN_PLACEHOLDERS}).
+    Result = emqx_connector_template:parse_deep(Template),
+    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
+    Result.
 
 parse_str(Template) ->
-    emqx_placeholder:preproc_tmpl(Template, #{placeholders => ?AUTHN_PLACEHOLDERS}).
+    Result = emqx_connector_template:parse(Template),
+    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
+    Result.
 
 parse_sql(Template, ReplaceWith) ->
-    emqx_placeholder:preproc_sql(
+    {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
         Template,
-        #{
-            replace_with => ReplaceWith,
-            placeholders => ?AUTHN_PLACEHOLDERS,
-            strip_double_quote => true
-        }
-    ).
+        #{parameters => ReplaceWith, strip_double_quote => true}
+    ),
+    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
+    {Statement, Result}.
 
 render_deep(Template, Credential) ->
-    emqx_placeholder:proc_tmpl_deep(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Term, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun handle_var/2}
+    ),
+    Term.
 
 render_str(Template, Credential) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun handle_var/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_urlencoded_str(Template, Credential) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{return => full_binary, var_trans => fun urlencode_var/2}
-    ).
+        #{var_trans => fun urlencode_var/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_sql_params(ParamList, Credential) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Row, _Errors} = emqx_connector_template:render(
         ParamList,
         mapping_credential(Credential),
-        #{return => rawlist, var_trans => fun handle_sql_var/2}
-    ).
+        #{var_trans => fun handle_sql_var/2}
+    ),
+    Row.
 
 is_superuser(#{<<"is_superuser">> := Value}) ->
     #{is_superuser => to_bool(Value)};
@@ -272,19 +286,19 @@ without_password(Credential, [Name | Rest]) ->
 urlencode_var(Var, Value) ->
     emqx_http_lib:uri_encode(handle_var(Var, Value)).
 
-handle_var(_Name, undefined) ->
+handle_var(_, undefined) ->
     <<>>;
 handle_var([<<"peerhost">>], PeerHost) ->
-    emqx_placeholder:bin(inet:ntoa(PeerHost));
+    emqx_connector_template:to_string(inet:ntoa(PeerHost));
 handle_var(_, Value) ->
-    emqx_placeholder:bin(Value).
+    emqx_connector_template:to_string(Value).
 
-handle_sql_var(_Name, undefined) ->
+handle_sql_var(_, undefined) ->
     <<>>;
 handle_sql_var([<<"peerhost">>], PeerHost) ->
-    emqx_placeholder:bin(inet:ntoa(PeerHost));
+    emqx_connector_sql:to_sql_value(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->
-    emqx_placeholder:sql_data(Value).
+    emqx_connector_sql:to_sql_value(Value).
 
 mapping_credential(C = #{cn := CN, dn := DN}) ->
     C#{cert_common_name => CN, cert_subject => DN};

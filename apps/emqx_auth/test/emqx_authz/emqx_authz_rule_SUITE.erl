@@ -67,6 +67,10 @@ set_special_configs(_App) ->
     ok.
 
 t_compile(_) ->
+    % NOTE
+    % Some of the following testcase are relying on the internal representation of
+    % `emqx_connector_template:t()`. If the internal representation is changed, these
+    % testcases may fail.
     ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile({deny, all})),
 
     ?assertEqual(
@@ -116,7 +120,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, publish, [
-            {pattern, [{str, <<"t/foo">>}, {var, [<<"username">>]}, {str, <<"boo">>}]}
+            {pattern, [<<"t/foo">>, {var, [<<"username">>]}, <<"boo">>]}
         ]},
         emqx_authz_rule:compile({allow, {username, "test"}, publish, ["t/foo${username}boo"]})
     ),

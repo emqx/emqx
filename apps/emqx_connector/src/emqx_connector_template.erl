@@ -153,7 +153,7 @@ trivial(Template) ->
 unparse({'$tpl', Template}) ->
     unparse_deep(Template);
 unparse(Template) ->
-    lists:map(fun unparse_part/1, Template).
+    unicode:characters_to_list(lists:map(fun unparse_part/1, Template)).
 
 unparse_part({var, Name}) ->
     render_placeholder(Name);
@@ -222,7 +222,7 @@ render_strict(Template, Bindings, Opts) ->
         {String, []} ->
             String;
         {_, Errors = [_ | _]} ->
-            error(Errors, [unicode:characters_to_list(unparse(Template)), Bindings])
+            error(Errors, [unparse(Template), Bindings])
     end.
 
 %% @doc Parse an arbitrary Erlang term into a "deep" template.
@@ -306,9 +306,7 @@ unparse_deep(Term) ->
 
 -spec lookup_var(var(), bindings()) ->
     {ok, binding()} | {error, undefined}.
-lookup_var(?PH_VAR_THIS, Value) ->
-    {ok, Value};
-lookup_var([], Value) ->
+lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     {ok, Value};
 lookup_var([Prop | Rest], Bindings) ->
     case lookup(Prop, Bindings) of

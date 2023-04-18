@@ -183,19 +183,15 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    TopicBin = bin(Topic),
-    case
-        emqx_placeholder:preproc_tmpl(
-            TopicBin,
-            #{placeholders => [?PH_USERNAME, ?PH_CLIENTID]}
-        )
-    of
-        [{str, _}] -> emqx_topic:words(TopicBin);
-        Tokens -> {pattern, Tokens}
+    Template = emqx_connector_template:parse(Topic),
+    ok = emqx_connector_template:validate([<<?VAR_USERNAME>>, <<?VAR_CLIENTID>>], Template),
+    case emqx_connector_template:trivial(Template) of
+        true -> emqx_topic:words(bin(Topic));
+        false -> {pattern, Template}
     end.
 
 bin(L) when is_list(L) ->
-    list_to_binary(L);
+    unicode:characters_to_binary(L);
 bin(B) when is_binary(B) ->
     B.
 
@@ -307,7 +303,7 @@ match_who(_, _) ->
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
-    TopicFilter = emqx_placeholder:proc_tmpl(PatternFilter, ClientInfo),
+    TopicFilter = bin(emqx_connector_template:render_strict(PatternFilter, ClientInfo)),
     match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter)) orelse
         match_topics(ClientInfo, Topic, Filters);
 match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->

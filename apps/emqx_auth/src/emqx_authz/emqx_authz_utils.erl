@@ -108,48 +108,62 @@ update_config(Path, ConfigRequest) ->
     }).
 
 parse_deep(Template, PlaceHolders) ->
-    emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => PlaceHolders}).
+    Result = emqx_connector_template:parse_deep(Template),
+    ok = emqx_connector_template:validate(PlaceHolders, Result),
+    Result.
 
 parse_str(Template, PlaceHolders) ->
-    emqx_placeholder:preproc_tmpl(Template, #{placeholders => PlaceHolders}).
+    Result = emqx_connector_template:parse(Template),
+    ok = emqx_connector_template:validate(PlaceHolders, Result),
+    Result.
 
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
-    emqx_placeholder:preproc_sql(
+    {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
         Template,
-        #{
-            replace_with => ReplaceWith,
-            placeholders => PlaceHolders,
-            strip_double_quote => true
-        }
-    ).
+        #{parameters => ReplaceWith, strip_double_quote => true}
+    ),
+    ok = emqx_connector_template:validate(PlaceHolders, Result),
+    {Statement, Result}.
 
 render_deep(Template, Values) ->
-    emqx_placeholder:proc_tmpl_deep(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Term, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun handle_var/2}
+    ),
+    Term.
 
 render_str(Template, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun handle_var/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_urlencoded_str(Template, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun urlencode_var/2}
-    ).
+        #{var_trans => fun urlencode_var/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_sql_params(ParamList, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Row, _Errors} = emqx_connector_template:render(
         ParamList,
         client_vars(Values),
-        #{return => rawlist, var_trans => fun handle_sql_var/2}
-    ).
+        #{var_trans => fun handle_sql_var/2}
+    ),
+    Row.
 
 -spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error.
 parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
@@ -218,19 +232,19 @@ convert_client_var(Other) -> Other.
 urlencode_var(Var, Value) ->
     emqx_http_lib:uri_encode(handle_var(Var, Value)).
 
-handle_var(_Name, undefined) ->
+handle_var(_, undefined) ->
     <<>>;
 handle_var([<<"peerhost">>], IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_var(_Name, Value) ->
-    emqx_placeholder:bin(Value).
+    emqx_connector_template:to_string(Value).
 
-handle_sql_var(_Name, undefined) ->
+handle_sql_var(_, undefined) ->
     <<>>;
 handle_sql_var([<<"peerhost">>], IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_sql_var(_Name, Value) ->
-    emqx_placeholder:sql_data(Value).
+    emqx_connector_sql:to_sql_value(Value).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

@@ -38,11 +38,11 @@
 -endif.
 
 -define(PLACEHOLDERS, [
-    ?PH_USERNAME,
-    ?PH_CLIENTID,
-    ?PH_PEERHOST,
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT
+    <<?VAR_USERNAME>>,
+    <<?VAR_CLIENTID>>,
+    <<?VAR_PEERHOST>>,
+    <<?VAR_CERT_CN_NAME>>,
+    <<?VAR_CERT_SUBJECT>>
 ]).
 
 description() ->
