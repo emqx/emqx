@@ -599,8 +599,8 @@ emqx_cluster() ->
     ].
 
 emqx_cluster_data() ->
-    Running = mria:cluster_nodes(running),
-    Stopped = mria:cluster_nodes(stopped),
+    Running = emqx:cluster_nodes(running),
+    Stopped = emqx:cluster_nodes(stopped),
     [
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}
