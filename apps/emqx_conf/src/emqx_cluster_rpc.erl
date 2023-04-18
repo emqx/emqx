@@ -577,7 +577,7 @@ do_alarm(Fun, Res, #{tnx_id := Id} = Meta) ->
 
 wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
     Lagging = lagging_nodes(TnxId),
-    Stopped = Lagging -- mria:running_nodes(),
+    Stopped = Lagging -- emqx:running_nodes(),
     case Lagging -- Stopped of
         [] when Stopped =:= [] ->
             ok;
@@ -602,7 +602,7 @@ wait_for_nodes_commit(RequiredSyncs, TnxId, Delay, Remain) ->
                 [] ->
                     ok;
                 Lagging ->
-                    Stopped = Lagging -- mria:running_nodes(),
+                    Stopped = Lagging -- emqx:running_nodes(),
                     case Stopped of
                         [] -> {peers_lagging, Lagging};
                         _ -> {stopped_nodes, Stopped}

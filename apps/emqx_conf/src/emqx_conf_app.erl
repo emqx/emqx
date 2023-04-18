@@ -119,7 +119,7 @@ init_conf() ->
     ok.
 
 cluster_nodes() ->
-    mria:cluster_nodes(cores) -- [node()].
+    emqx:cluster_nodes(cores) -- [node()].
 
 %% @doc Try to sync the cluster config from other core nodes.
 sync_cluster_conf() ->

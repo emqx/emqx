@@ -49,15 +49,15 @@ init_per_suite(Config) ->
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
-    meck:new(mria, [non_strict, passthrough, no_link]),
-    meck:expect(mria, running_nodes, 0, [?NODE1, {node(), ?NODE2}, {node(), ?NODE3}]),
+    meck:new(emqx, [non_strict, passthrough, no_link]),
+    meck:expect(emqx, running_nodes, 0, [?NODE1, {node(), ?NODE2}, {node(), ?NODE3}]),
     Config.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([]),
     ekka:stop(),
     mria:stop(),
-    meck:unload(mria),
+    meck:unload(emqx),
     mria_mnesia:delete_schema(),
     meck:unload(emqx_alarm),
     ok.
