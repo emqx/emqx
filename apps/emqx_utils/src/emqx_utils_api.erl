@@ -62,7 +62,7 @@ lookup_node(Node) when is_atom(Node) ->
 
 -spec is_running_node(atom()) -> {ok, atom()} | not_found.
 is_running_node(Node) ->
-    case lists:member(Node, mria:running_nodes()) of
+    case lists:member(Node, emqx:running_nodes()) of
         true ->
             {ok, Node};
         false ->
