@@ -530,15 +530,16 @@ t_write_failure(Config) ->
         fun(Trace0) ->
             ct:pal("trace: ~p", [Trace0]),
             Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
-            ?assertMatch([#{result := {async_return, {error, _}}} | _], Trace),
-            [#{result := {async_return, {error, Error}}} | _] = Trace,
-            case Error of
-                {resource_error, _} ->
+            [#{result := Result} | _] = Trace,
+            case Result of
+                {async_return, {error, {resource_error, _}}} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {async_return, {error, {recoverable_error, disconnected}}} ->
+                    ok;
+                {error, {resource_error, _}} ->
                     ok;
                 _ ->
-                    ct:fail("unexpected error: ~p", [Error])
+                    ct:fail("unexpected error: ~p", [Result])
             end
         end
     ),
