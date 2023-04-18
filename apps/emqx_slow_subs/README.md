@@ -4,10 +4,11 @@ This application can calculate the latency (time spent) of the message to be pro
 
 If the latency exceeds a specified threshold, this application will add the subscriber and topic information to a slow subscriptions list or update the existing record.
 
-# How To Use
+More introduction: [Slow Subscriptions](https://www.emqx.io/docs/en/v5.0/observability/slow-subscribers-statistics.html)
+
+# Usage
 
 You can add the below section into `emqx.conf` to enable this application
-
 
 ```yaml
 slow_subs {
@@ -19,6 +20,8 @@ slow_subs {
 }
 ```
 
+# Configurations
+
 **threshold**: Latency threshold for statistics, only messages with latency exceeding this value will be collected.
 
 Minimum value: 100ms  
@@ -28,7 +31,7 @@ Default value: 500ms
 
 Default: 300s
 
-**top_k_num**: Maximum number of records in the slow subscription statistics record table. 
+**top_k_num**: Maximum number of records in the slow subscription statistics record table.
 
 Maximum value: 1,000  
 Default value: 10
@@ -39,3 +42,6 @@ Default value: 10
 - **response**: From the time EMQX starts delivering the message until the message transmission completes
 
 Default value: whole
+
+# Contributing - [Mandatory]
+Please see our [contributing.md](../../CONTRIBUTING.md).
