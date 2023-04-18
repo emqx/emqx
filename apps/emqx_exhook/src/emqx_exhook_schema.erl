@@ -32,7 +32,7 @@
 namespace() -> exhook.
 
 roots() ->
-    [{exhook, ?HOCON(?R_REF(exhook), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{exhook, ?HOCON(?R_REF(exhook), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(exhook) ->
     [
