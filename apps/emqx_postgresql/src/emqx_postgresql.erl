@@ -52,15 +52,12 @@
     default_port => ?PGSQL_DEFAULT_PORT
 }).
 
--type prepares() :: #{atom() => binary()}.
--type params_tokens() :: #{atom() => list()}.
-
+-type template() :: {unicode:chardata(), emqx_connector_template_sql:row_template()}.
 -type state() ::
     #{
         pool_name := binary(),
-        prepare_sql := prepares(),
-        params_tokens := params_tokens(),
-        prepare_statement := epgsql:statement()
+        query_templates := #{binary() => template()},
+        prepares := #{binary() => epgsql:statement()} | {error, _}
     }.
 
 %% FIXME: add `{error, sync_required}' to `epgsql:execute_batch'
@@ -142,7 +139,7 @@ on_start(
     State = parse_prepare_sql(Config),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
+            {ok, init_prepare(State#{pool_name => InstId, prepares => #{}})};
         {error, Reason} ->
             ?tp(
                 pgsql_connector_start_failed,
@@ -189,55 +186,50 @@ pgsql_query_type(_) ->
 
 on_batch_query(
     InstId,
-    BatchReq,
-    #{pool_name := PoolName, params_tokens := Tokens, prepare_statement := Sts} = State
+    [{Key, _} = Request | _] = BatchReq,
+    #{pool_name := PoolName, query_templates := Templates, prepares := PrepStatements} = State
 ) ->
-    case BatchReq of
-        [{Key, _} = Request | _] ->
-            BinKey = to_bin(Key),
-            case maps:get(BinKey, Tokens, undefined) of
-                undefined ->
-                    Log = #{
-                        connector => InstId,
-                        first_request => Request,
-                        state => State,
-                        msg => "batch_prepare_not_implemented"
-                    },
-                    ?SLOG(error, Log),
-                    {error, {unrecoverable_error, batch_prepare_not_implemented}};
-                TokenList ->
-                    {_, Datas} = lists:unzip(BatchReq),
-                    Datas2 = [emqx_placeholder:proc_sql(TokenList, Data) || Data <- Datas],
-                    St = maps:get(BinKey, Sts),
-                    case on_sql_query(InstId, PoolName, execute_batch, St, Datas2) of
-                        {error, _Error} = Result ->
-                            handle_result(Result);
-                        {_Column, Results} ->
-                            handle_batch_result(Results, 0)
-                    end
-            end;
-        _ ->
+    BinKey = to_bin(Key),
+    case maps:get(BinKey, Templates, undefined) of
+        undefined ->
             Log = #{
                 connector => InstId,
-                request => BatchReq,
+                first_request => Request,
                 state => State,
-                msg => "invalid_request"
+                msg => "batch prepare not implemented"
             },
             ?SLOG(error, Log),
-            {error, {unrecoverable_error, invalid_request}}
-    end.
+            {error, {unrecoverable_error, batch_prepare_not_implemented}};
+        {_Statement, RowTemplate} ->
+            PrepStatement = maps:get(BinKey, PrepStatements),
+            Rows = [render_prepare_sql_row(RowTemplate, Data) || {_Key, Data} <- BatchReq],
+            case on_sql_query(InstId, PoolName, execute_batch, PrepStatement, Rows) of
+                {error, _Error} = Result ->
+                    handle_result(Result);
+                {_Column, Results} ->
+                    handle_batch_result(Results, 0)
+            end
+    end;
+on_batch_query(InstId, BatchReq, State) ->
+    ?SLOG(error, #{
+        connector => InstId,
+        request => BatchReq,
+        state => State,
+        msg => "invalid request"
+    }),
+    {error, {unrecoverable_error, invalid_request}}.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
-proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) ->
+proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) ->
     Key = to_bin(TypeOrKey),
-    case maps:get(Key, ParamsTokens, undefined) of
+    case maps:get(Key, Templates, undefined) of
         undefined ->
             {SQLOrData, Params};
-        Tokens ->
-            {Key, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
+        {_Statement, RowTemplate} ->
+            {Key, render_prepare_sql_row(RowTemplate, SQLOrData)}
     end.
 
 on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
@@ -297,9 +289,9 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
-                {error, {undefined_table, NState}} ->
+                {error, undefined_table} ->
                     %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, NState, unhealthy_target};
+                    {disconnected, State, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
                     connecting
@@ -314,8 +306,8 @@ do_get_status(Conn) ->
 do_check_prepares(
     #{
         pool_name := PoolName,
-        prepare_sql := #{<<"send_message">> := SQL}
-    } = State
+        query_templates := #{<<"send_message">> := {SQL, _RowTemplate}}
+    }
 ) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     case validate_table_existence(WorkerPids, SQL) of
@@ -324,19 +316,16 @@ do_check_prepares(
         {error, undefined_table} ->
             {error, {undefined_table, State}}
     end;
-do_check_prepares(#{prepare_sql := Prepares}) when is_map(Prepares) ->
+do_check_prepares(#{prepares := Prepares}) when is_map(Prepares) ->
     ok;
-do_check_prepares(State = #{pool_name := PoolName, prepare_sql := {error, Prepares}}) ->
+do_check_prepares(#{prepares := {error, _}} = State) ->
     %% retry to prepare
-    case prepare_sql(Prepares, PoolName) of
-        {ok, Sts} ->
+    case prepare_sql(State) of
+        {ok, PrepStatements} ->
             %% remove the error
-            {ok, State#{prepare_sql => Prepares, prepare_statement := Sts}};
-        {error, undefined_table} ->
-            %% indicate the error
-            {error, {undefined_table, State#{prepare_sql => {error, Prepares}}}};
-        Error ->
-            {error, Error}
+            {ok, State#{prepares := PrepStatements}};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 -spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
@@ -426,69 +415,63 @@ conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
 parse_prepare_sql(Config) ->
-    SQL =
-        case maps:get(prepare_statement, Config, undefined) of
-            undefined ->
-                case maps:get(sql, Config, undefined) of
-                    undefined -> #{};
-                    Template -> #{<<"send_message">> => Template}
-                end;
-            Any ->
-                Any
+    Queries =
+        case Config of
+            #{prepare_statement := Qs} ->
+                Qs;
+            #{sql := Query} ->
+                #{<<"send_message">> => Query};
+            #{} ->
+                #{}
         end,
-    parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
+    Templates = maps:fold(fun parse_prepare_sql/3, #{}, Queries),
+    #{query_templates => Templates}.
 
-parse_prepare_sql([{Key, H} | T], Prepares, Tokens) ->
-    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H, '$n'),
-    parse_prepare_sql(
-        T, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}
-    );
-parse_prepare_sql([], Prepares, Tokens) ->
-    #{
-        prepare_sql => Prepares,
-        params_tokens => Tokens
-    }.
+parse_prepare_sql(Key, Query, Acc) ->
+    Template = emqx_connector_template_sql:parse_prepstmt(Query, #{parameters => '$n'}),
+    Acc#{Key => Template}.
 
-init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName}) ->
-    case maps:size(Prepares) of
-        0 ->
-            State;
-        _ ->
-            case prepare_sql(Prepares, PoolName) of
-                {ok, Sts} ->
-                    State#{prepare_statement := Sts};
-                Error ->
-                    LogMsg =
-                        maps:merge(
-                            #{msg => <<"postgresql_init_prepare_statement_failed">>},
-                            translate_to_log_context(Error)
-                        ),
-                    ?SLOG(error, LogMsg),
-                    %% mark the prepare_sql as failed
-                    State#{prepare_sql => {error, Prepares}}
-            end
+render_prepare_sql_row(RowTemplate, Data) ->
+    % NOTE: ignoring errors here, missing variables will be replaced with `null`.
+    {Row, _Errors} = emqx_connector_template_sql:render_prepstmt(RowTemplate, Data),
+    Row.
+
+init_prepare(State = #{query_templates := Templates}) when map_size(Templates) == 0 ->
+    State;
+init_prepare(State = #{}) ->
+    case prepare_sql(State) of
+        {ok, PrepStatements} ->
+            State#{prepares => PrepStatements};
+        Error ->
+            ?SLOG(error, maps:merge(
+                #{msg => <<"postgresql_init_prepare_statement_failed">>},
+                translate_to_log_context(Error)
+            )),
+            %% mark the prepares failed
+            State#{prepares => Error}
     end.
 
-prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
-    prepare_sql(maps:to_list(Prepares), PoolName);
-prepare_sql(Prepares, PoolName) ->
-    case do_prepare_sql(Prepares, PoolName) of
+prepare_sql(#{query_templates := Templates, pool_name := PoolName}) ->
+    prepare_sql(maps:to_list(Templates), PoolName).
+
+prepare_sql(Templates, PoolName) ->
+    case do_prepare_sql(Templates, PoolName) of
         {ok, _Sts} = Ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Prepares]}),
+            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]}),
             Ok;
         Error ->
             Error
     end.
 
-do_prepare_sql(Prepares, PoolName) ->
-    do_prepare_sql(ecpool:workers(PoolName), Prepares, #{}).
+do_prepare_sql(Templates, PoolName) ->
+    do_prepare_sql(ecpool:workers(PoolName), Templates, #{}).
 
-do_prepare_sql([{_Name, Worker} | T], Prepares, _LastSts) ->
+do_prepare_sql([{_Name, Worker} | Rest], Templates, _LastSts) ->
     {ok, Conn} = ecpool_worker:client(Worker),
-    case prepare_sql_to_conn(Conn, Prepares) of
+    case prepare_sql_to_conn(Conn, Templates) of
         {ok, Sts} ->
-            do_prepare_sql(T, Prepares, Sts);
+            do_prepare_sql(Rest, Templates, Sts);
         Error ->
             Error
     end;
@@ -498,13 +481,14 @@ do_prepare_sql([], _Prepares, LastSts) ->
 prepare_sql_to_conn(Conn, Prepares) ->
     prepare_sql_to_conn(Conn, Prepares, #{}).
 
-prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) -> {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Conn) ->
-    LogMeta = #{msg => "postgresql_prepare_statement", name => Key, prepare_sql => SQL},
+prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) ->
+    {ok, Statements};
+prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when is_pid(Conn) ->
+    LogMeta = #{msg => "PostgreSQL Prepare Statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
-            prepare_sql_to_conn(Conn, PrepareList, Statements#{Key => Statement});
+            prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement});
         {error, {error, error, _, undefined_table, _, _} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),

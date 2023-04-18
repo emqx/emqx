@@ -479,61 +479,47 @@ preprocess_request(
     } = Req
 ) ->
     #{
-        method => emqx_placeholder:preproc_tmpl(to_bin(Method)),
-        path => emqx_placeholder:preproc_tmpl(Path),
-        body => maybe_preproc_tmpl(body, Req),
-        headers => wrap_auth_header(preproc_headers(Headers)),
+        method => parse_template(to_bin(Method)),
+        path => parse_template(Path),
+        body => maybe_parse_template(body, Req),
+        headers => parse_headers(Headers),
         request_timeout => maps:get(request_timeout, Req, ?DEFAULT_REQUEST_TIMEOUT_MS),
         max_retries => maps:get(max_retries, Req, 2)
     }.
 
-preproc_headers(Headers) when is_map(Headers) ->
+parse_headers(Headers) when is_map(Headers) ->
     maps:fold(
-        fun(K, V, Acc) ->
-            [
-                {
-                    emqx_placeholder:preproc_tmpl(to_bin(K)),
-                    emqx_placeholder:preproc_tmpl(to_bin(V))
-                }
-                | Acc
-            ]
-        end,
+        fun(K, V, Acc) -> [parse_header(K, V) | Acc] end,
         [],
         Headers
     );
-preproc_headers(Headers) when is_list(Headers) ->
+parse_headers(Headers) when is_list(Headers) ->
     lists:map(
-        fun({K, V}) ->
-            {
-                emqx_placeholder:preproc_tmpl(to_bin(K)),
-                emqx_placeholder:preproc_tmpl(to_bin(V))
-            }
-        end,
+        fun({K, V}) -> parse_header(K, V) end,
         Headers
     ).
 
-wrap_auth_header(Headers) ->
-    lists:map(fun maybe_wrap_auth_header/1, Headers).
+parse_header(K, V) ->
+    KStr = to_bin(K),
+    VTpl = parse_template(to_bin(V)),
+    {parse_template(KStr), maybe_wrap_auth_header(KStr, VTpl)}.
 
-maybe_wrap_auth_header({[{str, Key}] = StrKey, Val}) ->
-    {_, MaybeWrapped} = maybe_wrap_auth_header({Key, Val}),
-    {StrKey, MaybeWrapped};
-maybe_wrap_auth_header({Key, Val} = Header) when
-    is_binary(Key), (size(Key) =:= 19 orelse size(Key) =:= 13)
+maybe_wrap_auth_header(Key, VTpl) when
+    (byte_size(Key) =:= 19 orelse byte_size(Key) =:= 13)
 ->
     %% We check the size of potential keys in the guard above and consider only
     %% those that match the number of characters of either "Authorization" or
     %% "Proxy-Authorization".
     case try_bin_to_lower(Key) of
         <<"authorization">> ->
-            {Key, emqx_secret:wrap(Val)};
+            emqx_secret:wrap(VTpl);
         <<"proxy-authorization">> ->
-            {Key, emqx_secret:wrap(Val)};
+            emqx_secret:wrap(VTpl);
         _Other ->
-            Header
+            VTpl
     end;
-maybe_wrap_auth_header(Header) ->
-    Header.
+maybe_wrap_auth_header(_Key, VTpl) ->
+    VTpl.
 
 try_bin_to_lower(Bin) ->
     try iolist_to_binary(string:lowercase(Bin)) of
@@ -542,45 +528,56 @@ try_bin_to_lower(Bin) ->
         _:_ -> Bin
     end.
 
-maybe_preproc_tmpl(Key, Conf) ->
+maybe_parse_template(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of
         undefined -> undefined;
-        Val -> emqx_placeholder:preproc_tmpl(Val)
+        Val -> parse_template(Val)
     end.
+
+parse_template(String) ->
+    emqx_connector_template:parse(String).
 
 process_request(
     #{
-        method := MethodTks,
-        path := PathTks,
-        body := BodyTks,
-        headers := HeadersTks,
+        method := MethodTemplate,
+        path := PathTemplate,
+        body := BodyTemplate,
+        headers := HeadersTemplate,
         request_timeout := ReqTimeout
     } = Conf,
     Msg
 ) ->
     Conf#{
-        method => make_method(emqx_placeholder:proc_tmpl(MethodTks, Msg)),
-        path => emqx_placeholder:proc_tmpl(PathTks, Msg),
-        body => process_request_body(BodyTks, Msg),
-        headers => proc_headers(HeadersTks, Msg),
+        method => make_method(render_template_string(MethodTemplate, Msg)),
+        path => unicode:characters_to_list(render_template(PathTemplate, Msg)),
+        body => render_request_body(BodyTemplate, Msg),
+        headers => render_headers(HeadersTemplate, Msg),
         request_timeout => ReqTimeout
     }.
 
-process_request_body(undefined, Msg) ->
+render_request_body(undefined, Msg) ->
     emqx_utils_json:encode(Msg);
-process_request_body(BodyTks, Msg) ->
-    emqx_placeholder:proc_tmpl(BodyTks, Msg).
+render_request_body(BodyTks, Msg) ->
+    render_template(BodyTks, Msg).
 
-proc_headers(HeaderTks, Msg) ->
+render_headers(HeaderTks, Msg) ->
     lists:map(
         fun({K, V}) ->
             {
-                emqx_placeholder:proc_tmpl(K, Msg),
-                emqx_placeholder:proc_tmpl(emqx_secret:unwrap(V), Msg)
+                render_template_string(K, Msg),
+                render_template_string(emqx_secret:unwrap(V), Msg)
             }
         end,
         HeaderTks
     ).
+
+render_template(Template, Msg) ->
+    % NOTE: ignoring errors here, missing variables will be rendered as `"undefined"`.
+    {String, _Errors} = emqx_connector_template:render(Template, Msg),
+    String.
+
+render_template_string(Template, Msg) ->
+    unicode:characters_to_binary(render_template(Template, Msg)).
 
 make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
@@ -716,8 +713,6 @@ maybe_retry(Result, _Context, ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 %% The HOCON schema system may generate sensitive keys with this format
-is_sensitive_key([{str, StringKey}]) ->
-    is_sensitive_key(StringKey);
 is_sensitive_key(Atom) when is_atom(Atom) ->
     is_sensitive_key(erlang:atom_to_binary(Atom));
 is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
@@ -742,25 +737,19 @@ redact(Data) ->
 %% and we also can't know the body format and where the sensitive data will be
 %% so the easy way to keep data security is redacted the whole body
 redact_request({Path, Headers}) ->
-    {Path, redact(Headers)};
+    {Path, Headers};
 redact_request({Path, Headers, _Body}) ->
-    {Path, redact(Headers), <<"******">>}.
+    {Path, Headers, <<"******">>}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
 redact_test_() ->
-    TestData1 = [
-        {<<"content-type">>, <<"application/json">>},
-        {<<"Authorization">>, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}
-    ],
-
-    TestData2 = #{
-        headers =>
-            [
-                {[{str, <<"content-type">>}], [{str, <<"application/json">>}]},
-                {[{str, <<"Authorization">>}], [{str, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}]}
-            ]
+    TestData = #{
+        headers => [
+            {<<"content-type">>, <<"application/json">>},
+            {<<"Authorization">>, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}
+        ]
     },
     [
         ?_assert(is_sensitive_key(<<"Authorization">>)),
@@ -770,8 +759,7 @@ redact_test_() ->
         ?_assert(is_sensitive_key('PrOxy-authoRizaTion')),
         ?_assertNot(is_sensitive_key(<<"Something">>)),
         ?_assertNot(is_sensitive_key(89)),
-        ?_assertNotEqual(TestData1, redact(TestData1)),
-        ?_assertNotEqual(TestData2, redact(TestData2))
+        ?_assertNotEqual(TestData, redact(TestData))
     ].
 
 join_paths_test_() ->

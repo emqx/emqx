@@ -83,7 +83,8 @@ is_wrapped(Secret) when is_function(Secret) ->
 is_wrapped(_Other) ->
     false.
 
-untmpl([{_, V} | _]) -> V.
+untmpl(Tpl) ->
+    iolist_to_binary(emqx_connector_template:render_strict(Tpl, #{})).
 
 is_unwrapped_headers(Headers) ->
     lists:all(fun is_unwrapped_header/1, Headers).

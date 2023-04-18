@@ -46,16 +46,12 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
--type prepares() :: #{atom() => binary()}.
--type params_tokens() :: #{atom() => list()}.
--type sqls() :: #{atom() => binary()}.
+-type template() :: {unicode:chardata(), emqx_connector_template:str()}.
 -type state() ::
     #{
         pool_name := binary(),
-        prepare_statement := prepares(),
-        params_tokens := params_tokens(),
-        batch_inserts := sqls(),
-        batch_params_tokens := params_tokens()
+        prepares := ok | {error, _},
+        templates := #{{atom(), batch | prepstmt} => template()}
     }.
 
 %%=====================================================================
@@ -154,13 +150,13 @@ on_query(InstId, {TypeOrKey, SQLOrKey, Params}, State) ->
 on_query(
     InstId,
     {TypeOrKey, SQLOrKey, Params, Timeout},
-    #{pool_name := PoolName, prepare_statement := Prepares} = State
+    State
 ) ->
     MySqlFunction = mysql_function(TypeOrKey),
     {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
     case on_sql_query(InstId, MySqlFunction, SQLOrKey2, Data, Timeout, State) of
         {error, not_prepared} ->
-            case maybe_prepare_sql(SQLOrKey2, Prepares, PoolName) of
+            case maybe_prepare_sql(SQLOrKey2, State) of
                 ok ->
                     ?tp(
                         mysql_connector_on_query_prepared_sql,
@@ -187,23 +183,27 @@ on_query(
 
 on_batch_query(
     InstId,
-    BatchReq,
-    #{batch_inserts := Inserts, batch_params_tokens := ParamsTokens} = State
+    BatchReq = [{Key, _} | _],
+    #{query_templates := Templates} = State
 ) ->
-    case hd(BatchReq) of
-        {Key, _} ->
-            case maps:get(Key, Inserts, undefined) of
-                undefined ->
-                    {error, {unrecoverable_error, batch_select_not_implemented}};
-                InsertSQL ->
-                    Tokens = maps:get(Key, ParamsTokens),
-                    on_batch_insert(InstId, BatchReq, InsertSQL, Tokens, State)
-            end;
-        Request ->
-            LogMeta = #{connector => InstId, first_request => Request, state => State},
-            ?SLOG(error, LogMeta#{msg => "invalid request"}),
-            {error, {unrecoverable_error, invalid_request}}
-    end.
+    case maps:get({Key, batch}, Templates, undefined) of
+        undefined ->
+            {error, {unrecoverable_error, batch_select_not_implemented}};
+        Template ->
+            on_batch_insert(InstId, BatchReq, Template, State)
+    end;
+on_batch_query(
+    InstId,
+    BatchReq,
+    State
+) ->
+    ?SLOG(error, #{
+        msg => "invalid request",
+        connector => InstId,
+        request => BatchReq,
+        state => State
+    }),
+    {error, {unrecoverable_error, invalid_request}}.
 
 mysql_function(sql) ->
     query;
@@ -222,8 +222,8 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
-                {error, {undefined_table, NState}} ->
-                    {disconnected, NState, unhealthy_target};
+                {error, undefined_table} ->
+                    {disconnected, State, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
                     connecting
@@ -238,8 +238,8 @@ do_get_status(Conn) ->
 do_check_prepares(
     #{
         pool_name := PoolName,
-        prepare_statement := #{send_message := SQL}
-    } = State
+        templates := #{{send_message, prepstmt} := SQL}
+    }
 ) ->
     % it's already connected. Verify if target table still exists
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
@@ -250,7 +250,7 @@ do_check_prepares(
                     {ok, Conn} ->
                         case mysql:prepare(Conn, get_status, SQL) of
                             {error, {1146, _, _}} ->
-                                {error, {undefined_table, State}};
+                                {error, undefined_table};
                             {ok, Statement} ->
                                 mysql:unprepare(Conn, Statement);
                             _ ->
@@ -265,17 +265,14 @@ do_check_prepares(
         ok,
         Workers
     );
-do_check_prepares(#{prepare_statement := Statement}) when is_map(Statement) ->
+do_check_prepares(#{prepares := ok}) ->
     ok;
-do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, Prepares}}) ->
+do_check_prepares(#{prepares := {error, _}} = State) ->
     %% retry to prepare
-    case prepare_sql(Prepares, PoolName) of
+    case prepare_sql(State) of
         ok ->
             %% remove the error
-            {ok, State#{prepare_statement => Prepares}};
-        {error, undefined_table} ->
-            %% indicate the error
-            {error, {undefined_table, State#{prepare_statement => {error, Prepares}}}};
+            {ok, State#{prepares => ok}};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -285,41 +282,44 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, 
 connect(Options) ->
     mysql:start_link(Options).
 
-init_prepare(State = #{prepare_statement := Prepares, pool_name := PoolName}) ->
-    case maps:size(Prepares) of
+init_prepare(State = #{query_templates := Templates}) ->
+    case maps:size(Templates) of
         0 ->
-            State;
+            State#{prepares => ok};
         _ ->
-            case prepare_sql(Prepares, PoolName) of
+            case prepare_sql(State) of
                 ok ->
-                    State;
+                    State#{prepares => ok};
                 {error, Reason} ->
-                    LogMeta = #{msg => <<"mysql_init_prepare_statement_failed">>, reason => Reason},
-                    ?SLOG(error, LogMeta),
+                    ?SLOG(error, #{
+                        msg => <<"MySQL init prepare statement failed">>,
+                        reason => Reason
+                    }),
                     %% mark the prepare_statement as failed
-                    State#{prepare_statement => {error, Prepares}}
+                    State#{prepares => {error, Reason}}
             end
     end.
 
-maybe_prepare_sql(SQLOrKey, Prepares, PoolName) ->
-    case maps:is_key(SQLOrKey, Prepares) of
-        true -> prepare_sql(Prepares, PoolName);
+maybe_prepare_sql(SQLOrKey, State = #{query_templates := Templates}) ->
+    case maps:is_key({SQLOrKey, prepstmt}, Templates) of
+        true -> prepare_sql(State);
         false -> {error, {unrecoverable_error, prepared_statement_invalid}}
     end.
 
-prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
-    prepare_sql(maps:to_list(Prepares), PoolName);
-prepare_sql(Prepares, PoolName) ->
-    case do_prepare_sql(Prepares, PoolName) of
+prepare_sql(#{query_templates := Templates, pool_name := PoolName}) ->
+    prepare_sql(maps:to_list(Templates), PoolName).
+
+prepare_sql(Templates, PoolName) ->
+    case do_prepare_sql(Templates, PoolName) of
         ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Prepares]}),
+            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]}),
             ok;
         {error, R} ->
             {error, R}
     end.
 
-do_prepare_sql(Prepares, PoolName) ->
+do_prepare_sql(Templates, PoolName) ->
     Conns =
         [
             begin
@@ -328,33 +328,30 @@ do_prepare_sql(Prepares, PoolName) ->
             end
          || {_Name, Worker} <- ecpool:workers(PoolName)
         ],
-    prepare_sql_to_conn_list(Conns, Prepares).
+    prepare_sql_to_conn_list(Conns, Templates).
 
-prepare_sql_to_conn_list([], _PrepareList) ->
+prepare_sql_to_conn_list([], _Templates) ->
     ok;
-prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
-    case prepare_sql_to_conn(Conn, PrepareList) of
+prepare_sql_to_conn_list([Conn | ConnList], Templates) ->
+    case prepare_sql_to_conn(Conn, Templates) of
         ok ->
-            prepare_sql_to_conn_list(ConnList, PrepareList);
+            prepare_sql_to_conn_list(ConnList, Templates);
         {error, R} ->
             %% rollback
-            Fun = fun({Key, _}) ->
-                _ = unprepare_sql_to_conn(Conn, Key),
-                ok
-            end,
-            lists:foreach(Fun, PrepareList),
+            _ = [unprepare_sql_to_conn(Conn, Template) || Template <- Templates],
             {error, R}
     end.
 
-prepare_sql_to_conn(Conn, []) when is_pid(Conn) -> ok;
-prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
-    LogMeta = #{msg => "mysql_prepare_statement", name => Key, prepare_sql => SQL},
+prepare_sql_to_conn(_Conn, []) ->
+    ok;
+prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
+    LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     _ = unprepare_sql_to_conn(Conn, Key),
     case mysql:prepare(Conn, Key, SQL) of
         {ok, _Key} ->
             ?SLOG(info, LogMeta#{result => success}),
-            prepare_sql_to_conn(Conn, PrepareList);
+            prepare_sql_to_conn(Conn, Rest);
         {error, {1146, _, _} = Reason} ->
             %% Target table is not created
             ?tp(mysql_undefined_table, #{}),
@@ -365,83 +362,84 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
             % syntax failures. Retrying syntax failures is not very productive.
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, Reason}
-    end.
+    end;
+prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
+    prepare_sql_to_conn(Conn, Rest).
 
-unprepare_sql_to_conn(Conn, PrepareSqlKey) ->
-    mysql:unprepare(Conn, PrepareSqlKey).
+unprepare_sql_to_conn(Conn, {{Key, prepstmt}, _}) ->
+    mysql:unprepare(Conn, Key);
+unprepare_sql_to_conn(Conn, Key) when is_atom(Key) ->
+    mysql:unprepare(Conn, Key);
+unprepare_sql_to_conn(_Conn, _) ->
+    ok.
 
 parse_prepare_sql(Config) ->
-    SQL =
-        case maps:get(prepare_statement, Config, undefined) of
-            undefined ->
-                case maps:get(sql, Config, undefined) of
-                    undefined -> #{};
-                    Template -> #{send_message => Template}
-                end;
-            Any ->
-                Any
+    Queries =
+        case Config of
+            #{prepare_statement := Qs} ->
+                Qs;
+            #{sql := Query} ->
+                #{send_message => Query};
+            _ ->
+                #{}
         end,
-    parse_prepare_sql(maps:to_list(SQL), #{}, #{}, #{}, #{}).
+    Templates = maps:fold(fun parse_prepare_sql/3, #{}, Queries),
+    #{query_templates => Templates}.
 
-parse_prepare_sql([{Key, H} | _] = L, Prepares, Tokens, BatchInserts, BatchTks) ->
-    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H),
-    parse_batch_prepare_sql(
-        L, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}, BatchInserts, BatchTks
-    );
-parse_prepare_sql([], Prepares, Tokens, BatchInserts, BatchTks) ->
-    #{
-        prepare_statement => Prepares,
-        params_tokens => Tokens,
-        batch_inserts => BatchInserts,
-        batch_params_tokens => BatchTks
-    }.
+parse_prepare_sql(Key, Query, Acc) ->
+    Template = emqx_connector_template_sql:parse_prepstmt(Query, #{parameters => '?'}),
+    AccNext = Acc#{{Key, prepstmt} => Template},
+    parse_batch_sql(Key, Query, AccNext).
 
-parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks) ->
-    case emqx_utils_sql:get_statement_type(H) of
-        select ->
-            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
+parse_batch_sql(Key, Query, Acc) ->
+    case emqx_connector_sql:get_statement_type(Query) of
         insert ->
-            case emqx_utils_sql:parse_insert(H) of
-                {ok, {InsertSQL, Params}} ->
-                    ParamsTks = emqx_placeholder:preproc_tmpl(Params),
-                    parse_prepare_sql(
-                        T,
-                        Prepares,
-                        Tokens,
-                        BatchInserts#{Key => InsertSQL},
-                        BatchTks#{Key => ParamsTks}
-                    );
+            case emqx_connector_sql:parse_insert(Query) of
+                {ok, {Insert, Params}} ->
+                    RowTemplate = emqx_connector_template_sql:parse(Params),
+                    Acc#{{Key, batch} => {Insert, RowTemplate}};
                 {error, Reason} ->
-                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, reason => Reason}),
-                    parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
+                    ?SLOG(error, #{
+                        msg => "parse insert sql statement failed",
+                        sql => Query,
+                        reason => Reason
+                    }),
+                    Acc
             end;
-        Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
-            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
-            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
+        select ->
+            Acc;
+        Otherwise ->
+            ?SLOG(error, #{
+                msg => "invalid sql statement type",
+                sql => Query,
+                type => Otherwise
+            }),
+            Acc
     end.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
-proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) ->
-    case maps:get(TypeOrKey, ParamsTokens, undefined) of
+proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) ->
+    case maps:get({TypeOrKey, prepstmt}, Templates, undefined) of
         undefined ->
             {SQLOrData, Params};
-        Tokens ->
-            {TypeOrKey, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
+        {_InsertPart, RowTemplate} ->
+            % NOTE: ignoring errors here, missing variables are set to `null`.
+            {Row, _Errors} = emqx_connector_template_sql:render_prepstmt(RowTemplate, SQLOrData),
+            {TypeOrKey, Row}
     end.
 
-on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->
-    ValuesPart = lists:join($,, [
-        emqx_placeholder:proc_param_str(Tokens, Msg, fun emqx_placeholder:quote_mysql/1)
-     || {_, Msg} <- BatchReqs
-    ]),
-    Query = [InsertPart, <<" values ">> | ValuesPart],
+on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State) ->
+    Rows = [render_row(RowTemplate, Msg) || {_, Msg} <- BatchReqs],
+    Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
     on_sql_query(InstId, query, Query, no_params, default_timeout, State).
+
+render_row(RowTemplate, Data) ->
+    % NOTE: ignoring errors here, missing variables are set to "NULL".
+    {Row, _Errors} = emqx_connector_template_sql:render(RowTemplate, Data, #{escaping => mysql}),
+    Row.
 
 on_sql_query(
     InstId,
