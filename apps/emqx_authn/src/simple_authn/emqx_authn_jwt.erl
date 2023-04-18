@@ -200,7 +200,7 @@ boolean(<<"false">>) -> false;
 boolean(Other) -> Other.
 
 select_ref(true, _) ->
-    [hoconsc:ref(?MODULE, 'jwks')];
+    [hoconsc:ref(?MODULE, 'jwt_jwks')];
 select_ref(false, #{<<"public_key">> := _}) ->
     [hoconsc:ref(?MODULE, jwt_public_key)];
 select_ref(false, _) ->

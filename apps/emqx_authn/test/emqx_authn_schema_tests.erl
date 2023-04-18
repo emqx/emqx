@@ -32,19 +32,19 @@ union_member_selector_mongo_test_() ->
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:redis_single"}),
+                ?ERR(#{matched_type := "authn:mongo_single"}),
                 Check("{mongo_type: single}")
             )
         end},
         {"replica-set", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-mongodb:replica-set"}),
+                ?ERR(#{matched_type := "authn:mongo_rs"}),
                 Check("{mongo_type: rs}")
             )
         end},
         {"sharded", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-mongodb:sharded-cluster"}),
+                ?ERR(#{matched_type := "authn:mongo_sharded"}),
                 Check("{mongo_type: sharded}")
             )
         end}
@@ -61,19 +61,19 @@ union_member_selector_jwt_test_() ->
         end},
         {"jwks", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-jwt:jwks"}),
+                ?ERR(#{matched_type := "authn:jwt_jwks"}),
                 Check("{use_jwks = true}")
             )
         end},
         {"publick-key", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-jwt:public-key"}),
+                ?ERR(#{matched_type := "authn:jwt_public_key"}),
                 Check("{use_jwks = false, public_key = 1}")
             )
         end},
         {"hmac-based", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-jwt:hmac-based"}),
+                ?ERR(#{matched_type := "authn:jwt_hmac"}),
                 Check("{use_jwks = false}")
             )
         end}
@@ -90,19 +90,19 @@ union_member_selector_redis_test_() ->
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-redis:standalone"}),
+                ?ERR(#{matched_type := "authn:redis_single"}),
                 Check("{redis_type = single}")
             )
         end},
         {"cluster", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-redis:cluster"}),
+                ?ERR(#{matched_type := "authn:redis_cluster"}),
                 Check("{redis_type = cluster}")
             )
         end},
         {"sentinel", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-redis:sentinel"}),
+                ?ERR(#{matched_type := "authn:redis_sentinel"}),
                 Check("{redis_type = sentinel}")
             )
         end}
@@ -119,13 +119,13 @@ union_member_selector_http_test_() ->
         end},
         {"get", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-http:get"}),
+                ?ERR(#{matched_type := "authn:http_get"}),
                 Check("{method = get}")
             )
         end},
         {"post", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn-http:post"}),
+                ?ERR(#{matched_type := "authn:http_post"}),
                 Check("{method = post}")
             )
         end}
