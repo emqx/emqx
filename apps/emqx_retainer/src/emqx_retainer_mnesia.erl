@@ -627,7 +627,7 @@ do_reindex_batch(QC, Done) ->
     {Status, Done + length(Topics)}.
 
 wait_dispatch_complete(Timeout) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     {Results, []} = emqx_retainer_proto_v2:wait_dispatch_complete(Nodes, Timeout),
     lists:all(
         fun(Result) -> Result =:= ok end,
@@ -650,7 +650,7 @@ active_indices() ->
     {dirty_indices(read), dirty_indices(write)}.
 
 are_indices_updated(Indices) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case emqx_retainer_proto_v2:active_mnesia_indices(Nodes) of
         {Results, []} ->
             lists:all(
