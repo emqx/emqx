@@ -36,7 +36,7 @@ init() ->
     OtherLangDesc0 = filelib:wildcard("desc.*.hocon", WwwStaticDir),
     OtherLangDesc = lists:map(fun(F) -> filename:join([WwwStaticDir, F]) end, OtherLangDesc0),
     Files = [EngDesc | OtherLangDesc],
-    ?MODULE = ets:new(?MODULE, [named_table, public, set, {read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]),
     ok = lists:foreach(fun(F) -> load_desc(?MODULE, F) end, Files).
 
 %% @doc Load the description of the configuration items from the file.

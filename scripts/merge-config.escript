@@ -110,14 +110,14 @@ merge_desc_files_per_lang(Lang) ->
     BaseConf = <<"">>,
     Cfgs0 = get_all_desc_files(Lang),
     Conf = do_merge_desc_files_per_lang(BaseConf, Cfgs0),
-    OutputFile = case Lang of 
+    OutputFile = case Lang of
         "en" ->
             %% en desc will always be in the priv dir of emqx_dashboard
              "apps/emqx_dashboard/priv/desc.en.hocon";
         "zh" ->
             %% so far we inject zh desc as if it's extracted from dashboard package
             %% TODO: remove this when we have zh translation moved to dashboard package
-             "apps/emqx_dashboard/priv/www/static/desc.zh.hocon"
+            "apps/emqx_dashboard/priv/www/static/desc.zh.hocon"
     end,
     ok = filelib:ensure_dir(OutputFile),
     ok = file:write_file(OutputFile, Conf).
