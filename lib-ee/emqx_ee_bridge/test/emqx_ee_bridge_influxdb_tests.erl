@@ -5,8 +5,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_ee_bridge_influxdb, [to_influx_lines/1]).
-
 -define(INVALID_LINES, [
     "   ",
     " \n",
@@ -326,3 +324,13 @@ test_pairs(PairsList) ->
 
 join(Sep, LinesList) ->
     lists:flatten(lists:join(Sep, LinesList)).
+
+to_influx_lines(RawLines) ->
+    OldLevel = emqx_logger:get_primary_log_level(),
+    try
+        %% mute error logs from this call
+        emqx_logger:set_primary_log_level(none),
+        emqx_ee_bridge_influxdb:to_influx_lines(RawLines)
+    after
+        emqx_logger:set_primary_log_level(OldLevel)
+    end.

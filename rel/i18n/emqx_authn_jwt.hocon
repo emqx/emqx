@@ -42,10 +42,10 @@ from.desc:
 from.label:
 """From Field"""
 
-hmac-based.desc:
+jwt_hmac.desc:
 """Configuration when the JWT for authentication is issued using the HMAC algorithm."""
 
-jwks.desc:
+jwt_jwks.desc:
 """Configuration when JWTs used for authentication need to be fetched from the JWKS endpoint."""
 
 keyfile.desc:
@@ -54,7 +54,7 @@ keyfile.desc:
 keyfile.label:
 """Key File"""
 
-public-key.desc:
+jwt_public_key.desc:
 """Configuration when the JWT for authentication is issued using RSA or ECDSA algorithm."""
 
 public_key.desc:

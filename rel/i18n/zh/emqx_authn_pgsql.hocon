@@ -1,6 +1,6 @@
 emqx_authn_pgsql {
 
-authentication.desc:
+postgresql.desc:
 """使用 PostgreSQL 作为认证数据源的认证器的配置项。"""
 
 query.desc:

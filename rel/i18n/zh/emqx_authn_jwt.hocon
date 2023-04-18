@@ -42,10 +42,10 @@ from.desc:
 from.label:
 """源字段"""
 
-hmac-based.desc:
+jwt_hmac.desc:
 """用于认证的 JWT 使用 HMAC 算法签发时的配置。"""
 
-jwks.desc:
+jwt_jwks.desc:
 """用于认证的 JWTs 需要从 JWKS 端点获取时的配置。"""
 
 keyfile.desc:
@@ -54,7 +54,7 @@ keyfile.desc:
 keyfile.label:
 """私钥文件"""
 
-public-key.desc:
+jwt_public_key.desc:
 """用于认证的 JWT 使用 RSA 或 ECDSA 算法签发时的配置。"""
 
 public_key.desc:

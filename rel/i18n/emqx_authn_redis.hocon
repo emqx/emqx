@@ -12,7 +12,7 @@ cmd.label:
 sentinel.desc:
 """Configuration of authenticator using Redis (Sentinel) as authentication data source."""
 
-standalone.desc:
+single.desc:
 """Configuration of authenticator using Redis (Standalone) as authentication data source."""
 
 }

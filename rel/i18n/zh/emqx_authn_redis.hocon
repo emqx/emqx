@@ -12,7 +12,7 @@ cmd.label:
 sentinel.desc:
 """使用 Redis (Sentinel) 作为认证数据源的认证器的配置项。"""
 
-standalone.desc:
+single.desc:
 """使用 Redis (Standalone) 作为认证数据源的认证器的配置项。"""
 
 }

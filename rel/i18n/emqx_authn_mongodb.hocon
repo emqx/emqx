@@ -39,7 +39,7 @@ salt_field.label:
 sharded-cluster.desc:
 """Configuration of authenticator using MongoDB (Sharded Cluster) as authentication data source."""
 
-standalone.desc:
+single.desc:
 """Configuration of authenticator using MongoDB (Standalone) as authentication data source."""
 
 }
