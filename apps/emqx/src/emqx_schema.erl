@@ -2235,6 +2235,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
                     converter => fun ?MODULE:user_lookup_fun_tr/2,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                 }
             )},
