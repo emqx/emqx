@@ -31,7 +31,10 @@ RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 
 RUN apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates procps; \
+    apt-get install -y --no-install-recommends unixodbc unixodbc-dev tdsodbc freetds-bin freetds-common freetds-dev; \
     rm -rf /var/lib/apt/lists/*
+
+COPY ./.ci/docker-compose-file/odbc/odbcinst.ini /etc/odbcinst.ini
 
 WORKDIR /opt/emqx
 
