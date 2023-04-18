@@ -70,22 +70,13 @@ init_per_suite(Config) ->
     ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
-    HTTPHost = "localhost",
-    HTTPPort = 56000,
-    HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
-    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
-    [
-        {http_host, HTTPHost},
-        {http_port, HTTPPort}
-        | Config
-    ].
+    Config.
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
     _ = application:stop(emqx_connector),
-    os:unsetenv("PUBSUB_EMULATOR_HOST"),
     ok.
 
 init_per_group(sync_query, Config) ->
@@ -113,26 +104,26 @@ init_per_testcase(TestCase, Config0) when
         1 ->
             [{skip_due_to_no_batching, true}];
         _ ->
-            {ok, _} = start_echo_http_server(),
             delete_all_bridges(),
             Tid = install_telemetry_handler(TestCase),
             Config = generate_config(Config0),
             put(telemetry_table, Tid),
-            [{telemetry_table, Tid} | Config]
+            {ok, HttpServer} = start_echo_http_server(),
+            [{telemetry_table, Tid}, {http_server, HttpServer} | Config]
     end;
 init_per_testcase(TestCase, Config0) ->
     ct:timetrap({seconds, 30}),
-    {ok, _} = start_echo_http_server(),
+    {ok, HttpServer} = start_echo_http_server(),
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
     Config = generate_config(Config0),
     put(telemetry_table, Tid),
-    [{telemetry_table, Tid} | Config].
+    [{telemetry_table, Tid}, {http_server, HttpServer} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     delete_all_bridges(),
-    ok = emqx_connector_web_hook_server:stop(),
+    ok = stop_echo_http_server(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -242,7 +233,6 @@ success_http_handler() ->
 
 start_echo_http_server() ->
     HTTPHost = "localhost",
-    HTTPPort = 56000,
     HTTPPath = <<"/v1/projects/myproject/topics/mytopic:publish">>,
     ServerSSLOpts =
         [
@@ -250,13 +240,22 @@ start_echo_http_server() ->
             {versions, ['tlsv1.2', 'tlsv1.3']},
             {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
         ] ++ certs(),
-    {ok, _} = emqx_connector_web_hook_server:start_link(HTTPPort, HTTPPath, ServerSSLOpts),
+    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+        random, HTTPPath, ServerSSLOpts
+    ),
     ok = emqx_connector_web_hook_server:set_handler(success_http_handler()),
+    HTTPHost = "localhost",
+    HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
+    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
     {ok, #{
-        host_port => HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
+        host_port => HostPort,
         host => HTTPHost,
         port => HTTPPort
     }}.
+
+stop_echo_http_server() ->
+    os:unsetenv("PUBSUB_EMULATOR_HOST"),
+    ok = emqx_connector_web_hook_server:stop().
 
 certs() ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
