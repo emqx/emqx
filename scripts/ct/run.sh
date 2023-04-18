@@ -193,7 +193,8 @@ for dep in ${CT_DEPS}; do
 done
 
 if [ "$ODBC_REQUEST" = 'yes' ]; then
-    INSTALL_ODBC="./scripts/install-msodbc-driver.sh"
+    # INSTALL_ODBC="./scripts/install-msodbc-driver.sh"
+    INSTALL_ODBC="./scripts/install-freetds-driver.sh"
 else
     INSTALL_ODBC="echo 'Driver odbc driver not requested'"
 fi
