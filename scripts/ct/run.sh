@@ -193,9 +193,9 @@ for dep in ${CT_DEPS}; do
 done
 
 if [ "$ODBC_REQUEST" = 'yes' ]; then
-    INSTALL_ODBC="./scripts/install-odbc-driver.sh"
+    INSTALL_ODBC="./scripts/install-msodbc-driver.sh"
 else
-    INSTALL_ODBC="echo 'Driver msodbcsql driver not requested'"
+    INSTALL_ODBC="echo 'Driver odbc driver not requested'"
 fi
 
 F_OPTIONS=""
