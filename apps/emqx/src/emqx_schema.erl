@@ -2322,8 +2322,6 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         ref("ocsp"),
                         #{
                             required => false,
-                            %% TODO: remove after e5.0.2
-                            importance => ?IMPORTANCE_HIDDEN,
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
@@ -2332,6 +2330,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         boolean(),
                         #{
                             default => false,
+                            importance => ?IMPORTANCE_MEDIUM,
                             desc => ?DESC("server_ssl_opts_schema_enable_crl_check")
                         }
                     )}
