@@ -12,7 +12,7 @@ the EMQX [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/
 
 # Documention
 
-- Refer to [Ingest data into TimescaleDB](todo)
+- Refer to [Ingest data into TimescaleDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-timescaledb.html)
   for how to use EMQX dashboard to ingest IoT data into TimescaleDB.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

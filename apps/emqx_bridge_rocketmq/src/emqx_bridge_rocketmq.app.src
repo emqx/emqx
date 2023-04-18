@@ -1,5 +1,5 @@
 {application, emqx_bridge_rocketmq, [
-    {description, "EMQX Enterprise RcoketMQ Bridge"},
+    {description, "EMQX Enterprise RocketMQ Bridge"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [kernel, stdlib]},

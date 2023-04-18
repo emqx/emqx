@@ -12,7 +12,7 @@ and easily ingest IoT data into Cassandra by leveraging the
 [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
-# Documention
+# Documentation
 
 - Refer to [Ingest data into Cassandra](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-cassa.html)
   for how to use EMQX dashboard to ingest IoT data into Cassandra.

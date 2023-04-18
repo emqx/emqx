@@ -4,7 +4,7 @@
 
 The application is used to connect EMQX and GCP Pub/Sub.
 User can create a rule and easily ingest IoT data into GCP Pub/Sub by leveraging
-the EMQX [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
+the [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
 # Documention
