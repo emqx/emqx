@@ -126,7 +126,7 @@
 %% -type size() :: integer().
 
 -type state() :: #{
-    poolname := binary(),
+    pool_name := binary(),
     resource_opts := map(),
     sql_templates := map()
 }.
@@ -208,17 +208,16 @@ on_start(
         {password, Password},
         {driver, Driver},
         {database, Database},
-        {pool_size, PoolSize},
-        {poolname, PoolName}
+        {pool_size, PoolSize}
     ],
 
     State = #{
         %% also InstanceId
-        poolname => PoolName,
+        pool_name => PoolName,
         sql_templates => parse_sql_template(Config),
         resource_opts => ResourceOpts
     },
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options) of
+    case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -229,12 +228,12 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstanceId, #{poolname := PoolName} = _State) ->
+on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
     ?SLOG(info, #{
         msg => "stopping_sqlserver_connector",
         connector => InstanceId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 -spec on_query(
     manager_id(),
@@ -265,7 +264,6 @@ on_query_async(
     InstanceId,
     {?ACTION_SEND_MESSAGE, _Msg} = Query,
     ReplyFunAndArgs,
-    %% #{poolname := PoolName, sql_templates := Templates} = State
     State
 ) ->
     ?TRACE(
@@ -306,10 +304,12 @@ on_batch_query_async(InstanceId, Requests, ReplyFunAndArgs, State) ->
     ),
     do_query(InstanceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
 
-on_get_status(_InstanceId, #{poolname := Pool, resource_opts := ResourceOpts} = _State) ->
+on_get_status(_InstanceId, #{pool_name := PoolName, resource_opts := ResourceOpts} = _State) ->
     RequestTimeout = ?REQUEST_TIMEOUT(ResourceOpts),
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(
-        Pool, {?MODULE, do_get_status, [RequestTimeout]}, RequestTimeout
+    Health = emqx_resource_pool:health_check_workers(
+        PoolName,
+        {?MODULE, do_get_status, [RequestTimeout]},
+        RequestTimeout
     ),
     status_result(Health).
 
@@ -382,7 +382,7 @@ do_query(
     InstanceId,
     Query,
     ApplyMode,
-    #{poolname := PoolName, sql_templates := Templates} = State
+    #{pool_name := PoolName, sql_templates := Templates} = State
 ) ->
     ?TRACE(
         "SINGLE_QUERY_SYNC",
@@ -425,7 +425,7 @@ do_query(
     end.
 
 worker_do_insert(
-    Conn, SQL, #{resource_opts := ResourceOpts, poolname := InstanceId} = State
+    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := InstanceId} = State
 ) ->
     LogMeta = #{connector => InstanceId, state => State},
     try
