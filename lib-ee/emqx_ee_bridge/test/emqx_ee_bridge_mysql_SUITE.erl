@@ -265,7 +265,7 @@ unprepare(Config, Key) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    {ok, _, #{state := #{poolname := PoolName}}} = emqx_resource:get_instance(ResourceID),
+    {ok, _, #{state := #{pool_name := PoolName}}} = emqx_resource:get_instance(ResourceID),
     [
         begin
             {ok, Conn} = ecpool_worker:client(Worker),

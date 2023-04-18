@@ -1,0 +1,130 @@
+emqx_dashboard_schema {
+
+backlog.desc:
+"""排队等待连接的队列的最大长度。"""
+
+backlog.label:
+"""排队长度"""
+
+bind.desc:
+"""监听地址和端口，热更新此配置时，会重启 Dashboard 服务。"""
+
+bind.label:
+"""绑定端口"""
+
+bootstrap_users_file.desc:
+"""已废弃，请使用 api_key.bootstrap_file。"""
+
+bootstrap_users_file.label:
+"""已废弃"""
+
+cors.desc:
+"""支持跨域资源共享(CORS)，
+允许服务器指示任何来源(域名、协议或端口)，除了本服务器之外的任何浏览器应允许加载资源。"""
+
+cors.label:
+"""跨域资源共享"""
+
+default_password.desc:
+"""Dashboard 的默认密码，为了安全，应该尽快修改密码。
+当通过网页首次登录 Dashboard 并按提示修改成复杂密码后，此值就会失效。"""
+
+default_password.label:
+"""默认密码"""
+
+default_username.desc:
+"""Dashboard 的默认用户名。"""
+
+default_username.label:
+"""默认用户名"""
+
+desc_dashboard.desc:
+"""EMQX Dashboard 配置。"""
+
+desc_dashboard.label:
+"""Dashboard"""
+
+desc_http.desc:
+"""Dashboard 监听器(HTTP)配置。"""
+
+desc_http.label:
+"""HTTP"""
+
+desc_https.desc:
+"""Dashboard 监听器(HTTPS)配置。"""
+
+desc_https.label:
+"""HTTPS"""
+
+desc_listeners.desc:
+"""Dashboard 监听器配置。"""
+
+desc_listeners.label:
+"""监听器"""
+
+i18n_lang.desc:
+"""设置 Swagger 多语言的版本，可为 en 或 zh。"""
+
+i18n_lang.label:
+"""多语言支持"""
+
+inet6.desc:
+"""启用IPv6， 如果机器不支持IPv6，请关闭此选项，否则会导致 Dashboard 无法使用。"""
+
+inet6.label:
+"""IPv6"""
+
+ipv6_v6only.desc:
+"""当开启 inet6 功能的同时禁用 IPv4-to-IPv6 映射。该配置仅在 inet6 功能开启时有效。"""
+
+ipv6_v6only.label:
+"""IPv6 only"""
+
+listener_enable.desc:
+"""忽略或启用该监听器。"""
+
+listener_enable.label:
+"""启用"""
+
+listeners.desc:
+"""Dashboard 监听器设置。监听器必须有唯一的端口号和IP地址的组合。
+例如，可以通过指定IP地址 0.0.0.0 来监听机器上给定端口上的所有配置的IP地址。
+或者，可以为每个监听器指定唯一的IP地址，但使用相同的端口。"""
+
+listeners.label:
+"""监听器"""
+
+max_connections.desc:
+"""同时处理的最大连接数。"""
+
+max_connections.label:
+"""最大连接数"""
+
+num_acceptors.desc:
+"""TCP协议的Socket acceptor池大小, 默认设置在线的调度器数量（通常为 CPU 核数）"""
+
+num_acceptors.label:
+"""Acceptor 数量"""
+
+proxy_header.desc:
+"""开启对  `HAProxy` 的支持，注意：一旦开启了这个功能，就无法再处理普通的 HTTP 请求了。"""
+
+proxy_header.label:
+"""开启对 `HAProxy` 的支持"""
+
+sample_interval.desc:
+"""Dashboard 中图表指标的时间间隔。必须小于60，且被60的整除，默认设置 10s。"""
+
+send_timeout.desc:
+"""Socket发送超时时间。"""
+
+send_timeout.label:
+"""发送超时时间"""
+
+token_expired_time.desc:
+"""JWT token 过期时间。默认设置为 60 分钟。"""
+
+token_expired_time.label:
+"""JWT 过期时间"""
+
+}

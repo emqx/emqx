@@ -7,18 +7,18 @@ EMQX的配置文件可分为二层，自底向上依次是：
 
 1. 不可变的基础层 `emqx.conf` 加上 `EMQX_` 前缀的环境变量。<br/>
    修改这一层的配置之后，需要重启节点来使之生效。
-1. 集群范围重载层：`$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
+2. 集群范围重载层：`$EMQX_NODE__DATA_DIR/configs/cluster.hocon`
 
 如果环境变量 `$EMQX_NODE__DATA_DIR` 没有设置，那么该目录会从 `emqx.conf` 的 `node.data_dir` 配置中读取。
 
-配置文件 `cluster-override.conf` 的内容会在运行时被EMQX重写。
+配置文件 `cluster.hocon` 的内容会在运行时被EMQX重写。
 这些重写发生在 dashboard UI，管理HTTP API，或者CLI对集群配置进行修改时。
 当EMQX运行在集群中时，一个EMQX节点重启之后，会从集群中其他节点复制该文件内容到本地。
 
 :::tip Tip
 有些配置项是不能被重载的（例如 `node.name`）。
 配置项如果有 `mapping: path.to.boot.config.key` 这个属性，
-则不能被添加到重载文件 `*-override.conf` 中。
+则不能被添加到重载文件 `cluster.hocon` 中。
 :::
 
 更多的重载规则，请参考下文 [配置重载规则](#配置重载规则)。

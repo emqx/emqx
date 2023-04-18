@@ -57,7 +57,7 @@ t_look_up_code(_) ->
 
 t_description_code(_) ->
     {error, not_found} = emqx_dashboard_error_code:description('_____NOT_EXIST_NAME'),
-    {ok, <<"Request parameters are not legal">>} =
+    {ok, <<"Request parameters are invalid">>} =
         emqx_dashboard_error_code:description('BAD_REQUEST'),
     ok.
 
@@ -79,7 +79,7 @@ t_api_code(_) ->
     Url = ?SERVER ++ "/error_codes/BAD_REQUEST",
     {ok, #{
         <<"code">> := <<"BAD_REQUEST">>,
-        <<"description">> := <<"Request parameters are not legal">>
+        <<"description">> := <<"Request parameters are invalid">>
     }} = request(Url),
     ok.
 

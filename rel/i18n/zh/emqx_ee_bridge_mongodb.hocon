@@ -1,0 +1,57 @@
+emqx_ee_bridge_mongodb {
+
+collection.desc:
+"""数据将被存储到的集合"""
+
+collection.label:
+"""将要使用的集合（Collection）"""
+
+desc_config.desc:
+"""为MongoDB桥配置"""
+
+desc_config.label:
+"""MongoDB桥配置"""
+
+desc_name.desc:
+"""桥接名称。"""
+
+desc_name.label:
+"""桥接名称"""
+
+desc_type.desc:
+"""桥接类型。"""
+
+desc_type.label:
+"""桥接类型"""
+
+enable.desc:
+"""启用或停用该MongoDB桥"""
+
+enable.label:
+"""启用或禁用"""
+
+mongodb_rs_conf.desc:
+"""MongoDB（Replica Set）配置"""
+
+mongodb_rs_conf.label:
+"""MongoDB（Replica Set）配置"""
+
+mongodb_sharded_conf.desc:
+"""MongoDB (Sharded)配置"""
+
+mongodb_sharded_conf.label:
+"""MongoDB (Sharded)配置"""
+
+mongodb_single_conf.desc:
+"""MongoDB（独立）配置"""
+
+mongodb_single_conf.label:
+"""MongoDB（独立）配置"""
+
+payload_template.desc:
+"""用于格式化写入 MongoDB 的消息模板。 如果未定义，规则引擎会使用 JSON 格式序列化所有的可见输入，例如 clientid, topic, payload 等。"""
+
+payload_template.label:
+"""有效载荷模板"""
+
+}

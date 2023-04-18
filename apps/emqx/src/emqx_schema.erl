@@ -164,7 +164,7 @@ roots(high) ->
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
-        %% NOTE: authorization schema here is only to keep emqx app prue
+        %% NOTE: authorization schema here is only to keep emqx app pure
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
@@ -2225,6 +2225,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => AvailableVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
+                    importance => ?IMPORTANCE_HIGH,
                     validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
                 }
             )},
@@ -2235,6 +2236,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
                     converter => fun ?MODULE:user_lookup_fun_tr/2,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                 }
             )},
@@ -2762,10 +2764,16 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Which) ->
-    Desc =
+    {Importance, Desc} =
         case Which of
-            global -> ?DESC(global_authentication);
-            listener -> ?DESC(listener_authentication)
+            global ->
+                %% For root level authentication, it is recommended to configure
+                %% from the dashboard or API.
+                %% Hence it's considered a low-importance when it comes to
+                %% configuration importance.
+                {?IMPORTANCE_LOW, ?DESC(global_authentication)};
+            listener ->
+                {?IMPORTANCE_HIDDEN, ?DESC(listener_authentication)}
         end,
     %% poor man's dependency injection
     %% this is due to the fact that authn is implemented outside of 'emqx' app.
@@ -2781,7 +2789,7 @@ authentication(Which) ->
     hoconsc:mk(Type, #{
         desc => Desc,
         converter => fun ensure_array/2,
-        importance => ?IMPORTANCE_HIDDEN
+        importance => Importance
     }).
 
 %% the older version schema allows individual element (instead of a chain) in config

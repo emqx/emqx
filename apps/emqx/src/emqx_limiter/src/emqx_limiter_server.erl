@@ -118,17 +118,24 @@ connect(_Id, _Type, undefined) ->
     {ok, emqx_htb_limiter:make_infinity_limiter()};
 connect(Id, Type, Cfg) ->
     case find_limiter_cfg(Type, Cfg) of
-        {undefined, _} ->
+        {_ClientCfg, undefined, _NodeCfg} ->
             {ok, emqx_htb_limiter:make_infinity_limiter()};
+        {#{rate := infinity}, #{rate := infinity}, #{rate := infinity}} ->
+            {ok, emqx_htb_limiter:make_infinity_limiter()};
+        {ClientCfg, #{rate := infinity}, #{rate := infinity}} ->
+            {ok,
+                emqx_htb_limiter:make_token_bucket_limiter(
+                    ClientCfg, emqx_limiter_bucket_ref:infinity_bucket()
+                )};
         {
-            #{
-                rate := BucketRate,
-                capacity := BucketSize
-            },
-            #{rate := CliRate, capacity := CliSize} = ClientCfg
+            #{rate := CliRate} = ClientCfg,
+            #{rate := BucketRate} = BucketCfg,
+            _
         } ->
             case emqx_limiter_manager:find_bucket(Id, Type) of
                 {ok, Bucket} ->
+                    BucketSize = emqx_limiter_schema:calc_capacity(BucketCfg),
+                    CliSize = emqx_limiter_schema:calc_capacity(ClientCfg),
                     {ok,
                         if
                             CliRate < BucketRate orelse CliSize < BucketSize ->
@@ -493,12 +500,14 @@ make_root(#{rate := Rate, burst := Burst}) ->
         produced => 0.0
     }.
 
-do_add_bucket(Id, #{rate := Rate, capacity := Capacity} = Cfg, #{buckets := Buckets} = State) ->
+do_add_bucket(_Id, #{rate := infinity}, #{root := #{rate := infinity}} = State) ->
+    State;
+do_add_bucket(Id, #{rate := Rate} = Cfg, #{buckets := Buckets} = State) ->
     case maps:get(Id, Buckets, undefined) of
         undefined ->
             make_bucket(Id, Cfg, State);
         Bucket ->
-            Bucket2 = Bucket#{rate := Rate, capacity := Capacity},
+            Bucket2 = Bucket#{rate := Rate, capacity := emqx_limiter_schema:calc_capacity(Cfg)},
             State#{buckets := Buckets#{Id := Bucket2}}
     end.
 
@@ -509,7 +518,7 @@ make_bucket(Id, Cfg, #{index := ?COUNTER_SIZE} = State) ->
     });
 make_bucket(
     Id,
-    #{rate := Rate, capacity := Capacity} = Cfg,
+    #{rate := Rate} = Cfg,
     #{type := Type, counter := Counter, index := Index, buckets := Buckets} = State
 ) ->
     NewIndex = Index + 1,
@@ -519,7 +528,7 @@ make_bucket(
         rate => Rate,
         obtained => Initial,
         correction => 0,
-        capacity => Capacity,
+        capacity => emqx_limiter_schema:calc_capacity(Cfg),
         counter => Counter,
         index => NewIndex
     },
@@ -541,19 +550,14 @@ do_del_bucket(Id, #{type := Type, buckets := Buckets} = State) ->
 get_initial_val(
     #{
         initial := Initial,
-        rate := Rate,
-        capacity := Capacity
+        rate := Rate
     }
 ) ->
-    %% initial will nevner be infinity(see the emqx_limiter_schema)
-    InfVal = emqx_limiter_schema:infinity_value(),
     if
         Initial > 0 ->
             Initial;
         Rate =/= infinity ->
-            erlang:min(Rate, Capacity);
-        Capacity =/= infinity andalso Capacity =/= InfVal ->
-            Capacity;
+            Rate;
         true ->
             0
     end.
@@ -568,11 +572,12 @@ call(Type, Msg) ->
     end.
 
 find_limiter_cfg(Type, #{rate := _} = Cfg) ->
-    {Cfg, find_client_cfg(Type, maps:get(client, Cfg, undefined))};
+    {find_client_cfg(Type, maps:get(client, Cfg, undefined)), Cfg, find_node_cfg(Type)};
 find_limiter_cfg(Type, Cfg) ->
     {
+        find_client_cfg(Type, emqx_utils_maps:deep_get([client, Type], Cfg, undefined)),
         maps:get(Type, Cfg, undefined),
-        find_client_cfg(Type, emqx_utils_maps:deep_get([client, Type], Cfg, undefined))
+        find_node_cfg(Type)
     }.
 
 find_client_cfg(Type, BucketCfg) ->
@@ -585,3 +590,6 @@ merge_client_cfg(NodeCfg, undefined) ->
     NodeCfg;
 merge_client_cfg(NodeCfg, BucketCfg) ->
     maps:merge(NodeCfg, BucketCfg).
+
+find_node_cfg(Type) ->
+    emqx:get_config([limiter, Type], #{rate => infinity, burst => 0}).

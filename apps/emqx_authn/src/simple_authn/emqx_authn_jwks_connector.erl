@@ -35,18 +35,17 @@
 callback_mode() -> always_sync.
 
 on_start(InstId, Opts) ->
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     PoolOpts = [
         {pool_size, maps:get(pool_size, Opts, ?DEFAULT_POOL_SIZE)},
         {connector_opts, Opts}
     ],
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, PoolOpts) of
-        ok -> {ok, #{pool_name => PoolName}};
+    case emqx_resource_pool:start(InstId, ?MODULE, PoolOpts) of
+        ok -> {ok, #{pool_name => InstId}};
         {error, Reason} -> {error, Reason}
     end.
 
 on_stop(_InstId, #{pool_name := PoolName}) ->
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstId, get_jwks, #{pool_name := PoolName}) ->
     Result = ecpool:pick_and_do(PoolName, {emqx_authn_jwks_client, get_jwks, []}, no_handover),
@@ -72,16 +71,15 @@ on_query(_InstId, {update, Opts}, #{pool_name := PoolName}) ->
     ok.
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
-    Func =
-        fun(Conn) ->
-            case emqx_authn_jwks_client:get_jwks(Conn) of
-                {ok, _} -> true;
-                _ -> false
-            end
-        end,
-    case emqx_plugin_libs_pool:health_check_ecpool_workers(PoolName, Func) of
+    case emqx_resource_pool:health_check_workers(PoolName, fun health_check/1) of
         true -> connected;
         false -> disconnected
+    end.
+
+health_check(Conn) ->
+    case emqx_authn_jwks_client:get_jwks(Conn) of
+        {ok, _} -> true;
+        _ -> false
     end.
 
 connect(Opts) ->

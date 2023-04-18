@@ -1,0 +1,9 @@
+emqx_authz_api_settings {
+
+authorization_settings_get.desc:
+"""获取授权配置"""
+
+authorization_settings_put.desc:
+"""更新授权配置"""
+
+}

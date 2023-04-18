@@ -121,8 +121,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(ENABLED(X), (X =/= undefined)).
--define(LIMITER_BYTES_IN, bytes_in).
--define(LIMITER_MESSAGE_IN, message_in).
+-define(LIMITER_BYTES_IN, bytes).
+-define(LIMITER_MESSAGE_IN, messages).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [websocket_init/1]}).

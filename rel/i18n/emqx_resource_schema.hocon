@@ -1,214 +1,116 @@
 emqx_resource_schema {
 
-  resource_opts {
-    desc {
-      en: """Resource options."""
-      zh: """资源相关的选项。"""
-    }
-    label {
-      en: """Resource Options"""
-      zh: """资源选项"""
-    }
-  }
+auto_restart_interval.desc:
+"""The auto restart interval after the resource is disconnected."""
 
-  creation_opts {
-    desc {
-      en: """Creation options."""
-      zh: """资源启动相关的选项。"""
-    }
-    label {
-      en: """Creation Options"""
-      zh: """资源启动选项"""
-    }
-  }
+auto_restart_interval.label:
+"""Auto Restart Interval"""
 
-  worker_pool_size {
-    desc {
-      en: """The number of buffer workers. Only applicable for egress type bridges.
-For bridges only have ingress direction data flow, it can be set to 0 otherwise must be greater than 0."""
-      zh: """缓存队列 worker 数量。仅对 egress 类型的桥接有意义。当桥接仅有 ingress 方向时，可设置为 0，否则必须大于 0。"""
-    }
-    label {
-      en: """Buffer Pool Size"""
-      zh: """缓存池大小"""
-    }
-  }
+batch_size.desc:
+"""Maximum batch count. If equal to 1, there's effectively no batching."""
 
-  health_check_interval {
-    desc {
-      en: """Health check interval."""
-      zh: """健康检查间隔。"""
-    }
-    label {
-      en: """Health Check Interval"""
-      zh: """健康检查间隔"""
-    }
-  }
+batch_size.label:
+"""Max batch size"""
 
-  resume_interval {
-    desc {
-      en: """The interval at which the buffer worker attempts to resend failed requests in the inflight window."""
-      zh: """在发送失败后尝试重传飞行窗口中的请求的时间间隔。"""
-    }
-    label {
-      en: """Resume Interval"""
-      zh: """重试时间间隔"""
-    }
-  }
+batch_time.desc:
+"""Maximum waiting interval when accumulating a batch at a low message rates for more efficient resource usage."""
 
-  start_after_created {
-    desc {
-      en: """Whether start the resource right after created."""
-      zh: """是否在创建资源后立即启动资源。"""
-    }
-    label {
-      en: """Start After Created"""
-      zh: """创建后立即启动"""
-    }
-  }
+batch_time.label:
+"""Max batch wait time"""
 
-  start_timeout {
-    desc {
-      en: """Time interval to wait for an auto-started resource to become healthy before responding resource creation requests."""
-      zh: """在回复资源创建请求前等待资源进入健康状态的时间。"""
-    }
-    label {
-      en: """Start Timeout"""
-      zh: """启动超时时间"""
-    }
-  }
+buffer_mode.desc:
+"""Buffer operation mode.
+<code>memory_only</mode>: Buffer all messages in memory.<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"""
 
-  auto_restart_interval {
-    desc {
-      en: """The auto restart interval after the resource is disconnected."""
-      zh: """资源断开以后，自动重连的时间间隔。"""
-    }
-    label {
-      en: """Auto Restart Interval"""
-      zh: """自动重连间隔"""
-    }
-  }
+buffer_mode.label:
+"""Buffer Mode"""
 
-  query_mode {
-    desc {
-      en: """Query mode. Optional 'sync/async', default 'async'."""
-      zh: """请求模式。可选 '同步/异步'，默认为'异步'模式。"""
-    }
-    label {
-      en: """Query mode"""
-      zh: """请求模式"""
-    }
-  }
+buffer_seg_bytes.desc:
+"""Applicable when buffer mode is set to <code>volatile_offload</code>.
+This value is to specify the size of each on-disk buffer file."""
 
-  request_timeout {
-    desc {
-      en: """Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""
-      zh: """从请求进入缓冲区开始计时，如果请求在规定的时间内仍停留在缓冲区内或者已发送但未能及时收到响应或确认，该请求将被视为过期。"""
-    }
-    label {
-      en: """Request Expiry"""
-      zh: """请求超期"""
-    }
-  }
+buffer_seg_bytes.label:
+"""Segment File Bytes"""
 
-  enable_batch {
-    desc {
-      en: """Batch mode enabled."""
-      zh: """启用批量模式。"""
-    }
-    label {
-      en: """Enable batch"""
-      zh: """启用批量模式"""
-    }
-  }
+creation_opts.desc:
+"""Creation options."""
 
-  enable_queue {
-    desc {
-      en: """Enable disk buffer queue (only applicable for egress bridges).
+creation_opts.label:
+"""Creation Options"""
+
+enable_batch.desc:
+"""Batch mode enabled."""
+
+enable_batch.label:
+"""Enable batch"""
+
+enable_queue.desc:
+"""Enable disk buffer queue (only applicable for egress bridges).
 When Enabled, messages will be buffered on disk when the bridge connection is down.
 When disabled the messages are buffered in RAM only."""
-      zh: """启用磁盘缓存队列（仅对 egress 方向桥接有用）。"""
-    }
-    label {
-      en: """Enable disk buffer queue"""
-      zh: """启用磁盘缓存队列"""
-    }
-  }
 
-  inflight_window {
-    desc {
-      en: """Query inflight window. When query_mode is set to async, this config has to be set to 1 if messages from the same MQTT client have to be strictly ordered."""
-      zh: """请求飞行队列窗口大小。当请求模式为异步时，如果需要严格保证来自同一 MQTT 客户端的消息有序，则必须将此值设为 1。"""""
-    }
-    label {
-      en: """Inflight window"""
-      zh: """请求飞行队列窗口"""
-    }
-  }
+enable_queue.label:
+"""Enable disk buffer queue"""
 
-  batch_size {
-    desc {
-      en: """Maximum batch count. If equal to 1, there's effectively no batching."""
-      zh: """最大批量请求大小。如果设为1，则无批处理。"""
-    }
-    label {
-      en: """Max batch size"""
-      zh: """最大批量请求大小"""
-    }
-  }
+health_check_interval.desc:
+"""Health check interval."""
 
-  batch_time {
-    desc {
-      en: """Maximum waiting interval when accumulating a batch at a low message rates for more efficient resource usage."""
-      zh: """在较低消息率情况下尝试累积批量输出时的最大等待间隔，以提高资源的利用率。"""
-    }
-    label {
-      en: """Max batch wait time"""
-      zh: """批量等待最大间隔"""
-    }
-  }
+health_check_interval.label:
+"""Health Check Interval"""
 
-  max_buffer_bytes {
-    desc {
-      en: """Maximum number of bytes to buffer for each buffer worker."""
-      zh: """每个缓存 worker 允许使用的最大字节数。"""
-    }
-    label {
-      en: """Max buffer queue size"""
-      zh: """缓存队列最大长度"""
-    }
-  }
+inflight_window.desc:
+"""Query inflight window. When query_mode is set to async, this config has to be set to 1 if messages from the same MQTT client have to be strictly ordered."""
 
-  buffer_seg_bytes {
-    desc {
-      en: "Applicable when buffer mode is set to <code>volatile_offload</code>.\n"
-          "This value is to specify the size of each on-disk buffer file."
-      zh: "当缓存模式是 <code>volatile_offload</code> 时适用。"
-          "该配置用于指定缓存到磁盘上的文件的大小。"
-    }
-    label {
-      en: "Segment File Bytes"
-      zh: "缓存文件大小"
-    }
-  }
+inflight_window.label:
+"""Inflight window"""
 
-  buffer_mode {
-    desc {
-      en: "Buffer operation mode.\n"
-          "<code>memory_only</mode>: Buffer all messages in memory."
-          "<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit"
-          " (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"
-      zh: "队列操作模式。\n"
-          "<code>memory_only</code>: 所有的消息都缓存在内存里。"
-          "<code>volatile_offload</code>: 先将消息缓存在内存中，当内存中的消息堆积超过一定限制"
-          "（配置项 <code>buffer_seg_bytes</code> 指定该限制）后，"
-          " 消息会开始缓存到磁盘上。"
-    }
-    label {
-      en: "Buffer Mode"
-      zh: "缓存模式"
-    }
-  }
+max_buffer_bytes.desc:
+"""Maximum number of bytes to buffer for each buffer worker."""
 
+max_buffer_bytes.label:
+"""Max buffer queue size"""
+
+query_mode.desc:
+"""Query mode. Optional 'sync/async', default 'async'."""
+
+query_mode.label:
+"""Query mode"""
+
+request_timeout.desc:
+"""Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""
+
+request_timeout.label:
+"""Request Expiry"""
+
+resource_opts.desc:
+"""Resource options."""
+
+resource_opts.label:
+"""Resource Options"""
+
+resume_interval.desc:
+"""The interval at which the buffer worker attempts to resend failed requests in the inflight window."""
+
+resume_interval.label:
+"""Resume Interval"""
+
+start_after_created.desc:
+"""Whether start the resource right after created."""
+
+start_after_created.label:
+"""Start After Created"""
+
+start_timeout.desc:
+"""Time interval to wait for an auto-started resource to become healthy before responding resource creation requests."""
+
+start_timeout.label:
+"""Start Timeout"""
+
+worker_pool_size.desc:
+"""The number of buffer workers. Only applicable for egress type bridges.
+For bridges only have ingress direction data flow, it can be set to 0 otherwise must be greater than 0."""
+
+worker_pool_size.label:
+"""Buffer Pool Size"""
 
 }

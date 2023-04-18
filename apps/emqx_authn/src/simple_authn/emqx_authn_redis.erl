@@ -44,32 +44,33 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-redis".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(fun union_member_selector/1),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(standalone) ->
+fields(redis_single) ->
     common_fields() ++ emqx_connector_redis:fields(single);
-fields(cluster) ->
+fields(redis_cluster) ->
     common_fields() ++ emqx_connector_redis:fields(cluster);
-fields(sentinel) ->
+fields(redis_sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
-desc(standalone) ->
-    ?DESC(standalone);
-desc(cluster) ->
+desc(redis_single) ->
+    ?DESC(single);
+desc(redis_cluster) ->
     ?DESC(cluster);
-desc(sentinel) ->
+desc(redis_sentinel) ->
     ?DESC(sentinel);
 desc(_) ->
     "".
@@ -93,9 +94,9 @@ cmd(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, standalone),
-        hoconsc:ref(?MODULE, cluster),
-        hoconsc:ref(?MODULE, sentinel)
+        hoconsc:ref(?MODULE, redis_single),
+        hoconsc:ref(?MODULE, redis_cluster),
+        hoconsc:ref(?MODULE, redis_sentinel)
     ].
 
 union_member_selector(all_union_members) ->
@@ -104,11 +105,11 @@ union_member_selector({value, Value}) ->
     refs(Value).
 
 refs(#{<<"redis_type">> := <<"single">>}) ->
-    [hoconsc:ref(?MODULE, standalone)];
+    [hoconsc:ref(?MODULE, redis_single)];
 refs(#{<<"redis_type">> := <<"cluster">>}) ->
-    [hoconsc:ref(?MODULE, cluster)];
+    [hoconsc:ref(?MODULE, redis_cluster)];
 refs(#{<<"redis_type">> := <<"sentinel">>}) ->
-    [hoconsc:ref(?MODULE, sentinel)];
+    [hoconsc:ref(?MODULE, redis_sentinel)];
 refs(_) ->
     throw(#{
         field_name => redis_type,

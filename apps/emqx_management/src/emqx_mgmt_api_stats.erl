@@ -127,21 +127,21 @@ list(get, #{query_string := Qs}) ->
         true ->
             {200, emqx_mgmt:get_stats()};
         _ ->
-            Data = [
-                maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}])
-             || Node <- running_nodes()
-            ],
+            Data = lists:foldl(
+                fun(Node, Acc) ->
+                    case emqx_mgmt:get_stats(Node) of
+                        {error, _Err} ->
+                            Acc;
+                        Stats when is_list(Stats) ->
+                            Data = maps:from_list([{node, Node} | Stats]),
+                            [Data | Acc]
+                    end
+                end,
+                [],
+                emqx:running_nodes()
+            ),
             {200, Data}
     end.
 
 %%%==============================================================================================
 %% Internal
-
-running_nodes() ->
-    Nodes = erlang:nodes([visible, this]),
-    RpcResults = emqx_proto_v2:are_running(Nodes),
-    [
-        Node
-     || {Node, IsRunning} <- lists:zip(Nodes, RpcResults),
-        IsRunning =:= {ok, true}
-    ].

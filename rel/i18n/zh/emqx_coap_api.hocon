@@ -1,0 +1,27 @@
+emqx_coap_api {
+
+content_type.desc:
+"""Payload 类型"""
+
+message_id.desc:
+"""消息 ID"""
+
+method.desc:
+"""请求 Method 类型"""
+
+payload.desc:
+"""Payload 内容"""
+
+response_code.desc:
+"""应答码"""
+
+send_coap_request.desc:
+"""发送 CoAP 消息到指定客户端"""
+
+timeout.desc:
+"""请求超时时间"""
+
+token.desc:
+"""消息 Token, 可以为空"""
+
+}

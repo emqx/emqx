@@ -1,1582 +1,441 @@
 emqx_schema {
 
-  force_shutdown_enable {
-    desc {
-      en: "Enable `force_shutdown` feature."
-      zh: "启用 `force_shutdown` 功能。"
-    }
-    label {
-      en: "Enable `force_shutdown` feature"
-      zh: "启用 `force_shutdown` 功能"
-    }
-  }
+fields_mqtt_quic_listener_peer_unidi_stream_count.desc:
+"""Number of unidirectional streams to allow the peer to open."""
 
-  force_shutdown_max_message_queue_len {
-    desc {
-      en: "Maximum message queue length."
-      zh: "消息队列的最大长度。"
-    }
-    label {
-      en: "Maximum mailbox queue length of process."
-      zh: "进程邮箱消息队列的最大长度"
-    }
-  }
+fields_mqtt_quic_listener_peer_unidi_stream_count.label:
+"""Peer unidi stream count"""
 
-  force_shutdown_max_heap_size {
-    desc {
-        en: "Total heap size"
-        zh: "Heap 的总大小。"
-    }
-    label {
-        en: "Total heap size"
-        zh: "Heap 的总大小"
-    }
-  }
+fields_authorization_no_match.desc:
+"""Default access control action if the user or client matches no ACL rules,
+or if no such user or client is found by the configurable authorization
+sources such as built_in_database, an HTTP API, or a query against PostgreSQL.
+Find more details in 'authorization.sources' config."""
 
-  overload_protection_enable {
-    desc {
-        en: "React on system overload or not."
-        zh: "是否对系统过载做出反应。"
-    }
-    label {
-        en: "React on system overload or not"
-        zh: "是否对系统过载做出反应"
-    }
-  }
+fields_authorization_no_match.label:
+"""Authorization no match"""
 
-  overload_protection_backoff_delay {
-    desc {
-        en: "The maximum duration of delay for background task execution during high load conditions."
-        zh: "高负载时，一些不重要的任务可能会延迟执行，在这里设置允许延迟的时间。"
-    }
-    label {
-        en: "Delay Time"
-        zh: "延迟时间"
-    }
-  }
+sysmon_top_db_hostname.desc:
+"""Hostname of the PostgreSQL database that collects the data points"""
 
-  overload_protection_backoff_gc {
-    desc {
-        en: "When at high load, skip forceful GC."
-        zh: "高负载时，跳过强制 GC。"
-    }
-    label {
-        en: "Skip GC"
-        zh: "跳过GC"
-    }
-  }
+sysmon_top_db_hostname.label:
+"""DB Hostname"""
 
-  overload_protection_backoff_hibernation {
-    desc {
-        en: "When at high load, skip process hibernation."
-        zh: "高负载时，跳过进程休眠。"
-    }
-    label {
-        en: "Skip hibernation"
-        zh: "跳过休眠"
-    }
-  }
-
-  overload_protection_backoff_new_conn {
-    desc {
-        en: "When at high load, close new incoming connections."
-        zh: "高负载时，拒绝新进来的客户端连接。"
-    }
-    label {
-        en: "Close new connections"
-        zh: "关闭新连接"
-    }
-  }
-
-  conn_congestion_enable_alarm {
-    desc {
-        en: "Enable or disable connection congestion alarm."
-        zh: "启用或者禁用连接阻塞告警功能。"
-    }
-    label {
-        en: "Enable/disable congestion alarm"
-        zh: "启用/禁用阻塞告警"
-    }
-  }
-
-  conn_congestion_min_alarm_sustain_duration {
-    desc {
-        en: "Minimal time before clearing the alarm.<br/>"
-            "The alarm is cleared only when there's no pending data in<br/>"
-            "the queue, and at least <code>min_alarm_sustain_duration</code>"
-            "milliseconds passed since the last time we considered the connection 'congested'.<br/>"
-            "This is to avoid clearing and raising the alarm again too often."
-        zh: "清除警报前的最短时间。<br/>"
-            "只有当队列中没有挂起的数据，并且连接至少被堵塞了 <code>min_alarm_sustain_duration</code> 毫秒时，<br/>"
-            "报警才会被清除。这是为了避免太频繁地清除和再次发出警报。"
-    }
-    label {
-        en: "Sustain duration"
-        zh: "告警维持时间"
-    }
-  }
-
-  force_gc_enable {
-    desc {
-        en: "Enable forced garbage collection."
-        zh: "启用强制垃圾回收。"
-    }
-    label {
-        en: "Enable forced garbage collection"
-        zh: "启用强制垃圾回收"
-    }
-  }
-
-  force_gc_count {
-    desc {
-        en: "GC the process after this many received messages."
-        zh: "在进程收到多少消息之后，对此进程执行垃圾回收。"
-    }
-    label {
-        en: "Process GC messages num"
-        zh: "垃圾回收消息数"
-    }
-  }
-
-  force_gc_bytes {
-    desc {
-        en: "GC the process after specified number of bytes have passed through."
-        zh: "在进程处理过多少个字节之后，对此进程执行垃圾回收。"
-    }
-    label {
-        en: "Process GC bytes"
-        zh: "垃圾回收字节数"
-    }
-  }
-
-  sysmon_vm_process_check_interval {
-    desc {
-        en: "The time interval for the periodic process limit check."
-        zh: "定期进程限制检查的时间间隔。"
-    }
-    label {
-        en: "Process limit check interval"
-        zh: "进程限制检查时间"
-    }
-  }
-
-  sysmon_vm_process_high_watermark {
-    desc {
-        en: "The threshold, as percentage of processes, for how many\n"
-            " processes can simultaneously exist at the local node before the corresponding\n"
-            " alarm is raised."
-        zh: "在发出相应警报之前，本地节点上可以同时存在多少进程的阈值（以进程百分比表示）。"
-    }
-    label {
-        en: "Process high watermark"
-        zh: "进程数高水位线"
-    }
-  }
-
-  sysmon_vm_process_low_watermark {
-    desc {
-        en: "The threshold, as percentage of processes, for how many\n"
-            " processes can simultaneously exist at the local node before the corresponding\n"
-            " alarm is cleared."
-        zh: "在清除相应警报之前，本地节点上可以同时存在多少进程的阈值（以进程百分比表示）。"
-    }
-    label {
-        en: "Process low watermark"
-        zh: "进程数低水位线"
-    }
-  }
-
-  sysmon_vm_long_gc {
-    desc {
-        en: """When an Erlang process spends long time to perform garbage collection, a warning level <code>long_gc</code> log is emitted,
-and an MQTT message is published to the system topic <code>$SYS/sysmon/long_gc</code>."""
-        zh: """当系统检测到某个 Erlang 进程垃圾回收占用过长时间，会触发一条带有 <code>long_gc</code> 关键字的日志。
-同时还会发布一条主题为 <code>$SYS/sysmon/long_gc</code> 的 MQTT 系统消息。"""
-    }
-    label {
-        en: "Enable Long GC monitoring."
-        zh: "启用长垃圾回收监控"
-    }
-  }
-
-  sysmon_vm_long_schedule {
-    desc {
-        en: """When the Erlang VM detect a task scheduled for too long, a warning level 'long_schedule' log is emitted,
-and an MQTT message is published to the system topic <code>$SYS/sysmon/long_schedule</code>."""
-        zh: """启用后，如果 Erlang VM 调度器出现某个任务占用时间过长时，会触发一条带有 'long_schedule' 关键字的日志。
-同时还会发布一条主题为 <code>$SYS/sysmon/long_schedule</code> 的 MQTT 系统消息。"""
-    }
-    label {
-        en: "Enable Long Schedule monitoring."
-        zh: "启用长调度监控"
-    }
-  }
-
-  sysmon_vm_large_heap {
-    desc {
-        en: """When an Erlang process consumed a large amount of memory for its heap space,
-the system will write a warning level <code>large_heap</code> log, and an MQTT message is published to
-the system topic <code>$SYS/sysmon/large_heap</code>."""
-        zh: """启用后，当一个 Erlang 进程申请了大量内存，系统会触发一条带有 <code>large_heap</code> 关键字的
-warning 级别日志。同时还会发布一条主题为 <code>$SYS/sysmon/busy_dist_port</code> 的 MQTT 系统消息。"""
-    }
-    label {
-        en: "Enable Large Heap monitoring."
-        zh: "启用大 heap 监控"
-    }
-  }
-
-  sysmon_vm_busy_dist_port {
-    desc {
-        en: """When the RPC connection used to communicate with other nodes in the cluster is overloaded,
-there will be a <code>busy_dist_port</code> warning log,
-and an MQTT message is published to system topic <code>$SYS/sysmon/busy_dist_port</code>."""
-        zh: """启用后，当用于集群接点之间 RPC 的连接过忙时，会触发一条带有 <code>busy_dist_port</code> 关键字的 warning 级别日志。
-同时还会发布一条主题为 <code>$SYS/sysmon/busy_dist_port</code> 的 MQTT 系统消息。"""
-    }
-    label {
-        en: "Enable Busy Distribution Port monitoring."
-        zh: "启用分布式端口过忙监控"
-    }
-  }
-
-  sysmon_vm_busy_port {
-    desc {
-        en: """When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,
-and an MQTT message is published to the system topic <code>$SYS/sysmon/busy_port</code>."""
-        zh: """当一个系统接口（例如 TCP socket）过忙，会触发一条带有 <code>busy_port</code> 关键字的 warning 级别的日志。
-同时还会发布一条主题为 <code>$SYS/sysmon/busy_port</code> 的 MQTT 系统消息。"""
-    }
-    label {
-        en: "Enable Busy Port monitoring."
-        zh: "启用端口过忙监控"
-    }
-  }
-
-  sysmon_os_cpu_check_interval {
-    desc {
-        en: "The time interval for the periodic CPU check."
-        zh: "定期 CPU 检查的时间间隔。"
-    }
-    label {
-        en: "The time interval for the periodic CPU check."
-        zh: "定期 CPU 检查的时间间隔"
-    }
-  }
-
-  sysmon_os_cpu_high_watermark {
-    desc {
-        en: "The threshold, as percentage of system CPU load,\n"
-            " for how much system cpu can be used before the corresponding alarm is raised."
-        zh: "在发出相应警报之前可以使用多少系统 CPU 的阈值，以系统CPU负载的百分比表示。"
-    }
-    label {
-        en: "CPU high watermark"
-        zh: "CPU 高水位线"
-    }
-  }
-
-  sysmon_os_cpu_low_watermark {
-    desc {
-        en: "The threshold, as percentage of system CPU load,\n"
-            " for how much system cpu can be used before the corresponding alarm is cleared."
-        zh: "在解除相应警报之前可以使用多少系统 CPU 的阈值，以系统CPU负载的百分比表示。"
-    }
-    label {
-        en: "CPU low watermark"
-        zh: "CPU 低水位线"
-    }
-  }
-
-  sysmon_os_mem_check_interval {
-    desc {
-        en: "The time interval for the periodic memory check."
-        zh: "定期内存检查的时间间隔。"
-    }
-    label {
-        en: "Mem check interval"
-        zh: "内存检查间隔"
-    }
-  }
-
-  sysmon_os_sysmem_high_watermark {
-    desc {
-        en: "The threshold, as percentage of system memory,\n"
-            " for how much system memory can be allocated before the corresponding alarm is raised."
-        zh: "在发出相应报警之前可以分配多少系统内存的阈值，以系统内存的百分比表示。"
-    }
-    label {
-        en: "SysMem high wartermark"
-        zh: "系统内存高水位线"
-    }
-  }
-
-  sysmon_os_procmem_high_watermark {
-    desc {
-        en: "The threshold, as percentage of system memory,\n"
-        " for how much system memory can be allocated by one Erlang process before\n"
-        " the corresponding alarm is raised."
-        zh: "在发出相应警报之前，一个Erlang进程可以分配多少系统内存的阈值，以系统内存的百分比表示。"
-    }
-    label {
-        en: "ProcMem high wartermark"
-        zh: "进程内存高水位线"
-    }
-  }
-
-  sysmon_top_num_items {
-    desc {
-        en: "The number of top processes per monitoring group"
-        zh: "每个监视组的顶级进程数。"
-    }
-    label {
-        en: "Top num items"
-        zh: "顶级进程数"
-    }
-  }
-
-  sysmon_top_sample_interval {
-    desc {
-        en: "Specifies how often process top should be collected"
-        zh: "指定应收集进程顶部的频率。"
-    }
-    label {
-        en: "Top sample interval"
-        zh: "取样时间"
-    }
-  }
-
-  sysmon_top_max_procs {
-    desc {
-        en: "Stop collecting data when the number of processes\n"
-            "in the VM exceeds this value"
-        zh: "当 VM 中的进程数超过此值时，停止收集数据。"
-    }
-    label {
-        en: "Max procs"
-        zh: "最大进程数"
-    }
-  }
-
-  sysmon_top_db_hostname {
-    desc {
-        en: "Hostname of the PostgreSQL database that collects the data points"
-        zh: "收集数据点的 PostgreSQL 数据库的主机名。"
-    }
-    label {
-        en: "DB Hostname"
-        zh: "数据库主机名"
-    }
-  }
-
-  sysmon_top_db_port {
-    desc {
-        en: "Port of the PostgreSQL database that collects the data points."
-        zh: "收集数据点的 PostgreSQL 数据库的端口。"
-    }
-    label {
-        en: "DB Port"
-        zh: "数据库端口"
-    }
-  }
-
-  sysmon_top_db_username {
-    desc {
-        en: "Username of the PostgreSQL database"
-        zh: "PostgreSQL 数据库的用户名"
-    }
-    label {
-        en: "DB Username"
-        zh: "数据库用户名"
-    }
-  }
-
-  sysmon_top_db_password {
-    desc {
-        en: "EMQX user password in the PostgreSQL database"
-        zh: "PostgreSQL 数据库的密码"
-    }
-    label {
-        en: "DB Password"
-        zh: "数据库密码"
-    }
-  }
-
-  sysmon_top_db_name {
-    desc {
-        en: "PostgreSQL database name"
-        zh: "PostgreSQL 数据库的数据库名"
-    }
-    label {
-        en: "DB Name"
-        zh: "数据库名"
-    }
-  }
-
-  alarm_actions {
-    desc {
-        en: "The actions triggered when the alarm is activated.<br/>"
-            "Currently, the following actions are supported: <code>log</code> and "
-            "<code>publish</code>.\n"
-            "<code>log</code> is to write the alarm to log (console or file).\n"
-            "<code>publish</code> is to publish the alarm as an MQTT message to "
-            "the system topics:\n"
-            "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and\n"
-            "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"
-        zh: "警报激活时触发的动作。<br/>"
-            "目前，支持以下操作：<code>log</code> 和 "
-            "<code>publish</code>.\n"
-            "<code>log</code> 将告警写入日志 (控制台或者文件).\n"
-            "<code>publish</code> 将告警作为 MQTT 消息发布到系统主题:\n"
-            "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and\n"
-            "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"
-    }
-    label: {
-        en: "Alarm Actions"
-        zh: "告警动作"
-    }
-  }
-
-  alarm_size_limit {
-    desc {
-        en: "The maximum total number of deactivated alarms to keep as history.<br/>"
-            "When this limit is exceeded, the oldest deactivated alarms are "
-            "deleted to cap the total number."
-        zh: "要保留为历史记录的已停用报警的最大总数。当超过此限制时，将删除最旧的停用报警，以限制总数。"
-    }
-    label: {
-        en: "Alarm size limit"
-        zh: "告警总数限制"
-    }
-  }
-
-  alarm_validity_period {
-    desc {
-        en: "Retention time of deactivated alarms. Alarms are not deleted immediately\n"
-            "when deactivated, but after the retention time."
-        zh: "停用报警的保留时间。报警在停用时不会立即删除，而是在保留时间之后删除。"
-    }
-    label: {
-        en: "Alarm validity period"
-        zh: "告警保留时间"
-    }
-  }
-
-  flapping_detect_enable {
-    desc {
-        en: "Enable flapping connection detection feature."
-        zh: "启用抖动检测功能。"
-    }
-    label: {
-        en: "Enable flapping detection"
-        zh: "启用抖动检测"
-    }
-  }
-
-  flapping_detect_max_count {
-    desc {
-        en: "The maximum number of disconnects allowed for a MQTT Client in `window_time`"
-        zh: "MQTT 客户端在“窗口”时间内允许的最大断开次数。"
-    }
-    label: {
-        en: "Max count"
-        zh: "最大断开次数"
-    }
-  }
-
-  flapping_detect_window_time {
-    desc {
-        en: "The time window for flapping detection."
-        zh: "抖动检测的时间窗口。"
-    }
-    label: {
-        en: "Window time"
-        zh: "时间窗口"
-    }
-  }
-
-  flapping_detect_ban_time {
-    desc {
-        en: "How long the flapping clientid will be banned."
-        zh: "抖动的客户端将会被禁止登录多长时间。"
-    }
-    label: {
-        en: "Ban time"
-        zh: "禁止登录时长"
-    }
-  }
-
-  persistent_session_store_enabled {
-    desc {
-        en: "Use the database to store information about persistent sessions.\n"
-            "This makes it possible to migrate a client connection to another\n"
-            "cluster node if a node is stopped."
-        zh: "使用数据库存储有关持久会话的信息。\n"
-            "这使得在节点停止时，可以将客户端连接迁移到另一个群集节点。"
-    }
-    label: {
-        en: "Enable persistent session store"
-        zh: "启用持久会话保存"
-    }
-  }
-
-  persistent_session_store_backend {
-    desc {
-        en: "Database management system used to store information about persistent sessions and messages.\n"
-            "- `builtin`: Use the embedded database (mria)"
-        zh: "用于存储持久性会话和信息的数据库管理后端\n"
-            "- `builtin`: 使用内置的数据库（mria）"
-    }
-    label: {
-        en: "Backend"
-        zh: "后端类型"
-    }
-  }
-
-  persistent_store_on_disc {
-    desc {
-        en: "Save information about the persistent sessions on disc.\n"
-            "If this option is enabled, persistent sessions will survive full restart of the cluster.\n"
-            "Otherwise, all the data will be stored in RAM, and it will be lost when all the nodes in the cluster are stopped."
-        zh: "将持久会话数据保存在磁盘上。如果为 false 则存储在内存中。\n"
-            "如开启， 持久会话数据可在集群重启后恢复。\n"
-            "如关闭， 数据仅存储在内存中， 则在整个集群停止后丢失。"
-    }
-    label: {
-        en: "Persist on disc"
-        zh: "持久化在磁盘上"
-    }
-  }
-
-  persistent_store_ram_cache {
-    desc {
-        en: "Maintain a copy of the data in RAM for faster access."
-        zh: "在内存中保持一份数据的副本，以便更快地访问。"
-    }
-    label: {
-        en: "RAM cache"
-        zh: "内存缓存"
-    }
-  }
-
-  persistent_session_store_max_retain_undelivered {
-    desc {
-        en: "The time messages that was not delivered to a persistent session\n"
-            "is stored before being garbage collected if the node the previous\n"
-            "session was handled on restarts of is stopped."
-        zh: "如果重新启动时处理上一个会话的节点已停止，则未传递到持久会话的消息在垃圾收集之前会被存储。"
-    }
-    label: {
-        en: "Max retain undelivered"
-        zh: "未投递的消息保留条数"
-    }
-  }
-
-  persistent_session_store_message_gc_interval {
-    desc {
-        en: "The starting interval for garbage collection of undelivered messages to\n"
-            "a persistent session. This affects how often the \"max_retain_undelivered\"\n"
-            "is checked for removal."
-        zh: "将未送达的消息垃圾收集到持久会话的开始间隔。\n"
-            "这会影响检查 \"max_retain_undelivered\"（最大保留未送达）的删除频率。"
-    }
-    label: {
-        en: "Message GC interval"
-        zh: "消息清理间隔"
-    }
-  }
-
-  persistent_session_store_session_message_gc_interval {
-    desc {
-        en: "The starting interval for garbage collection of transient data for\n"
-            "persistent session messages. This does not affect the lifetime length\n"
-            "of persistent session messages."
-        zh: "持久会话消息的临时数据垃圾收集的开始间隔。\n"
-            "这不会影响持久会话消息的生命周期长度。"
-    }
-    label: {
-        en: "Session message GC interval"
-        zh: "会话消息清理间隔"
-    }
-  }
-
-  persistent_session_builtin_session_table {
-    desc {
-         en: "Performance tuning options for built-in session table."
-         zh: "用于内建会话表的性能调优参数。"
-    }
-    label: {
-         en: "Persistent session"
-         zh: "持久会话"
-    }
-  }
-
-  persistent_session_builtin_sess_msg_table {
-    desc {
-         en: "Performance tuning options for built-in session messages table."
-         zh: "优化内置的会话消息表的配置。"
-    }
-    label: {
-         en: "Persistent session messages"
-         zh: "用于内建会话管理表的性能调优参数"
-    }
-  }
-
-  persistent_session_builtin_messages_table {
-    desc {
-         en: "Performance tuning options for built-in messages table."
-         zh: "用于内建消息表的性能调优参数。"
-    }
-    label: {
-         en: "Persistent messages"
-         zh: "持久化消息"
-    }
-  }
-
-  stats_enable {
-    desc {
-        en: "Enable/disable statistic data collection."
-        zh: "启用/禁用统计数据收集功能。"
-    }
-    label: {
-        en: "Enable/disable statistic data collection."
-        zh: "启用/禁用统计数据收集功能"
-    }
-  }
-
-    zones {
-        desc {
-            en: """A zone is a set of configs grouped by the zone <code>name</code>.
+zones.desc:
+"""A zone is a set of configs grouped by the zone <code>name</code>.
 For flexible configuration mapping, the <code>name</code> can be set to a listener's <code>zone</code> config.
 NOTE: A built-in zone named <code>default</code> is auto created and can not be deleted."""
-            zh: """<code>zone</code> 是按<code>name</code> 分组的一组配置。
-对于灵活的配置映射，可以将 <code>name</code> 设置为侦听器的 <code>zone</code> 配置。
-注：名为 <code>default</code> 的内置区域是自动创建的，无法删除。"""
-        }
-    }
 
-    mqtt {
-        desc {
-            en: """Global MQTT configuration.
-The configs here work as default values which can be overridden in <code>zone</code> configs"""
-            zh: """全局的 MQTT 配置项。
-mqtt 下所有的配置作为全局的默认值存在，它可以被 <code>zone</code> 中的配置覆盖。"""
-        }
-    }
+fields_mqtt_quic_listener_certfile.desc:
+"""Path to the certificate file. Will be deprecated in 5.1, use .ssl_options.certfile instead."""
 
-    mqtt_idle_timeout {
-        desc {
-            en: """Configure the duration of time that a connection can remain idle (i.e., without any data transfer) before being:
-  - Automatically disconnected  if no CONNECT package is received from the client yet.
-  - Put into hibernation mode to save resources if some CONNECT packages are already received.
-Note: Please set the parameter with caution as long idle time will lead to resource waste."""
-            zh: """设置连接被断开或进入休眠状态前的等待时间，空闲超时后，
-  - 如暂未收到客户端的 CONNECT 报文，连接将断开；
-  - 如已收到客户端的 CONNECT 报文，连接将进入休眠模式以节省系统资源。
+fields_mqtt_quic_listener_certfile.label:
+"""Certificate file"""
 
-注意：请合理设置该参数值，如等待时间设置过长，可能造成系统资源的浪费。"""
-        }
-        label: {
-            en: """Idle Timeout"""
-            zh: """空闲超时"""
-        }
-    }
+fields_rate_limit_conn_bytes_in.desc:
+"""Limit the rate of receiving packets for a MQTT connection.
+The rate is counted by bytes of packets per second."""
 
-    mqtt_max_packet_size {
-        desc {
-            en: """Maximum MQTT packet size allowed."""
-            zh: """允许的最大 MQTT 报文大小。"""
-        }
-        label: {
-            en: """Max Packet Size"""
-            zh: """最大报文大小"""
-        }
-    }
+fields_rate_limit_conn_bytes_in.label:
+"""Connection bytes in"""
 
-    mqtt_max_clientid_len {
-        desc {
-            en: """Maximum allowed length of MQTT Client ID."""
-            zh: """允许的最大 MQTT Client ID 长度。"""
-        }
-        label: {
-            en: """Max Client ID Length"""
-            zh: """最大 Client ID 长度"""
-        }
-    }
+crl_cache_capacity.desc:
+"""The maximum number of CRL URLs that can be held in cache.  If the cache is at full capacity and a new URL must be fetched, then it'll evict the oldest inserted URL in the cache."""
 
-    mqtt_max_topic_levels {
-        desc {
-            en: """Maximum topic levels allowed."""
-            zh: """允许的最大主题层级。"""
-        }
-        label: {
-            en: """Max Topic Levels"""
-            zh: """最大主题层级"""
-        }
-    }
+crl_cache_capacity.label:
+"""CRL Cache Capacity"""
 
-    mqtt_max_qos_allowed {
-        desc {
-            en: """Maximum QoS allowed."""
-            zh: """允许的最大 QoS 等级。"""
-        }
-        label: {
-            en: """Max QoS"""
-            zh: """最大 QoS"""
-        }
-    }
+alarm_actions.desc:
+"""The actions triggered when the alarm is activated.<br/>Currently, the following actions are supported: <code>log</code> and <code>publish</code>.
+<code>log</code> is to write the alarm to log (console or file).
+<code>publish</code> is to publish the alarm as an MQTT message to the system topics:
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
 
-    mqtt_max_topic_alias {
-        desc {
-            en: """Maximum topic alias, 0 means no topic alias supported."""
-            zh: """允许的最大主题别名数，0 表示不支持主题别名。"""
-        }
-        label: {
-            en: """Max Topic Alias"""
-            zh: """最大主题别名"""
-        }
-    }
+alarm_actions.label:
+"""Alarm Actions"""
 
-    mqtt_retain_available {
-        desc {
-            en: """Whether to enable support for MQTT retained message."""
-            zh: """是否启用对 MQTT 保留消息的支持。"""
-        }
-        label: {
-            en: """Retain Available"""
-            zh: """保留消息可用"""
-        }
-    }
+base_listener_max_connections.desc:
+"""The maximum number of concurrent connections allowed by the listener."""
 
-    mqtt_wildcard_subscription {
-        desc {
-            en: """Whether to enable support for MQTT wildcard subscription."""
-            zh: """是否启用对 MQTT 通配符订阅的支持。"""
-        }
-        label: {
-            en: """Wildcard Subscription Available"""
-            zh: """通配符订阅可用"""
-        }
-    }
+base_listener_max_connections.label:
+"""Max connections"""
 
-    mqtt_shared_subscription {
-        desc {
-            en: """Whether to enable support for MQTT shared subscription."""
-            zh: """是否启用对 MQTT 共享订阅的支持。"""
-        }
-        label: {
-            en: """Shared Subscription Available"""
-            zh: """共享订阅可用"""
-        }
-    }
-
-    mqtt_exclusive_subscription {
-        desc {
-            en: """Whether to enable support for MQTT exclusive subscription."""
-            zh: """是否启用对 MQTT 排它订阅的支持。"""
-        }
-        label: {
-            en: """Exclusive Subscription"""
-            zh: """排它订阅"""
-        }
-    }
-
-    mqtt_ignore_loop_deliver {
-        desc {
-            en: """Whether the messages sent by the MQTT v3.1.1/v3.1.0 client will be looped back to the publisher itself, similar to <code>No Local</code> in MQTT 5.0."""
-            zh: """设置由 MQTT v3.1.1/v3.1.0 客户端发布的消息是否将转发给其本身；类似 MQTT 5.0 协议中的 <code>No Local</code> 选项。"""
-        }
-        label: {
-            en: """Ignore Loop Deliver"""
-            zh: """忽略循环投递"""
-        }
-    }
-
-    mqtt_strict_mode {
-        desc {
-            en: """Whether to parse MQTT messages in strict mode.
-In strict mode, invalid utf8 strings in for example client ID, topic name, etc. will cause the client to be disconnected."""
-            zh: """是否以严格模式解析 MQTT 消息。
-严格模式下，如客户端 ID、主题名称等中包含无效 utf8 字符串，连接将被断开。"""
-        }
-        label: {
-            en: """Strict Mode"""
-            zh: """严格模式"""
-        }
-    }
-
-    mqtt_response_information {
-        desc {
-            en: """UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
-To disable this feature, input <code>\"\"</code> in the text box below. Only applicable to MQTT 5.0 clients."""
-            zh: """UTF-8 字符串，用于指定返回给客户端的响应主题，如 <code>reqrsp/</code>，此时请求和应答客户端都需要使用 <code>reqrsp/</code> 前缀的主题来完成通讯。
-如希望禁用此功能，请在下方的文字框中输入<code>\"\"</code>；仅适用于 MQTT 5.0 客户端。"""
-        }
-        label: {
-            en: """Response Information"""
-            zh: """响应信息"""
-        }
-    }
-
-    mqtt_server_keepalive {
-        desc {
-            en: """The keep alive duration required by EMQX. To use the setting from the client side, choose disabled from the drop-down list. Only applicable to MQTT 5.0 clients."""
-            zh: """EMQX 要求的保活时间，如设为 disabled，则将使用客户端指定的保持连接时间；仅适用于 MQTT 5.0 客户端。"""
-        }
-        label: {
-            en: """Server Keep Alive"""
-            zh: """服务端保活时间"""
-        }
-    }
-
-    mqtt_keepalive_backoff {
-        desc {
-            en: """The coefficient EMQX uses to confirm whether the keep alive duration of the client expires. Formula: Keep Alive * Backoff * 2"""
-            zh: """EMQX 判定客户端保活超时使用的阈值系数。计算公式为：Keep Alive * Backoff * 2"""
-        }
-        label: {
-            en: """Keep Alive Backoff"""
-            zh: """保活超时阈值系数"""
-        }
-    }
-
-    mqtt_max_subscriptions {
-        desc {
-            en: """Maximum number of subscriptions allowed per client."""
-            zh: """允许每个客户端建立的最大订阅数量。"""
-        }
-        label: {
-            en: """Max Subscriptions"""
-            zh: """最大订阅数量"""
-        }
-    }
-
-    mqtt_upgrade_qos {
-        desc {
-            en: """Force upgrade of QoS level according to subscription."""
-            zh: """投递消息时，是否根据订阅主题时的 QoS 等级来强制提升派发的消息的 QoS 等级。"""
-        }
-        label: {
-            en: """Upgrade QoS"""
-            zh: """升级 QoS"""
-        }
-    }
-
-    mqtt_max_inflight {
-        desc {
-            en: """Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment."""
-            zh: """允许在完成应答前同时投递的 QoS 1 和 QoS 2 消息的最大数量。"""
-        }
-        label: {
-            en: """Max Inflight"""
-            zh: """最大飞行窗口"""
-        }
-
-    }
-
-    mqtt_retry_interval {
-        desc {
-            en: """Retry interval for QoS 1/2 message delivering."""
-            zh: """QoS 1/2 消息的重新投递间隔。"""
-        }
-        label: {
-            en: """Retry Interval"""
-            zh: """重试间隔"""
-        }
-    }
-
-    mqtt_max_awaiting_rel {
-        desc {
-            en: """For each publisher session, the maximum number of outstanding QoS 2 messages pending on the client to send PUBREL. After reaching this limit, new QoS 2 PUBLISH requests will be rejected with `147(0x93)` until either PUBREL is received or timed out."""
-            zh: """每个发布者的会话中，都存在一个队列来处理客户端发送的 QoS 2 消息。该队列会存储 QoS 2 消息的报文 ID 直到收到客户端的 PUBREL 或超时，达到队列长度的限制后，新的 QoS 2 消息发布会被拒绝，并返回 `147(0x93)` 错误。"""
-        }
-        label: {
-            en: """Max Awaiting PUBREL"""
-            zh: """PUBREL 等待队列长度"""
-        }
-    }
-
-    mqtt_await_rel_timeout {
-        desc {
-            en: """For client to broker QoS 2 message, the time limit for the broker to wait before the `PUBREL` message is received. The wait is aborted after timed out, meaning the packet ID is freed for new `PUBLISH` requests. Receiving a stale `PUBREL` causes a warning level log. Note, the message is delivered to subscribers before entering the wait for PUBREL."""
-            zh: """客户端发布 QoS 2 消息时，服务器等待 `PUBREL` 的最长时延。超过该时长后服务器会放弃等待，该PACKET ID 会被释放，从而允许后续新的 PUBLISH 消息使用。如果超时后收到 PUBREL，服务器将会产生一条告警日志。注意，向订阅客户端转发消息的动作发生在进入等待之前。"""
-        }
-        label: {
-            en: """Max Awaiting PUBREL TIMEOUT"""
-            zh: """PUBREL 最大等待时间"""
-        }
-    }
-
-    mqtt_session_expiry_interval {
-        desc {
-            en: """Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections."""
-            zh: """指定会话将在连接断开后多久过期，仅适用于非 MQTT 5.0 的连接。"""
-        }
-        label: {
-            en: """Session Expiry Interval"""
-            zh: """会话过期间隔"""
-        }
-    }
-
-    mqtt_max_mqueue_len {
-        desc {
-            en: """Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full."""
-            zh: """消息队列最大长度。持久客户端断开连接或飞行窗口已满时排队的消息长度。"""
-        }
-        label: {
-            en: """Max Message Queue Length"""
-            zh: """最大消息队列长度"""
-        }
-    }
-
-    mqtt_mqueue_priorities {
-        desc {
-            en: """Topic priorities. Priority number [1-255]
-There's no priority table by default, hence all messages are treated equal.
-
-**NOTE**: Comma and equal signs are not allowed for priority topic names.
-**NOTE**: Messages for topics not in the priority table are treated as either highest or lowest priority depending on the configured value for <code>mqtt.mqueue_default_priority</code>.
-
-**Examples**:
-To configure <code>\"topic/1\" > \"topic/2\"</code>:
-<code>mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}</code>"""
-            zh: """主题优先级。取值范围 [1-255]
-默认优先级表为空，即所有的主题优先级相同。
-
-注：优先主题名称中不支持使用逗号和等号。
-注：不在此列表中的主题，被视为最高/最低优先级，这取决于<code>mqtt.mqueue_default_priority</code> 的配置
-
-示例：
-配置 <code>\"topic/1\" > \"topic/2\"</code>:
-<code>mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}</code>"""
-        }
-        label: {
-            en: """Topic Priorities"""
-            zh: """主题优先级"""
-        }
-    }
-
-    mqtt_mqueue_default_priority {
-        desc {
-            en: """Default topic priority, which will be used by topics not in <code>Topic Priorities</code> (<code>mqueue_priorities</code>)."""
-            zh: """默认的主题优先级，不在 <code>主题优先级</code>（<code>mqueue_priorities</code>） 中的主题将会使用该优先级。"""
-        }
-        label: {
-            en: """Default Topic Priorities"""
-            zh: """默认主题优先级"""
-        }
-    }
-
-    mqtt_mqueue_store_qos0 {
-        desc {
-            en: """Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains."""
-            zh: """指定在连接断开但会话保持期间，是否需要在消息队列中存储 QoS 0 消息。"""
-        }
-        label: {
-            en: """Store QoS 0 Message"""
-            zh: """存储 QoS 0 消息"""
-        }
-    }
-
-    mqtt_use_username_as_clientid {
-        desc {
-            en: """Whether to use Username as Client ID.
-This setting takes effect later than <code>Use Peer Certificate as Username</code> and <code>Use peer certificate as Client ID</code>."""
-            zh: """是否使用用户名作为客户端 ID。
-此设置的作用时间晚于 <code>对端证书作为用户名</code> 和 <code>对端证书作为客户端 ID</code>。"""
-        }
-        label: {
-            en: """Use Username as Client ID"""
-            zh: """用户名作为客户端 ID"""
-        }
-    }
-
-    mqtt_peer_cert_as_username {
-        desc {
-            en: """Use the CN, DN field in the peer certificate or the entire certificate content as Username. Only works for the TLS connection.
+mqtt_peer_cert_as_username.desc:
+"""Use the CN, DN field in the peer certificate or the entire certificate content as Username. Only works for the TLS connection.
 Supported configurations are the following:
 - <code>cn</code>: CN field of the certificate
 - <code>dn</code>: DN field of the certificate
 - <code>crt</code>: Content of the <code>DER</code> or <code>PEM</code> certificate
 - <code>pem</code>: Convert <code>DER</code> certificate content to <code>PEM</code> format and use as Username
 - <code>md5</code>: MD5 value of the <code>DER</code> or <code>PEM</code> certificate"""
-            zh: """使用对端证书中的 CN、DN 字段或整个证书内容来作为用户名；仅适用于 TLS 连接。
-目前支持：
-- <code>cn</code>: 取证书的 CN 字段
-- <code>dn</code>: 取证书的 DN 字段
-- <code>crt</code>: 取 <code>DER</code> 或 <code>PEM</code> 的证书内容
-- <code>pem</code>: 将 <code>DER</code> 证书转换为 <code>PEM</code> 格式作为用户名
-- <code>md5</code>: 取 <code>DER</code> 或 <code>PEM</code> 证书内容的 MD5 值"""
-        }
-        label: {
-            en: """Use Peer Certificate as Username"""
-            zh: """对端证书作为用户名"""
-        }
-    }
 
-    mqtt_peer_cert_as_clientid {
-        desc {
-            en: """Use the CN, DN field in the peer certificate or the entire certificate content as Client ID. Only works for the TLS connection.
-Supported configurations are the following:
-- <code>cn</code>: CN field of the certificate
-- <code>dn</code>: DN field of the certificate
-- <code>crt</code>: <code>DER</code> or <code>PEM</code> certificate
-- <code>pem</code>: Convert <code>DER</code> certificate content to <code>PEM</code> format and use as Client ID
-- <code>md5</code>: MD5 value of the <code>DER</code> or <code>PEM</code> certificate"""
-            zh: """使用对端证书中的 CN、DN 字段或整个证书内容来作为客户端 ID。仅适用于 TLS 连接；
-目前支持：
-- <code>cn</code>: 取证书的 CN 字段
-- <code>dn</code>: 取证书的 DN 字段
-- <code>crt</code>: 取 <code>DER</code> 或 <code>PEM</code> 证书的内容
-- <code>pem</code>: 将 <code>DER</code> 证书内容转换为 <code>PEM</code> 格式作为客户端 ID
-- <code>md5</code>: 取 <code>DER</code> 或 <code>PEM</code> 证书内容的 MD5 值"""
-        }
-        label: {
-            en: """Use Peer Certificate as Client ID"""
-            zh: """对端证书作为客户端 ID"""
-        }
-    }
+mqtt_peer_cert_as_username.label:
+"""Use Peer Certificate as Username"""
 
-    broker {
-        desc {
-            en: """Message broker options."""
-            zh: """Broker 相关配置项。"""
-        }
-    }
+fields_cache_enable.desc:
+"""Enable or disable the authorization cache."""
 
-    broker_enable_session_registry {
-        desc {
-            en: """Enable session registry"""
-            zh: """是否启用 Session Registry"""
-        }
-    }
+fields_cache_enable.label:
+"""Enable or disable the authorization cache."""
 
-    broker_session_locking_strategy {
-        desc {
-            en: """Session locking strategy in a cluster.
-  - `local`: only lock the session on the current node
-  - `one`: select only one remote node to lock the session
-  - `quorum`: select some nodes to lock the session
-  - `all`: lock the session on all the nodes in the cluster"""
+fields_mqtt_quic_listener_disconnect_timeout_ms.desc:
+"""How long to wait for an ACK before declaring a path dead and disconnecting. Default: 16000"""
 
-            zh: """Session 在集群中的锁策略。
-  - `loca`：仅锁本节点的 Session；
-  - `one`：任选一个其它节点加锁；
-  - `quorum`：选择集群中半数以上的节点加锁；
-  - `all`：选择所有节点加锁。"""
-        }
-    }
+fields_mqtt_quic_listener_disconnect_timeout_ms.label:
+"""Disconnect timeout ms"""
 
-    broker_shared_subscription_strategy {
-        desc {
-            en: """Dispatch strategy for shared subscription.
-  - `random`: dispatch the message to a random selected subscriber
-  - `round_robin`: select the subscribers in a round-robin manner
-  - `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
-  - `local`: select random local subscriber otherwise select random cluster-wide
-  - `sticky`: always use the last selected subscriber to dispatch, until the subscriber disconnects.
-  - `hash_clientid`: select the subscribers by hashing the `clientIds`
-  - `hash_topic`: select the subscribers by hashing the source topic"""
+mqtt_max_topic_alias.desc:
+"""Maximum topic alias, 0 means no topic alias supported."""
 
-            zh: """共享订阅消息派发策略。
-  - `random`：随机挑选一个共享订阅者派发；
-  - `round_robin`：使用 round-robin 策略派发；
-  - `round_robin_per_group`：在共享组内循环选择下一个成员；
-  - `local`：选择随机的本地成员，否则选择随机的集群范围内成员;
-  - `sticky`：总是使用上次选中的订阅者派发，直到它断开连接；
-  - `hash_clientid`：通过对发送者的客户端 ID 进行 Hash 处理来选择订阅者;
-  - `hash_topic`：通过对源主题进行 Hash 处理来选择订阅者。"""
-        }
-    }
+mqtt_max_topic_alias.label:
+"""Max Topic Alias"""
 
-    broker_shared_dispatch_ack_enabled {
-        desc {
-            en: """Deprecated, will be removed in 5.1.
-Enable/disable shared dispatch acknowledgement for QoS 1 and QoS 2 messages.
-This should allow messages to be dispatched to a different subscriber in the group in case the picked (based on `shared_subscription_strategy`) subscriber is offline."""
+common_ssl_opts_schema_user_lookup_fun.desc:
+"""EMQX-internal callback that is used to lookup pre-shared key (PSK) identity."""
 
-            zh: """该配置项已废弃，会在 5.1 中移除。
-启用/禁用 QoS 1 和 QoS 2 消息的共享派发确认。
-开启后，允许将消息从未及时回复 ACK 的订阅者 （例如，客户端离线） 重新派发给另外一个订阅者。"""
-        }
-    }
+common_ssl_opts_schema_user_lookup_fun.label:
+"""SSL PSK user lookup fun"""
 
-    broker_route_batch_clean {
-        desc {
-            en: """Enable batch clean for deleted routes."""
-            zh: """是否开启批量清除路由。"""
-        }
-    }
+fields_listeners_wss.desc:
+"""HTTPS websocket listeners."""
 
-    shared_subscription_group_strategy {
-        desc {
-            en: """Per group dispatch strategy for shared subscription.
-This config is a map from shared subscription group name to the strategy
-name. The group name should be of format `[A-Za-z0-9]`. i.e. no
-special characters are allowed."""
-            zh: """设置共享订阅组为单位的分发策略。该配置是一个从组名到
-策略名的一个map，组名不得包含 `[A-Za-z0-9]` 之外的特殊字符。"""
-          }
+fields_listeners_wss.label:
+"""HTTPS websocket listeners"""
 
-    }
+sysmon_top_max_procs.desc:
+"""Stop collecting data when the number of processes
+in the VM exceeds this value"""
 
-    shared_subscription_strategy_enum {
-        desc {
-            en: """Dispatch strategy for shared subscription.
-- `random`: dispatch the message to a random selected subscriber
-- `round_robin`: select the subscribers in a round-robin manner
-- `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
-- `sticky`: always use the last selected subscriber to dispatch,
-until the subscriber disconnects.
-- `hash`: select the subscribers by the hash of `clientIds`
-- `local`: send to a random local subscriber. If local
-subscriber was not found, send to a random subscriber cluster-wide"""
-            zh: """共享订阅的分发策略名称。
-- `random`：随机选择一个组内成员；
-- `round_robin`：循环选择下一个成员；
-- `round_robin_per_group`：在共享组内循环选择下一个成员；
-- `sticky`：使用上一次选中的成员；
-- `hash`：根据 ClientID 哈希映射到一个成员；
-- `local`：随机分发到节点本地成成员，如果本地成员不存在，则随机分发到任意一个成员。"""
+sysmon_top_max_procs.label:
+"""Max procs"""
 
-          }
-      }
+mqtt_use_username_as_clientid.desc:
+"""Whether to use Username as Client ID.
+This setting takes effect later than <code>Use Peer Certificate as Username</code> and <code>Use peer certificate as Client ID</code>."""
 
-    broker_perf_route_lock_type {
-        desc {
-            en: """Performance tuning for subscribing/unsubscribing a wildcard topic.
-Change this parameter only when there are many wildcard topics.
+mqtt_use_username_as_clientid.label:
+"""Use Username as Client ID"""
 
-NOTE: when changing from/to `global` lock, it requires all nodes in the cluster to be stopped before the change.
-  - `key`: mnesia transactional updates with per-key locks. Recommended for a single-node setup.
-  - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.
-  - `global`: updates are protected with a global lock. Recommended for large clusters."""
-            zh: """通配主题订阅/取消订阅性能调优。
-建议仅当通配符主题较多时才更改此参数。
+mqtt_max_qos_allowed.desc:
+"""Maximum QoS allowed."""
 
-注：当从/更改为 `global` 锁时，它要求集群中的所有节点在更改之前停止。
-  - `key`：为 Mnesia 事务涉及到的每个 key 上锁，建议单节点时使用。
-  - `tab`：为 Mnesia 事务涉及到的表上锁，建议在集群中使用。
-  - `global`：所以更新操作都被全局的锁保护，仅建议在超大规模集群中使用。"""
-        }
-    }
+mqtt_max_qos_allowed.label:
+"""Max QoS"""
 
-    broker_perf_trie_compaction {
-        desc {
-            en: """Enable trie path compaction.
-Enabling it significantly improves wildcard topic subscribe rate, if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/', where ID is unique per subscriber.
-Topic match performance (when publishing) may degrade if messages are mostly published to topics with large number of levels.
+fields_mqtt_quic_listener_max_binding_stateless_operations.desc:
+"""The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"""
 
-NOTE: This is a cluster-wide configuration. It requires all nodes to be stopped before changing it."""
-            zh: """是否开启主题表压缩存储。
-启用它会显着提高通配符主题订阅率，如果通配符主题具有唯一前缀，例如：'sensor/{{id}}/+/'，其中每个订阅者的 ID 是唯一的。
-如果消息主要发布到具有大量级别的主题，则主题匹配性能（发布时）可能会降低。
+fields_mqtt_quic_listener_max_binding_stateless_operations.label:
+"""Max binding stateless operations"""
 
-注意：这是一个集群范围的配置。 它要求在更改之前停止所有节点。"""
-        }
-    }
+fields_mqtt_quic_listener_stream_recv_buffer_default.desc:
+"""Stream initial buffer size. Default: 4096"""
 
-    sys_topics {
-        desc {
-            en: """System topics configuration."""
-            zh: """系统主题配置。"""
-        }
-    }
+fields_mqtt_quic_listener_stream_recv_buffer_default.label:
+"""Stream recv buffer default"""
 
-    sys_msg_interval {
-        desc {
-            en: """Time interval of publishing `$SYS` messages."""
-            zh: """发送 `$SYS` 主题的间隔时间。"""
-        }
-    }
+fields_mqtt_quic_listener_pacing_enabled.desc:
+"""Pace sending to avoid overfilling buffers on the path. Default: 1 (Enabled)"""
 
-    sys_heartbeat_interval {
-        desc {
-            en: """Time interval for publishing following heartbeat messages:
-  - `$SYS/brokers/<node>/uptime`
-  - `$SYS/brokers/<node>/datetime`"""
-            zh: """发送心跳系统消息的间隔时间，它包括：
-  - `$SYS/brokers/<node>/uptime`
-  - `$SYS/brokers/<node>/datetime`"""
-        }
-    }
+fields_mqtt_quic_listener_pacing_enabled.label:
+"""Pacing enabled"""
 
-    sys_event_messages {
-        desc {
-            en: """Client events messages."""
-            zh: """客户端事件消息。"""
-        }
-    }
+mqtt_max_subscriptions.desc:
+"""Maximum number of subscriptions allowed per client."""
 
-    sys_event_client_connected {
-        desc {
-            en: """Enable to publish client connected event messages"""
-            zh: """是否开启客户端已连接事件消息。"""
-        }
-    }
+mqtt_max_subscriptions.label:
+"""Max Subscriptions"""
 
-    sys_event_client_disconnected {
-        desc {
-            en: """Enable to publish client disconnected event messages."""
-            zh: """是否开启客户端已断开连接事件消息。"""
-        }
-    }
+persistent_session_builtin_messages_table.desc:
+"""Performance tuning options for built-in messages table."""
 
-    sys_event_client_subscribed {
-        desc {
-            en: """Enable to publish event message that client subscribed a topic successfully."""
-            zh: """是否开启客户端已成功订阅主题事件消息。"""
-        }
-    }
+persistent_session_builtin_messages_table.label:
+"""Persistent messages"""
 
-    sys_event_client_unsubscribed {
-        desc {
-            en: """Enable to publish event message that client unsubscribed a topic successfully."""
-            zh: """是否开启客户端已成功取消订阅主题事件消息。"""
-        }
-    }
+sysmon_os_cpu_low_watermark.desc:
+"""The threshold, as percentage of system CPU load,
+ for how much system cpu can be used before the corresponding alarm is cleared."""
 
+sysmon_os_cpu_low_watermark.label:
+"""CPU low watermark"""
 
-fields_authorization_no_match {
-    desc {
-        en: """Default access control action if the user or client matches no ACL rules,
-or if no such user or client is found by the configurable authorization
-sources such as built_in_database, an HTTP API, or a query against PostgreSQL.
-Find more details in 'authorization.sources' config."""
-        zh: """如果用户或客户端不匹配ACL规则，或者从可配置授权源(比如内置数据库、HTTP API 或 PostgreSQL 等。)内未找
-到此类用户或客户端时，模式的认访问控制操作。
-在“授权”中查找更多详细信息。"""
-    }
-    label: {
-        en: "Authorization no match"
-        zh: "未匹时的默认授权动作"
-    }
-}
+fields_mqtt_quic_listener_tls_server_max_send_buffer.desc:
+"""How much Server TLS data to buffer. Default: 8192"""
 
-fields_authorization_deny_action {
-    desc {
-        en: """The action when the authorization check rejects an operation."""
-        zh: """授权检查拒绝操作时的操作。"""
-    }
-    label: {
-        en: "Authorization deny action"
-        zh: "授权检查拒绝操作时的操作"
-    }
-}
+fields_mqtt_quic_listener_tls_server_max_send_buffer.label:
+"""TLS server max send buffer"""
 
-fields_cache_enable {
-    desc {
-        en: """Enable or disable the authorization cache."""
-        zh: """启用或禁用授权缓存。"""
-    }
-    label: {
-        en: "Enable or disable the authorization cache."
-        zh: "启用或禁用授权缓存"
-    }
-}
+base_listener_bind.desc:
+"""IP address and port for the listening socket."""
 
-fields_cache_max_size {
-    desc {
-        en: """Maximum number of cached items."""
-        zh: """缓存项的最大数量。"""
-    }
-    label: {
-        en: "Maximum number of cached items."
-        zh: "缓存项的最大数量"
-    }
-}
+base_listener_bind.label:
+"""IP address and port"""
 
-fields_cache_ttl {
-    desc {
-        en: """Time to live for the cached data."""
-        zh: """缓存数据的生存时间。"""
-    }
-    label: {
-        en: "Time to live for the cached data."
-        zh: "缓存数据的生存时间。"
-    }
-}
+server_ssl_opts_schema_handshake_timeout.desc:
+"""Maximum time duration allowed for the handshake to complete"""
 
-fields_deflate_opts_level {
-    desc {
-        en: """Compression level."""
-        zh: """压缩级别"""
-    }
-    label: {
-        en: "Compression level"
-        zh: "压缩级别"
-    }
-}
+server_ssl_opts_schema_handshake_timeout.label:
+"""Handshake timeout"""
 
-fields_deflate_opts_mem_level {
-    desc {
-        en: """Specifies the size of the compression state.<br/>
-Lower values decrease memory usage per connection."""
-        zh: """指定压缩状态的大小<br/>
-较低的值会减少每个连接的内存使用。"""
-    }
-    label: {
-        en: "Size of the compression state"
-        zh: "压缩状态大小"
-    }
-}
+fields_deflate_opts_server_context_takeover.desc:
+"""Takeover means the compression state is retained between server messages."""
 
-fields_deflate_opts_strategy {
-    desc {
-        en: """Specifies the compression strategy."""
-        zh: """指定压缩策略。"""
-    }
-    label: {
-        en: "compression strategy"
-        zh: "指定压缩策略"
-    }
-}
+fields_deflate_opts_server_context_takeover.label:
+"""Server context takeover"""
 
-fields_deflate_opts_server_context_takeover {
-    desc {
-        en: """Takeover means the compression state is retained between server messages."""
-        zh: """接管意味着在服务器消息之间保留压缩状态。"""
-    }
-    label: {
-        en: "Server context takeover"
-        zh: "服务上下文接管"
-    }
-}
+mqtt_session_expiry_interval.desc:
+"""Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections."""
 
-fields_deflate_opts_client_context_takeover {
-    desc {
-        en: """Takeover means the compression state is retained between client messages."""
-        zh: """接管意味着在客户端消息之间保留压缩状态。"""
-    }
-    label: {
-        en: "Client context takeover"
-        zh: "客户端上下文接管"
-    }
-}
+mqtt_session_expiry_interval.label:
+"""Session Expiry Interval"""
 
-fields_deflate_opts_server_max_window_bits {
-    desc {
-        en: """Specifies the size of the compression context for the server."""
-        zh: """指定服务器压缩上下文的大小。"""
-    }
-    label: {
-        en: "Server compression max window size"
-        zh: "服务器压缩窗口大小"
-    }
-}
+fields_listener_enabled.desc:
+"""Enable listener."""
 
-fields_deflate_opts_client_max_window_bits {
-    desc {
-        en: """Specifies the size of the compression context for the client."""
-        zh: """指定客户端压缩上下文的大小。"""
-    }
-    label: {
-        en: "Client compression max window size"
-        zh: "压缩窗口大小"
-    }
-}
+fields_listener_enabled.label:
+"""Enable listener"""
 
-client_ssl_opts_schema_enable {
-    desc {
-        en: """Enable TLS."""
-        zh: """启用 TLS。"""
-    }
-    label: {
-        en: "Enable TLS."
-        zh: "启用 TLS"
-    }
-}
+mqtt.desc:
+"""Global MQTT configuration.
+The configs here work as default values which can be overridden in <code>zone</code> configs"""
 
-common_ssl_opts_schema_cacertfile {
-    desc {
-        en: """Trusted PEM format CA certificates bundle file.<br/>
+crl_cache_refresh_http_timeout.desc:
+"""The timeout for the HTTP request when fetching CRLs.  This is a global setting for all listeners."""
+
+crl_cache_refresh_http_timeout.label:
+"""CRL Cache Refresh HTTP Timeout"""
+
+fields_tcp_opts_backlog.desc:
+"""TCP backlog defines the maximum length that the queue of
+pending connections can grow to."""
+
+fields_tcp_opts_backlog.label:
+"""TCP backlog length"""
+
+broker_route_batch_clean.desc:
+"""Enable batch clean for deleted routes."""
+
+fields_mqtt_quic_listener_initial_window_packets.desc:
+"""The size (in packets) of the initial congestion window for a connection. Default: 10"""
+
+fields_mqtt_quic_listener_initial_window_packets.label:
+"""Initial window packets"""
+
+flapping_detect_enable.desc:
+"""Enable flapping connection detection feature."""
+
+flapping_detect_enable.label:
+"""Enable flapping detection"""
+
+sysmon_top_db_password.desc:
+"""EMQX user password in the PostgreSQL database"""
+
+sysmon_top_db_password.label:
+"""DB Password"""
+
+fields_ws_opts_check_origins.desc:
+"""List of allowed origins.<br/>See <code>check_origin_enable</code>."""
+
+fields_ws_opts_check_origins.label:
+"""Allowed origins"""
+
+fields_deflate_opts_client_context_takeover.desc:
+"""Takeover means the compression state is retained between client messages."""
+
+fields_deflate_opts_client_context_takeover.label:
+"""Client context takeover"""
+
+base_listener_acceptors.desc:
+"""The size of the listener's receiving pool."""
+
+base_listener_acceptors.label:
+"""Acceptors Num"""
+
+common_ssl_opts_schema_cacertfile.desc:
+"""Trusted PEM format CA certificates bundle file.<br/>
 The certificates in this file are used to verify the TLS peer's certificates.
 Append new certificates to the file if new CAs are to be trusted.
 There is no need to restart EMQX to have the updated file loaded, because
 the system regularly checks if file has been updated (and reload).<br/>
 NOTE: invalidating (deleting) a certificate from the file will not affect
 already established connections."""
-        zh: """受信任的PEM格式 CA  证书捆绑文件<br/>
-此文件中的证书用于验证TLS对等方的证书。
-如果要信任新 CA，请将新证书附加到文件中。
-无需重启EMQX即可加载更新的文件，因为系统会定期检查文件是否已更新（并重新加载）<br/>
-注意：从文件中失效（删除）证书不会影响已建立的连接。"""
-    }
-    label: {
-        en: "CACertfile"
-        zh: "CA 证书文件"
-    }
-}
 
-common_ssl_opts_schema_certfile {
-    desc {
-        en: """PEM format certificates chain file.<br/>
-The certificates in this file should be in reversed order of the certificate
-issue chain. That is, the host's certificate should be placed in the beginning
-of the file, followed by the immediate issuer certificate and so on.
-Although the root CA certificate is optional, it should be placed at the end of
-the file if it is to be added."""
-        zh: """PEM格式证书链文件<br/>
-此文件中的证书应与证书颁发链的顺序相反。也就是说，主机的证书应该放在文件的开头，
-然后是直接颁发者 CA 证书，依此类推，一直到根 CA 证书。
-根 CA 证书是可选的，如果想要添加，应加到文件到最末端。"""
-    }
-    label: {
-        en: "Certfile"
-        zh: "证书文件"
-    }
-}
+common_ssl_opts_schema_cacertfile.label:
+"""CACertfile"""
 
-common_ssl_opts_schema_keyfile {
-    desc {
-        en: """PEM format private key file."""
-        zh: """PEM格式的私钥文件。"""
-    }
-    label: {
-        en: "Keyfile"
-        zh: "私钥文件"
-    }
-}
+fields_ws_opts_mqtt_path.desc:
+"""WebSocket's MQTT protocol path. So the address of EMQX Broker's WebSocket is:
+<code>ws://{ip}:{port}/mqtt</code>"""
 
-common_ssl_opts_schema_verify {
-    desc {
-        en: """Enable or disable peer verification."""
-        zh: """启用或禁用对等验证。"""
-    }
-    label: {
-        en: "Verify peer"
-        zh: "对等验证"
-    }
-}
+fields_ws_opts_mqtt_path.label:
+"""WS MQTT Path"""
 
-common_ssl_opts_schema_reuse_sessions {
-    desc {
-        en: """Enable TLS session reuse."""
-        zh: """启用 TLS 会话重用。"""
-    }
-    label: {
-        en: "TLS session reuse"
-        zh: "TLS 会话重用"
-    }
-}
+sysmon_os_procmem_high_watermark.desc:
+"""The threshold, as percentage of system memory,
+ for how much system memory can be allocated by one Erlang process before
+ the corresponding alarm is raised."""
 
-common_ssl_opts_schema_depth {
-    desc {
-        en: """Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path.
-So, if depth is 0 the PEER must be signed by the trusted ROOT-CA directly;<br/>
-if 1 the path can be PEER, Intermediate-CA, ROOT-CA;<br/>
-if 2 the path can be PEER, Intermediate-CA1, Intermediate-CA2, ROOT-CA."""
-        zh: """在有效的证书路径中，可以跟随对等证书的非自颁发中间证书的最大数量。
-因此，如果深度为0，则对等方必须由受信任的根 CA 直接签名；<br/>
-如果是1，路径可以是 PEER、中间 CA、ROOT-CA；<br/>
-如果是2，则路径可以是PEER、中间 CA1、中间 CA2、ROOT-CA。"""
-    }
-    label: {
-        en: "CACert Depth"
-        zh: "CA 证书深度"
-    }
-}
+sysmon_os_procmem_high_watermark.label:
+"""ProcMem high wartermark"""
 
-common_ssl_opts_schema_password {
-    desc {
-        en: """String containing the user's password. Only used if the private key file is password-protected."""
-        zh: """包含用户密码的字符串。仅在私钥文件受密码保护时使用。"""
-    }
-    label: {
-        en: "Keyfile passphrase"
-        zh: "秘钥文件密码"
-    }
-}
+fields_listeners_quic.desc:
+"""QUIC listeners."""
 
-common_ssl_opts_schema_versions {
-    desc {
-        en: """All TLS/DTLS versions to be supported.<br/>
-NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config.<br/>
-In case PSK cipher suites are intended, make sure to configure
-<code>['tlsv1.2', 'tlsv1.1']</code> here."""
-        zh: """支持所有TLS/DTLS版本<br/>
-注：PSK 的 Ciphers 无法在 <code>tlsv1.3</code> 中使用，如果打算使用 PSK 密码套件，请确保这里配置为 <code>["tlsv1.2","tlsv1.1"]</code>。"""
-    }
-    label: {
-        en: "SSL versions"
-        zh: "SSL 版本"
-    }
-}
+fields_listeners_quic.label:
+"""QUIC listeners"""
 
-common_ssl_opts_schema_hibernate_after {
-    desc {
-        en: """Hibernate the SSL process after idling for amount of time reducing its memory footprint."""
-        zh: """在闲置一定时间后休眠 SSL 进程，减少其内存占用。"""
-    }
-    label: {
-        en: "hibernate after"
-        zh: "闲置多久后休眠"
-    }
-}
+fields_listeners_ws.desc:
+"""HTTP websocket listeners."""
 
-ciphers_schema_common {
-    desc {
-        en: """This config holds TLS cipher suite names separated by comma,
-or as an array of strings. e.g.
-<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code> or
-<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>.
-<br/>
-Ciphers (and their ordering) define the way in which the
-client and server encrypts information over the network connection.
-Selecting a good cipher suite is critical for the
-application's data security, confidentiality and performance.
+fields_listeners_ws.label:
+"""HTTP websocket listeners"""
 
-The names should be in OpenSSL string format (not RFC format).
-All default values and examples provided by EMQX config
-documentation are all in OpenSSL format.<br/>
+mqtt_retry_interval.desc:
+"""Retry interval for QoS 1/2 message delivering."""
 
-NOTE: Certain cipher suites are only compatible with
-specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
-incompatible cipher suites will be silently dropped.
-For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
-configuring cipher suites for other versions will have no effect.
-<br/>
+mqtt_retry_interval.label:
+"""Retry Interval"""
 
-NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br/>
-If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br/>
-PSK cipher suites: <code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
-RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
-RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
-RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code>"""
-        zh: """此配置保存由逗号分隔的 TLS 密码套件名称，或作为字符串数组。例如
-<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code>或
-<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>。
-<br/>
-密码（及其顺序）定义了客户端和服务器通过网络连接加密信息的方式。
-选择一个好的密码套件对于应用程序的数据安全性、机密性和性能至关重要。
+stats_enable.desc:
+"""Enable/disable statistic data collection."""
 
-名称应为 OpenSSL 字符串格式（而不是 RFC 格式）。
-EMQX 配置文档提供的所有默认值和示例都是 OpenSSL 格式<br/>
-注意：某些密码套件仅与特定的 TLS <code>版本</code>兼容（'tlsv1.1'、'tlsv1.2'或'tlsv1.3'）。
-不兼容的密码套件将被自动删除。
+stats_enable.label:
+"""Enable/disable statistic data collection."""
 
-例如，如果只有 <code>versions</code> 仅配置为 <code>tlsv1.3</code>。为其他版本配置密码套件将无效。
+fields_authorization_deny_action.desc:
+"""The action when the authorization check rejects an operation."""
 
-<br/>
-注：PSK 的 Ciphers 不支持 tlsv1.3<br/>
-如果打算使用PSK密码套件 <code>tlsv1.3</code>。应在<code>ssl.versions</code>中禁用。
+fields_authorization_deny_action.label:
+"""Authorization deny action"""
 
-<br/>
-PSK 密码套件：
-<code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
-RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
-RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
-RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code>"""
-    }
-    label: {
-        en: ""
-        zh: ""
-    }
-}
+fields_deflate_opts_server_max_window_bits.desc:
+"""Specifies the size of the compression context for the server."""
 
-ciphers_schema_quic {
-    desc {
-        en: """This config holds TLS cipher suite names separated by comma,
+fields_deflate_opts_server_max_window_bits.label:
+"""Server compression max window size"""
+
+client_ssl_opts_schema_server_name_indication.desc:
+"""Specify the host name to be used in TLS Server Name Indication extension.<br/>
+For instance, when connecting to "server.example.net", the genuine server
+which accepts the connection and performs TLS handshake may differ from the
+host the TLS client initially connects to, e.g. when connecting to an IP address
+or when the host has multiple resolvable DNS records <br/>
+If not specified, it will default to the host name string which is used
+to establish the connection, unless it is IP addressed used.<br/>
+The host name is then also used in the host name verification of the peer
+certificate.<br/> The special value 'disable' prevents the Server Name
+Indication extension from being sent and disables the hostname
+verification check."""
+
+client_ssl_opts_schema_server_name_indication.label:
+"""Server Name Indication"""
+
+fields_mqtt_quic_listener_retry_memory_limit.desc:
+"""The percentage of available memory usable for handshake connections before stateless retry is used. Calculated as `N/65535`. Default: 65"""
+
+fields_mqtt_quic_listener_retry_memory_limit.label:
+"""Retry memory limit"""
+
+force_shutdown_max_message_queue_len.desc:
+"""Maximum message queue length."""
+
+force_shutdown_max_message_queue_len.label:
+"""Maximum mailbox queue length of process."""
+
+sys_heartbeat_interval.desc:
+"""Time interval for publishing following heartbeat messages:
+  - `$SYS/brokers/<node>/uptime`
+  - `$SYS/brokers/<node>/datetime`"""
+
+flapping_detect_ban_time.desc:
+"""How long the flapping clientid will be banned."""
+
+flapping_detect_ban_time.label:
+"""Ban time"""
+
+sysmon_top_num_items.desc:
+"""The number of top processes per monitoring group"""
+
+sysmon_top_num_items.label:
+"""Top num items"""
+
+persistent_session_builtin_session_table.desc:
+"""Performance tuning options for built-in session table."""
+
+persistent_session_builtin_session_table.label:
+"""Persistent session"""
+
+mqtt_upgrade_qos.desc:
+"""Force upgrade of QoS level according to subscription."""
+
+mqtt_upgrade_qos.label:
+"""Upgrade QoS"""
+
+mqtt_shared_subscription.desc:
+"""Whether to enable support for MQTT shared subscription."""
+
+mqtt_shared_subscription.label:
+"""Shared Subscription Available"""
+
+fields_tcp_opts_sndbuf.desc:
+"""The TCP send buffer (OS kernel) for the connections."""
+
+fields_tcp_opts_sndbuf.label:
+"""TCP send buffer"""
+
+sysmon_os_mem_check_interval.desc:
+"""The time interval for the periodic memory check."""
+
+sysmon_os_mem_check_interval.label:
+"""Mem check interval"""
+
+server_ssl_opts_schema_gc_after_handshake.desc:
+"""Memory usage tuning. If enabled, will immediately perform a garbage collection after the TLS/SSL handshake."""
+
+server_ssl_opts_schema_gc_after_handshake.label:
+"""Perform GC after handshake"""
+
+fields_mqtt_quic_listener_ssl_options.desc:
+"""TLS options for QUIC transport"""
+
+fields_mqtt_quic_listener_ssl_options.label:
+"""TLS Options"""
+
+fields_ws_opts_mqtt_piggyback.desc:
+"""Whether a WebSocket message is allowed to contain multiple MQTT packets."""
+
+fields_ws_opts_mqtt_piggyback.label:
+"""MQTT Piggyback"""
+
+base_listener_mountpoint.desc:
+"""When publishing or subscribing, prefix all topics with a mountpoint string.
+The prefixed string will be removed from the topic name when the message
+is delivered to the subscriber. The mountpoint is a way that users can use
+to implement isolation of message routing between different listeners.
+For example if a client A subscribes to `t` with `listeners.tcp.\<name>.mountpoint`
+set to `some_tenant`, then the client actually subscribes to the topic
+`some_tenant/t`. Similarly, if another client B (connected to the same listener
+as the client A) sends a message to topic `t`, the message is routed
+to all the clients subscribed `some_tenant/t`, so client A will receive the
+message, with topic name `t`.<br/>
+Set to `""` to disable the feature.<br/>
+
+Variables in mountpoint string:
+  - <code>${clientid}</code>: clientid
+  - <code>${username}</code>: username"""
+
+base_listener_mountpoint.label:
+"""mountpoint"""
+
+mqtt_max_awaiting_rel.desc:
+"""For each publisher session, the maximum number of outstanding QoS 2 messages pending on the client to send PUBREL. After reaching this limit, new QoS 2 PUBLISH requests will be rejected with `147(0x93)` until either PUBREL is received or timed out."""
+
+mqtt_max_awaiting_rel.label:
+"""Max Awaiting PUBREL"""
+
+ciphers_schema_quic.desc:
+"""This config holds TLS cipher suite names separated by comma,
 or as an array of strings. e.g.
 <code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code> or
 <code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>.
@@ -1606,115 +465,744 @@ RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code><br/>
 
 NOTE: QUIC listener supports only 'tlsv1.3' ciphers"""
 
-        zh: """此配置保存由逗号分隔的 TLS 密码套件名称，或作为字符串数组。例如
-<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code>或
-<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>。
-<br/>
-密码（及其顺序）定义了客户端和服务器通过网络连接加密信息的方式。
-选择一个好的密码套件对于应用程序的数据安全性、机密性和性能至关重要。
+ciphers_schema_quic.label:
+""""""
 
-名称应为 OpenSSL 字符串格式（而不是 RFC 格式）。
-EMQX 配置文档提供的所有默认值和示例都是 OpenSSL 格式<br/>
-注意：某些密码套件仅与特定的 TLS <code>版本</code>兼容（'tlsv1.1'、'tlsv1.2'或'tlsv1.3'）。
-不兼容的密码套件将被自动删除。
+fields_mqtt_quic_listener_max_bytes_per_key.desc:
+"""Maximum number of bytes to encrypt with a single 1-RTT encryption key before initiating key update. Default: 274877906944"""
 
-例如，如果只有 <code>versions</code> 仅配置为 <code>tlsv1.3</code>。为其他版本配置密码套件将无效。
+fields_mqtt_quic_listener_max_bytes_per_key.label:
+"""Max bytes per key"""
 
-<br/>
-注：PSK 的 Ciphers 不支持 tlsv1.3<br/>
-如果打算使用PSK密码套件，<code>tlsv1.3</code>。应在<code>ssl.versions</code>中禁用。
+fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us.desc:
+"""The time in microseconds to wait before reattempting MTU probing if max was not reached. Default: 600000000"""
 
-<br/>
-PSK 密码套件：
-<code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
-RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
-RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
-RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code><br/>
+fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us.label:
+"""MTU discovery search complete timeout us"""
 
-注：QUIC 监听器不支持 tlsv1.3 的 ciphers"""
-    }
-    label: {
-        en: ""
-        zh: ""
-    }
-}
+fields_ws_opts_check_origin_enable.desc:
+"""If <code>true</code>, <code>origin</code> HTTP header will be
+ validated against the list of allowed origins configured in <code>check_origins</code>
+ parameter."""
 
-common_ssl_opts_schema_user_lookup_fun {
-    desc {
-        en: """EMQX-internal callback that is used to lookup pre-shared key (PSK) identity."""
-        zh: """用于查找预共享密钥（PSK）标识的 EMQX 内部回调。"""
-    }
-    label: {
-        en: "SSL PSK user lookup fun"
-        zh: "SSL PSK 用户回调"
-    }
-}
+fields_ws_opts_check_origin_enable.label:
+"""Check origin"""
 
-common_ssl_opts_schema_secure_renegotiate {
-    desc {
-        en: """SSL parameter renegotiation is a feature that allows a client and a server
-to renegotiate the parameters of the SSL connection on the fly.
-RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
-you drop support for the insecure renegotiation, prone to MitM attacks."""
-        zh: """SSL 参数重新协商是一种允许客户端和服务器动态重新协商 SSL 连接参数的功能。
-RFC 5746 定义了一种更安全的方法。通过启用安全的重新协商，您就失去了对不安全的重新协商的支持，从而容易受到 MitM 攻击。"""
-    }
-    label: {
-        en: "SSL renegotiate"
-        zh: "SSL 重新协商"
-    }
-}
+sysmon_vm_busy_dist_port.desc:
+"""When the RPC connection used to communicate with other nodes in the cluster is overloaded,
+there will be a <code>busy_dist_port</code> warning log,
+and an MQTT message is published to system topic <code>$SYS/sysmon/busy_dist_port</code>."""
 
-server_ssl_opts_schema_dhfile {
-    desc {
-        en: """Path to a file containing PEM-encoded Diffie-Hellman parameters
+sysmon_vm_busy_dist_port.label:
+"""Enable Busy Distribution Port monitoring."""
+
+mqtt_max_mqueue_len.desc:
+"""Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full."""
+
+mqtt_max_mqueue_len.label:
+"""Max Message Queue Length"""
+
+mqtt_max_inflight.desc:
+"""Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment."""
+
+mqtt_max_inflight.label:
+"""Max Inflight"""
+
+persistent_session_store_enabled.desc:
+"""Use the database to store information about persistent sessions.
+This makes it possible to migrate a client connection to another
+cluster node if a node is stopped."""
+
+persistent_session_store_enabled.label:
+"""Enable persistent session store"""
+
+fields_deflate_opts_level.desc:
+"""Compression level."""
+
+fields_deflate_opts_level.label:
+"""Compression level"""
+
+mqtt_server_keepalive.desc:
+"""The keep alive duration required by EMQX. To use the setting from the client side, choose disabled from the drop-down list. Only applicable to MQTT 5.0 clients."""
+
+mqtt_server_keepalive.label:
+"""Server Keep Alive"""
+
+global_authentication.desc:
+"""Default authentication configs for all MQTT listeners.
+
+For per-listener overrides see <code>authentication</code> in listener configs
+
+This option can be configured with:
+<ul>
+  <li><code>[]</code>: The default value, it allows *ALL* logins</li>
+  <li>one: For example <code>{enable:true,backend:"built_in_database",mechanism="password_based"}</code></li>
+  <li>chain: An array of structs.</li>
+</ul>
+
+When a chain is configured, the login credentials are checked against the backends per the configured order, until an 'allow' or 'deny' decision can be made.
+
+If there is no decision after a full chain exhaustion, the login is rejected."""
+
+fields_mqtt_quic_listener_load_balancing_mode.desc:
+"""0: Disabled, 1: SERVER_ID_IP, 2: SERVER_ID_FIXED. default: 0"""
+
+fields_mqtt_quic_listener_load_balancing_mode.label:
+"""Load balancing mode"""
+
+persistent_session_store_session_message_gc_interval.desc:
+"""The starting interval for garbage collection of transient data for
+persistent session messages. This does not affect the lifetime length
+of persistent session messages."""
+
+persistent_session_store_session_message_gc_interval.label:
+"""Session message GC interval"""
+
+server_ssl_opts_schema_ocsp_refresh_http_timeout.desc:
+"""The timeout for the HTTP request when checking OCSP responses."""
+
+server_ssl_opts_schema_ocsp_refresh_http_timeout.label:
+"""OCSP Refresh HTTP Timeout"""
+
+fields_tcp_opts_send_timeout.desc:
+"""The TCP send timeout for the connections."""
+
+fields_tcp_opts_send_timeout.label:
+"""TCP send timeout"""
+
+sysmon_vm_process_high_watermark.desc:
+"""The threshold, as percentage of processes, for how many
+ processes can simultaneously exist at the local node before the corresponding
+ alarm is raised."""
+
+sysmon_vm_process_high_watermark.label:
+"""Process high watermark"""
+
+fields_tcp_opts_buffer.desc:
+"""The size of the user-space buffer used by the driver."""
+
+fields_tcp_opts_buffer.label:
+"""TCP user-space buffer"""
+
+server_ssl_opts_schema_honor_cipher_order.desc:
+"""An important security setting, it forces the cipher to be set based
+ on the server-specified order instead of the client-specified order,
+ hence enforcing the (usually more properly configured) security
+ ordering of the server administrator."""
+
+server_ssl_opts_schema_honor_cipher_order.label:
+"""SSL honor cipher order"""
+
+conn_congestion_min_alarm_sustain_duration.desc:
+"""Minimal time before clearing the alarm.<br/>The alarm is cleared only when there's no pending data in<br/>the queue, and at least <code>min_alarm_sustain_duration</code>milliseconds passed since the last time we considered the connection 'congested'.<br/>This is to avoid clearing and raising the alarm again too often."""
+
+conn_congestion_min_alarm_sustain_duration.label:
+"""Sustain duration"""
+
+fields_mqtt_quic_listener_keep_alive_interval_ms.desc:
+"""How often to send PING frames to keep a connection alive."""
+
+fields_mqtt_quic_listener_keep_alive_interval_ms.label:
+"""Keep alive interval ms"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout_ms.desc:
+"""How long a handshake can idle before it is discarded"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout_ms.label:
+"""Handshake idle timeout ms"""
+
+broker_session_locking_strategy.desc:
+"""Session locking strategy in a cluster.
+  - `local`: only lock the session on the current node
+  - `one`: select only one remote node to lock the session
+  - `quorum`: select some nodes to lock the session
+  - `all`: lock the session on all the nodes in the cluster"""
+
+persistent_store_ram_cache.desc:
+"""Maintain a copy of the data in RAM for faster access."""
+
+persistent_store_ram_cache.label:
+"""RAM cache"""
+
+fields_mqtt_quic_listener_stream_recv_window_default.desc:
+"""Initial stream receive window size. Default: 32678"""
+
+fields_mqtt_quic_listener_stream_recv_window_default.label:
+"""Stream recv window default"""
+
+mqtt_mqueue_priorities.desc:
+"""Topic priorities. Priority number [1-255]
+There's no priority table by default, hence all messages are treated equal.
+
+**NOTE**: Comma and equal signs are not allowed for priority topic names.
+**NOTE**: Messages for topics not in the priority table are treated as either highest or lowest priority depending on the configured value for <code>mqtt.mqueue_default_priority</code>.
+
+**Examples**:
+To configure <code>"topic/1" > "topic/2"</code>:
+<code>mqueue_priorities: {"topic/1": 10, "topic/2": 8}</code>"""
+
+mqtt_mqueue_priorities.label:
+"""Topic Priorities"""
+
+fields_rate_limit_conn_messages_in.desc:
+"""Message limit for the external MQTT connections."""
+
+fields_rate_limit_conn_messages_in.label:
+"""connecting messages in"""
+
+fields_rate_limit_max_conn_rate.desc:
+"""Maximum connections per second."""
+
+fields_rate_limit_max_conn_rate.label:
+"""Max connection rate"""
+
+alarm_size_limit.desc:
+"""The maximum total number of deactivated alarms to keep as history.<br/>When this limit is exceeded, the oldest deactivated alarms are deleted to cap the total number."""
+
+alarm_size_limit.label:
+"""Alarm size limit"""
+
+fields_cache_max_size.desc:
+"""Maximum number of cached items."""
+
+fields_cache_max_size.label:
+"""Maximum number of cached items."""
+
+fields_listeners_tcp.desc:
+"""TCP listeners."""
+
+fields_listeners_tcp.label:
+"""TCP listeners"""
+
+conn_congestion_enable_alarm.desc:
+"""Enable or disable connection congestion alarm."""
+
+conn_congestion_enable_alarm.label:
+"""Enable/disable congestion alarm"""
+
+fields_ws_opts_proxy_port_header.desc:
+"""HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_port_header.label:
+"""Proxy port header"""
+
+overload_protection_enable.desc:
+"""React on system overload or not."""
+
+overload_protection_enable.label:
+"""React on system overload or not"""
+
+fields_mqtt_quic_listener_minimum_mtu.desc:
+"""The minimum MTU supported by a connection. This will be used as the starting MTU. Default: 1248"""
+
+fields_mqtt_quic_listener_minimum_mtu.label:
+"""Minimum MTU"""
+
+sys_msg_interval.desc:
+"""Time interval of publishing `$SYS` messages."""
+
+mqtt_await_rel_timeout.desc:
+"""For client to broker QoS 2 message, the time limit for the broker to wait before the `PUBREL` message is received. The wait is aborted after timed out, meaning the packet ID is freed for new `PUBLISH` requests. Receiving a stale `PUBREL` causes a warning level log. Note, the message is delivered to subscribers before entering the wait for PUBREL."""
+
+mqtt_await_rel_timeout.label:
+"""Max Awaiting PUBREL TIMEOUT"""
+
+common_ssl_opts_schema_verify.desc:
+"""Enable or disable peer verification."""
+
+common_ssl_opts_schema_verify.label:
+"""Verify peer"""
+
+fields_listeners_ssl.desc:
+"""SSL listeners."""
+
+fields_listeners_ssl.label:
+"""SSL listeners"""
+
+fields_deflate_opts_client_max_window_bits.desc:
+"""Specifies the size of the compression context for the client."""
+
+fields_deflate_opts_client_max_window_bits.label:
+"""Client compression max window size"""
+
+common_ssl_opts_schema_keyfile.desc:
+"""PEM format private key file."""
+
+common_ssl_opts_schema_keyfile.label:
+"""Keyfile"""
+
+sysmon_os_cpu_high_watermark.desc:
+"""The threshold, as percentage of system CPU load,
+ for how much system cpu can be used before the corresponding alarm is raised."""
+
+sysmon_os_cpu_high_watermark.label:
+"""CPU high watermark"""
+
+flapping_detect_window_time.desc:
+"""The time window for flapping detection."""
+
+flapping_detect_window_time.label:
+"""Window time"""
+
+mqtt_mqueue_default_priority.desc:
+"""Default topic priority, which will be used by topics not in <code>Topic Priorities</code> (<code>mqueue_priorities</code>)."""
+
+mqtt_mqueue_default_priority.label:
+"""Default Topic Priorities"""
+
+client_ssl_opts_schema_enable.desc:
+"""Enable TLS."""
+
+client_ssl_opts_schema_enable.label:
+"""Enable TLS."""
+
+fields_mqtt_quic_listener_mtu_discovery_missing_probe_count.desc:
+"""The maximum number of stateless operations that may be queued on a binding at any one time. Default: 3"""
+
+fields_mqtt_quic_listener_mtu_discovery_missing_probe_count.label:
+"""MTU discovery missing probe count"""
+
+fields_tcp_opts_recbuf.desc:
+"""The TCP receive buffer (OS kernel) for the connections."""
+
+fields_tcp_opts_recbuf.label:
+"""TCP receive buffer"""
+
+sysmon_vm_process_check_interval.desc:
+"""The time interval for the periodic process limit check."""
+
+sysmon_vm_process_check_interval.label:
+"""Process limit check interval"""
+
+fields_mqtt_quic_listener_server_resumption_level.desc:
+"""Controls resumption tickets and/or 0-RTT server support. Default: 0 (No resumption)"""
+
+fields_mqtt_quic_listener_server_resumption_level.label:
+"""Server resumption level"""
+
+fields_ws_opts_proxy_address_header.desc:
+"""HTTP header used to pass information about the client IP address.
+Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_address_header.label:
+"""Proxy address header"""
+
+sysmon_os_sysmem_high_watermark.desc:
+"""The threshold, as percentage of system memory,
+ for how much system memory can be allocated before the corresponding alarm is raised."""
+
+sysmon_os_sysmem_high_watermark.label:
+"""SysMem high wartermark"""
+
+fields_tcp_opts_high_watermark.desc:
+"""The socket is set to a busy state when the amount of data queued internally
+by the VM socket implementation reaches this limit."""
+
+fields_tcp_opts_high_watermark.label:
+"""TCP 高水位线"""
+
+fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
+"""The time limit between operations for the same endpoint, in milliseconds. Default: 100"""
+
+fields_mqtt_quic_listener_stateless_operation_expiration_ms.label:
+"""Stateless operation expiration ms"""
+
+server_ssl_opts_schema_dhfile.desc:
+"""Path to a file containing PEM-encoded Diffie-Hellman parameters
 to be used by the server if a cipher suite using Diffie-Hellman
 key exchange is negotiated. If not specified, default parameters
 are used.<br/>
 NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."""
-        zh: """如果协商使用Diffie-Hellman密钥交换的密码套件，则服务器将使用包含PEM编码的Diffie-Hellman参数的文件的路径。如果未指定，则使用默认参数。<br/>
-注意：TLS 1.3不支持<code>dhfile</code>选项。"""
-    }
-    label: {
-        en: "SSL dhfile"
-        zh: "SSL dhfile"
-    }
-}
 
-server_ssl_opts_schema_fail_if_no_peer_cert {
-    desc {
-        en: """Used together with {verify, verify_peer} by an TLS/DTLS server.
+server_ssl_opts_schema_dhfile.label:
+"""SSL dhfile"""
+
+flapping_detect_max_count.desc:
+"""The maximum number of disconnects allowed for a MQTT Client in `window_time`"""
+
+flapping_detect_max_count.label:
+"""Max count"""
+
+mqtt_max_topic_levels.desc:
+"""Maximum topic levels allowed."""
+
+mqtt_max_topic_levels.label:
+"""Max Topic Levels"""
+
+force_shutdown_max_heap_size.desc:
+"""Total heap size"""
+
+force_shutdown_max_heap_size.label:
+"""Total heap size"""
+
+persistent_store_on_disc.desc:
+"""Save information about the persistent sessions on disc.
+If this option is enabled, persistent sessions will survive full restart of the cluster.
+Otherwise, all the data will be stored in RAM, and it will be lost when all the nodes in the cluster are stopped."""
+
+persistent_store_on_disc.label:
+"""Persist on disc"""
+
+mqtt_ignore_loop_deliver.desc:
+"""Whether the messages sent by the MQTT v3.1.1/v3.1.0 client will be looped back to the publisher itself, similar to <code>No Local</code> in MQTT 5.0."""
+
+mqtt_ignore_loop_deliver.label:
+"""Ignore Loop Deliver"""
+
+common_ssl_opts_schema_certfile.desc:
+"""PEM format certificates chain file.<br/>
+The certificates in this file should be in reversed order of the certificate
+issue chain. That is, the host's certificate should be placed in the beginning
+of the file, followed by the immediate issuer certificate and so on.
+Although the root CA certificate is optional, it should be placed at the end of
+the file if it is to be added."""
+
+common_ssl_opts_schema_certfile.label:
+"""Certfile"""
+
+mqtt_exclusive_subscription.desc:
+"""Whether to enable support for MQTT exclusive subscription."""
+
+mqtt_exclusive_subscription.label:
+"""Exclusive Subscription"""
+
+mqtt_retain_available.desc:
+"""Whether to enable support for MQTT retained message."""
+
+mqtt_retain_available.label:
+"""Retain Available"""
+
+fields_tcp_opts_reuseaddr.desc:
+"""The SO_REUSEADDR flag for the connections."""
+
+fields_tcp_opts_reuseaddr.label:
+"""SO_REUSEADDR"""
+
+sysmon_vm_long_schedule.desc:
+"""When the Erlang VM detect a task scheduled for too long, a warning level 'long_schedule' log is emitted,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/long_schedule</code>."""
+
+sysmon_vm_long_schedule.label:
+"""Enable Long Schedule monitoring."""
+
+mqtt_keepalive_backoff.desc:
+"""The coefficient EMQX uses to confirm whether the keep alive duration of the client expires. Formula: Keep Alive * Backoff * 2"""
+
+mqtt_keepalive_backoff.label:
+"""Keep Alive Backoff"""
+
+force_gc_bytes.desc:
+"""GC the process after specified number of bytes have passed through."""
+
+force_gc_bytes.label:
+"""Process GC bytes"""
+
+server_ssl_opts_schema_fail_if_no_peer_cert.desc:
+"""Used together with {verify, verify_peer} by an TLS/DTLS server.
 If set to true, the server fails if the client does not have a
 certificate to send, that is, sends an empty certificate.
 If set to false, it fails only if the client sends an invalid
 certificate (an empty certificate is considered valid)."""
-        zh: """TLS/DTLS 服务器与 {verify，verify_peer} 一起使用。
-如果设置为true，则如果客户端没有要发送的证书，即发送空证书，服务器将失败。
-如果设置为false，则仅当客户端发送无效证书（空证书被视为有效证书）时才会失败。"""
-    }
-    label: {
-        en: "SSL fail if no peer cert"
-        zh: "没有证书则 SSL 失败"
-    }
-}
 
-server_ssl_opts_schema_honor_cipher_order {
-    desc {
-        en: """An important security setting, it forces the cipher to be set based
- on the server-specified order instead of the client-specified order,
- hence enforcing the (usually more properly configured) security
- ordering of the server administrator."""
-        zh: """一个重要的安全设置，它强制根据服务器指定的顺序而不是客户机指定的顺序设置密码，从而强制服务器管理员执行（通常配置得更正确）安全顺序。"""
-    }
-    label: {
-        en: "SSL honor cipher order"
-        zh: "SSL honor cipher order"
-    }
-}
+server_ssl_opts_schema_fail_if_no_peer_cert.label:
+"""SSL fail if no peer cert"""
 
-server_ssl_opts_schema_client_renegotiation {
-    desc {
-        en: """In protocols that support client-initiated renegotiation,
+fields_ws_opts_compress.desc:
+"""If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>
+The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."""
+
+fields_ws_opts_compress.label:
+"""Ws compress"""
+
+fields_mqtt_quic_listener_keep_alive_interval.desc:
+"""How often to send PING frames to keep a connection alive. 0 means disabled."""
+
+fields_mqtt_quic_listener_keep_alive_interval.label:
+"""Keep Alive Interval"""
+
+fields_cache_ttl.desc:
+"""Time to live for the cached data."""
+
+fields_cache_ttl.label:
+"""Time to live for the cached data."""
+
+sys_topics.desc:
+"""System topics configuration."""
+
+sys_event_client_subscribed.desc:
+"""Enable to publish event message that client subscribed a topic successfully."""
+
+sysmon_top_db_port.desc:
+"""Port of the PostgreSQL database that collects the data points."""
+
+sysmon_top_db_port.label:
+"""DB Port"""
+
+fields_mqtt_quic_listener_max_operations_per_drain.desc:
+"""The maximum number of operations to drain per connection quantum. Default: 16"""
+
+fields_mqtt_quic_listener_max_operations_per_drain.label:
+"""Max operations per drain"""
+
+fields_mqtt_quic_listener_datagram_receive_enabled.desc:
+"""Advertise support for QUIC datagram extension. Reserve for the future. Default 0 (FALSE)"""
+
+fields_mqtt_quic_listener_datagram_receive_enabled.label:
+"""Datagram receive enabled"""
+
+fields_mqtt_quic_listener_initial_rtt_ms.desc:
+"""Initial RTT estimate."""
+
+fields_mqtt_quic_listener_initial_rtt_ms.label:
+"""Initial RTT ms"""
+
+overload_protection_backoff_gc.desc:
+"""When at high load, skip forceful GC."""
+
+overload_protection_backoff_gc.label:
+"""Skip GC"""
+
+broker_perf_route_lock_type.desc:
+"""Performance tuning for subscribing/unsubscribing a wildcard topic.
+Change this parameter only when there are many wildcard topics.
+
+NOTE: when changing from/to `global` lock, it requires all nodes in the cluster to be stopped before the change.
+  - `key`: mnesia transactional updates with per-key locks. Recommended for a single-node setup.
+  - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.
+  - `global`: updates are protected with a global lock. Recommended for large clusters."""
+
+fields_tcp_opts_nodelay.desc:
+"""The TCP_NODELAY flag for the connections."""
+
+fields_tcp_opts_nodelay.label:
+"""TCP_NODELAY"""
+
+sysmon_top_db_username.desc:
+"""Username of the PostgreSQL database"""
+
+sysmon_top_db_username.label:
+"""DB Username"""
+
+broker.desc:
+"""Message broker options."""
+
+force_gc_count.desc:
+"""GC the process after this many received messages."""
+
+force_gc_count.label:
+"""Process GC messages num"""
+
+mqtt_max_clientid_len.desc:
+"""Maximum allowed length of MQTT Client ID."""
+
+mqtt_max_clientid_len.label:
+"""Max Client ID Length"""
+
+fields_ws_opts_supported_subprotocols.desc:
+"""Comma-separated list of supported subprotocols."""
+
+fields_ws_opts_supported_subprotocols.label:
+"""Supported subprotocols"""
+
+broker_shared_subscription_strategy.desc:
+"""Dispatch strategy for shared subscription.
+  - `random`: dispatch the message to a random selected subscriber
+  - `round_robin`: select the subscribers in a round-robin manner
+  - `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
+  - `local`: select random local subscriber otherwise select random cluster-wide
+  - `sticky`: always use the last selected subscriber to dispatch, until the subscriber disconnects.
+  - `hash_clientid`: select the subscribers by hashing the `clientIds`
+  - `hash_topic`: select the subscribers by hashing the source topic"""
+
+fields_deflate_opts_mem_level.desc:
+"""Specifies the size of the compression state.<br/>
+Lower values decrease memory usage per connection."""
+
+fields_deflate_opts_mem_level.label:
+"""Size of the compression state"""
+
+fields_mqtt_quic_listener_send_idle_timeout_ms.desc:
+"""Reset congestion control after being idle for amount of time. Default: 1000"""
+
+fields_mqtt_quic_listener_send_idle_timeout_ms.label:
+"""Send idle timeout ms"""
+
+base_listener_limiter.desc:
+"""Type of the rate limit."""
+
+base_listener_limiter.label:
+"""Type of the rate limit."""
+
+persistent_session_store_backend.desc:
+"""Database management system used to store information about persistent sessions and messages.
+- `builtin`: Use the embedded database (mria)"""
+
+persistent_session_store_backend.label:
+"""Backend"""
+
+alarm_validity_period.desc:
+"""Retention time of deactivated alarms. Alarms are not deleted immediately
+when deactivated, but after the retention time."""
+
+alarm_validity_period.label:
+"""Alarm validity period"""
+
+server_ssl_opts_schema_ocsp_issuer_pem.desc:
+"""PEM-encoded certificate of the OCSP issuer for the server certificate."""
+
+server_ssl_opts_schema_ocsp_issuer_pem.label:
+"""OCSP Issuer Certificate"""
+
+fields_tcp_opts_active_n.desc:
+"""Specify the {active, N} option for this Socket.<br/>
+See: https://erlang.org/doc/man/inet.html#setopts-2"""
+
+fields_tcp_opts_active_n.label:
+"""active_n"""
+
+listener_authentication.desc:
+"""Per-listener authentication override.
+Authentication can be one single authenticator instance or a chain of authenticators as an array.
+When authenticating a login (username, client ID, etc.) the authenticators are checked in the configured order."""
+
+listener_authentication.label:
+"""Per-listener authentication override"""
+
+fields_trace_payload_encode.desc:
+"""Determine the format of the payload format in the trace file.<br/>
+`text`: Text-based protocol or plain text protocol.
+ It is recommended when payload is JSON encoded.<br/>
+`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br/>
+`hidden`: payload is obfuscated as `******`"""
+
+fields_trace_payload_encode.label:
+"""Payload encode"""
+
+mqtt_response_information.desc:
+"""UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
+To disable this feature, input <code>""</code> in the text box below. Only applicable to MQTT 5.0 clients."""
+
+mqtt_response_information.label:
+"""Response Information"""
+
+persistent_session_store_max_retain_undelivered.desc:
+"""The time messages that was not delivered to a persistent session
+is stored before being garbage collected if the node the previous
+session was handled on restarts of is stopped."""
+
+persistent_session_store_max_retain_undelivered.label:
+"""Max retain undelivered"""
+
+fields_mqtt_quic_listener_migration_enabled.desc:
+"""Enable clients to migrate IP addresses and tuples. Requires a cooperative load-balancer, or no load-balancer. Default: 1 (Enabled)"""
+
+fields_mqtt_quic_listener_migration_enabled.label:
+"""Migration enabled"""
+
+common_ssl_opts_schema_password.desc:
+"""String containing the user's password. Only used if the private key file is password-protected."""
+
+common_ssl_opts_schema_password.label:
+"""Keyfile passphrase"""
+
+common_ssl_opts_schema_hibernate_after.desc:
+"""Hibernate the SSL process after idling for amount of time reducing its memory footprint."""
+
+common_ssl_opts_schema_hibernate_after.label:
+"""hibernate after"""
+
+fields_mqtt_quic_listener_send_buffering_enabled.desc:
+"""Buffer send data instead of holding application buffers until sent data is acknowledged. Default: 1 (Enabled)"""
+
+fields_mqtt_quic_listener_send_buffering_enabled.label:
+"""Send buffering enabled"""
+
+sys_event_client_unsubscribed.desc:
+"""Enable to publish event message that client unsubscribed a topic successfully."""
+
+overload_protection_backoff_new_conn.desc:
+"""When at high load, close new incoming connections."""
+
+overload_protection_backoff_new_conn.label:
+"""Close new connections"""
+
+server_ssl_opts_schema_ocsp_responder_url.desc:
+"""URL for the OCSP responder to check the server certificate against."""
+
+server_ssl_opts_schema_ocsp_responder_url.label:
+"""OCSP Responder URL"""
+
+mqtt_idle_timeout.desc:
+"""Configure the duration of time that a connection can remain idle (i.e., without any data transfer) before being:
+  - Automatically disconnected  if no CONNECT package is received from the client yet.
+  - Put into hibernation mode to save resources if some CONNECT packages are already received.
+Note: Please set the parameter with caution as long idle time will lead to resource waste."""
+
+mqtt_idle_timeout.label:
+"""Idle Timeout"""
+
+fields_mqtt_quic_listener_conn_flow_control_window.desc:
+"""Connection-wide flow control window. Default: 16777216"""
+
+fields_mqtt_quic_listener_conn_flow_control_window.label:
+"""Conn flow control window"""
+
+fields_mqtt_quic_listener_maximum_mtu.desc:
+"""The maximum MTU supported by a connection. This will be the maximum probed value. Default: 1500"""
+
+fields_mqtt_quic_listener_maximum_mtu.label:
+"""Maximum MTU"""
+
+sysmon_top_db_name.desc:
+"""PostgreSQL database name"""
+
+sysmon_top_db_name.label:
+"""DB Name"""
+
+mqtt_strict_mode.desc:
+"""Whether to parse MQTT messages in strict mode.
+In strict mode, invalid utf8 strings in for example client ID, topic name, etc. will cause the client to be disconnected."""
+
+mqtt_strict_mode.label:
+"""Strict Mode"""
+
+shared_subscription_group_strategy.desc:
+"""Per group dispatch strategy for shared subscription.
+This config is a map from shared subscription group name to the strategy
+name. The group name should be of format `[A-Za-z0-9]`. i.e. no
+special characters are allowed."""
+
+fields_deflate_opts_strategy.desc:
+"""Specifies the compression strategy."""
+
+fields_deflate_opts_strategy.label:
+"""compression strategy"""
+
+shared_subscription_strategy_enum.desc:
+"""Dispatch strategy for shared subscription.
+- `random`: dispatch the message to a random selected subscriber
+- `round_robin`: select the subscribers in a round-robin manner
+- `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
+- `sticky`: always use the last selected subscriber to dispatch,
+until the subscriber disconnects.
+- `hash`: select the subscribers by the hash of `clientIds`
+- `local`: send to a random local subscriber. If local
+subscriber was not found, send to a random subscriber cluster-wide"""
+
+persistent_session_builtin_sess_msg_table.desc:
+"""Performance tuning options for built-in session messages table."""
+
+persistent_session_builtin_sess_msg_table.label:
+"""Persistent session messages"""
+
+mqtt_mqueue_store_qos0.desc:
+"""Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains."""
+
+mqtt_mqueue_store_qos0.label:
+"""Store QoS 0 Message"""
+
+server_ssl_opts_schema_client_renegotiation.desc:
+"""In protocols that support client-initiated renegotiation,
 the cost of resources of such an operation is higher for the server than the client.
 This can act as a vector for denial of service attacks.
 The SSL application already takes measures to counter-act such attempts,
@@ -1722,1147 +1210,331 @@ but client-initiated renegotiation can be strictly disabled by setting this opti
 The default value is true. Note that disabling renegotiation can result in
 long-lived connections becoming unusable due to limits on
 the number of messages the underlying cipher suite can encipher."""
-        zh: """在支持客户机发起的重新协商的协议中，这种操作的资源成本对于服务器来说高于客户机。
-这可能会成为拒绝服务攻击的载体。
-SSL 应用程序已经采取措施来反击此类尝试，但通过将此选项设置为 false，可以严格禁用客户端发起的重新协商。
-默认值为 true。请注意，由于基础密码套件可以加密的消息数量有限，禁用重新协商可能会导致长期连接变得不可用。"""
-    }
-    label: {
-        en: "SSL client renegotiation"
-        zh: "SSL 客户端冲协商"
-    }
-}
-
-server_ssl_opts_schema_handshake_timeout {
-    desc {
-        en: """Maximum time duration allowed for the handshake to complete"""
-        zh: """握手完成所允许的最长时间"""
-    }
-    label: {
-        en: "Handshake timeout"
-        zh: "握手超时时间"
-    }
-}
-
-server_ssl_opts_schema_gc_after_handshake {
-    desc {
-        en: """Memory usage tuning. If enabled, will immediately perform a garbage collection after the TLS/SSL handshake."""
-        zh: """内存使用调优。如果启用，将在TLS/SSL握手完成后立即执行垃圾回收。TLS/SSL握手建立后立即进行GC。"""
-    }
-    label: {
-        en: "Perform GC after handshake"
-        zh: "握手后执行GC"
-    }
-}
-
-server_ssl_opts_schema_enable_ocsp_stapling {
-    desc {
-        en: "Whether to enable Online Certificate Status Protocol (OCSP) stapling for the listener."
-            "  If set to true, requires defining the OCSP responder URL and issuer PEM path."
-        zh: "是否为监听器启用 OCSP Stapling 功能。 如果设置为 true，"
-            "需要定义 OCSP Responder 的 URL 和证书签发者的 PEM 文件路径。"
-    }
-    label: {
-        en: "Enable OCSP Stapling"
-        zh: "启用 OCSP Stapling"
-    }
-}
-
-server_ssl_opts_schema_ocsp_responder_url {
-    desc {
-        en: "URL for the OCSP responder to check the server certificate against."
-        zh: "用于检查服务器证书的 OCSP Responder 的 URL。"
-    }
-    label: {
-        en: "OCSP Responder URL"
-        zh: "OCSP Responder 的 URL"
-    }
-}
-
-server_ssl_opts_schema_ocsp_issuer_pem {
-    desc {
-        en: "PEM-encoded certificate of the OCSP issuer for the server certificate."
-        zh: "服务器证书的 OCSP 签发者的 PEM 编码证书。"
-    }
-    label: {
-        en: "OCSP Issuer Certificate"
-        zh: "OCSP 签发者证书"
-    }
-}
-
-server_ssl_opts_schema_ocsp_refresh_interval {
-    desc {
-        en: "The period to refresh the OCSP response for the server."
-        zh: "为服务器刷新OCSP响应的周期。"
-    }
-    label: {
-        en: "OCSP Refresh Interval"
-        zh: "OCSP 刷新间隔"
-    }
-}
-
-server_ssl_opts_schema_ocsp_refresh_http_timeout {
-    desc {
-        en: "The timeout for the HTTP request when checking OCSP responses."
-        zh: "检查 OCSP 响应时，HTTP 请求的超时。"
-    }
-    label: {
-        en: "OCSP Refresh HTTP Timeout"
-        zh: "OCSP 刷新 HTTP 超时"
-    }
-}
-
-server_ssl_opts_schema_enable_crl_check {
-    desc {
-        en: "Whether to enable CRL verification for this listener."
-        zh: "是否为该监听器启用 CRL 检查。"
-    }
-    label: {
-        en: "Enable CRL Check"
-        zh: "启用 CRL 检查"
-    }
-}
-
-crl_cache_refresh_http_timeout {
-    desc {
-        en: "The timeout for the HTTP request when fetching CRLs.  This is"
-            " a global setting for all listeners."
-        zh: "获取 CRLs 时 HTTP 请求的超时。 该配置对所有启用 CRL 检查的监听器监听器有效。"
-    }
-    label: {
-        en: "CRL Cache Refresh HTTP Timeout"
-        zh: "CRL 缓存刷新 HTTP 超时"
-    }
-}
-
-crl_cache_refresh_interval {
-    desc {
-        en: "The period to refresh the CRLs from the servers.  This is a global setting"
-            " for all URLs and listeners."
-        zh: "从服务器刷新CRL的周期。 该配置对所有 URL 和监听器有效。"
-    }
-    label: {
-        en: "CRL Cache Refresh Interval"
-        zh: "CRL 缓存刷新间隔"
-    }
-}
-
-crl_cache_capacity {
-    desc {
-        en: "The maximum number of CRL URLs that can be held in cache.  If the cache is at"
-            " full capacity and a new URL must be fetched, then it'll evict the oldest"
-            " inserted URL in the cache."
-        zh: "缓存中可容纳的 CRL URL 的最大数量。"
-            " 如果缓存的容量已满，并且必须获取一个新的 URL，"
-            "那么它将驱逐缓存中插入的最老的 URL。"
-    }
-    label: {
-        en: "CRL Cache Capacity"
-        zh: "CRL 缓存容量"
-    }
-}
-
-fields_listeners_tcp {
-    desc {
-        en: """TCP listeners."""
-        zh: """TCP 监听器。"""
-    }
-    label: {
-        en: "TCP listeners"
-        zh: "TCP 监听器"
-    }
-}
-
-fields_listeners_ssl {
-    desc {
-        en: """SSL listeners."""
-        zh: """SSL 监听器。"""
-    }
-    label: {
-        en: "SSL listeners"
-        zh: "SSL 监听器"
-    }
-}
-
-fields_listeners_ws {
-    desc {
-        en: """HTTP websocket listeners."""
-        zh: """HTTP websocket 监听器。"""
-    }
-    label: {
-        en: "HTTP websocket listeners"
-        zh: "HTTP websocket 监听器"
-    }
-}
-
-fields_listeners_wss {
-    desc {
-        en: """HTTPS websocket listeners."""
-        zh: """HTTPS websocket 监听器。"""
-    }
-    label: {
-        en: "HTTPS websocket listeners"
-        zh: "HTTPS websocket 监听器"
-    }
-}
-
-fields_listeners_quic {
-    desc {
-        en: """QUIC listeners."""
-        zh: """QUIC 监听器。"""
-    }
-    label: {
-        en: "QUIC listeners"
-        zh: "QUIC 监听器"
-    }
-}
-
-fields_listener_enabled {
-    desc {
-        en: """Enable listener."""
-        zh: """启停监听器。"""
-    }
-    label: {
-        en: "Enable listener"
-        zh: "启停监听器"
-    }
-}
-
-fields_mqtt_quic_listener_certfile {
-    desc {
-        en: """Path to the certificate file. Will be deprecated in 5.1, use .ssl_options.certfile instead."""
-        zh: """证书文件。在 5.1 中会被废弃，使用 .ssl_options.certfile 代替。"""
-    }
-    label: {
-        en: "Certificate file"
-        zh: "证书文件"
-    }
-}
-
-fields_mqtt_quic_listener_keyfile {
-    desc {
-        en: """Path to the secret key file. Will be deprecated in 5.1, use .ssl_options.keyfile instead."""
-        zh: """私钥文件。在 5.1 中会被废弃，使用 .ssl_options.keyfile 代替。"""
-    }
-    label: {
-        en: "Key file"
-        zh: "私钥文件"
-    }
-}
-
-fields_mqtt_quic_listener_idle_timeout {
-    desc {
-        en: """How long a connection can go idle before it is gracefully shut down. 0 to disable"""
-        zh: """一个连接在被关闭之前可以空闲多长时间。0表示禁用。"""
-    }
-    label: {
-        en: "Idle Timeout"
-        zh: "空闲超时时间"
-    }
-}
-
-fields_mqtt_quic_listener_handshake_idle_timeout {
-    desc {
-        en: """How long a handshake can idle before it is discarded."""
-        zh: """一个握手在被丢弃之前可以空闲多长时间。"""
-    }
-    label: {
-        en: "Handshake Idle Timeout"
-        zh: "握手空闲超时时间"
-    }
-}
-
-fields_mqtt_quic_listener_keep_alive_interval {
-    desc {
-        en: """How often to send PING frames to keep a connection alive. 0 means disabled."""
-        zh: """发送 PING 帧的频率，以保活连接. 设为 0 表示禁用。"""
-    }
-    label: {
-        en: "Keep Alive Interval"
-        zh: "PING 保活频率"
-    }
-}
-
-fields_mqtt_quic_listener_ssl_options {
-    desc {
-        en: """TLS options for QUIC transport"""
-        zh: """QUIC 传输层的 TLS 选项"""
-    }
-    label: {
-        en: "TLS Options"
-        zh: "TLS 选项"
-    }
-}
-
-base_listener_bind {
-    desc {
-        en: """IP address and port for the listening socket."""
-        zh: """监听套接字的 IP 地址和端口。"""
-    }
-    label: {
-        en: "IP address and port"
-        zh: "IP 地址和端口"
-    }
-}
-
-base_listener_acceptors {
-    desc {
-        en: """The size of the listener's receiving pool."""
-        zh: """监听器接收池的大小。"""
-    }
-    label: {
-        en: "Acceptors Num"
-        zh: "接收器数量"
-    }
-}
-
-fields_mqtt_quic_listener_max_bytes_per_key {
-    desc {
-        en: "Maximum number of bytes to encrypt with a single 1-RTT encryption key before initiating key update. Default: 274877906944"
-        zh: "在启动密钥更新之前，用单个 1-RTT 加密密钥加密的最大字节数。默认值：274877906944"
-    }
-    label {
-        en: "Max bytes per key"
-        zh: "每个密钥的最大字节数"
-    }
-}
-
-fields_mqtt_quic_listener_handshake_idle_timeout_ms {
-    desc {
-        en: "How long a handshake can idle before it is discarded. Default: 10 000"
-        zh: "一个握手在被丢弃之前可以空闲多长时间。 默认值：10 000"
-    }
-    label {
-        en: "Handshake idle timeout ms"
-        zh: "握手空闲超时毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_tls_server_max_send_buffer {
-    desc {
-        en: "How much Server TLS data to buffer. Default: 8192"
-        zh: "缓冲多少TLS数据。 默认值：8192"
-    }
-    label {
-        en: "TLS server max send buffer"
-        zh: "TLS 服务器最大发送缓冲区"
-    }
-}
-
-fields_mqtt_quic_listener_stream_recv_window_default {
-    desc {
-        en: "Initial stream receive window size. Default: 32678"
-        zh: "初始流接收窗口大小。 默认值：32678"
-    }
-    label {
-        en: "Stream recv window default"
-        zh: "流接收窗口默认"
-    }
-}
-
-fields_mqtt_quic_listener_stream_recv_buffer_default {
-    desc {
-        en: "Stream initial buffer size. Default: 4096"
-        zh: "流的初始缓冲区大小。默认：4096"
-    }
-    label {
-        en: "Stream recv buffer default"
-        zh: "流媒体接收缓冲区默认值"
-    }
-}
-
-fields_mqtt_quic_listener_conn_flow_control_window {
-    desc {
-        en: "Connection-wide flow control window. Default: 16777216"
-        zh: "连接的流控窗口。默认：16777216"
-    }
-    label {
-        en: "Conn flow control window"
-        zh: "流控窗口"
-    }
-}
-
-fields_mqtt_quic_listener_max_stateless_operations {
-    desc {
-        en: "The maximum number of stateless operations that may be queued on a worker at any one time. Default: 16"
-        zh: "无状态操作的最大数量，在任何时候都可以在一个工作者上排队。默认值：16"
-    }
-    label {
-        en: "Max stateless operations"
-        zh: "最大无状态操作数"
-    }
-}
-
-fields_mqtt_quic_listener_initial_window_packets {
-    desc {
-        en: "The size (in packets) of the initial congestion window for a connection. Default: 10"
-        zh: "一个连接的初始拥堵窗口的大小（以包为单位）。默认值：10"
-    }
-    label {
-        en: "Initial window packets"
-        zh: "初始窗口数据包"
-    }
-}
-
-fields_mqtt_quic_listener_send_idle_timeout_ms {
-    desc {
-        en: "Reset congestion control after being idle for amount of time. Default: 1000"
-        zh: "在闲置一定时间后重置拥堵控制。默认值：1000"
-    }
-    label {
-        en: "Send idle timeout ms"
-        zh: "发送空闲超时毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_initial_rtt_ms {
-    desc {
-        en: "Initial RTT estimate."
-        zh: "初始RTT估计"
-    }
-    label {
-        en: "Initial RTT ms"
-        zh: "Initial RTT 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_max_ack_delay_ms {
-    desc {
-        en: "How long to wait after receiving data before sending an ACK. Default: 25"
-        zh: "在收到数据后要等待多长时间才能发送一个ACK。默认值：25"
-    }
-    label {
-        en: "Max ack delay ms"
-        zh: "最大应答延迟 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_disconnect_timeout_ms {
-    desc {
-        en: "How long to wait for an ACK before declaring a path dead and disconnecting. Default: 16000"
-        zh: "在判定路径无效和断开连接之前，要等待多长时间的ACK。默认：16000"
-    }
-    label {
-        en: "Disconnect timeout ms"
-        zh: "断开连接超时 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_idle_timeout_ms {
-    desc {
-        en: "How long a connection can go idle before it is gracefully shut down. 0 to disable timeout"
-        zh: "一个连接在被优雅地关闭之前可以空闲多长时间。0 表示禁用超时"
-    }
-    label {
-        en: "Idle timeout ms"
-        zh: "空闲超时 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_handshake_idle_timeout_ms {
-    desc {
-        en: "How long a handshake can idle before it is discarded"
-        zh: "一个握手在被丢弃之前可以空闲多长时间"
-    }
-    label {
-        en: "Handshake idle timeout ms"
-        zh: "握手空闲超时 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_keep_alive_interval_ms {
-    desc {
-        en: "How often to send PING frames to keep a connection alive."
-        zh: "多长时间发送一次PING帧以保活连接。"
-    }
-    label {
-        en: "Keep alive interval ms"
-        zh: "保持活着的时间间隔 毫秒"
-    }
-}
-
-fields_mqtt_quic_listener_peer_bidi_stream_count {
-    desc {
-        en: "Number of bidirectional streams to allow the peer to open."
-        zh: "允许对端打开的双向流的数量"
-    }
-    label {
-        en: "Peer bidi stream count"
-        zh: "对端双向流的数量"
-    }
-}
-
-fields_mqtt_quic_listener_peer_unidi_stream_count {
-    desc {
-        en: "Number of unidirectional streams to allow the peer to open."
-        zh: "允许对端打开的单向流的数量"
-    }
-    label {
-        en: "Peer unidi stream count"
-        zh: "对端单向流的数量"
-    }
-}
-
-fields_mqtt_quic_listener_retry_memory_limit {
-    desc {
-        en: "The percentage of available memory usable for handshake connections before stateless retry is used. Calculated as `N/65535`. Default: 65"
-        zh: "在使用无状态重试之前，可用于握手连接的可用内存的百分比。计算为`N/65535`。默认值：65"
-    }
-    label {
-        en: "Retry memory limit"
-        zh: "重试内存限制"
-    }
-}
-
-fields_mqtt_quic_listener_load_balancing_mode {
-    desc {
-        en: "0: Disabled, 1: SERVER_ID_IP, 2: SERVER_ID_FIXED. default: 0"
-        zh: "0: 禁用, 1: SERVER_ID_IP, 2: SERVER_ID_FIXED. 默认: 0"
-    }
-    label {
-        en: "Load balancing mode"
-        zh: "负载平衡模式"
-    }
-}
-
-fields_mqtt_quic_listener_max_operations_per_drain {
-    desc {
-        en: "The maximum number of operations to drain per connection quantum. Default: 16"
-        zh: "每个连接操作的最大耗费操作数。默认：16"
-    }
-    label {
-        en: "Max operations per drain"
-        zh: "每次操作最大操作数"
-    }
-}
-
-fields_mqtt_quic_listener_send_buffering_enabled {
-    desc {
-        en: "Buffer send data instead of holding application buffers until sent data is acknowledged. Default: 1 (Enabled)"
-        zh: "缓冲发送数据，而不是保留应用缓冲区，直到发送数据被确认。默认值：1（启用）"
-    }
-    label {
-        en: "Send buffering enabled"
-        zh: "启用发送缓冲功能"
-    }
-}
-
-fields_mqtt_quic_listener_pacing_enabled {
-    desc {
-        en: "Pace sending to avoid overfilling buffers on the path. Default: 1 (Enabled)"
-        zh: "有节奏的发送，以避免路径上的缓冲区过度填充。默认值：1（已启用）"
-    }
-    label {
-        en: "Pacing enabled"
-        zh: "启用节奏发送"
-    }
-}
-
-fields_mqtt_quic_listener_migration_enabled {
-    desc {
-        en: "Enable clients to migrate IP addresses and tuples. Requires a cooperative load-balancer, or no load-balancer. Default: 1 (Enabled)"
-        zh: "开启客户端地址迁移功能。需要一个支持的负载平衡器，或者没有负载平衡器。默认值：1（已启用）"
-    }
-    label {
-        en: "Migration enabled"
-        zh: "启用地址迁移"
-    }
-}
-
-fields_mqtt_quic_listener_datagram_receive_enabled {
-    desc {
-        en: "Advertise support for QUIC datagram extension. Reserve for the future. Default 0 (FALSE)"
-        zh: "宣传对QUIC Datagram 扩展的支持。为将来保留。默认为0（FALSE）"
-    }
-    label {
-        en: "Datagram receive enabled"
-        zh: "启用 Datagram 接收"
-    }
-}
-
-fields_mqtt_quic_listener_server_resumption_level {
-    desc {
-        en: "Controls resumption tickets and/or 0-RTT server support. Default: 0 (No resumption)"
-        zh: "连接恢复 和/或 0-RTT 服务器支持。默认值：0（无恢复功能）"
-    }
-    label {
-        en: "Server resumption level"
-        zh: "服务端连接恢复支持"
-    }
-}
-
-fields_mqtt_quic_listener_minimum_mtu {
-    desc {
-        en: "The minimum MTU supported by a connection. This will be used as the starting MTU. Default: 1248"
-        zh: "一个连接所支持的最小MTU。这将被作为起始MTU使用。默认值：1248"
-    }
-    label {
-        en: "Minimum MTU"
-        zh: "最小 MTU"
-    }
-}
-
-fields_mqtt_quic_listener_maximum_mtu {
-    desc {
-        en: "The maximum MTU supported by a connection. This will be the maximum probed value. Default: 1500"
-        zh: "一个连接所支持的最大MTU。这将是最大的探测值。默认值：1500"
-    }
-    label {
-        en: "Maximum MTU"
-        zh: "最大 MTU"
-    }
-}
-
-fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us {
-    desc {
-        en: "The time in microseconds to wait before reattempting MTU probing if max was not reached. Default: 600000000"
-        zh: "如果没有达到 max ，在重新尝试 MTU 探测之前要等待的时间，单位是微秒。默认值：600000000"
-    }
-    label {
-        en: "MTU discovery search complete timeout us"
-        zh: ""
-    }
-}
-
-fields_mqtt_quic_listener_mtu_discovery_missing_probe_count {
-    desc {
-        en: "The maximum number of stateless operations that may be queued on a binding at any one time. Default: 3"
-        zh: "在任何时候都可以在一个绑定上排队的无状态操作的最大数量。默认值：3"
-    }
-    label {
-        en: "MTU discovery missing probe count"
-        zh: "MTU发现丢失的探针数量"
-    }
-}
-
-fields_mqtt_quic_listener_max_binding_stateless_operations {
-    desc {
-        en: "The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"
-        zh: "在任何时候可以在一个绑定上排队的无状态操作的最大数量。默认值：100"
-    }
-    label {
-        en: "Max binding stateless operations"
-        zh: "最大绑定无状态操作"
-    }
-}
-
-fields_mqtt_quic_listener_stateless_operation_expiration_ms {
-    desc {
-        en: "The time limit between operations for the same endpoint, in milliseconds. Default: 100"
-        zh: "同一个对端的操作之间的时间限制，单位是毫秒。 默认：100"
-    }
-    label {
-        en: "Stateless operation expiration ms"
-        zh: "无状态操作过期 毫秒"
-    }
-}
-
-base_listener_max_connections {
-    desc {
-        en: """The maximum number of concurrent connections allowed by the listener."""
-        zh: """监听器允许的最大并发连接数。"""
-    }
-    label: {
-        en: "Max connections"
-        zh: "最大并发连接数"
-    }
-}
-
-base_listener_mountpoint {
-    desc {
-        en: """When publishing or subscribing, prefix all topics with a mountpoint string.
-The prefixed string will be removed from the topic name when the message
-is delivered to the subscriber. The mountpoint is a way that users can use
-to implement isolation of message routing between different listeners.
-For example if a client A subscribes to `t` with `listeners.tcp.\<name>.mountpoint`
-set to `some_tenant`, then the client actually subscribes to the topic
-`some_tenant/t`. Similarly, if another client B (connected to the same listener
-as the client A) sends a message to topic `t`, the message is routed
-to all the clients subscribed `some_tenant/t`, so client A will receive the
-message, with topic name `t`.<br/>
-Set to `""` to disable the feature.<br/>
-
-Variables in mountpoint string:
-  - <code>${clientid}</code>: clientid
-  - <code>${username}</code>: username"""
-        zh: """发布或订阅时，请在所有主题前面加上 mountpoint 字符串。
-
-将消息传递给订阅者时，将从主题名称中删除带前缀的字符串。挂载点是一种用户可以用来实现不同侦听器之间消息路由隔离的方法。
-
-例如，如果客户机 A 使用 <code>listeners.tcp.\<name>.mountpoint</code> 设置为'some_tenant'，那么客户端实际上订阅了主题'some_tenant/t'。<br/>
-类似地，如果另一个客户端B（与客户端A连接到同一个侦听器）向主题 't' 发送消息，该消息将路由到所有订阅了'some_租户/t'的客户端，因此客户端 A 将接收主题名为't'的消息<br/>
-
-设置为<code>""</code> 以禁用该功能<br/>
-
-mountpoint 字符串中的变量：
-- <code>${clientid}</code>: clientid
-- <code>${username}</code>: username"""
-    }
-    label: {
-        en: "mountpoint"
-        zh: "mountpoint"
-    }
-}
-
-base_listener_zone {
-    desc {
-        en: """The configuration zone to which the listener belongs."""
-        zh: """监听器所属的配置组。"""
-    }
-    label: {
-        en: "Zone"
-        zh: "配置组"
-    }
-}
-
-base_listener_limiter {
-    desc {
-        en: """Type of the rate limit."""
-        zh: """速率限制类型"""
-    }
-    label: {
-        en: "Type of the rate limit."
-        zh: "速率限制类型"
-    }
-}
-
-base_listener_enable_authn {
-    desc {
-        en: """Set <code>true</code> (default) to enable client authentication on this listener, the authentication
+
+server_ssl_opts_schema_client_renegotiation.label:
+"""SSL client renegotiation"""
+
+server_ssl_opts_schema_enable_crl_check.desc:
+"""Whether to enable CRL verification for this listener."""
+
+server_ssl_opts_schema_enable_crl_check.label:
+"""Enable CRL Check"""
+
+fields_mqtt_quic_listener_peer_bidi_stream_count.desc:
+"""Number of bidirectional streams to allow the peer to open."""
+
+fields_mqtt_quic_listener_peer_bidi_stream_count.label:
+"""Peer bidi stream count"""
+
+fields_mqtt_quic_listener_max_stateless_operations.desc:
+"""The maximum number of stateless operations that may be queued on a worker at any one time. Default: 16"""
+
+fields_mqtt_quic_listener_max_stateless_operations.label:
+"""Max stateless operations"""
+
+fields_ws_opts_idle_timeout.desc:
+"""Close transport-layer connections from the clients that have not sent MQTT CONNECT message within this interval."""
+
+fields_ws_opts_idle_timeout.label:
+"""WS idle timeout"""
+
+fields_mqtt_quic_listener_max_ack_delay_ms.desc:
+"""How long to wait after receiving data before sending an ACK. Default: 25"""
+
+fields_mqtt_quic_listener_max_ack_delay_ms.label:
+"""Max ack delay ms"""
+
+base_listener_zone.desc:
+"""The configuration zone to which the listener belongs."""
+
+base_listener_zone.label:
+"""Zone"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout.desc:
+"""How long a handshake can idle before it is discarded."""
+
+fields_mqtt_quic_listener_handshake_idle_timeout.label:
+"""Handshake Idle Timeout"""
+
+force_gc_enable.desc:
+"""Enable forced garbage collection."""
+
+force_gc_enable.label:
+"""Enable forced garbage collection"""
+
+fields_ws_opts_allow_origin_absence.desc:
+"""If <code>false</code> and <code>check_origin_enable</code> is
+ <code>true</code>, the server will reject requests that don't have <code>origin</code>
+ HTTP header."""
+
+fields_ws_opts_allow_origin_absence.label:
+"""Allow origin absence"""
+
+common_ssl_opts_schema_versions.desc:
+"""All TLS/DTLS versions to be supported.<br/>
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config.<br/>
+In case PSK cipher suites are intended, make sure to configure
+<code>['tlsv1.2', 'tlsv1.1']</code> here."""
+
+common_ssl_opts_schema_versions.label:
+"""SSL versions"""
+
+mqtt_listener_proxy_protocol_timeout.desc:
+"""Timeout for proxy protocol. EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."""
+
+mqtt_listener_proxy_protocol_timeout.label:
+"""Proxy protocol timeout"""
+
+fields_mqtt_quic_listener_idle_timeout.desc:
+"""How long a connection can go idle before it is gracefully shut down. 0 to disable"""
+
+fields_mqtt_quic_listener_idle_timeout.label:
+"""Idle Timeout"""
+
+common_ssl_opts_schema_secure_renegotiate.desc:
+"""SSL parameter renegotiation is a feature that allows a client and a server
+to renegotiate the parameters of the SSL connection on the fly.
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
+you drop support for the insecure renegotiation, prone to MitM attacks."""
+
+common_ssl_opts_schema_secure_renegotiate.label:
+"""SSL renegotiate"""
+
+sysmon_vm_busy_port.desc:
+"""When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/busy_port</code>."""
+
+sysmon_vm_busy_port.label:
+"""Enable Busy Port monitoring."""
+
+sys_event_client_connected.desc:
+"""Enable to publish client connected event messages"""
+
+sysmon_vm_process_low_watermark.desc:
+"""The threshold, as percentage of processes, for how many
+ processes can simultaneously exist at the local node before the corresponding
+ alarm is cleared."""
+
+sysmon_vm_process_low_watermark.label:
+"""Process low watermark"""
+
+mqtt_max_packet_size.desc:
+"""Maximum MQTT packet size allowed."""
+
+mqtt_max_packet_size.label:
+"""Max Packet Size"""
+
+common_ssl_opts_schema_reuse_sessions.desc:
+"""Enable TLS session reuse."""
+
+common_ssl_opts_schema_reuse_sessions.label:
+"""TLS session reuse"""
+
+common_ssl_opts_schema_depth.desc:
+"""Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path.
+So, if depth is 0 the PEER must be signed by the trusted ROOT-CA directly;<br/>
+if 1 the path can be PEER, Intermediate-CA, ROOT-CA;<br/>
+if 2 the path can be PEER, Intermediate-CA1, Intermediate-CA2, ROOT-CA."""
+
+common_ssl_opts_schema_depth.label:
+"""CACert Depth"""
+
+sysmon_vm_long_gc.desc:
+"""When an Erlang process spends long time to perform garbage collection, a warning level <code>long_gc</code> log is emitted,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/long_gc</code>."""
+
+sysmon_vm_long_gc.label:
+"""Enable Long GC monitoring."""
+
+fields_mqtt_quic_listener_keyfile.desc:
+"""Path to the secret key file. Will be deprecated in 5.1, use .ssl_options.keyfile instead."""
+
+fields_mqtt_quic_listener_keyfile.label:
+"""Key file"""
+
+mqtt_peer_cert_as_clientid.desc:
+"""Use the CN, DN field in the peer certificate or the entire certificate content as Client ID. Only works for the TLS connection.
+Supported configurations are the following:
+- <code>cn</code>: CN field of the certificate
+- <code>dn</code>: DN field of the certificate
+- <code>crt</code>: <code>DER</code> or <code>PEM</code> certificate
+- <code>pem</code>: Convert <code>DER</code> certificate content to <code>PEM</code> format and use as Client ID
+- <code>md5</code>: MD5 value of the <code>DER</code> or <code>PEM</code> certificate"""
+
+mqtt_peer_cert_as_clientid.label:
+"""Use Peer Certificate as Client ID"""
+
+persistent_session_store_message_gc_interval.desc:
+"""The starting interval for garbage collection of undelivered messages to
+a persistent session. This affects how often the "max_retain_undelivered"
+is checked for removal."""
+
+persistent_session_store_message_gc_interval.label:
+"""Message GC interval"""
+
+broker_shared_dispatch_ack_enabled.desc:
+"""Deprecated, will be removed in 5.1.
+Enable/disable shared dispatch acknowledgement for QoS 1 and QoS 2 messages.
+This should allow messages to be dispatched to a different subscriber in the group in case the picked (based on `shared_subscription_strategy`) subscriber is offline."""
+
+base_listener_enable_authn.desc:
+"""Set <code>true</code> (default) to enable client authentication on this listener, the authentication
 process goes through the configured authentication chain.
 When set to <code>false</code> to allow any clients with or without authentication information such as username or password to log in.
 When set to <code>quick_deny_anonymous</code>, it behaves like when set to <code>true</code>, but clients will be
 denied immediately without going through any authenticators if <code>username</code> is not provided. This is useful to fence off
 anonymous clients early."""
-        zh: """配置 <code>true</code> （默认值）启用客户端进行身份认证，通过检查认配置的认认证器链来决定是否允许接入。
-配置 <code>false</code> 时，将不对客户端做任何认证，任何客户端，不论是不是携带用户名等认证信息，都可以接入。
-配置 <code>quick_deny_anonymous</code> 时，行为跟 <code>true</code> 类似，但是会对匿名
-客户直接拒绝，不做使用任何认证器对客户端进行身份检查。"""
-    }
-    label: {
-        en: "Enable authentication"
-        zh: "启用身份认证"
-    }
-}
 
-mqtt_listener_access_rules {
-    desc {
-        en: """The access control rules for this listener.<br/>See: https://github.com/emqtt/esockd#allowdeny"""
-        zh: """此监听器的访问控制规则。"""
-    }
-    label: {
-        en: "Access rules"
-        zh: "访问控制规则"
-    }
-}
+base_listener_enable_authn.label:
+"""Enable authentication"""
 
-mqtt_listener_proxy_protocol {
-    desc {
-        en: """Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.<br/>
+force_shutdown_enable.desc:
+"""Enable `force_shutdown` feature."""
+
+force_shutdown_enable.label:
+"""Enable `force_shutdown` feature"""
+
+broker_enable_session_registry.desc:
+"""Enable session registry"""
+
+overload_protection_backoff_delay.desc:
+"""The maximum duration of delay for background task execution during high load conditions."""
+
+overload_protection_backoff_delay.label:
+"""Delay Time"""
+
+ciphers_schema_common.desc:
+"""This config holds TLS cipher suite names separated by comma,
+or as an array of strings. e.g.
+<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code> or
+<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>.
+<br/>
+Ciphers (and their ordering) define the way in which the
+client and server encrypts information over the network connection.
+Selecting a good cipher suite is critical for the
+application's data security, confidentiality and performance.
+
+The names should be in OpenSSL string format (not RFC format).
+All default values and examples provided by EMQX config
+documentation are all in OpenSSL format.<br/>
+
+NOTE: Certain cipher suites are only compatible with
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
+incompatible cipher suites will be silently dropped.
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
+configuring cipher suites for other versions will have no effect.
+<br/>
+
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br/>
+If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br/>
+PSK cipher suites: <code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
+RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
+RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
+RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code>"""
+
+ciphers_schema_common.label:
+""""""
+
+sys_event_client_disconnected.desc:
+"""Enable to publish client disconnected event messages."""
+
+crl_cache_refresh_interval.desc:
+"""The period to refresh the CRLs from the servers.  This is a global setting for all URLs and listeners."""
+
+crl_cache_refresh_interval.label:
+"""CRL Cache Refresh Interval"""
+
+mqtt_listener_proxy_protocol.desc:
+"""Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.<br/>
 See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"""
-        zh: """如果EMQX集群部署在 HAProxy 或 Nginx 之后，请启用代理协议 V1/2 <br/>
-详情见: https://www.haproxy.com/blog/haproxy/proxy-protocol/"""
-    }
-    label: {
-        en: "Proxy protocol"
-        zh: "Proxy protocol"
-    }
-}
 
-mqtt_listener_proxy_protocol_timeout {
-    desc {
-        en: """Timeout for proxy protocol. EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."""
-        zh: """代理协议超时。如果在超时时间内未收到代理协议数据包，EMQX将关闭TCP连接。"""
-    }
-    label: {
-        en: "Proxy protocol timeout"
-        zh: "Proxy protocol 超时时间"
-    }
-}
+mqtt_listener_proxy_protocol.label:
+"""Proxy protocol"""
 
-global_authentication {
-    desc {
-        en: """Default authentication configs for all MQTT listeners.
+mqtt_listener_access_rules.desc:
+"""The access control rules for this listener.<br/>See: https://github.com/emqtt/esockd#allowdeny"""
 
-For per-listener overrides see <code>authentication</code> in listener configs
+mqtt_listener_access_rules.label:
+"""Access rules"""
 
-This option can be configured with:
-<ul>
-  <li><code>[]</code>: The default value, it allows *ALL* logins</li>
-  <li>one: For example <code>{enable:true,backend:\"built_in_database\",mechanism=\"password_based\"}</code></li>
-  <li>chain: An array of structs.</li>
-</ul>
+server_ssl_opts_schema_enable_ocsp_stapling.desc:
+"""Whether to enable Online Certificate Status Protocol (OCSP) stapling for the listener.  If set to true, requires defining the OCSP responder URL and issuer PEM path."""
 
-When a chain is configured, the login credentials are checked against the backends per the configured order, until an 'allow' or 'deny' decision can be made.
+server_ssl_opts_schema_enable_ocsp_stapling.label:
+"""Enable OCSP Stapling"""
 
-If there is no decision after a full chain exhaustion, the login is rejected."""
-        zh: """全局 MQTT 监听器的默认认证配置。 为每个监听器配置认证参考监听器器配置中的<code>authentication</code> 配置。
+fields_tcp_opts_send_timeout_close.desc:
+"""Close the connection if send timeout."""
 
-该配置可以被配置为：
-<ul>
-  <li><code>[]</code>: 默认值，允许所有的登录请求
-  <li>配置为单认证器，例如 <code>{enable:true,backend:\"built_in_database\",mechanism=\"password_based\"}</code></li>
-  <li>配置为认证器数组</li>
-</ul>
+fields_tcp_opts_send_timeout_close.label:
+"""TCP send timeout close"""
 
-当配置为认证链后，登录凭证会按照配置的顺序进行检查，直到做出<code>allow</code> 或 <code>deny</code>的结果。
+sysmon_os_cpu_check_interval.desc:
+"""The time interval for the periodic CPU check."""
 
-如果在所有的认证器都执行完后，还是没有结果，登录将被拒绝。"""
-    }
-}
+sysmon_os_cpu_check_interval.label:
+"""The time interval for the periodic CPU check."""
 
-listener_authentication {
-    desc {
-        en: """Per-listener authentication override.
-Authentication can be one single authenticator instance or a chain of authenticators as an array.
-When authenticating a login (username, client ID, etc.) the authenticators are checked in the configured order."""
-        zh: """监听器认证重载。
-认证配置可以是单个认证器实例，也可以是一个认证器数组组成的认证链。
-执行登录验证时（用户名、客户端 ID 等），将按配置的顺序执行。"""
-    }
-    label: {
-        en: "Per-listener authentication override"
-        zh: "每个监听器的认证覆盖"
-    }
-}
+sysmon_top_sample_interval.desc:
+"""Specifies how often process top should be collected"""
 
-fields_rate_limit_max_conn_rate {
-    desc {
-        en: """Maximum connections per second."""
-        zh: """每秒最大连接数。"""
-    }
-    label: {
-        en: "Max connection rate"
-        zh: "每秒最大连接数"
-    }
-}
+sysmon_top_sample_interval.label:
+"""Top sample interval"""
 
-fields_rate_limit_conn_messages_in {
-    desc {
-        en: """Message limit for the external MQTT connections."""
-        zh: """外部 MQTT 连接的消息限制。"""
-    }
-    label: {
-        en: "connecting messages in"
-        zh: "外部 MQTT 连接的消息限制"
-    }
-}
+fields_mqtt_quic_listener_idle_timeout_ms.desc:
+"""How long a connection can go idle before it is gracefully shut down. 0 to disable timeout"""
 
-fields_rate_limit_conn_bytes_in {
-    desc {
-        en: """Limit the rate of receiving packets for a MQTT connection.
-The rate is counted by bytes of packets per second."""
-        zh: """限制 MQTT 连接接收数据包的速率。 速率以每秒的数据包字节数计算。"""
-    }
-    label: {
-        en: "Connection bytes in"
-        zh: "数据包速率"
-    }
-}
+fields_mqtt_quic_listener_idle_timeout_ms.label:
+"""Idle timeout ms"""
 
-client_ssl_opts_schema_server_name_indication {
-    desc {
-        en: """Specify the host name to be used in TLS Server Name Indication extension.<br/>
-For instance, when connecting to "server.example.net", the genuine server
-which accepts the connection and performs TLS handshake may differ from the
-host the TLS client initially connects to, e.g. when connecting to an IP address
-or when the host has multiple resolvable DNS records <br/>
-If not specified, it will default to the host name string which is used
-to establish the connection, unless it is IP addressed used.<br/>
-The host name is then also used in the host name verification of the peer
-certificate.<br/> The special value 'disable' prevents the Server Name
-Indication extension from being sent and disables the hostname
-verification check."""
-        zh: """指定要在 TLS 服务器名称指示扩展中使用的主机名。<br/>
-例如，当连接到 "server.example.net" 时，接受连接并执行 TLS 握手的真正服务器可能与 TLS 客户端最初连接到的主机不同，
-例如，当连接到 IP 地址时，或者当主机具有多个可解析的 DNS 记录时<br/>
-如果未指定，它将默认为使用的主机名字符串
-建立连接，除非使用 IP 地址<br/>
-然后，主机名也用于对等机的主机名验证证书<br/>
-特殊值 <code>disable</code> 阻止发送服务器名称指示扩展，并禁用主机名验证检查。"""
-    }
-    label: {
-        en: "Server Name Indication"
-        zh: "服务器名称指示"
-    }
-}
-
-fields_tcp_opts_active_n {
-    desc {
-        en: """Specify the {active, N} option for this Socket.<br/>
-See: https://erlang.org/doc/man/inet.html#setopts-2"""
-        zh: """为此套接字指定{active，N}选项<br/>
-See: https://erlang.org/doc/man/inet.html#setopts-2"""
-    }
-    label: {
-        en: "active_n"
-        zh: "active_n"
-    }
-}
-
-fields_tcp_opts_backlog {
-    desc {
-        en: """TCP backlog defines the maximum length that the queue of
-pending connections can grow to."""
-        zh: """TCP backlog 定义了挂起连接队列可以增长到的最大长度。"""
-    }
-    label: {
-        en: "TCP backlog length"
-        zh: "TCP 连接队列长度"
-    }
-}
-
-fields_tcp_opts_send_timeout {
-    desc {
-        en: """The TCP send timeout for the connections."""
-        zh: """连接的 TCP 发送超时。"""
-    }
-    label: {
-        en: "TCP send timeout"
-        zh: "TCP 发送超时"
-    }
-}
-
-fields_tcp_opts_send_timeout_close {
-    desc {
-        en: """Close the connection if send timeout."""
-        zh: """如果发送超时，则关闭连接。"""
-    }
-    label: {
-        en: "TCP send timeout close"
-        zh: "TCP 发送超时关闭连接"
-    }
-}
-
-fields_tcp_opts_recbuf {
-    desc {
-        en: """The TCP receive buffer (OS kernel) for the connections."""
-        zh: """连接的 TCP 接收缓冲区（OS 内核）。"""
-    }
-    label: {
-        en: "TCP receive buffer"
-        zh: "TCP 接收缓冲区"
-    }
-}
-
-fields_tcp_opts_sndbuf {
-    desc {
-        en: """The TCP send buffer (OS kernel) for the connections."""
-        zh: """连接的 TCP 发送缓冲区（OS 内核）。"""
-    }
-    label: {
-        en: "TCP send buffer"
-        zh: "TCP 发送缓冲区"
-    }
-}
-
-fields_tcp_opts_buffer {
-    desc {
-        en: """The size of the user-space buffer used by the driver."""
-        zh: """驱动程序使用的用户空间缓冲区的大小。"""
-    }
-    label: {
-        en: "TCP user-space buffer"
-        zh: "TCP 用户态缓冲区"
-    }
-}
-
-fields_tcp_opts_high_watermark {
-    desc {
-        en: """The socket is set to a busy state when the amount of data queued internally
-by the VM socket implementation reaches this limit."""
-        zh: """当 VM 套接字实现内部排队的数据量达到此限制时，套接字将设置为忙碌状态。"""
-    }
-    label: {
-        en: "TCP 高水位线"
-        zh: ""
-    }
-}
-
-fields_tcp_opts_nodelay {
-    desc {
-        en: """The TCP_NODELAY flag for the connections."""
-        zh: """连接的 TCP_NODELAY 标识"""
-    }
-    label: {
-        en: "TCP_NODELAY"
-        zh: "TCP_NODELAY"
-    }
-}
-
-fields_tcp_opts_reuseaddr {
-    desc {
-        en: """The SO_REUSEADDR flag for the connections."""
-        zh: """连接的 SO_REUSEADDR 标识。"""
-    }
-    label: {
-        en: "SO_REUSEADDR"
-        zh: "SO_REUSEADDR"
-    }
-}
-
-fields_trace_payload_encode {
-    desc {
-        en: """Determine the format of the payload format in the trace file.<br/>
-`text`: Text-based protocol or plain text protocol.
- It is recommended when payload is JSON encoded.<br/>
-`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br/>
-`hidden`: payload is obfuscated as `******`"""
-        zh: """确定跟踪文件中有效负载格式的格式。<br/>
-`text`：基于文本的协议或纯文本协议。
-建议在有效负载为JSON编码时使用<br/>
-`hex`：二进制十六进制编码。当有效负载是自定义二进制协议时，建议使用此选项<br/>
-`hidden`：有效负载被模糊化为 `******`"""
-    }
-    label: {
-        en: "Payload encode"
-        zh: "有效负载编码"
-    }
-}
-
-fields_ws_opts_mqtt_path {
-    desc {
-        en: """WebSocket's MQTT protocol path. So the address of EMQX Broker's WebSocket is:
-<code>ws://{ip}:{port}/mqtt</code>"""
-        zh: """WebSocket 的 MQTT 协议路径。因此，EMQX Broker的WebSocket地址为：
-<code>ws://{ip}:{port}/mqtt</code>"""
-    }
-    label: {
-        en: "WS MQTT Path"
-        zh: "WS MQTT 路径"
-    }
-}
-
-fields_ws_opts_mqtt_piggyback {
-    desc {
-        en: """Whether a WebSocket message is allowed to contain multiple MQTT packets."""
-        zh: """WebSocket消息是否允许包含多个 MQTT 数据包。"""
-    }
-    label: {
-        en: "MQTT Piggyback"
-        zh: "MQTT Piggyback"
-    }
-}
-
-fields_ws_opts_compress {
-    desc {
-        en: """If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>
-The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."""
-        zh: """如果 <code>true</code>，则使用<code>zlib</code> 压缩 WebSocket 消息<br/>
-<code>deflate_opts</code> 下的配置项属于压缩相关参数配置。"""
-    }
-    label: {
-        en: "Ws compress"
-        zh: "Ws 压缩"
-    }
-}
-
-fields_ws_opts_idle_timeout {
-    desc {
-        en: """Close transport-layer connections from the clients that have not sent MQTT CONNECT message within this interval."""
-        zh: """关闭在此间隔内未发送 MQTT CONNECT 消息的客户端的传输层连接。"""
-    }
-    label: {
-        en: "WS idle timeout"
-        zh: "WS 空闲时间"
-    }
-}
-
-fields_ws_opts_max_frame_size {
-    desc {
-        en: """The maximum length of a single MQTT packet."""
-        zh: """单个 MQTT 数据包的最大长度。"""
-    }
-    label: {
-        en: "Max frame size"
-        zh: "最大数据包长度"
-    }
-}
-
-fields_ws_opts_fail_if_no_subprotocol {
-    desc {
-        en: """If <code>true</code>, the server will return an error when
+fields_ws_opts_fail_if_no_subprotocol.desc:
+"""If <code>true</code>, the server will return an error when
  the client does not carry the <code>Sec-WebSocket-Protocol</code> field.
  <br/>Note: WeChat applet needs to disable this verification."""
-        zh: """如果<code>true</code>，当客户端未携带<code>Sec WebSocket Protocol</code>字段时，服务器将返回一个错误。
-<br/>注意：微信小程序需要禁用此验证。"""
-    }
-    label: {
-        en: "Fail if no subprotocol"
-        zh: "无 subprotocol 则失败"
-    }
-}
 
-fields_ws_opts_supported_subprotocols {
-    desc {
-        en: """Comma-separated list of supported subprotocols."""
-        zh: """逗号分隔的 subprotocols 支持列表。"""
-    }
-    label: {
-        en: "Supported subprotocols"
-        zh: "Subprotocols 支持列表"
-    }
-}
+fields_ws_opts_fail_if_no_subprotocol.label:
+"""Fail if no subprotocol"""
 
-fields_ws_opts_check_origin_enable {
-    desc {
-        en: """If <code>true</code>, <code>origin</code> HTTP header will be
- validated against the list of allowed origins configured in <code>check_origins</code>
- parameter."""
-        zh: """如果<code>true</code>，<code>origin</code>HTTP 头将根据<code>check_origins</code>参数中配置的允许来源列表进行验证。"""
-    }
-    label: {
-        en: "Check origin"
-        zh: "检查 origin"
-    }
-}
+mqtt_wildcard_subscription.desc:
+"""Whether to enable support for MQTT wildcard subscription."""
 
-fields_ws_opts_allow_origin_absence {
-    desc {
-        en: """If <code>false</code> and <code>check_origin_enable</code> is
- <code>true</code>, the server will reject requests that don't have <code>origin</code>
- HTTP header."""
-        zh: """If <code>false</code> and <code>check_origin_enable</code> is <code>true</code>, the server will reject requests that don't have <code>origin</code> HTTP header."""
-    }
-    label: {
-        en: "Allow origin absence"
-        zh: "允许 origin 缺失"
-    }
-}
+mqtt_wildcard_subscription.label:
+"""Wildcard Subscription Available"""
 
-fields_ws_opts_check_origins {
-    desc {
-        en: """List of allowed origins.<br/>See <code>check_origin_enable</code>."""
-        zh: """允许的 origins 列表"""
-    }
-    label: {
-        en: "Allowed origins"
-        zh: "允许的 origins"
-    }
-}
+server_ssl_opts_schema_ocsp_refresh_interval.desc:
+"""The period to refresh the OCSP response for the server."""
 
-fields_ws_opts_proxy_address_header {
-    desc {
-        en: """HTTP header used to pass information about the client IP address.
-Relevant when the EMQX cluster is deployed behind a load-balancer."""
-        zh: """HTTP 头，用于传递有关客户端 IP 地址的信息。
-当 EMQX 集群部署在负载平衡器后面时，这一点非常重要。"""
-    }
-    label: {
-        en: "Proxy address header"
-        zh: "客户端地址头"
-    }
-}
+server_ssl_opts_schema_ocsp_refresh_interval.label:
+"""OCSP Refresh Interval"""
 
-fields_ws_opts_proxy_port_header {
-    desc {
-        en: """HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer."""
-        zh: """HTTP 头，用于传递有关客户端端口的信息。当 EMQX 集群部署在负载平衡器后面时，这一点非常重要。"""
-    }
-    label: {
-        en: "Proxy port header"
-        zh: "客户端端口头"
-    }
-}
+overload_protection_backoff_hibernation.desc:
+"""When at high load, skip process hibernation."""
+
+overload_protection_backoff_hibernation.label:
+"""Skip hibernation"""
+
+fields_ws_opts_max_frame_size.desc:
+"""The maximum length of a single MQTT packet."""
+
+fields_ws_opts_max_frame_size.label:
+"""Max frame size"""
+
+sys_event_messages.desc:
+"""Client events messages."""
+
+broker_perf_trie_compaction.desc:
+"""Enable trie path compaction.
+Enabling it significantly improves wildcard topic subscribe rate, if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/', where ID is unique per subscriber.
+Topic match performance (when publishing) may degrade if messages are mostly published to topics with large number of levels.
+
+NOTE: This is a cluster-wide configuration. It requires all nodes to be stopped before changing it."""
+
+sysmon_vm_large_heap.desc:
+"""When an Erlang process consumed a large amount of memory for its heap space,
+the system will write a warning level <code>large_heap</code> log, and an MQTT message is published to
+the system topic <code>$SYS/sysmon/large_heap</code>."""
+
+sysmon_vm_large_heap.label:
+"""Enable Large Heap monitoring."""
 
 }

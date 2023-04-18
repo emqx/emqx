@@ -1,78 +1,51 @@
 emqx_ee_schema_registry_schema {
-  schema_registry_root {
-    desc {
-      en: "Schema registry configurations."
-      zh: "模式注册表的配置。"
-    }
-    label {
-      en: "Schema registry"
-      zh: "模式注册表"
-    }
-  }
 
-  schema_registry_schemas {
-    desc {
-      en: "Registered schemas."
-      zh: "注册的模式。"
-    }
-    label {
-      en: "Registered schemas"
-      zh: "注册的模式"
-    }
-  }
+avro_type.desc:
+"""[Apache Avro](https://avro.apache.org/) serialization format."""
 
-  schema_name {
-    desc {
-      en: "A name for the schema that will serve as its identifier."
-      zh: "模式的一个名称，将作为其标识符。"
-    }
-    label {
-      en: "Schema name"
-      zh: "模式名称"
-    }
-  }
+avro_type.label:
+"""Apache Avro"""
 
-  schema_type {
-    desc {
-      en: "Schema type."
-      zh: "模式类型。"
-    }
-    label {
-      en: "Schema type"
-      zh: "模式类型"
-    }
-  }
+protobuf_type.desc:
+"""[Protocol Buffers](https://protobuf.dev/) serialization format."""
 
-  schema_source {
-    desc {
-      en: "Source text for the schema."
-      zh: "模式的源文本。"
-    }
-    label {
-      en: "Schema source"
-      zh: "模式来源"
-    }
-  }
+protobuf_type.label:
+"""Protocol Buffers"""
 
-  schema_description {
-    desc {
-      en: "A description for this schema."
-      zh: "对该模式的描述。"
-    }
-    label {
-      en: "Schema description"
-      zh: "模式描述"
-    }
-  }
+schema_description.desc:
+"""A description for this schema."""
 
-  avro_type {
-    desc {
-      en: "[Apache Avro](https://avro.apache.org/) serialization format."
-      zh: "[阿帕奇-阿夫罗](https://avro.apache.org/) 序列化格式。"
-    }
-    label {
-      en: "Apache Avro"
-      zh: "阿帕奇-阿夫罗"
-    }
-  }
+schema_description.label:
+"""Schema description"""
+
+schema_name.desc:
+"""A name for the schema that will serve as its identifier."""
+
+schema_name.label:
+"""Schema name"""
+
+schema_registry_root.desc:
+"""Schema registry configurations."""
+
+schema_registry_root.label:
+"""Schema registry"""
+
+schema_registry_schemas.desc:
+"""Registered schemas."""
+
+schema_registry_schemas.label:
+"""Registered schemas"""
+
+schema_source.desc:
+"""Source text for the schema."""
+
+schema_source.label:
+"""Schema source"""
+
+schema_type.desc:
+"""Schema type."""
+
+schema_type.label:
+"""Schema type"""
+
 }

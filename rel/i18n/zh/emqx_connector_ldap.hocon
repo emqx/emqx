@@ -1,0 +1,21 @@
+emqx_connector_ldap {
+
+bind_dn.desc:
+"""LDAP 绑定的 DN 的值"""
+
+bind_dn.label:
+"""Bind DN"""
+
+port.desc:
+"""LDAP 端口"""
+
+port.label:
+"""端口"""
+
+timeout.desc:
+"""LDAP 查询超时时间"""
+
+timeout.label:
+"""超时时间"""
+
+}

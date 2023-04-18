@@ -1,61 +1,30 @@
 emqx_statsd_schema {
 
-  get_statsd_config_api {
-    desc {
-      en: """List the configuration of StatsD metrics collection and push service."""
-      zh: """列出 StatsD 指标采集和推送服务的的配置。"""
-    }
-  }
+enable.desc:
+"""Enable or disable StatsD metrics collection and push service."""
 
-  update_statsd_config_api {
-    desc {
-      en: """Update the configuration of StatsD metrics collection and push service."""
-      zh: """更新 StatsD 指标采集和推送服务的配置。"""
-    }
-  }
+flush_interval.desc:
+"""The push interval for metrics."""
 
-  statsd {
-    desc {
-      en: """StatsD metrics collection and push configuration."""
-      zh: """StatsD 指标采集与推送配置。"""
-    }
-    label {
-      en: """StatsD"""
-      zh: """StatsD"""
-    }
-  }
+get_statsd_config_api.desc:
+"""List the configuration of StatsD metrics collection and push service."""
 
-  server {
-    desc {
-      en: """StatsD server address."""
-      zh: """StatsD 服务器地址。"""
-    }
-  }
+sample_interval.desc:
+"""The sampling interval for metrics."""
 
-  sample_interval {
-    desc {
-      en: """The sampling interval for metrics."""
-      zh: """指标的采样间隔。"""
-    }
-  }
+server.desc:
+"""StatsD server address."""
 
-  flush_interval {
-    desc {
-      en: """The push interval for metrics."""
-      zh: """指标的推送间隔。"""
-    }
-  }
-  tags {
-    desc {
-      en: """The tags for metrics."""
-      zh: """指标的标签。"""
-    }
-  }
+statsd.desc:
+"""StatsD metrics collection and push configuration."""
 
-  enable {
-    desc {
-      en: """Enable or disable StatsD metrics collection and push service."""
-      zh: """启用或禁用 StatsD 指标采集和推送服务。"""
-    }
-  }
+statsd.label:
+"""StatsD"""
+
+tags.desc:
+"""The tags for metrics."""
+
+update_statsd_config_api.desc:
+"""Update the configuration of StatsD metrics collection and push service."""
+
 }

@@ -100,7 +100,7 @@ roots() ->
                     ?R_REF("rpc"),
                     #{
                         translate_to => ["gen_rpc"],
-                        importance => ?IMPORTANCE_HIDDEN
+                        importance => ?IMPORTANCE_LOW
                     }
                 )}
         ] ++
@@ -135,7 +135,7 @@ fields("cluster") ->
             )},
         {"core_nodes",
             sc(
-                emqx_schema:comma_separated_atoms(),
+                node_array(),
                 #{
                     mapping => "mria.core_nodes",
                     default => [],
@@ -203,7 +203,7 @@ fields(cluster_static) ->
     [
         {"seeds",
             sc(
-                hoconsc:array(atom()),
+                node_array(),
                 #{
                     default => [],
                     desc => ?DESC(cluster_static_seeds),
@@ -1288,7 +1288,7 @@ emqx_schema_high_prio_roots() ->
                 ?R_REF("authorization"),
                 #{
                     desc => ?DESC(authorization),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
@@ -1312,3 +1312,6 @@ validator_string_re(Val, RE, Error) ->
     catch
         _:_ -> {error, Error}
     end.
+
+node_array() ->
+    hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).

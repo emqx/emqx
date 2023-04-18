@@ -44,7 +44,7 @@
 
 -type state() ::
     #{
-        poolname := atom(),
+        pool_name := binary(),
         prepare_cql := prepares(),
         params_tokens := params_tokens(),
         %% returned by ecql:prepare/2
@@ -124,14 +124,10 @@ on_start(
             false ->
                 []
         end,
-    %% use InstaId of binary type as Pool name, which is supported in ecpool.
-    PoolName = InstId,
-    Prepares = parse_prepare_cql(Config),
-    InitState = #{poolname => PoolName, prepare_statement => #{}},
-    State = maps:merge(InitState, Prepares),
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
+    State = parse_prepare_cql(Config),
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State)};
+            {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
         {error, Reason} ->
             ?tp(
                 cassandra_connector_start_failed,
@@ -140,12 +136,12 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_cassandra_connector",
         connector => InstId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 -type request() ::
     % emqx_bridge.erl
@@ -184,7 +180,7 @@ do_single_query(
     InstId,
     Request,
     Async,
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     {Type, PreparedKeyOrSQL, Params} = parse_request_to_cql(Request),
     ?tp(
@@ -232,7 +228,7 @@ do_batch_query(
     InstId,
     Requests,
     Async,
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     CQLs =
         lists:map(
@@ -305,8 +301,8 @@ exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
             Result
     end.
 
-on_get_status(_InstId, #{poolname := Pool} = State) ->
-    case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
+on_get_status(_InstId, #{pool_name := PoolName} = State) ->
+    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
         true ->
             case do_check_prepares(State) of
                 ok ->
@@ -327,7 +323,7 @@ do_get_status(Conn) ->
 
 do_check_prepares(#{prepare_cql := Prepares}) when is_map(Prepares) ->
     ok;
-do_check_prepares(State = #{poolname := PoolName, prepare_cql := {error, Prepares}}) ->
+do_check_prepares(State = #{pool_name := PoolName, prepare_cql := {error, Prepares}}) ->
     %% retry to prepare
     case prepare_cql(Prepares, PoolName) of
         {ok, Sts} ->
@@ -397,7 +393,7 @@ parse_prepare_cql([], Prepares, Tokens) ->
         params_tokens => Tokens
     }.
 
-init_prepare(State = #{prepare_cql := Prepares, poolname := PoolName}) ->
+init_prepare(State = #{prepare_cql := Prepares, pool_name := PoolName}) ->
     case maps:size(Prepares) of
         0 ->
             State;
@@ -429,17 +425,17 @@ prepare_cql(Prepares, PoolName) ->
     end.
 
 do_prepare_cql(Prepares, PoolName) ->
-    do_prepare_cql(ecpool:workers(PoolName), Prepares, PoolName, #{}).
+    do_prepare_cql(ecpool:workers(PoolName), Prepares, #{}).
 
-do_prepare_cql([{_Name, Worker} | T], Prepares, PoolName, _LastSts) ->
+do_prepare_cql([{_Name, Worker} | T], Prepares, _LastSts) ->
     {ok, Conn} = ecpool_worker:client(Worker),
     case prepare_cql_to_conn(Conn, Prepares) of
         {ok, Sts} ->
-            do_prepare_cql(T, Prepares, PoolName, Sts);
+            do_prepare_cql(T, Prepares, Sts);
         Error ->
             Error
     end;
-do_prepare_cql([], _Prepares, _PoolName, LastSts) ->
+do_prepare_cql([], _Prepares, LastSts) ->
     {ok, LastSts}.
 
 prepare_cql_to_conn(Conn, Prepares) ->

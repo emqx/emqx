@@ -1,0 +1,28 @@
+emqx_psk_schema {
+
+chunk_size.desc:
+"""将 PSK 文件导入到内建数据时每个块的大小"""
+
+enable.desc:
+"""是否开启 TLS PSK 支持"""
+
+init_file.desc:
+"""如果设置了初始化文件，EMQX 将在启动时从初始化文件中导入 PSK 信息到内建数据库中。
+这个文件需要按行进行组织，每一行必须遵守如下格式: <code>PSKIdentity:SharedSecret</code>
+例如: <code>mydevice1:c2VjcmV0</code>"""
+
+psk_authentication.desc:
+"""此配置用于启用 TLS-PSK 身份验证。
+
+PSK 是 “Pre-Shared-Keys” 的缩写。
+
+注意: 确保 SSL 监听器仅启用了 'tlsv1.2'，并且配置了PSK 密码套件，例如 'RSA-PSK-AES256-GCM-SHA384'。
+
+可以通过查看监听器中的 SSL 选项，了解更多详细信息。
+
+可以通过配置 'init_file' 来设置初始化的 ID 和 密钥"""
+
+separator.desc:
+"""PSK 文件中 <code>PSKIdentity</code> 和 <code>SharedSecret</code> 之间的分隔符"""
+
+}

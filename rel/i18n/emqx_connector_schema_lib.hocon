@@ -1,80 +1,45 @@
 emqx_connector_schema_lib {
 
-    ssl {
-        desc {
-          en: "SSL connection settings."
-          zh: "启用 SSL 连接。"
-        }
-        label: {
-              en: "Enable SSL"
-              zh: "启用SSL"
-            }
-    }
+auto_reconnect.desc:
+"""Deprecated. Enable automatic reconnect to the database."""
 
-    prepare_statement {
-        desc {
-          en: "Key-value list of SQL prepared statements."
-          zh: "SQL 预处理语句列表。"
-        }
-        label: {
-              en: "SQL Prepared Statements List"
-              zh: "SQL 预处理语句列表"
-            }
-    }
+auto_reconnect.label:
+"""Deprecated. Auto Reconnect Database"""
 
-    database_desc {
-        desc {
-          en: "Database name."
-          zh: "数据库名字。"
-        }
-        label: {
-              en: "Database Name"
-              zh: "数据库名字"
-            }
-    }
+database_desc.desc:
+"""Database name."""
 
-    pool_size {
-        desc {
-          en: "Size of the connection pool towards the bridge target service."
-          zh: "桥接远端服务时使用的连接池大小。"
-        }
-        label: {
-              en: "Connection Pool Size"
-              zh: "连接池大小"
-            }
-    }
+database_desc.label:
+"""Database Name"""
 
-    username {
-        desc {
-          en: "EMQX's username in the external database."
-          zh: "内部数据库的用户名。"
-        }
-        label: {
-              en: "Username"
-              zh: "用户名"
-            }
-    }
+password.desc:
+"""EMQX's password in the external database."""
 
-    password {
-        desc {
-          en: "EMQX's password in the external database."
-          zh: "内部数据库密码。"
-        }
-        label: {
-              en: "Password"
-              zh: "密码"
-            }
-    }
+password.label:
+"""Password"""
 
-    auto_reconnect {
-        desc {
-          en: "Deprecated. Enable automatic reconnect to the database."
-          zh: "已弃用。自动重连数据库。"
-        }
-        label: {
-          en: "Deprecated. Auto Reconnect Database"
-          zh: "已弃用。自动重连数据库"
-        }
-    }
+pool_size.desc:
+"""Size of the connection pool towards the bridge target service."""
+
+pool_size.label:
+"""Connection Pool Size"""
+
+prepare_statement.desc:
+"""Key-value list of SQL prepared statements."""
+
+prepare_statement.label:
+"""SQL Prepared Statements List"""
+
+ssl.desc:
+"""SSL connection settings."""
+
+ssl.label:
+"""Enable SSL"""
+
+username.desc:
+"""EMQX's username in the external database."""
+
+username.label:
+"""Username"""
 
 }

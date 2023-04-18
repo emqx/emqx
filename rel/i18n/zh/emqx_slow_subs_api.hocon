@@ -1,0 +1,30 @@
+emqx_slow_subs_api {
+
+clear_records_api.desc:
+"""清除当前记录，然后重新开始统计"""
+
+clientid.desc:
+"""消息的客户端 ID"""
+
+get_records_api.desc:
+"""查看慢订阅的统计数据"""
+
+get_setting_api.desc:
+"""查看配置"""
+
+last_update_time.desc:
+"""记录的更新时间戳"""
+
+node.desc:
+"""消息的节点名称"""
+
+timespan.desc:
+"""消息的传输耗时"""
+
+topic.desc:
+"""消息的主题"""
+
+update_setting_api.desc:
+"""更新配置"""
+
+}

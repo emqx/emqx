@@ -51,34 +51,35 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-http".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(fun union_member_selector/1),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(get) ->
+fields(http_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
-fields(post) ->
+fields(http_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
-desc(get) ->
+desc(http_get) ->
     ?DESC(get);
-desc(post) ->
+desc(http_post) ->
     ?DESC(post);
 desc(_) ->
     undefined.
@@ -156,8 +157,8 @@ request_timeout(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, get),
-        hoconsc:ref(?MODULE, post)
+        hoconsc:ref(?MODULE, http_get),
+        hoconsc:ref(?MODULE, http_post)
     ].
 
 union_member_selector(all_union_members) ->
@@ -166,9 +167,9 @@ union_member_selector({value, Value}) ->
     refs(Value).
 
 refs(#{<<"method">> := <<"get">>}) ->
-    [hoconsc:ref(?MODULE, get)];
+    [hoconsc:ref(?MODULE, http_get)];
 refs(#{<<"method">> := <<"post">>}) ->
-    [hoconsc:ref(?MODULE, post)];
+    [hoconsc:ref(?MODULE, http_post)];
 refs(_) ->
     throw(#{
         field_name => method,

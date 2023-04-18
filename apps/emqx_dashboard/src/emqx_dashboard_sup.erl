@@ -28,6 +28,8 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    %% supervisor owns the cache table
+    ok = emqx_dashboard_desc_cache:init(),
     {ok,
         {{one_for_one, 5, 100}, [
             ?CHILD(emqx_dashboard_listener, brutal_kill),

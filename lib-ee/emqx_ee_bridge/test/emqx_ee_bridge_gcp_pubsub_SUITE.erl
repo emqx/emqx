@@ -917,7 +917,7 @@ t_invalid_private_key(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := gcp_pubsub_bridge_jwt_worker_failed_to_start},
+                    #{?snk_kind := "gcp_pubsub_bridge_jwt_worker_failed_to_start"},
                     20_000
                 ),
             Res
@@ -928,7 +928,7 @@ t_invalid_private_key(Config) ->
                 [#{reason := Reason}] when
                     Reason =:= noproc orelse
                         Reason =:= {shutdown, {error, empty_key}},
-                ?of_kind(gcp_pubsub_bridge_jwt_worker_failed_to_start, Trace)
+                ?of_kind("gcp_pubsub_bridge_jwt_worker_failed_to_start", Trace)
             ),
             ?assertMatch(
                 [#{error := empty_key}],
@@ -956,14 +956,14 @@ t_jwt_worker_start_timeout(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := gcp_pubsub_bridge_jwt_timeout},
+                    #{?snk_kind := "gcp_pubsub_bridge_jwt_timeout"},
                     20_000
                 ),
             Res
         end,
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
-            ?assertMatch([_], ?of_kind(gcp_pubsub_bridge_jwt_timeout, Trace)),
+            ?assertMatch([_], ?of_kind("gcp_pubsub_bridge_jwt_timeout", Trace)),
             ok
         end
     ),
@@ -1329,7 +1329,7 @@ t_failed_to_start_jwt_worker(Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{reason := {error, restarting}}],
-                ?of_kind(gcp_pubsub_bridge_jwt_worker_failed_to_start, Trace)
+                ?of_kind("gcp_pubsub_bridge_jwt_worker_failed_to_start", Trace)
             ),
             ok
         end
