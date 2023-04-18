@@ -9,10 +9,10 @@ such as mobile, ad tech, and IoT.
 
 The application is used to connect EMQX and DynamoDB.
 User can create a rule and easily ingest IoT data into DynamoDB by leveraging
-the EMQX [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
+[EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
-# Documention
+# Documentation
 
 - Refer to [Ingest data into DynamoDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-dynamo.html)
   for how to use EMQX dashboard to ingest IoT data into DynamoDB.

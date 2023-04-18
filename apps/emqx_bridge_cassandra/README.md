@@ -8,7 +8,7 @@ It is commonly used in web and mobile applications, IoT, and other systems that
 require storing, querying, and analyzing large amounts of data.
 
 The application is used to connect EMQX and Cassandra. User can create a rule
-and easily ingest IoT data into Cassandra by leveraging the
+and easily ingest IoT data into Cassandra by leveraging
 [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 

@@ -1,13 +1,14 @@
 # EMQX GCP Pub/Sub Bridge
 
-[Google Cloud Pub/Sub](https://cloud.google.com/pubsub) is a messaging service provided by Google Cloud Platform (GCP).
+[Google Cloud Pub/Sub](https://cloud.google.com/pubsub) is a messaging service
+provided by Google Cloud Platform (GCP).
 
 The application is used to connect EMQX and GCP Pub/Sub.
 User can create a rule and easily ingest IoT data into GCP Pub/Sub by leveraging
-the [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
+[EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
-# Documention
+# Documentation
 
 - Refer to [Ingest data into GCP Pub/Sub](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-gcp-pubsub.html)
   for how to use EMQX dashboard to ingest IoT data into GCP Pub/Sub.

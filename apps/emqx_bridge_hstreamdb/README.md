@@ -1,21 +1,21 @@
 # EMQX HStreamDB Bridge
 
-[HStreamDB](https://hstream.io/)is streaming database purpose-built to ingest,
+[HStreamDB](https://hstream.io/) is streaming database purpose-built to ingest,
 store, process, and analyze massive data streams. It is a modern data infrastructure
 that unifies messaging, stream processing, and storage to help get value out of
 your data in real-time.
 
 The application is used to connect EMQX and HStreamDB.
 User can create a rule and easily ingest IoT data into HStreamDB by leveraging
-the EMQX [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
+[EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
-# Documention
+# Documentation
 
 - Refer to [Ingest data into HStreamDB](todo)
   for how to use EMQX dashboard to ingest IoT data into HStreamDB.
 
-- Refer to [Rules engine](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
+- Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
   for the EMQX rules engine introduction.
 
 

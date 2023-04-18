@@ -1,15 +1,15 @@
 # EMQX ClickHouse Bridge
 
-[ClickHouse](https://github.com/ClickHouse/ClickHouse)is an open-source, column-based
+[ClickHouse](https://github.com/ClickHouse/ClickHouse) is an open-source, column-based
 database management system. It is designed for real-time processing of large volumes of
 data and is known for its high performance and scalability.
 
 The application is used to connect EMQX and ClickHouse.
 User can create a rule and easily ingest IoT data into ClickHouse by leveraging
-the EMQX [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
+[EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
 
-# Documention
+# Documentation
 
 - Refer to [Ingest data into ClickHouse](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-clickhouse.html)
   for how to use EMQX dashboard to ingest IoT data into ClickHouse.
