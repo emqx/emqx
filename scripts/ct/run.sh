@@ -115,11 +115,7 @@ case "${WHICH_APP}" in
           export PROFILE='emqx'
         fi
         ;;
-    apps/emqx_bridge_opents)
-        ## ensure enterprise profile when testing ee applications
-        export PROFILE='emqx-enterprise'
-        ;;
-     *)
+    *)
         export PROFILE="${PROFILE:-emqx}"
         ;;
 esac
