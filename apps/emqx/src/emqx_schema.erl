@@ -1633,7 +1633,9 @@ fields("sysmon") ->
         {"top",
             sc(
                 ref("sysmon_top"),
-                #{}
+                %% Userful monitoring solution when benchmarking,
+                %% but hardly common enough for regular users.
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 fields("sysmon_vm") ->
