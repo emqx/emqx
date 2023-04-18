@@ -100,7 +100,7 @@ roots() ->
                     ?R_REF("rpc"),
                     #{
                         translate_to => ["gen_rpc"],
-                        importance => ?IMPORTANCE_HIDDEN
+                        importance => ?IMPORTANCE_LOW
                     }
                 )}
         ] ++
