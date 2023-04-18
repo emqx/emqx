@@ -901,7 +901,7 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
     end.
 
 lookup_from_all_nodes(ChainName, AuthenticatorID) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     LookupResult = emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID),
     case is_ok(LookupResult) of
         {ok, ResList} ->
