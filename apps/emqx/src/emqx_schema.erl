@@ -2762,10 +2762,16 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Which) ->
-    Desc =
+    {Importance, Desc} =
         case Which of
-            global -> ?DESC(global_authentication);
-            listener -> ?DESC(listener_authentication)
+            global ->
+                %% For root level authentication, it is recommended to configure
+                %% from the dashboard or API.
+                %% Hence it's considered a low-importance when it comes to
+                %% configuration importance.
+                {?IMPORTANCE_LOW, ?DESC(global_authentication)};
+            listener ->
+                {?IMPORTANCE_HIDDEN, ?DESC(listener_authentication)}
         end,
     %% poor man's dependency injection
     %% this is due to the fact that authn is implemented outside of 'emqx' app.
@@ -2781,7 +2787,7 @@ authentication(Which) ->
     hoconsc:mk(Type, #{
         desc => Desc,
         converter => fun ensure_array/2,
-        importance => ?IMPORTANCE_HIDDEN
+        importance => Importance
     }).
 
 %% the older version schema allows individual element (instead of a chain) in config
