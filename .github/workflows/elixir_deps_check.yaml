@@ -8,7 +8,7 @@ on:
 jobs:
   elixir_deps_check:
     runs-on: ubuntu-22.04
-    container: ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-25.1.2-3-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-25.1.2-3-ubuntu22.04
 
     steps:
       - name: Checkout
