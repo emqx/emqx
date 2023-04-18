@@ -1288,7 +1288,7 @@ emqx_schema_high_prio_roots() ->
                 ?R_REF("authorization"),
                 #{
                     desc => ?DESC(authorization),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
