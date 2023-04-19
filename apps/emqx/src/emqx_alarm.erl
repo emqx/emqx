@@ -57,7 +57,6 @@
 
 %% Internal exports (RPC)
 -export([
-    create_activate_alarm/3,
     do_get_alarms/0
 ]).
 
@@ -218,17 +217,12 @@ init([]) ->
     {ok, #{}, get_validity_period()}.
 
 handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
-    Res = mria:transaction(
-        mria:local_content_shard(),
-        fun ?MODULE:create_activate_alarm/3,
-        [Name, Details, Message]
-    ),
-    case Res of
-        {atomic, Alarm} ->
+    case create_activate_alarm(Name, Details, Message) of
+        {ok, Alarm} ->
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State, get_validity_period()};
-        {aborted, Reason} ->
-            {reply, Reason, State, get_validity_period()}
+        Err ->
+            {reply, Err, State, get_validity_period()}
     end;
 handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
@@ -283,9 +277,9 @@ get_validity_period() ->
     emqx:get_config([alarm, validity_period]).
 
 create_activate_alarm(Name, Details, Message) ->
-    case mnesia:read(?ACTIVATED_ALARM, Name) of
+    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [#activated_alarm{name = Name}] ->
-            mnesia:abort({error, already_existed});
+            {error, already_existed};
         [] ->
             Alarm = #activated_alarm{
                 name = Name,
@@ -293,8 +287,8 @@ create_activate_alarm(Name, Details, Message) ->
                 message = normalize_message(Name, iolist_to_binary(Message)),
                 activate_at = erlang:system_time(microsecond)
             },
-            ok = mnesia:write(?ACTIVATED_ALARM, Alarm, write),
-            Alarm
+            ok = mria:dirty_write(?ACTIVATED_ALARM, Alarm),
+            {ok, Alarm}
     end.
 
 do_get_alarms() ->
