@@ -14,8 +14,8 @@
 % DB defaults
 -define(TABLE, "mqtt").
 -define(TABLE_BIN, to_bin(?TABLE)).
--define(USERNAME, "root").
--define(PASSWORD, "public").
+-define(ACCESS_KEY_ID, "root").
+-define(SECRET_ACCESS_KEY, "public").
 -define(HOST, "dynamo").
 -define(PORT, 8000).
 -define(SCHEMA, "http://").
@@ -159,8 +159,8 @@ dynamo_config(BridgeType, Config) ->
             "  enable = true\n"
             "  url = ~p\n"
             "  table = ~p\n"
-            "  username = ~p\n"
-            "  password = ~p\n"
+            "  aws_access_key_id = ~p\n"
+            "  aws_secret_access_key = ~p\n"
             "  resource_opts = {\n"
             "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
@@ -172,8 +172,8 @@ dynamo_config(BridgeType, Config) ->
                 Name,
                 Url,
                 ?TABLE,
-                ?USERNAME,
-                ?PASSWORD,
+                ?ACCESS_KEY_ID,
+                ?SECRET_ACCESS_KEY,
                 BatchSize,
                 QueryMode
             ]
@@ -244,10 +244,10 @@ delete_table(_Config) ->
 setup_dynamo(Config) ->
     Host = ?GET_CONFIG(host, Config),
     Port = ?GET_CONFIG(port, Config),
-    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, Host, Port, ?SCHEMA).
+    erlcloud_ddb2:configure(?ACCESS_KEY_ID, ?SECRET_ACCESS_KEY, Host, Port, ?SCHEMA).
 
 directly_setup_dynamo() ->
-    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, ?HOST, ?PORT, ?SCHEMA).
+    erlcloud_ddb2:configure(?ACCESS_KEY_ID, ?SECRET_ACCESS_KEY, ?HOST, ?PORT, ?SCHEMA).
 
 directly_query(Query) ->
     directly_setup_dynamo(),

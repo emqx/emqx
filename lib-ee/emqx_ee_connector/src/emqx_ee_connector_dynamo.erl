@@ -52,31 +52,20 @@ roots() ->
 fields(config) ->
     [
         {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
-        {table, mk(binary(), #{required => true, desc => ?DESC("table")})}
-        | override_schemas(
-            emqx_connector_schema_lib:relational_db_fields()
-        )
+        {table, mk(binary(), #{required => true, desc => ?DESC("table")})},
+        {aws_access_key_id,
+            mk(
+                binary(),
+                #{required => true, desc => ?DESC("aws_access_key_id")}
+            )},
+        {aws_secret_access_key,
+            mk(
+                binary(),
+                #{required => true, desc => ?DESC("aws_secret_access_key")}
+            )},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
+        {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
-
-override_schemas(Fields) ->
-    lists:foldr(
-        fun
-            ({username, OrigUsernameFn}, Acc) ->
-                [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Acc];
-            ({database, _}, Acc) ->
-                Acc;
-            (Field, Acc) ->
-                [Field | Acc]
-        end,
-        [],
-        Fields
-    ).
-
-add_default_fn(OrigFn, Default) ->
-    fun
-        (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
 
 %%========================================================================================
 %% `emqx_resource' API
@@ -90,8 +79,8 @@ on_start(
     InstanceId,
     #{
         url := Url,
-        username := Username,
-        password := Password,
+        aws_access_key_id := AccessKeyID,
+        aws_secret_access_key := SecretAccessKey,
         table := Table,
         pool_size := PoolSize
     } = Config
@@ -99,7 +88,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_dynamo_connector",
         connector => InstanceId,
-        config => emqx_utils:redact(Config)
+        config => redact(Config)
     }),
 
     {Schema, Server} = get_host_schema(to_str(Url)),
@@ -109,8 +98,8 @@ on_start(
         {config, #{
             host => Host,
             port => Port,
-            username => to_str(Username),
-            password => to_str(Password),
+            aws_access_key_id => to_str(AccessKeyID),
+            aws_secret_access_key => to_str(SecretAccessKey),
             schema => Schema
         }},
         {pool_size, PoolSize}
@@ -251,13 +240,13 @@ execute([{put, _} | _] = Msgs, Table) ->
 
 connect(Opts) ->
     #{
-        username := Username,
-        password := Password,
+        aws_access_key_id := AccessKeyID,
+        aws_secret_access_key := SecretAccessKey,
         host := Host,
         port := Port,
         schema := Schema
     } = proplists:get_value(config, Opts),
-    erlcloud_ddb2:configure(Username, Password, Host, Port, Schema),
+    erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Schema),
 
     %% The dynamodb driver uses caller process as its connection process
     %% so at here, the connection process is the ecpool worker self
@@ -342,3 +331,6 @@ convert2binary(Value) when is_map(Value) ->
 
 do_async_reply(Result, {ReplyFun, [Context]}) ->
     ReplyFun(Context, Result).
+
+redact(Data) ->
+    emqx_utils:redact(Data, fun(Any) -> Any =:= aws_secret_access_key end).
