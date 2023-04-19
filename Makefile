@@ -89,12 +89,17 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)
-	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
-	        --readable=$(CT_READABLE) \
-		--name $(CT_NODE_NAME) \
-		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
-		--suite $(shell $(SCRIPTS)/find-suites.sh $1)
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+ifneq ($(SUITES),)
+		@$(SCRIPTS)/pre-compile.sh $(PROFILE)
+		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+			--readable=$(CT_READABLE) \
+			--name $(CT_NODE_NAME) \
+			--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
+			--suite $(SUITES)
+else
+		@echo 'No suites found for $1'
+endif
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 

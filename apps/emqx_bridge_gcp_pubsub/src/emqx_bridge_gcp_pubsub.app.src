@@ -1,0 +1,9 @@
+{application, emqx_bridge_gcp_pubsub, [
+    {description, "EMQX Enterprise GCP Pub/Sub Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

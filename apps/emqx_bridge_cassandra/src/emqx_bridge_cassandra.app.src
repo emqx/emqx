@@ -1,0 +1,9 @@
+{application, emqx_bridge_cassandra, [
+    {description, "EMQX Enterprise Cassandra Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

@@ -1,0 +1,9 @@
+{application, emqx_bridge_matrix, [
+    {description, "EMQX Enterprise MatrixDB Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.
