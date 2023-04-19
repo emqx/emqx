@@ -6,7 +6,7 @@ protocol standard, including "Delayed Publish", "Topic Rewrite", "Topic Metrics"
 
 ## Delayed Publish
 
-After enabling this module, messages sent by the user with the prefix
+After enabling this module, messages sent by the clients with the topic prefixed with
 `$delayed/{Interval}/{Topic}` will be delayed by `{Interval}` seconds before
 being published to the `{Topic}`.
 
