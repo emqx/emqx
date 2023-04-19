@@ -43,5 +43,5 @@ Default value: 10
 
 Default value: whole
 
-# Contributing - [Mandatory]
+# Contributing
 Please see our [contributing.md](../../CONTRIBUTING.md).
