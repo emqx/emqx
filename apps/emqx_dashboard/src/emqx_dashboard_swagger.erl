@@ -768,7 +768,7 @@ typename_to_spec("log_level()", _Mod) ->
     };
 typename_to_spec("rate()", _Mod) ->
     #{type => string, example => <<"10MB">>};
-typename_to_spec("capacity()", _Mod) ->
+typename_to_spec("burst()", _Mod) ->
     #{type => string, example => <<"100MB">>};
 typename_to_spec("burst_rate()", _Mod) ->
     %% 0/0s = no burst
