@@ -42,7 +42,9 @@
     get_alarms/0,
     get_alarms/1,
     format/1,
-    format/2
+    format/2,
+    safe_activate/3,
+    safe_deactivate/1
 ]).
 
 %% gen_server callbacks
@@ -122,6 +124,9 @@ activate(Name, Details) ->
 activate(Name, Details, Message) ->
     gen_server:call(?MODULE, {activate_alarm, Name, Details, Message}).
 
+safe_activate(Name, Details, Message) ->
+    safe_call({activate_alarm, Name, Details, Message}).
+
 -spec ensure_deactivated(binary() | atom()) -> ok.
 ensure_deactivated(Name) ->
     ensure_deactivated(Name, no_details).
@@ -153,6 +158,9 @@ deactivate(Name, Details) ->
 
 deactivate(Name, Details, Message) ->
     gen_server:call(?MODULE, {deactivate_alarm, Name, Details, Message}).
+
+safe_deactivate(Name) ->
+    safe_call({deactivate_alarm, Name, no_details, <<"">>}).
 
 -spec delete_all_deactivated_alarms() -> ok.
 delete_all_deactivated_alarms() ->
@@ -468,3 +476,19 @@ normalize_message(Name, <<"">>) ->
     list_to_binary(io_lib:format("~p", [Name]));
 normalize_message(_Name, Message) ->
     Message.
+
+safe_call(Req) ->
+    try
+        gen_server:call(?MODULE, Req)
+    catch
+        _:{timeout, _} = Reason ->
+            ?SLOG(warning, #{msg => "emqx_alarm_safe_call_timeout", reason => Reason}),
+            {error, timeout};
+        _:Reason:St ->
+            ?SLOG(error, #{
+                msg => "emqx_alarm_safe_call_exception",
+                reason => Reason,
+                stacktrace => St
+            }),
+            {error, Reason}
+    end.

@@ -375,7 +375,7 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 %% and successful health_checks
 handle_event(enter, _OldState, connected = State, Data) ->
     ok = log_state_consistency(State, Data),
-    _ = emqx_alarm:deactivate(Data#data.id),
+    _ = emqx_alarm:safe_deactivate(Data#data.id),
     ?tp(resource_connected_enter, #{}),
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, connected, Data) ->
@@ -618,7 +618,7 @@ maybe_alarm(_Status, ResId, Error, _PrevError) ->
             {error, undefined} -> <<"Unknown reason">>;
             {error, Reason} -> emqx_utils:readable_error_msg(Reason)
         end,
-    emqx_alarm:activate(
+    emqx_alarm:safe_activate(
         ResId,
         #{resource_id => ResId, reason => resource_down},
         <<"resource down: ", HrError/binary>>
@@ -636,7 +636,7 @@ maybe_resume_resource_workers(_, _) ->
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
     ok;
 maybe_clear_alarm(ResId) ->
-    emqx_alarm:deactivate(ResId).
+    emqx_alarm:safe_deactivate(ResId).
 
 parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
     {Status, Data#data.state, status_to_error(Status)};
