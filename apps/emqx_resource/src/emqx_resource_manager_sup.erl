@@ -31,9 +31,6 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    TabOpts = [named_table, set, public, {read_concurrency, true}],
-    _ = ets:new(emqx_resource_manager, TabOpts),
-
     ChildSpecs = [
         #{
             id => emqx_resource_manager,
@@ -44,6 +41,5 @@ init([]) ->
             modules => [emqx_resource_manager]
         }
     ],
-
     SupFlags = #{strategy => simple_one_for_one, intensity => 10, period => 10},
     {ok, {SupFlags, ChildSpecs}}.
