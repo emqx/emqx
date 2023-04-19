@@ -110,8 +110,8 @@ decode_filemeta(Map) when is_map(Map) ->
         Meta = hocon_tconf:check_plain(Schema, Map, #{atom_key => true, required => false}),
         {ok, Meta}
     catch
-        throw:Error ->
-            {error, {invalid_filemeta, Error}}
+        throw:{_Schema, Errors} ->
+            {error, {invalid_filemeta, Errors}}
     end.
 
 encode_filemeta(Meta = #{}) ->
@@ -381,7 +381,7 @@ do_validate([{filemeta, Payload} | Rest], Parsed) ->
         {ok, Meta} ->
             do_validate(Rest, [Meta | Parsed]);
         {error, Reason} ->
-            {error, {invalid_filemeta, Reason}}
+            {error, Reason}
     end;
 do_validate([{offset, Offset} | Rest], Parsed) ->
     case string:to_integer(Offset) of

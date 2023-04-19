@@ -35,6 +35,13 @@
 
 -reflect_type([json_value/0]).
 
+%% NOTE
+%% This is rather conservative limit, mostly dictated by the filename limitations
+%% on most filesystems. Even though, say, S3 does not have such limitations, it's
+%% still useful to have a limit on the filename length, to avoid having to deal with
+%% limits in the storage backends.
+-define(MAX_FILENAME_BYTELEN, 255).
+
 -import(hoconsc, [ref/2, mk/2]).
 
 namespace() -> file_transfer.
@@ -234,7 +241,13 @@ schema(filemeta) ->
     }.
 
 validator(filename) ->
-    fun emqx_ft_fs_util:is_filename_safe/1.
+    [
+        fun(Value) ->
+            Bin = unicode:characters_to_binary(Value),
+            byte_size(Bin) =< ?MAX_FILENAME_BYTELEN orelse {error, max_length_exceeded}
+        end,
+        fun emqx_ft_fs_util:is_filename_safe/1
+    ].
 
 converter(checksum) ->
     fun
