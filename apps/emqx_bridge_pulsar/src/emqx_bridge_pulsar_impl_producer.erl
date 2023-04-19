@@ -92,12 +92,12 @@ on_start(InstanceId, Config) ->
                 instance_id => InstanceId,
                 pulsar_hosts => Servers
             });
-        {error, Error} ->
+        {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_start_kafka_client",
+                msg => "failed_to_start_pulsar_client",
                 instance_id => InstanceId,
                 pulsar_hosts => Servers,
-                reason => Error
+                reason => Reason
             }),
             throw(failed_to_start_pulsar_client)
     end,
