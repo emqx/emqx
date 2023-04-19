@@ -70,7 +70,7 @@ callback_mode() -> async_if_possible.
 %% workers.
 is_buffer_supported() -> true.
 
--spec on_start(manager_id(), config()) -> {ok, state()}.
+-spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
     #{
         authentication := _Auth,
@@ -106,7 +106,7 @@ on_start(InstanceId, Config) ->
     end,
     start_producer(Config, InstanceId, ClientId, ClientOpts).
 
--spec on_stop(manager_id(), state()) -> ok.
+-spec on_stop(resource_id(), state()) -> ok.
 on_stop(_InstanceId, State) ->
     #{
         pulsar_client_id := ClientId,
@@ -117,7 +117,7 @@ on_stop(_InstanceId, State) ->
     ?tp(pulsar_bridge_stopped, #{instance_id => _InstanceId}),
     ok.
 
--spec on_get_status(manager_id(), state()) -> connected | disconnected.
+-spec on_get_status(resource_id(), state()) -> connected | disconnected.
 on_get_status(_InstanceId, State = #{}) ->
     #{
         pulsar_client_id := ClientId,
@@ -144,7 +144,7 @@ on_get_status(_InstanceId, _State) ->
     %% create the bridge is not quite finished, `State = undefined'.
     connecting.
 
--spec on_query(manager_id(), {send_message, map()}, state()) ->
+-spec on_query(resource_id(), {send_message, map()}, state()) ->
     {ok, term()}
     | {error, timeout}
     | {error, term()}.
@@ -163,7 +163,7 @@ on_query(_InstanceId, {send_message, Message}, State) ->
     end.
 
 -spec on_query_async(
-    manager_id(), {send_message, map()}, {ReplyFun :: function(), Args :: list()}, state()
+    resource_id(), {send_message, map()}, {ReplyFun :: function(), Args :: list()}, state()
 ) ->
     {ok, pid()}.
 on_query_async(_InstanceId, {send_message, Message}, AsyncReplyFn, State) ->
@@ -203,7 +203,7 @@ format_servers(Servers0) ->
         Servers1
     ).
 
--spec make_client_id(manager_id(), atom() | binary()) -> pulsar_client_id().
+-spec make_client_id(resource_id(), atom() | binary()) -> pulsar_client_id().
 make_client_id(InstanceId, BridgeName) ->
     case is_dry_run(InstanceId) of
         true ->
@@ -218,7 +218,7 @@ make_client_id(InstanceId, BridgeName) ->
             binary_to_atom(ClientIdBin)
     end.
 
--spec is_dry_run(manager_id()) -> boolean().
+-spec is_dry_run(resource_id()) -> boolean().
 is_dry_run(InstanceId) ->
     TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
     case TestIdStart of
@@ -255,7 +255,7 @@ producer_name(ClientId) ->
         ])
     ).
 
--spec start_producer(config(), manager_id(), pulsar_client_id(), map()) -> {ok, state()}.
+-spec start_producer(config(), resource_id(), pulsar_client_id(), map()) -> {ok, state()}.
 start_producer(Config, InstanceId, ClientId, ClientOpts) ->
     #{
         conn_opts := ConnOpts,

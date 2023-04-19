@@ -367,9 +367,9 @@ is_buffer_supported(Module) ->
 
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
-call_start(MgrId, Mod, Config) ->
+call_start(ResId, Mod, Config) ->
     try
-        Mod:on_start(MgrId, Config)
+        Mod:on_start(ResId, Config)
     catch
         throw:Error ->
             {error, Error};
@@ -382,12 +382,12 @@ call_start(MgrId, Mod, Config) ->
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}
     | {error, term()}.
-call_health_check(MgrId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_get_status(MgrId, ResourceState)).
+call_health_check(ResId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
 
 -spec call_stop(resource_id(), module(), resource_state()) -> term().
-call_stop(MgrId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_stop(MgrId, ResourceState)).
+call_stop(ResId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_stop(ResId, ResourceState)).
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
