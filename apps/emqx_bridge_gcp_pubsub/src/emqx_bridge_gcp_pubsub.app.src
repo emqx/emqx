@@ -2,7 +2,11 @@
     {description, "EMQX Enterprise GCP Pub/Sub Bridge"},
     {vsn, "0.1.0"},
     {registered, []},
-    {applications, [kernel, stdlib]},
+    {applications, [
+        kernel,
+        stdlib,
+        ehttpc
+    ]},
     {env, []},
     {modules, []},
     {links, []}

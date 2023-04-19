@@ -75,6 +75,9 @@ describe_app() {
         apps/emqx_bridge_kafka)
             profile='emqx-enterprise'
             ;;
+        apps/emqx_bridge_gcp_pubsub)
+            profile='emqx-enterprise'
+            ;;
         apps/*)
             profile='emqx'
             ;;

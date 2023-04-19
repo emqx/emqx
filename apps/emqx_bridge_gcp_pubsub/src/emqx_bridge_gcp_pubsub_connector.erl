@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_gcp_pubsub).
+-module(emqx_bridge_gcp_pubsub_connector).
 
 -behaviour(emqx_resource).
 
@@ -27,7 +27,7 @@
 -export([reply_delegator/3]).
 
 -type jwt_worker() :: binary().
--type service_account_json() :: emqx_ee_bridge_gcp_pubsub:service_account_json().
+-type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),

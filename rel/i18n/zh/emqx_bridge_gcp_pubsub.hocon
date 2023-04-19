@@ -1,4 +1,4 @@
-emqx_ee_bridge_gcp_pubsub {
+emqx_bridge_gcp_pubsub {
 
 connect_timeout.desc:
 """连接 HTTP 服务器的超时时间。"""

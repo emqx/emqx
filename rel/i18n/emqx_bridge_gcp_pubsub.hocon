@@ -1,4 +1,4 @@
-emqx_ee_bridge_gcp_pubsub {
+emqx_bridge_gcp_pubsub {
 
 connect_timeout.desc:
 """The timeout when connecting to the HTTP server."""
