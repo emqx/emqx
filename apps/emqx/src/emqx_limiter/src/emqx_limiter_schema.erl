@@ -24,6 +24,7 @@
     fields/1,
     to_rate/1,
     to_capacity/1,
+    to_burst/1,
     default_period/0,
     to_burst_rate/1,
     to_initial/1,
@@ -54,8 +55,10 @@
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().
+%% this is a compatible type for the deprecated field and type `capacity`.
+-type burst() :: burst_rate().
 %% the capacity of the token bucket
--type capacity() :: non_neg_integer().
+%%-type capacity() :: non_neg_integer().
 %% initial capacity of the token bucket
 -type initial() :: non_neg_integer().
 -type bucket_path() :: list(atom()).
@@ -72,13 +75,13 @@
 
 -typerefl_from_string({rate/0, ?MODULE, to_rate}).
 -typerefl_from_string({burst_rate/0, ?MODULE, to_burst_rate}).
--typerefl_from_string({capacity/0, ?MODULE, to_capacity}).
+-typerefl_from_string({burst/0, ?MODULE, to_burst}).
 -typerefl_from_string({initial/0, ?MODULE, to_initial}).
 
 -reflect_type([
     rate/0,
     burst_rate/0,
-    capacity/0,
+    burst/0,
     initial/0,
     failure_strategy/0,
     bucket_name/0
@@ -130,39 +133,9 @@ fields(node_opts) ->
 fields(client_fields) ->
     client_fields(types(), #{default => #{}});
 fields(bucket_infinity) ->
-    [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
-        {burst,
-            ?HOCON(capacity(), #{
-                desc => ?DESC(capacity),
-                default => <<"0">>,
-                importance => ?IMPORTANCE_HIDDEN,
-                aliases => [capacity]
-            })},
-        {initial,
-            ?HOCON(initial(), #{
-                default => <<"0">>,
-                desc => ?DESC(initial),
-                importance => ?IMPORTANCE_HIDDEN
-            })}
-    ];
+    fields_of_bucket(<<"infinity">>);
 fields(bucket_limit) ->
-    [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"1000/s">>})},
-        {burst,
-            ?HOCON(capacity(), #{
-                desc => ?DESC(burst),
-                default => <<"0">>,
-                importance => ?IMPORTANCE_HIDDEN,
-                aliases => [capacity]
-            })},
-        {initial,
-            ?HOCON(initial(), #{
-                default => <<"0">>,
-                desc => ?DESC(initial),
-                importance => ?IMPORTANCE_HIDDEN
-            })}
-    ];
+    fields_of_bucket(<<"1000/s">>);
 fields(client_opts) ->
     [
         {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
@@ -186,7 +159,7 @@ fields(client_opts) ->
                 }
             )},
         {burst,
-            ?HOCON(capacity(), #{
+            ?HOCON(burst(), #{
                 desc => ?DESC(burst),
                 default => <<"0">>,
                 importance => ?IMPORTANCE_HIDDEN,
@@ -265,8 +238,6 @@ types() ->
 
 calc_capacity(#{rate := infinity}) ->
     infinity;
-calc_capacity(#{burst := infinity}) ->
-    infinity;
 calc_capacity(#{rate := Rate, burst := Burst}) ->
     erlang:floor(1000 * Rate / default_period()) + Burst.
 
@@ -276,6 +247,17 @@ calc_capacity(#{rate := Rate, burst := Burst}) ->
 
 to_burst_rate(Str) ->
     to_rate(Str, false, true).
+
+%% The default value of `capacity` is `infinity`,
+%% but we have changed `capacity` to `burst` which should not be `infinity`
+%% and its default value is 0, so we should convert `infinity` to 0
+to_burst(Str) ->
+    case to_rate(Str, true, true) of
+        {ok, infinity} ->
+            {ok, 0};
+        Any ->
+            Any
+    end.
 
 %% rate can be: 10 10MB 10MB/s 10MB/2s infinity
 %% e.g. the bytes_in regex tree is:
@@ -414,6 +396,24 @@ composite_bucket_fields(Types, ClientRef) ->
                     }
                 )}
         ].
+
+fields_of_bucket(Default) ->
+    [
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => Default})},
+        {burst,
+            ?HOCON(burst(), #{
+                desc => ?DESC(burst),
+                default => <<"0">>,
+                importance => ?IMPORTANCE_HIDDEN,
+                aliases => [capacity]
+            })},
+        {initial,
+            ?HOCON(initial(), #{
+                default => <<"0">>,
+                desc => ?DESC(initial),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ].
 
 client_fields(Types, Meta) ->
     [

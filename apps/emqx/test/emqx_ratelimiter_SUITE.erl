@@ -220,7 +220,7 @@ t_try_restore_agg(_) ->
         },
         Cli2 = Cli#{
             rate := infinity,
-            burst := infinity,
+            burst := 0,
             divisible := true,
             max_retry_time := 100,
             failure_strategy := force
@@ -264,11 +264,11 @@ t_rate(_) ->
         Bucket2 = Bucket#{
             rate := ?RATE("100/100ms"),
             initial := 0,
-            burst := infinity
+            burst := 0
         },
         Cli2 = Cli#{
             rate := infinity,
-            burst := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
@@ -295,7 +295,7 @@ t_capacity(_) ->
         },
         Cli2 = Cli#{
             rate := infinity,
-            burst := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
@@ -403,11 +403,11 @@ t_limit_global_with_unlimit_other(_) ->
         Bucket2 = Bucket#{
             rate := infinity,
             initial := 0,
-            burst := infinity
+            burst := 0
         },
         Cli2 = Cli#{
             rate := infinity,
-            burst := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
@@ -573,6 +573,66 @@ t_schema_unit(_) ->
     ?assertEqual({ok, 100 * 1024 * 1024}, M:to_capacity("100MB")),
     ?assertEqual({ok, 100 * 1024 * 1024 * 1024}, M:to_capacity("100GB")),
     ok.
+
+compatibility_for_capacity(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.messages.capacity = infinity\n"
+        "  limiter.client.messages.capacity = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            messages := #{burst := 0},
+            client := #{messages := #{burst := 0}}
+        },
+        parse_and_check(CfgStr)
+    ).
+
+compatibility_for_message_in(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.message_in.rate = infinity\n"
+        "  limiter.client.message_in.rate = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            messages := #{rate := infinity},
+            client := #{messages := #{rate := infinity}}
+        },
+        parse_and_check(CfgStr)
+    ).
+
+compatibility_for_bytes_in(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.bytes_in.rate = infinity\n"
+        "  limiter.client.bytes_in.rate = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            bytes := #{rate := infinity},
+            client := #{bytes := #{rate := infinity}}
+        },
+        parse_and_check(CfgStr)
+    ).
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -753,13 +813,13 @@ make_limiter_cfg() ->
     Client = #{
         rate => infinity,
         initial => 0,
-        burst => infinity,
+        burst => 0,
         low_watermark => 0,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => infinity, initial => 0, burst => infinity}.
+    #{client => Client, rate => infinity, initial => 0, burst => 0}.
 
 add_bucket(Cfg) ->
     add_bucket(?MODULE, Cfg).
@@ -813,3 +873,7 @@ apply_modifier(Pairs, #{default := Template}) ->
         Acc#{N => M(Template)}
     end,
     lists:foldl(Fun, #{}, Pairs).
+
+parse_and_check(ConfigString) ->
+    ok = emqx_common_test_helpers:load_config(emqx_schema, ConfigString),
+    emqx:get_config([listeners, tcp, default, limiter]).
