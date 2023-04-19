@@ -114,6 +114,22 @@ t_create_invalid_version(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+t_create_disable_ssl_opts_when_https(_Config) ->
+    {ok, _} = create_https_auth_with_ssl_opts(
+        #{
+            <<"server_name_indication">> => <<"authn-server">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>],
+            <<"enable">> => <<"false">>
+        }
+    ),
+
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
 t_create_invalid_ciphers(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
         #{
@@ -135,6 +151,7 @@ t_create_invalid_ciphers(_Config) ->
 
 create_https_auth_with_ssl_opts(SpecificSSLOpts) ->
     AuthConfig = raw_https_auth_config(SpecificSSLOpts),
+    ct:pal("111:~p~n", [AuthConfig]),
     emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
 
 raw_https_auth_config(SpecificSSLOpts) ->
