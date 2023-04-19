@@ -51,20 +51,24 @@ roots() ->
 
 fields(config) ->
     [
-        {url, mk(binary(), #{required => true, desc => ?DESC("url")})}
-        | add_default_username(
+        {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
+        {table, mk(binary(), #{required => true, desc => ?DESC("table")})}
+        | override_schemas(
             emqx_connector_schema_lib:relational_db_fields()
         )
     ].
 
-add_default_username(Fields) ->
-    lists:map(
+override_schemas(Fields) ->
+    lists:foldr(
         fun
-            ({username, OrigUsernameFn}) ->
-                {username, add_default_fn(OrigUsernameFn, <<"root">>)};
-            (Field) ->
-                Field
+            ({username, OrigUsernameFn}, Acc) ->
+                [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Acc];
+            ({database, _}, Acc) ->
+                Acc;
+            (Field, Acc) ->
+                [Field | Acc]
         end,
+        [],
         Fields
     ).
 
@@ -88,7 +92,7 @@ on_start(
         url := Url,
         username := Username,
         password := Password,
-        database := Database,
+        table := Table,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -115,7 +119,7 @@ on_start(
     Templates = parse_template(Config),
     State = #{
         poolname => InstanceId,
-        database => Database,
+        table => Table,
         templates => Templates
     },
     case emqx_plugin_libs_pool:start_pool(InstanceId, ?MODULE, Options) of
@@ -183,7 +187,7 @@ do_query(
     InstanceId,
     Query,
     ApplyMode,
-    #{poolname := PoolName, templates := Templates, database := Database} = State
+    #{poolname := PoolName, templates := Templates, table := Table} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -192,7 +196,7 @@ do_query(
     ),
     Result = ecpool:pick_and_do(
         PoolName,
-        {?MODULE, worker_do_query, [Database, Query, Templates]},
+        {?MODULE, worker_do_query, [Table, Query, Templates]},
         ApplyMode
     ),
 
@@ -217,33 +221,33 @@ do_query(
             Result
     end.
 
-worker_do_query(_Client, Database, Query0, Templates) ->
+worker_do_query(_Client, Table, Query0, Templates) ->
     try
         Query = apply_template(Query0, Templates),
-        execute(Query, Database)
+        execute(Query, Table)
     catch
         _Type:Reason ->
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
 %% some simple query commands for authn/authz or test
-execute({insert_item, Msg}, Database) ->
+execute({insert_item, Msg}, Table) ->
     Item = convert_to_item(Msg),
-    erlcloud_ddb2:put_item(Database, Item);
-execute({delete_item, Key}, Database) ->
-    erlcloud_ddb2:delete_item(Database, Key);
-execute({get_item, Key}, Database) ->
-    erlcloud_ddb2:get_item(Database, Key);
+    erlcloud_ddb2:put_item(Table, Item);
+execute({delete_item, Key}, Table) ->
+    erlcloud_ddb2:delete_item(Table, Key);
+execute({get_item, Key}, Table) ->
+    erlcloud_ddb2:get_item(Table, Key);
 %% commands for data bridge query or batch query
-execute({send_message, Msg}, Database) ->
+execute({send_message, Msg}, Table) ->
     Item = convert_to_item(Msg),
-    erlcloud_ddb2:put_item(Database, Item);
-execute([{put, _} | _] = Msgs, Database) ->
+    erlcloud_ddb2:put_item(Table, Item);
+execute([{put, _} | _] = Msgs, Table) ->
     %% type of batch_write_item argument :: batch_write_item_request_items()
     %% batch_write_item_request_items() :: maybe_list(batch_write_item_request_item())
     %% batch_write_item_request_item() :: {table_name(), list(batch_write_item_request())}
     %% batch_write_item_request() :: {put, item()} | {delete, key()}
-    erlcloud_ddb2:batch_write_item({Database, Msgs}).
+    erlcloud_ddb2:batch_write_item({Table, Msgs}).
 
 connect(Opts) ->
     #{

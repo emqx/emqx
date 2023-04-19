@@ -158,7 +158,7 @@ dynamo_config(BridgeType, Config) ->
             "bridges.~s.~s {\n"
             "  enable = true\n"
             "  url = ~p\n"
-            "  database = ~p\n"
+            "  table = ~p\n"
             "  username = ~p\n"
             "  password = ~p\n"
             "  resource_opts = {\n"
