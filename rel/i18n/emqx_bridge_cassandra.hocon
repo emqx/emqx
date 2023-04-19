@@ -1,4 +1,4 @@
-emqx_ee_bridge_cassa {
+emqx_bridge_cassandra {
 
 config_enable.desc:
 """Enable or disable this bridge"""

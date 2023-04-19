@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_cassa_SUITE).
+-module(emqx_bridge_cassandra_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -57,7 +57,7 @@
 %%    CASSA_TCP_HOST=127.0.0.1 CASSA_TCP_PORT=19042 \
 %%    CASSA_TLS_HOST=127.0.0.1 CASSA_TLS_PORT=19142 \
 %%    PROXY_HOST=127.0.0.1 ./rebar3 as test ct -c -v --name ct@127.0.0.1 \
-%%    --suite lib-ee/emqx_ee_bridge/test/emqx_ee_bridge_cassa_SUITE.erl
+%%    --suite apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE.erl
 %%
 
 %%------------------------------------------------------------------------------
@@ -590,7 +590,7 @@ t_missing_data(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    %% emqx_ee_connector_cassa will send missed data as a `null` atom
+    %% emqx_bridge_cassandra_impl will send missed data as a `null` atom
     %% to ecql driver
     ?check_trace(
         begin

@@ -112,6 +112,48 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing ee applications
         export PROFILE='emqx-enterprise'
         ;;
+    apps/emqx_bridge_cassandra)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_clickhouse)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_dynamo)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_gcp_pubsub)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_hstreamdb)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_influxdb)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_matrix)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_mongodb)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_mysql)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_pgsql)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_redis)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_rocketmq)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_tdengine)
+        export PROFILE='emqx-enterprise'
+        ;;
+    apps/emqx_bridge_timescale)
+        export PROFILE='emqx-enterprise'
+        ;;
     *)
         export PROFILE="${PROFILE:-emqx}"
         ;;

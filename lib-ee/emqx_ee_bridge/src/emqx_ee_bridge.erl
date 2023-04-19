@@ -17,6 +17,7 @@ api_schemas(Method) ->
         ref(emqx_bridge_gcp_pubsub, Method),
         ref(emqx_bridge_kafka, Method ++ "_consumer"),
         ref(emqx_bridge_kafka, Method ++ "_producer"),
+        ref(emqx_bridge_cassandra, Method),
         ref(emqx_ee_bridge_mysql, Method),
         ref(emqx_ee_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
@@ -34,13 +35,13 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
         ref(emqx_ee_bridge_rocketmq, Method),
-        ref(emqx_ee_bridge_cassa, Method),
         ref(emqx_ee_bridge_sqlserver, Method)
     ].
 
 schema_modules() ->
     [
         emqx_bridge_kafka,
+        emqx_bridge_cassandra,
         emqx_ee_bridge_hstreamdb,
         emqx_bridge_gcp_pubsub,
         emqx_ee_bridge_influxdb,
@@ -54,7 +55,6 @@ schema_modules() ->
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
         emqx_ee_bridge_rocketmq,
-        emqx_ee_bridge_cassa,
         emqx_ee_bridge_sqlserver
     ].
 
@@ -75,6 +75,7 @@ resource_type(kafka_consumer) -> emqx_bridge_kafka_impl_consumer;
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
+resource_type(cassandra) -> emqx_bridge_cassandra_impl;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_connector;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
@@ -93,7 +94,6 @@ resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
-resource_type(cassandra) -> emqx_ee_connector_cassa;
 resource_type(sqlserver) -> emqx_ee_connector_sqlserver.
 
 fields(bridges) ->
@@ -148,7 +148,7 @@ fields(bridges) ->
             )},
         {cassandra,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_cassa, "config")),
+                hoconsc:map(name, ref(emqx_bridge_cassandra, "config")),
                 #{
                     desc => <<"Cassandra Bridge Config">>,
                     required => false

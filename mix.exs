@@ -156,6 +156,19 @@ defmodule EMQXUmbrella.MixProject do
     MapSet.new([
       :emqx_bridge_kafka,
       :emqx_bridge_gcp_pubsub
+      :emqx_bridge_cassandra,
+      :emqx_bridge_clickhouse,
+      :emqx_bridge_dynamo,
+      :emqx_bridge_hstreamdb,
+      :emqx_bridge_influxdb,
+      :emqx_bridge_matrix,
+      :emqx_bridge_mongodb,
+      :emqx_bridge_mysql,
+      :emqx_bridge_pgsql,
+      :emqx_bridge_redis,
+      :emqx_bridge_rocketmq,
+      :emqx_bridge_tdengine,
+      :emqx_bridge_timescale
     ])
   end
 

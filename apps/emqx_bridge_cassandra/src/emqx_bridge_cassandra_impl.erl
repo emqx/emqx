@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_cassa).
+-module(emqx_bridge_cassandra_impl).
 
 -behaviour(emqx_resource).
 

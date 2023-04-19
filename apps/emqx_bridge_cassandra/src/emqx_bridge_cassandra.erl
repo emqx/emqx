@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_cassa).
+-module(emqx_bridge_cassandra).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -88,7 +88,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_ee_connector_cassa:fields(config) --
+        (emqx_bridge_cassandra_impl:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     fields("post", cassandra);
