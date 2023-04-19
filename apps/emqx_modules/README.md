@@ -20,10 +20,9 @@ See [Enabling/Disabling Delayed Publish via HTTP API](https://www.emqx.io/docs/e
 Topic Rewrite allows users to configure rules to change the topic strings that
 the client requests to subscribe or publish.
 
-This feature is very useful when designing topics that are compatible with different
-client versions. For example, an old device that has already been issued and cannot
-be upgraded may use old topic rules, but the production environment need to apply
-a new design rules for the topics.
+This feature is very useful when it need to compatibility with different versions of topic designs.
+For example, an old device that has already been issued and cannot
+be upgraded may use old topic designs, but for some reason, we adjusted the format of topics. We can use this feature to rewrite the old topics as the new format to eliminate these differences.
 
 More introduction about [Topic Rewrite](https://www.emqx.io/docs/en/v5.0/mqtt/mqtt-topic-rewrite.html).
 
