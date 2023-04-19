@@ -52,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([handle_async_reply/2, handle_async_batch_reply/2]).
+-export([handle_async_reply/2, handle_async_batch_reply/2, reply_call/2]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -293,10 +293,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 pick_call(Id, Key, Query, Timeout) ->
     ?PICK(Id, Key, Pid, begin
-        Caller = self(),
         MRef = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
-        From = {Caller, MRef},
-        ReplyTo = {fun gen_statem:reply/2, [From]},
+        ReplyTo = {fun ?MODULE:reply_call/2, [MRef]},
         erlang:send(Pid, ?SEND_REQ(ReplyTo, Query)),
         receive
             {MRef, Response} ->
@@ -1702,6 +1700,17 @@ default_resume_interval(_RequestTimeout = infinity, HealthCheckInterval) ->
     max(1, HealthCheckInterval);
 default_resume_interval(RequestTimeout, HealthCheckInterval) ->
     max(1, min(HealthCheckInterval, RequestTimeout div 3)).
+
+-spec reply_call(reference(), term()) -> ok.
+reply_call(Alias, Response) ->
+    %% Since we use a reference created with `{alias,
+    %% reply_demonitor}', after we `demonitor' it in case of a
+    %% timeout, we won't send any more messages that the caller is not
+    %% expecting anymore.  Using `gen_statem:reply({pid(),
+    %% reference()}, _)' would still send a late reply even after the
+    %% demonitor.
+    erlang:send(Alias, {Alias, Response}),
+    ok.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
