@@ -5,9 +5,15 @@ HOCON（Human-Optimized Config Object Notation）是一个JSON的超集，非常
 
 EMQX的配置文件可分为二层，自底向上依次是：
 
-1. 不可变的基础层 `emqx.conf` 加上 `EMQX_` 前缀的环境变量。<br/>
-   修改这一层的配置之后，需要重启节点来使之生效。
-2. 集群范围重载层：`$EMQX_NODE__DATA_DIR/configs/cluster.hocon`
+1. 集群同步配置：`$EMQX_NODE__DATA_DIR/configs/cluster.hocon`。
+2. 本地节点配置：`emqx.conf` 加上 `EMQX_` 前缀的环境变量。
+
+:::tip Tip
+在 v5.0.23 或 e5.0.3 之前，集群同步配置保存在文件 `cluster-override.conf` 中，并且它覆盖在配置的最上层。
+
+如果从之前的版本升级上来，只要 `cluster-override.conf` 文件存在，
+EMQX 就不会创建 `cluster.hocon`，并且 `cluster-override.conf` 会继续覆盖在配置的最上层。
+:::
 
 如果环境变量 `$EMQX_NODE__DATA_DIR` 没有设置，那么该目录会从 `emqx.conf` 的 `node.data_dir` 配置中读取。
 
@@ -16,9 +22,7 @@ EMQX的配置文件可分为二层，自底向上依次是：
 当EMQX运行在集群中时，一个EMQX节点重启之后，会从集群中其他节点复制该文件内容到本地。
 
 :::tip Tip
-有些配置项是不能被重载的（例如 `node.name`）。
-配置项如果有 `mapping: path.to.boot.config.key` 这个属性，
-则不能被添加到重载文件 `cluster.hocon` 中。
+为避免歧义，应尽量避免让 `cluster.hocon` 和 `emqx.conf` 出现配置交集。
 :::
 
 更多的重载规则，请参考下文 [配置重载规则](#配置重载规则)。
