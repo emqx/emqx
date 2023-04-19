@@ -1,4 +1,4 @@
-emqx_bridge_cassa_impl {
+emqx_bridge_cassandra_impl {
 
 keyspace.desc:
 """Keyspace name to connect to."""

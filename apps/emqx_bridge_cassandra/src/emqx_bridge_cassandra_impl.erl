@@ -7,7 +7,7 @@
 -behaviour(emqx_resource).
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").
--include_lib("emqx_ee_connector/include/emqx_ee_connector.hrl").
+-include("emqx_bridge_cassandra.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
