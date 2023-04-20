@@ -107,7 +107,7 @@ on_start(
 
     Templates = parse_template(Config),
     State = #{
-        poolname => InstanceId,
+        pool_name => InstanceId,
         table => Table,
         templates => Templates
     },
@@ -176,7 +176,7 @@ do_query(
     InstanceId,
     Query,
     ApplyMode,
-    #{poolname := PoolName, templates := Templates, table := Table} = State
+    #{pool_name := PoolName, templates := Templates, table := Table} = State
 ) ->
     ?TRACE(
         "QUERY",
