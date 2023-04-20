@@ -111,6 +111,37 @@ authn_validations_test() ->
         ]},
         hocon_tconf:generate(emqx_conf_schema, ConfMap1)
     ),
+    BadHeader2 =
+        ""
+        "\n"
+        "authentication = \n"
+        "{backend = \"http\"\n"
+        "body {password = \"${password}\", username = \"${username}\"}\n"
+        "connect_timeout = \"15s\"\n"
+        "enable_pipelining = 100\n"
+        "headers {\"content-type\" = \"application/json\"}\n"
+        "mechanism = \"password_based\"\n"
+        "method = \"get\"\n"
+        "pool_size = 8\n"
+        "request_timeout = \"5s\"\n"
+        "ssl {enable = false, verify = \"verify_peer\"}\n"
+        "url = \"http://127.0.0.1:8080\"\n"
+        "}\n"
+        "\n"
+        "",
+    Conf2 = <<BaseConf/binary, (list_to_binary(BadHeader2))/binary>>,
+    {ok, ConfMap2} = hocon:binary(Conf2, #{format => richmap}),
+    ?assertThrow(
+        {emqx_conf_schema, [
+            #{
+                kind := validation_error,
+                reason := integrity_validation_failure,
+                result := _,
+                validation_name := check_http_headers
+            }
+        ]},
+        hocon_tconf:generate(emqx_conf_schema, ConfMap2)
+    ),
     ok.
 
 doc_gen_test() ->
