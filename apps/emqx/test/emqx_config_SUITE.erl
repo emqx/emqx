@@ -50,7 +50,6 @@ t_fill_default_values(_) ->
                         },
                     <<"route_batch_clean">> := false,
                     <<"session_locking_strategy">> := quorum,
-                    <<"shared_dispatch_ack_enabled">> := false,
                     <<"shared_subscription_strategy">> := round_robin
                 }
         },

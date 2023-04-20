@@ -1373,9 +1373,9 @@ persistent_session_store_message_gc_interval.label:
 """Message GC interval"""
 
 broker_shared_dispatch_ack_enabled.desc:
-"""Deprecated, will be removed in 5.1.
-Enable/disable shared dispatch acknowledgement for QoS 1 and QoS 2 messages.
-This should allow messages to be dispatched to a different subscriber in the group in case the picked (based on `shared_subscription_strategy`) subscriber is offline."""
+"""Deprecated.
+This was designed to avoid dispatching messages to a shared-subscription session which has the client disconnected.
+However it's no longer useful because the shared-subscrption messages in a expired session will be redispatched to other sessions in the group."""
 
 base_listener_enable_authn.desc:
 """Set <code>true</code> (default) to enable client authentication on this listener, the authentication
