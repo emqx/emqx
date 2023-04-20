@@ -16,13 +16,13 @@ emqx_bridge_pulsar {
   }
 
   config_enable {
-    desc = "启用（true）或停用该（false）Pulsar 数据桥接。"
+    desc = "启用（true）或停用（false）该 Pulsar 数据桥接。"
     label = "启用或停用"
   }
 
   servers {
-    desc = "以<code>scheme://host[:port]</code>形式分隔的Pulsar URL列表，"
-           "供客户端连接使用。支持的方案是 <code>pulsar://</code> （默认）"
+    desc = "以逗号分隔的 <code>scheme://host[:port]</code> 格式的 Pulsar URL 列表，"
+           "支持的 scheme 有 <code>pulsar://</code> （默认）"
            "和<code>pulsar+ssl://</code>。默认的端口是6650。"
     label = "服务员"
   }
@@ -94,7 +94,7 @@ emqx_bridge_pulsar {
     desc = "设置消息发布时应该如何选择 Pulsar 分区。\n\n"
            "<code>random</code>: 为每个消息随机选择一个分区。\n"
            "<code>roundrobin</code>: 依次为每条信息挑选可用的生产商。\n"
-           "<code>first_key_dispatch</code>: 将一批信息中的第一条信息的Pulsar信息密钥哈希到一个分区编号。"
+           "<code>key_dispatch</code>: 将一批信息中的第一条信息的Pulsar信息密钥哈希到一个分区编号。"
     label = "分区选择策略"
   }
 

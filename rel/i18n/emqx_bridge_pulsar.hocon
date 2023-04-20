@@ -147,7 +147,7 @@ emqx_bridge_pulsar {
            "\n"
            "<code>random</code>: Randomly pick a partition for each message.\n"
            "<code>roundrobin</code>: Pick each available producer in turn for each message.\n"
-           "<code>first_key_dispatch</code>: Hash Pulsar message key of the first message in a batch"
+           "<code>key_dispatch</code>: Hash Pulsar message key of the first message in a batch"
            " to a partition number."
     label = "Partition Strategy"
   }
