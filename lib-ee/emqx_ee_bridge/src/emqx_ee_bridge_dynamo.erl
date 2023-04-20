@@ -43,10 +43,10 @@ values(_Method) ->
         type => dynamo,
         name => <<"foo">>,
         url => <<"http://127.0.0.1:8000">>,
-        database => <<"mqtt">>,
+        table => <<"mqtt">>,
         pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
+        aws_access_key_id => <<"root">>,
+        aws_secret_access_key => <<"******">>,
         template => ?DEFAULT_TEMPLATE,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{

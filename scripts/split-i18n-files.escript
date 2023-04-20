@@ -27,9 +27,13 @@ add_ebin(Dir) ->
 split_file(Path) ->
     {ok, DescMap} = hocon:load(Path),
     [{Module, Descs}] = maps:to_list(DescMap),
-    ok = split(Path, Module, <<"en">>, Descs),
-    ok = split(Path, Module, <<"zh">>, Descs),
-    ok.
+    try
+        ok = split(Path, Module, <<"en">>, Descs),
+        ok = split(Path, Module, <<"zh">>, Descs)
+    catch
+        throw : already_done ->
+            ok
+    end.
 
 split(Path, Module, Lang, Fields) when is_map(Fields) ->
     split(Path, Module, Lang, maps:to_list(Fields));
@@ -54,6 +58,8 @@ rename(FilePath, Lang) ->
     BaseName = filename:basename(FilePath),
     filename:join([Dir, Lang, BaseName]).
 
+do_split(_Path, _Name, _Lang, #{<<"desc">> := Desc}) when is_binary(Desc) ->
+    throw(already_done);
 do_split(Path, Name, Lang, #{<<"desc">> := Desc} = D) ->
     try
         Label = maps:get(<<"label">>, D, #{}),
