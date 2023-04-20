@@ -2751,6 +2751,51 @@ t_volatile_offload_mode(_Config) ->
         end
     ).
 
+t_late_call_reply(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    RequestTimeout = 500,
+    ?assertMatch(
+        {ok, _},
+        emqx_resource:create(
+            ?ID,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{name => test_resource},
+            #{
+                buffer_mode => memory_only,
+                request_timeout => RequestTimeout,
+                query_mode => sync
+            }
+        )
+    ),
+    ?check_trace(
+        begin
+            %% Sleep for longer than the request timeout; the call reply will
+            %% have been already returned (a timeout), but the resource will
+            %% still send a message with the reply.
+            %% The demo connector will reply with `{error, timeout}' after 1 s.
+            SleepFor = RequestTimeout + 500,
+            ?assertMatch(
+                {error, {resource_error, #{reason := timeout}}},
+                emqx_resource:query(
+                    ?ID,
+                    {sync_sleep_before_reply, SleepFor},
+                    #{timeout => RequestTimeout}
+                )
+            ),
+            %% Our process shouldn't receive any late messages.
+            receive
+                LateReply ->
+                    ct:fail("received late reply: ~p", [LateReply])
+            after SleepFor ->
+                ok
+            end,
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

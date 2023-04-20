@@ -144,7 +144,11 @@ on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
             Result
     after 1000 ->
         {error, timeout}
-    end.
+    end;
+on_query(_InstId, {sync_sleep_before_reply, SleepFor}, _State) ->
+    %% This simulates a slow sync call
+    timer:sleep(SleepFor),
+    {ok, slept}.
 
 on_query_async(_InstId, block, ReplyFun, #{pid := Pid}) ->
     Pid ! {block, ReplyFun},
