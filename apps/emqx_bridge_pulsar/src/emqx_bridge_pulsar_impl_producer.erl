@@ -28,7 +28,7 @@
 }.
 -type buffer_mode() :: memory | disk | hybrid.
 -type compression_mode() :: no_compression | snappy | zlib.
--type partition_strategy() :: random | roundrobin | first_key_dispatch.
+-type partition_strategy() :: random | roundrobin | key_dispatch.
 -type message_template_raw() :: #{
     key := binary(),
     value := binary()
@@ -290,7 +290,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
             name => ProducerName,
             retention_period => RetentionPeriod,
             ssl_opts => SSLOpts,
-            strategy => Strategy,
+            strategy => partition_strategy(Strategy),
             tcp_opts => [{sndbuf, SendBuffer}]
         },
     ProducerOpts = maps:merge(ReplayQOpts, ProducerOpts0),
@@ -394,3 +394,6 @@ get_producer_status(Producers) ->
         true -> connected;
         false -> connecting
     end.
+
+partition_strategy(key_dispatch) -> first_key_dispatch;
+partition_strategy(Strategy) -> Strategy.

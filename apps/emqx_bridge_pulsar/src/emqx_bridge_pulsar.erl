@@ -83,7 +83,7 @@ fields(producer_opts) ->
         {pulsar_topic, mk(binary(), #{required => true, desc => ?DESC("producer_pulsar_topic")})},
         {strategy,
             mk(
-                hoconsc:enum([random, roundrobin, first_key_dispatch]),
+                hoconsc:enum([random, roundrobin, key_dispatch]),
                 #{default => random, desc => ?DESC("producer_strategy")}
             )},
         {buffer, mk(ref(producer_buffer), #{required => false, desc => ?DESC("producer_buffer")})},
