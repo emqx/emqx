@@ -286,9 +286,9 @@ parse_url(Url) ->
                     BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
                     case string:split(Remaining, "?", leading) of
                         [Path, QueryString] ->
-                            {BaseUrl, Path, QueryString};
+                            {BaseUrl, <<"/", Path/binary>>, QueryString};
                         [Path] ->
-                            {BaseUrl, Path, <<>>}
+                            {BaseUrl, <<"/", Path/binary>>, <<>>}
                     end;
                 [HostPort] ->
                     {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
@@ -329,7 +329,7 @@ generate_request(Credential, #{
     body_template := BodyTemplate
 }) ->
     Headers = maps:to_list(Headers0),
-    Path = emqx_authn_utils:render_str(BasePathTemplate, Credential),
+    Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
     Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
     case Method of
@@ -344,9 +344,9 @@ generate_request(Credential, #{
     end.
 
 append_query(Path, []) ->
-    encode_path(Path);
+    Path;
 append_query(Path, Query) ->
-    encode_path(Path) ++ "?" ++ binary_to_list(qs(Query)).
+    Path ++ "?" ++ binary_to_list(qs(Query)).
 
 qs(KVs) ->
     qs(KVs, []).
@@ -407,10 +407,6 @@ parse_body(ContentType, _) ->
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
-
-encode_path(Path) ->
-    Parts = string:split(Path, "/", all),
-    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 request_for_log(Credential, #{url := Url} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),
