@@ -108,6 +108,25 @@ t_full_config(_Config) ->
         })
     ).
 
+t_sensitive_config_hidden(_Config) ->
+    ?assertMatch(
+        #{
+            access_key_id := "access_key_id",
+            secret_access_key := <<"******">>
+        },
+        emqx_s3_schema:translate(
+            #{
+                <<"bucket">> => <<"bucket">>,
+                <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+                <<"port">> => 443,
+                <<"access_key_id">> => <<"access_key_id">>,
+                <<"secret_access_key">> => <<"secret_access_key">>
+            },
+            % NOTE: this is what Config API handler is doing
+            #{obfuscate_sensitive_values => true}
+        )
+    ).
+
 t_invalid_limits(_Config) ->
     ?assertException(
         throw,

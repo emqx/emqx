@@ -12,6 +12,7 @@
 -export([roots/0, fields/1, namespace/0, tags/0, desc/1]).
 
 -export([translate/1]).
+-export([translate/2]).
 
 roots() ->
     [s3].
@@ -36,7 +37,8 @@ fields(s3) ->
                 string(),
                 #{
                     desc => ?DESC("secret_access_key"),
-                    required => false
+                    required => false,
+                    sensitive => true
                 }
             )},
         {bucket,
@@ -142,7 +144,10 @@ desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
 
 translate(Conf) ->
-    Options = #{atom_key => true},
+    translate(Conf, #{}).
+
+translate(Conf, OptionsIn) ->
+    Options = maps:merge(#{atom_key => true}, OptionsIn),
     #{s3 := TranslatedConf} = hocon_tconf:check_plain(
         emqx_s3_schema, #{<<"s3">> => Conf}, Options, [s3]
     ),

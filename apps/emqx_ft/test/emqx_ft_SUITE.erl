@@ -184,8 +184,17 @@ t_invalid_filename(Config) ->
         emqtt:publish(C, mk_init_topic(<<"f3">>), encode_meta(meta("/etc/passwd", <<>>)), 1)
     ),
     ?assertRCName(
+        unspecified_error,
+        emqtt:publish(
+            C,
+            mk_init_topic(<<"f4">>),
+            encode_meta(meta(lists:duplicate(1000, $A), <<>>)),
+            1
+        )
+    ),
+    ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(<<"f4">>), encode_meta(meta("146%", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(<<"f5">>), encode_meta(meta("146%", <<>>)), 1)
     ).
 
 t_simple_transfer(Config) ->
