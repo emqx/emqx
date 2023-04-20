@@ -274,3 +274,4 @@ clickhouse
 FormatType
 RocketMQ
 Keyspace
+OpenTSDB

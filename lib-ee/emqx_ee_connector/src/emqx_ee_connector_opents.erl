@@ -75,10 +75,10 @@ on_start(
         {pool_size, PoolSize}
     ],
 
-    State = #{poolname => InstanceId, server => Server},
+    State = #{pool_name => InstanceId, server => Server},
     case opentsdb_connectivity(Server) of
         ok ->
-            case emqx_plugin_libs_pool:start_pool(InstanceId, ?MODULE, Options) of
+            case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
                 ok ->
                     {ok, State};
                 Error ->
@@ -89,12 +89,12 @@ on_start(
             Error
     end.
 
-on_stop(InstanceId, #{poolname := PoolName} = _State) ->
+on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
     ?SLOG(info, #{
         msg => "stopping_opents_connector",
         connector => InstanceId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, Request, State) ->
     on_batch_query(InstanceId, [Request], State).
@@ -122,7 +122,7 @@ on_get_status(_InstanceId, #{server := Server}) ->
 %% Helper fns
 %%========================================================================================
 
-do_query(InstanceId, Query, #{poolname := PoolName} = State) ->
+do_query(InstanceId, Query, #{pool_name := PoolName} = State) ->
     ?TRACE(
         "QUERY",
         "opents_connector_received",

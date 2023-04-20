@@ -7,13 +7,13 @@ emqx_bridge_opents_connector {
         "URL"
 
     summary.desc:
-        """Whether or not to return summary information."""
+        """Whether to return summary information."""
 
     summary.label:
         "Summary"
 
     details.desc:
-        """Whether or not to return detailed information."""
+        """Whether to return detailed information."""
 
     details.label:
         "Details"
