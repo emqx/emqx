@@ -39,7 +39,6 @@ emqx_bridge_pulsar {
 
   buffer_mode {
     desc = "Message buffer mode.\n"
-           "\n"
            "<code>memory</code>: Buffer all messages in memory. The messages will be lost"
            " in case of EMQX node restart\n<code>disk</code>: Buffer all messages on disk."
            " The messages on disk are able to survive EMQX node restart.\n"
