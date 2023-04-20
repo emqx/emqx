@@ -1,5 +1,23 @@
 emqx_ee_connector_dynamo {
 
+aws_access_key_id.desc:
+"""DynamoDB 的访问 ID。"""
+
+aws_access_key_id.label:
+"""连接访问 ID"""
+
+aws_secret_access_key.desc:
+"""DynamoDB 的访问密钥。"""
+
+aws_secret_access_key.label:
+"""连接访问密钥"""
+
+table.desc:
+"""DynamoDB 的表。"""
+
+table.label:
+"""表"""
+
 url.desc:
 """DynamoDB 的地址。"""
 

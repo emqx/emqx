@@ -1,41 +1,27 @@
 emqx_ee_connector_dynamo {
 
+aws_access_key_id.desc:
+"""Access Key ID for connecting to DynamoDB."""
+
+aws_access_key_id.label:
+"""AWS Access Key ID"""
+
+aws_secret_access_key.desc:
+"""AWS Secret Access Key for connecting to DynamoDB."""
+
+aws_secret_access_key.label:
+"""AWS Secret Access Key"""
+
+table.desc:
+"""DynamoDB Table."""
+
+table.label:
+"""Table """
+
 url.desc:
 """The url of DynamoDB endpoint."""
 
 url.label:
 """DynamoDB Endpoint"""
 
-    table {
-        desc {
-          en: """DynamoDB Table."""
-          zh: """DynamoDB 的表。"""
-        }
-        label: {
-              en: "Table "
-              zh: "表"
-            }
-    }
-
-    aws_access_key_id {
-        desc {
-          en: """Access Key ID for connecting to DynamoDB."""
-          zh: """DynamoDB 的访问 ID。"""
-        }
-        label: {
-             en: "AWS Access Key ID"
-             zh: "连接访问 ID"
-            }
-    }
-
-    aws_secret_access_key {
-        desc {
-          en: """AWS Secret Access Key for connecting to DynamoDB."""
-          zh: """DynamoDB 的访问密钥。"""
-        }
-        label: {
-              en: "AWS Secret Access Key"
-              zh: "连接访问密钥"
-            }
-    }
 }
