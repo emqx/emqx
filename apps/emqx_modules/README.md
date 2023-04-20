@@ -1,6 +1,6 @@
 # EMQX Modules
 
-The application provide some minor functional modules that are not included in the MQTT
+The application provides some minor functional modules that are not included in the MQTT
 protocol standard, including "Delayed Publish", "Topic Rewrite", "Topic Metrics" and "Telemetry".
 
 
@@ -20,7 +20,7 @@ See [Enabling/Disabling Delayed Publish via HTTP API](https://www.emqx.io/docs/e
 Topic Rewrite allows users to configure rules to change the topic strings that
 the client requests to subscribe or publish.
 
-This feature is very useful when it need to compatibility with different versions of topic designs.
+This feature is very useful when there's a need to transform between different topic structures.
 For example, an old device that has already been issued and cannot
 be upgraded may use old topic designs, but for some reason, we adjusted the format of topics. We can use this feature to rewrite the old topics as the new format to eliminate these differences.
 
