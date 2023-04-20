@@ -64,7 +64,7 @@
         {BridgeType, BridgeName} ->
             EXPR
     catch
-        throw:{invalid_bridge_id, Reason} ->
+        throw:#{reason := Reason} ->
             ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
     end
 ).
@@ -546,6 +546,8 @@ schema("/bridges_probe") ->
             case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     ?NO_CONTENT;
+                {error, #{kind := validation_error} = Reason} ->
+                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
                 {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
                     ?BAD_REQUEST('TEST_FAILED', Reason)
             end;
