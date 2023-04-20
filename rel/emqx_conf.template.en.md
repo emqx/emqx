@@ -7,21 +7,27 @@ and a superset of JSON.
 EMQX configuration consists of two layers.
 From bottom up:
 
-1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
-   Changes in this layer require a full node restart to take effect.
-1. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
+1. Cluster-synced configs: `$EMQX_NODE__DATA_DIR/configs/cluster.hocon`.
+2. Local node configs: `emqx.conf` + `EMQX_` prefixed environment variables.
+
+:::tip Tip
+Prior to v5.0.23 and e5.0.3, the cluster-synced configs are stored in
+`cluster-override.conf` which is applied on top of the local configs.
+
+If upgraded from an earlier version, as long as `cluster-override.conf` exists,
+`cluster.hocon` will not be created, and `cluster-override.conf` will stay on
+top of the overriding layers.
+:::
 
 When environment variable `$EMQX_NODE__DATA_DIR` is not set, config `node.data_dir`
 is used.
 
-The `cluster-override.conf` file is overwritten at runtime when changes
-are made from dashboard UI, management HTTP API, or CLI. When clustered,
+The `cluster.hocon` file is overwritten at runtime when changes
+are made from Dashboard, management HTTP API, or CLI. When clustered,
 after EMQX restarts, it copies the file from the node which has the greatest `uptime`.
 
 :::tip Tip
-Some of the configs (such as `node.name`) are boot-only configs and not overridable.
-Config values from `*-override.conf` are **not** mapped to boot configs for
-the config fields attributed with `mapping: path.to.boot.config.key`
+To avoid confusion, don't add the same keys in both `cluster.hocon` and `emqx.conf`.
 :::
 
 For detailed override rules, see [Config Overlay Rules](#config-overlay-rules).

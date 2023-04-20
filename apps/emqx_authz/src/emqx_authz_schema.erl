@@ -494,7 +494,10 @@ authz_fields() ->
                     default => [],
                     desc => ?DESC(sources),
                     %% doc_lift is force a root level reference instead of nesting sub-structs
-                    extra => #{doc_lift => true}
+                    extra => #{doc_lift => true},
+                    %% it is recommended to configure authz sources from dashboard
+                    %% hance the importance level for config is low
+                    importance => ?IMPORTANCE_LOW
                 }
             )}
     ].
