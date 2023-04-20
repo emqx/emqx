@@ -414,6 +414,18 @@ t_http_crud_apis(Config) ->
         },
         json(maps:get(<<"message">>, PutFail2))
     ),
+    {ok, 400, _} = request_json(
+        put,
+        uri(["bridges", BridgeID]),
+        ?HTTP_BRIDGE(<<"localhost:1234/foo">>, Name),
+        Config
+    ),
+    {ok, 400, _} = request_json(
+        put,
+        uri(["bridges", BridgeID]),
+        ?HTTP_BRIDGE(<<"htpp://localhost:12341234/foo">>, Name),
+        Config
+    ),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), Config),
@@ -497,6 +509,22 @@ t_http_crud_apis(Config) ->
 
     %% Try create bridge with bad characters as name
     {ok, 400, _} = request(post, uri(["bridges"]), ?HTTP_BRIDGE(URL1, <<"隋达"/utf8>>), Config),
+
+    %% Missing scheme in URL
+    {ok, 400, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(<<"localhost:1234/foo">>, <<"missing_url_scheme">>),
+        Config
+    ),
+
+    %% Invalid port
+    {ok, 400, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(<<"http://localhost:12341234/foo">>, <<"invalid_port">>),
+        Config
+    ),
 
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), Config).
 
@@ -1012,6 +1040,34 @@ t_bridges_probe(Config) ->
             post,
             uri(["bridges_probe"]),
             ?HTTP_BRIDGE(<<"http://203.0.113.3:1234/foo">>),
+            Config
+        )
+    ),
+
+    %% Missing scheme in URL
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := _
+        }},
+        request_json(
+            post,
+            uri(["bridges_probe"]),
+            ?HTTP_BRIDGE(<<"203.0.113.3:1234/foo">>),
+            Config
+        )
+    ),
+
+    %% Invalid port
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := _
+        }},
+        request_json(
+            post,
+            uri(["bridges_probe"]),
+            ?HTTP_BRIDGE(<<"http://203.0.113.3:12341234/foo">>),
             Config
         )
     ),
