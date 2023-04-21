@@ -18,10 +18,12 @@
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_authn.hrl").
 
 -export([
     common_fields/0,
     roots/0,
+    validations/0,
     tags/0,
     fields/1,
     authenticator_type/0,
@@ -207,3 +209,27 @@ array(Name) ->
 
 array(Name, DescId) ->
     {Name, ?HOCON(?R_REF(Name), #{desc => ?DESC(DescId)})}.
+
+validations() ->
+    [
+        {check_http_ssl_opts, fun(Conf) ->
+            CheckFun = fun emqx_authn_http:check_ssl_opts/1,
+            validation(Conf, CheckFun)
+        end},
+        {check_http_headers, fun(Conf) ->
+            CheckFun = fun emqx_authn_http:check_headers/1,
+            validation(Conf, CheckFun)
+        end}
+    ].
+
+validation(Conf, CheckFun) when is_map(Conf) ->
+    validation(hocon_maps:get(?CONF_NS, Conf), CheckFun);
+validation(undefined, _) ->
+    ok;
+validation([], _) ->
+    ok;
+validation([AuthN | Tail], CheckFun) ->
+    case CheckFun(#{?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY => AuthN}) of
+        ok -> validation(Tail, CheckFun);
+        Error -> Error
+    end.

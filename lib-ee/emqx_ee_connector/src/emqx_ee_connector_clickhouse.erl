@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_connector_clickhouse).
@@ -74,7 +62,8 @@
 -type state() ::
     #{
         templates := templates(),
-        poolname := atom()
+        pool_name := binary(),
+        connect_timeout := pos_integer()
     }.
 
 -type clickhouse_config() :: map().
@@ -151,9 +140,8 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_clickhouse_connector",
         connector => InstanceID,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
-    PoolName = emqx_plugin_libs_pool:pool_name(InstanceID),
     Options = [
         {url, URL},
         {user, maps:get(username, Config, "default")},
@@ -161,45 +149,42 @@ on_start(
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
-        {pool, PoolName}
+        {pool, InstanceID}
     ],
-    InitState = #{
-        poolname => PoolName,
-        connect_timeout => ConnectTimeout
-    },
     try
         Templates = prepare_sql_templates(Config),
-        State = maps:merge(InitState, #{templates => Templates}),
-        case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options) of
+        State = #{
+            pool_name => InstanceID,
+            templates => Templates,
+            connect_timeout => ConnectTimeout
+        },
+        case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
             ok ->
                 {ok, State};
             {error, Reason} ->
-                log_start_error(Config, Reason, none),
+                ?tp(
+                    info,
+                    "clickhouse_connector_start_failed",
+                    #{
+                        error => Reason,
+                        config => emqx_utils:redact(Config)
+                    }
+                ),
                 {error, Reason}
         end
     catch
         _:CatchReason:Stacktrace ->
-            log_start_error(Config, CatchReason, Stacktrace),
+            ?tp(
+                info,
+                "clickhouse_connector_start_failed",
+                #{
+                    error => CatchReason,
+                    stacktrace => Stacktrace,
+                    config => emqx_utils:redact(Config)
+                }
+            ),
             {error, CatchReason}
     end.
-
-log_start_error(Config, Reason, Stacktrace) ->
-    StacktraceMap =
-        case Stacktrace of
-            none -> #{};
-            _ -> #{stacktrace => Stacktrace}
-        end,
-    LogMessage =
-        #{
-            msg => "clickhouse_connector_start_failed",
-            error_reason => Reason,
-            config => emqx_misc:redact(Config)
-        },
-    ?SLOG(info, maps:merge(LogMessage, StacktraceMap)),
-    ?tp(
-        clickhouse_connector_start_failed,
-        #{error => Reason}
-    ).
 
 %% Helper functions to prepare SQL tempaltes
 
@@ -252,7 +237,7 @@ split_clickhouse_insert_sql(SQL) ->
     end.
 
 % This is a callback for ecpool which is triggered by the call to
-% emqx_plugin_libs_pool:start_pool in on_start/2
+% emqx_resource_pool:start in on_start/2
 
 connect(Options) ->
     URL = iolist_to_binary(emqx_http_lib:normalize(proplists:get_value(url, Options))),
@@ -270,8 +255,15 @@ connect(Options) ->
         {pool_size, PoolSize}
     ],
     case clickhouse:start_link(FixedOptions) of
-        {ok, _Conn} = Ok ->
-            Ok;
+        {ok, Connection} ->
+            %% Check if we can connect and send a query
+            case clickhouse:detailed_status(Connection) of
+                ok ->
+                    {ok, Connection};
+                Error ->
+                    ok = clickhouse:stop(Connection),
+                    Error
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -282,23 +274,20 @@ connect(Options) ->
 
 -spec on_stop(resource_id(), resource_state()) -> term().
 
-on_stop(ResourceID, #{poolname := PoolName}) ->
+on_stop(InstanceID, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping clickouse connector",
-        connector => ResourceID
+        connector => InstanceID
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 %% -------------------------------------------------------------------
 %% on_get_status emqx_resouce callback and related functions
 %% -------------------------------------------------------------------
 
 on_get_status(
-    _InstId,
-    #{
-        poolname := PoolName,
-        connect_timeout := Timeout
-    } = State
+    _InstanceID,
+    #{pool_name := PoolName, connect_timeout := Timeout} = State
 ) ->
     case do_get_status(PoolName, Timeout) of
         ok ->
@@ -323,7 +312,7 @@ do_get_status(PoolName, Timeout) ->
                     Error
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->
@@ -357,7 +346,7 @@ do_get_status(PoolName, Timeout) ->
 on_query(
     ResourceID,
     {RequestType, DataOrSQL},
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
         msg => "clickhouse connector received sql query",
@@ -396,16 +385,11 @@ query_type(send_message) ->
 on_batch_query(
     ResourceID,
     BatchReq,
-    State
+    #{pool_name := PoolName, templates := Templates} = _State
 ) ->
     %% Currently we only support batch requests with the send_message key
     {Keys, ObjectsToInsert} = lists:unzip(BatchReq),
     ensure_keys_are_of_type_send_message(Keys),
-    %% Pick out the SQL template
-    #{
-        templates := Templates,
-        poolname := PoolName
-    } = State,
     %% Create batch insert SQL statement
     SQL = objects_to_sql(ObjectsToInsert, Templates),
     %% Do the actual query in the database

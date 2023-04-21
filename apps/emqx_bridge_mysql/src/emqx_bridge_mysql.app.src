@@ -1,0 +1,9 @@
+{application, emqx_bridge_mysql, [
+    {description, "EMQX Enterprise MySQL Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

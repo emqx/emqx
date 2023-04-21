@@ -52,7 +52,7 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([handle_async_reply/2, handle_async_batch_reply/2]).
+-export([handle_async_reply/2, handle_async_batch_reply/2, reply_call/2]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -178,20 +178,7 @@ init({Id, Index, Opts}) ->
     process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Id, {Id, Index}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
-    SegBytes0 = maps:get(queue_seg_bytes, Opts, ?DEFAULT_QUEUE_SEG_SIZE),
-    TotalBytes = maps:get(max_queue_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
-    SegBytes = min(SegBytes0, TotalBytes),
-    QueueOpts =
-        #{
-            dir => disk_queue_dir(Id, Index),
-            marshaller => fun ?MODULE:queue_item_marshaller/1,
-            max_total_bytes => TotalBytes,
-            %% we don't want to retain the queue after
-            %% resource restarts.
-            offload => {true, volatile},
-            seg_bytes => SegBytes,
-            sizer => fun ?MODULE:estimate_size/1
-        },
+    QueueOpts = replayq_opts(Id, Index, Opts),
     Queue = replayq:open(QueueOpts),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Queue)),
     emqx_resource_metrics:inflight_set(Id, Index, 0),
@@ -214,7 +201,7 @@ init({Id, Index, Opts}) ->
         resume_interval => ResumeInterval,
         tref => undefined
     },
-    ?tp(buffer_worker_init, #{id => Id, index => Index}),
+    ?tp(buffer_worker_init, #{id => Id, index => Index, queue_opts => QueueOpts}),
     {ok, running, Data}.
 
 running(enter, _, #{tref := _Tref} = Data) ->
@@ -306,10 +293,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 pick_call(Id, Key, Query, Timeout) ->
     ?PICK(Id, Key, Pid, begin
-        Caller = self(),
         MRef = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
-        From = {Caller, MRef},
-        ReplyTo = {fun gen_statem:reply/2, [From]},
+        ReplyTo = {fun ?MODULE:reply_call/2, [MRef]},
         erlang:send(Pid, ?SEND_REQ(ReplyTo, Query)),
         receive
             {MRef, Response} ->
@@ -1535,7 +1520,7 @@ queue_count(Q) ->
 disk_queue_dir(Id, Index) ->
     QDir0 = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
     QDir = filename:join([emqx:data_dir(), "bufs", node(), QDir0]),
-    emqx_misc:safe_filename(QDir).
+    emqx_utils:safe_filename(QDir).
 
 clear_disk_queue_dir(Id, Index) ->
     ReplayQDir = disk_queue_dir(Id, Index),
@@ -1679,6 +1664,32 @@ adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
     end,
     BatchTime.
 
+replayq_opts(Id, Index, Opts) ->
+    BufferMode = maps:get(buffer_mode, Opts, memory_only),
+    TotalBytes = maps:get(max_buffer_bytes, Opts, ?DEFAULT_BUFFER_BYTES),
+    case BufferMode of
+        memory_only ->
+            #{
+                mem_only => true,
+                marshaller => fun ?MODULE:queue_item_marshaller/1,
+                max_total_bytes => TotalBytes,
+                sizer => fun ?MODULE:estimate_size/1
+            };
+        volatile_offload ->
+            SegBytes0 = maps:get(buffer_seg_bytes, Opts, TotalBytes),
+            SegBytes = min(SegBytes0, TotalBytes),
+            #{
+                dir => disk_queue_dir(Id, Index),
+                marshaller => fun ?MODULE:queue_item_marshaller/1,
+                max_total_bytes => TotalBytes,
+                %% we don't want to retain the queue after
+                %% resource restarts.
+                offload => {true, volatile},
+                seg_bytes => SegBytes,
+                sizer => fun ?MODULE:estimate_size/1
+            }
+    end.
+
 %% The request timeout should be greater than the resume interval, as
 %% it defines how often the buffer worker tries to unblock. If request
 %% timeout is <= resume interval and the buffer worker is ever
@@ -1689,6 +1700,17 @@ default_resume_interval(_RequestTimeout = infinity, HealthCheckInterval) ->
     max(1, HealthCheckInterval);
 default_resume_interval(RequestTimeout, HealthCheckInterval) ->
     max(1, min(HealthCheckInterval, RequestTimeout div 3)).
+
+-spec reply_call(reference(), term()) -> ok.
+reply_call(Alias, Response) ->
+    %% Since we use a reference created with `{alias,
+    %% reply_demonitor}', after we `demonitor' it in case of a
+    %% timeout, we won't send any more messages that the caller is not
+    %% expecting anymore.  Using `gen_statem:reply({pid(),
+    %% reference()}, _)' would still send a late reply even after the
+    %% demonitor.
+    erlang:send(Alias, {Alias, Response}),
+    ok.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

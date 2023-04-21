@@ -1,0 +1,31 @@
+emqx_mqttsn_schema {
+
+mqttsn.desc:
+"""The MQTT-SN Gateway configuration.
+This gateway only supports the v1.2 protocol"""
+
+mqttsn_broadcast.desc:
+"""Whether to periodically broadcast ADVERTISE messages"""
+
+mqttsn_enable_qos3.desc:
+"""Allows connectionless clients to publish messages with a Qos of -1.
+This feature is defined for very simple client implementations which do not support any other features except this one. There is no connection setup nor tear down, no registration nor subscription. The client just sends its 'PUBLISH' messages to a GW"""
+
+mqttsn_gateway_id.desc:
+"""MQTT-SN Gateway ID.
+When the <code>broadcast</code> option is enabled, the gateway will broadcast ADVERTISE message with this value"""
+
+mqttsn_predefined.desc:
+"""The pre-defined topic IDs and topic names.
+A 'pre-defined' topic ID is a topic ID whose mapping to a topic name is known in advance by both the client's application and the gateway"""
+
+mqttsn_predefined_id.desc:
+"""Topic ID. Range: 1-65535"""
+
+mqttsn_predefined_topic.desc:
+"""Topic Name"""
+
+mqttsn_subs_resume.desc:
+"""Whether to initiate all subscribed topic name registration messages to the client after the Session has been taken over by a new channel"""
+
+}

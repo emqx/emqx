@@ -1,0 +1,54 @@
+emqx_mgmt_api_banned {
+
+as.desc:
+"""封禁方式，可以通过客户端 ID、用户名或者 IP 地址等方式进行封禁。"""
+
+as.label:
+"""封禁方式"""
+
+at.desc:
+"""封禁的起始时间，格式为 rfc3339，默认为发起操作的时间。"""
+
+at.label:
+"""封禁时间"""
+
+by.desc:
+"""封禁的发起者。"""
+
+by.label:
+"""封禁发起者"""
+
+create_banned_api.desc:
+"""添加一个客户端 ID、用户名或者 IP 地址到黑名单。"""
+
+create_banned_api_response400.desc:
+"""错误的请求，可能是参数错误或封禁对象已存在等原因。"""
+
+delete_banned_api.desc:
+"""将一个客户端 ID、用户名或者 IP 地址从黑名单中删除。"""
+
+delete_banned_api_response404.desc:
+"""未在黑名单中找到该封禁对象。"""
+
+list_banned_api.desc:
+"""列出目前所有被封禁的客户端 ID、用户名和 IP 地址。"""
+
+reason.desc:
+"""封禁原因，记录当前对象被封禁的原因。"""
+
+reason.label:
+"""封禁原因"""
+
+until.desc:
+"""封禁的结束时间，格式为 rfc3339，默认值为发起操作的时间 + 1 年。"""
+
+until.label:
+"""封禁结束时间"""
+
+who.desc:
+"""封禁对象，具体的客户端 ID、用户名或者 IP 地址。"""
+
+who.label:
+"""封禁对象"""
+
+}

@@ -32,6 +32,7 @@
 
 %% API callbacks
 -export([
+    '/rule_engine'/2,
     '/rule_events'/2,
     '/rule_test'/2,
     '/rules'/2,
@@ -41,7 +42,7 @@
 ]).
 
 %% query callback
--export([qs2ms/2, run_fuzzy_match/2, format_rule_resp/1]).
+-export([qs2ms/2, run_fuzzy_match/2, format_rule_info_resp/1]).
 
 -define(ERR_BADARGS(REASON), begin
     R0 = err_msg(REASON),
@@ -134,6 +135,7 @@ api_spec() ->
 
 paths() ->
     [
+        "/rule_engine",
         "/rule_events",
         "/rule_test",
         "/rules",
@@ -144,6 +146,9 @@ paths() ->
 
 error_schema(Code, Message) when is_atom(Code) ->
     emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
+
+rule_engine_schema() ->
+    ref(emqx_rule_api_schema, "rule_engine").
 
 rule_creation_schema() ->
     ref(emqx_rule_api_schema, "rule_creation").
@@ -184,7 +189,7 @@ schema("/rules") ->
             responses => #{
                 200 =>
                     [
-                        {data, mk(array(rule_info_schema()), #{desc => ?DESC("desc9")})},
+                        {data, mk(array(rule_info_schema()), #{desc => ?DESC("api1_resp")})},
                         {meta, mk(ref(emqx_dashboard_swagger, meta), #{})}
                     ],
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters")
@@ -289,6 +294,26 @@ schema("/rule_test") ->
                 200 => <<"Rule Test Pass">>
             }
         }
+    };
+schema("/rule_engine") ->
+    #{
+        'operationId' => '/rule_engine',
+        get => #{
+            tags => [<<"rules">>],
+            description => ?DESC("api9"),
+            responses => #{
+                200 => rule_engine_schema()
+            }
+        },
+        put => #{
+            tags => [<<"rules">>],
+            description => ?DESC("api10"),
+            'requestBody' => rule_engine_schema(),
+            responses => #{
+                200 => rule_engine_schema(),
+                400 => error_schema('BAD_REQUEST', "Invalid request")
+            }
+        }
     }.
 
 param_path_id() ->
@@ -309,7 +334,7 @@ param_path_id() ->
             QueryString,
             ?RULE_QS_SCHEMA,
             fun ?MODULE:qs2ms/2,
-            fun ?MODULE:format_rule_resp/1
+            fun ?MODULE:format_rule_info_resp/1
         )
     of
         {error, page_limit_invalid} ->
@@ -318,7 +343,7 @@ param_path_id() ->
             {200, Result}
     end;
 '/rules'(post, #{body := Params0}) ->
-    case maps:get(<<"id">>, Params0, list_to_binary(emqx_misc:gen_id(8))) of
+    case maps:get(<<"id">>, Params0, list_to_binary(emqx_utils:gen_id(8))) of
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
         Id ->
@@ -331,7 +356,7 @@ param_path_id() ->
                     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
                         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
                             [Rule] = get_one_rule(AllRules, Id),
-                            {201, format_rule_resp(Rule)};
+                            {201, format_rule_info_resp(Rule)};
                         {error, Reason} ->
                             ?SLOG(error, #{
                                 msg => "create_rule_failed",
@@ -362,7 +387,7 @@ param_path_id() ->
 '/rules/:id'(get, #{bindings := #{id := Id}}) ->
     case emqx_rule_engine:get_rule(Id) of
         {ok, Rule} ->
-            {200, format_rule_resp(Rule)};
+            {200, format_rule_info_resp(Rule)};
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
@@ -372,7 +397,7 @@ param_path_id() ->
     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
             [Rule] = get_one_rule(AllRules, Id),
-            {200, format_rule_resp(Rule)};
+            {200, format_rule_info_resp(Rule)};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "update_rule_failed",
@@ -419,32 +444,40 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
+'/rule_engine'(get, _Params) ->
+    {200, format_rule_engine_resp(emqx_conf:get([rule_engine]))};
+'/rule_engine'(put, #{body := Params}) ->
+    case rule_engine_update(Params) of
+        {ok, Config} ->
+            {200, format_rule_engine_resp(Config)};
+        {error, Reason} ->
+            {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
 err_msg({RuleError, {_E, Reason, _S}}) ->
-    emqx_misc:readable_error_msg(encode_nested_error(RuleError, Reason));
+    emqx_utils:readable_error_msg(encode_nested_error(RuleError, Reason));
 err_msg({Reason, _Details}) ->
-    emqx_misc:readable_error_msg(Reason);
+    emqx_utils:readable_error_msg(Reason);
 err_msg(Msg) ->
-    emqx_misc:readable_error_msg(Msg).
+    emqx_utils:readable_error_msg(Msg).
 
 encode_nested_error(RuleError, Reason) when is_tuple(Reason) ->
     encode_nested_error(RuleError, element(1, Reason));
 encode_nested_error(RuleError, Reason) ->
-    case emqx_json:safe_encode([{RuleError, Reason}]) of
+    case emqx_utils_json:safe_encode([{RuleError, Reason}]) of
         {ok, Json} ->
             Json;
         _ ->
             {RuleError, Reason}
     end.
 
-format_rule_resp(Rules) when is_list(Rules) ->
-    [format_rule_resp(R) || R <- Rules];
-format_rule_resp({Id, Rule}) ->
-    format_rule_resp(Rule#{id => Id});
-format_rule_resp(#{
+format_rule_info_resp({Id, Rule}) ->
+    format_rule_info_resp(Rule#{id => Id});
+format_rule_info_resp(#{
     id := Id,
     name := Name,
     created_at := CreatedAt,
@@ -464,6 +497,9 @@ format_rule_resp(#{
         created_at => format_datetime(CreatedAt, millisecond),
         description => Descr
     }.
+
+format_rule_engine_resp(Config) ->
+    maps:remove(rules, Config).
 
 format_datetime(Timestamp, Unit) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
@@ -661,3 +697,14 @@ run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, like, Pattern} | Fuzzy]) -
         run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E, [_ | Fuzzy]) ->
     run_fuzzy_match(E, Fuzzy).
+
+rule_engine_update(Params) ->
+    case emqx_rule_api_schema:check_params(Params, rule_engine) of
+        {ok, _CheckedParams} ->
+            {ok, #{config := Config}} = emqx_conf:update([rule_engine], Params, #{
+                override_to => cluster
+            }),
+            {ok, Config};
+        {error, Reason} ->
+            {error, Reason}
+    end.

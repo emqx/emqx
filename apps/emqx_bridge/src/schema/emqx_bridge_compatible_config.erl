@@ -89,7 +89,7 @@ default_resource_opts() ->
         <<"inflight_window">> => 100,
         <<"auto_restart_interval">> => <<"60s">>,
         <<"health_check_interval">> => <<"15s">>,
-        <<"max_queue_bytes">> => <<"1GB">>,
+        <<"max_buffer_bytes">> => <<"1GB">>,
         <<"query_mode">> => <<"sync">>,
         %% there is only one underlying MQTT connection
         %% doesn't make a lot of sense to have a large pool

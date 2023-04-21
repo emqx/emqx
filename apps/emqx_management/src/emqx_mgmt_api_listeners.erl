@@ -390,7 +390,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                 undefined ->
                     {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
                 PrevConf ->
-                    MergeConfT = emqx_map_lib:deep_merge(PrevConf, Conf),
+                    MergeConfT = emqx_utils_maps:deep_merge(PrevConf, Conf),
                     MergeConf = emqx_listeners:ensure_override_limiter_conf(MergeConfT, Conf),
                     case update(Path, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
@@ -483,7 +483,7 @@ err_msg_str(Reason) ->
     io_lib:format("~p", [Reason]).
 
 list_listeners() ->
-    [list_listeners(Node) || Node <- mria:running_nodes()].
+    [list_listeners(Node) || Node <- emqx:running_nodes()].
 
 list_listeners(Node) ->
     wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).

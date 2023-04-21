@@ -1,37 +1,21 @@
 emqx_connector_ldap {
 
-    bind_dn {
-        desc {
-          en: """LDAP's Binding Distinguished Name (DN)"""
-          zh: """LDAP 绑定的 DN 的值"""
-        }
-        label: {
-              en: "Bind DN"
-              zh: "Bind DN"
-            }
-    }
+bind_dn.desc:
+"""LDAP's Binding Distinguished Name (DN)"""
 
-    port {
-        desc {
-          en: """LDAP Port"""
-          zh: """LDAP 端口"""
-        }
-        label: {
-              en: "Port"
-              zh: "端口"
-            }
-    }
+bind_dn.label:
+"""Bind DN"""
 
+port.desc:
+"""LDAP Port"""
 
-    timeout {
-        desc {
-          en: """LDAP's query timeout"""
-          zh: """LDAP 查询超时时间"""
-        }
-        label: {
-              en: "timeout"
-              zh: "超时时间"
-            }
-    }
+port.label:
+"""Port"""
+
+timeout.desc:
+"""LDAP's query timeout"""
+
+timeout.label:
+"""timeout"""
 
 }

@@ -313,6 +313,7 @@ stop_apps(Apps) ->
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
+    application:unset_env(emqx, cluster_hocon_file),
     application:unset_env(gen_rpc, port_discovery),
     ok.
 
@@ -461,6 +462,10 @@ force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
     ok = file:write_file(Path, Bin, [append]),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(emqx, Paths) ->
+    %% we need init cluster conf, so we can save the cluster conf to the file
+    application:set_env(emqx, local_override_conf_file, "local_override.conf"),
+    application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
+    application:set_env(emqx, cluster_conf_file, "cluster.hocon"),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->
     ok.
@@ -476,7 +481,7 @@ copy_certs(_, _) ->
 load_config(SchemaModule, Config, Opts) ->
     ConfigBin =
         case is_map(Config) of
-            true -> jsx:encode(Config);
+            true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
@@ -675,7 +680,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
                         ]
                     );
                 slave ->
-                    slave:start_link(host(), Name, ebin_path())
+                    Env = " -env HOCON_ENV_OVERRIDE_PREFIX EMQX_",
+                    slave:start_link(host(), Name, ebin_path() ++ Env)
             end
         end,
     case DoStart() of
@@ -748,6 +754,21 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% `emqx_conf' app and correctly catch up the config.
     StartAutocluster = maps:get(start_autocluster, Opts, false),
 
+    ct:pal(
+        "setting up node ~p:\n  ~p",
+        [
+            Node,
+            #{
+                start_autocluster => StartAutocluster,
+                load_apps => LoadApps,
+                apps => Apps,
+                env => Env,
+                join_to => JoinTo,
+                start_apps => StartApps
+            }
+        ]
+    ),
+
     %% Load env before doing anything to avoid overriding
     [ok = erpc:call(Node, ?MODULE, load, [App]) || App <- [gen_rpc, ekka, mria, emqx | LoadApps]],
 
@@ -772,10 +793,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
         end,
 
     %% Setting env before starting any applications
-    [
-        ok = rpc:call(Node, application, set_env, [Application, Key, Value])
-     || {Application, Key, Value} <- Env
-    ],
+    set_envs(Node, Env),
 
     %% Here we start the apps
     EnvHandlerForRpc =
@@ -793,8 +811,9 @@ setup_node(Node, Opts) when is_map(Opts) ->
                         node(),
                         integer_to_list(erlang:unique_integer())
                     ]),
+                    Cookie = atom_to_list(erlang:get_cookie()),
                     os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
-                    os:putenv("EMQX_NODE__COOKIE", atom_to_list(erlang:get_cookie())),
+                    os:putenv("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
                     os:unsetenv("EMQX_NODE__DATA_DIR"),
                     os:unsetenv("EMQX_NODE__COOKIE"),
@@ -825,7 +844,15 @@ setup_node(Node, Opts) when is_map(Opts) ->
             ok;
         _ ->
             StartAutocluster andalso
-                (ok = rpc:call(Node, emqx_machine_boot, start_autocluster, [])),
+                begin
+                    %% Note: we need to re-set the env because
+                    %% starting the apps apparently make some of them
+                    %% to be lost...  This is particularly useful for
+                    %% setting extra apps to be restarted after
+                    %% joining.
+                    set_envs(Node, Env),
+                    ok = erpc:call(Node, emqx_machine_boot, start_autocluster, [])
+                end,
             case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->
                     ok;
@@ -880,6 +907,14 @@ merge_opts(Opts1, Opts2) ->
         end,
         Opts1,
         Opts2
+    ).
+
+set_envs(Node, Env) ->
+    lists:foreach(
+        fun({Application, Key, Value}) ->
+            ok = rpc:call(Node, application, set_env, [Application, Key, Value])
+        end,
+        Env
     ).
 
 erl_flags() ->
@@ -1006,7 +1041,7 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
             off -> #{<<"enabled">> => false};
             on -> #{<<"enabled">> => true}
         end,
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1026,7 +1061,7 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
         <<"toxicity">> => 1.0,
         <<"attributes">> => #{<<"timeout">> => 0}
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},
@@ -1061,7 +1096,7 @@ latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
             <<"jitter">> => 3_000
         }
     },
-    BodyBin = emqx_json:encode(Body),
+    BodyBin = emqx_utils_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
         {Url, [], "application/json", BodyBin},

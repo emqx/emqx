@@ -33,7 +33,6 @@ init_per_suite(Config) ->
     mria:start(),
     application:load(emqx_dashboard),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -308,8 +307,11 @@ t_nest_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{mfa := {?MODULE, schema, [Path]}}},
+    ?assertError(
+        #{
+            mfa := {?MODULE, schema, [Path]},
+            reason := function_clause
+        },
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
     ),
     ok.

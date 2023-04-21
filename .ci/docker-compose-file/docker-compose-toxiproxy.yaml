@@ -19,6 +19,8 @@ services:
       - 8086:8086
       # InfluxDB TLS
       - 8087:8087
+      # SQL Server
+      - 11433:1433
       # MySQL
       - 13306:3306
       # MySQL TLS

@@ -1,324 +1,158 @@
 emqx_bridge_schema {
 
-    desc_enable {
-                   desc {
-                         en: """Enable or disable this bridge"""
-                         zh: """启用/禁用 Bridge"""
-                        }
-                   label: {
-                           en: "Enable Or Disable Bridge"
-                           zh: "启用/禁用 Bridge"
-                          }
-                  }
+bridges_mqtt.desc:
+"""MQTT bridges to/from another MQTT broker"""
 
-    desc_metrics {
-                   desc {
-                         en: """The metrics of the bridge"""
-                         zh: """Bridge 的计数"""
-                        }
-                   label: {
-                           en: "Bridge Metrics"
-                           zh: "Bridge 计数"
-                          }
-                  }
+bridges_mqtt.label:
+"""MQTT Bridge"""
 
-    desc_node_metrics {
-                   desc {
-                         en: """The metrics of the bridge for each node"""
-                         zh: """每个节点的 Bridge 计数"""
-                        }
-                   label: {
-                           en: "Each Node Bridge Metircs"
-                           zh: "每个节点的 Bridge 计数"
-                          }
-                  }
+bridges_webhook.desc:
+"""WebHook to an HTTP server."""
 
-    desc_status {
-                   desc {
-                         en: """The status of the bridge<br/>
+bridges_webhook.label:
+"""WebHook"""
+
+desc_bridges.desc:
+"""Configuration for MQTT bridges."""
+
+desc_bridges.label:
+"""MQTT Bridge Configuration"""
+
+desc_enable.desc:
+"""Enable or disable this bridge"""
+
+desc_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_metrics.desc:
+"""Bridge metrics."""
+
+desc_metrics.label:
+"""Bridge Metrics"""
+
+desc_node_metrics.desc:
+"""Node metrics."""
+
+desc_node_metrics.label:
+"""Node Metrics"""
+
+desc_node_name.desc:
+"""The node name."""
+
+desc_node_name.label:
+"""Node Name"""
+
+desc_node_status.desc:
+"""Node status."""
+
+desc_node_status.label:
+"""Node Status"""
+
+desc_status.desc:
+"""The status of the bridge<br/>
 - <code>connecting</code>: the initial state before any health probes were made.<br/>
 - <code>connected</code>: when the bridge passes the health probes.<br/>
 - <code>disconnected</code>: when the bridge can not pass health probes.<br/>
 - <code>stopped</code>: when the bridge resource is requested to be stopped.<br/>
 - <code>inconsistent</code>: When not all the nodes are at the same status."""
-                         zh: """Bridge 的连接状态<br/>
-- <code>connecting</code>: 启动时的初始状态。<br/>
-- <code>connected</code>: 桥接驱动健康检查正常。<br/>
-- <code>disconnected</code>: 当桥接无法通过健康检查。<br/>
-- <code>stopped</code>: 桥接处于停用状态。<br/>
-- <code>inconsistent</code>: 集群中有各节点汇报的状态不一致。"""
-                        }
-                   label: {
-                           en: "Bridge Status"
-                           zh: "Bridge 状态"
-                          }
-                  }
 
-    desc_status_reason {
-                   desc {
-                        en: "This is the reason given in case a bridge is failing to connect."
-                        zh: "桥接连接失败的原因。"
-                   }
-                   label: {
-                          en: "Failure reason"
-                          zh: "失败原因"
-                   }
-    }
+desc_status.label:
+"""Bridge Status"""
 
-    desc_node_status {
-                   desc {
-                         en: """The status of the bridge for each node.
-- <code>connecting</code>: the initial state before any health probes were made.<br/>
-- <code>connected</code>: when the bridge passes the health probes.<br/>
-- <code>disconnected</code>: when the bridge can not pass health probes.<br/>
-- <code>stopped</code>: when the bridge resource is requested to be stopped."""
-                         zh: """每个节点的 Bridge 状态
-- <code>connecting</code>: 启动时的初始状态。<br/>
-- <code>connected</code>: 桥接驱动健康检查正常。<br/>
-- <code>disconnected</code>: 当桥接无法通过健康检查。<br/>
-- <code>stopped</code>: 桥接处于停用状态。"""
-                        }
-                   label: {
-                           en: "Node Bridge Status"
-                           zh: "每个节点的 Bridge 状态"
-                          }
-                  }
+desc_status_reason.desc:
+"""This is the reason given in case a bridge is failing to connect."""
 
-    bridges_webhook {
-                   desc {
-                         en: """WebHook to an HTTP server."""
-                         zh: """转发消息到 HTTP 服务器的 WebHook"""
-                        }
-                   label: {
-                           en: "WebHook"
-                           zh: "WebHook"
-                          }
-                  }
+desc_status_reason.label:
+"""Failure reason"""
 
+metric_dropped.desc:
+"""Count of messages dropped."""
 
-    bridges_mqtt {
-                   desc {
-                         en: """MQTT bridges to/from another MQTT broker"""
-                         zh: """桥接到另一个 MQTT Broker 的 MQTT Bridge"""
-                        }
-                   label: {
-                           en: "MQTT Bridge"
-                           zh: "MQTT Bridge"
-                          }
-                  }
+metric_dropped.label:
+"""Dropped"""
 
-    metric_dropped {
-                   desc {
-                         en: """Count of messages dropped."""
-                         zh: """被丢弃的消息个数。"""
-                        }
-                   label: {
-                           en: "Dropped"
-                           zh: "丢弃"
-                          }
-                  }
+metric_dropped_other.desc:
+"""Count of messages dropped due to other reasons."""
 
-    metric_dropped_other {
-                   desc {
-                         en: """Count of messages dropped due to other reasons."""
-                         zh: """因为其他原因被丢弃的消息个数。"""
-                        }
-                   label: {
-                           en: "Dropped Other"
-                           zh: "其他丢弃"
-                          }
-                  }
-    metric_dropped_queue_full {
-                   desc {
-                         en: """Count of messages dropped due to the queue is full."""
-                         zh: """因为队列已满被丢弃的消息个数。"""
-                        }
-                   label: {
-                           en: "Dropped Queue Full"
-                           zh: "队列已满被丢弃"
-                          }
-                  }
-    metric_dropped_resource_not_found {
-                   desc {
-                         en: """Count of messages dropped due to the resource is not found."""
-                         zh: """因为资源不存在被丢弃的消息个数。"""
-                        }
-                   label: {
-                           en: "Dropped Resource NotFound"
-                           zh: "资源不存在被丢弃"
-                          }
-                  }
-    metric_dropped_resource_stopped {
-                   desc {
-                         en: """Count of messages dropped due to the resource is stopped."""
-                         zh: """因为资源已停用被丢弃的消息个数。"""
-                        }
-                   label: {
-                           en: "Dropped Resource Stopped"
-                           zh: "资源停用被丢弃"
-                          }
-                  }
-    metric_matched {
-                   desc {
-                         en: """Count of this bridge is matched and queried."""
-                         zh: """Bridge 被匹配到（被请求）的次数。"""
-                        }
-                   label: {
-                           en: "Matched"
-                           zh: "匹配次数"
-                          }
-                  }
+metric_dropped_other.label:
+"""Dropped Other"""
 
-     metric_queuing {
-                   desc {
-                         en: """Count of messages that are currently queuing."""
-                         zh: """当前被缓存到磁盘队列的消息个数。"""
-                        }
-                   label: {
-                           en: "Queued"
-                           zh: "被缓存"
-                          }
-                  }
-     metric_retried {
-                   desc {
-                         en: """Times of retried."""
-                         zh: """重试的次数。"""
-                        }
-                   label: {
-                           en: "Retried"
-                           zh: "已重试"
-                          }
-                  }
+metric_dropped_queue_full.desc:
+"""Count of messages dropped due to the queue is full."""
 
-     metric_sent_failed {
-                   desc {
-                         en: """Count of messages that sent failed."""
-                         zh: """发送失败的消息个数。"""
-                        }
-                   label: {
-                           en: "Sent Failed"
-                           zh: "发送失败"
-                          }
-                  }
+metric_dropped_queue_full.label:
+"""Dropped Queue Full"""
 
-    metric_inflight {
-                   desc {
-                         en: """Count of messages that were sent asynchronously but ACKs are not yet received."""
-                         zh: """已异步地发送但没有收到 ACK 的消息个数。"""
-                        }
-                   label: {
-                           en: "Sent Inflight"
-                           zh: "已发送未确认"
-                          }
-                  }
-    metric_sent_success {
-                   desc {
-                         en: """Count of messages that sent successfully."""
-                         zh: """已经发送成功的消息个数。"""
-                        }
-                   label: {
-                           en: "Sent Success"
-                           zh: "发送成功"
-                          }
-                  }
+metric_dropped_resource_not_found.desc:
+"""Count of messages dropped due to the resource is not found."""
 
-    metric_rate {
-                   desc {
-                         en: """The rate of matched, times/second"""
-                         zh: """执行操作的速率，次/秒"""
-                        }
-                   label: {
-                           en: "Rate"
-                           zh: "速率"
-                          }
-                  }
+metric_dropped_resource_not_found.label:
+"""Dropped Resource NotFound"""
 
-    metric_rate_max {
-                   desc {
-                         en: """The max rate of matched, times/second"""
-                         zh: """执行操作的最大速率，次/秒"""
-                        }
-                   label: {
-                           en: "Max Rate Of Matched"
-                           zh: "执行操作的最大速率"
-                          }
-                  }
+metric_dropped_resource_stopped.desc:
+"""Count of messages dropped due to the resource is stopped."""
 
-    metric_rate_last5m {
-                   desc {
-                         en: """The average rate of matched in the last 5 minutes, times/second"""
-                         zh: """5 分钟平均速率，次/秒"""
-                        }
-                   label: {
-                           en: "Last 5 Minutes Rate"
-                           zh: "5 分钟平均速率"
-                          }
-                  }
+metric_dropped_resource_stopped.label:
+"""Dropped Resource Stopped"""
 
-    metric_received {
-                   desc {
-                         en: """Count of messages that is received from the remote system."""
-                         zh: """从远程系统收到的消息个数。"""
-                        }
-                   label: {
-                           en: "Received"
-                           zh: "已接收"
-                          }
-                  }
+metric_inflight.desc:
+"""Count of messages that were sent asynchronously but ACKs are not yet received."""
 
-    desc_bridges {
-                   desc {
-                         en: """Configuration for MQTT bridges."""
-                         zh: """MQTT Bridge 配置"""
-                        }
-                   label: {
-                           en: "MQTT Bridge Configuration"
-                           zh: "MQTT Bridge 配置"
-                          }
-                  }
+metric_inflight.label:
+"""Sent Inflight"""
 
-    desc_metrics {
-                   desc {
-                         en: """Bridge metrics."""
-                         zh: """Bridge 计数"""
-                        }
-                   label: {
-                           en: "Bridge Metrics"
-                           zh: "Bridge 计数"
-                          }
-                  }
+metric_matched.desc:
+"""Count of this bridge is matched and queried."""
 
-    desc_node_metrics {
-                   desc {
-                         en: """Node metrics."""
-                         zh: """节点的计数器"""
-                        }
-                   label: {
-                           en: "Node Metrics"
-                           zh: "节点的计数器"
-                          }
-                  }
+metric_matched.label:
+"""Matched"""
 
-    desc_node_status {
-                   desc {
-                         en: """Node status."""
-                         zh: """节点的状态"""
-                        }
-                   label: {
-                           en: "Node Status"
-                           zh: "节点的状态"
-                          }
-                  }
+metric_queuing.desc:
+"""Count of messages that are currently queuing."""
 
-    desc_node_name {
-                   desc {
-                         en: """The node name."""
-                         zh: """节点的名字"""
-                        }
-                   label: {
-                           en: "Node Name"
-                           zh: "节点名字"
-                          }
-                  }
+metric_queuing.label:
+"""Queued"""
+
+metric_rate.desc:
+"""The rate of matched, times/second"""
+
+metric_rate.label:
+"""Rate"""
+
+metric_rate_last5m.desc:
+"""The average rate of matched in the last 5 minutes, times/second"""
+
+metric_rate_last5m.label:
+"""Last 5 Minutes Rate"""
+
+metric_rate_max.desc:
+"""The max rate of matched, times/second"""
+
+metric_rate_max.label:
+"""Max Rate Of Matched"""
+
+metric_received.desc:
+"""Count of messages that is received from the remote system."""
+
+metric_received.label:
+"""Received"""
+
+metric_retried.desc:
+"""Times of retried."""
+
+metric_retried.label:
+"""Retried"""
+
+metric_sent_failed.desc:
+"""Count of messages that sent failed."""
+
+metric_sent_failed.label:
+"""Sent Failed"""
+
+metric_sent_success.desc:
+"""Count of messages that sent successfully."""
+
+metric_sent_success.label:
+"""Sent Success"""
 
 }

@@ -122,7 +122,7 @@ fields(sampler_current) ->
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
     RawNode = maps:get(node, Bindings, <<"all">>),
-    emqx_api_lib:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest)).
+    emqx_utils_api:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest)).
 
 dashboard_samplers_fun(Latest) ->
     fun(NodeOrCluster) ->
@@ -132,9 +132,11 @@ dashboard_samplers_fun(Latest) ->
         end
     end.
 
+monitor_current(get, #{bindings := []}) ->
+    emqx_utils_api:with_node_or_cluster(erlang:node(), fun emqx_dashboard_monitor:current_rate/1);
 monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, <<"all">>),
-    emqx_api_lib:with_node_or_cluster(RawNode, fun current_rate/1).
+    emqx_utils_api:with_node_or_cluster(RawNode, fun current_rate/1).
 
 current_rate(Node) ->
     case emqx_dashboard_monitor:current_rate(Node) of

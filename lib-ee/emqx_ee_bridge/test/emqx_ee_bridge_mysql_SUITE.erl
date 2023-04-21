@@ -226,7 +226,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -265,7 +265,7 @@ unprepare(Config, Key) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    {ok, _, #{state := #{poolname := PoolName}}} = emqx_resource:get_instance(ResourceID),
+    {ok, _, #{state := #{pool_name := PoolName}}} = emqx_resource:get_instance(ResourceID),
     [
         begin
             {ok, Conn} = ecpool_worker:client(Worker),
@@ -615,7 +615,7 @@ t_workload_fits_prepared_statement_limit(Config) ->
         create_bridge(Config)
     ),
     Results = lists:append(
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun(_) ->
                 [
                     begin

@@ -168,8 +168,8 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         L3 = get_tcp_listeners(Node2),
 
         Comment = #{
-            node1 => rpc:call(Node1, mria, running_nodes, []),
-            node2 => rpc:call(Node2, mria, running_nodes, [])
+            node1 => rpc:call(Node1, emqx, running_nodes, []),
+            node2 => rpc:call(Node2, emqx, running_nodes, [])
         },
 
         ?assert(length(L1) > length(L2), Comment),
@@ -193,10 +193,10 @@ t_clear_certs(Config) when is_list(Config) ->
     },
 
     %% create, make sure the cert files are created
-    NewConf = emqx_map_lib:deep_put(
+    NewConf = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("certfile")
     ),
-    NewConf2 = emqx_map_lib:deep_put(
+    NewConf2 = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
     ),
 
@@ -205,7 +205,7 @@ t_clear_certs(Config) when is_list(Config) ->
     ?assertMatch({ok, [_, _]}, ListResult1),
 
     %% update
-    UpdateConf = emqx_map_lib:deep_put(
+    UpdateConf = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
     ),
     _ = request(put, NewPath, [], UpdateConf),
@@ -385,7 +385,7 @@ action_listener(ID, Action, Running) ->
 request(Method, Url, QueryParams, Body) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body) of
-        {ok, Res} -> emqx_json:decode(Res, [return_maps]);
+        {ok, Res} -> emqx_utils_json:decode(Res, [return_maps]);
         Error -> Error
     end.
 

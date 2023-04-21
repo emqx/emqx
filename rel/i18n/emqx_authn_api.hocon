@@ -1,217 +1,96 @@
 emqx_authn_api {
 
-  authentication_get {
-    desc {
-      en: """List authenticators for global authentication."""
-      zh: """列出全局认证链上的认证器。"""
-    }
-  }
+authentication_get.desc:
+"""List authenticators for global authentication."""
 
-  authentication_post {
-    desc {
-      en: """Create authenticator for global authentication."""
-      zh: """为全局认证链创建认证器。"""
-    }
-  }
+authentication_id_delete.desc:
+"""Delete authenticator from global authentication chain."""
 
-  authentication_id_get {
-    desc {
-      en: """Get authenticator from global authentication chain."""
-      zh: """获取全局认证链上的指定认证器。"""
-    }
-  }
+authentication_id_get.desc:
+"""Get authenticator from global authentication chain."""
 
-  authentication_id_put {
-    desc {
-      en: """Update authenticator from global authentication chain."""
-      zh: """更新全局认证链上的指定认证器。"""
-    }
-  }
+authentication_id_position_put.desc:
+"""Move authenticator in global authentication chain."""
 
-  authentication_id_delete {
-    desc {
-      en: """Delete authenticator from global authentication chain."""
-      zh: """删除全局认证链上的指定认证器。"""
-    }
-  }
+authentication_id_put.desc:
+"""Update authenticator from global authentication chain."""
 
-  authentication_id_status_get {
-    desc {
-      en: """Get authenticator status from global authentication chain."""
-      zh: """获取全局认证链上指定认证器的状态。"""
-    }
-  }
+authentication_id_status_get.desc:
+"""Get authenticator status from global authentication chain."""
 
-  listeners_listener_id_authentication_get {
-    desc {
-      en: """List authenticators for listener authentication."""
-      zh: """列出监听器认证链上的认证器。"""
-    }
-  }
+authentication_id_users_get.desc:
+"""List users in authenticator in global authentication chain."""
 
-  listeners_listener_id_authentication_post {
-    desc {
-      en: """Create authenticator for listener authentication."""
-      zh: """在监听器认证链上创建认证器。"""
-    }
-  }
+authentication_id_users_post.desc:
+"""Create users for authenticator in global authentication chain."""
 
-  listeners_listener_id_authentication_id_get {
-    desc {
-      en: """Get authenticator from listener authentication chain."""
-      zh: """获取监听器认证链上的指定认证器。"""
-    }
-  }
+authentication_id_users_user_id_delete.desc:
+"""Delete user in authenticator in global authentication chain."""
 
-  listeners_listener_id_authentication_id_put {
-    desc {
-      en: """Update authenticator from listener authentication chain."""
-      zh: """更新监听器认证链上的指定认证器。"""
-    }
-  }
+authentication_id_users_user_id_get.desc:
+"""Get user from authenticator in global authentication chain."""
 
-  listeners_listener_id_authentication_id_delete {
-    desc {
-      en: """Delete authenticator from listener authentication chain."""
-      zh: """删除监听器认证链上的指定认证器。"""
-    }
-  }
+authentication_id_users_user_id_put.desc:
+"""Update user in authenticator in global authentication chain."""
 
-  listeners_listener_id_authentication_id_status_get {
-    desc {
-      en: """Get authenticator status from listener authentication chain."""
-      zh: """获取监听器认证链上指定认证器的状态。"""
-    }
-  }
+authentication_post.desc:
+"""Create authenticator for global authentication."""
 
-  authentication_id_position_put {
-    desc {
-      en: """Move authenticator in global authentication chain."""
-      zh: """更改全局认证链上指定认证器的顺序。"""
-    }
-  }
+is_superuser.desc:
+"""Is superuser"""
 
-  listeners_listener_id_authentication_id_position_put   {
-    desc {
-      en: """Move authenticator in listener authentication chain."""
-      zh: """更改监听器认证链上指定认证器的顺序。"""
-    }
-  }
+like_user_id.desc:
+"""Fuzzy search user_id (username or clientid)."""
 
-  authentication_id_users_post {
-    desc {
-      en: """Create users for authenticator in global authentication chain."""
-      zh: """为全局认证链上的指定认证器创建用户数据。"""
-    }
-  }
+like_user_id.label:
+"""like_user_id"""
 
-  authentication_id_users_get {
-    desc {
-      en: """List users in authenticator in global authentication chain."""
-      zh: """获取全局认证链上指定认证器中的用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_get.desc:
+"""List authenticators for listener authentication."""
 
-  listeners_listener_id_authentication_id_users_post {
-    desc {
-      en: """Create users for authenticator in listener authentication chain."""
-      zh: """为监听器认证链上的指定认证器创建用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_delete.desc:
+"""Delete authenticator from listener authentication chain."""
 
-  listeners_listener_id_authentication_id_users_get {
-    desc {
-      en: """List users in authenticator in listener authentication chain."""
-      zh: """列出监听器认证链上指定认证器中的用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_get.desc:
+"""Get authenticator from listener authentication chain."""
 
-  authentication_id_users_user_id_get {
-    desc {
-      en: """Get user from authenticator in global authentication chain."""
-      zh: """获取全局认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_position_put.desc:
+"""Move authenticator in listener authentication chain."""
 
-  authentication_id_users_user_id_put {
-    desc {
-      en: """Update user in authenticator in global authentication chain."""
-      zh: """更新全局认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_put.desc:
+"""Update authenticator from listener authentication chain."""
 
-  authentication_id_users_user_id_delete {
-    desc {
-      en: """Delete user in authenticator in global authentication chain."""
-      zh: """删除全局认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_status_get.desc:
+"""Get authenticator status from listener authentication chain."""
 
-  listeners_listener_id_authentication_id_users_user_id_get {
-    desc {
-      en: """Get user from authenticator in listener authentication chain."""
-      zh: """获取监听器认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_users_get.desc:
+"""List users in authenticator in listener authentication chain."""
 
-  listeners_listener_id_authentication_id_users_user_id_put {
-    desc {
-      en: """Update user in authenticator in listener authentication chain."""
-      zh: """更新监听器认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_users_post.desc:
+"""Create users for authenticator in listener authentication chain."""
 
-  listeners_listener_id_authentication_id_users_user_id_delete {
-    desc {
-      en: """Delete user in authenticator in listener authentication chain."""
-      zh: """删除监听器认证链上指定认证器中的指定用户数据。"""
-    }
-  }
+listeners_listener_id_authentication_id_users_user_id_delete.desc:
+"""Delete user in authenticator in listener authentication chain."""
 
-  param_auth_id {
-    desc {
-      en: """Authenticator ID."""
-      zh: """认证器 ID。"""
-    }
-  }
+listeners_listener_id_authentication_id_users_user_id_get.desc:
+"""Get user from authenticator in listener authentication chain."""
 
-  param_listener_id {
-    desc {
-      en: """Listener ID."""
-      zh: """监听器 ID。"""
-    }
-  }
+listeners_listener_id_authentication_id_users_user_id_put.desc:
+"""Update user in authenticator in listener authentication chain."""
 
-  param_user_id {
-    desc {
-      en: """User ID."""
-      zh: """用户 ID。"""
-    }
-  }
+listeners_listener_id_authentication_post.desc:
+"""Create authenticator for listener authentication."""
 
-  param_position {
-    desc {
-      en: """Position of authenticator in chain. Possible values are 'front', 'rear', 'before:{other_authenticator}', 'after:{other_authenticator}'."""
-      zh: """认证者在链中的位置。可能的值是 'front', 'rear', 'before:{other_authenticator}', 'after:{other_authenticator}'"""
-    }
-  }
+param_auth_id.desc:
+"""Authenticator ID."""
 
-  like_user_id {
-    desc {
-      en: """Fuzzy search user_id (username or clientid)."""
-      zh: """使用用户 ID （username 或 clientid）模糊查询。"""
-    }
-    label {
-      en: """like_user_id"""
-      zh: """like_user_id"""
-    }
-  }
+param_listener_id.desc:
+"""Listener ID."""
 
-  is_superuser {
-    desc {
-      en: """Is superuser"""
-      zh: """是否是超级用户"""
-    }
-  }
+param_position.desc:
+"""Position of authenticator in chain. Possible values are 'front', 'rear', 'before:{other_authenticator}', 'after:{other_authenticator}'."""
+
+param_user_id.desc:
+"""User ID."""
 
 }

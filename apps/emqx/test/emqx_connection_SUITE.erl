@@ -427,7 +427,7 @@ t_ensure_rate_limit(_) ->
         fun(_, Client) -> {pause, 3000, undefined, Client} end
     ),
     {ok, State2} = emqx_connection:check_limiter(
-        [{1000, bytes_in}],
+        [{1000, bytes}],
         [],
         WhenOk,
         [],
@@ -496,16 +496,16 @@ t_get_conn_info(_) ->
 
 t_oom_shutdown(init, Config) ->
     ok = snabbkaffe:start_trace(),
-    ok = meck:new(emqx_misc, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
-        emqx_misc,
+        emqx_utils,
         check_oom,
         fun(_) -> {shutdown, "fake_oom"} end
     ),
     Config;
 t_oom_shutdown('end', _Config) ->
     snabbkaffe:stop(),
-    meck:unload(emqx_misc),
+    meck:unload(emqx_utils),
     ok.
 
 t_oom_shutdown(_) ->
@@ -703,31 +703,29 @@ handle_call(Pid, Call, St) -> emqx_connection:handle_call(Pid, Call, St).
 -define(LIMITER_ID, 'tcp:default').
 
 init_limiter() ->
-    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], limiter_cfg()).
+    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes, messages], limiter_cfg()).
 
 limiter_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     Cfg = bucket_cfg(),
     Client = #{
-        rate => Infinity,
+        rate => infinity,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
+    #{bytes => Cfg, messages => Cfg, client => #{bytes => Client, messages => Client}}.
 
 bucket_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
-    #{rate => Infinity, initial => 0, capacity => Infinity}.
+    #{rate => infinity, initial => 0, burst => 0}.
 
 add_bucket() ->
     Cfg = bucket_cfg(),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes, Cfg),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, messages, Cfg).
 
 del_bucket() ->
-    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
-    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).
+    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes),
+    emqx_limiter_server:del_bucket(?LIMITER_ID, messages).

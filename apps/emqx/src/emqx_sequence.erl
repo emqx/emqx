@@ -39,7 +39,7 @@
 %% @doc Create a sequence.
 -spec create(name()) -> ok.
 create(Name) ->
-    emqx_tables:new(Name, [public, set, {write_concurrency, true}]).
+    emqx_utils_ets:new(Name, [public, set, {write_concurrency, true}]).
 
 %% @doc Next value of the sequence.
 -spec nextval(name(), key()) -> seqid().

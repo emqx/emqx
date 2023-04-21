@@ -44,7 +44,8 @@
 -type tracer() :: #{
     name := binary(),
     type := clientid | topic | ip_address,
-    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
+    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
+    payload_encode := text | hidden | hex
 }.
 
 -define(CONFIG(_LogFile_), #{
@@ -70,7 +71,12 @@
     LogFilePath :: string()
 ) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
-    Who = #{type => Type, filter => ensure_bin(Filter), name => ensure_bin(Name)},
+    Who = #{
+        type => Type,
+        filter => ensure_bin(Filter),
+        name => ensure_bin(Name),
+        payload_encode => payload_encode()
+    },
     install(Who, Level, LogFile).
 
 -spec install(
@@ -160,14 +166,14 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
-formatter(#{type := _Type}) ->
+formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         template => [time, " [", level, "] ", msg, "\n"],
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
-        payload_encode => payload_encode()
+        payload_encode => PayloadEncode
     }}.
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
@@ -190,7 +196,7 @@ handler_id(Name, Type) ->
         do_handler_id(Name, Type)
     catch
         _:_ ->
-            Hash = emqx_misc:bin_to_hexstr(crypto:hash(md5, Name), lower),
+            Hash = emqx_utils:bin_to_hexstr(crypto:hash(md5, Name), lower),
             do_handler_id(Hash, Type)
     end.
 

@@ -97,6 +97,12 @@
     "enabled": true
   },
   {
+    "name": "sqlserver",
+    "listen": "0.0.0.0:1433",
+    "upstream": "sqlserver:1433",
+    "enabled": true
+  },
+  {
     "name": "minio_tcp",
     "listen": "0.0.0.0:19000",
     "upstream": "minio:9000",

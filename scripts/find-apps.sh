@@ -73,7 +73,11 @@ describe_app() {
     fi
     case "${app}" in
         apps/*)
-            profile='emqx'
+            if [[ -f "${app}/BSL.txt" ]]; then
+              profile='emqx-enterprise'
+            else
+              profile='emqx'
+            fi
             ;;
         lib-ee/*)
             profile='emqx-enterprise'

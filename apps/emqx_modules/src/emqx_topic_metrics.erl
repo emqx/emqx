@@ -201,7 +201,7 @@ reset() ->
 
 init([Opts]) ->
     erlang:process_flag(trap_exit, true),
-    ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [{read_concurrency, true}]),
     erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
     Fun =
         fun(#{topic := Topic}, CurrentSpeeds) ->

@@ -1,0 +1,774 @@
+emqx_conf_schema {
+
+common_handler_drop_mode_qlen.desc:
+"""当缓冲的日志事件数大于此值时，新的日志事件将被丢弃。起到过载保护的功能。
+为了使过载保护算法正常工作必须要：<code> sync_mode_qlen =< drop_mode_qlen =< flush_qlen </code> 且 drop_mode_qlen > 1
+要禁用某些模式，请执行以下操作。
+- 如果sync_mode_qlen被设置为0，所有的日志事件都被同步处理。也就是说，异步日志被禁用。
+- 如果sync_mode_qlen被设置为与drop_mode_qlen相同的值，同步模式被禁用。也就是说，处理程序总是以异步模式运行，除非调用drop或flushing。
+- 如果drop_mode_qlen被设置为与flush_qlen相同的值，则drop模式被禁用，永远不会发生。"""
+
+common_handler_drop_mode_qlen.label:
+"""进入丢弃模式的队列长度"""
+
+cluster_mcast_addr.desc:
+"""指定多播 IPv4 地址。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_addr.label:
+"""多播地址"""
+
+desc_cluster_dns.desc:
+"""DNS SRV 记录服务发现。"""
+
+desc_cluster_dns.label:
+"""DNS SRV 记录服务发现"""
+
+cluster_dns_name.desc:
+"""指定 DNS A 记录的名字。emqx 会通过访问这个 DNS A 记录来获取 IP 地址列表。
+当<code>cluster.discovery_strategy</code> 为 <code>dns</code> 时有效。"""
+
+cluster_dns_name.label:
+"""DNS名称"""
+
+rpc_keyfile.desc:
+"""<code>rpc.certfile</code> 的私钥文件的路径。<br/>
+注意：此文件内容是私钥，所以需要设置权限为 600。"""
+
+rpc_keyfile.label:
+"""RPC 私钥文件"""
+
+cluster_mcast_recbuf.desc:
+"""接收数据报的内核级缓冲区的大小。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_recbuf.label:
+"""多播接收数据缓冲区"""
+
+cluster_autoheal.desc:
+"""集群脑裂自动恢复机制开关。"""
+
+cluster_autoheal.label:
+"""节点脑裂自动修复机制"""
+
+log_overload_kill_enable.desc:
+"""日志处理进程过载时为保护自己节点其它的业务能正常，强制杀死日志处理进程。"""
+
+log_overload_kill_enable.label:
+"""日志处理进程过载保护"""
+
+node_etc_dir.desc:
+"""<code>etc</code> 存放目录"""
+
+node_etc_dir.label:
+"""Etc 目录"""
+
+cluster_proto_dist.desc:
+"""分布式 Erlang 集群协议类型。可选值为:<br/>
+- inet_tcp: 使用 IPv4 <br/>
+- inet_tls: 使用 TLS，需要配合 <code>etc/ssl_dist.conf</code> 一起使用。"""
+
+cluster_proto_dist.label:
+"""集群内部通信协议"""
+
+log_burst_limit_enable.desc:
+"""启用日志限流保护机制。"""
+
+log_burst_limit_enable.label:
+"""日志限流保护"""
+
+dist_buffer_size.desc:
+"""Erlang分布式缓冲区的繁忙阈值，单位是KB。"""
+
+dist_buffer_size.label:
+"""Erlang分布式缓冲区的繁忙阈值(KB)"""
+
+common_handler_max_depth.desc:
+"""Erlang 内部格式日志格式化和 Erlang 进程消息队列检查的最大深度。"""
+
+common_handler_max_depth.label:
+"""最大深度"""
+
+desc_log.desc:
+"""EMQX 日志记录支持日志事件的多个接收器。 每个接收器由一个_log handler_表示，可以独立配置。"""
+
+desc_log.label:
+"""日志"""
+
+common_handler_flush_qlen.desc:
+"""如果缓冲日志事件的数量增长大于此阈值，则会发生冲刷（删除）操作。 日志处理进程会丢弃缓冲的日志消息。
+来缓解自身不会由于内存瀑涨而影响其它业务进程。日志内容会提醒有多少事件被删除。"""
+
+common_handler_flush_qlen.label:
+"""冲刷阈值"""
+
+common_handler_chars_limit.desc:
+"""设置单个日志消息的最大长度。 如果超过此长度，则日志消息将被截断。最小可设置的长度为100。
+注意：如果日志格式为 JSON，限制字符长度可能会导致截断不完整的 JSON 数据。"""
+
+common_handler_chars_limit.label:
+"""单条日志长度限制"""
+
+cluster_k8s_namespace.desc:
+"""当使用 k8s 方式并且 cluster.k8s.address_type 指定为 dns 类型时，
+可设置 emqx 节点名的命名空间。与 cluster.k8s.suffix 一起使用用以拼接得到节点名列表。"""
+
+cluster_k8s_namespace.label:
+"""K8s 命名空间"""
+
+node_name.desc:
+"""节点名。格式为 \<name>@\<host>。其中 <host> 可以是 IP 地址，也可以是 FQDN。
+详见 http://erlang.org/doc/reference_manual/distributed.html。"""
+
+node_name.label:
+"""节点名"""
+
+rpc_port_discovery.desc:
+"""<code>manual</code>: 通过 <code>tcp_server_port</code> 来发现端口。
+<br/><code>stateless</code>: 使用无状态的方式来发现端口，使用如下算法。如果节点名称是 <code>
+emqxN@127.0.0.1</code>, N 是一个数字，那么监听端口就是 5370 + N。"""
+
+rpc_port_discovery.label:
+"""RPC 端口发现策略"""
+
+log_overload_kill_restart_after.desc:
+"""处理进程停止后，会在该延迟时间后自动重新启动。除非该值设置为 <code>infinity</code>，这会阻止任何后续的重启。"""
+
+log_overload_kill_restart_after.label:
+"""处理进程重启延迟"""
+
+log_file_handler_max_size.desc:
+"""此参数控制日志文件轮换。 `infinity` 意味着日志文件将无限增长，否则日志文件将在达到 `max_size`（以字节为单位）时进行轮换。
+与 rotation count配合使用。如果 counter 为 10，则是10个文件轮换。"""
+
+log_file_handler_max_size.label:
+"""日志文件轮换大小"""
+
+desc_log_file_handler.desc:
+"""日志处理进程将日志事件打印到文件。"""
+
+desc_log_file_handler.label:
+"""文件日志处理进程"""
+
+rpc_socket_keepalive_count.desc:
+"""keepalive 探测消息发送失败的次数，直到 RPC 连接被认为已经断开。"""
+
+rpc_socket_keepalive_count.label:
+"""RPC Socket Keepalive 次数"""
+
+cluster_etcd_server.desc:
+"""指定 etcd 服务的地址。如有多个服务使用逗号 , 分隔。
+当 cluster.discovery_strategy 为 etcd 时，此配置项才有效。"""
+
+cluster_etcd_server.label:
+"""Etcd 服务器地址"""
+
+db_backend.desc:
+"""配置后端数据库驱动，默认值为 <code>rlog</code> 它适用于大规模的集群。
+<code>mnesia</code> 是备选数据库，适合中小集群。"""
+
+db_backend.label:
+"""内置数据库"""
+
+desc_authorization.desc:
+"""授权相关"""
+
+desc_authorization.label:
+"""授权"""
+
+cluster_etcd_ssl.desc:
+"""当使用 TLS 连接 etcd 时的配置选项。
+当 cluster.discovery_strategy 为 etcd 时，此配置项才有效。"""
+
+cluster_etcd_ssl.label:
+"""Etcd SSL 选项"""
+
+rpc_insecure_fallback.desc:
+"""兼容旧的无鉴权模式"""
+
+rpc_insecure_fallback.label:
+"""向后兼容旧的无鉴权模式"""
+
+cluster_mcast_buffer.desc:
+"""用户级缓冲区的大小。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_buffer.label:
+"""多播用户级缓冲区"""
+
+rpc_authentication_timeout.desc:
+"""远程节点认证的超时时间。"""
+
+rpc_authentication_timeout.label:
+"""RPC 认证超时时间"""
+
+cluster_call_retry_interval.desc:
+"""当集群间调用出错时，多长时间重试一次。"""
+
+cluster_call_retry_interval.label:
+"""重试时间间隔"""
+
+cluster_mcast_sndbuf.desc:
+"""外发数据报的内核级缓冲区的大小。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_sndbuf.label:
+"""多播发送缓存区"""
+
+rpc_driver.desc:
+"""集群间通信使用的传输协议。"""
+
+rpc_driver.label:
+"""RPC 驱动"""
+
+max_ets_tables.desc:
+"""Erlang ETS 表的最大数量"""
+
+max_ets_tables.label:
+"""Erlang 表的最大数量"""
+
+desc_db.desc:
+"""内置数据库的配置。"""
+
+desc_db.label:
+"""数据库"""
+
+desc_cluster_etcd.desc:
+"""使用 'etcd' 服务的服务发现。"""
+
+desc_cluster_etcd.label:
+"""'etcd' 服务的服务发现"""
+
+cluster_name.desc:
+"""EMQX集群名称。每个集群都有一个唯一的名称。服务发现时会用于做路径的一部分。"""
+
+cluster_name.label:
+"""集群名称"""
+
+log_rotation_enable.desc:
+"""启用日志轮换功能。启动后生成日志文件后缀会加上对应的索引数字，比如：log/emqx.log.1。
+系统会默认生成<code>*.siz/*.idx</code>用于记录日志位置，请不要手动修改这两个文件。"""
+
+log_rotation_enable.label:
+"""日志轮换"""
+
+cluster_call_cleanup_interval.desc:
+"""清理过期事务的时间间隔"""
+
+cluster_call_cleanup_interval.label:
+"""清理间隔"""
+
+desc_cluster_static.desc:
+"""静态节点服务发现。新节点通过连接一个节点来加入集群。"""
+
+desc_cluster_static.label:
+"""静态节点服务发现"""
+
+db_default_shard_transport.desc:
+"""定义用于推送事务日志的默认传输。<br/>
+这可以在 <code>db.shard_transports</code> 中基于每个分片被覆盖。
+<code>gen_rpc</code> 使用 <code>gen_rpc</code> 库，
+<code>distr</code> 使用 Erlang 发行版。"""
+
+db_default_shard_transport.label:
+"""事务日志传输默认协议"""
+
+cluster_static_seeds.desc:
+"""集群中的EMQX节点名称列表，
+指定固定的节点列表，多个节点间使用逗号 , 分隔。
+当 cluster.discovery_strategy 为 static 时，此配置项才有效。
+适合于节点数量较少且固定的集群。"""
+
+cluster_static_seeds.label:
+"""集群静态节点"""
+
+log_overload_kill_qlen.desc:
+"""允许的最大队列长度。"""
+
+log_overload_kill_qlen.label:
+"""最大队列长度"""
+
+node_backtrace_depth.desc:
+"""错误信息中打印的最大堆栈层数"""
+
+node_backtrace_depth.label:
+"""最大堆栈导数"""
+
+desc_log_burst_limit.desc:
+"""短时间内产生的大量日志事件可能会导致问题，例如：
+  - 日志文件变得非常大
+  - 日志文件轮换过快，有用信息被覆盖
+  - 对系统的整体性能影响
+
+日志突发限制功能可以暂时禁用日志记录以避免这些问题。"""
+
+desc_log_burst_limit.label:
+"""日志突发限制"""
+
+common_handler_enable.desc:
+"""启用此日志处理进程。"""
+
+common_handler_enable.label:
+"""启用日志处理进程"""
+
+cluster_k8s_service_name.desc:
+"""指定 Kubernetes 中 EMQX 的服务名。
+当 cluster.discovery_strategy 为 k8s 时，此配置项才有效。"""
+
+cluster_k8s_service_name.label:
+"""K8s 服务别名"""
+
+log_rotation_count.desc:
+"""轮换的最大日志文件数。"""
+
+log_rotation_count.label:
+"""最大日志文件数"""
+
+node_cookie.desc:
+"""分布式 Erlang 集群使用的 cookie 值。集群间保持一致"""
+
+node_cookie.label:
+"""节点 Cookie"""
+
+db_role.desc:
+"""选择节点的角色。<br/>
+<code>core</code> 节点提供数据的持久性，并负责写入。建议将核心节点放置在不同的机架或不同的可用区。<br/>
+<code>repliant</code> 节点是临时工作节点。 从集群中删除它们，不影响数据库冗余<br/>
+建议复制节点多于核心节点。<br/>
+注意：该参数仅在设置<code>backend</code>时生效到 <code>rlog</code>。"""
+
+db_role.label:
+"""数据库角色"""
+
+rpc_tcp_server_port.desc:
+"""RPC 本地服务使用的 TCP 端口。<br/>
+只有当 rpc.port_discovery 设置为 manual 时，此配置才会生效。"""
+
+rpc_tcp_server_port.label:
+"""RPC TCP 服务监听端口"""
+
+desc_console_handler.desc:
+"""日志处理进程将日志事件打印到 EMQX 控制台。"""
+
+desc_console_handler.label:
+"""Console Handler"""
+
+node_applications.desc:
+"""当新EMQX 加入集群时，应重启的Erlang应用程序的列表。"""
+
+node_applications.label:
+"""应用"""
+
+log_burst_limit_max_count.desc:
+"""在 `window_time` 间隔内处理的最大日志事件数。 达到限制后，将丢弃连续事件，直到 `window_time` 结束。"""
+
+log_burst_limit_max_count.label:
+"""日志事件数"""
+
+rpc_tcp_client_num.desc:
+"""设置本节点与远程节点之间的 RPC 通信通道的最大数量。"""
+
+rpc_tcp_client_num.label:
+"""RPC TCP 客户端数量"""
+
+cluster_k8s_address_type.desc:
+"""当使用 k8s 方式集群时，address_type 用来从 Kubernetes 接口的应答里获取什么形式的 Host 列表。
+指定 <code>cluster.k8s.address_type</code> 为 <code>ip</code>，则将从 Kubernetes 接口中获取集群中其他节点
+的IP地址。"""
+
+cluster_k8s_address_type.label:
+"""K8s 地址类型"""
+
+rpc_socket_sndbuf.desc:
+"""TCP 调节参数。TCP 发送缓冲区大小。"""
+
+rpc_socket_sndbuf.label:
+"""RPC 套接字发送缓冲区大小"""
+
+cluster_mcast_ttl.desc:
+"""指定多播的 Time-To-Live 值。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_ttl.label:
+"""多播TTL"""
+
+db_core_nodes.desc:
+"""当前节点连接的核心节点列表。<br/>
+注意：该参数仅在设置<code>backend</code>时生效到 <code>rlog</code>
+并且设置<code>role</code>为<code>replicant</code>时生效。<br/>
+该值需要在手动或静态集群发现机制下设置。<br/>
+如果使用了自动集群发现机制（如<code>etcd</code>），则不需要设置该值。"""
+
+db_core_nodes.label:
+"""数据库核心节点"""
+
+log_file_handler_file.desc:
+"""日志文件路径及名字。"""
+
+log_file_handler_file.label:
+"""日志文件名字"""
+
+node_dist_net_ticktime.desc:
+"""系统调优参数，此配置将覆盖 vm.args 文件里的 -kernel net_ticktime 参数。当一个节点持续无响应多久之后，认为其已经宕机并断开连接。"""
+
+node_dist_net_ticktime.label:
+"""节点间心跳间隔"""
+
+desc_cluster_k8s.desc:
+"""Kubernetes 服务发现。"""
+
+desc_cluster_k8s.label:
+"""Kubernetes 服务发现"""
+
+desc_cluster_mcast.desc:
+"""UDP 组播服务发现。"""
+
+desc_cluster_mcast.label:
+"""UDP 组播服务发现"""
+
+rpc_cacertfile.desc:
+"""验证 <code>rpc.certfile</code> 的 CA 证书文件的路径。<br/>
+注意：集群中所有节点的证书必须使用同一个 CA 签发。"""
+
+rpc_cacertfile.label:
+"""RPC CA 证书文件"""
+
+desc_node.desc:
+"""节点名称、Cookie、配置文件、数据目录和 Erlang 虚拟机（BEAM）启动参数。"""
+
+desc_node.label:
+"""节点"""
+
+cluster_k8s_apiserver.desc:
+"""指定 Kubernetes API Server。如有多个 Server 使用逗号 , 分隔。
+当 cluster.discovery_strategy 为 k8s 时，此配置项才有效。"""
+
+cluster_k8s_apiserver.label:
+"""K8s 服务地址"""
+
+common_handler_supervisor_reports.desc:
+"""Supervisor 报告的类型。默认为 error 类型。<br/>
+  - <code>error</code>：仅记录 Erlang 进程中的错误。
+  - <code>progress</code>：除了 error 信息外，还需要记录进程启动的详细信息。"""
+
+common_handler_supervisor_reports.label:
+"""报告类型"""
+
+node_data_dir.desc:
+"""节点数据存放目录，可能会自动创建的子目录如下：<br/>
+- `mnesia/<node_name>`。EMQX的内置数据库目录。例如，`mnesia/emqx@127.0.0.1`。<br/>
+如果节点要被重新命名（例如，`emqx@10.0.1.1`）。旧目录应该首先被删除。<br/>
+- `configs`。在启动时生成的配置，以及集群/本地覆盖的配置。<br/>
+- `patches`: 热补丁文件将被放在这里。<br/>
+- `trace`: 日志跟踪文件。<br/>
+
+**注意**: 一个数据dir不能被两个或更多的EMQX节点同时使用。"""
+
+node_data_dir.label:
+"""节点数据目录"""
+
+cluster_k8s_suffix.desc:
+"""当使用 k8s 方式并且 cluster.k8s.address_type 指定为 dns 类型时，可设置 emqx 节点名的后缀。
+与 cluster.k8s.namespace 一起使用用以拼接得到节点名列表。"""
+
+cluster_k8s_suffix.label:
+"""K8s 前缀"""
+
+db_rpc_module.desc:
+"""集群间推送事务日志到复制节点使用的协议。"""
+
+db_rpc_module.label:
+"""RPC协议"""
+
+cluster_etcd_prefix.desc:
+"""指定 etcd 路径的前缀。每个节点在 etcd 中都会创建一个路径:
+v2/keys/<prefix>/<cluster.name>/<node.name> <br/>
+当 cluster.discovery_strategy 为 etcd 时，此配置项才有效。"""
+
+cluster_etcd_prefix.label:
+"""Etcd 路径前缀"""
+
+cluster_mcast_iface.desc:
+"""指定节点发现服务需要绑定到本地 IP 地址。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_iface.label:
+"""多播绑定地址"""
+
+log_burst_limit_window_time.desc:
+"""参考 <code>max_count</code>。"""
+
+log_burst_limit_window_time.label:
+"""Window Time"""
+
+cluster_dns_record_type.desc:
+"""DNS 记录类型。"""
+
+cluster_dns_record_type.label:
+"""DNS记录类型"""
+
+cluster_autoclean.desc:
+"""指定多久之后从集群中删除离线节点。"""
+
+cluster_autoclean.label:
+"""自动删除离线节点时间"""
+
+process_limit.desc:
+"""Erlang系统同时存在的最大进程数。
+实际选择的最大值可能比设置的数字大得多。
+参考: https://www.erlang.org/doc/man/erl.html"""
+
+process_limit.label:
+"""Erlang 最大进程数"""
+
+max_ports.desc:
+"""Erlang系统同时存在的最大端口数。
+实际选择的最大值可能比设置的数字大得多。
+参考: https://www.erlang.org/doc/man/erl.html"""
+
+max_ports.label:
+"""Erlang 最大端口数"""
+
+desc_log_rotation.desc:
+"""默认情况下，日志存储在 `./log` 目录（用于从 zip 文件安装）或 `/var/log/emqx`（用于二进制安装）。<br/>
+这部分配置，控制每个日志处理进程保留的文件数量。"""
+
+desc_log_rotation.label:
+"""日志轮换"""
+
+desc_log_overload_kill.desc:
+"""日志过载终止，具有过载保护功能。当日志处理进程使用过多内存，或者缓存的日志消息过多时该功能被激活。<br/>
+检测到过载时，日志处理进程将终止，并在冷却期后重新启动。"""
+
+desc_log_overload_kill.label:
+"""日志过载保护"""
+
+authorization.desc:
+"""授权（ACL）。EMQX 支持完整的客户端访问控制（ACL）。"""
+
+authorization.label:
+"""授权"""
+
+rpc_socket_keepalive_idle.desc:
+"""broker 之间的连接在最后一条消息发送后保持打开的时间。"""
+
+rpc_socket_keepalive_idle.label:
+"""RPC Socket Keepalive Idle"""
+
+desc_cluster_call.desc:
+"""集群调用功能的选项。"""
+
+desc_cluster_call.label:
+"""集群调用"""
+
+cluster_mcast_ports.desc:
+"""指定多播端口。如有多个端口使用逗号 , 分隔。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_ports.label:
+"""多播端口"""
+
+log_overload_kill_mem_size.desc:
+"""日志处理进程允许使用的最大内存。"""
+
+log_overload_kill_mem_size.label:
+"""日志处理进程允许使用的最大内存"""
+
+rpc_connect_timeout.desc:
+"""建立 RPC 连接的超时时间。"""
+
+rpc_connect_timeout.label:
+"""RPC 连接超时时间"""
+
+cluster_etcd_node_ttl.desc:
+"""指定 etcd 中节点信息的过期时间。
+当 cluster.discovery_strategy 为 etcd 时，此配置项才有效。"""
+
+cluster_etcd_node_ttl.label:
+"""Etcd 节点过期时间"""
+
+rpc_call_receive_timeout.desc:
+"""同步 RPC 的回复超时时间。"""
+
+rpc_call_receive_timeout.label:
+"""RPC 调用接收超时时间"""
+
+rpc_socket_recbuf.desc:
+"""TCP 调节参数。TCP 接收缓冲区大小。"""
+
+rpc_socket_recbuf.label:
+"""RPC 套接字接收缓冲区大小"""
+
+db_tlog_push_mode.desc:
+"""同步模式下，核心节点等待复制节点的确认信息，然后再发送下一条事务日志。"""
+
+db_tlog_push_mode.label:
+"""Tlog推送模式"""
+
+node_crash_dump_bytes.desc:
+"""限制崩溃文件的大小，当崩溃时节点内存太大，
+如果为了保存现场，需要全部存到崩溃文件中，此处限制最多能保存多大的文件。
+如果超过此限制，崩溃转储将被截断。如果设置为0，系统不会尝试写入崩溃转储文件。"""
+
+node_crash_dump_bytes.label:
+"""崩溃文件最大容量"""
+
+rpc_certfile.desc:
+"""TLS 证书文件的路径，用于验证集群节点的身份。
+只有当 <code>rpc.driver</code> 设置为 <code>ssl</code> 时，此配置才会生效。"""
+
+rpc_certfile.label:
+"""RPC 证书文件"""
+
+node_crash_dump_seconds.desc:
+"""该配置给出了运行时系统允许花费的写入崩溃转储的秒数。当给定的秒数已经过去，运行时系统将被终止。<br/>
+- 如果设置为0秒，运行时会立即终止，不会尝试写入崩溃转储文件。<br/>
+- 如果设置为一个正数 S，节点会等待 S 秒来完成崩溃转储文件，然后用SIGALRM信号终止运行时系统。<br/>
+- 如果设置为一个负值导致运行时系统的终止等待无限期地直到崩溃转储文件已经完全写入。"""
+
+node_crash_dump_seconds.label:
+"""保存崩溃文件最长时间"""
+
+log_file_handlers.desc:
+"""输出到文件的日志处理进程列表"""
+
+log_file_handlers.label:
+"""File Handler"""
+
+node_global_gc_interval.desc:
+"""系统调优参数，设置节点运行多久强制进行一次全局垃圾回收。禁用设置为 <code>disabled</code>。"""
+
+node_global_gc_interval.label:
+"""全局垃圾回收"""
+
+common_handler_time_offset.desc:
+"""日志中的时间戳使用的时间偏移量。
+可选值为：
+  - <code>system</code>: 本地系统使用的时区偏移量
+  - <code>utc</code>: 0 时区的偏移量
+  - <code>+-[hh]:[mm]</code>: 自定义偏移量，比如 "-02:00" 或者 "+00:00"
+默认值为本地系统的时区偏移量：<code>system</code>。"""
+
+common_handler_time_offset.label:
+"""时间偏移量"""
+
+rpc_mode.desc:
+"""在 <code>sync</code> 模式下，发送端等待接收端的 ack信号。"""
+
+rpc_mode.label:
+"""RPC 模式"""
+
+node_crash_dump_file.desc:
+"""设置 Erlang crash_dump 文件的存储路径和文件名。"""
+
+node_crash_dump_file.label:
+"""节点崩溃时的Dump文件"""
+
+cluster_mcast_loop.desc:
+"""设置多播的报文是否投递到本地回环地址。
+当 cluster.discovery_strategy 为 mcast 时，此配置项才有效。"""
+
+cluster_mcast_loop.label:
+"""多播回环开关"""
+
+rpc_socket_keepalive_interval.desc:
+"""keepalive 消息的间隔。"""
+
+rpc_socket_keepalive_interval.label:
+"""RPC Socket Keepalive 间隔"""
+
+common_handler_level.desc:
+"""当前日志处理进程的日志级别。
+默认为 warning 级别。"""
+
+common_handler_level.label:
+"""日志级别"""
+
+desc_rpc.desc:
+"""EMQX 使用 <code>gen_rpc</code> 库来实现跨节点通信。<br/>
+大多数情况下，默认的配置应该可以工作，但如果你需要做一些性能优化或者实验，可以尝试调整这些参数。"""
+
+desc_rpc.label:
+"""RPC"""
+
+rpc_ssl_server_port.desc:
+"""RPC 本地服务使用的监听SSL端口。<br/>
+只有当 rpc.port_discovery 设置为 manual 且 <code> dirver </code> 设置为 <code>ssl</code>，
+此配置才会生效。"""
+
+rpc_ssl_server_port.label:
+"""RPC SSL 服务监听端口"""
+
+desc_cluster.desc:
+"""EMQX 节点可以组成一个集群，以提高总容量。<br/> 这里指定了节点之间如何连接。"""
+
+desc_cluster.label:
+"""集群"""
+
+common_handler_sync_mode_qlen.desc:
+"""只要缓冲的日志事件的数量低于这个值，所有的日志事件都会被异步处理。
+这意味着，日志落地速度不会影响正常的业务进程，因为它们不需要等待日志处理进程的响应。
+如果消息队列的增长超过了这个值，处理程序开始同步处理日志事件。也就是说，发送事件的客户进程必须等待响应。
+当处理程序将消息队列减少到低于sync_mode_qlen阈值的水平时，异步操作就会恢复。
+默认为100条信息，当等待的日志事件大于100条时，就开始同步处理日志。"""
+
+common_handler_sync_mode_qlen.label:
+"""进入异步模式的队列长度"""
+
+common_handler_formatter.desc:
+"""选择日志格式类型。 <code>text</code> 用于纯文本，<code>json</code> 用于结构化日志记录。"""
+
+common_handler_formatter.label:
+"""日志格式类型"""
+
+rpc_async_batch_size.desc:
+"""异步模式下，发送的批量消息的最大数量。"""
+
+rpc_async_batch_size.label:
+"""异步模式下的批量消息数量"""
+
+cluster_call_max_history.desc:
+"""集群间调用最多保留的历史记录数。只用于排错时查看。"""
+
+cluster_call_max_history.label:
+"""最大历史记录"""
+
+cluster_discovery_strategy.desc:
+"""集群节点发现方式。可选值为:
+- manual: 使用 <code>emqx ctl cluster</code> 命令管理集群。<br/>
+- static: 配置静态节点。配置几个固定的节点，新节点通过连接固定节点中的某一个来加入集群。<br/>
+- dns: 使用 DNS A 记录的方式发现节点。<br/>
+- etcd: 使用 etcd 发现节点。<br/>
+- k8s: 使用 Kubernetes API 发现节点。"""
+
+cluster_discovery_strategy.label:
+"""集群服务发现策略"""
+
+rpc_send_timeout.desc:
+"""发送 RPC 请求的超时时间。"""
+
+rpc_send_timeout.label:
+"""RPC 发送超时时间"""
+
+common_handler_single_line.desc:
+"""如果设置为 true，则单行打印日志。 否则，日志消息可能跨越多行。"""
+
+common_handler_single_line.label:
+"""单行模式"""
+
+rpc_socket_buffer.desc:
+"""TCP 调节参数。用户模式套接字缓冲区大小。"""
+
+rpc_socket_buffer.label:
+"""RPC 套接字缓冲区大小"""
+
+db_shard_transports.desc:
+"""允许为每个 shard 下的事务日志复制操作的传输方法进行调优。<br/>
+<code>gen_rpc</code> 使用 <code>gen_rpc</code> 库，
+<code>distr</code> 使用 Erlang 自带的 rpc 库。<br/>如果未指定，
+默认是使用 <code>db.default_shard_transport</code> 中设置的值。"""
+
+db_shard_transports.label:
+"""事务日志传输协议"""
+
+}

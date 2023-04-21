@@ -32,13 +32,13 @@ end_per_suite(_) ->
 
 t_metrics_api(_) ->
     {ok, MetricsResponse} = request_helper("metrics?aggregate=true"),
-    MetricsFromAPI = emqx_json:decode(MetricsResponse, [return_maps]),
+    MetricsFromAPI = emqx_utils_json:decode(MetricsResponse, [return_maps]),
     AggregateMetrics = emqx_mgmt:get_metrics(),
     match_helper(AggregateMetrics, MetricsFromAPI).
 
 t_single_node_metrics_api(_) ->
     {ok, MetricsResponse} = request_helper("metrics"),
-    [MetricsFromAPI] = emqx_json:decode(MetricsResponse, [return_maps]),
+    [MetricsFromAPI] = emqx_utils_json:decode(MetricsResponse, [return_maps]),
     LocalNodeMetrics = maps:from_list(
         emqx_mgmt:get_metrics(node()) ++ [{node, to_bin(node())}]
     ),

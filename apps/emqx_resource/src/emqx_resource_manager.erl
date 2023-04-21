@@ -37,7 +37,6 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
-    lookup_cached/2,
     get_metrics/1,
     reset_metrics/1
 ]).
@@ -231,25 +230,14 @@ set_resource_status_connecting(ResId) ->
 -spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup(ResId) ->
     case safe_call(ResId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> lookup_cached(ResId, [metrics]);
+        {error, timeout} -> lookup_cached(ResId);
         Result -> Result
     end.
 
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    lookup_cached(ResId, []).
-
-%% @doc Lookup the group and data of a resource from the cache
--spec lookup_cached(resource_id(), [Option]) ->
-    {ok, resource_group(), resource_data()} | {error, not_found}
-when
-    Option :: metrics.
-lookup_cached(ResId, Options) ->
-    NeedMetrics = lists:member(metrics, Options),
     case read_cache(ResId) of
-        {Group, Data} when NeedMetrics ->
-            {ok, Group, data_record_to_external_map_with_metrics(Data)};
         {Group, Data} ->
             {ok, Group, data_record_to_external_map(Data)};
         not_found ->
@@ -270,7 +258,7 @@ reset_metrics(ResId) ->
 list_all() ->
     try
         [
-            data_record_to_external_map_with_metrics(Data)
+            data_record_to_external_map(Data)
          || {_Id, _Group, Data} <- ets:tab2list(?ETS_TABLE)
         ]
     catch
@@ -366,7 +354,7 @@ handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
 % Called when the state-data of the resource is being looked up.
 handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
-    Reply = {ok, Group, data_record_to_external_map_with_metrics(Data)},
+    Reply = {ok, Group, data_record_to_external_map(Data)},
     {keep_state_and_data, [{reply, From, Reply}]};
 % Called when doing a manually health check.
 handle_event({call, From}, health_check, stopped, _Data) ->
@@ -387,7 +375,7 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 %% and successful health_checks
 handle_event(enter, _OldState, connected = State, Data) ->
     ok = log_state_consistency(State, Data),
-    _ = emqx_alarm:deactivate(Data#data.id),
+    _ = emqx_alarm:safe_deactivate(Data#data.id),
     ?tp(resource_connected_enter, #{}),
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, connected, Data) ->
@@ -523,10 +511,10 @@ start_resource(Data, From) ->
                 id => Data#data.id,
                 reason => Reason
             }),
-            _ = maybe_alarm(disconnected, Data#data.id, Data#data.error),
+            _ = maybe_alarm(disconnected, Data#data.id, Err, Data#data.error),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            UpdatedData = Data#data{status = disconnected, error = Reason},
+            UpdatedData = Data#data{status = disconnected, error = Err},
             Actions = maybe_reply(retry_actions(UpdatedData), From, Err),
             {next_state, disconnected, update_state(UpdatedData, Data), Actions}
     end.
@@ -551,7 +539,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     Data#data{status = stopped}.
 
 make_test_id() ->
-    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    RandId = iolist_to_binary(emqx_utils:gen_id(16)),
     <<?TEST_ID_PREFIX, RandId/binary>>.
 
 handle_manually_health_check(From, Data) ->
@@ -594,11 +582,11 @@ handle_connected_health_check(Data) ->
 
 with_health_check(#data{state = undefined} = Data, Func) ->
     Func(disconnected, Data);
-with_health_check(Data, Func) ->
+with_health_check(#data{error = PrevError} = Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
-    _ = maybe_alarm(Status, ResId, Err),
+    _ = maybe_alarm(Status, ResId, Err, PrevError),
     ok = maybe_resume_resource_workers(ResId, Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
@@ -617,21 +605,25 @@ update_state(Data, _DataWas) ->
 health_check_interval(Opts) ->
     maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
-maybe_alarm(connected, _ResId, _Error) ->
+maybe_alarm(connected, _ResId, _Error, _PrevError) ->
     ok;
-maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error) ->
+maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error, _PrevError) ->
     ok;
-maybe_alarm(_Status, ResId, Error) ->
+%% Assume that alarm is already active
+maybe_alarm(_Status, _ResId, Error, Error) ->
+    ok;
+maybe_alarm(_Status, ResId, Error, _PrevError) ->
     HrError =
         case Error of
-            undefined -> <<"Unknown reason">>;
-            _Else -> emqx_misc:readable_error_msg(Error)
+            {error, undefined} -> <<"Unknown reason">>;
+            {error, Reason} -> emqx_utils:readable_error_msg(Reason)
         end,
-    emqx_alarm:activate(
+    emqx_alarm:safe_activate(
         ResId,
         #{resource_id => ResId, reason => resource_down},
         <<"resource down: ", HrError/binary>>
-    ).
+    ),
+    ?tp(resource_activate_alarm, #{resource_id => ResId}).
 
 maybe_resume_resource_workers(ResId, connected) ->
     lists:foreach(
@@ -644,14 +636,14 @@ maybe_resume_resource_workers(_, _) ->
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
     ok;
 maybe_clear_alarm(ResId) ->
-    emqx_alarm:deactivate(ResId).
+    emqx_alarm:safe_deactivate(ResId).
 
 parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
-    {Status, Data#data.state, undefined};
+    {Status, Data#data.state, status_to_error(Status)};
 parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, undefined};
+    {Status, NewState, status_to_error(Status)};
 parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, Error};
+    {Status, NewState, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
     ?SLOG(
         error,
@@ -661,7 +653,16 @@ parse_health_check_result({error, Error}, Data) ->
             reason => Error
         }
     ),
-    {disconnected, Data#data.state, Error}.
+    {disconnected, Data#data.state, {error, Error}}.
+
+status_to_error(connected) ->
+    undefined;
+status_to_error(_) ->
+    {error, undefined}.
+
+%% Compatibility
+external_error({error, Reason}) -> Reason;
+external_error(Other) -> Other.
 
 maybe_reply(Actions, undefined, _Reply) ->
     Actions;
@@ -672,7 +673,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     #{
         id => Data#data.id,
-        error => Data#data.error,
+        error => external_error(Data#data.error),
         mod => Data#data.mod,
         callback_mode => Data#data.callback_mode,
         query_mode => Data#data.query_mode,
@@ -680,11 +681,6 @@ data_record_to_external_map(Data) ->
         status => Data#data.status,
         state => Data#data.state
     }.
-
--spec data_record_to_external_map_with_metrics(data()) -> resource_data().
-data_record_to_external_map_with_metrics(Data) ->
-    DataMap = data_record_to_external_map(Data),
-    DataMap#{metrics => get_metrics(Data#data.id)}.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
 wait_for_ready(ResId, WaitTime) ->
@@ -696,8 +692,8 @@ do_wait_for_ready(ResId, Retry) ->
     case read_cache(ResId) of
         {_Group, #data{status = connected}} ->
             ok;
-        {_Group, #data{status = disconnected, error = Reason}} ->
-            {error, Reason};
+        {_Group, #data{status = disconnected, error = Err}} ->
+            {error, external_error(Err)};
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
             do_wait_for_ready(ResId, Retry - 1)

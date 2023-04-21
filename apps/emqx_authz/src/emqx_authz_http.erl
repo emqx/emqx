@@ -161,9 +161,9 @@ parse_url(Url) ->
                     BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
                     case string:split(Remaining, "?", leading) of
                         [Path, QueryString] ->
-                            {BaseUrl, Path, QueryString};
+                            {BaseUrl, <<"/", Path/binary>>, QueryString};
                         [Path] ->
-                            {BaseUrl, Path, <<>>}
+                            {BaseUrl, <<"/", Path/binary>>, <<>>}
                     end;
                 [HostPort] ->
                     {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
@@ -185,7 +185,7 @@ generate_request(
     }
 ) ->
     Values = client_vars(Client, PubSub, Topic),
-    Path = emqx_authz_utils:render_str(BasePathTemplate, Values),
+    Path = emqx_authz_utils:render_urlencoded_str(BasePathTemplate, Values),
     Query = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
     case Method of
@@ -202,9 +202,9 @@ generate_request(
     end.
 
 append_query(Path, []) ->
-    encode_path(Path);
+    to_list(Path);
 append_query(Path, Query) ->
-    encode_path(Path) ++ "?" ++ to_list(query_string(Query)).
+    to_list(Path) ++ "?" ++ to_list(query_string(Query)).
 
 query_string(Body) ->
     query_string(Body, []).
@@ -222,12 +222,8 @@ query_string([{K, V} | More], Acc) ->
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
 
-encode_path(Path) ->
-    Parts = string:split(Path, "/", all),
-    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
-
 serialize_body(<<"application/json">>, Body) ->
-    jsx:encode(Body);
+    emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 

@@ -61,7 +61,7 @@
 -export([set_field/3]).
 
 -import(
-    emqx_misc,
+    emqx_utils,
     [
         run_fold/3,
         pipeline/3,
@@ -622,7 +622,7 @@ process_connect(
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
-            Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
+            Pendings1 = lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = true,
@@ -1216,7 +1216,7 @@ handle_call(
 ) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_misc:drain_deliver(),
+    Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takenover, AllPendings, Channel);
 handle_call(list_authz_cache, Channel) ->
@@ -1417,7 +1417,7 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
 
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
-    TRef = emqx_misc:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Msg),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->
@@ -1645,7 +1645,7 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 %% Flapping
 
 count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
+    is_integer(emqx_config:get_zone_conf(Zone, [flapping_detect, window_time])) andalso
         emqx_flapping:detect(ClientInfo),
     {ok, Channel}.
 
@@ -2060,7 +2060,7 @@ clear_keepalive(Channel = #channel{timers = Timers}) ->
         undefined ->
             Channel;
         TRef ->
-            emqx_misc:cancel_timer(TRef),
+            emqx_utils:cancel_timer(TRef),
             Channel#channel{timers = maps:without([alive_timer], Timers)}
     end.
 %%--------------------------------------------------------------------
@@ -2256,7 +2256,7 @@ get_mqtt_conf(Zone, Key, Default) ->
 %%--------------------------------------------------------------------
 
 set_field(Name, Value, Channel) ->
-    Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
+    Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
 
 get_mqueue(#channel{session = Session}) ->

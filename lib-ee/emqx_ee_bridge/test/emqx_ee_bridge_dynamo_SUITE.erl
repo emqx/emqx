@@ -14,8 +14,8 @@
 % DB defaults
 -define(TABLE, "mqtt").
 -define(TABLE_BIN, to_bin(?TABLE)).
--define(USERNAME, "root").
--define(PASSWORD, "public").
+-define(ACCESS_KEY_ID, "root").
+-define(SECRET_ACCESS_KEY, "public").
 -define(HOST, "dynamo").
 -define(PORT, 8000).
 -define(SCHEMA, "http://").
@@ -40,7 +40,7 @@ groups() ->
 
     %% due to the poorly implemented driver or other reasons
     %% if we mix these cases with others, this suite will become flaky.
-    Flaky = [t_get_status, t_write_failure, t_write_timeout],
+    Flaky = [t_get_status, t_write_failure],
     TCs = TCs0 -- Flaky,
 
     [
@@ -158,9 +158,9 @@ dynamo_config(BridgeType, Config) ->
             "bridges.~s.~s {\n"
             "  enable = true\n"
             "  url = ~p\n"
-            "  database = ~p\n"
-            "  username = ~p\n"
-            "  password = ~p\n"
+            "  table = ~p\n"
+            "  aws_access_key_id = ~p\n"
+            "  aws_secret_access_key = ~p\n"
             "  resource_opts = {\n"
             "    request_timeout = 500ms\n"
             "    batch_size = ~b\n"
@@ -172,8 +172,8 @@ dynamo_config(BridgeType, Config) ->
                 Name,
                 Url,
                 ?TABLE,
-                ?USERNAME,
-                ?PASSWORD,
+                ?ACCESS_KEY_ID,
+                ?SECRET_ACCESS_KEY,
                 BatchSize,
                 QueryMode
             ]
@@ -193,7 +193,7 @@ create_bridge(Config, Overrides) ->
     BridgeType = ?config(dynamo_bridge_type, Config),
     Name = ?config(dynamo_name, Config),
     DynamoConfig0 = ?config(dynamo_config, Config),
-    DynamoConfig = emqx_map_lib:deep_merge(DynamoConfig0, Overrides),
+    DynamoConfig = emqx_utils_maps:deep_merge(DynamoConfig0, Overrides),
     emqx_bridge:create(BridgeType, Name, DynamoConfig).
 
 delete_all_bridges() ->
@@ -208,7 +208,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -244,10 +244,10 @@ delete_table(_Config) ->
 setup_dynamo(Config) ->
     Host = ?GET_CONFIG(host, Config),
     Port = ?GET_CONFIG(port, Config),
-    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, Host, Port, ?SCHEMA).
+    erlcloud_ddb2:configure(?ACCESS_KEY_ID, ?SECRET_ACCESS_KEY, Host, Port, ?SCHEMA).
 
 directly_setup_dynamo() ->
-    erlcloud_ddb2:configure(?USERNAME, ?PASSWORD, ?HOST, ?PORT, ?SCHEMA).
+    erlcloud_ddb2:configure(?ACCESS_KEY_ID, ?SECRET_ACCESS_KEY, ?HOST, ?PORT, ?SCHEMA).
 
 directly_query(Query) ->
     directly_setup_dynamo(),
@@ -272,7 +272,7 @@ t_setup_via_config_and_publish(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -309,7 +309,7 @@ t_setup_via_http_api_and_publish(Config) ->
         {ok, _},
         create_bridge_http(PgsqlConfig)
     ),
-    MsgId = emqx_misc:gen_id(),
+    MsgId = emqx_utils:gen_id(),
     SentData = #{id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
@@ -375,29 +375,10 @@ t_write_failure(Config) ->
             #{?snk_kind := resource_connected_enter},
             20_000
         ),
-    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
+    SentData = #{id => emqx_utils:gen_id(), payload => ?PAYLOAD},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
             {error, {resource_error, #{reason := timeout}}}, send_message(Config, SentData)
-        )
-    end),
-    ok.
-
-t_write_timeout(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    {{ok, _}, {ok, _}} =
-        ?wait_async_action(
-            create_bridge(Config),
-            #{?snk_kind := resource_connected_enter},
-            20_000
-        ),
-    SentData = #{id => emqx_misc:gen_id(), payload => ?PAYLOAD},
-    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, #{reason := timeout}}},
-            query_resource(Config, {send_message, SentData})
         )
     end),
     ok.

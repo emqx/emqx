@@ -83,7 +83,7 @@ request(Username, Method, Url, Body) ->
             ->
                 {Url, [auth_header(Username)]};
             _ ->
-                {Url, [auth_header(Username)], "application/json", jsx:encode(Body)}
+                {Url, [auth_header(Username)], "application/json", emqx_utils_json:encode(Body)}
         end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of

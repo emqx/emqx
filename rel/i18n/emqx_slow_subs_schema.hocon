@@ -1,38 +1,18 @@
 emqx_slow_subs_schema {
 
-  enable {
-    desc {
-      en: "Enable this feature"
-      zh: "开启慢订阅"
-    }
-  }
+enable.desc:
+"""Enable this feature"""
 
-  threshold {
-    desc {
-      en: "The latency threshold for statistics"
-      zh: "慢订阅统计的阈值"
-    }
-  }
+expire_interval.desc:
+"""The eviction time of the record, which in the statistics record table"""
 
-  expire_interval {
-    desc {
-      en: "The eviction time of the record, which in the statistics record table"
-      zh: "慢订阅记录的有效时间"
-    }
-  }
+stats_type.desc:
+"""The method to calculate the latency"""
 
-  top_k_num {
-    desc {
-      en: "The maximum number of records in the slow subscription statistics record table"
-      zh: "慢订阅统计表的记录数量上限"
-    }
-  }
+threshold.desc:
+"""The latency threshold for statistics"""
 
-  stats_type {
-    desc {
-      en: "The method to calculate the latency"
-      zh: "慢订阅的统计类型"
-    }
-  }
+top_k_num.desc:
+"""The maximum number of records in the slow subscription statistics record table"""
 
 }

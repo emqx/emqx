@@ -38,6 +38,8 @@
     headers/1
 ]).
 
+-export([check_headers/1, check_ssl_opts/1]).
+
 -export([
     refs/0,
     union_member_selector/1,
@@ -51,34 +53,35 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-http".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(fun union_member_selector/1),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(get) ->
+fields(http_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
-fields(post) ->
+fields(http_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
-desc(get) ->
+desc(http_get) ->
     ?DESC(get);
-desc(post) ->
+desc(http_post) ->
     ?DESC(post);
 desc(_) ->
     undefined.
@@ -106,8 +109,8 @@ common_fields() ->
 
 validations() ->
     [
-        {check_ssl_opts, fun check_ssl_opts/1},
-        {check_headers, fun check_headers/1}
+        {check_ssl_opts, fun ?MODULE:check_ssl_opts/1},
+        {check_headers, fun ?MODULE:check_headers/1}
     ].
 
 url(type) -> binary();
@@ -156,8 +159,8 @@ request_timeout(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, get),
-        hoconsc:ref(?MODULE, post)
+        hoconsc:ref(?MODULE, http_get),
+        hoconsc:ref(?MODULE, http_post)
     ].
 
 union_member_selector(all_union_members) ->
@@ -166,9 +169,9 @@ union_member_selector({value, Value}) ->
     refs(Value).
 
 refs(#{<<"method">> := <<"get">>}) ->
-    [hoconsc:ref(?MODULE, get)];
+    [hoconsc:ref(?MODULE, http_get)];
 refs(#{<<"method">> := <<"post">>}) ->
-    [hoconsc:ref(?MODULE, post)];
+    [hoconsc:ref(?MODULE, http_post)];
 refs(_) ->
     throw(#{
         field_name => method,
@@ -261,21 +264,47 @@ transform_header_name(Headers) ->
     ).
 
 check_ssl_opts(Conf) ->
-    {BaseUrl, _Path, _Query} = parse_url(get_conf_val("url", Conf)),
-    case BaseUrl of
-        <<"https://", _/binary>> ->
-            case get_conf_val("ssl.enable", Conf) of
-                true -> ok;
-                false -> false
+    case is_backend_http(Conf) of
+        true ->
+            Url = get_conf_val("url", Conf),
+            {BaseUrl, _Path, _Query} = parse_url(Url),
+            case BaseUrl of
+                <<"https://", _/binary>> ->
+                    case get_conf_val("ssl.enable", Conf) of
+                        true ->
+                            ok;
+                        false ->
+                            <<"it's required to enable the TLS option to establish a https connection">>
+                    end;
+                <<"http://", _/binary>> ->
+                    ok
             end;
-        <<"http://", _/binary>> ->
+        false ->
             ok
     end.
 
 check_headers(Conf) ->
-    Method = to_bin(get_conf_val("method", Conf)),
-    Headers = get_conf_val("headers", Conf),
-    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
+    case is_backend_http(Conf) of
+        true ->
+            Headers = get_conf_val("headers", Conf),
+            case to_bin(get_conf_val("method", Conf)) of
+                <<"post">> ->
+                    ok;
+                <<"get">> ->
+                    case maps:is_key(<<"content-type">>, Headers) of
+                        false -> ok;
+                        true -> <<"HTTP GET requests cannot include content-type header.">>
+                    end
+            end;
+        false ->
+            ok
+    end.
+
+is_backend_http(Conf) ->
+    case get_conf_val("backend", Conf) of
+        http -> true;
+        _ -> false
+    end.
 
 parse_url(Url) ->
     case string:split(Url, "//", leading) of
@@ -285,9 +314,9 @@ parse_url(Url) ->
                     BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
                     case string:split(Remaining, "?", leading) of
                         [Path, QueryString] ->
-                            {BaseUrl, Path, QueryString};
+                            {BaseUrl, <<"/", Path/binary>>, QueryString};
                         [Path] ->
-                            {BaseUrl, Path, <<>>}
+                            {BaseUrl, <<"/", Path/binary>>, <<>>}
                     end;
                 [HostPort] ->
                     {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
@@ -310,7 +339,7 @@ parse_config(
         method => Method,
         path => Path,
         headers => ensure_header_name_type(Headers),
-        base_path_templete => emqx_authn_utils:parse_str(Path),
+        base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
         ),
@@ -323,12 +352,12 @@ parse_config(
 generate_request(Credential, #{
     method := Method,
     headers := Headers0,
-    base_path_templete := BasePathTemplate,
+    base_path_template := BasePathTemplate,
     base_query_template := BaseQueryTemplate,
     body_template := BodyTemplate
 }) ->
     Headers = maps:to_list(Headers0),
-    Path = emqx_authn_utils:render_str(BasePathTemplate, Credential),
+    Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
     Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
     case Method of
@@ -343,9 +372,9 @@ generate_request(Credential, #{
     end.
 
 append_query(Path, []) ->
-    encode_path(Path);
+    Path;
 append_query(Path, Query) ->
-    encode_path(Path) ++ "?" ++ binary_to_list(qs(Query)).
+    Path ++ "?" ++ binary_to_list(qs(Query)).
 
 qs(KVs) ->
     qs(KVs, []).
@@ -357,7 +386,7 @@ qs([{K, V} | More], Acc) ->
     qs(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
 
 serialize_body(<<"application/json">>, Body) ->
-    emqx_json:encode(Body);
+    emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     qs(maps:to_list(Body)).
 
@@ -395,7 +424,7 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json", _/binary>>, Body) ->
-    {ok, emqx_json:decode(Body, [return_maps])};
+    {ok, emqx_utils_json:decode(Body, [return_maps])};
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     Flags = [<<"result">>, <<"is_superuser">>],
     RawMap = maps:from_list(cow_qs:parse_qs(Body)),
@@ -406,10 +435,6 @@ parse_body(ContentType, _) ->
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
-
-encode_path(Path) ->
-    Parts = string:split(Path, "/", all),
-    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 request_for_log(Credential, #{url := Url} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),

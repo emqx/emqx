@@ -1,62 +1,35 @@
 emqx_ee_connector_rocketmq {
 
-    server {
-        desc {
-          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
+refresh_interval.desc:
+"""RocketMQ Topic Route Refresh Interval."""
+
+refresh_interval.label:
+"""Topic Route Refresh Interval"""
+
+security_token.desc:
+"""RocketMQ Server Security Token"""
+
+security_token.label:
+"""Security Token"""
+
+send_buffer.desc:
+"""The socket send buffer size of the RocketMQ driver client."""
+
+send_buffer.label:
+"""Send Buffer Size"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
 The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
-          zh: """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
-主机名具有以下形式：`Host[:Port]`。<br/>
-如果未指定 `[:Port]`，则使用 RocketMQ 默认端口 9876。"""
-        }
-        label: {
-              en: "Server Host"
-              zh: "服务器地址"
-            }
-    }
 
-    topic {
-        desc {
-          en: """RocketMQ Topic"""
-          zh: """RocketMQ 主题"""
-        }
-        label: {
-              en: "RocketMQ Topic"
-              zh: "RocketMQ 主题"
-            }
-    }
+server.label:
+"""Server Host"""
 
-    refresh_interval {
-        desc {
-          en: """RocketMQ Topic Route Refresh Interval."""
-          zh: """RocketMQ 主题路由更新间隔。"""
-        }
-        label: {
-              en: "Topic Route Refresh Interval"
-              zh: "主题路由更新间隔"
-            }
-    }
+topic.desc:
+"""RocketMQ Topic"""
 
-    send_buffer {
-        desc {
-          en: """The socket send buffer size of the RocketMQ driver client."""
-          zh: """RocketMQ 驱动的套字节发送消息的缓冲区大小"""
-        }
-        label: {
-              en: "Send Buffer Size"
-              zh: "发送消息的缓冲区大小"
-            }
-    }
-
-    security_token {
-        desc {
-          en: """RocketMQ Server Security Token"""
-          zh: """RocketMQ 服务器安全令牌"""
-        }
-        label: {
-              en: "Security Token"
-              zh: "安全令牌"
-            }
-    }
+topic.label:
+"""RocketMQ Topic"""
 
 }

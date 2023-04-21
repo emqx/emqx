@@ -72,7 +72,7 @@ t_consume(_) ->
     Cfg = fun(Cfg) ->
         Cfg#{
             rate := 100,
-            capacity := 100,
+            burst := 0,
             initial := 100,
             max_retry_time := 1000,
             failure_strategy := force
@@ -89,7 +89,7 @@ t_retry(_) ->
     Cfg = fun(Cfg) ->
         Cfg#{
             rate := 50,
-            capacity := 200,
+            burst := 150,
             initial := 0,
             max_retry_time := 1000,
             failure_strategy := force
@@ -109,7 +109,7 @@ t_restore(_) ->
     Cfg = fun(Cfg) ->
         Cfg#{
             rate := 1,
-            capacity := 200,
+            burst := 199,
             initial := 50,
             max_retry_time := 100,
             failure_strategy := force
@@ -129,7 +129,7 @@ t_max_retry_time(_) ->
     Cfg = fun(Cfg) ->
         Cfg#{
             rate := 1,
-            capacity := 1,
+            burst := 0,
             max_retry_time := 500,
             failure_strategy := drop
         }
@@ -139,8 +139,12 @@ t_max_retry_time(_) ->
         Begin = ?NOW,
         Result = emqx_htb_limiter:consume(101, Client),
         ?assertMatch({drop, _}, Result),
-        Time = ?NOW - Begin,
-        ?assert(Time >= 500 andalso Time < 550)
+        End = ?NOW,
+        Time = End - Begin,
+        ?assert(
+            Time >= 500 andalso Time < 550,
+            lists:flatten(io_lib:format("Begin:~p, End:~p, Time:~p~n", [Begin, End, Time]))
+        )
     end,
     with_per_client(Cfg, Case).
 
@@ -150,7 +154,7 @@ t_divisible(_) ->
             divisible := true,
             rate := ?RATE("1000/1s"),
             initial := 600,
-            capacity := 600
+            burst := 0
         }
     end,
     Case = fun(BucketCfg) ->
@@ -176,7 +180,7 @@ t_low_watermark(_) ->
             low_watermark := 400,
             rate := ?RATE("1000/1s"),
             initial := 1000,
-            capacity := 1000
+            burst := 0
         }
     end,
     Case = fun(BucketCfg) ->
@@ -201,8 +205,7 @@ t_infinity_client(_) ->
     Fun = fun(Cfg) -> Cfg end,
     Case = fun(Cfg) ->
         Client = connect(Cfg),
-        InfVal = emqx_limiter_schema:infinity_value(),
-        ?assertMatch(#{bucket := #{rate := InfVal}}, Client),
+        ?assertMatch(infinity, Client),
         Result = emqx_htb_limiter:check(100000, Client),
         ?assertEqual({ok, Client}, Result)
     end,
@@ -212,12 +215,12 @@ t_try_restore_agg(_) ->
     Fun = fun(#{client := Cli} = Bucket) ->
         Bucket2 = Bucket#{
             rate := 1,
-            capacity := 200,
+            burst := 199,
             initial := 50
         },
         Cli2 = Cli#{
             rate := infinity,
-            capacity := infinity,
+            burst := 0,
             divisible := true,
             max_retry_time := 100,
             failure_strategy := force
@@ -239,11 +242,11 @@ t_short_board(_) ->
         Bucket2 = Bucket#{
             rate := ?RATE("100/1s"),
             initial := 0,
-            capacity := 100
+            burst := 0
         },
         Cli2 = Cli#{
             rate := ?RATE("600/1s"),
-            capacity := 600,
+            burst := 0,
             initial := 600
         },
         Bucket2#{client := Cli2}
@@ -261,46 +264,45 @@ t_rate(_) ->
         Bucket2 = Bucket#{
             rate := ?RATE("100/100ms"),
             initial := 0,
-            capacity := infinity
+            burst := 0
         },
         Cli2 = Cli#{
             rate := infinity,
-            capacity := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
     end,
     Case = fun(Cfg) ->
+        Time = 1000,
         Client = connect(Cfg),
-        Ts1 = erlang:system_time(millisecond),
         C1 = emqx_htb_limiter:available(Client),
-        timer:sleep(1000),
-        Ts2 = erlang:system_time(millisecond),
+        timer:sleep(1100),
         C2 = emqx_htb_limiter:available(Client),
-        ShouldInc = floor((Ts2 - Ts1) / 100) * 100,
+        ShouldInc = floor(Time / 100) * 100,
         Inc = C2 - C1,
         ?assert(in_range(Inc, ShouldInc - 100, ShouldInc + 100), "test bucket rate")
     end,
     with_bucket(Fun, Case).
 
 t_capacity(_) ->
-    Capacity = 600,
+    Capacity = 1200,
     Fun = fun(#{client := Cli} = Bucket) ->
         Bucket2 = Bucket#{
             rate := ?RATE("100/100ms"),
             initial := 0,
-            capacity := 600
+            burst := 200
         },
         Cli2 = Cli#{
             rate := infinity,
-            capacity := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
     end,
     Case = fun(Cfg) ->
         Client = connect(Cfg),
-        timer:sleep(1000),
+        timer:sleep(1500),
         C1 = emqx_htb_limiter:available(Client),
         ?assertEqual(Capacity, C1, "test bucket capacity")
     end,
@@ -318,11 +320,11 @@ t_collaborative_alloc(_) ->
         Bucket2 = Bucket#{
             rate := ?RATE("400/1s"),
             initial := 0,
-            capacity := 600
+            burst := 200
         },
         Cli2 = Cli#{
             rate := ?RATE("50"),
-            capacity := 100,
+            burst := 50,
             initial := 100
         },
         Bucket2#{client := Cli2}
@@ -363,11 +365,11 @@ t_burst(_) ->
         Bucket2 = Bucket#{
             rate := ?RATE("200/1s"),
             initial := 0,
-            capacity := 200
+            burst := 0
         },
         Cli2 = Cli#{
             rate := ?RATE("50/1s"),
-            capacity := 200,
+            burst := 150,
             divisible := true
         },
         Bucket2#{client := Cli2}
@@ -401,11 +403,11 @@ t_limit_global_with_unlimit_other(_) ->
         Bucket2 = Bucket#{
             rate := infinity,
             initial := 0,
-            capacity := infinity
+            burst := 0
         },
         Cli2 = Cli#{
             rate := infinity,
-            capacity := infinity,
+            burst := 0,
             initial := 0
         },
         Bucket2#{client := Cli2}
@@ -414,7 +416,7 @@ t_limit_global_with_unlimit_other(_) ->
     Case = fun() ->
         C1 = counters:new(1, []),
         start_client({b1, Bucket}, ?NOW + 2000, C1, 20),
-        timer:sleep(2100),
+        timer:sleep(2200),
         check_average_rate(C1, 2, 600)
     end,
 
@@ -432,7 +434,7 @@ t_check_container(_) ->
         Cfg#{
             rate := ?RATE("1000/1s"),
             initial := 1000,
-            capacity := 1000
+            burst := 0
         }
     end,
     Case = fun(#{client := Client} = BucketCfg) ->
@@ -565,12 +567,72 @@ t_schema_unit(_) ->
     ?assertMatch({error, _}, M:to_rate("100MB/1")),
     ?assertMatch({error, _}, M:to_rate("100/10x")),
 
-    ?assertEqual({ok, emqx_limiter_schema:infinity_value()}, M:to_capacity("infinity")),
+    ?assertEqual({ok, infinity}, M:to_capacity("infinity")),
     ?assertEqual({ok, 100}, M:to_capacity("100")),
     ?assertEqual({ok, 100 * 1024}, M:to_capacity("100KB")),
     ?assertEqual({ok, 100 * 1024 * 1024}, M:to_capacity("100MB")),
     ?assertEqual({ok, 100 * 1024 * 1024 * 1024}, M:to_capacity("100GB")),
     ok.
+
+compatibility_for_capacity(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.messages.capacity = infinity\n"
+        "  limiter.client.messages.capacity = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            messages := #{burst := 0},
+            client := #{messages := #{burst := 0}}
+        },
+        parse_and_check(CfgStr)
+    ).
+
+compatibility_for_message_in(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.message_in.rate = infinity\n"
+        "  limiter.client.message_in.rate = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            messages := #{rate := infinity},
+            client := #{messages := #{rate := infinity}}
+        },
+        parse_and_check(CfgStr)
+    ).
+
+compatibility_for_bytes_in(_) ->
+    CfgStr = <<
+        ""
+        "\n"
+        "listeners.tcp.default {\n"
+        "  bind = \"0.0.0.0:1883\"\n"
+        "  max_connections = 1024000\n"
+        "  limiter.bytes_in.rate = infinity\n"
+        "  limiter.client.bytes_in.rate = infinity\n"
+        "}\n"
+        ""
+    >>,
+    ?assertMatch(
+        #{
+            bytes := #{rate := infinity},
+            client := #{bytes := #{rate := infinity}}
+        },
+        parse_and_check(CfgStr)
+    ).
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -748,17 +810,16 @@ connect(Name, Cfg) ->
     Limiter.
 
 make_limiter_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     Client = #{
-        rate => Infinity,
+        rate => infinity,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 0,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+    #{client => Client, rate => infinity, initial => 0, burst => 0}.
 
 add_bucket(Cfg) ->
     add_bucket(?MODULE, Cfg).
@@ -812,3 +873,7 @@ apply_modifier(Pairs, #{default := Template}) ->
         Acc#{N => M(Template)}
     end,
     lists:foldl(Fun, #{}, Pairs).
+
+parse_and_check(ConfigString) ->
+    ok = emqx_common_test_helpers:load_config(emqx_schema, ConfigString),
+    emqx:get_config([listeners, tcp, default, limiter]).

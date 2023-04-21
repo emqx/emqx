@@ -143,7 +143,7 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -184,7 +184,7 @@ init_per_testcase(_TestCase, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -430,7 +430,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
         Error ->
             Error
     end.
@@ -677,9 +677,13 @@ do_t_update_listener(Config) ->
     %% no ocsp at first
     ListenerId = "ssl:default",
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
-    ?assertEqual(
-        undefined,
-        emqx_map_lib:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
+    ?assertMatch(
+        #{
+            <<"enable_ocsp_stapling">> := false,
+            <<"refresh_http_timeout">> := _,
+            <<"refresh_interval">> := _
+        },
+        emqx_utils_maps:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
     ),
     assert_no_http_get(),
 
@@ -702,7 +706,7 @@ do_t_update_listener(Config) ->
                         }
                 }
         },
-    ListenerData1 = emqx_map_lib:deep_merge(ListenerData0, OCSPConfig),
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, OCSPConfig),
     {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
     ?assertMatch(
         #{
@@ -722,14 +726,14 @@ do_t_update_listener(Config) ->
     %% location
     ?assertNotEqual(
         IssuerPemPath,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
     ),
     ?assertNotEqual(
         IssuerPem,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
@@ -818,7 +822,7 @@ do_t_validations(_Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
     ListenerData1 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -827,7 +831,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -839,11 +843,11 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
 
     ListenerData2 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -857,7 +861,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw2}} = update_listener_via_api(ListenerId, ListenerData2),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw2} =
-        emqx_json:decode(ResRaw2, [return_maps]),
+        emqx_utils_json:decode(ResRaw2, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -869,11 +873,11 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw2, [return_maps])
+        emqx_utils_json:decode(MsgRaw2, [return_maps])
     ),
 
     ListenerData3a =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -886,10 +890,12 @@ do_t_validations(_Config) ->
                     }
             }
         ),
-    ListenerData3 = emqx_map_lib:deep_remove([<<"ssl_options">>, <<"certfile">>], ListenerData3a),
+    ListenerData3 = emqx_utils_maps:deep_remove(
+        [<<"ssl_options">>, <<"certfile">>], ListenerData3a
+    ),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
-        emqx_json:decode(ResRaw3, [return_maps]),
+        emqx_utils_json:decode(ResRaw3, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -901,7 +907,7 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw3, [return_maps])
+        emqx_utils_json:decode(MsgRaw3, [return_maps])
     ),
 
     ok.

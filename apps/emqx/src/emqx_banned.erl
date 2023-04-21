@@ -243,7 +243,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{expiry_timer := TRef}) ->
-    emqx_misc:cancel_timer(TRef).
+    emqx_utils:cancel_timer(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -254,10 +254,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(10, expire)}.
+    State#{expiry_timer := emqx_utils:start_timer(10, expire)}.
 -else.
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(timer:minutes(1), expire)}.
+    State#{expiry_timer := emqx_utils:start_timer(timer:minutes(1), expire)}.
 -endif.
 
 expire_banned_items(Now) ->

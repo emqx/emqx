@@ -77,7 +77,7 @@
 -export([set_field/3]).
 
 -import(
-    emqx_misc,
+    emqx_utils,
     [start_timer/2]
 ).
 
@@ -182,10 +182,8 @@
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 
-%% use macro to do compile time limiter's type check
--define(LIMITER_BYTES_IN, bytes_in).
--define(LIMITER_MESSAGE_IN, message_in).
--define(EMPTY_QUEUE, {[], []}).
+-define(LIMITER_BYTES_IN, bytes).
+-define(LIMITER_MESSAGE_IN, messages).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer(
@@ -260,7 +258,7 @@ stats(#state{
             {error, _} -> []
         end,
     ChanStats = emqx_channel:stats(Channel),
-    ProcStats = emqx_misc:proc_stats(),
+    ProcStats = emqx_utils:proc_stats(),
     lists:append([SockStats, ChanStats, ProcStats]).
 
 %% @doc Set TCP keepalive socket options to override system defaults.
@@ -392,7 +390,7 @@ run_loop(
         emqx_channel:info(zone, Channel),
         [force_shutdown]
     ),
-    emqx_misc:tune_heap_size(ShutdownPolicy),
+    emqx_utils:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} ->
             hibernate(Parent, NState);
@@ -472,7 +470,7 @@ ensure_stats_timer(_Timeout, State) ->
 -compile({inline, [cancel_stats_timer/1]}).
 cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) ->
     ?tp(debug, cancel_stats_timer, #{}),
-    ok = emqx_misc:cancel_timer(TRef),
+    ok = emqx_utils:cancel_timer(TRef),
     State#state{stats_timer = undefined};
 cancel_stats_timer(State) ->
     State.
@@ -558,7 +556,7 @@ handle_msg(
     {incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
     State = #state{idle_timer = IdleTimer}
 ) ->
-    ok = emqx_misc:cancel_timer(IdleTimer),
+    ok = emqx_utils:cancel_timer(IdleTimer),
     Serialize = emqx_frame:serialize_opts(ConnPkt),
     NState = State#state{
         serialize = Serialize,
@@ -593,7 +591,7 @@ handle_msg(
     #state{listener = {Type, Listener}} = State
 ) ->
     ActiveN = get_active_n(Type, Listener),
-    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 %% Something sent
 handle_msg({inet_reply, _Sock, ok}, State = #state{listener = {Type, Listener}}) ->
@@ -1073,7 +1071,7 @@ check_oom(State = #state{channel = Channel}) ->
         emqx_channel:info(zone, Channel), [force_shutdown]
     ),
     ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
-    case emqx_misc:check_oom(ShutdownPolicy) of
+    case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             erlang:exit({shutdown, Reason});
@@ -1200,7 +1198,7 @@ inc_counter(Key, Inc) ->
 %%--------------------------------------------------------------------
 
 set_field(Name, Value, State) ->
-    Pos = emqx_misc:index_of(Name, record_info(fields, state)),
+    Pos = emqx_utils:index_of(Name, record_info(fields, state)),
     setelement(Pos + 1, State, Value).
 
 get_state(Pid) ->

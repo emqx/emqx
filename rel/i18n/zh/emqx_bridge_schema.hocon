@@ -1,0 +1,158 @@
+emqx_bridge_schema {
+
+bridges_mqtt.desc:
+"""桥接到另一个 MQTT Broker 的 MQTT Bridge"""
+
+bridges_mqtt.label:
+"""MQTT Bridge"""
+
+bridges_webhook.desc:
+"""转发消息到 HTTP 服务器的 WebHook"""
+
+bridges_webhook.label:
+"""WebHook"""
+
+desc_bridges.desc:
+"""MQTT Bridge 配置"""
+
+desc_bridges.label:
+"""MQTT Bridge 配置"""
+
+desc_enable.desc:
+"""启用/禁用 Bridge"""
+
+desc_enable.label:
+"""启用/禁用 Bridge"""
+
+desc_metrics.desc:
+"""Bridge 计数"""
+
+desc_metrics.label:
+"""Bridge 计数"""
+
+desc_node_metrics.desc:
+"""节点的计数器"""
+
+desc_node_metrics.label:
+"""节点的计数器"""
+
+desc_node_name.desc:
+"""节点的名字"""
+
+desc_node_name.label:
+"""节点名字"""
+
+desc_node_status.desc:
+"""节点的状态"""
+
+desc_node_status.label:
+"""节点的状态"""
+
+desc_status.desc:
+"""Bridge 的连接状态<br/>
+- <code>connecting</code>: 启动时的初始状态。<br/>
+- <code>connected</code>: 桥接驱动健康检查正常。<br/>
+- <code>disconnected</code>: 当桥接无法通过健康检查。<br/>
+- <code>stopped</code>: 桥接处于停用状态。<br/>
+- <code>inconsistent</code>: 集群中有各节点汇报的状态不一致。"""
+
+desc_status.label:
+"""Bridge 状态"""
+
+desc_status_reason.desc:
+"""桥接连接失败的原因。"""
+
+desc_status_reason.label:
+"""失败原因"""
+
+metric_dropped.desc:
+"""被丢弃的消息个数。"""
+
+metric_dropped.label:
+"""丢弃"""
+
+metric_dropped_other.desc:
+"""因为其他原因被丢弃的消息个数。"""
+
+metric_dropped_other.label:
+"""其他丢弃"""
+
+metric_dropped_queue_full.desc:
+"""因为队列已满被丢弃的消息个数。"""
+
+metric_dropped_queue_full.label:
+"""队列已满被丢弃"""
+
+metric_dropped_resource_not_found.desc:
+"""因为资源不存在被丢弃的消息个数。"""
+
+metric_dropped_resource_not_found.label:
+"""资源不存在被丢弃"""
+
+metric_dropped_resource_stopped.desc:
+"""因为资源已停用被丢弃的消息个数。"""
+
+metric_dropped_resource_stopped.label:
+"""资源停用被丢弃"""
+
+metric_inflight.desc:
+"""已异步地发送但没有收到 ACK 的消息个数。"""
+
+metric_inflight.label:
+"""已发送未确认"""
+
+metric_matched.desc:
+"""Bridge 被匹配到（被请求）的次数。"""
+
+metric_matched.label:
+"""匹配次数"""
+
+metric_queuing.desc:
+"""当前被缓存到磁盘队列的消息个数。"""
+
+metric_queuing.label:
+"""被缓存"""
+
+metric_rate.desc:
+"""执行操作的速率，次/秒"""
+
+metric_rate.label:
+"""速率"""
+
+metric_rate_last5m.desc:
+"""5 分钟平均速率，次/秒"""
+
+metric_rate_last5m.label:
+"""5 分钟平均速率"""
+
+metric_rate_max.desc:
+"""执行操作的最大速率，次/秒"""
+
+metric_rate_max.label:
+"""执行操作的最大速率"""
+
+metric_received.desc:
+"""从远程系统收到的消息个数。"""
+
+metric_received.label:
+"""已接收"""
+
+metric_retried.desc:
+"""重试的次数。"""
+
+metric_retried.label:
+"""已重试"""
+
+metric_sent_failed.desc:
+"""发送失败的消息个数。"""
+
+metric_sent_failed.label:
+"""发送失败"""
+
+metric_sent_success.desc:
+"""已经发送成功的消息个数。"""
+
+metric_sent_success.label:
+"""发送成功"""
+
+}

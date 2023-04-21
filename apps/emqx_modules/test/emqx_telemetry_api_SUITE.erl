@@ -113,7 +113,7 @@ t_status(_) ->
 
     ?assertEqual(
         #{<<"enable">> => false},
-        jsx:decode(Result0)
+        emqx_utils_json:decode(Result0)
     ),
 
     ?assertMatch(
@@ -139,7 +139,7 @@ t_status(_) ->
 
     ?assertEqual(
         #{<<"enable">> => true},
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -180,7 +180,7 @@ t_data(_) ->
             <<"uuid">> := _,
             <<"vm_specs">> := _
         },
-        jsx:decode(Result)
+        emqx_utils_json:decode(Result)
     ),
 
     {ok, 200, _} =

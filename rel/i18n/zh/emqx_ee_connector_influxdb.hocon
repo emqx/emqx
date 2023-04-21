@@ -1,0 +1,71 @@
+emqx_ee_connector_influxdb {
+
+bucket.desc:
+"""InfluxDB bucket 名称。"""
+
+bucket.label:
+"""Bucket"""
+
+database.desc:
+"""InfluxDB 数据库。"""
+
+database.label:
+"""数据库"""
+
+influxdb_api_v1.desc:
+"""InfluxDB HTTP API 协议。支持 Influxdb v1.8 以及之前的版本。"""
+
+influxdb_api_v1.label:
+"""HTTP API 协议"""
+
+influxdb_api_v2.desc:
+"""InfluxDB HTTP API V2 协议。支持 Influxdb v2.0 以及之后的版本。"""
+
+influxdb_api_v2.label:
+"""HTTP API V2 协议"""
+
+org.desc:
+"""InfluxDB 组织名称。"""
+
+org.label:
+"""组织"""
+
+password.desc:
+"""InfluxDB 密码。"""
+
+password.label:
+"""密码"""
+
+precision.desc:
+"""InfluxDB 时间精度。"""
+
+precision.label:
+"""时间精度"""
+
+protocol.desc:
+"""InfluxDB 协议。HTTP API 或 HTTP API V2。"""
+
+protocol.label:
+"""协议"""
+
+server.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。</br>
+主机名具有以下形式：`Host[:Port]`。</br>
+如果未指定 `[:Port]`，则使用 InfluxDB 默认端口 8086。"""
+
+server.label:
+"""服务器地址"""
+
+token.desc:
+"""InfluxDB token。"""
+
+token.label:
+"""Token"""
+
+username.desc:
+"""InfluxDB 用户名。"""
+
+username.label:
+"""用户名"""
+
+}

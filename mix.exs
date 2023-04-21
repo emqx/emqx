@@ -58,7 +58,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ekka, github: "emqx/ekka", tag: "0.14.6", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.9", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.7", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.38.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.2", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -83,6 +83,8 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
+      # in conflict by erlavro and rocketmq
+      {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
       # dependencies of dependencies; we choose specific refs to match
       # what rebar3 chooses.
       # in conflict by gun and emqtt
@@ -92,27 +94,23 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.5", override: true, runtime: false},
-      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
-      {:erlcloud, github: "emqx/erlcloud", tag: "3.6.8-emqx-1", override: true},
-      # erlcloud's rebar.config requires rebar3 and does not support Mix,
-      # so it tries to fetch deps from git. We need to override this.
-      {:lhttpc, github: "erlcloud/lhttpc", tag: "1.6.2", override: true},
-      {:eini, "1.2.9", override: true},
-      {:base16, "1.0.0", override: true}
-      # end of erlcloud's deps
+      {:gpb, "4.19.7", override: true, runtime: false},
+      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp emqx_apps(profile_info, version) do
-    apps = community_apps() ++ enterprise_apps(profile_info)
+    apps = umbrella_apps() ++ enterprise_apps(profile_info)
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp community_apps() do
-    community_app_paths()
+  defp umbrella_apps() do
+    enterprise_apps = enterprise_umbrella_apps()
+
+    "apps/*"
+    |> Path.wildcard()
     |> Enum.map(fn path ->
       app =
         path
@@ -120,11 +118,24 @@ defmodule EMQXUmbrella.MixProject do
         |> String.to_atom()
 
       {app, path: path, manager: :rebar3, override: true}
+    end)
+    |> Enum.reject(fn dep_spec ->
+      dep_spec
+      |> elem(0)
+      |> then(&MapSet.member?(enterprise_apps, &1))
     end)
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
-    enterprise_app_paths()
+    umbrella_apps =
+      Enum.map(enterprise_umbrella_apps(), fn app_name ->
+        path = "apps/#{app_name}"
+        {app_name, path: path, manager: :rebar3, override: true}
+      end)
+
+    "lib-ee/*"
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
     |> Enum.map(fn path ->
       app =
         path
@@ -133,32 +144,34 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
     []
   end
 
-  defp community_app_paths() do
-    "apps/*"
-    |> Path.wildcard()
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.reject(&File.exists?(Path.join(&1, "BSL.txt")))
-  end
-
-  defp enterprise_app_paths() do
-    lib_ee_paths =
-      "lib-ee/*"
-      |> Path.wildcard()
-      |> Enum.filter(&File.dir?/1)
-
-    apps_paths =
-      "apps/*"
-      |> Path.wildcard()
-      |> Enum.filter(&File.dir?/1)
-      |> Enum.filter(&File.exists?(Path.join(&1, "BSL.txt")))
-
-    lib_ee_paths ++ apps_paths
+  # need to remove those when listing `/apps/`...
+  defp enterprise_umbrella_apps() do
+    MapSet.new([
+      :emqx_bridge_kafka,
+      :emqx_bridge_gcp_pubsub,
+      :emqx_bridge_cassandra,
+      :emqx_bridge_clickhouse,
+      :emqx_bridge_dynamo,
+      :emqx_bridge_hstreamdb,
+      :emqx_bridge_influxdb,
+      :emqx_bridge_matrix,
+      :emqx_bridge_mongodb,
+      :emqx_bridge_mysql,
+      :emqx_bridge_pgsql,
+      :emqx_bridge_redis,
+      :emqx_bridge_rocketmq,
+      :emqx_bridge_tdengine,
+      :emqx_bridge_timescale,
+      :emqx_ft,
+      :emqx_s3
+    ])
   end
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
@@ -170,7 +183,8 @@ defmodule EMQXUmbrella.MixProject do
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
-      {:supervisor3, "1.1.11", override: true}
+      {:crc32cer, "0.1.8", override: true},
+      {:supervisor3, "1.1.12", override: true}
     ]
   end
 
@@ -247,6 +261,11 @@ defmodule EMQXUmbrella.MixProject do
           applications: applications(edition_type),
           skip_mode_validation_for: [
             :emqx_gateway,
+            :emqx_gateway_stomp,
+            :emqx_gateway_mqttsn,
+            :emqx_gateway_coap,
+            :emqx_gateway_lwm2m,
+            :emqx_gateway_exproto,
             :emqx_dashboard,
             :emqx_resource,
             :emqx_connector,
@@ -300,6 +319,7 @@ defmodule EMQXUmbrella.MixProject do
         tools: :load,
         covertool: :load,
         system_monitor: :load,
+        emqx_utils: :load,
         emqx_http_lib: :permanent,
         emqx_resource: :permanent,
         emqx_connector: :permanent,
@@ -307,6 +327,11 @@ defmodule EMQXUmbrella.MixProject do
         emqx_authz: :permanent,
         emqx_auto_subscribe: :permanent,
         emqx_gateway: :permanent,
+        emqx_gateway_stomp: :permanent,
+        emqx_gateway_mqttsn: :permanent,
+        emqx_gateway_coap: :permanent,
+        emqx_gateway_lwm2m: :permanent,
+        emqx_gateway_exproto: :permanent,
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
         emqx_rule_engine: :permanent,
@@ -334,8 +359,22 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_conf: :load,
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
-          emqx_s3: :permanent,
-          emqx_ft: :permanent
+          emqx_bridge_kafka: :permanent,
+          emqx_bridge_gcp_pubsub: :permanent,
+          emqx_bridge_cassandra: :permanent,
+          emqx_bridge_clickhouse: :permanent,
+          emqx_bridge_dynamo: :permanent,
+          emqx_bridge_hstreamdb: :permanent,
+          emqx_bridge_influxdb: :permanent,
+          emqx_bridge_matrix: :permanent,
+          emqx_bridge_mongodb: :permanent,
+          emqx_bridge_mysql: :permanent,
+          emqx_bridge_pgsql: :permanent,
+          emqx_bridge_redis: :permanent,
+          emqx_bridge_rocketmq: :permanent,
+          emqx_bridge_tdengine: :permanent,
+          emqx_bridge_timescale: :permanent,
+          emqx_ee_schema_registry: :permanent
         ],
         else: []
       )
@@ -453,7 +492,7 @@ defmodule EMQXUmbrella.MixProject do
     profile = System.get_env("MIX_ENV")
 
     Mix.Generator.copy_file(
-      "_build/docgen/#{profile}/emqx.conf.en.example",
+      "_build/docgen/#{profile}/emqx.conf.example",
       Path.join(etc, "emqx.conf.example"),
       force: overwrite?
     )

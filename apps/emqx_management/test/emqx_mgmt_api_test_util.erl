@@ -108,7 +108,8 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
         end,
     do_request_api(
         Method,
-        {NewUrl, build_http_header(AuthOrHeaders), "application/json", emqx_json:encode(Body)},
+        {NewUrl, build_http_header(AuthOrHeaders), "application/json",
+            emqx_utils_json:encode(Body)},
         Opts
     ).
 
@@ -156,7 +157,7 @@ api_path_without_base_path(Parts) ->
 %%
 %% Usage with RequestData:
 %% Payload = [{upload_type, <<"user_picture">>}],
-%% PayloadContent = jsx:encode(Payload),
+%% PayloadContent = emqx_utils_json:encode(Payload),
 %% RequestData = [
 %%     {<<"payload">>, PayloadContent}
 %% ]

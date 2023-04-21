@@ -1,0 +1,30 @@
+emqx_mqttsn_schema {
+
+mqttsn.desc:
+"""MQTT-SN 网关配置。当前实现仅支持 v1.2 版本"""
+
+mqttsn_broadcast.desc:
+"""是否周期性广播 ADVERTISE 消息"""
+
+mqttsn_enable_qos3.desc:
+"""是否允许无连接的客户端发送 QoS 等于 -1 的消息。
+该功能主要用于支持轻量的 MQTT-SN 客户端实现，它不会向网关建立连接，注册主题，也不会发起订阅；它只使用 QoS 为 -1 来发布消息"""
+
+mqttsn_gateway_id.desc:
+"""MQTT-SN 网关 ID。
+当 <code>broadcast</code> 打开时，MQTT-SN 网关会使用该 ID 来广播 ADVERTISE 消息"""
+
+mqttsn_predefined.desc:
+"""预定义主题列表。
+预定义的主题列表，是一组 主题 ID 和 主题名称 的映射关系。使用预先定义的主题列表，可以减少 MQTT-SN 客户端和网关对于固定主题的注册请求"""
+
+mqttsn_predefined_id.desc:
+"""主题 ID。范围：1-65535"""
+
+mqttsn_predefined_topic.desc:
+"""主题名称。注：不支持通配符"""
+
+mqttsn_subs_resume.desc:
+"""在会话被重用后，网关是否主动向客户端注册对已订阅主题名称"""
+
+}

@@ -78,6 +78,25 @@ is_cover_enabled() ->
 is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
+is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
+is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
+is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
+is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
+is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_influxdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
+is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_pgsql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
+is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
+is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
+is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
+is_community_umbrella_app("apps/emqx_ft") -> false;
+is_community_umbrella_app("apps/emqx_s3") -> false;
+is_community_umbrella_app(_) -> true.
+
 is_jq_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_JQ") orelse
         is_win32()) orelse
@@ -122,8 +141,14 @@ project_app_dirs() ->
     project_app_dirs(get_edition_from_profile_env()).
 
 project_app_dirs(Edition) ->
-    ["apps/*"] ++
-        case is_enterprise(Edition) of
+    IsEnterprise = is_enterprise(Edition),
+    UmbrellaApps = [
+        Path
+     || Path <- filelib:wildcard("apps/*"),
+        is_community_umbrella_app(Path) orelse IsEnterprise
+    ],
+    UmbrellaApps ++
+        case IsEnterprise of
             true -> ["lib-ee/*"];
             false -> []
         end.
@@ -382,6 +407,7 @@ relx_apps(ReleaseType, Edition) ->
             {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
+            {emqx_utils, load},
             emqx_http_lib,
             emqx_resource,
             emqx_connector,
@@ -389,6 +415,11 @@ relx_apps(ReleaseType, Edition) ->
             emqx_authz,
             emqx_auto_subscribe,
             emqx_gateway,
+            emqx_gateway_stomp,
+            emqx_gateway_mqttsn,
+            emqx_gateway_coap,
+            emqx_gateway_lwm2m,
+            emqx_gateway_exproto,
             emqx_exhook,
             emqx_bridge,
             emqx_rule_engine,
@@ -423,7 +454,22 @@ relx_apps_per_edition(ee) ->
         {emqx_ee_conf, load},
         emqx_ee_connector,
         emqx_ee_bridge,
-        emqx_s3,
+        emqx_bridge_kafka,
+        emqx_bridge_gcp_pubsub,
+        emqx_bridge_cassandra,
+        emqx_bridge_clickhouse,
+        emqx_bridge_dynamo,
+        emqx_bridge_hstreamdb,
+        emqx_bridge_influxdb,
+        emqx_bridge_matrix,
+        emqx_bridge_mongodb,
+        emqx_bridge_mysql,
+        emqx_bridge_pgsql,
+        emqx_bridge_redis,
+        emqx_bridge_rocketmq,
+        emqx_bridge_tdengine,
+        emqx_bridge_timescale,
+        emqx_ee_schema_registry,
         emqx_ft
     ];
 relx_apps_per_edition(ce) ->
@@ -451,7 +497,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
         %% for relup
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
-        {copy, "apps/emqx_gateway/src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
+        {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
         {template, "bin/emqx.cmd", "bin/emqx.cmd"},
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},
@@ -464,8 +510,7 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.en.example",
-            "etc/emqx.conf.example"}
+        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.example", "etc/emqx.conf.example"}
     ] ++
         lists:map(
             fun

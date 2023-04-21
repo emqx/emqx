@@ -277,9 +277,9 @@ atom(Bin) -> binary_to_existing_atom(Bin, utf8).
 certs_dir(ChainName, ConfigOrID) ->
     DirName = dir(ChainName, ConfigOrID),
     SubDir = iolist_to_binary(filename:join(["authn", DirName])),
-    emqx_misc:safe_filename(SubDir).
+    emqx_utils:safe_filename(SubDir).
 
 dir(ChainName, ID) when is_binary(ID) ->
-    emqx_misc:safe_filename(iolist_to_binary([to_bin(ChainName), "-", ID]));
+    emqx_utils:safe_filename(iolist_to_binary([to_bin(ChainName), "-", ID]));
 dir(ChainName, Config) when is_map(Config) ->
     dir(ChainName, authenticator_id(Config)).

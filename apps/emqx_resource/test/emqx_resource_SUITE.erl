@@ -349,7 +349,7 @@ t_query_counter_async_query(_) ->
             ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
-    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    #{counters := C} = emqx_resource:get_metrics(?ID),
     ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C),
     ok = emqx_resource:remove_local(?ID).
 
@@ -402,7 +402,7 @@ t_query_counter_async_callback(_) ->
             ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
         end
     ),
-    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    #{counters := C} = emqx_resource:get_metrics(?ID),
     ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C),
     ?assertMatch(1000, ets:info(Tab0, size)),
     ?assert(
@@ -1314,7 +1314,8 @@ t_delete_and_re_create_with_same_name(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => NumBufferWorkers,
-            queue_seg_bytes => 100,
+            buffer_mode => volatile_offload,
+            buffer_seg_bytes => 100,
             resume_interval => 1_000
         }
     ),
@@ -1373,7 +1374,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
                             query_mode => async,
                             batch_size => 1,
                             worker_pool_size => 2,
-                            queue_seg_bytes => 100,
+                            buffer_seg_bytes => 100,
                             resume_interval => 1_000
                         }
                     ),
@@ -1405,7 +1406,7 @@ t_always_overflow(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => 1,
-            max_queue_bytes => 1,
+            max_buffer_bytes => 1,
             resume_interval => 1_000
         }
     ),
@@ -2634,8 +2635,199 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                     Trace2
                 )
             ),
+            ok
+        end
+    ).
+
+%% The default mode is currently `memory_only'.
+t_volatile_offload_mode(_Config) ->
+    MaxBufferBytes = 1_000,
+    DefaultOpts = #{
+        max_buffer_bytes => MaxBufferBytes,
+        worker_pool_size => 1
+    },
+    ?check_trace(
+        begin
+            emqx_connector_demo:set_callback_mode(async_if_possible),
+            %% Create without any specified segment bytes; should
+            %% default to equal max bytes.
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{buffer_mode => volatile_offload}
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            %% Create with segment bytes < max bytes
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => MaxBufferBytes div 2
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            %% Create with segment bytes = max bytes
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => MaxBufferBytes
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+
+            %% Create with segment bytes > max bytes; should normalize
+            %% to max bytes.
+            ?assertMatch(
+                {ok, _},
+                emqx_resource:create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource},
+                    DefaultOpts#{
+                        buffer_mode => volatile_offload,
+                        buffer_seg_bytes => 2 * MaxBufferBytes
+                    }
+                )
+            ),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
 
             ok
+        end,
+        fun(Trace) ->
+            HalfMaxBufferBytes = MaxBufferBytes div 2,
+            ?assertMatch(
+                [
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        %% uses the specified value since it's smaller
+                        %% than max bytes.
+                        seg_bytes := HalfMaxBufferBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    },
+                    #{
+                        dir := _,
+                        max_total_bytes := MaxTotalBytes,
+                        seg_bytes := MaxTotalBytes,
+                        offload := {true, volatile}
+                    }
+                ],
+                ?projection(queue_opts, ?of_kind(buffer_worker_init, Trace))
+            ),
+            ok
+        end
+    ).
+
+t_late_call_reply(_Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
+    RequestTimeout = 500,
+    ?assertMatch(
+        {ok, _},
+        emqx_resource:create(
+            ?ID,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{name => test_resource},
+            #{
+                buffer_mode => memory_only,
+                request_timeout => RequestTimeout,
+                query_mode => sync
+            }
+        )
+    ),
+    ?check_trace(
+        begin
+            %% Sleep for longer than the request timeout; the call reply will
+            %% have been already returned (a timeout), but the resource will
+            %% still send a message with the reply.
+            %% The demo connector will reply with `{error, timeout}' after 1 s.
+            SleepFor = RequestTimeout + 500,
+            ?assertMatch(
+                {error, {resource_error, #{reason := timeout}}},
+                emqx_resource:query(
+                    ?ID,
+                    {sync_sleep_before_reply, SleepFor},
+                    #{timeout => RequestTimeout}
+                )
+            ),
+            %% Our process shouldn't receive any late messages.
+            receive
+                LateReply ->
+                    ct:fail("received late reply: ~p", [LateReply])
+            after SleepFor ->
+                ok
+            end,
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_resource_create_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, create_error => true},
+        connector_demo_start_error
+    ).
+
+t_resource_health_check_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, health_check_error => true},
+        connector_demo_health_check_error
+    ).
+
+do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    ResourceConfig,
+                    #{auto_restart_interval => 100, health_check_interval => 100}
+                ),
+                #{?snk_kind := resource_activate_alarm, resource_id := ?ID}
+            ),
+            ?assertMatch([#{activated := true, name := ?ID}], emqx_alarm:get_alarms(activated)),
+            {ok, SubRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := SubscribeEvent}), 4, 7000
+            ),
+            ?assertMatch({ok, [_, _, _, _]}, snabbkaffe:receive_events(SubRef))
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(resource_activate_alarm, Trace))
         end
     ).
 
@@ -2702,7 +2894,7 @@ config() ->
     Config.
 
 tap_metrics(Line) ->
-    {ok, _, #{metrics := #{counters := C, gauges := G}}} = emqx_resource:get_instance(?ID),
+    #{counters := C, gauges := G} = emqx_resource:get_metrics(?ID),
     ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
     #{counters => C, gauges => G}.
 

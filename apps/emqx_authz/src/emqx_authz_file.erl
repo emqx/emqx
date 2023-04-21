@@ -47,7 +47,7 @@ create(#{path := Path} = Source) ->
                 ?SLOG(alert, #{
                     msg => failed_to_read_acl_file,
                     path => Path,
-                    explain => emqx_misc:explain_posix(Reason)
+                    explain => emqx_utils:explain_posix(Reason)
                 }),
                 throw(failed_to_read_acl_file);
             {error, Reason} ->

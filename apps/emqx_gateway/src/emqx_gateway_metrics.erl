@@ -89,7 +89,7 @@ tabname(GwName) ->
 
 init([GwName]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(tabname(GwName), [set | TabOpts]),
+    ok = emqx_utils_ets:new(tabname(GwName), [set | TabOpts]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

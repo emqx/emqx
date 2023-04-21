@@ -46,7 +46,8 @@
     global_chain/1,
     listener_chain/3,
     make_deprecated_paths/1,
-    make_compatible_schema/2
+    make_compatible_schema/2,
+    find_gateway_definitions/0
 ]).
 
 -export([stringfy/1]).
@@ -222,7 +223,7 @@ merge_default(Udp, Options) ->
     case lists:keytake(Key, 1, Options) of
         {value, {Key, TcpOpts}, Options1} ->
             [
-                {Key, emqx_misc:merge_opts(Default, TcpOpts)}
+                {Key, emqx_utils:merge_opts(Default, TcpOpts)}
                 | Options1
             ];
         false ->
@@ -481,7 +482,7 @@ frame_options(Options) ->
 
 -spec init_gc_state(map()) -> emqx_gc:gc_state() | undefined.
 init_gc_state(Options) ->
-    emqx_misc:maybe_apply(fun emqx_gc:init/1, force_gc_policy(Options)).
+    emqx_utils:maybe_apply(fun emqx_gc:init/1, force_gc_policy(Options)).
 
 -spec force_gc_policy(map()) -> emqx_gc:opts() | undefined.
 force_gc_policy(Options) ->
@@ -562,3 +563,82 @@ make_compatible_schema2(Path, SchemaFun) ->
         end,
         Schema
     ).
+
+-spec find_gateway_definitions() -> list(gateway_def()).
+find_gateway_definitions() ->
+    lists:flatten(
+        lists:map(
+            fun(App) ->
+                gateways(find_attrs(App, gateway))
+            end,
+            ignore_lib_apps(application:loaded_applications())
+        )
+    ).
+
+gateways([]) ->
+    [];
+gateways([
+    {_App, _Mod,
+        Defination =
+            #{
+                name := Name,
+                callback_module := CbMod,
+                config_schema_module := SchemaMod
+            }}
+    | More
+]) when is_atom(Name), is_atom(CbMod), is_atom(SchemaMod) ->
+    [Defination | gateways(More)].
+
+find_attrs(App, Def) ->
+    [
+        {App, Mod, Attr}
+     || {ok, Modules} <- [application:get_key(App, modules)],
+        Mod <- Modules,
+        {Name, Attrs} <- module_attributes(Mod),
+        Name =:= Def,
+        Attr <- Attrs
+    ].
+
+module_attributes(Module) ->
+    try
+        apply(Module, module_info, [attributes])
+    catch
+        error:undef -> []
+    end.
+
+ignore_lib_apps(Apps) ->
+    LibApps = [
+        kernel,
+        stdlib,
+        sasl,
+        appmon,
+        eldap,
+        erts,
+        syntax_tools,
+        ssl,
+        crypto,
+        mnesia,
+        os_mon,
+        inets,
+        goldrush,
+        gproc,
+        runtime_tools,
+        snmp,
+        otp_mibs,
+        public_key,
+        asn1,
+        ssh,
+        hipe,
+        common_test,
+        observer,
+        webtool,
+        xmerl,
+        tools,
+        test_server,
+        compiler,
+        debugger,
+        eunit,
+        et,
+        wx
+    ],
+    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].

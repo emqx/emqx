@@ -44,6 +44,7 @@
 -type port_number() :: 1..65536.
 -type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
 -type url() :: binary().
+-type json_binary() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -58,6 +59,7 @@
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
+-typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
 
 -export([
     validate_heap_size/1,
@@ -84,7 +86,8 @@
     to_ip_port/1,
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1,
-    to_url/1
+    to_url/1,
+    to_json_binary/1
 ]).
 
 -export([
@@ -112,7 +115,8 @@
     ip_port/0,
     cipher/0,
     comma_separated_atoms/0,
-    url/0
+    url/0,
+    json_binary/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -141,25 +145,31 @@ roots(high) ->
         {"listeners",
             sc(
                 ref("listeners"),
-                #{}
-            )},
-        {"zones",
-            sc(
-                map("name", ref("zone")),
-                #{desc => ?DESC(zones)}
+                #{importance => ?IMPORTANCE_HIGH}
             )},
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{desc => ?DESC(mqtt)}
+                #{
+                    desc => ?DESC(mqtt),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"zones",
+            sc(
+                map("name", ref("zone")),
+                #{
+                    desc => ?DESC(zones),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
-        %% NOTE: authorization schema here is only to keep emqx app prue
+        %% NOTE: authorization schema here is only to keep emqx app pure
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
                 ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 roots(medium) ->
@@ -182,7 +192,7 @@ roots(medium) ->
         {"overload_protection",
             sc(
                 ref("overload_protection"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 roots(low) ->
@@ -195,12 +205,16 @@ roots(low) ->
         {"conn_congestion",
             sc(
                 ref("conn_congestion"),
-                #{}
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"stats",
             sc(
                 ref("stats"),
-                #{}
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"sysmon",
             sc(
@@ -215,17 +229,17 @@ roots(low) ->
         {"flapping_detect",
             sc(
                 ref("flapping_detect"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"persistent_session_store",
             sc(
                 ref("persistent_session_store"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"trace",
             sc(
                 ref("trace"),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"crl_cache",
             sc(
@@ -335,6 +349,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(stats_enable)
                 }
             )}
@@ -605,8 +620,7 @@ fields("mqtt") ->
             )}
     ];
 fields("zone") ->
-    Fields = emqx_zone_schema:roots(),
-    [{F, ref(emqx_zone_schema, F)} || F <- Fields];
+    emqx_zone_schema:zone();
 fields("flapping_detect") ->
     [
         {"enable",
@@ -614,23 +628,25 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
+                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
-                }
-            )},
-        {"max_count",
-            sc(
-                integer(),
-                #{
-                    default => 15,
-                    desc => ?DESC(flapping_detect_max_count)
                 }
             )},
         {"window_time",
             sc(
-                duration(),
+                hoconsc:union([disabled, duration()]),
                 #{
-                    default => <<"1m">>,
+                    default => disabled,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(flapping_detect_window_time)
+                }
+            )},
+        {"max_count",
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 15,
+                    desc => ?DESC(flapping_detect_max_count)
                 }
             )},
         {"ban_time",
@@ -1494,12 +1510,14 @@ fields("broker") ->
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        %% FIXME: Need new design for shared subscription group
         {"shared_subscription_group",
             sc(
                 map(name, ref("shared_subscription_group")),
                 #{
                     example => #{<<"example_group">> => #{<<"strategy">> => <<"random">>}},
-                    desc => ?DESC(shared_subscription_group_strategy)
+                    desc => ?DESC(shared_subscription_group_strategy),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
@@ -1615,7 +1633,9 @@ fields("sysmon") ->
         {"top",
             sc(
                 ref("sysmon_top"),
-                #{}
+                %% Userful monitoring solution when benchmarking,
+                %% but hardly common enough for regular users.
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 fields("sysmon_vm") ->
@@ -1849,6 +1869,8 @@ fields("trace") ->
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
+                deprecated => {since, "5.0.22"},
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(fields_trace_payload_encode)
             })}
     ].
@@ -2205,6 +2227,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => AvailableVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
+                    importance => ?IMPORTANCE_HIGH,
                     validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
                 }
             )},
@@ -2215,6 +2238,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
                     converter => fun ?MODULE:user_lookup_fun_tr/2,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                 }
             )},
@@ -2300,8 +2324,6 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         ref("ocsp"),
                         #{
                             required => false,
-                            %% TODO: remove after e5.0.2
-                            importance => ?IMPORTANCE_HIDDEN,
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
@@ -2310,6 +2332,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         boolean(),
                         #{
                             default => false,
+                            importance => ?IMPORTANCE_MEDIUM,
                             desc => ?DESC("server_ssl_opts_schema_enable_crl_check")
                         }
                     )}
@@ -2321,7 +2344,7 @@ mqtt_ssl_listener_ssl_options_validator(Conf) ->
         fun ocsp_outer_validator/1,
         fun crl_outer_validator/1
     ],
-    case emqx_misc:pipeline(Checks, Conf, not_used) of
+    case emqx_utils:pipeline(Checks, Conf, not_used) of
         {ok, _, _} ->
             ok;
         {error, Reason, _NotUsed} ->
@@ -2342,7 +2365,7 @@ ocsp_outer_validator(_Conf) ->
     ok.
 
 ocsp_inner_validator(#{enable_ocsp_stapling := _} = Conf) ->
-    ocsp_inner_validator(emqx_map_lib:binary_key_map(Conf));
+    ocsp_inner_validator(emqx_utils_maps:binary_key_map(Conf));
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := false} = _Conf) ->
     ok;
 ocsp_inner_validator(#{<<"enable_ocsp_stapling">> := true} = Conf) ->
@@ -2576,6 +2599,14 @@ to_url(Str) ->
             Error
     end.
 
+to_json_binary(Str) ->
+    case emqx_utils_json:safe_decode(Str) of
+        {ok, _} ->
+            {ok, iolist_to_binary(Str)};
+        Error ->
+            Error
+    end.
+
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
 
@@ -2642,20 +2673,22 @@ to_atom(Str) when is_list(Str) ->
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
-validate_heap_size(Siz) ->
+validate_heap_size(Siz) when is_integer(Siz) ->
     MaxSiz =
         case erlang:system_info(wordsize) of
             % arch_64
-            8 ->
-                (1 bsl 59) - 1;
+            8 -> (1 bsl 59) - 1;
             % arch_32
-            4 ->
-                (1 bsl 27) - 1
+            4 -> (1 bsl 27) - 1
         end,
     case Siz > MaxSiz of
-        true -> error(io_lib:format("force_shutdown_policy: heap-size ~ts is too large", [Siz]));
-        false -> ok
-    end.
+        true ->
+            {error, #{reason => max_heap_size_too_large, maximum => MaxSiz}};
+        false ->
+            ok
+    end;
+validate_heap_size(_SizStr) ->
+    {error, invalid_heap_size}.
 
 validate_alarm_actions(Actions) ->
     UnSupported = lists:filter(
@@ -2732,10 +2765,16 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Which) ->
-    Desc =
+    {Importance, Desc} =
         case Which of
-            global -> ?DESC(global_authentication);
-            listener -> ?DESC(listener_authentication)
+            global ->
+                %% For root level authentication, it is recommended to configure
+                %% from the dashboard or API.
+                %% Hence it's considered a low-importance when it comes to
+                %% configuration importance.
+                {?IMPORTANCE_LOW, ?DESC(global_authentication)};
+            listener ->
+                {?IMPORTANCE_HIDDEN, ?DESC(listener_authentication)}
         end,
     %% poor man's dependency injection
     %% this is due to the fact that authn is implemented outside of 'emqx' app.
@@ -2748,7 +2787,11 @@ authentication(Which) ->
             Module ->
                 Module:root_type()
         end,
-    hoconsc:mk(Type, #{desc => Desc, converter => fun ensure_array/2}).
+    hoconsc:mk(Type, #{
+        desc => Desc,
+        converter => fun ensure_array/2,
+        importance => Importance
+    }).
 
 %% the older version schema allows individual element (instead of a chain) in config
 ensure_array(undefined, _) -> undefined;

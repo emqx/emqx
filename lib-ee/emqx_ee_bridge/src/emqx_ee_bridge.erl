@@ -14,9 +14,10 @@
 
 api_schemas(Method) ->
     [
-        ref(emqx_ee_bridge_gcp_pubsub, Method),
-        ref(emqx_ee_bridge_kafka, Method ++ "_consumer"),
-        ref(emqx_ee_bridge_kafka, Method ++ "_producer"),
+        ref(emqx_bridge_gcp_pubsub, Method),
+        ref(emqx_bridge_kafka, Method ++ "_consumer"),
+        ref(emqx_bridge_kafka, Method ++ "_producer"),
+        ref(emqx_bridge_cassandra, Method),
         ref(emqx_ee_bridge_mysql, Method),
         ref(emqx_ee_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
@@ -34,14 +35,15 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
         ref(emqx_ee_bridge_rocketmq, Method),
-        ref(emqx_ee_bridge_cassa, Method)
+        ref(emqx_ee_bridge_sqlserver, Method)
     ].
 
 schema_modules() ->
     [
-        emqx_ee_bridge_kafka,
+        emqx_bridge_kafka,
+        emqx_bridge_cassandra,
         emqx_ee_bridge_hstreamdb,
-        emqx_ee_bridge_gcp_pubsub,
+        emqx_bridge_gcp_pubsub,
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
@@ -53,7 +55,7 @@ schema_modules() ->
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
         emqx_ee_bridge_rocketmq,
-        emqx_ee_bridge_cassa
+        emqx_ee_bridge_sqlserver
     ].
 
 examples(Method) ->
@@ -69,12 +71,13 @@ examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
-resource_type(kafka_consumer) -> emqx_bridge_impl_kafka_consumer;
+resource_type(kafka_consumer) -> emqx_bridge_kafka_impl_consumer;
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
-resource_type(kafka) -> emqx_bridge_impl_kafka_producer;
+resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
+resource_type(cassandra) -> emqx_bridge_cassandra_connector;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
-resource_type(gcp_pubsub) -> emqx_ee_connector_gcp_pubsub;
+resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_connector;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
@@ -91,7 +94,7 @@ resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
-resource_type(cassandra) -> emqx_ee_connector_cassa.
+resource_type(sqlserver) -> emqx_ee_connector_sqlserver.
 
 fields(bridges) ->
     [
@@ -105,7 +108,7 @@ fields(bridges) ->
             )},
         {gcp_pubsub,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_gcp_pubsub, "config")),
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config")),
                 #{
                     desc => <<"EMQX Enterprise Config">>,
                     required => false
@@ -145,14 +148,14 @@ fields(bridges) ->
             )},
         {cassandra,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_cassa, "config")),
+                hoconsc:map(name, ref(emqx_bridge_cassandra, "config")),
                 #{
                     desc => <<"Cassandra Bridge Config">>,
                     required => false
                 }
             )}
     ] ++ kafka_structs() ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++
-        pgsql_structs() ++ clickhouse_structs().
+        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs().
 
 mongodb_structs() ->
     [
@@ -174,16 +177,16 @@ kafka_structs() ->
         %% backwards compatibility.
         {kafka,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_kafka, kafka_producer)),
+                hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer)),
                 #{
                     desc => <<"Kafka Producer Bridge Config">>,
                     required => false,
-                    converter => fun emqx_ee_bridge_kafka:kafka_producer_converter/2
+                    converter => fun emqx_bridge_kafka:kafka_producer_converter/2
                 }
             )},
         {kafka_consumer,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_kafka, kafka_consumer)),
+                hoconsc:map(name, ref(emqx_bridge_kafka, kafka_consumer)),
                 #{desc => <<"Kafka Consumer Bridge Config">>, required => false}
             )}
     ].
@@ -245,6 +248,18 @@ clickhouse_structs() ->
                 hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
                 #{
                     desc => <<"Clickhouse Bridge Config">>,
+                    required => false
+                }
+            )}
+    ].
+
+sqlserver_structs() ->
+    [
+        {sqlserver,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_sqlserver, "config")),
+                #{
+                    desc => <<"Microsoft SQL Server Bridge Config">>,
                     required => false
                 }
             )}

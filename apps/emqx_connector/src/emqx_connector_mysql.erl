@@ -51,7 +51,7 @@
 -type sqls() :: #{atom() => binary()}.
 -type state() ::
     #{
-        poolname := atom(),
+        pool_name := binary(),
         prepare_statement := prepares(),
         params_tokens := params_tokens(),
         batch_inserts := sqls(),
@@ -102,7 +102,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,
-        config => emqx_misc:redact(Config)
+        config => emqx_utils:redact(Config)
     }),
     SslOpts =
         case maps:get(enable, SSL) of
@@ -123,13 +123,10 @@ on_start(
                 {pool_size, PoolSize}
             ]
         ),
-
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    Prepares = parse_prepare_sql(Config),
-    State = maps:merge(#{poolname => PoolName}, Prepares),
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
+    State = parse_prepare_sql(Config),
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State)};
+            {ok, init_prepare(State#{pool_name => InstId})};
         {error, Reason} ->
             ?tp(
                 mysql_connector_start_failed,
@@ -143,12 +140,12 @@ maybe_add_password_opt(undefined, Options) ->
 maybe_add_password_opt(Password, Options) ->
     [{password, Password} | Options].
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_mysql_connector",
         connector => InstId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
     on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);
@@ -157,7 +154,7 @@ on_query(InstId, {TypeOrKey, SQLOrKey, Params}, State) ->
 on_query(
     InstId,
     {TypeOrKey, SQLOrKey, Params, Timeout},
-    #{poolname := PoolName, prepare_statement := Prepares} = State
+    #{pool_name := PoolName, prepare_statement := Prepares} = State
 ) ->
     MySqlFunction = mysql_function(TypeOrKey),
     {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
@@ -216,8 +213,8 @@ mysql_function(prepared_query) ->
 mysql_function(_) ->
     mysql_function(prepared_query).
 
-on_get_status(_InstId, #{poolname := Pool} = State) ->
-    case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
+on_get_status(_InstId, #{pool_name := PoolName} = State) ->
+    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
         true ->
             case do_check_prepares(State) of
                 ok ->
@@ -238,7 +235,7 @@ do_get_status(Conn) ->
 
 do_check_prepares(#{prepare_statement := Prepares}) when is_map(Prepares) ->
     ok;
-do_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, Prepares}}) ->
+do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, Prepares}}) ->
     %% retry to prepare
     case prepare_sql(Prepares, PoolName) of
         ok ->
@@ -253,7 +250,7 @@ do_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, P
 connect(Options) ->
     mysql:start_link(Options).
 
-init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
+init_prepare(State = #{prepare_statement := Prepares, pool_name := PoolName}) ->
     case maps:size(Prepares) of
         0 ->
             State;
@@ -409,7 +406,7 @@ on_sql_query(
     SQLOrKey,
     Params,
     Timeout,
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
@@ -437,7 +434,7 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
             ),
-            %% kill the poll worker to trigger reconnection
+            %% kill the pool worker to trigger reconnection
             _ = exit(Conn, restart),
             {error, {recoverable_error, disconnected}};
         {error, not_prepared} = Error ->

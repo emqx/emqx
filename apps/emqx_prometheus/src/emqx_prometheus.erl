@@ -144,7 +144,7 @@ terminate(_Reason, _State) ->
     ok.
 
 ensure_timer(Interval) ->
-    emqx_misc:start_timer(Interval, ?TIMER_MSG).
+    emqx_utils:start_timer(Interval, ?TIMER_MSG).
 
 %%--------------------------------------------------------------------
 %% prometheus callbacks
@@ -599,8 +599,8 @@ emqx_cluster() ->
     ].
 
 emqx_cluster_data() ->
-    Running = mria:cluster_nodes(running),
-    Stopped = mria:cluster_nodes(stopped),
+    Running = emqx:cluster_nodes(running),
+    Stopped = emqx:cluster_nodes(stopped),
     [
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}

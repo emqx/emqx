@@ -1,0 +1,38 @@
+emqx_coap_schema {
+
+coap.desc:
+"""The CoAP Gateway configuration.
+This gateway is implemented based on RFC-7252 and https://core-wg.github.io/coap-pubsub/draft-ietf-core-pubsub.html"""
+
+coap_connection_required.desc:
+"""Enable or disable connection mode.
+Connection mode is a feature of non-standard protocols. When connection mode is enabled, it is necessary to maintain the creation, authentication and alive of connection resources"""
+
+coap_heartbeat.desc:
+"""The gateway server required minimum heartbeat interval.
+When connection mode is enabled, this parameter is used to set the minimum heartbeat interval for the connection to be alive"""
+
+coap_notify_type.desc:
+"""The Notification Message will be delivered to the CoAP client if a new message received on an observed topic.
+The type of delivered coap message can be set to:<br/>
+  - non: Non-confirmable;<br/>
+  - con: Confirmable;<br/>
+  - qos: Mapping from QoS type of received message, QoS0 -> non, QoS1,2 -> con"""
+
+coap_publish_qos.desc:
+"""The Default QoS Level indicator for publish request.
+This option specifies the QoS level for the CoAP Client when publishing a message to EMQX PUB/SUB system, if the publish request is not carried `qos` option. The indicator can be set to:<br/>
+  - qos0, qos1, qos2: Fixed default QoS level<br/>
+  - coap: Dynamic QoS level by the message type of publish request<br/>
+    * qos0: If the publish request is non-confirmable<br/>
+    * qos1: If the publish request is confirmable"""
+
+coap_subscribe_qos.desc:
+"""The Default QoS Level indicator for subscribe request.
+This option specifies the QoS level for the CoAP Client when establishing a subscription membership, if the subscribe request is not carried `qos` option. The indicator can be set to:<br/>
+  - qos0, qos1, qos2: Fixed default QoS level<br/>
+  - coap: Dynamic QoS level by the message type of subscribe request<br/>
+    * qos0: If the subscribe request is non-confirmable<br/>
+    * qos1: If the subscribe request is confirmable"""
+
+}

@@ -1,0 +1,56 @@
+emqx_lwm2m_schema {
+
+lwm2m.desc:
+"""The LwM2M Gateway configuration. This gateway only supports the v1.0.1 protocol."""
+
+lwm2m_auto_observe.desc:
+"""Automatically observe the object list of REGISTER packet."""
+
+lwm2m_lifetime_max.desc:
+"""Maximum value of lifetime allowed to be set by the LwM2M client."""
+
+lwm2m_lifetime_min.desc:
+"""Minimum value of lifetime allowed to be set by the LwM2M client."""
+
+lwm2m_qmode_time_window.desc:
+"""The value of the time window during which the network link is considered valid by the LwM2M Gateway in QMode mode.
+For example, after receiving an update message from a client, any messages within this time window are sent directly to the LwM2M client, and all messages beyond this time window are temporarily stored in memory."""
+
+lwm2m_translators.desc:
+"""Topic configuration for LwM2M's gateway publishing and subscription."""
+
+lwm2m_translators_command.desc:
+"""The topic for receiving downstream commands.
+For each new LwM2M client that succeeds in going online, the gateway creates a subscription relationship to receive downstream commands and send it to the LwM2M client"""
+
+lwm2m_translators_notify.desc:
+"""The topic for gateway to publish the notify events from LwM2M client.
+After succeed observe a resource of LwM2M client, Gateway will send the notify events via this topic, if the client reports any resource changes"""
+
+lwm2m_translators_register.desc:
+"""The topic for gateway to publish the register events from LwM2M client."""
+
+lwm2m_translators_response.desc:
+"""The topic for gateway to publish the acknowledge events from LwM2M client"""
+
+lwm2m_translators_update.desc:
+"""The topic for gateway to publish the update events from LwM2M client"""
+
+lwm2m_update_msg_publish_condition.desc:
+"""Policy for publishing UPDATE event message.<br/>
+  - always: send update events as long as the UPDATE request is received.<br/>
+  - contains_object_list: send update events only if the UPDATE request carries any Object List"""
+
+lwm2m_xml_dir.desc:
+"""The Directory for LwM2M Resource definition."""
+
+translator.desc:
+"""MQTT topic that corresponds to a particular type of event."""
+
+translator_qos.desc:
+"""QoS Level"""
+
+translator_topic.desc:
+"""Topic Name"""
+
+}

@@ -1,0 +1,45 @@
+emqx_authn_mongodb {
+
+collection.desc:
+"""存储认证数据的集合。"""
+
+collection.label:
+"""集合"""
+
+filter.desc:
+"""在查询中定义过滤条件的条件表达式。
+过滤器支持如下占位符：
+- <code>${username}</code>: 将在运行时被替换为客户端连接时使用的用户名
+- <code>${clientid}</code>: 将在运行时被替换为客户端连接时使用的客户端标识符"""
+
+filter.label:
+"""过滤器"""
+
+is_superuser_field.desc:
+"""文档中用于定义用户是否具有超级用户权限的字段。"""
+
+is_superuser_field.label:
+"""超级用户字段"""
+
+password_hash_field.desc:
+"""文档中用于存放密码散列的字段。"""
+
+password_hash_field.label:
+"""密码散列字段"""
+
+replica-set.desc:
+"""使用 MongoDB (Replica Set) 作为认证数据源的认证器的配置项。"""
+
+salt_field.desc:
+"""文档中用于存放盐值的字段。"""
+
+salt_field.label:
+"""盐值字段"""
+
+sharded-cluster.desc:
+"""使用 MongoDB (Sharded Cluster) 作为认证数据源的认证器的配置项。"""
+
+single.desc:
+"""使用 MongoDB (Standalone) 作为认证数据源的认证器的配置项。"""
+
+}

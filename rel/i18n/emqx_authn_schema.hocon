@@ -1,243 +1,135 @@
 emqx_authn_schema {
-  enable {
-    desc {
-      en: """Set to <code>true</code> or <code>false</code> to disable this auth provider."""
-      zh: """设为 <code>true</code> 或 <code>false</code> 以启用或禁用此认证数据源。"""
-    }
-    label: {
-      en: """Enable"""
-      zh: """启用"""
-    }
-  }
 
-  mechanism {
-    desc {
-      en: """Authentication mechanism."""
-      zh: """认证机制。"""
-    }
-    label: {
-      en: """Authentication Mechanism"""
-      zh: """认证机制"""
-    }
-  }
+backend.desc:
+"""Backend type."""
 
-  backend {
-    desc {
-      en: """Backend type."""
-      zh: """后端类型。"""
-    }
-    label: {
-      en: """Backend Type"""
-      zh: """后端类型"""
-    }
-  }
+backend.label:
+"""Backend Type"""
 
-  metrics {
-    desc {
-      en: """The metrics of the resource."""
-      zh: """资源统计指标。"""
-    }
-    label: {
-      en: """Metrics"""
-      zh: """指标"""
-    }
-  }
+enable.desc:
+"""Set to <code>true</code> or <code>false</code> to disable this auth provider."""
 
-  node_metrics {
-    desc {
-      en: """The metrics of the resource for each node."""
-      zh: """每个节点上资源的统计指标。"""
-    }
-    label: {
-      en: """Resource Metrics in Node"""
-      zh: """节点资源指标"""
-    }
-  }
+enable.label:
+"""Enable"""
 
-  status {
-    desc {
-      en: """The status of the resource."""
-      zh: """资源状态。"""
-    }
-    label: {
-      en: """Status"""
-      zh: """状态"""
-    }
-  }
+failed.desc:
+"""Count of query failed."""
 
-  node_status {
-    desc {
-      en: """The status of the resource for each node."""
-      zh: """每个节点上资源的状态。"""
-    }
-    label: {
-      en: """Resource Status in Node"""
-      zh: """节点资源状态"""
-    }
-  }
+failed.label:
+"""Failed"""
 
-  node_error {
-    desc {
-      en: """The error of node."""
-      zh: """节点上产生的错误。"""
-    }
-    label: {
-      en: """Error in Node"""
-      zh: """节点产生的错误"""
-    }
-  }
+matched.desc:
+"""Count of this resource is queried."""
 
-  matched {
-    desc {
-      en: """Count of this resource is queried."""
-      zh: """请求命中次数。"""
-    }
-    label: {
-      en: """Matched"""
-      zh: """已命中"""
-    }
-  }
+matched.label:
+"""Matched"""
 
-  success {
-    desc {
-      en: """Count of query success."""
-      zh: """请求成功次数。"""
-    }
-    label: {
-      en: """Success"""
-      zh: """成功"""
-    }
-  }
+mechanism.desc:
+"""Authentication mechanism."""
 
-  failed {
-    desc {
-      en: """Count of query failed."""
-      zh: """请求失败次数。"""
-    }
-    label: {
-      en: """Failed"""
-      zh: """失败"""
-    }
-  }
+mechanism.label:
+"""Authentication Mechanism"""
 
-  rate {
-    desc {
-      en: """The rate of matched, times/second."""
-      zh: """命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Rate"""
-      zh: """速率"""
-    }
-  }
+metrics.desc:
+"""The metrics of the resource."""
 
-  rate_max {
-    desc {
-      en: """The max rate of matched, times/second."""
-      zh: """最大命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Max Rate"""
-      zh: """最大速率"""
-    }
-  }
+metrics.label:
+"""Metrics"""
 
-  rate_last5m {
-    desc {
-      en: """The average rate of matched in the last 5 minutes, times/second."""
-      zh: """5分钟内平均命中速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Rate in Last 5min"""
-      zh: """5分钟内速率"""
-    }
-  }
+metrics_failed.desc:
+"""The required authentication information is found in the current instance, and the instance returns authentication failure."""
 
-  node {
-    desc {
-      en: """Node name."""
-      zh: """节点名称。"""
-    }
-    label: {
-      en: """Node Name."""
-      zh: """节点名称。"""
-    }
-  }
+metrics_failed.label:
+"""Authentication Failed Times"""
 
-  metrics_nomatch {
-    desc {
-      en: """The number of times the instance was ignored when the required authentication information was not found in the current instance."""
-      zh: """在当前实例中没有找到需要的认证信息，实例被忽略的次数。"""
-    }
-    label: {
-      en: """Nomatch Times"""
-      zh: """实例被忽略的次数"""
-    }
-  }
+metrics_nomatch.desc:
+"""The number of times the instance was ignored when the required authentication information was not found in the current instance."""
 
-  metrics_total {
-    desc {
-      en: """The total number of times the current instance was triggered."""
-      zh: """当前实例被触发的总次数。"""
-    }
-    label: {
-      en: """Total Triggered Times"""
-      zh: """当前实例被触发的总次数"""
-    }
-  }
+metrics_nomatch.label:
+"""Nomatch Times"""
 
-  metrics_success {
-    desc {
-      en: """The required authentication information is found in the current instance, and the instance returns authentication success."""
-      zh: """在当前实例中找到需要的认证信息，并且实例返回认证成功的次数。"""
-    }
-    label: {
-      en: """Authentication Success Times"""
-      zh: """实例认证成功的次数"""
-    }
-  }
+metrics_rate.desc:
+"""The total rate at which instances are triggered, times/second."""
 
-  metrics_failed {
-    desc {
-      en: """The required authentication information is found in the current instance, and the instance returns authentication failure."""
-      zh: """在当前实例中找到需要的认证信息，并且实例返回认证失败的次数。"""
-    }
-    label: {
-      en: """Authentication Failed Times"""
-      zh: """实例认证失败的次数"""
-    }
-  }
+metrics_rate.label:
+"""Total Triggered Rate"""
 
-  metrics_rate {
-    desc {
-      en: """The total rate at which instances are triggered, times/second."""
-      zh: """实例被触发的速率。触发速率等于匹配速率 + 忽略速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Total Triggered Rate"""
-      zh: """实例被触发的速率"""
-    }
-  }
+metrics_rate_last5m.desc:
+"""The average trigger rate of the instance within 5 minutes, times/second."""
 
-  metrics_rate_max {
-    desc {
-      en: """The highest trigger rate the instance has ever reached, times/second."""
-      zh: """实例曾经达到的最高触发速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Highest Triggered Rate"""
-      zh: """实例曾经达到的最高触发速率"""
-    }
-  }
+metrics_rate_last5m.label:
+"""Average Triggered Rate in Last 5min"""
 
-  metrics_rate_last5m {
-    desc {
-      en: """The average trigger rate of the instance within 5 minutes, times/second."""
-      zh: """实例5分钟内平均触发速率，单位：次/秒。"""
-    }
-    label: {
-      en: """Average Triggered Rate in Last 5min"""
-      zh: """实例5分钟内平均触发速率"""
-    }
-  }
+metrics_rate_max.desc:
+"""The highest trigger rate the instance has ever reached, times/second."""
+
+metrics_rate_max.label:
+"""Highest Triggered Rate"""
+
+metrics_success.desc:
+"""The required authentication information is found in the current instance, and the instance returns authentication success."""
+
+metrics_success.label:
+"""Authentication Success Times"""
+
+metrics_total.desc:
+"""The total number of times the current instance was triggered."""
+
+metrics_total.label:
+"""Total Triggered Times"""
+
+node.desc:
+"""Node name."""
+
+node.label:
+"""Node Name."""
+
+node_error.desc:
+"""The error of node."""
+
+node_error.label:
+"""Error in Node"""
+
+node_metrics.desc:
+"""The metrics of the resource for each node."""
+
+node_metrics.label:
+"""Resource Metrics in Node"""
+
+node_status.desc:
+"""The status of the resource for each node."""
+
+node_status.label:
+"""Resource Status in Node"""
+
+rate.desc:
+"""The rate of matched, times/second."""
+
+rate.label:
+"""Rate"""
+
+rate_last5m.desc:
+"""The average rate of matched in the last 5 minutes, times/second."""
+
+rate_last5m.label:
+"""Rate in Last 5min"""
+
+rate_max.desc:
+"""The max rate of matched, times/second."""
+
+rate_max.label:
+"""Max Rate"""
+
+status.desc:
+"""The status of the resource."""
+
+status.label:
+"""Status"""
+
+success.desc:
+"""Count of query success."""
+
+success.label:
+"""Success"""
+
 }

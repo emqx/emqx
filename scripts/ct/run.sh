@@ -39,6 +39,7 @@ ONLY_UP='no'
 ATTACH='no'
 STOP='no'
 IS_CI='no'
+ODBC_REQUEST='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -113,6 +114,13 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
         ;;
+    apps/*)
+        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
+          export PROFILE='emqx-enterprise'
+        else
+          export PROFILE='emqx'
+        fi
+        ;;
     *)
         export PROFILE="${PROFILE:-emqx}"
         ;;
@@ -182,6 +190,10 @@ for dep in ${CT_DEPS}; do
         cassandra)
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
             ;;
+        sqlserver)
+            ODBC_REQUEST='yes'
+            FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
+            ;;
         minio)
             FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )
@@ -192,6 +204,12 @@ for dep in ${CT_DEPS}; do
             ;;
     esac
 done
+
+if [ "$ODBC_REQUEST" = 'yes' ]; then
+    INSTALL_ODBC="./scripts/install-odbc-driver.sh"
+else
+    INSTALL_ODBC="echo 'Driver msodbcsql driver not requested'"
+fi
 
 F_OPTIONS=""
 
@@ -235,6 +253,7 @@ docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base
 # the user must exist inside the container for `whoami` to work
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "useradd --uid $DOCKER_USER -M -d / emqx" || true
 docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $DOCKER_USER /var/lib/secret" || true
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "$INSTALL_ODBC" || true
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0

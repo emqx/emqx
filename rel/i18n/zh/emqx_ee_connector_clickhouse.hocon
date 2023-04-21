@@ -1,0 +1,15 @@
+emqx_ee_connector_clickhouse {
+
+base_url.desc:
+"""你想连接到的Clickhouse服务器的HTTP URL（例如http://myhostname:8123）。"""
+
+base_url.label:
+"""服务器 URL"""
+
+connect_timeout.desc:
+"""连接HTTP服务器的超时时间。"""
+
+connect_timeout.label:
+"""连接超时"""
+
+}
