@@ -103,6 +103,9 @@ default_plugins() ->
         {emqx_telemetry, true}
     ].
 
+get_vars() ->
+    'rebar.config':overlay_vars_rel_common(cloud).
+
 -else.
 
 default_plugins() ->
@@ -119,6 +122,10 @@ default_plugins() ->
         {emqx_node_rebalance, true}
     ].
 
+
+get_vars() ->
+    'rebar.config':ee_overlay_vars(bin).
+
 -endif.
 t_ensure_default_loaded_plugins_file(Config) ->
     %% this will trigger it to write the default plugins to the
@@ -131,19 +138,24 @@ t_ensure_default_loaded_plugins_file(Config) ->
     ?assertEqual(lists:sort(DefaultPlugins), lists:sort(Contents)),
 
     GenContents = get_loaded_plugins_from_tmpl(),
-    Fun = fun({Name, _}) -> Name end,
-    Plugins = lists:sort(lists:map(Fun, Contents)),
-    ExpectPlugins = lists:sort(lists:map(Fun, GenContents)),
-    ?assertEqual(ExpectPlugins, Plugins),
-
+    ?assertEqual(lists:sort(Contents), lists:sort(GenContents)),
     ok.
 
 get_loaded_plugins_from_tmpl() ->
     %% /_build/test/logs/ct_run.test@127.0.0.1.xxxx
     {ok, Cwd} = file:get_cwd(),
     Home = filename:dirname(filename:dirname(filename:dirname(filename:dirname(Cwd)))),
-    {ok, Plugins} = file:consult(filename:join([Home, "data", "loaded_plugins.tmpl"])),
-    Plugins.
+    FileName = filename:join([Home, "rebar.config.erl"]),
+    {ok, Module, Code} = compile:file(FileName, [export_all, binary]),
+    {module, Module} = code:load_binary(Module, FileName, Code),
+    {ok, Bin} = file:read_file(filename:join([Home, "data", "loaded_plugins.tmpl"])),
+    Vars = maps:from_list(lists:map(fun({K, V})  -> {to_str(K), to_str(V)} end, get_vars())),
+    RenderBin = bbmustache:render(Bin, Vars),
+    TmpFile = "./tmpfile",
+    ok = file:write_file(TmpFile, RenderBin),
+    {ok, Contents} = file:consult(TmpFile),
+    file:delete(TmpFile),
+    Contents.
 
 t_init_config(_) ->
     ConfFile = "emqx_mini_plugin.config",
@@ -222,3 +234,8 @@ t_unload_plugin(_) ->
     ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app)),
 
     ok = meck:unload(application).
+
+to_str(Atom) when is_atom(Atom) ->
+    atom_to_list(Atom);
+to_str(Str) when is_list(Str) ->
+    Str.
