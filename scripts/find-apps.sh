@@ -72,11 +72,12 @@ describe_app() {
         runner="docker"
     fi
     case "${app}" in
-        apps/emqx_bridge_kafka)
-            profile='emqx-enterprise'
-            ;;
         apps/*)
-            profile='emqx'
+            if [[ -f "${app}/BSL.txt" ]]; then
+              profile='emqx-enterprise'
+            else
+              profile='emqx'
+            fi
             ;;
         lib-ee/*)
             profile='emqx-enterprise'

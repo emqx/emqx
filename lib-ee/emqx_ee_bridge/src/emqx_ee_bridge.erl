@@ -14,7 +14,7 @@
 
 api_schemas(Method) ->
     [
-        ref(emqx_ee_bridge_gcp_pubsub, Method),
+        ref(emqx_bridge_gcp_pubsub, Method),
         ref(emqx_bridge_kafka, Method ++ "_consumer"),
         ref(emqx_bridge_kafka, Method ++ "_producer"),
         ref(emqx_ee_bridge_mysql, Method),
@@ -42,7 +42,7 @@ schema_modules() ->
     [
         emqx_bridge_kafka,
         emqx_ee_bridge_hstreamdb,
-        emqx_ee_bridge_gcp_pubsub,
+        emqx_bridge_gcp_pubsub,
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
@@ -76,7 +76,7 @@ resource_type(kafka_consumer) -> emqx_bridge_kafka_impl_consumer;
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
-resource_type(gcp_pubsub) -> emqx_ee_connector_gcp_pubsub;
+resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_connector;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
@@ -108,7 +108,7 @@ fields(bridges) ->
             )},
         {gcp_pubsub,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_gcp_pubsub, "config")),
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config")),
                 #{
                     desc => <<"EMQX Enterprise Config">>,
                     required => false

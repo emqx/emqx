@@ -79,6 +79,7 @@ is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -439,6 +440,7 @@ relx_apps_per_edition(ee) ->
         emqx_ee_connector,
         emqx_ee_bridge,
         emqx_bridge_kafka,
+        emqx_bridge_gcp_pubsub,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
