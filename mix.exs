@@ -184,7 +184,14 @@ defmodule EMQXUmbrella.MixProject do
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
-      {:supervisor3, "1.1.12", override: true}
+      {:supervisor3, "1.1.12", override: true},
+      {:erlcloud, github: "emqx/erlcloud", tag: "3.6.8-emqx-1", override: true},
+      # erlcloud's rebar.config requires rebar3 and does not support Mix,
+      # so it tries to fetch deps from git. We need to override this.
+      {:lhttpc, github: "erlcloud/lhttpc", tag: "1.6.2", override: true},
+      {:eini, "1.2.9", override: true},
+      {:base16, "1.0.0", override: true}
+      # end of erlcloud's deps
     ]
   end
 
@@ -374,7 +381,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_rocketmq: :permanent,
           emqx_bridge_tdengine: :permanent,
           emqx_bridge_timescale: :permanent,
-          emqx_ee_schema_registry: :permanent
+          emqx_ee_schema_registry: :permanent,
+          emqx_ft: :permanent
         ],
         else: []
       )
