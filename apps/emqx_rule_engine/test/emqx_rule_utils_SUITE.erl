@@ -76,6 +76,25 @@ t_proc_tmpl(_) ->
     Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     Tks = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(<<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"}">>,
+                 emqx_rule_utils:proc_tmpl(Tks, Selected)),
+    Tks1 = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d.d1}">>),
+    ?assertEqual(<<"a:1,b:1,c:1.0,d:hi">>,
+                 emqx_rule_utils:proc_tmpl(Tks1, Selected)).
+
+t_proc_tmpl_arbitrary_var_name(_) ->
+    Selected = #{<<"中"/utf8>> => <<"1">>,
+                 <<"中-1"/utf8>> => <<"1-1">>,
+                 <<"-_+=<>,/?:;\"'\\[]|">> => 1,
+                 <<"-_+=<>,">> => #{<<"/?:;\"'\\[]|">> => 2},
+                 <<"!@#$%^&*()">> => 1.0,
+                 <<"d">> => #{
+                    <<"$ff">> => <<"oo">>,
+                    <<"${f">> => <<"hi">>,
+                    <<"${f}">> => <<"qq">>
+                }},
+    Tks = emqx_rule_utils:preproc_tmpl(
+        <<"a:${中},a:${中-1},b:${-_+=<>,/?:;\"'\\[]|},b:${-_+=<>,./?:;\"'\\[]|},c:${!@#$%^&*()},d:${d.$ff},d1:${d.${f}}"/utf8>>),
+    ?assertEqual(<<"a:1,a:1-1,b:1,b:2,c:1.0,d:oo,d1:hi}">>,
                  emqx_rule_utils:proc_tmpl(Tks, Selected)).
 
 t_proc_tmpl1(_) ->
