@@ -88,7 +88,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_bridge_cassandra_impl:fields(config) --
+        (emqx_bridge_cassandra_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     fields("post", cassandra);

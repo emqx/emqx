@@ -75,7 +75,7 @@ resource_type(kafka_consumer) -> emqx_bridge_kafka_impl_consumer;
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
-resource_type(cassandra) -> emqx_bridge_cassandra_impl;
+resource_type(cassandra) -> emqx_bridge_cassandra_connector;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_connector;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;

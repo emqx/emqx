@@ -155,7 +155,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_umbrella_apps() do
     MapSet.new([
       :emqx_bridge_kafka,
-      :emqx_bridge_gcp_pubsub
+      :emqx_bridge_gcp_pubsub,
       :emqx_bridge_cassandra,
       :emqx_bridge_clickhouse,
       :emqx_bridge_dynamo,

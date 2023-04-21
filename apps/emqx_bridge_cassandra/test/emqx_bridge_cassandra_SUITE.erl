@@ -590,7 +590,7 @@ t_missing_data(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    %% emqx_bridge_cassandra_impl will send missed data as a `null` atom
+    %% emqx_bridge_cassandra_connector will send missed data as a `null` atom
     %% to ecql driver
     ?check_trace(
         begin
