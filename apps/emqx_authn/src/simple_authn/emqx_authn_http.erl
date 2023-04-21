@@ -38,6 +38,8 @@
     headers/1
 ]).
 
+-export([check_headers/1, check_ssl_opts/1]).
+
 -export([
     refs/0,
     union_member_selector/1,
@@ -106,8 +108,8 @@ common_fields() ->
 
 validations() ->
     [
-        {check_ssl_opts, fun check_ssl_opts/1},
-        {check_headers, fun check_headers/1}
+        {check_ssl_opts, fun ?MODULE:check_ssl_opts/1},
+        {check_headers, fun ?MODULE:check_headers/1}
     ].
 
 url(type) -> binary();
@@ -261,21 +263,47 @@ transform_header_name(Headers) ->
     ).
 
 check_ssl_opts(Conf) ->
-    {BaseUrl, _Path, _Query} = parse_url(get_conf_val("url", Conf)),
-    case BaseUrl of
-        <<"https://", _/binary>> ->
-            case get_conf_val("ssl.enable", Conf) of
-                true -> ok;
-                false -> false
+    case is_backend_http(Conf) of
+        true ->
+            Url = get_conf_val("url", Conf),
+            {BaseUrl, _Path, _Query} = parse_url(Url),
+            case BaseUrl of
+                <<"https://", _/binary>> ->
+                    case get_conf_val("ssl.enable", Conf) of
+                        true ->
+                            ok;
+                        false ->
+                            <<"it's required to enable the TLS option to establish a https connection">>
+                    end;
+                <<"http://", _/binary>> ->
+                    ok
             end;
-        <<"http://", _/binary>> ->
+        false ->
             ok
     end.
 
 check_headers(Conf) ->
-    Method = to_bin(get_conf_val("method", Conf)),
-    Headers = get_conf_val("headers", Conf),
-    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
+    case is_backend_http(Conf) of
+        true ->
+            Headers = get_conf_val("headers", Conf),
+            case to_bin(get_conf_val("method", Conf)) of
+                <<"post">> ->
+                    ok;
+                <<"get">> ->
+                    case maps:is_key(<<"content-type">>, Headers) of
+                        false -> ok;
+                        true -> <<"HTTP GET requests cannot include content-type header.">>
+                    end
+            end;
+        false ->
+            ok
+    end.
+
+is_backend_http(Conf) ->
+    case get_conf_val("backend", Conf) of
+        http -> true;
+        _ -> false
+    end.
 
 parse_url(Url) ->
     case string:split(Url, "//", leading) of
@@ -310,7 +338,7 @@ parse_config(
         method => Method,
         path => Path,
         headers => ensure_header_name_type(Headers),
-        base_path_templete => emqx_authn_utils:parse_str(Path),
+        base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
         ),
@@ -323,7 +351,7 @@ parse_config(
 generate_request(Credential, #{
     method := Method,
     headers := Headers0,
-    base_path_templete := BasePathTemplate,
+    base_path_template := BasePathTemplate,
     base_query_template := BaseQueryTemplate,
     body_template := BodyTemplate
 }) ->
