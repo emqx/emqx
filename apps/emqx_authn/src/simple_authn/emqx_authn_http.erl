@@ -263,10 +263,9 @@ transform_header_name(Headers) ->
     ).
 
 check_ssl_opts(Conf) ->
-    case get_conf_val("url", Conf) of
-        undefined ->
-            ok;
-        Url ->
+    case is_backend_http(Conf) of
+        true ->
+            Url = get_conf_val("url", Conf),
             {BaseUrl, _Path, _Query} = parse_url(Url),
             case BaseUrl of
                 <<"https://", _/binary>> ->
@@ -278,14 +277,15 @@ check_ssl_opts(Conf) ->
                     end;
                 <<"http://", _/binary>> ->
                     ok
-            end
+            end;
+        false ->
+            ok
     end.
 
 check_headers(Conf) ->
-    case get_conf_val("headers", Conf) of
-        undefined ->
-            ok;
-        Headers ->
+    case is_backend_http(Conf) of
+        true ->
+            Headers = get_conf_val("headers", Conf),
             case to_bin(get_conf_val("method", Conf)) of
                 <<"post">> ->
                     ok;
@@ -294,7 +294,15 @@ check_headers(Conf) ->
                         false -> ok;
                         true -> <<"HTTP GET requests cannot include content-type header.">>
                     end
-            end
+            end;
+        false ->
+            ok
+    end.
+
+is_backend_http(Conf) ->
+    case get_conf_val("backend", Conf) of
+        http -> true;
+        _ -> false
     end.
 
 parse_url(Url) ->
