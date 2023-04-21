@@ -111,9 +111,12 @@ default_plugins() ->
         {emqx_dashboard, true},
         {emqx_management, true},
         {emqx_modules, true},
-        {emqx_recon, true},
+        {emqx_recon, false},
         {emqx_retainer, false},
-        {emqx_rule_engine, true}
+        {emqx_rule_engine, true},
+        {emqx_schema_registry, true},
+        {emqx_eviction_agent, true},
+        {emqx_node_rebalance, true}
     ].
 
 -endif.
@@ -125,8 +128,22 @@ t_ensure_default_loaded_plugins_file(Config) ->
     ok = emqx_plugins:load(),
     {ok, Contents} = file:consult(TmpFilepath),
     DefaultPlugins = default_plugins(),
-    ?assertEqual(DefaultPlugins, lists:sort(Contents)),
+    ?assertEqual(lists:sort(DefaultPlugins), lists:sort(Contents)),
+
+    GenContents = get_loaded_plugins_from_tmpl(),
+    Fun = fun({Name, _}) -> Name end,
+    Plugins = lists:sort(lists:map(Fun, Contents)),
+    ExpectPlugins = lists:sort(lists:map(Fun, GenContents)),
+    ?assertEqual(ExpectPlugins, Plugins),
+
     ok.
+
+get_loaded_plugins_from_tmpl() ->
+    %% /_build/test/logs/ct_run.test@127.0.0.1.xxxx
+    {ok, Cwd} = file:get_cwd(),
+    Home = filename:dirname(filename:dirname(filename:dirname(filename:dirname(Cwd)))),
+    {ok, Plugins} = file:consult(filename:join([Home, "data", "loaded_plugins.tmpl"])),
+    Plugins.
 
 t_init_config(_) ->
     ConfFile = "emqx_mini_plugin.config",
