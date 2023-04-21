@@ -71,7 +71,10 @@
           [ float/1
           ]}).
 
--define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
+%% To match any pattern starts with '$' and followed by '{', and closed by a '}' char:
+%% e.g. for string "a${abc}bb", "${abc}" will be matched.
+%% Note that if "${{abc}}" is given, the "${{abc}" should be matched, NOT "${{abc}}".
+-define(EX_PLACE_HOLDER, "(\\$\\{.*?\\})").
 -define(EX_WITHE_CHARS, "\\s"). %% Space and CRLF
 -define(FLOAT_PRECISION, 17).
 
