@@ -1,14 +1,5 @@
 emqx_connector_http {
 
-base_url.desc:
-"""The base URL is the URL includes only the scheme, host and port.<br/>
-When send an HTTP request, the real URL to be used is the concatenation of the base URL and the
-path parameter<br/>
-For example: `http://localhost:9901/`"""
-
-base_url.label:
-"""Base Url"""
-
 body.desc:
 """HTTP request body."""
 

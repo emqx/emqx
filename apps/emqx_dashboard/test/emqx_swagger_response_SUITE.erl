@@ -29,6 +29,10 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-type url() :: emqx_http_lib:uri_map().
+-reflect_type([url/0]).
+-typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -314,7 +318,7 @@ t_sub_fields(_Config) ->
     ok.
 
 t_complicated_type(_Config) ->
-    Path = "/ref/complicated_type",
+    Path = "/ref/complex_type",
     Object = #{
         <<"content">> => #{
             <<"application/json">> =>
@@ -633,14 +637,14 @@ schema("/error") ->
             }
         }
     };
-schema("/ref/complicated_type") ->
+schema("/ref/complex_type") ->
     #{
         operationId => test,
         post => #{
             responses => #{
                 200 => [
                     {no_neg_integer, hoconsc:mk(non_neg_integer(), #{})},
-                    {url, hoconsc:mk(emqx_connector_http:url(), #{})},
+                    {url, hoconsc:mk(url(), #{})},
                     {server, hoconsc:mk(emqx_schema:ip_port(), #{})},
                     {connect_timeout, hoconsc:mk(emqx_connector_http:connect_timeout(), #{})},
                     {pool_type, hoconsc:mk(emqx_connector_http:pool_type(), #{})},
