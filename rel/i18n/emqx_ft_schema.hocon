@@ -1,177 +1,56 @@
 emqx_ft_schema {
 
-    init_timeout {
-        desc {
-            en: "Timeout for initializing the file transfer.<br/>"
-                "After reaching the timeout, `init` message will be acked with an error"
-            zh: ""
-        }
-        label {
-            en: "File Transfer Init Timeout"
-            zh: ""
-        }
-    }
+init_timeout.desc:
+"""Timeout for initializing the file transfer.<br/>
+After reaching the timeout, `init` message will be acked with an error"""
 
-    assemble_timeout {
-        desc {
-            en: "Timeout for assembling and exporting file segments into a final file.<br/>"
-                "After reaching the timeout, `fin` message will be acked with an error"
-            zh: ""
-        }
-        label {
-            en: "File Assemble Timeout"
-            zh: ""
-        }
-    }
+assemble_timeout.desc:
+"""Timeout for assembling and exporting file segments into a final file.<br/>
+After reaching the timeout, `fin` message will be acked with an error"""
 
-    store_segment_timeout {
-        desc {
-            en: "Timeout for storing a file segment.<br/>"
-                "After reaching the timeout, message with the segment will be acked with an error"
-            zh: ""
-        }
-        label {
-            en: "Store Segment Timeout"
-            zh: ""
-        }
-    }
+store_segment_timeout.desc:
+"""Timeout for storing a file segment.<br/>
+After reaching the timeout, message with the segment will be acked with an error"""
 
-    storage {
-        desc {
-            en: "Storage settings for file transfer."
-            zh: "文件传输的存储设置。"
-        }
-        label: {
-            en: "Storage settings"
-            zh: "存储设置"
-        }
-    }
+storage.desc:
+"""Storage settings for file transfer."""
 
-    local_type {
-        desc {
-            en: "Use local file system to store uploaded fragments and temporary data."
-            zh: "使用本地文件系统来存储上传的文件和临时数据。"
-        }
-        label: {
-            en: "Local Storage"
-            zh: "本地存储"
-        }
-    }
+local_type.desc:
+"""Use local file system to store uploaded fragments and temporary data."""
 
-    local_storage_segments {
-        desc {
-            en: "Settings for local segments storage, which include uploaded transfer fragments and temporary data."
-            zh: "保存上传文件和临时数据的文件系统路径。"
-        }
-        label: {
-            en: "Local Segments Storage"
-            zh: "本地存储根"
-        }
-    }
+local_storage_segments.desc:
+"""Settings for local segments storage, which include uploaded transfer fragments and temporary data."""
 
-    local_storage_segments_root {
-        desc {
-            en: "File system path to keep uploaded fragments and temporary data."
-            zh: "保存上传文件和临时数据的文件系统路径。"
-        }
-        label: {
-            en: "Local Segments Storage Filesystem Root"
-            zh: "本地存储根"
-        }
-    }
+local_storage_segments_root.desc:
+"""File system path to keep uploaded fragments and temporary data."""
 
-    local_storage_exporter {
-        desc {
-            en: "Exporter for the local file system storage backend.<br/>"
-                "Exporter defines where and how fully transferred and assembled files are stored."
-            zh: ""
-        }
-        label: {
-            en: "Local Storage Exporter"
-            zh: ""
-        }
-    }
+local_storage_exporter.desc:
+"""Exporter for the local file system storage backend.<br/>
+Exporter defines where and how fully transferred and assembled files are stored."""
 
-    local_storage_exporter_type {
-        desc {
-            en: "Exporter type for the exporter to the local file system"
-            zh: ""
-        }
-        label: {
-            en: "Local Storage Exporter Type"
-            zh: ""
-        }
-    }
+local_storage_exporter_type.desc:
+"""Exporter type for the exporter to the local file system"""
 
-    s3_exporter_type {
-        desc {
-            en: "Exporter type for the exporter to S3"
-            zh: ""
-        }
-        label: {
-            en: "S3 Exporter Type"
-            zh: ""
-        }
-    }
+s3_exporter_type.desc:
+"""Exporter type for the exporter to S3"""
 
-    local_storage_exporter_root {
-        desc {
-            en: "File system path to keep uploaded files."
-            zh: ""
-        }
-        label: {
-            en: "Local Filesystem Exporter Root"
-            zh: ""
-        }
-    }
+local_storage_exporter_root.desc:
+"""File system path to keep uploaded files."""
 
-    local_storage_segments_gc {
-        desc {
-            en: "Garbage collection settings for the intermediate and temporary files in the local file system."
-            zh: ""
-        }
-        label: {
-            en: "Local Storage GC"
-            zh: ""
-        }
-    }
+local_storage_segments_gc.desc:
+"""Garbage collection settings for the intermediate and temporary files in the local file system."""
 
-    storage_gc_interval {
-        desc {
-            en: "Interval of periodic garbage collection."
-            zh: ""
-        }
-        label: {
-            en: "GC Interval"
-            zh: ""
-        }
-    }
+storage_gc_interval.desc:
+"""Interval of periodic garbage collection."""
 
-    storage_gc_max_segments_ttl {
-        desc {
-            en: "Maximum TTL of a segment kept in the local file system.<br/>"
-                "This is a hard limit: no segment will outlive this TTL, even if some file transfer specifies a "
-                "TTL more than that."
-            zh: ""
-        }
-        label: {
-            en: "Max segment TTL"
-            zh: ""
-        }
-    }
+storage_gc_max_segments_ttl.desc:
+"""Maximum TTL of a segment kept in the local file system.<br/>
+This is a hard limit: no segment will outlive this TTL, even if some file transfer specifies a
+TTL more than that."""
 
-    storage_gc_min_segments_ttl {
-        desc {
-            en: "Minimum TTL of a segment kept in the local file system.<br/>"
-                "This is a hard limit: no segment will be garbage collected before reaching this TTL, "
-                "even if some file transfer specifies a TTL less than that."
-            zh: ""
-        }
-        label: {
-            en: "Min segment TTL"
-            zh: ""
-        }
-    }
-
+storage_gc_min_segments_ttl.desc:
+"""Minimum TTL of a segment kept in the local file system.<br/>
+This is a hard limit: no segment will be garbage collected before reaching this TTL,
+even if some file transfer specifies a TTL less than that."""
 
 }

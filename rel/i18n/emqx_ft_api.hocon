@@ -1,29 +1,13 @@
 emqx_ft_api {
 
-    file_list {
-        desc {
-            en: "List all uploaded files."
-            zh: "列出所有上传的文件。"
-        }
-        label: {
-            en: "List all uploaded files"
-            zh: "列出所有上传的文件"
-        }
-    }
+file_list.desc:
+"""List all uploaded files."""
 
 }
 
 emqx_ft_storage_exporter_fs_api {
 
-    file_get {
-        desc {
-            en: "Get a file by its id."
-            zh: "根据文件 id 获取文件。"
-        }
-        label: {
-            en: "Get a file by its id"
-            zh: "根据文件 id 获取文件"
-        }
-    }
+file_get.desc:
+"""Get a file by its id."""
 
 }
