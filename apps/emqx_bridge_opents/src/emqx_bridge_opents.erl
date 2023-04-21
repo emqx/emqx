@@ -60,7 +60,7 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        emqx_ee_connector_opents:fields(config);
+        emqx_bridge_opents_connector:fields(config);
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->

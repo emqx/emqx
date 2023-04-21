@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_opents).
+-module(emqx_bridge_opents_connector).
 
 -behaviour(emqx_resource).
 
