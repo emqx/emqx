@@ -2,8 +2,7 @@
 
 This application provides configuration management capabilities for EMQX.
 
-This includes, during compilation:
-- Read all configuration schemas and generate the following files:
+At compile time it reads all configuration schemas and generates the following files:
   * `config-en.md`: documentation for all configuration options.
   * `schema-en.json`: JSON description of all configuration schema options.
   * `emqx.conf.example`: an example of a complete configuration file.
