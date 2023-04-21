@@ -1,6 +1,6 @@
 emqx_ee_connector_rocketmq {
 
-    server {
+    servers {
         desc {
           en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
@@ -23,6 +23,17 @@ The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
         label: {
               en: "RocketMQ Topic"
               zh: "RocketMQ 主题"
+            }
+    }
+
+    sync_timeout {
+        desc {
+          en: """Timeout of RocketMQ driver synchronous call."""
+          zh: """RocketMQ 驱动同步调用的超时时间。"""
+        }
+        label: {
+              en: "Sync Timeout"
+              zh: "同步调用超时时间"
             }
     }
 
