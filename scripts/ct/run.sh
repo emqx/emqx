@@ -108,9 +108,12 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
         ;;
-    apps/emqx_bridge_kafka)
-        ## ensure enterprise profile when testing ee applications
-        export PROFILE='emqx-enterprise'
+    apps/*)
+        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
+          export PROFILE='emqx-enterprise'
+        else
+          export PROFILE='emqx'
+        fi
         ;;
     *)
         export PROFILE="${PROFILE:-emqx}"

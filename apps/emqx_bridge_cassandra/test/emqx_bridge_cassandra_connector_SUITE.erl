@@ -2,13 +2,13 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_cassa_SUITE).
+-module(emqx_bridge_cassandra_connector_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
--include("emqx_ee_connector.hrl").
+-include("emqx_bridge_cassandra.hrl").
+-include("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -16,7 +16,7 @@
 %% Cassandra server defined at `.ci/docker-compose-file/docker-compose-cassandra-tcp.yaml`
 %% You can change it to `127.0.0.1`, if you run this SUITE locally
 -define(CASSANDRA_HOST, "cassandra").
--define(CASSANDRA_RESOURCE_MOD, emqx_ee_connector_cassa).
+-define(CASSANDRA_RESOURCE_MOD, emqx_bridge_cassandra_connector).
 
 %% This test SUITE requires a running cassandra instance. If you don't want to
 %% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script

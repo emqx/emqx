@@ -155,7 +155,20 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_umbrella_apps() do
     MapSet.new([
       :emqx_bridge_kafka,
-      :emqx_bridge_gcp_pubsub
+      :emqx_bridge_gcp_pubsub,
+      :emqx_bridge_cassandra,
+      :emqx_bridge_clickhouse,
+      :emqx_bridge_dynamo,
+      :emqx_bridge_hstreamdb,
+      :emqx_bridge_influxdb,
+      :emqx_bridge_matrix,
+      :emqx_bridge_mongodb,
+      :emqx_bridge_mysql,
+      :emqx_bridge_pgsql,
+      :emqx_bridge_redis,
+      :emqx_bridge_rocketmq,
+      :emqx_bridge_tdengine,
+      :emqx_bridge_timescale
     ])
   end
 
@@ -346,6 +359,19 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
           emqx_bridge_gcp_pubsub: :permanent,
+          emqx_bridge_cassandra: :permanent,
+          emqx_bridge_clickhouse: :permanent,
+          emqx_bridge_dynamo: :permanent,
+          emqx_bridge_hstreamdb: :permanent,
+          emqx_bridge_influxdb: :permanent,
+          emqx_bridge_matrix: :permanent,
+          emqx_bridge_mongodb: :permanent,
+          emqx_bridge_mysql: :permanent,
+          emqx_bridge_pgsql: :permanent,
+          emqx_bridge_redis: :permanent,
+          emqx_bridge_rocketmq: :permanent,
+          emqx_bridge_tdengine: :permanent,
+          emqx_bridge_timescale: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
         else: []

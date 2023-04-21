@@ -12,7 +12,6 @@
         clickhouse,
         erlcloud,
         rocketmq,
-        ecql,
         odbc
     ]},
     {env, []},
