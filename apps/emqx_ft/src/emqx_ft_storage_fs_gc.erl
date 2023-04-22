@@ -135,7 +135,7 @@ maybe_report(#gcstats{} = _Stats, #st{storage = _Storage}) ->
 start_timer(St = #st{storage = Storage, next_gc_timer = undefined}) ->
     case emqx_ft_conf:gc_interval(Storage) of
         Delay when Delay > 0 ->
-            St#st{next_gc_timer = emqx_misc:start_timer(Delay, collect)};
+            St#st{next_gc_timer = emqx_utils:start_timer(Delay, collect)};
         0 ->
             ?SLOG(warning, #{msg => "periodic_gc_disabled"}),
             St
@@ -144,7 +144,7 @@ start_timer(St = #st{storage = Storage, next_gc_timer = undefined}) ->
 reset_timer(St = #st{next_gc_timer = undefined}) ->
     start_timer(St);
 reset_timer(St = #st{next_gc_timer = TRef}) ->
-    ok = emqx_misc:cancel_timer(TRef),
+    ok = emqx_utils:cancel_timer(TRef),
     start_timer(St#st{next_gc_timer = undefined}).
 
 gc_enabled(St) ->

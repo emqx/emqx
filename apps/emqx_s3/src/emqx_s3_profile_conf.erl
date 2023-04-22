@@ -351,7 +351,7 @@ http_config(
     ].
 
 maybe_ipv6_probe(TransportOpts, true) ->
-    emqx_misc:ipv6_probe(TransportOpts);
+    emqx_utils:ipv6_probe(TransportOpts);
 maybe_ipv6_probe(TransportOpts, false) ->
     TransportOpts.
 

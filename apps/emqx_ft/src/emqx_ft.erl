@@ -98,7 +98,7 @@ unhook() ->
 %%--------------------------------------------------------------------
 
 decode_filemeta(Payload) when is_binary(Payload) ->
-    case emqx_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
         {ok, Map} ->
             decode_filemeta(Map);
         {error, Error} ->
@@ -116,7 +116,7 @@ decode_filemeta(Map) when is_map(Map) ->
 
 encode_filemeta(Meta = #{}) ->
     Schema = emqx_ft_schema:schema(filemeta),
-    hocon_tconf:make_serializable(Schema, emqx_map_lib:binary_key_map(Meta), #{}).
+    hocon_tconf:make_serializable(Schema, emqx_utils_maps:binary_key_map(Meta), #{}).
 
 %%--------------------------------------------------------------------
 %% Hooks

@@ -127,7 +127,7 @@ t_gc_complete_transfers(_Config) ->
         }
     ],
     % 1. Start all transfers
-    TransferSizes = emqx_misc:pmap(
+    TransferSizes = emqx_utils:pmap(
         fun(Transfer) -> start_transfer(Storage, Transfer) end,
         Transfers
     ),
@@ -162,7 +162,7 @@ t_gc_complete_transfers(_Config) ->
     ),
     ?assertEqual(
         [ok, ok],
-        emqx_misc:pmap(
+        emqx_utils:pmap(
             fun({Transfer, Size}) -> complete_transfer(Storage, Transfer, Size) end,
             [{T2, S2}, {T3, S3}]
         )
@@ -221,7 +221,7 @@ t_gc_incomplete_transfers(_Config) ->
         }
     ],
     % 1. Start transfers, send all the segments but don't trigger completion.
-    _ = emqx_misc:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
+    _ = emqx_utils:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
     % 2. Enable periodic GC every 0.5 seconds.
     ok = set_gc_config(interval, 500),
     ok = emqx_ft_storage_fs_gc:reset(Storage),

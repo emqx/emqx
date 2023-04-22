@@ -135,7 +135,7 @@ s3_headers({ClientId, FileId}, Filemeta) ->
     }.
 
 s3_header_filemeta(Filemeta) ->
-    emqx_json:encode(emqx_ft:encode_filemeta(Filemeta), [force_utf8, uescape]).
+    emqx_utils_json:encode(emqx_ft:encode_filemeta(Filemeta), [force_utf8, uescape]).
 
 list(Client, Options) ->
     case list_key_info(Client, Options) of

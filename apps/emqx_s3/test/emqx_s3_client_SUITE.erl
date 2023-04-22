@@ -159,7 +159,7 @@ profile_config(Config) ->
         ?config(bucket, Config),
         ProfileConfig0
     ),
-    ProfileConfig2 = emqx_map_lib:deep_put(
+    ProfileConfig2 = emqx_utils_maps:deep_put(
         [transport_options, pool_type],
         ProfileConfig1,
         ?config(pool_type, Config)

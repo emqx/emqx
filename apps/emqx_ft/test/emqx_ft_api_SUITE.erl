@@ -137,7 +137,7 @@ request(Method, Url, Decoder) when is_function(Decoder) ->
     end.
 
 json(Body) when is_binary(Body) ->
-    emqx_json:decode(Body, [return_maps]).
+    emqx_utils_json:decode(Body, [return_maps]).
 
 query(Params) ->
     KVs = lists:map(fun({K, V}) -> uri_encode(K) ++ "=" ++ uri_encode(V) end, maps:to_list(Params)),

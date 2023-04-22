@@ -75,7 +75,7 @@ schema("/file_transfer/files") ->
     end.
 
 error_msg(Code, Msg) ->
-    #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
+    #{code => Code, message => emqx_utils:readable_error_msg(Msg)}.
 
 roots() ->
     [].

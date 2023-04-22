@@ -315,10 +315,10 @@ list(_Options) ->
 -define(PRELUDE(Vsn, Meta), [<<"filemeta">>, Vsn, Meta]).
 
 encode_filemeta(Meta) ->
-    emqx_json:encode(?PRELUDE(_Vsn = 1, emqx_ft:encode_filemeta(Meta))).
+    emqx_utils_json:encode(?PRELUDE(_Vsn = 1, emqx_ft:encode_filemeta(Meta))).
 
 decode_filemeta(Binary) when is_binary(Binary) ->
-    ?PRELUDE(_Vsn = 1, Map) = emqx_json:decode(Binary, [return_maps]),
+    ?PRELUDE(_Vsn = 1, Map) = emqx_utils_json:decode(Binary, [return_maps]),
     case emqx_ft:decode_filemeta(Map) of
         {ok, Meta} ->
             Meta;

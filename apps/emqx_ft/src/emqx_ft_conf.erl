@@ -63,18 +63,18 @@ storage() ->
 -spec gc_interval(_Storage) -> milliseconds().
 gc_interval(_Storage) ->
     Conf = assert_storage(local),
-    emqx_map_lib:deep_get([segments, gc, interval], Conf, ?DEFAULT_GC_INTERVAL).
+    emqx_utils_maps:deep_get([segments, gc, interval], Conf, ?DEFAULT_GC_INTERVAL).
 
 -spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
 segments_ttl(_Storage) ->
     Conf = assert_storage(local),
     {
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [segments, gc, minimum_segments_ttl],
             Conf,
             ?DEFAULT_MIN_SEGMENTS_TTL
         ),
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [segments, gc, maximum_segments_ttl],
             Conf,
             ?DEFAULT_MAX_SEGMENTS_TTL

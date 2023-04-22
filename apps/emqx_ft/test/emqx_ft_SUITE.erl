@@ -63,7 +63,7 @@ set_special_configs(Config) ->
                 % NOTE
                 % Inhibit local fs GC to simulate it isn't fast enough to collect
                 % complete transfers.
-                storage => emqx_map_lib:deep_merge(
+                storage => emqx_utils_maps:deep_merge(
                     Storage,
                     #{segments => #{gc => #{interval => 0}}}
                 )
@@ -325,7 +325,7 @@ t_invalid_meta(Config) ->
 
     %% Invalid schema
     Meta = #{foo => <<"bar">>},
-    MetaPayload = emqx_json:encode(Meta),
+    MetaPayload = emqx_utils_json:encode(Meta),
     ?assertRCName(
         unspecified_error,
         emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
@@ -667,7 +667,7 @@ meta(FileName, Data) ->
     }.
 
 encode_meta(Meta) ->
-    emqx_json:encode(emqx_ft:encode_filemeta(Meta)).
+    emqx_utils_json:encode(emqx_ft:encode_filemeta(Meta)).
 
 list_files(ClientId) ->
     {ok, Files} = emqx_ft_storage:files(),

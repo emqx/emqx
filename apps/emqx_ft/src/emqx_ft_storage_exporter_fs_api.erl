@@ -134,7 +134,7 @@ fields(file_node) ->
     end.
 
 error_msg(Code, Msg) ->
-    #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
+    #{code => Code, message => emqx_utils:readable_error_msg(Msg)}.
 
 -spec mk_export_uri(node(), file:name()) ->
     uri_string:uri_string().
@@ -150,7 +150,7 @@ mk_export_uri(Node, Filepath) ->
 %%
 
 parse_node(NodeBin) ->
-    case emqx_misc:safe_to_existing_atom(NodeBin) of
+    case emqx_utils:safe_to_existing_atom(NodeBin) of
         {ok, Node} ->
             Node;
         {error, _} ->

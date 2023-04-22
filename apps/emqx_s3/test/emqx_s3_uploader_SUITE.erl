@@ -526,7 +526,7 @@ t_tls_error(Config) ->
     _ = process_flag(trap_exit, true),
 
     ProfileBaseConfig = ?config(profile_config, Config),
-    ProfileConfig = emqx_map_lib:deep_put(
+    ProfileConfig = emqx_utils_maps:deep_put(
         [transport_options, ssl, server_name_indication], ProfileBaseConfig, "invalid-hostname"
     ),
     ok = emqx_s3:update_profile(profile_id(), ProfileConfig),

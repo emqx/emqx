@@ -62,7 +62,7 @@ t_regular_outdated_pool_cleanup(Config) ->
     [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),
 
     ProfileBaseConfig = ?config(profile_config, Config),
-    ProfileConfig = emqx_map_lib:deep_put(
+    ProfileConfig = emqx_utils_maps:deep_put(
         [transport_options, pool_size], ProfileBaseConfig, 16
     ),
     ok = emqx_s3:update_profile(profile_id(), ProfileConfig),
@@ -110,7 +110,7 @@ t_timeout_pool_cleanup(Config) ->
 
     [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),
 
-    NewProfileConfig = emqx_map_lib:deep_put(
+    NewProfileConfig = emqx_utils_maps:deep_put(
         [transport_options, pool_size], ProfileConfig, 16
     ),
 
@@ -153,7 +153,7 @@ t_httpc_pool_update_error(Config) ->
     meck:expect(ehttpc_pool, init, fun(_) -> meck:raise(error, badarg) end),
 
     ProfileBaseConfig = ?config(profile_config, Config),
-    NewProfileConfig = emqx_map_lib:deep_put(
+    NewProfileConfig = emqx_utils_maps:deep_put(
         [transport_options, pool_size], ProfileBaseConfig, 16
     ),
 
@@ -237,7 +237,7 @@ t_checkout_client(Config) ->
     %% Now change config for the profile
     ProfileBaseConfig = ?config(profile_config, Config),
     NewProfileConfig0 = ProfileBaseConfig#{bucket => <<"new_bucket">>},
-    NewProfileConfig1 = emqx_map_lib:deep_put(
+    NewProfileConfig1 = emqx_utils_maps:deep_put(
         [transport_options, pool_size], NewProfileConfig0, 16
     ),
     ok = emqx_s3:update_profile(profile_id(), NewProfileConfig1),

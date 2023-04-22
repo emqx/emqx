@@ -271,7 +271,7 @@ read_transferinfo(Storage, Transfer, Acc) ->
 -spec get_root(storage()) ->
     file:name().
 get_root(Storage) ->
-    case emqx_map_lib:deep_find([segments, root], Storage) of
+    case emqx_utils_maps:deep_find([segments, root], Storage) of
         {ok, Root} ->
             Root;
         {not_found, _, _} ->
@@ -296,10 +296,10 @@ get_subdirs_for(temporary) ->
 -define(PRELUDE(Vsn, Meta), [<<"filemeta">>, Vsn, Meta]).
 
 encode_filemeta(Meta) ->
-    emqx_json:encode(?PRELUDE(_Vsn = 1, emqx_ft:encode_filemeta(Meta))).
+    emqx_utils_json:encode(?PRELUDE(_Vsn = 1, emqx_ft:encode_filemeta(Meta))).
 
 decode_filemeta(Binary) when is_binary(Binary) ->
-    ?PRELUDE(_Vsn = 1, Map) = emqx_json:decode(Binary, [return_maps]),
+    ?PRELUDE(_Vsn = 1, Map) = emqx_utils_json:decode(Binary, [return_maps]),
     case emqx_ft:decode_filemeta(Map) of
         {ok, Meta} ->
             Meta;
@@ -347,7 +347,7 @@ read_file(Filepath, DecodeFun) ->
 
 write_file_atomic(Storage, Transfer, Filepath, Content) when is_binary(Content) ->
     TempFilepath = mk_temp_filepath(Storage, Transfer, filename:basename(Filepath)),
-    Result = emqx_misc:pipeline(
+    Result = emqx_utils:pipeline(
         [
             fun filelib:ensure_dir/1,
             fun write_contents/2,

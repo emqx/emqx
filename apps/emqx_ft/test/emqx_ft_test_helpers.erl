@@ -82,7 +82,7 @@ upload_file(ClientId, FileId, Name, Data, Node) ->
         expire_at => erlang:system_time(_Unit = second) + 3600,
         size => Size
     },
-    MetaPayload = emqx_json:encode(emqx_ft:encode_filemeta(Meta)),
+    MetaPayload = emqx_utils_json:encode(emqx_ft:encode_filemeta(Meta)),
 
     ct:pal("MetaPayload = ~ts", [MetaPayload]),
 
