@@ -1,33 +1,35 @@
 emqx_ee_connector_rocketmq {
 
-refresh_interval.desc:
-"""RocketMQ Topic Route Refresh Interval."""
-
-refresh_interval.label:
-"""Topic Route Refresh Interval"""
-
-security_token.desc:
-"""RocketMQ Server Security Token"""
-
-security_token.label:
-"""Security Token"""
-
-send_buffer.desc:
-"""The socket send buffer size of the RocketMQ driver client."""
-
-send_buffer.label:
-"""Send Buffer Size"""
-
-server.desc:
-"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+    servers {
+        desc {
+          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
 The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
 
 server.label:
 """Server Host"""
 
-topic.desc:
-"""RocketMQ Topic"""
+    sync_timeout {
+        desc {
+          en: """Timeout of RocketMQ driver synchronous call."""
+          zh: """RocketMQ 驱动同步调用的超时时间。"""
+        }
+        label: {
+              en: "Sync Timeout"
+              zh: "同步调用超时时间"
+            }
+    }
+
+    refresh_interval {
+        desc {
+          en: """RocketMQ Topic Route Refresh Interval."""
+          zh: """RocketMQ 主题路由更新间隔。"""
+        }
+        label: {
+              en: "Topic Route Refresh Interval"
+              zh: "主题路由更新间隔"
+            }
+    }
 
 topic.label:
 """RocketMQ Topic"""

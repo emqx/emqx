@@ -38,11 +38,16 @@ roots() ->
 
 fields(config) ->
     [
-        {server, server()},
+        {servers, servers()},
         {topic,
             mk(
                 binary(),
                 #{default => <<"TopicTest">>, desc => ?DESC(topic)}
+            )},
+        {sync_timeout,
+            mk(
+                emqx_schema:duration(),
+                #{default => <<"3s">>, desc => ?DESC(sync_timeout)}
             )},
         {refresh_interval,
             mk(
@@ -75,8 +80,8 @@ add_default_fn(OrigFn, Default) ->
         (Field) -> OrigFn(Field)
     end.
 
-server() ->
-    Meta = #{desc => ?DESC("server")},
+servers() ->
+    Meta = #{desc => ?DESC("servers")},
     emqx_schema:servers_sc(Meta, ?ROCKETMQ_HOST_OPTIONS).
 
 relational_fields() ->
@@ -97,7 +102,7 @@ is_buffer_supported() -> false.
 
 on_start(
     InstanceId,
-    #{server := Server, topic := Topic} = Config1
+    #{servers := BinServers, topic := Topic, sync_timeout := SyncTimeout} = Config1
 ) ->
     ?SLOG(info, #{
         msg => "starting_rocketmq_connector",
@@ -105,9 +110,8 @@ on_start(
         config => redact(Config1)
     }),
     Config = maps:merge(default_security_info(), Config1),
-    {Host, Port} = emqx_schema:parse_server(Server, ?ROCKETMQ_HOST_OPTIONS),
+    Servers = emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS),
 
-    Server1 = [{Host, Port}],
     ClientId = client_id(InstanceId),
     ClientCfg = #{acl_info => #{}},
 
@@ -117,14 +121,15 @@ on_start(
     ProducersMapPID = create_producers_map(ClientId),
     State = #{
         client_id => ClientId,
+        topic => Topic,
         topic_tokens => TopicTks,
-        config => Config,
+        sync_timeout => SyncTimeout,
         templates => Templates,
         producers_map_pid => ProducersMapPID,
         producers_opts => ProducerOpts
     },
 
-    case rocketmq:ensure_supervised_client(ClientId, Server1, ClientCfg) of
+    case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
         {ok, _Pid} ->
             {ok, State};
         {error, _Reason} = Error ->
@@ -154,11 +159,14 @@ on_batch_query(_InstanceId, Query, _State) ->
 
 on_get_status(_InstanceId, #{client_id := ClientId}) ->
     case rocketmq_client_sup:find_client(ClientId) of
-        {ok, _Pid} ->
-            connected;
+        {ok, Pid} ->
+            status_result(rocketmq_client:get_status(Pid));
         _ ->
             connecting
     end.
+
+status_result(_Status = true) -> connected;
+status_result(_Status) -> connecting.
 
 %%========================================================================================
 %% Helper fns
@@ -171,9 +179,10 @@ do_query(
     #{
         templates := Templates,
         client_id := ClientId,
+        topic := RawTopic,
         topic_tokens := TopicTks,
         producers_opts := ProducerOpts,
-        config := #{topic := RawTopic, resource_opts := #{request_timeout := RequestTimeout}}
+        sync_timeout := RequestTimeout
     } = State
 ) ->
     ?TRACE(
