@@ -14,13 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_conf_proto_v2).
+-module(emqx_conf_proto_v3).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
     sync_data_from_node/1,
     get_config/2,
     get_config/3,
@@ -34,16 +33,14 @@
     reset/2,
     reset/3,
 
-    get_override_config_file/1
+    get_override_config_file/1,
+    file_exist/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.0.1".
-
-deprecated_since() ->
-    "5.0.23".
+    "5.0.24".
 
 -spec sync_data_from_node(node()) -> {ok, binary()} | emqx_rpc:badrpc().
 sync_data_from_node(Node) ->
@@ -111,3 +108,7 @@ reset(Node, KeyPath, Opts) ->
 -spec get_override_config_file([node()]) -> emqx_rpc:multicall_result().
 get_override_config_file(Nodes) ->
     rpc:multicall(Nodes, emqx_conf_app, get_override_config_file, [], 20000).
+
+-spec file_exist(node(), string()) -> emqx_rpc:badrpc() | boolean().
+file_exist(Node, File) ->
+    rpc:call(Node, filelib, is_regular, [File], 5000).
