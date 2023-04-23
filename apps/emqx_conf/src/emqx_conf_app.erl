@@ -175,7 +175,7 @@ copy_override_conf_from_core_node() ->
                 _ ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
-                    HasDeprecatedFile = maps:get(has_deprecated_file, Info, false),
+                    HasDeprecatedFile = has_deprecated_file(Info),
                     ?SLOG(debug, #{
                         msg => "copy_cluster_conf_from_core_node_success",
                         node => Node,
@@ -226,4 +226,17 @@ sync_data_from_node(Node) ->
         Error ->
             ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
             error(Error)
+    end.
+
+has_deprecated_file(#{node := Node} = Info) ->
+    case maps:find(has_deprecated_file, Info) of
+        {ok, HasDeprecatedFile} ->
+            HasDeprecatedFile;
+        error ->
+            %% The old version don't have emqx_config:has_deprecated_file/0
+            Timeout = 5000,
+            {ok, File} = rpc:call(
+                Node, application, get_env, [emqx, cluster_override_conf_file], Timeout
+            ),
+            rpc:call(Node, filelib, is_regular, [File], Timeout)
     end.
