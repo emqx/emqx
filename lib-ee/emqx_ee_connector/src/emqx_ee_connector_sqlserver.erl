@@ -43,7 +43,7 @@
 -export([connect/1]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/2, worker_do_insert/3, do_async_reply/2]).
+-export([do_get_status/1, worker_do_insert/3, do_async_reply/2]).
 
 -import(emqx_plugin_libs_rule, [str/1]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -306,10 +306,9 @@ on_batch_query_async(InstanceId, Requests, ReplyFunAndArgs, State) ->
     ),
     do_query(InstanceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
 
-on_get_status(_InstanceId, #{poolname := Pool, resource_opts := ResourceOpts} = _State) ->
-    RequestTimeout = ?REQUEST_TIMEOUT(ResourceOpts),
+on_get_status(_InstanceId, #{poolname := Pool} = _State) ->
     Health = emqx_plugin_libs_pool:health_check_ecpool_workers(
-        Pool, {?MODULE, do_get_status, [RequestTimeout]}, RequestTimeout
+        Pool, {?MODULE, do_get_status, []}
     ),
     status_result(Health).
 
@@ -328,9 +327,9 @@ connect(Options) ->
     Opts = proplists:get_value(options, Options, []),
     odbc:connect(ConnectStr, Opts).
 
--spec do_get_status(connection_reference(), time_out()) -> Result :: boolean().
-do_get_status(Conn, RequestTimeout) ->
-    case execute(Conn, <<"SELECT 1">>, RequestTimeout) of
+-spec do_get_status(connection_reference()) -> Result :: boolean().
+do_get_status(Conn) ->
+    case execute(Conn, <<"SELECT 1">>) of
         {selected, [[]], [{1}]} -> true;
         _ -> false
     end.
@@ -443,6 +442,15 @@ worker_do_insert(
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
+
+-spec execute(pid(), sql()) ->
+    updated_tuple()
+    | selected_tuple()
+    | [updated_tuple()]
+    | [selected_tuple()]
+    | {error, common_reason()}.
+execute(Conn, SQL) ->
+    odbc:sql_query(Conn, str(SQL)).
 
 -spec execute(pid(), sql(), time_out()) ->
     updated_tuple()
