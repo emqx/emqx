@@ -1,0 +1,20 @@
+emqx_ee_connector_opents {
+
+    server.desc:
+        """The URL of OpenTSDB endpoint."""
+
+    server.label:
+        "URL"
+
+    summary.desc:
+        """Whether or not to return summary information."""
+
+    summary.label:
+        "Summary"
+
+    details.desc:
+        """Whether or not to return detailed information."""
+
+    details.label:
+        "Details"
+}
