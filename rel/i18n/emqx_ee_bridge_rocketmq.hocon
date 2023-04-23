@@ -16,8 +16,14 @@ NOTE: if the bridge is used as a rule action, `local_topic` should be left empty
 
     template {
         desc {
-            en: """Template, the default value is empty. When this value is empty the whole message will be stored in the RocketMQ"""
-            zh: """模板, 默认为空，为空时将会将整个消息转发给 RocketMQ"""
+            en: """Template, the default value is empty. When this value is empty the whole message will be stored in the RocketMQ.<br>
+            The template can be any valid string with placeholders, example:<br>
+            - ${id}, ${username}, ${clientid}, ${timestamp}<br>
+            - {\"id\" : ${id}, \"username\" : ${username}}"""
+            zh: """模板, 默认为空，为空时将会将整个消息转发给 RocketMQ。 <br>
+            模板可以是任意带有占位符的合法字符串, 例如:<br>
+            - ${id}, ${username}, ${clientid}, ${timestamp}<br>
+            - {\"id\" : ${id}, \"username\" : ${username}}"""
             }
         label {
             en: "Template"
