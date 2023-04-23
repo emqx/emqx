@@ -9,6 +9,7 @@ The application is used to connect EMQX and TimescaleDB.
 User can create a rule and easily ingest IoT data into TimescaleDB by leveraging
 [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
+<!---
 
 # Documentation
 
@@ -18,6 +19,7 @@ User can create a rule and easily ingest IoT data into TimescaleDB by leveraging
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
   for the EMQX rules engine introduction.
 
+--->
 
 # HTTP APIs
 
