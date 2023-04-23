@@ -108,13 +108,15 @@ on_batch_query(
     do_query(InstanceId, Datas, State).
 
 on_get_status(_InstanceId, #{server := Server}) ->
-    case opentsdb_connectivity(Server) of
-        ok ->
-            connected;
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "OpenTSDB lost connection", reason => Reason}),
-            connecting
-    end.
+    Result =
+        case opentsdb_connectivity(Server) of
+            ok ->
+                connected;
+            {error, Reason} ->
+                ?SLOG(error, #{msg => "OpenTSDB lost connection", reason => Reason}),
+                connecting
+        end,
+    Result.
 
 %%========================================================================================
 %% Helper fns

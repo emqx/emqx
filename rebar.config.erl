@@ -81,6 +81,7 @@ is_enterprise(ee) -> true.
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
 is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
 is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
+is_community_umbrella_app("apps/emqx_bridge_opents") -> false;
 is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
 is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
 is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
@@ -455,6 +456,7 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_kafka,
         emqx_bridge_gcp_pubsub,
         emqx_bridge_cassandra,
+        emqx_bridge_opents,
         emqx_bridge_clickhouse,
         emqx_bridge_dynamo,
         emqx_bridge_hstreamdb,

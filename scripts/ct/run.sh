@@ -115,7 +115,11 @@ case "${WHICH_APP}" in
           export PROFILE='emqx'
         fi
         ;;
-    *)
+    apps/emqx_bridge_opents)
+        ## ensure enterprise profile when testing ee applications
+        export PROFILE='emqx-enterprise'
+        ;;
+     *)
         export PROFILE="${PROFILE:-emqx}"
         ;;
 esac
@@ -188,6 +192,9 @@ for dep in ${CT_DEPS}; do
             ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
+        opents)
+            FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
+            ;; 
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

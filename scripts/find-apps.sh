@@ -72,6 +72,9 @@ describe_app() {
         runner="docker"
     fi
     case "${app}" in
+        apps/emqx_bridge_opents)
+            profile='emqx-enterprise'
+            ;;
         apps/*)
             if [[ -f "${app}/BSL.txt" ]]; then
               profile='emqx-enterprise'
