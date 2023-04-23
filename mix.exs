@@ -157,6 +157,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_kafka,
       :emqx_bridge_gcp_pubsub,
       :emqx_bridge_cassandra,
+      :emqx_bridge_opents,
       :emqx_bridge_clickhouse,
       :emqx_bridge_dynamo,
       :emqx_bridge_hstreamdb,
@@ -182,7 +183,8 @@ defmodule EMQXUmbrella.MixProject do
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
-      {:supervisor3, "1.1.12", override: true}
+      {:supervisor3, "1.1.12", override: true},
+      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true}
     ]
   end
 
@@ -360,6 +362,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_kafka: :permanent,
           emqx_bridge_gcp_pubsub: :permanent,
           emqx_bridge_cassandra: :permanent,
+          emqx_bridge_opents: :permanent,
           emqx_bridge_clickhouse: :permanent,
           emqx_bridge_dynamo: :permanent,
           emqx_bridge_hstreamdb: :permanent,

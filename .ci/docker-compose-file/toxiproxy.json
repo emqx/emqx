@@ -101,5 +101,11 @@
     "listen": "0.0.0.0:1433",
     "upstream": "sqlserver:1433",
     "enabled": true
+  },
+  {
+    "name": "opents",
+    "listen": "0.0.0.0:4242",
+    "upstream": "opents:4242",
+    "enabled": true
   }
 ]

@@ -188,6 +188,9 @@ for dep in ${CT_DEPS}; do
             ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
+        opents)
+            FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
+            ;; 
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
