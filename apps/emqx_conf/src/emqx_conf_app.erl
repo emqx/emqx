@@ -234,9 +234,7 @@ has_deprecated_file(#{node := Node} = Info) ->
             HasDeprecatedFile;
         error ->
             %% The old version don't have emqx_config:has_deprecated_file/0
-            Timeout = 5000,
-            {ok, File} = rpc:call(
-                Node, application, get_env, [emqx, cluster_override_conf_file], Timeout
-            ),
-            rpc:call(Node, filelib, is_regular, [File], Timeout)
+            DataDir = emqx_conf_proto_v2:get_config(Node, [node, data_dir]),
+            File = filename:join([DataDir, "configs", "cluster-override.conf"]),
+            rpc:call(Node, filelib, is_regular, [File], 5000)
     end.
