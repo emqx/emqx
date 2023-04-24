@@ -1473,7 +1473,10 @@ do_t_receive_after_recovery(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
-            {ok, _} = create_bridge(Config),
+            {ok, _} = create_bridge(
+                Config,
+                #{<<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}}
+            ),
             ping_until_healthy(Config, _Period = 1_500, _Timeout0 = 24_000),
             {ok, connected} = emqx_resource_manager:health_check(ResourceId),
             %% 0) ensure each partition commits its offset so it can
