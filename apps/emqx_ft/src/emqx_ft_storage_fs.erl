@@ -98,6 +98,7 @@
 }.
 
 -type storage() :: #{
+    type := 'local',
     segments := segments(),
     exporter := emqx_ft_storage_exporter:exporter()
 }.
