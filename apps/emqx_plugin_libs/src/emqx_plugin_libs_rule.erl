@@ -105,9 +105,8 @@ proc_cmd(Tokens, Data, Opts) ->
 preproc_sql(Sql) ->
     emqx_placeholder:preproc_sql(Sql).
 
--spec preproc_sql(Sql :: binary(), ReplaceWith :: '?' | '$n') ->
+-spec preproc_sql(Sql :: binary(), ReplaceWith :: '?' | '$n' | ':n') ->
     {prepare_statement_key(), tmpl_token()}.
-
 preproc_sql(Sql, ReplaceWith) ->
     emqx_placeholder:preproc_sql(Sql, ReplaceWith).
 

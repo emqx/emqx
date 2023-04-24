@@ -119,5 +119,11 @@
     "listen": "0.0.0.0:6653",
     "upstream": "pulsar:6653",
     "enabled": true
+  },
+  {
+    "name": "oracle",
+    "listen": "0.0.0.0:1521",
+    "upstream": "oracle:1521",
+    "enabled": true
   }
 ]

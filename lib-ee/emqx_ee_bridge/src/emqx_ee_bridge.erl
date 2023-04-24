@@ -37,7 +37,8 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_rocketmq, Method),
         ref(emqx_ee_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
-        ref(emqx_bridge_pulsar, Method ++ "_producer")
+        ref(emqx_bridge_pulsar, Method ++ "_producer"),
+        ref(emqx_bridge_oracle, Method)
     ].
 
 schema_modules() ->
@@ -59,7 +60,8 @@ schema_modules() ->
         emqx_ee_bridge_rocketmq,
         emqx_ee_bridge_sqlserver,
         emqx_bridge_opents,
-        emqx_bridge_pulsar
+        emqx_bridge_pulsar,
+        emqx_bridge_oracle
     ].
 
 examples(Method) ->
@@ -100,7 +102,8 @@ resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
 resource_type(sqlserver) -> emqx_ee_connector_sqlserver;
 resource_type(opents) -> emqx_bridge_opents_connector;
-resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer.
+resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
+resource_type(oracle) -> emqx_oracle.
 
 fields(bridges) ->
     [
@@ -165,6 +168,14 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_opents, "config")),
                 #{
                     desc => <<"OpenTSDB Bridge Config">>,
+                    required => false
+                }
+            )},
+        {oracle,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_oracle, "config")),
+                #{
+                    desc => <<"Oracle Bridge Config">>,
                     required => false
                 }
             )}
