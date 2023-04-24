@@ -66,7 +66,8 @@ get_override_config_file() ->
                             conf => Conf,
                             tnx_id => TnxId,
                             node => Node,
-                            has_deprecated_file => HasDeprecateFile
+                            has_deprecated_file => HasDeprecateFile,
+                            release => emqx_app:get_release()
                         }
                     end,
                     case mria:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
@@ -180,6 +181,8 @@ copy_override_conf_from_core_node() ->
                         msg => "copy_cluster_conf_from_core_node_success",
                         node => Node,
                         has_deprecated_file => HasDeprecatedFile,
+                        local_release => emqx_app:get_release(),
+                        remote_release => maps:get(release, Info, "before_v5.0.24|e5.0.3"),
                         data_dir => emqx:data_dir(),
                         tnx_id => TnxId
                     }),
@@ -228,13 +231,12 @@ sync_data_from_node(Node) ->
             error(Error)
     end.
 
-has_deprecated_file(#{node := Node} = Info) ->
+has_deprecated_file(#{conf := Conf} = Info) ->
     case maps:find(has_deprecated_file, Info) of
         {ok, HasDeprecatedFile} ->
             HasDeprecatedFile;
         error ->
             %% The old version don't have emqx_config:has_deprecated_file/0
-            DataDir = emqx_conf_proto_v2:get_config(Node, [node, data_dir]),
-            File = filename:join([DataDir, "configs", "cluster-override.conf"]),
-            emqx_conf_proto_v3:file_exist(Node, File)
+            %% Conf is not empty if deprecated file is found.
+            Conf =/= #{}
     end.
