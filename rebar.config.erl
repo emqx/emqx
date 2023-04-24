@@ -86,6 +86,7 @@ is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
 is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
 is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_influxdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_iotdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
@@ -463,6 +464,7 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_dynamo,
         emqx_bridge_hstreamdb,
         emqx_bridge_influxdb,
+        emqx_bridge_iotdb,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
         emqx_bridge_mysql,

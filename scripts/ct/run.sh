@@ -197,6 +197,9 @@ for dep in ${CT_DEPS}; do
         oracle)
             FILES+=( '.ci/docker-compose-file/docker-compose-oracle.yaml' )
             ;;
+        iotdb)
+            FILES+=( '.ci/docker-compose-file/docker-compose-iotdb.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
