@@ -141,9 +141,5 @@ ensure_disk_queue_dir_absent(ResourceId, Index) ->
     ok.
 
 ensure_worker_pool_removed(ResId) ->
-    try
-        gproc_pool:delete(ResId)
-    catch
-        error:badarg -> ok
-    end,
+    gproc_pool:force_delete(ResId),
     ok.
