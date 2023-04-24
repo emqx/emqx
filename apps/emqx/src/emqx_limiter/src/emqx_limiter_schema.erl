@@ -36,11 +36,11 @@
 ]).
 
 -define(KILOBYTE, 1024).
--define(BUCKET_KEYS, [
-    {bytes, bucket_infinity},
-    {messages, bucket_infinity},
-    {connection, bucket_limit},
-    {message_routing, bucket_infinity}
+-define(LISTENER_BUCKET_KEYS, [
+    bytes,
+    messages,
+    connection,
+    message_routing
 ]).
 
 -type limiter_type() ::
@@ -132,10 +132,8 @@ fields(node_opts) ->
     ];
 fields(client_fields) ->
     client_fields(types(), #{default => #{}});
-fields(bucket_infinity) ->
+fields(bucket_opts) ->
     fields_of_bucket(<<"infinity">>);
-fields(bucket_limit) ->
-    fields_of_bucket(<<"1000/s">>);
 fields(client_opts) ->
     [
         {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
@@ -194,10 +192,9 @@ fields(client_opts) ->
             )}
     ];
 fields(listener_fields) ->
-    composite_bucket_fields(?BUCKET_KEYS, listener_client_fields);
+    composite_bucket_fields(?LISTENER_BUCKET_KEYS, listener_client_fields);
 fields(listener_client_fields) ->
-    {Types, _} = lists:unzip(?BUCKET_KEYS),
-    client_fields(Types, #{required => false});
+    client_fields(?LISTENER_BUCKET_KEYS, #{required => false});
 fields(Type) ->
     simple_bucket_field(Type).
 
@@ -205,10 +202,8 @@ desc(limiter) ->
     "Settings for the rate limiter.";
 desc(node_opts) ->
     "Settings for the limiter of the node level.";
-desc(bucket_infinity) ->
+desc(bucket_opts) ->
     "Settings for the bucket.";
-desc(bucket_limit) ->
-    desc(bucket_infinity);
 desc(client_opts) ->
     "Settings for the client in bucket level.";
 desc(client_fields) ->
@@ -360,7 +355,7 @@ apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
 %% A bucket with only one type
 simple_bucket_field(Type) when is_atom(Type) ->
-    fields(bucket_infinity) ++
+    fields(bucket_opts) ++
         [
             {client,
                 ?HOCON(
@@ -378,13 +373,13 @@ simple_bucket_field(Type) when is_atom(Type) ->
 composite_bucket_fields(Types, ClientRef) ->
     [
         {Type,
-            ?HOCON(?R_REF(?MODULE, Opts), #{
+            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
                 desc => ?DESC(?MODULE, Type),
                 required => false,
                 importance => importance_of_type(Type),
                 aliases => alias_of_type(Type)
             })}
-     || {Type, Opts} <- Types
+     || Type <- Types
     ] ++
         [
             {client,
