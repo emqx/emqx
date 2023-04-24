@@ -21,6 +21,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -85,3 +86,86 @@ t_update_config(_Config) ->
         5 * 60 * 1000,
         emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
     ).
+
+t_remove_restore_config(Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:update([file_transfer, storage], #{<<"type">> => <<"local">>}, #{})
+    ),
+    ?assertEqual(
+        60 * 60 * 1000,
+        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
+    ),
+    % Verify that transfers work
+    ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>),
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:remove([file_transfer, storage], #{})
+    ),
+    ?assertEqual(
+        undefined,
+        emqx_ft_conf:storage()
+    ),
+    ?assertEqual(
+        undefined,
+        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
+    ),
+    ClientId = gen_clientid(),
+    Client = emqx_ft_test_helpers:start_client(ClientId),
+    % Verify that transfers fail cleanly when storage is disabled
+    ?check_trace(
+        ?assertMatch(
+            {ok, #{reason_code_name := unspecified_error}},
+            emqtt:publish(
+                Client,
+                <<"$file/f2/init">>,
+                emqx_utils_json:encode(emqx_ft:encode_filemeta(#{name => "f2", size => 42})),
+                1
+            )
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{transfer := {ClientId, <<"f2">>}, reason := {error, disabled}}],
+                ?of_kind("store_filemeta_failed", Trace)
+            )
+        end
+    ),
+    % Restore local storage backend
+    Root = iolist_to_binary(emqx_ft_test_helpers:root(Config, node(), [segments])),
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:update(
+            [file_transfer, storage],
+            #{
+                <<"type">> => <<"local">>,
+                <<"segments">> => #{
+                    <<"root">> => Root,
+                    <<"gc">> => #{<<"interval">> => <<"1s">>}
+                }
+            },
+            #{}
+        )
+    ),
+    % Verify that GC is getting triggered eventually
+    ?check_trace(
+        ?block_until(#{?snk_kind := garbage_collection}, 5000, 0),
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        ?snk_kind := garbage_collection,
+                        storage := #{
+                            type := local,
+                            segments := #{root := Root}
+                        }
+                    }
+                ],
+                ?of_kind(garbage_collection, Trace)
+            )
+        end
+    ),
+    % Verify that transfers work again
+    ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>).
+
+gen_clientid() ->
+    emqx_base62:encode(emqx_guid:gen()).

@@ -25,6 +25,8 @@
 
 -export([schema/1]).
 
+-export([translate/1]).
+
 -type json_value() ::
     null
     | boolean()
@@ -82,13 +84,25 @@ fields(file_transfer) ->
             )},
         {storage,
             mk(
-                hoconsc:union([
-                    ref(local_storage)
-                ]),
+                hoconsc:union(
+                    fun
+                        (all_union_members) ->
+                            [
+                                % NOTE: by default storage is disabled
+                                undefined,
+                                ref(local_storage)
+                            ];
+                        ({value, #{<<"type">> := <<"local">>}}) ->
+                            [ref(local_storage)];
+                        ({value, #{<<"type">> := _}}) ->
+                            throw(#{field_name => type, expected => "local"});
+                        (_) ->
+                            [undefined]
+                    end
+                ),
                 #{
                     required => false,
-                    desc => ?DESC("storage"),
-                    default => default_storage()
+                    desc => ?DESC("storage")
                 }
             )}
     ];
@@ -108,18 +122,38 @@ fields(local_storage) ->
                 ref(local_storage_segments),
                 #{
                     desc => ?DESC("local_storage_segments"),
-                    required => false
+                    required => false,
+                    default => #{
+                        <<"gc">> => #{}
+                    }
                 }
             )},
         {exporter,
             mk(
-                hoconsc:union([
-                    ref(local_storage_exporter),
-                    ref(s3_exporter)
-                ]),
+                hoconsc:union(
+                    fun
+                        (all_union_members) ->
+                            [
+                                ref(local_storage_exporter),
+                                ref(s3_exporter)
+                            ];
+                        ({value, #{<<"type">> := <<"local">>}}) ->
+                            [ref(local_storage_exporter)];
+                        ({value, #{<<"type">> := <<"s3">>}}) ->
+                            [ref(s3_exporter)];
+                        ({value, #{<<"type">> := _}}) ->
+                            throw(#{field_name => type, expected => "local | s3"});
+                        ({value, _}) ->
+                            % NOTE: default
+                            [ref(local_storage_exporter)]
+                    end
+                ),
                 #{
                     desc => ?DESC("local_storage_exporter"),
-                    required => true
+                    required => true,
+                    default => #{
+                        <<"type">> => <<"local">>
+                    }
                 }
             )}
     ];
@@ -277,10 +311,11 @@ converter(unicode_string) ->
 ref(Ref) ->
     ref(?MODULE, Ref).
 
-default_storage() ->
-    #{
-        <<"type">> => <<"local">>,
-        <<"exporter">> => #{
-            <<"type">> => <<"local">>
-        }
-    }.
+translate(Conf) ->
+    [Root] = roots(),
+    maps:get(
+        Root,
+        hocon_tconf:check_plain(
+            ?MODULE, #{atom_to_binary(Root) => Conf}, #{atom_key => true}, [Root]
+        )
+    ).

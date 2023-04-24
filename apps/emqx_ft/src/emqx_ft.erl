@@ -301,8 +301,8 @@ store_filemeta(Transfer, Segment) ->
         emqx_ft_storage:store_filemeta(Transfer, Segment)
     catch
         C:E:S ->
-            ?SLOG(error, #{
-                msg => "start_store_filemeta_failed", class => C, reason => E, stacktrace => S
+            ?tp(error, "start_store_filemeta_failed", #{
+                class => C, reason => E, stacktrace => S
             }),
             {error, {internal_error, E}}
     end.
@@ -312,8 +312,8 @@ store_segment(Transfer, Segment) ->
         emqx_ft_storage:store_segment(Transfer, Segment)
     catch
         C:E:S ->
-            ?SLOG(error, #{
-                msg => "start_store_segment_failed", class => C, reason => E, stacktrace => S
+            ?tp(error, "start_store_segment_failed", #{
+                class => C, reason => E, stacktrace => S
             }),
             {error, {internal_error, E}}
     end.
@@ -323,8 +323,8 @@ assemble(Transfer, FinalSize) ->
         emqx_ft_storage:assemble(Transfer, FinalSize)
     catch
         C:E:S ->
-            ?SLOG(error, #{
-                msg => "start_assemble_failed", class => C, reason => E, stacktrace => S
+            ?tp(error, "start_assemble_failed", #{
+                class => C, reason => E, stacktrace => S
             }),
             {error, {internal_error, E}}
     end.
@@ -334,8 +334,7 @@ transfer(Msg, FileId) ->
     {clientid_to_binary(ClientId), FileId}.
 
 on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
-    ?SLOG(debug, #{
-        msg => "on_complete",
+    ?tp(debug, "on_complete", #{
         operation => Op,
         packet_id => PacketId,
         transfer => Transfer
@@ -344,15 +343,13 @@ on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
         {Mode, ok} when Mode == ack orelse Mode == down ->
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
         {Mode, {error, _} = Reason} when Mode == ack orelse Mode == down ->
-            ?SLOG(error, #{
-                msg => Op ++ "_failed",
+            ?tp(error, Op ++ "_failed", #{
                 transfer => Transfer,
                 reason => Reason
             }),
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR});
         timeout ->
-            ?SLOG(error, #{
-                msg => Op ++ "_timed_out",
+            ?tp(error, Op ++ "_timed_out", #{
                 transfer => Transfer
             }),
             erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})

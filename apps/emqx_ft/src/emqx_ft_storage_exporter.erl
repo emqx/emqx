@@ -31,7 +31,7 @@
 -export([list/1]).
 
 %% Lifecycle API
--export([update_exporter/2]).
+-export([on_config_update/2]).
 
 %% Internal API
 -export([exporter/1]).
@@ -141,30 +141,28 @@ list(Storage) ->
 
 %% Lifecycle
 
--spec update_exporter(emqx_config:config(), emqx_config:config()) -> ok | {error, term()}.
-update_exporter(
-    #{exporter := #{type := OldType}} = OldConfig,
-    #{exporter := #{type := OldType}} = NewConfig
-) ->
-    {ExporterMod, OldExporterOpts} = exporter(OldConfig),
-    {_NewExporterMod, NewExporterOpts} = exporter(NewConfig),
-    ExporterMod:update(OldExporterOpts, NewExporterOpts);
-update_exporter(
-    #{exporter := _} = OldConfig,
-    #{exporter := _} = NewConfig
-) ->
-    {OldExporterMod, OldExporterOpts} = exporter(OldConfig),
-    {NewExporterMod, NewExporterOpts} = exporter(NewConfig),
-    ok = OldExporterMod:stop(OldExporterOpts),
-    NewExporterMod:start(NewExporterOpts);
-update_exporter(undefined, NewConfig) ->
-    {ExporterMod, ExporterOpts} = exporter(NewConfig),
-    ExporterMod:start(ExporterOpts);
-update_exporter(OldConfig, undefined) ->
-    {ExporterMod, ExporterOpts} = exporter(OldConfig),
-    ExporterMod:stop(ExporterOpts);
-update_exporter(_, _) ->
+-spec on_config_update(storage(), storage()) -> ok | {error, term()}.
+on_config_update(StorageOld, StorageNew) ->
+    on_exporter_update(
+        emqx_maybe:apply(fun exporter/1, StorageOld),
+        emqx_maybe:apply(fun exporter/1, StorageNew)
+    ).
+
+on_exporter_update(Config, Config) ->
+    ok;
+on_exporter_update({ExporterMod, ConfigOld}, {ExporterMod, ConfigNew}) ->
+    ExporterMod:update(ConfigOld, ConfigNew);
+on_exporter_update(ExporterOld, ExporterNew) ->
+    _ = emqx_maybe:apply(fun stop_exporter/1, ExporterOld),
+    _ = emqx_maybe:apply(fun start_exporter/1, ExporterNew),
     ok.
+
+start_exporter({ExporterMod, ExporterOpts}) ->
+    ok = ExporterMod:start(ExporterOpts).
+
+stop_exporter({ExporterMod, ExporterOpts}) ->
+    ok = ExporterMod:stop(ExporterOpts).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------

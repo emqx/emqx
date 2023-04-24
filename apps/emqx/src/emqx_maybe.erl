@@ -23,6 +23,9 @@
 -export([define/2]).
 -export([apply/2]).
 
+-type t(T) :: maybe(T).
+-export_type([t/1]).
+
 -spec to_list(maybe(A)) -> [A].
 to_list(undefined) ->
     [];

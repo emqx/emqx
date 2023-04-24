@@ -68,7 +68,7 @@ end_per_testcase(_TC, _Config) ->
 t_gc_triggers_periodically(_Config) ->
     Interval = 500,
     ok = set_gc_config(interval, Interval),
-    ok = emqx_ft_storage_fs_gc:reset(emqx_ft_conf:storage()),
+    ok = emqx_ft_storage_fs_gc:reset(),
     ?check_trace(
         timer:sleep(Interval * 3),
         fun(Trace) ->
@@ -92,7 +92,7 @@ t_gc_triggers_manually(_Config) ->
         ?assertMatch(
             #gcstats{files = 0, directories = 0, space = 0, errors = #{} = Errors} when
                 map_size(Errors) == 0,
-            emqx_ft_storage_fs_gc:collect(emqx_ft_conf:storage())
+            emqx_ft_storage_fs_gc:collect()
         ),
         fun(Trace) ->
             [Event] = ?of_kind(garbage_collection, Trace),
@@ -108,7 +108,7 @@ t_gc_complete_transfers(_Config) ->
     ok = set_gc_config(minimum_segments_ttl, 0),
     ok = set_gc_config(maximum_segments_ttl, 3),
     ok = set_gc_config(interval, 500),
-    ok = emqx_ft_storage_fs_gc:reset(Storage),
+    ok = emqx_ft_storage_fs_gc:reset(),
     Transfers = [
         {
             T1 = {<<"client1">>, mk_file_id()},
@@ -134,7 +134,7 @@ t_gc_complete_transfers(_Config) ->
     ?assertEqual([S1, S2, S3], TransferSizes),
     ?assertMatch(
         #gcstats{files = 0, directories = 0, errors = #{} = Es} when map_size(Es) == 0,
-        emqx_ft_storage_fs_gc:collect(Storage)
+        emqx_ft_storage_fs_gc:collect()
     ),
     % 2. Complete just the first transfer
     {ok, {ok, Event}} = ?wait_async_action(
@@ -224,7 +224,7 @@ t_gc_incomplete_transfers(_Config) ->
     _ = emqx_utils:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
     % 2. Enable periodic GC every 0.5 seconds.
     ok = set_gc_config(interval, 500),
-    ok = emqx_ft_storage_fs_gc:reset(Storage),
+    ok = emqx_ft_storage_fs_gc:reset(),
     % 3. First we need the first transfer to be collected.
     {ok, _} = ?block_until(
         #{
@@ -304,7 +304,7 @@ t_gc_handling_errors(_Config) ->
                     {directory, DirTransfer2} := eexist
                 }
             } when Files == ?NSEGS(Size, SegSize) * 2 andalso Space > Size * 2,
-            emqx_ft_storage_fs_gc:collect(Storage)
+            emqx_ft_storage_fs_gc:collect()
         ),
         fun(Trace) ->
             ?assertMatch(

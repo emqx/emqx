@@ -46,8 +46,8 @@ init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
     {ok, Pid} = emqx_ft_assembler_sup:start_link(),
     [
-        {storage_root, "file_transfer_root"},
-        {exports_root, "file_transfer_exports"},
+        {storage_root, <<"file_transfer_root">>},
+        {exports_root, <<"file_transfer_exports">>},
         {file_id, atom_to_binary(TC)},
         {assembler_sup, Pid}
         | Config
@@ -246,13 +246,17 @@ exporter(Config) ->
     emqx_ft_storage_exporter:exporter(storage(Config)).
 
 storage(Config) ->
-    #{
-        type => local,
-        segments => #{
-            root => ?config(storage_root, Config)
-        },
-        exporter => #{
-            type => local,
-            root => ?config(exports_root, Config)
-        }
-    }.
+    maps:get(
+        storage,
+        emqx_ft_schema:translate(#{
+            <<"storage">> => #{
+                <<"type">> => <<"local">>,
+                <<"segments">> => #{
+                    <<"root">> => ?config(storage_root, Config)
+                },
+                <<"exporter">> => #{
+                    <<"root">> => ?config(exports_root, Config)
+                }
+            }
+        })
+    ).

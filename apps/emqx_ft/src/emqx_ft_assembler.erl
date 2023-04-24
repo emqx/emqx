@@ -159,7 +159,7 @@ handle_event(internal, _, {assemble, []}, St = #{}) ->
     {next_state, complete, St, ?internal([])};
 handle_event(internal, _, complete, St = #{export := Export}) ->
     Result = emqx_ft_storage_exporter:complete(Export),
-    ok = maybe_garbage_collect(Result, St),
+    _ = maybe_garbage_collect(Result, St),
     {stop, {shutdown, Result}, maps:remove(export, St)}.
 
 -spec terminate(_Reason, state(), stdata()) -> _.
