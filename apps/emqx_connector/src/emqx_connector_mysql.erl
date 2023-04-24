@@ -98,7 +98,7 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?MYSQL_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MYSQL_HOST_OPTIONS),
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,

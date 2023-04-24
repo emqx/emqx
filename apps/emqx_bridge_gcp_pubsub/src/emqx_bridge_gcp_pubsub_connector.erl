@@ -81,7 +81,7 @@ on_start(
     %% emulating the emulator behavior
     %% https://cloud.google.com/pubsub/docs/emulator
     HostPort = os:getenv("PUBSUB_EMULATOR_HOST", "pubsub.googleapis.com:443"),
-    {Host, Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
     Transport = tls,
     TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),

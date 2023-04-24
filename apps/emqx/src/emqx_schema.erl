@@ -66,6 +66,12 @@
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
 
+-type parsed_server() :: #{
+    hostname := string(),
+    port => port_number(),
+    scheme => string()
+}.
+
 -export([
     validate_heap_size/1,
     user_lookup_fun_tr/2,
@@ -2901,10 +2907,7 @@ servers_validator(Opts, Required) ->
 %% `no_port': by default it's `false', when set to `true',
 %%            a `throw' exception is raised if the port is found.
 -spec parse_server(undefined | string() | binary(), server_parse_option()) ->
-    string()
-    | {string(), port_number()}
-    | {string(), string()}
-    | {string(), string(), port_number()}.
+    undefined | parsed_server().
 parse_server(Str, Opts) ->
     case parse_servers(Str, Opts) of
         undefined ->
@@ -2918,12 +2921,7 @@ parse_server(Str, Opts) ->
 %% @doc Parse comma separated `host[:port][,host[:port]]' endpoints
 %% into a list of `{Host, Port}' tuples or just `Host' string.
 -spec parse_servers(undefined | string() | binary(), server_parse_option()) ->
-    [
-        string()
-        | {string(), port_number()}
-        | {string(), string()}
-        | {string(), string(), port_number()}
-    ].
+    undefined | [parsed_server()].
 parse_servers(undefined, _Opts) ->
     %% should not parse 'undefined' as string,
     %% not to throw exception either,
@@ -2988,55 +2986,112 @@ do_parse_server(Str, Opts) ->
             ok
     end,
     %% do not split with space, there should be no space allowed between host and port
-    case string:tokens(Str, ":") of
-        [Scheme, "//" ++ Hostname, Port] ->
-            NotExpectingPort andalso throw("not_expecting_port_number"),
-            NotExpectingScheme andalso throw("not_expecting_scheme"),
-            {check_scheme(Scheme, Opts), check_hostname(Hostname), parse_port(Port)};
-        [Scheme, "//" ++ Hostname] ->
-            NotExpectingScheme andalso throw("not_expecting_scheme"),
-            case is_integer(DefaultPort) of
-                true ->
-                    {check_scheme(Scheme, Opts), check_hostname(Hostname), DefaultPort};
-                false when NotExpectingPort ->
-                    {check_scheme(Scheme, Opts), check_hostname(Hostname)};
-                false ->
-                    throw("missing_port_number")
-            end;
-        [Hostname, Port] ->
-            NotExpectingPort andalso throw("not_expecting_port_number"),
-            case is_list(DefaultScheme) of
-                false ->
-                    {check_hostname(Hostname), parse_port(Port)};
-                true ->
-                    {DefaultScheme, check_hostname(Hostname), parse_port(Port)}
-            end;
-        [Hostname] ->
-            case is_integer(DefaultPort) orelse NotExpectingPort of
-                true ->
-                    ok;
-                false ->
-                    throw("missing_port_number")
-            end,
-            case is_list(DefaultScheme) orelse NotExpectingScheme of
-                true ->
-                    ok;
-                false ->
-                    throw("missing_scheme")
-            end,
-            case {is_integer(DefaultPort), is_list(DefaultScheme)} of
-                {true, true} ->
-                    {DefaultScheme, check_hostname(Hostname), DefaultPort};
-                {true, false} ->
-                    {check_hostname(Hostname), DefaultPort};
-                {false, true} ->
-                    {DefaultScheme, check_hostname(Hostname)};
-                {false, false} ->
-                    check_hostname(Hostname)
-            end;
-        _ ->
-            throw("bad_host_port")
-    end.
+    Tokens = string:tokens(Str, ":"),
+    Context = #{
+        not_expecting_port => NotExpectingPort,
+        not_expecting_scheme => NotExpectingScheme,
+        default_port => DefaultPort,
+        default_scheme => DefaultScheme,
+        opts => Opts
+    },
+    check_server_parts(Tokens, Context).
+
+check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        opts := Opts
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    #{
+        scheme => check_scheme(Scheme, Opts),
+        hostname => check_hostname(Hostname),
+        port => parse_port(Port)
+    };
+check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        opts := Opts
+    } = Context,
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    case is_integer(DefaultPort) of
+        true ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        false when NotExpectingPort ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname)
+            };
+        false ->
+            throw("missing_port_number")
+    end;
+check_server_parts([Hostname, Port], Context) ->
+    #{
+        not_expecting_port := NotExpectingPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    case is_list(DefaultScheme) of
+        false ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            };
+        true ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            }
+    end;
+check_server_parts([Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    case is_integer(DefaultPort) orelse NotExpectingPort of
+        true ->
+            ok;
+        false ->
+            throw("missing_port_number")
+    end,
+    case is_list(DefaultScheme) orelse NotExpectingScheme of
+        true ->
+            ok;
+        false ->
+            throw("missing_scheme")
+    end,
+    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
+        {true, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {true, false} ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {false, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname)
+            };
+        {false, false} ->
+            #{hostname => check_hostname(Hostname)}
+    end;
+check_server_parts(_Tokens, _Context) ->
+    throw("bad_host_port").
 
 check_scheme(Str, Opts) ->
     SupportedSchemes = maps:get(supported_schemes, Opts, []),

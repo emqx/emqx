@@ -355,7 +355,7 @@ conn_str([], Acc) ->
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?SQLSERVER_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SQLSERVER_HOST_OPTIONS),
     conn_str(Opts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
 conn_str([{database, Database} | Opts], Acc) ->
     conn_str(Opts, ["Database=" ++ str(Database) | Acc]);

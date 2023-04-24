@@ -92,7 +92,7 @@ callback_mode() -> async_if_possible.
 on_start(
     InstId,
     #{
-        servers := Servers,
+        servers := Servers0,
         keyspace := Keyspace,
         username := Username,
         pool_size := PoolSize,
@@ -104,9 +104,16 @@ on_start(
         connector => InstId,
         config => emqx_utils:redact(Config)
     }),
+    Servers =
+        lists:map(
+            fun(#{hostname := Host, port := Port}) ->
+                {Host, Port}
+            end,
+            emqx_schema:parse_servers(Servers0, ?DEFAULT_SERVER_OPTION)
+        ),
 
     Options = [
-        {nodes, emqx_schema:parse_servers(Servers, ?DEFAULT_SERVER_OPTION)},
+        {nodes, Servers},
         {username, Username},
         {password, emqx_secret:wrap(maps:get(password, Config, ""))},
         {keyspace, Keyspace},

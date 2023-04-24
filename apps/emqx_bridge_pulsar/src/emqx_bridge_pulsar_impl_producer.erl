@@ -180,7 +180,7 @@ to_bin(B) when is_binary(B) ->
 format_servers(Servers0) ->
     Servers1 = emqx_schema:parse_servers(Servers0, ?PULSAR_HOST_OPTIONS),
     lists:map(
-        fun({Scheme, Host, Port}) ->
+        fun(#{scheme := Scheme, hostname := Host, port := Port}) ->
             Scheme ++ "://" ++ Host ++ ":" ++ integer_to_list(Port)
         end,
         Servers1

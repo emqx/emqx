@@ -92,7 +92,7 @@ on_start(
     }),
 
     {Schema, Server} = get_host_schema(to_str(Url)),
-    {Host, Port} = emqx_schema:parse_server(Server, ?DYNAMO_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?DYNAMO_HOST_OPTIONS),
 
     Options = [
         {config, #{
