@@ -42,6 +42,7 @@
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
+    <<"limiter">>,
     <<"log">>,
     <<"persistent_session_store">>,
     <<"zones">>
