@@ -34,7 +34,7 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -define(DYNAMO_HOST_OPTIONS, #{
-    default_port => 8000
+    default_port => 80
 }).
 
 %%=====================================================================

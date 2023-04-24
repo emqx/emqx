@@ -71,8 +71,14 @@ init(#{
     {ok, #{}}.
 
 handle_call(is_connected, _From, State) ->
-    _ = erlcloud_ddb2:list_tables(),
-    {reply, true, State};
+    IsConnected =
+        case erlcloud_ddb2:list_tables([{limit, 1}]) of
+            {ok, _} ->
+                true;
+            _ ->
+                false
+        end,
+    {reply, IsConnected, State};
 handle_call({query, Table, Query, Templates}, _From, State) ->
     Result = do_query(Table, Query, Templates),
     {reply, Result, State};
