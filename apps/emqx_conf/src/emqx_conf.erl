@@ -150,7 +150,6 @@ dump_schema(Dir, SchemaModule) ->
     lists:foreach(
         fun(Lang) ->
             ok = gen_config_md(Dir, SchemaModule, Lang),
-            ok = gen_api_schema_json(Dir, Lang),
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
@@ -177,28 +176,6 @@ gen_schema_json(Dir, SchemaModule, Lang) ->
     IoData = emqx_utils_json:encode(JsonMap, [pretty, force_utf8]),
     ok = file:write_file(SchemaJsonFile, IoData).
 
-%% TODO: delete this function when we stop generating this JSON at build time.
-gen_api_schema_json(Dir, Lang) ->
-    gen_api_schema_json_hotconf(Dir, Lang),
-    gen_api_schema_json_bridge(Dir, Lang).
-
-%% TODO: delete this function when we stop generating this JSON at build time.
-gen_api_schema_json_hotconf(Dir, Lang) ->
-    File = schema_filename(Dir, "hot-config-schema-", Lang),
-    IoData = hotconf_schema_json(),
-    ok = write_api_schema_json_file(File, IoData).
-
-%% TODO: delete this function when we stop generating this JSON at build time.
-gen_api_schema_json_bridge(Dir, Lang) ->
-    File = schema_filename(Dir, "bridge-api-", Lang),
-    IoData = bridge_schema_json(),
-    ok = write_api_schema_json_file(File, IoData).
-
-%% TODO: delete this function when we stop generating this JSON at build time.
-write_api_schema_json_file(File, IoData) ->
-    io:format(user, "===< Generating: ~s~n", [File]),
-    file:write_file(File, IoData).
-
 %% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
 hotconf_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
@@ -208,10 +185,6 @@ hotconf_schema_json() ->
 bridge_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
     gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
-
-schema_filename(Dir, Prefix, Lang) ->
-    Filename = Prefix ++ Lang ++ ".json",
-    filename:join([Dir, Filename]).
 
 %% TODO: remove it and also remove hocon_md.erl and friends.
 %% markdown generation from schema is a failure and we are moving to an interactive
