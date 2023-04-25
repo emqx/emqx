@@ -33,10 +33,6 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--define(DYNAMO_HOST_OPTIONS, #{
-    default_port => 80
-}).
-
 %%=====================================================================
 %% Hocon schema
 roots() ->
@@ -84,8 +80,8 @@ on_start(
         config => redact(Config)
     }),
 
-    {Schema, Server} = get_host_schema(to_str(Url)),
-    {Host, Port} = emqx_schema:parse_server(Server, ?DYNAMO_HOST_OPTIONS),
+    {Schema, Server, DefaultPort} = get_host_info(to_str(Url)),
+    {Host, Port} = emqx_schema:parse_server(Server, #{default_port => DefaultPort}),
 
     Options = [
         {config, #{
@@ -226,12 +222,12 @@ to_str(List) when is_list(List) ->
 to_str(Bin) when is_binary(Bin) ->
     erlang:binary_to_list(Bin).
 
-get_host_schema("http://" ++ Server) ->
-    {"http://", Server};
-get_host_schema("https://" ++ Server) ->
-    {"https://", Server};
-get_host_schema(Server) ->
-    {"http://", Server}.
+get_host_info("http://" ++ Server) ->
+    {"http://", Server, 80};
+get_host_info("https://" ++ Server) ->
+    {"https://", Server, 443};
+get_host_info(Server) ->
+    {"http://", Server, 80}.
 
 redact(Data) ->
     emqx_utils:redact(Data, fun(Any) -> Any =:= aws_secret_access_key end).
