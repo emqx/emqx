@@ -443,7 +443,12 @@ t_websocket_info_deliver(_) ->
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
-    LimiterT = init_limiter(),
+    {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
+    LimiterT = init_limiter(#{
+        bytes => bucket_cfg(),
+        messages => bucket_cfg(),
+        client => #{bytes => client_cfg(Rate)}
+    }),
     Next = fun emqx_ws_connection:when_msg_in/3,
     Limiter = emqx_limiter_container:set_retry_context({retry, [], [], Next}, LimiterT),
     Event = {timeout, Ref, limit_timeout},

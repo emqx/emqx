@@ -38,8 +38,6 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
     ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
-    %% Meck Limiter
-    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
     %% Meck Pd
     ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
     %% Meck Metrics
@@ -67,7 +65,6 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_transport),
     catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
-    ok = meck:unload(emqx_htb_limiter),
     ok = meck:unload(emqx_pd),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
@@ -421,6 +418,14 @@ t_ensure_rate_limit(_) ->
     {ok, [], State1} = emqx_connection:check_limiter([], [], WhenOk, [], st(#{limiter => Limiter})),
     ?assertEqual(Limiter, emqx_connection:info(limiter, State1)),
 
+    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
+
+    ok = meck:expect(
+        emqx_htb_limiter,
+        make_infinity_limiter,
+        fun() -> non_infinity end
+    ),
+
     ok = meck:expect(
         emqx_htb_limiter,
         check,
@@ -431,10 +436,10 @@ t_ensure_rate_limit(_) ->
         [],
         WhenOk,
         [],
-        st(#{limiter => Limiter})
+        st(#{limiter => init_limiter()})
     ),
     meck:unload(emqx_htb_limiter),
-    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
+
     ?assertNotEqual(undefined, emqx_connection:info(limiter_timer, State2)).
 
 t_activate_socket(_) ->
@@ -707,7 +712,14 @@ init_limiter() ->
 
 limiter_cfg() ->
     Cfg = bucket_cfg(),
-    Client = #{
+    Client = client_cfg(),
+    #{bytes => Cfg, messages => Cfg, client => #{bytes => Client, messages => Client}}.
+
+bucket_cfg() ->
+    #{rate => infinity, initial => 0, burst => 0}.
+
+client_cfg() ->
+    #{
         rate => infinity,
         initial => 0,
         burst => 0,
@@ -715,11 +727,7 @@ limiter_cfg() ->
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
-    },
-    #{bytes => Cfg, messages => Cfg, client => #{bytes => Client, messages => Client}}.
-
-bucket_cfg() ->
-    #{rate => infinity, initial => 0, burst => 0}.
+    }.
 
 add_bucket() ->
     Cfg = bucket_cfg(),
