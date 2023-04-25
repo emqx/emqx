@@ -192,7 +192,7 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
             ;;
         pulsar)
-            FILES+=( '.ci/docker-compose-file/docker-compose-pulsar-tcp.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"
