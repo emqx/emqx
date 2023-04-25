@@ -26,6 +26,28 @@ The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
             }
     }
 
+    access_key {
+        desc {
+          en: """RocketMQ server `accessKey`."""
+          zh: """RocketMQ 服务器的 `accessKey`。"""
+        }
+        label: {
+             en: "AccessKey"
+             zh: "AccessKey"
+            }
+    }
+
+    secret_key {
+        desc {
+          en: """RocketMQ server `secretKey`."""
+          zh: """RocketMQ 服务器的 `secretKey`。"""
+        }
+        label: {
+              en: "SecretKey"
+              zh: "SecretKey"
+            }
+    }
+
     sync_timeout {
         desc {
           en: """Timeout of RocketMQ driver synchronous call."""
