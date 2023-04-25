@@ -22,11 +22,19 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--include_lib("emqx/include/asserts.hrl").
-
 -import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        {group, single},
+        {group, cluster}
+    ].
+
+groups() ->
+    [
+        {single, [], emqx_common_test_helpers:all(?MODULE)},
+        {cluster, [], emqx_common_test_helpers:all(?MODULE)}
+    ].
 
 init_per_suite(Config) ->
     ok = emqx_mgmt_api_test_util:init_suite(
@@ -37,6 +45,41 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = emqx_mgmt_api_test_util:end_suite([emqx_ft, emqx_conf]),
     ok.
+
+init_per_group(Group = cluster, Config) ->
+    Cluster = mk_cluster_specs(Config),
+    ct:pal("Starting ~p", [Cluster]),
+    Nodes = [
+        emqx_common_test_helpers:start_slave(Name, Opts#{join_to => node()})
+     || {Name, Opts} <- Cluster
+    ],
+    [{group, Group}, {cluster_nodes, Nodes} | Config];
+init_per_group(Group, Config) ->
+    [{group, Group} | Config].
+
+end_per_group(cluster, Config) ->
+    ok = lists:foreach(
+        fun emqx_ft_test_helpers:stop_additional_node/1,
+        ?config(cluster_nodes, Config)
+    );
+end_per_group(_Group, _Config) ->
+    ok.
+
+mk_cluster_specs(Config) ->
+    Specs = [
+        {core, emqx_ft_api_SUITE1, #{listener_ports => [{tcp, 2883}]}},
+        {core, emqx_ft_api_SUITE2, #{listener_ports => [{tcp, 3883}]}}
+    ],
+    CommOpts = [
+        {env, [{emqx, boot_modules, [broker, listeners]}]},
+        {apps, [emqx_ft]},
+        {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
+        {env_handler, emqx_ft_test_helpers:env_handler(Config)}
+    ],
+    emqx_common_test_helpers:emqx_cluster(
+        Specs,
+        CommOpts
+    ).
 
 init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
@@ -51,7 +94,8 @@ t_list_files(Config) ->
     ClientId = client_id(Config),
     FileId = <<"f1">>,
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>),
+    Node = lists:last(cluster(Config)),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
 
     {ok, 200, #{<<"files">> := Files}} =
         request_json(get, uri(["file_transfer", "files"])),
@@ -76,14 +120,16 @@ t_list_files(Config) ->
 
 t_download_transfer(Config) ->
     ClientId = client_id(Config),
+    FileId = <<"f1">>,
 
-    ok = emqx_ft_test_helpers:upload_file(ClientId, <<"f1">>, "f1", <<"data">>),
+    Node = lists:last(cluster(Config)),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             get,
-            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>})
+            uri(["file_transfer", "file"]) ++ query(#{fileref => FileId})
         )
     ),
 
@@ -93,7 +139,7 @@ t_download_transfer(Config) ->
             get,
             uri(["file_transfer", "file"]) ++
                 query(#{
-                    fileref => <<"f1">>,
+                    fileref => FileId,
                     node => <<"nonode@nohost">>
                 })
         )
@@ -112,7 +158,7 @@ t_download_transfer(Config) ->
     ),
 
     {ok, 200, #{<<"files">> := [File]}} =
-        request_json(get, uri(["file_transfer", "files"])),
+        request_json(get, uri(["file_transfer", "files", ClientId, FileId])),
 
     {ok, 200, Response} = request(get, host() ++ maps:get(<<"uri">>, File)),
 
@@ -124,10 +170,14 @@ t_download_transfer(Config) ->
 t_list_files_paging(Config) ->
     ClientId = client_id(Config),
     NFiles = 20,
-    Uploads = [{mk_file_id("file:", N), mk_file_name(N)} || N <- lists:seq(1, NFiles)],
+    Nodes = cluster(Config),
+    Uploads = [
+        {mk_file_id("file:", N), mk_file_name(N), pick(N, Nodes)}
+     || N <- lists:seq(1, NFiles)
+    ],
     ok = lists:foreach(
-        fun({FileId, Name}) ->
-            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Name, <<"data">>)
+        fun({FileId, Name, Node}) ->
+            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Name, <<"data">>, Node)
         end,
         Uploads
     ),
@@ -177,8 +227,11 @@ t_list_files_paging(Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
+cluster(Config) ->
+    [node() | proplists:get_value(cluster_nodes, Config, [])].
+
 client_id(Config) ->
-    atom_to_binary(?config(tc, Config), utf8).
+    iolist_to_binary(io_lib:format("~s.~s", [?config(group, Config), ?config(tc, Config)])).
 
 mk_file_id(Prefix, N) ->
     iolist_to_binary([Prefix, integer_to_list(N)]).
@@ -215,3 +268,6 @@ to_list(B) when is_binary(B) ->
     binary_to_list(B);
 to_list(L) when is_list(L) ->
     L.
+
+pick(N, List) ->
+    lists:nth(1 + (N rem length(List)), List).
