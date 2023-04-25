@@ -387,7 +387,7 @@ handle_event(EventType, EventData, State, Data) ->
             event_type => EventType,
             event_data => EventData,
             state => State,
-            data => redact_data(Data)
+            data => emqx_utils:redact(Data)
         }
     ),
     keep_state_and_data.
@@ -397,15 +397,15 @@ log_state_consistency(State, #data{status = State} = Data) ->
 log_state_consistency(State, Data) ->
     ?tp(warning, "inconsistent_state", #{
         state => State,
-        data => redact_data(Data)
+        data => emqx_utils:redact(Data)
     }).
 
 log_cache_consistency(Data, Data) ->
     ok;
 log_cache_consistency(DataCached, Data) ->
     ?tp(warning, "inconsistent_cache", #{
-        cache => redact_data(DataCached),
-        data => redact_data(Data)
+        cache => emqx_utils:redact(DataCached),
+        data => emqx_utils:redact(Data)
     }).
 
 %%------------------------------------------------------------------------------
@@ -661,9 +661,3 @@ safe_call(ResId, Message, Timeout) ->
         exit:{timeout, _} ->
             {error, timeout}
     end.
-
-%% the config and state of a bridge often contains some sensitive data
-%% we shouldn't expose them to logs
-redact_data(Data) ->
-    Msg = <<"this data is redacted due to security reasons">>,
-    Data#data{config = Msg, state = Msg}.
