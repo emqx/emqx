@@ -2,42 +2,92 @@
 
 set -euo pipefail
 
-[ $# -ne 2 ] && { echo "Usage: $0 ip port"; exit 1; }
+[ $# -ne 2 ] && { echo "Usage: $0 host port"; exit 1; }
 
-IP=$1
+HOST=$1
 PORT=$2
-URL="http://$IP:$PORT/status"
+BASE_URL="http://$HOST:$PORT"
 
 ## Check if EMQX is responding
-ATTEMPTS=10
-while ! curl "$URL" >/dev/null 2>&1; do
-    if [ $ATTEMPTS -eq 0 ]; then
-        echo "emqx is not responding on $URL"
-        exit 1
+wait_for_emqx() {
+    local attempts=10
+    local url="$BASE_URL"/status
+    while ! curl "$url" >/dev/null 2>&1; do
+        if [ $attempts -eq 0 ]; then
+            echo "emqx is not responding on $url"
+            exit 1
+        fi
+        sleep 5
+        attempts=$((attempts-1))
+    done
+}
+
+## Get the JSON format status which is jq friendly and includes a version string
+json_status() {
+    local url="${BASE_URL}/status?format=json"
+    local resp
+    resp="$(curl -s "$url")"
+    if (echo "$resp" | jq . >/dev/null 2>&1); then
+        echo "$resp"
+    else
+        echo 'NOT_JSON'
     fi
-    sleep 5
-    ATTEMPTS=$((ATTEMPTS-1))
-done
+}
 
 ## Check if the API docs are available
-API_DOCS_URL="http://$IP:$PORT/api-docs/index.html"
-API_DOCS_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "$API_DOCS_URL")"
-if [ "$API_DOCS_STATUS" != "200" ]; then
-    echo "emqx is not responding on $API_DOCS_URL"
-    exit 1
-fi
+check_api_docs() {
+    local url="$BASE_URL/api-docs/index.html"
+    local status
+    status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
+    if [ "$status" != "200" ]; then
+        echo "emqx is not responding on $API_DOCS_URL"
+        exit 1
+    fi
+}
 
 ## Check if the swagger.json contains hidden fields
 ## fail if it does
-SWAGGER_JSON_URL="http://$IP:$PORT/api-docs/swagger.json"
-## assert swagger.json is valid json
-JSON="$(curl -s "$SWAGGER_JSON_URL")"
-echo "$JSON" | jq . >/dev/null
+check_swagger_json() {
+    local url="$BASE_URL/api-docs/swagger.json"
+    ## assert swagger.json is valid json
+    JSON="$(curl -s "$url")"
+    echo "$JSON" | jq . >/dev/null
 
-if [ "${EMQX_SMOKE_TEST_CHECK_HIDDEN_FIELDS:-yes}" = 'yes' ]; then
-    ## assert swagger.json does not contain trie_compaction (which is a hidden field)
-    if echo "$JSON" | grep -q trie_compaction; then
-        echo "swagger.json contains hidden fields"
+    if [ "${EMQX_SMOKE_TEST_CHECK_HIDDEN_FIELDS:-yes}" = 'yes' ]; then
+        ## assert swagger.json does not contain trie_compaction (which is a hidden field)
+        if echo "$JSON" | grep -q trie_compaction; then
+            echo "swagger.json contains hidden fields"
+            exit 1
+        fi
+    fi
+}
+
+check_schema_json() {
+    local name="$1"
+    local expected_title="$2"
+    local url="$BASE_URL/api/v5/schemas/$name"
+    local json
+    json="$(curl -s "$url" | jq .)"
+    title="$(echo "$json" | jq -r '.info.title')"
+    if [[ "$title" != "$expected_title" ]]; then
+        echo "unexpected value from GET $url"
+        echo "expected: $expected_title"
+        echo "got     : $title"
         exit 1
     fi
-fi
+}
+
+main() {
+    wait_for_emqx
+    local JSON_STATUS
+    JSON_STATUS="$(json_status)"
+    check_api_docs
+    check_swagger_json
+    ## The json status feature was added after hotconf and bridges schema API
+    if [ "$JSON_STATUS" != 'NOT_JSON' ]; then
+        check_schema_json hotconf "EMQX Hot Conf API Schema"
+        check_schema_json bridges "EMQX Data Bridge API Schema"
+    fi
+}
+
+main
