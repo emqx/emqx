@@ -179,7 +179,7 @@ create_tables() ->
     ok = mria:create_table(?PROTOBUF_CACHE_TAB, [
         {type, set},
         {rlog_shard, ?SCHEMA_REGISTRY_SHARD},
-        {storage, disc_only_copies},
+        {storage, rocksdb_copies},
         {record_name, protobuf_cache},
         {attributes, record_info(fields, protobuf_cache)}
     ]),
