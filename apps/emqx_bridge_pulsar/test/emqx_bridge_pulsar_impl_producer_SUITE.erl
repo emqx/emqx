@@ -99,7 +99,8 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= plain
+    Group =:= plain;
+    Group =:= tls
 ->
     common_end_per_group(Config),
     ok;
