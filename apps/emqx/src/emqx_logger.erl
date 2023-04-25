@@ -237,7 +237,7 @@ set_log_handler_level(HandlerId, Level) ->
     end.
 
 %% @doc Set both the primary and all handlers level in one command
--spec set_log_level(logger:handler_id()) -> ok | {error, term()}.
+-spec set_log_level(logger:level()) -> ok | {error, term()}.
 set_log_level(Level) ->
     case set_primary_log_level(Level) of
         ok -> set_all_log_handlers_level(Level);
