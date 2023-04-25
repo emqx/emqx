@@ -45,18 +45,11 @@ schema("/schemas/:name") ->
         'operationId' => get_schema,
         get => #{
             parameters => [
-                {name, hoconsc:mk(hoconsc:enum([hotconf, bridges]), #{in => path})},
-                {lang,
-                    hoconsc:mk(typerefl:string(), #{
-                        in => query,
-                        default => <<"en">>,
-                        desc => <<"The language of the schema.">>
-                    })}
+                {name, hoconsc:mk(hoconsc:enum([hotconf, bridges]), #{in => path})}
             ],
             desc => <<
                 "Get the schema JSON of the specified name. "
-                "NOTE: you should never need to make use of this API "
-                "unless you are building a multi-lang dashboaard."
+                "NOTE: only intended for EMQX Dashboard."
             >>,
             tags => ?TAGS,
             security => [],
@@ -71,14 +64,13 @@ schema("/schemas/:name") ->
 %%--------------------------------------------------------------------
 
 get_schema(get, #{
-    bindings := #{name := Name},
-    query_string := #{<<"lang">> := Lang}
+    bindings := #{name := Name}
 }) ->
-    {200, gen_schema(Name, iolist_to_binary(Lang))};
+    {200, gen_schema(Name)};
 get_schema(get, _) ->
     {400, ?BAD_REQUEST, <<"unknown">>}.
 
-gen_schema(hotconf, Lang) ->
-    emqx_conf:hotconf_schema_json(Lang);
-gen_schema(bridges, Lang) ->
-    emqx_conf:bridge_schema_json(Lang).
+gen_schema(hotconf) ->
+    emqx_conf:hotconf_schema_json();
+gen_schema(bridges) ->
+    emqx_conf:bridge_schema_json().

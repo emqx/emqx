@@ -31,8 +31,9 @@
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
 -export([
-    hotconf_schema_json/1,
-    bridge_schema_json/1
+    hotconf_schema_json/0,
+    bridge_schema_json/0,
+    hocon_schema_to_spec/2
 ]).
 
 %% for rpc
@@ -184,13 +185,13 @@ gen_api_schema_json(Dir, Lang) ->
 %% TODO: delete this function when we stop generating this JSON at build time.
 gen_api_schema_json_hotconf(Dir, Lang) ->
     File = schema_filename(Dir, "hot-config-schema-", Lang),
-    IoData = hotconf_schema_json(Lang),
+    IoData = hotconf_schema_json(),
     ok = write_api_schema_json_file(File, IoData).
 
 %% TODO: delete this function when we stop generating this JSON at build time.
 gen_api_schema_json_bridge(Dir, Lang) ->
     File = schema_filename(Dir, "bridge-api-", Lang),
-    IoData = bridge_schema_json(Lang),
+    IoData = bridge_schema_json(),
     ok = write_api_schema_json_file(File, IoData).
 
 %% TODO: delete this function when we stop generating this JSON at build time.
@@ -199,14 +200,14 @@ write_api_schema_json_file(File, IoData) ->
     file:write_file(File, IoData).
 
 %% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
-hotconf_schema_json(Lang) ->
+hotconf_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
-    gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo, Lang).
+    gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
 
 %% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
-bridge_schema_json(Lang) ->
+bridge_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
-    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo, Lang).
+    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 schema_filename(Dir, Prefix, Lang) ->
     Filename = Prefix ++ Lang ++ ".json",
@@ -270,50 +271,11 @@ gen_example(File, SchemaModule) ->
     Example = hocon_schema_example:gen(SchemaModule, Opts),
     file:write_file(File, Example).
 
-%% TODO: move this to emqx_dashboard when we stop generating
-%% this JSON at build time.
-gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Lang) ->
-    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
+gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
+    emqx_dashboard_swagger:gen_api_schema_json_iodata(
         SchemaMod,
-        #{
-            schema_converter => fun hocon_schema_to_spec/2,
-            i18n_lang => Lang
-        }
-    ),
-    ApiSpec = lists:foldl(
-        fun({Path, Spec, _, _}, Acc) ->
-            NewSpec = maps:fold(
-                fun(Method, #{responses := Responses}, SubAcc) ->
-                    case Responses of
-                        #{
-                            <<"200">> :=
-                                #{
-                                    <<"content">> := #{
-                                        <<"application/json">> := #{<<"schema">> := Schema}
-                                    }
-                                }
-                        } ->
-                            SubAcc#{Method => Schema};
-                        _ ->
-                            SubAcc
-                    end
-                end,
-                #{},
-                Spec
-            ),
-            Acc#{list_to_atom(Path) => NewSpec}
-        end,
-        #{},
-        ApiSpec0
-    ),
-    Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    emqx_utils_json:encode(
-        #{
-            info => SchemaInfo,
-            paths => ApiSpec,
-            components => #{schemas => Components}
-        },
-        [pretty, force_utf8]
+        SchemaInfo,
+        fun ?MODULE:hocon_schema_to_spec/2
     ).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
