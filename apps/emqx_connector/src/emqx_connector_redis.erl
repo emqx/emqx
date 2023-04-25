@@ -131,7 +131,13 @@ on_start(
             _ -> servers
         end,
     Servers0 = maps:get(ConfKey, Config),
-    Servers = [{servers, emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)}],
+    Servers1 = lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)
+    ),
+    Servers = [{servers, Servers1}],
     Database =
         case Type of
             cluster -> [];

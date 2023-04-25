@@ -38,9 +38,14 @@ groups() ->
     [].
 
 cassandra_servers() ->
-    emqx_schema:parse_servers(
-        iolist_to_binary([?CASSANDRA_HOST, ":", erlang:integer_to_list(?CASSANDRA_DEFAULT_PORT)]),
-        #{default_port => ?CASSANDRA_DEFAULT_PORT}
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(
+            iolist_to_binary([?CASSANDRA_HOST, ":", erlang:integer_to_list(?CASSANDRA_DEFAULT_PORT)]),
+            #{default_port => ?CASSANDRA_DEFAULT_PORT}
+        )
     ).
 
 init_per_suite(Config) ->

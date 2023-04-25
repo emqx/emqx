@@ -1,0 +1,175 @@
+emqx_bridge_pulsar {
+  auth_basic {
+    desc = "Parameters for basic authentication."
+    label = "Basic auth params"
+  }
+
+  auth_basic_password {
+    desc = "Basic authentication password."
+    label = "Password"
+  }
+
+  auth_basic_username {
+    desc = "Basic authentication username."
+    label = "Username"
+  }
+
+  auth_token {
+    desc = "Parameters for token authentication."
+    label = "Token auth params"
+  }
+
+  auth_token_jwt {
+    desc = "JWT authentication token."
+    label = "JWT"
+  }
+
+  authentication {
+    desc = "Authentication configs."
+    label = "Authentication"
+  }
+
+  buffer_memory_overload_protection {
+    desc = "Applicable when buffer mode is set to <code>memory</code>\n"
+           "EMQX will drop old buffered messages under high memory pressure."
+           " The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>."
+           " NOTE: This config only works on Linux."
+    label = "Memory Overload Protection"
+  }
+
+  buffer_mode {
+    desc = "Message buffer mode.\n"
+           "<code>memory</code>: Buffer all messages in memory. The messages will be lost"
+           " in case of EMQX node restart\n<code>disk</code>: Buffer all messages on disk."
+           " The messages on disk are able to survive EMQX node restart.\n"
+           "<code>hybrid</code>: Buffer message in memory first, when up to certain limit"
+           " (see <code>segment_bytes</code> config for more information), then start offloading"
+           " messages to disk, Like <code>memory</code> mode, the messages will be lost in"
+           " case of EMQX node restart."
+    label = "Buffer Mode"
+  }
+
+  buffer_per_partition_limit {
+    desc = "Number of bytes allowed to buffer for each Pulsar partition."
+           " When this limit is exceeded, old messages will be dropped in a trade for credits"
+           " for new messages to be buffered."
+    label = "Per-partition Buffer Limit"
+  }
+
+  buffer_segment_bytes {
+    desc = "Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.\n"
+           "This value is to specify the size of each on-disk buffer file."
+    label = "Segment File Bytes"
+  }
+
+  config_enable {
+    desc = "Enable (true) or disable (false) this Pulsar bridge."
+    label = "Enable or Disable"
+  }
+
+  desc_name {
+    desc = "Bridge name, used as a human-readable description of the bridge."
+    label = "Bridge Name"
+  }
+
+  desc_type {
+    desc = "The Bridge Type"
+    label = "Bridge Type"
+  }
+
+  producer_batch_size {
+    desc = "Maximum number of individual requests to batch in a Pulsar message."
+    label = "Batch size"
+  }
+
+  producer_buffer {
+    desc = "Configure producer message buffer.\n\n"
+           "Tell Pulsar producer how to buffer messages when EMQX has more messages to"
+           " send than Pulsar can keep up, or when Pulsar is down."
+    label = "Message Buffer"
+  }
+
+  producer_compression {
+    desc = "Compression method."
+    label = "Compression"
+  }
+
+  producer_key_template {
+    desc = "Template to render Pulsar message key."
+    label = "Message Key"
+  }
+
+  producer_local_topic {
+    desc = "MQTT topic or topic filter as data source (bridge input)."
+           " If rule action is used as data source, this config should be left empty,"
+           " otherwise messages will be duplicated in Pulsar."
+    label = "Source MQTT Topic"
+  }
+
+  producer_max_batch_bytes {
+    desc = "Maximum bytes to collect in a Pulsar message batch. Most of the Pulsar brokers"
+           " default to a limit of 5 MB batch size. EMQX's default value is less than 5 MB in"
+           " order to compensate Pulsar message encoding overheads (especially when each individual"
+           " message is very small). When a single message is over the limit, it is still"
+           " sent (as a single element batch)."
+    label = "Max Batch Bytes"
+  }
+
+  producer_message_opts {
+    desc = "Template to render a Pulsar message."
+    label = "Pulsar Message Template"
+  }
+
+  producer_pulsar_message {
+    desc = "Template to render a Pulsar message."
+    label = "Pulsar Message Template"
+  }
+
+  producer_pulsar_topic {
+    desc = "Pulsar topic name"
+    label = "Pulsar topic name"
+  }
+
+  producer_retention_period {
+    desc = "The amount of time messages will be buffered while there is no connection to"
+           " the Pulsar broker.  Longer times mean that more memory/disk will be used"
+    label = "Retention Period"
+  }
+
+  producer_send_buffer {
+    desc = "Fine tune the socket send buffer. The default value is tuned for high throughput."
+    label = "Socket Send Buffer Size"
+  }
+
+  producer_strategy {
+    desc = "Partition strategy is to tell the producer how to dispatch messages to Pulsar partitions.\n"
+           "\n"
+           "<code>random</code>: Randomly pick a partition for each message.\n"
+           "<code>roundrobin</code>: Pick each available producer in turn for each message.\n"
+           "<code>key_dispatch</code>: Hash Pulsar message key of the first message in a batch"
+           " to a partition number."
+    label = "Partition Strategy"
+  }
+
+  producer_sync_timeout {
+    desc = "Maximum wait time for receiving a receipt from Pulsar when publishing synchronously."
+    label = "Sync publish timeout"
+  }
+
+  producer_value_template {
+    desc = "Template to render Pulsar message value."
+    label = "Message Value"
+  }
+
+  pulsar_producer_struct {
+    desc = "Configuration for a Pulsar bridge."
+    label = "Pulsar Bridge Configuration"
+  }
+
+  servers {
+    desc = "A comma separated list of Pulsar URLs in the form <code>scheme://host[:port]</code>"
+           " for the client to connect to. The supported schemes are <code>pulsar://</code> (default)"
+           " and <code>pulsar+ssl://</code>. The default port is 6650."
+    label = "Servers"
+  }
+}

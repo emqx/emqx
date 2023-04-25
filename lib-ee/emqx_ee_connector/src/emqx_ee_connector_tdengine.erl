@@ -96,7 +96,7 @@ on_start(
         config => emqx_utils:redact(Config)
     }),
 
-    {Host, Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),
     Options = [
         {host, to_bin(Host)},
         {port, Port},

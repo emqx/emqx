@@ -105,7 +105,7 @@ on_start(
         config => redact(Config1)
     }),
     Config = maps:merge(default_security_info(), Config1),
-    {Host, Port} = emqx_schema:parse_server(Server, ?ROCKETMQ_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?ROCKETMQ_HOST_OPTIONS),
 
     Server1 = [{Host, Port}],
     ClientId = client_id(InstanceId),

@@ -169,7 +169,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_redis,
       :emqx_bridge_rocketmq,
       :emqx_bridge_tdengine,
-      :emqx_bridge_timescale
+      :emqx_bridge_timescale,
+      :emqx_bridge_pulsar
     ])
   end
 
@@ -360,6 +361,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
+          emqx_bridge_pulsar: :permanent,
           emqx_bridge_gcp_pubsub: :permanent,
           emqx_bridge_cassandra: :permanent,
           emqx_bridge_opents: :permanent,

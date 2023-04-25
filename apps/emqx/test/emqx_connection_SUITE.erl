@@ -500,6 +500,7 @@ t_get_conn_info(_) ->
     end).
 
 t_oom_shutdown(init, Config) ->
+    ok = snabbkaffe:stop(),
     ok = snabbkaffe:start_trace(),
     ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
     meck:expect(

@@ -165,8 +165,13 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
 create_dry_run(ResourceType, Config) ->
     ResId = make_test_id(),
     MgrId = set_new_owner(ResId),
+    Opts =
+        case is_map(Config) of
+            true -> maps:get(resource_opts, Config, #{});
+            false -> #{}
+        end,
     ok = emqx_resource_manager_sup:ensure_child(
-        MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
+        MgrId, ResId, <<"dry_run">>, ResourceType, Config, Opts
     ),
     case wait_for_ready(ResId, 5000) of
         ok ->

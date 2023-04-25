@@ -80,7 +80,7 @@ init(Conf) ->
         flush_time_interval := FlushTimeInterval
     } = Conf,
     FlushTimeInterval1 = flush_interval(FlushTimeInterval, SampleTimeInterval),
-    {Host, Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
     Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
     Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
     {ok, Pid} = estatsd:start_link(Opts),
