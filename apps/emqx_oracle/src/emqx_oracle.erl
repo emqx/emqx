@@ -23,8 +23,6 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_query_async/4,
-    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -35,7 +33,6 @@
 -export([
     query/3,
     execute_batch/3,
-    do_async_reply/2,
     do_get_status/1
 ]).
 
@@ -46,7 +43,6 @@
 -define(ACTION_SEND_MESSAGE, send_message).
 
 -define(SYNC_QUERY_MODE, no_handover).
--define(ASYNC_QUERY_MODE(REPLY), {handover_async, {?MODULE, do_async_reply, [REPLY]}}).
 
 -define(ORACLE_HOST_OPTIONS, #{
     default_port => ?ORACLE_DEFAULT_PORT
@@ -67,7 +63,10 @@
         batch_params_tokens := params_tokens()
     }.
 
-callback_mode() -> async_if_possible.
+% As ecpool is not monitoring the worker's PID when doing a handover_async, the
+% request can be lost if worker crashes. Thus, it's better to force requests to
+% be sync for now.
+callback_mode() -> always_sync.
 
 is_buffer_supported() -> false.
 
@@ -147,24 +146,6 @@ on_query(
     Res = on_sql_query(InstId, PoolName, Type, ?SYNC_QUERY_MODE, NameOrSQL2, Data),
     handle_result(Res).
 
-on_query_async(InstId, {TypeOrKey, NameOrSQL}, Reply, State) ->
-    on_query_async(InstId, {TypeOrKey, NameOrSQL, []}, Reply, State);
-on_query_async(
-    InstId, {TypeOrKey, NameOrSQL, Params} = Query, Reply, #{pool_name := PoolName} = State
-) ->
-    ?SLOG(debug, #{
-        msg => "oracle database connector received async sql query",
-        connector => InstId,
-        query => Query,
-        reply => Reply,
-        state => State
-    }),
-    ApplyMode = ?ASYNC_QUERY_MODE(Reply),
-    Type = query,
-    {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
-    Res = on_sql_query(InstId, PoolName, Type, ApplyMode, NameOrSQL2, Data),
-    handle_result(Res).
-
 on_batch_query(
     InstId,
     BatchReq,
@@ -189,51 +170,6 @@ on_batch_query(
                     St = maps:get(BinKey, Sts),
                     case
                         on_sql_query(InstId, PoolName, execute_batch, ?SYNC_QUERY_MODE, St, Datas2)
-                    of
-                        {ok, Results} ->
-                            handle_batch_result(Results, 0);
-                        Result ->
-                            Result
-                    end
-            end;
-        _ ->
-            Log = #{
-                connector => InstId,
-                request => BatchReq,
-                state => State,
-                msg => "invalid request"
-            },
-            ?SLOG(error, Log),
-            {error, {unrecoverable_error, invalid_request}}
-    end.
-
-on_batch_query_async(
-    InstId,
-    BatchReq,
-    Reply,
-    #{pool_name := PoolName, params_tokens := Tokens, prepare_statement := Sts} = State
-) ->
-    case BatchReq of
-        [{Key, _} = Request | _] ->
-            BinKey = to_bin(Key),
-            case maps:get(BinKey, Tokens, undefined) of
-                undefined ->
-                    Log = #{
-                        connector => InstId,
-                        first_request => Request,
-                        state => State,
-                        msg => "batch prepare not implemented"
-                    },
-                    ?SLOG(error, Log),
-                    {error, {unrecoverable_error, batch_prepare_not_implemented}};
-                TokenList ->
-                    {_, Datas} = lists:unzip(BatchReq),
-                    Datas2 = [emqx_plugin_libs_rule:proc_sql(TokenList, Data) || Data <- Datas],
-                    St = maps:get(BinKey, Sts),
-                    case
-                        on_sql_query(
-                            InstId, PoolName, execute_batch, ?ASYNC_QUERY_MODE(Reply), St, Datas2
-                        )
                     of
                         {ok, Results} ->
                             handle_batch_result(Results, 0);
@@ -429,6 +365,3 @@ handle_batch_result([{proc_result, RetCode, Reason} | _Rest], _Acc) ->
     {error, {unrecoverable_error, {RetCode, Reason}}};
 handle_batch_result([], Acc) ->
     {ok, Acc}.
-
-do_async_reply(Result, {ReplyFun, [Context]}) ->
-    ReplyFun(Context, Result).

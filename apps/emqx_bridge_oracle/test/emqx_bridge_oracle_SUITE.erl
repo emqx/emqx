@@ -330,8 +330,6 @@ create_rule_and_action_http(Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-% Under normal operations, the bridge will be called async via
-% `simple_async_query'.
 t_sync_query(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
@@ -353,48 +351,6 @@ t_sync_query(Config) ->
             Message = {send_message, Params},
             ?assertEqual(
                 {ok, [{affected_rows, 1}]}, emqx_resource:simple_sync_query(ResourceId, Message)
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
-t_async_query(Config) ->
-    Overrides = #{
-        <<"resource_opts">> => #{
-            <<"enable_batch">> => <<"false">>,
-            <<"batch_size">> => 1
-        }
-    },
-    ResourceId = resource_id(Config),
-    ?check_trace(
-        begin
-            ?assertMatch({ok, _}, create_bridge_api(Config, Overrides)),
-            ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-            ),
-            reset_table(Config),
-            MsgId = erlang:unique_integer(),
-            Params = #{
-                topic => ?config(mqtt_topic, Config),
-                id => MsgId,
-                payload => ?config(oracle_name, Config),
-                retain => false
-            },
-            Message = {send_message, Params},
-            ?assertMatch(
-                {
-                    ok,
-                    {ok, #{result := {ok, [{affected_rows, 1}]}}}
-                },
-                ?wait_async_action(
-                    emqx_resource:query(ResourceId, Message),
-                    #{?snk_kind := oracle_query},
-                    5_000
-                )
             ),
             ok
         end,
@@ -441,42 +397,6 @@ t_batch_sync_query(Config) ->
                     emqx_resource:simple_sync_query(
                         ResourceId, {query, "SELECT COUNT(*) FROM mqtt_test"}
                     )
-                )
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
-t_batch_async_query(Config) ->
-    ResourceId = resource_id(Config),
-    ?check_trace(
-        begin
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-            ),
-            reset_table(Config),
-            MsgId = erlang:unique_integer(),
-            Params = #{
-                topic => ?config(mqtt_topic, Config),
-                id => MsgId,
-                payload => ?config(oracle_name, Config),
-                retain => false
-            },
-            Message = {send_message, Params},
-            ?assertMatch(
-                {
-                    ok,
-                    {ok, #{result := {ok, [{affected_rows, 1}]}}}
-                },
-                ?wait_async_action(
-                    emqx_resource:query(ResourceId, Message),
-                    #{?snk_kind := oracle_batch_query},
-                    5_000
                 )
             ),
             ok
