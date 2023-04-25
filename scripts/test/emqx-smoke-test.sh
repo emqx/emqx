@@ -52,13 +52,10 @@ check_swagger_json() {
     ## assert swagger.json is valid json
     JSON="$(curl -s "$url")"
     echo "$JSON" | jq . >/dev/null
-
-    if [ "${EMQX_SMOKE_TEST_CHECK_HIDDEN_FIELDS:-yes}" = 'yes' ]; then
-        ## assert swagger.json does not contain trie_compaction (which is a hidden field)
-        if echo "$JSON" | grep -q trie_compaction; then
-            echo "swagger.json contains hidden fields"
-            exit 1
-        fi
+    ## assert swagger.json does not contain trie_compaction (which is a hidden field)
+    if echo "$JSON" | grep -q trie_compaction; then
+        echo "swagger.json contains hidden fields"
+        exit 1
     fi
 }
 
@@ -82,9 +79,9 @@ main() {
     local JSON_STATUS
     JSON_STATUS="$(json_status)"
     check_api_docs
-    check_swagger_json
     ## The json status feature was added after hotconf and bridges schema API
     if [ "$JSON_STATUS" != 'NOT_JSON' ]; then
+        check_swagger_json
         check_schema_json hotconf "EMQX Hot Conf API Schema"
         check_schema_json bridges "EMQX Data Bridge API Schema"
     fi
