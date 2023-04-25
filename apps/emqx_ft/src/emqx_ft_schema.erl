@@ -55,6 +55,15 @@ roots() -> [file_transfer].
 
 fields(file_transfer) ->
     [
+        {enable,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("enable"),
+                    required => false,
+                    default => false
+                }
+            )},
         {init_timeout,
             mk(
                 emqx_schema:duration_ms(),
@@ -87,22 +96,19 @@ fields(file_transfer) ->
                 hoconsc:union(
                     fun
                         (all_union_members) ->
-                            [
-                                % NOTE: by default storage is disabled
-                                undefined,
-                                ref(local_storage)
-                            ];
+                            [ref(local_storage)];
                         ({value, #{<<"type">> := <<"local">>}}) ->
                             [ref(local_storage)];
                         ({value, #{<<"type">> := _}}) ->
                             throw(#{field_name => type, expected => "local"});
-                        (_) ->
-                            [undefined]
+                        ({value, _}) ->
+                            [ref(local_storage)]
                     end
                 ),
                 #{
                     required => false,
-                    desc => ?DESC("storage")
+                    desc => ?DESC("storage"),
+                    default => #{<<"type">> => <<"local">>}
                 }
             )}
     ];

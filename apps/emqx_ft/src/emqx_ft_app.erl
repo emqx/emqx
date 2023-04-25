@@ -22,11 +22,9 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_ft_sup:start_link(),
-    ok = emqx_ft:hook(),
     ok = emqx_ft_conf:load(),
     {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_ft_conf:unload(),
-    ok = emqx_ft:unhook(),
     ok.

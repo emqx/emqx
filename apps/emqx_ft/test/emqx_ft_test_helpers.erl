@@ -41,7 +41,7 @@ stop_additional_node(Node) ->
 env_handler(Config) ->
     fun
         (emqx_ft) ->
-            load_config(#{storage => local_storage(Config)});
+            load_config(#{enable => true, storage => local_storage(Config)});
         (_) ->
             ok
     end.

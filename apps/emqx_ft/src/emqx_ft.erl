@@ -198,8 +198,7 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
     end.
 
 on_init(PacketId, Msg, Transfer, Meta) ->
-    ?SLOG(info, #{
-        msg => "on_init",
+    ?tp(info, "file_transfer_init", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
         transfer => Transfer,
@@ -229,8 +228,7 @@ on_abort(_Msg, _FileId) ->
     ?RC_SUCCESS.
 
 on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
-    ?SLOG(info, #{
-        msg => "on_segment",
+    ?tp(info, "file_transfer_segment", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
         transfer => Transfer,
@@ -255,8 +253,7 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
     end).
 
 on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
-    ?SLOG(info, #{
-        msg => "on_fin",
+    ?tp(info, "file_transfer_fin", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
         transfer => Transfer,

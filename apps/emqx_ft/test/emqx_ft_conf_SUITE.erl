@@ -26,22 +26,21 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)
-    ),
-    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
     ok.
 
 init_per_testcase(_Case, Config) ->
+    % NOTE: running each testcase with clean config
+    _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft], fun(_) -> ok end),
+    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok.
+    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
+    ok = emqx_config:erase(file_transfer).
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -61,6 +60,7 @@ t_update_config(_Config) ->
         emqx_conf:update(
             [file_transfer],
             #{
+                <<"enable">> => true,
                 <<"storage">> => #{
                     <<"type">> => <<"local">>,
                     <<"segments">> => #{
@@ -87,10 +87,14 @@ t_update_config(_Config) ->
         emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
     ).
 
-t_remove_restore_config(Config) ->
+t_disable_restore_config(Config) ->
     ?assertMatch(
         {ok, _},
-        emqx_conf:update([file_transfer, storage], #{<<"type">> => <<"local">>}, #{})
+        emqx_conf:update(
+            [file_transfer],
+            #{<<"enable">> => true, <<"storage">> => #{<<"type">> => <<"local">>}},
+            #{}
+        )
     ),
     ?assertEqual(
         60 * 60 * 1000,
@@ -98,24 +102,29 @@ t_remove_restore_config(Config) ->
     ),
     % Verify that transfers work
     ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>),
+    % Verify that clearing storage settings reverts config to defaults
     ?assertMatch(
         {ok, _},
-        emqx_conf:remove([file_transfer, storage], #{})
+        emqx_conf:update(
+            [file_transfer],
+            #{<<"enable">> => false, <<"storage">> => undefined},
+            #{}
+        )
     ),
     ?assertEqual(
-        undefined,
+        false,
+        emqx_ft_conf:enabled()
+    ),
+    ?assertMatch(
+        #{type := local, exporter := #{type := local}},
         emqx_ft_conf:storage()
-    ),
-    ?assertEqual(
-        undefined,
-        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
     ),
     ClientId = gen_clientid(),
     Client = emqx_ft_test_helpers:start_client(ClientId),
     % Verify that transfers fail cleanly when storage is disabled
     ?check_trace(
         ?assertMatch(
-            {ok, #{reason_code_name := unspecified_error}},
+            {ok, #{reason_code_name := no_matching_subscribers}},
             emqtt:publish(
                 Client,
                 <<"$file/f2/init">>,
@@ -124,23 +133,24 @@ t_remove_restore_config(Config) ->
             )
         ),
         fun(Trace) ->
-            ?assertMatch(
-                [#{transfer := {ClientId, <<"f2">>}, reason := {error, disabled}}],
-                ?of_kind("store_filemeta_failed", Trace)
-            )
+            ?assertMatch([], ?of_kind("file_transfer_init", Trace))
         end
     ),
+    ok = emqtt:stop(Client),
     % Restore local storage backend
     Root = iolist_to_binary(emqx_ft_test_helpers:root(Config, node(), [segments])),
     ?assertMatch(
         {ok, _},
         emqx_conf:update(
-            [file_transfer, storage],
+            [file_transfer],
             #{
-                <<"type">> => <<"local">>,
-                <<"segments">> => #{
-                    <<"root">> => Root,
-                    <<"gc">> => #{<<"interval">> => <<"1s">>}
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"type">> => <<"local">>,
+                    <<"segments">> => #{
+                        <<"root">> => Root,
+                        <<"gc">> => #{<<"interval">> => <<"1s">>}
+                    }
                 }
             },
             #{}
@@ -165,6 +175,63 @@ t_remove_restore_config(Config) ->
         end
     ),
     % Verify that transfers work again
+    ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>).
+
+t_switch_exporter(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:update(
+            [file_transfer],
+            #{<<"enable">> => true},
+            #{}
+        )
+    ),
+    ?assertMatch(
+        #{type := local, exporter := #{type := local}},
+        emqx_ft_conf:storage()
+    ),
+    % Verify that switching to a different exporter works
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:update(
+            [file_transfer, storage, exporter],
+            #{
+                <<"type">> => <<"s3">>,
+                <<"bucket">> => <<"emqx">>,
+                <<"host">> => <<"https://localhost">>,
+                <<"port">> => 9000,
+                <<"transport_options">> => #{
+                    <<"ipv6_probe">> => false
+                }
+            },
+            #{}
+        )
+    ),
+    ?assertMatch(
+        #{type := local, exporter := #{type := s3}},
+        emqx_ft_conf:storage()
+    ),
+    % Verify that switching back to local exporter works
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:remove(
+            [file_transfer, storage, exporter],
+            #{}
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_conf:update(
+            [file_transfer, storage, exporter],
+            #{<<"type">> => <<"local">>},
+            #{}
+        )
+    ),
+    ?assertMatch(
+        #{type := local, exporter := #{type := local}},
+        emqx_ft_conf:storage()
+    ),
+    % Verify that transfers work
     ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>).
 
 gen_clientid() ->
