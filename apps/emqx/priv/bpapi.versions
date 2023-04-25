@@ -11,7 +11,6 @@
 {emqx_cm,1}.
 {emqx_conf,1}.
 {emqx_conf,2}.
-{emqx_conf,3}.
 {emqx_dashboard,1}.
 {emqx_delayed,1}.
 {emqx_exhook,1}.
