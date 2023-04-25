@@ -137,7 +137,10 @@ on_get_status(_InstanceId, State) ->
             disconnected
     end.
 
--spec on_query(manager_id(), {send_message, map()}, state()) -> ok | {error, timeout}.
+-spec on_query(manager_id(), {send_message, map()}, state()) ->
+    {ok, term()}
+    | {error, timeout}
+    | {error, term()}.
 on_query(_InstanceId, {send_message, Message}, State) ->
     #{
         producers := Producers,
