@@ -335,11 +335,12 @@ fields(cluster_etcd) ->
                     desc => ?DESC(cluster_etcd_node_ttl)
                 }
             )},
-        {"ssl",
+        {"ssl_options",
             sc(
                 ?R_REF(emqx_schema, "ssl_client_opts"),
                 #{
                     desc => ?DESC(cluster_etcd_ssl),
+                    alias => [ssl],
                     'readOnly' => true
                 }
             )}
