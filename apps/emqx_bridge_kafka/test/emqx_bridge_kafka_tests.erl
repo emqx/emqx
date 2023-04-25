@@ -19,7 +19,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka">> :=
+                    <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
                                 #{<<"kafka">> := #{}}
@@ -32,7 +32,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka">> :=
+                    <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
                                 #{<<"local_topic">> := _}
@@ -45,7 +45,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka">> :=
+                    <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
                                 #{
@@ -61,7 +61,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka">> :=
+                    <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
                                 #{

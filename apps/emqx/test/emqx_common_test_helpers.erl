@@ -224,7 +224,7 @@ render_and_load_app_config(App) ->
 
 render_and_load_app_config(App, Opts) ->
     load(App),
-    Schema = app_schema(App),
+    Schema = maps:get(force_schema, Opts, app_schema(App)),
     ConfFilePath = maps:get(conf_file_path, Opts, filename:join(["etc", app_conf_file(App)])),
     Conf = app_path(App, ConfFilePath),
     try
@@ -239,7 +239,7 @@ do_render_app_config(App, Schema, ConfigFile, Opts) ->
     Vars = mustache_vars(App, Opts),
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
+    force_set_config_file_paths(App, Schema, [RenderedConfigFile]),
     copy_certs(App, RenderedConfigFile),
     ok.
 
@@ -458,17 +458,21 @@ catch_call(F) ->
         C:E:S ->
             {crashed, {C, E, S}}
     end.
-force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
+
+force_set_config_file_paths(emqx_conf, _SchemaMod, [Path] = Paths) ->
     Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [Path])),
     ok = file:write_file(Path, Bin, [append]),
     application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(emqx, Paths) ->
+force_set_config_file_paths(emqx, _SchemaMod, Paths) ->
     %% we need init cluster conf, so we can save the cluster conf to the file
     application:set_env(emqx, local_override_conf_file, "local_override.conf"),
     application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
     application:set_env(emqx, cluster_conf_file, "cluster.hocon"),
     application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(_, _) ->
+force_set_config_file_paths(_App, _SchemaMod = emqx_ee_conf_schema, Paths) ->
+    %% If we have a defined schema, save the file.
+    application:set_env(emqx, config_files, Paths);
+force_set_config_file_paths(_App, _SchemaMod, _Paths) ->
     ok.
 
 copy_certs(emqx_conf, Dest0) ->
@@ -754,6 +758,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% autocluster so that the joining node will restart the
     %% `emqx_conf' app and correctly catch up the config.
     StartAutocluster = maps:get(start_autocluster, Opts, false),
+    StartAppsExtraArgs = maps:get(start_apps_extra_args, Opts, #{}),
 
     ct:pal(
         "setting up node ~p:\n  ~p",
@@ -836,7 +841,12 @@ setup_node(Node, Opts) when is_map(Opts) ->
 
     StartApps andalso
         begin
-            ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [Apps, EnvHandlerForRpc])
+            ok = rpc:call(
+                Node,
+                emqx_common_test_helpers,
+                start_apps,
+                [Apps, EnvHandlerForRpc, StartAppsExtraArgs]
+            )
         end,
 
     %% Join the cluster if JoinTo is specified

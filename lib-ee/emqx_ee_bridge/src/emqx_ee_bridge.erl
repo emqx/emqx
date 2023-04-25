@@ -74,9 +74,8 @@ examples(Method) ->
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
 resource_type(kafka_consumer) -> emqx_bridge_kafka_impl_consumer;
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
-resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
+%% resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
+resource_type(kafka_producer) -> emqx_bridge_kafka_impl_producer;
 resource_type(cassandra) -> emqx_bridge_cassandra_connector;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_connector;
@@ -183,13 +182,11 @@ mongodb_structs() ->
 
 kafka_structs() ->
     [
-        %% TODO: rename this to `kafka_producer' after alias support
-        %% is added to hocon; keeping this as just `kafka' for
-        %% backwards compatibility.
-        {kafka,
+        {kafka_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer)),
                 #{
+                    aliases => [kafka],
                     desc => <<"Kafka Producer Bridge Config">>,
                     required => false,
                     converter => fun emqx_bridge_kafka:kafka_producer_converter/2

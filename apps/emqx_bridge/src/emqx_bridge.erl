@@ -55,10 +55,7 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
-    %% TODO: rename this to `kafka_producer' after alias support is
-    %% added to hocon; keeping this as just `kafka' for backwards
-    %% compatibility.
-    T == kafka;
+    T == kafka_producer;
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;
@@ -75,6 +72,16 @@
 
 load() ->
     Bridges = emqx:get_config([bridges], #{}),
+    %% When using Hocon aliases, the raw config still holds the legacy
+    %% type name, so it's better to rename it there to avoid it
+    %% breaking when the raw config is referenced.
+    maps:foreach(
+        fun(Type0, RawNamedConfs) ->
+            Type = adapt_type(Type0),
+            maybe_rename_raw_type(Type0, Type, RawNamedConfs)
+        end,
+        emqx_config:get_raw([bridges], #{})
+    ),
     lists:foreach(
         fun({Type, NamedConf}) ->
             lists:foreach(
@@ -103,6 +110,14 @@ unload() ->
         end,
         maps:to_list(Bridges)
     ).
+
+maybe_rename_raw_type(Type, Type, _RawNamedConfs) ->
+    %% No transformation performed
+    ok;
+maybe_rename_raw_type(OldType, NewType, RawNamedConfs) ->
+    emqx_config:put_raw([bridges, NewType], RawNamedConfs),
+    emqx_config:put_raw([bridges, OldType], #{}),
+    ok.
 
 safe_load_bridge(Type, Name, Conf, Opts) ->
     try
@@ -271,6 +286,14 @@ lookup(Type, Name, RawConf) ->
                 raw_config => maybe_upgrade(Type, RawConf)
             }}
     end.
+
+%% Even when we use Hocon aliases for changing a bridge type name, the
+%% raw config still might hold the legacy type name.  We need to
+%% migrate that type here otherwise the lookup with the old name will
+%% fail.
+adapt_type(kafka) -> kafka_producer;
+adapt_type(<<"kafka">>) -> <<"kafka_producer">>;
+adapt_type(Type) -> Type.
 
 get_metrics(Type, Name) ->
     emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name)).

@@ -1,0 +1,38 @@
+node.name = test@127.0.0.1
+node.cookie = emqxsecretcookie
+node.data_dir = "{{ test_priv_dir }}"
+
+dashboard.listeners.http.bind = "127.0.0.1:28083"
+
+# this was rename from `kafka` to `kafka_producer`
+bridges.kafka.kproducer {
+  authentication = "none"
+  bootstrap_hosts = "{{{ bootstrap_hosts }}}"
+  connect_timeout = "5s"
+  enable = true
+  kafka {
+    buffer {
+      memory_overload_protection = false
+      mode = "memory"
+      per_partition_limit = "2GB"
+      segment_bytes = "100MB"
+    }
+    compression = "no_compression"
+    max_batch_bytes = "896KB"
+    max_inflight = 10
+    message {
+      key = "${.clientid}"
+      timestamp = "${.timestamp}"
+      value = "${.}"
+    }
+    partition_count_refresh_interval = "60s"
+    partition_strategy = "random"
+    required_acks = "all_isr"
+    topic = "test-topic-three-partitions"
+  }
+  local_topic = "t/kafka_in_no_rules"
+  metadata_request_timeout = "5s"
+  min_metadata_refresh_interval = "3s"
+  socket_opts {recbuf = "1024KB", sndbuf = "1024KB"}
+  ssl {enable = false, verify = "verify_peer"}
+}

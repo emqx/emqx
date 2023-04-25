@@ -12,6 +12,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(PRODUCER, emqx_bridge_kafka_impl_producer).
 
 %%------------------------------------------------------------------------------
@@ -37,9 +39,7 @@
 
 -define(BASE_PATH, "/api/v5").
 
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
--define(BRIDGE_TYPE, "kafka").
+-define(BRIDGE_TYPE, "kafka_producer").
 
 -define(APPS, [emqx_resource, emqx_bridge, emqx_rule_engine, emqx_bridge_kafka]).
 
@@ -113,6 +113,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     delete_all_bridges(),
+    emqx_common_test_helpers:call_janitor(60_000),
     ok.
 
 set_special_configs(emqx_management) ->
@@ -450,6 +451,44 @@ t_failed_creation_then_fix(Config) ->
     delete_all_bridges(),
     ok.
 
+t_load_configuration_file_with_legacy_name(Config) ->
+    Cluster = cluster_1_node(Config),
+    ?check_trace(
+        begin
+            [Node] = start_cluster(Cluster),
+            erpc:call(Node, emqx_common_test_http, create_default_app, []),
+            ?assertMatch(
+                #{kafka_producer := #{kproducer := #{}}},
+                erpc:call(Node, emqx_config, get, [[bridges]])
+            ),
+            ?assertMatch(
+                #{<<"kafka_producer">> := #{<<"kproducer">> := #{}}},
+                erpc:call(Node, emqx_config, get_raw, [[bridges]])
+            ),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    [
+                        #{
+                            type := <<"kafka_producer">>,
+                            name := <<"kproducer">>,
+                            resource_data := #{status := connected}
+                        }
+                    ],
+                    erpc:call(Node, emqx_bridge, list, [])
+                )
+            ),
+            ?assertMatch(
+                {ok, #{<<"type">> := <<"kafka_producer">>}},
+                get_bridge_api(Node)
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
@@ -615,11 +654,8 @@ hocon_config(Args) ->
 
 %% erlfmt-ignore
 hocon_config_template() ->
-%% TODO: rename the type to `kafka_producer' after alias support is
-%% added to hocon; keeping this as just `kafka' for backwards
-%% compatibility.
 """
-bridges.kafka.{{ bridge_name }} {
+bridges.kafka_producer.{{ bridge_name }} {
   bootstrap_hosts = \"{{ kafka_hosts_string }}\"
   enable = true
   authentication = {{{ authentication }}}
@@ -818,3 +854,89 @@ delete_all_bridges() ->
     lists:foreach(fun emqx_resource:remove/1, emqx_resource:list_instances()),
     emqx_config:put([bridges], #{}),
     ok.
+
+cluster_1_node(Config) ->
+    DataDir = ?config(data_dir, Config),
+    PrivDataDir = ?config(priv_dir, Config),
+    LegacyConf = filename:join([DataDir, "kafka_producer_legacy.hocon"]),
+    PeerModule =
+        case os:getenv("IS_CI") of
+            false ->
+                slave;
+            _ ->
+                ct_slave
+        end,
+    StartAppsExtraArgs =
+        #{
+            extra_mustache_vars => #{
+                test_priv_dir => PrivDataDir,
+                bootstrap_hosts => kafka_hosts_string()
+            },
+            conf_file_path => LegacyConf,
+            force_schema => emqx_ee_conf_schema
+        },
+    Apps = [emqx_conf, emqx_dashboard, emqx_bridge],
+    Cluster = emqx_common_test_helpers:emqx_cluster(
+        [core],
+        [
+            %% Note: emqx_bridge must be last for this test to avoid
+            %% clobbering the initialization changes the app makes.
+            {apps, Apps},
+            {load_apps, [emqx_management | Apps]},
+            {listener_ports, []},
+            {peer_mod, PeerModule},
+            {priv_data_dir, PrivDataDir},
+            {load_schema, true},
+            {start_autocluster, true},
+            {start_apps_extra_args, StartAppsExtraArgs},
+            {schema_mod, emqx_ee_conf_schema},
+            {env_handler, fun
+                (emqx) ->
+                    application:set_env(emqx, boot_modules, [broker, router]),
+                    ok;
+                (emqx_conf) ->
+                    ok;
+                (emqx_dashboard) ->
+                    ok;
+                (_App) ->
+                    ok
+            end}
+        ]
+    ),
+    ct:pal("cluster: ~p", [Cluster]),
+    Cluster.
+
+start_cluster(Cluster) ->
+    Nodes =
+        [
+            emqx_common_test_helpers:start_slave(Name, Opts)
+         || {Name, Opts} <- Cluster
+        ],
+    on_exit(fun() ->
+        emqx_utils:pmap(
+            fun(N) ->
+                ct:pal("stopping ~p", [N]),
+                ok = emqx_common_test_helpers:stop_slave(N)
+            end,
+            Nodes
+        )
+    end),
+    Nodes.
+
+get_bridge_api(Node) ->
+    TypeBin = <<?BRIDGE_TYPE>>,
+    Name = <<"kproducer">>,
+    BridgeId = emqx_bridge_resource:bridge_id(TypeBin, Name),
+    Params = [],
+    %% using custom port because it's running on the peer node.
+    Path = "http://127.0.0.1:28083" ++ filename:join(["/", "api", "v5", "bridges", BridgeId]),
+    AuthHeader = erpc:call(Node, emqx_mgmt_api_test_util, auth_header_, []),
+    Opts = #{return_all => true},
+    ct:pal("getting bridge (via http): ~p", [Params]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
+            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
+            Error -> Error
+        end,
+    ct:pal("bridge get result: ~p", [Res]),
+    Res.

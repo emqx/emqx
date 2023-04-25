@@ -23,9 +23,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
--define(BRIDGE_TYPE, kafka).
+-define(BRIDGE_TYPE, kafka_producer).
 
 is_buffer_supported() -> true.
 

@@ -37,10 +37,7 @@
 conn_bridge_examples(Method) ->
     [
         #{
-            %% TODO: rename this to `kafka_producer' after alias
-            %% support is added to hocon; keeping this as just `kafka'
-            %% for backwards compatibility.
-            <<"kafka">> => #{
+            <<"kafka_producer">> => #{
                 summary => <<"Kafka Producer Bridge">>,
                 value => values({Method, producer})
             }
@@ -416,10 +413,7 @@ struct_names() ->
 %% internal
 type_field() ->
     {type,
-        %% TODO: rename `kafka' to `kafka_producer' after alias
-        %% support is added to hocon; keeping this as just `kafka' for
-        %% backwards compatibility.
-        mk(enum([kafka_consumer, kafka]), #{required => true, desc => ?DESC("desc_type")})}.
+        mk(enum([kafka_consumer, kafka_producer]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

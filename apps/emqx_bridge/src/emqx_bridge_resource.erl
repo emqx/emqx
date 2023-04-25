@@ -336,9 +336,7 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     BId = bridge_id(Type, Name),
     BridgeHookpoint = bridge_hookpoint(BId),
     Conf#{hookpoint => BridgeHookpoint, bridge_name => Name};
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
-parse_confs(<<"kafka">> = _Type, Name, Conf) ->
+parse_confs(<<"kafka_producer">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
