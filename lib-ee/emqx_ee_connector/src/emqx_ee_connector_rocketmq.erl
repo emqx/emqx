@@ -96,8 +96,10 @@ on_start(
         connector => InstanceId,
         config => redact(Config)
     }),
-    Config = maps:merge(default_security_info(), Config1),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?ROCKETMQ_HOST_OPTIONS),
+    Servers = lists:map(
+        fun(#{hostname := Host, port := Port}) -> {Host, Port} end,
+        emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS)
+    ),
     ClientId = client_id(InstanceId),
 
     TopicTks = emqx_plugin_libs_rule:preproc_tmpl(Topic),

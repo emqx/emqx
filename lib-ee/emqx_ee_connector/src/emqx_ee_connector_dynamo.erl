@@ -80,8 +80,10 @@ on_start(
         config => redact(Config)
     }),
 
-    {Schema, Server} = get_host_schema(to_str(Url)),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?DYNAMO_HOST_OPTIONS),
+    {Schema, Server, DefaultPort} = get_host_info(to_str(Url)),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{
+        default_port => DefaultPort
+    }),
 
     Options = [
         {config, #{
@@ -142,8 +144,10 @@ on_batch_query_async(InstanceId, [{send_message, _} | _] = Query, ReplyCtx, Stat
 on_batch_query_async(_InstanceId, Query, _Reply, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{pool_name := PoolName}) ->
-    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
+on_get_status(_InstanceId, #{pool_name := Pool}) ->
+    Health = emqx_resource_pool:health_check_workers(
+        Pool, {emqx_ee_connector_dynamo_client, is_connected, []}
+    ),
     status_result(Health).
 
 status_result(_Status = true) -> connected;

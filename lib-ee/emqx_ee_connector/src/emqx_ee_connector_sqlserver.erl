@@ -304,11 +304,10 @@ on_batch_query_async(InstanceId, Requests, ReplyFunAndArgs, State) ->
     ),
     do_query(InstanceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
 
-on_get_status(_InstanceId, #{pool_name := PoolName, resource_opts := ResourceOpts} = _State) ->
-    RequestTimeout = ?REQUEST_TIMEOUT(ResourceOpts),
+on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
     Health = emqx_resource_pool:health_check_workers(
         PoolName,
-        {?MODULE, do_get_status, []},
+        {?MODULE, do_get_status, []}
     ),
     status_result(Health).
 
