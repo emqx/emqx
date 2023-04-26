@@ -1,0 +1,125 @@
+name: Performance Test Suite
+
+on:
+  push:
+    branches:
+      - 'perf/**'
+  schedule:
+    - cron:  '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-25.1.2-3-ubuntu20.04
+    outputs:
+      BENCH_ID: ${{ steps.prepare.outputs.BENCH_ID }}
+      PACKAGE_FILE: ${{ steps.package_file.outputs.PACKAGE_FILE }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.inputs.ref }}
+    - id: prepare
+      run: |
+        echo "EMQX_NAME=emqx" >> $GITHUB_ENV
+        echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        echo "BENCH_ID=$(date --utc +%F)/emqx-$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
+    - name: Work around https://github.com/actions/checkout/issues/766
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - name: Build deb package
+      run: |
+        make ${EMQX_NAME}-pkg
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
+    - name: Get package file name
+      id: package_file
+      run: |
+        echo "PACKAGE_FILE=$(find _packages/emqx -name 'emqx-*.deb' | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
+    - uses: actions/upload-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: _packages/emqx/${{ steps.package_file.outputs.PACKAGE_FILE }}
+
+  tf_emqx_perf_test:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+    env:
+      TF_VAR_bench_id: ${{ needs.prepare.outputs.BENCH_ID }}
+      TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
+      TF_VAR_test_duration_seconds: 300
+      TF_VAR_grafana_api_key: ${{ secrets.TF_EMQX_PERF_TEST_GRAFANA_API_KEY }}
+      TF_AWS_REGION: eu-north-1
+
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
+        aws-region: eu-north-1
+    - name: Checkout tf-emqx-performance-test
+      uses: actions/checkout@v3
+      with:
+        repository: emqx/tf-emqx-performance-test
+        path: tf-emqx-performance-test
+    - uses: actions/download-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: tf-emqx-performance-test/
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+    - name: terraform init
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform init
+    - name: terraform apply
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform apply -auto-approve
+    - name: Wait for test results
+      working-directory: ./tf-emqx-performance-test
+      id: test-results
+      run: |
+        sleep $TF_VAR_test_duration_seconds
+        until aws s3api head-object --bucket tf-emqx-performance-test --key "$TF_VAR_bench_id/DONE" > /dev/null 2>&1
+        do
+          echo 'waiting'
+          sleep 10
+        done
+        aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/metrics.json" ./
+        aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/stats.json" ./
+        echo MESSAGES_DELIVERED=$(cat metrics.json | jq '[.[]."messages.delivered"] | add') >> $GITHUB_OUTPUT
+        echo MESSAGES_DROPPED=$(cat metrics.json | jq '[.[]."messages.dropped"] | add')  >> $GITHUB_OUTPUT
+    - name: Send notification to Slack
+      if: success()
+      uses: slackapi/slack-github-action@v1.23.0
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      with:
+        payload: |
+          {"text": "EMQX performance test completed.\nMessages delivered: ${{ steps.test-results.outputs.MESSAGES_DELIVERED }}.\nMessages dropped: ${{ steps.test-results.outputs.MESSAGES_DROPPED }}.\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+    - name: terraform destroy
+      if: always()
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform destroy -auto-approve
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: test-results
+        path: "./tf-emqx-performance-test/*.json"
+    - uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: terraform
+        path: |
+          ./tf-emqx-performance-test/.terraform
+          ./tf-emqx-performance-test/*.tfstate

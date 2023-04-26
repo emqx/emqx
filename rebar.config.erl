@@ -510,7 +510,7 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.example", "etc/emqx.conf.example"}
+        {copy, "_build/docgen/" ++ profile() ++ "/emqx.conf.example", "etc/emqx.conf.example"}
     ] ++
         lists:map(
             fun
@@ -647,5 +647,15 @@ list_dir(Dir) ->
             []
     end.
 
-name(ce) -> "emqx";
-name(ee) -> "emqx-enterprise".
+profile() ->
+    case os:getenv("PROFILE") of
+        Profile = "emqx-enterprise" ++ _ ->
+            Profile;
+        Profile = "emqx" ++ _ ->
+            Profile;
+        false ->
+            "emqx-enterprise";
+        Profile ->
+            io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [Profile]),
+            exit(bad_PROFILE)
+    end.
