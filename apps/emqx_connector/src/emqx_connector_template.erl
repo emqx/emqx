@@ -37,6 +37,7 @@
 -export_type([str/0]).
 -export_type([deep/0]).
 -export_type([placeholder/0]).
+-export_type([varname/0]).
 -export_type([bindings/0]).
 
 -type t() :: str() | {'$tpl', deeptpl()}.
@@ -55,8 +56,9 @@
     | port()
     | reference().
 
--type placeholder() :: {var, var()}.
--type var() :: _Name :: [binary()].
+-type placeholder() :: {var, varname(), accessor()}.
+-type accessor() :: [binary()].
+-type varname() :: string().
 
 -type scalar() :: atom() | unicode:chardata() | number().
 -type binding() :: scalar() | list(scalar()) | bindings().
@@ -64,7 +66,7 @@
 
 -type var_trans() ::
     fun((Value :: term()) -> unicode:chardata())
-    | fun((var(), Value :: term()) -> unicode:chardata()).
+    | fun((varname(), Value :: term()) -> unicode:chardata()).
 
 -type parse_opts() :: #{
     strip_double_quote => boolean()
@@ -103,7 +105,7 @@ parse(String, Opts) ->
 
 parse_split([Part, _PH, <<>>, Var]) ->
     % Regular placeholder
-    prepend(Part, [{var, parse_var(Var)}]);
+    prepend(Part, [{var, unicode:characters_to_list(Var), parse_accessor(Var)}]);
 parse_split([Part, _PH = <<B1, $$, Rest/binary>>, <<"$">>, _]) ->
     % Escaped literal, take all but the second byte, which is always `$`.
     % Important to make a whole token starting with `$` so the `unparse/11`
@@ -117,7 +119,7 @@ prepend(<<>>, To) ->
 prepend(Head, To) ->
     [Head | To].
 
-parse_var(Var) ->
+parse_accessor(Var) ->
     case string:split(Var, <<".">>, all) of
         [<<>>] ->
             ?PH_VAR_THIS;
@@ -126,10 +128,9 @@ parse_var(Var) ->
             Name
     end.
 
--spec validate([var() | binary()], t()) ->
-    ok | {error, [_Error :: {var(), disallowed}]}.
-validate(AllowedIn, Template) ->
-    Allowed = [try_parse_var(V) || V <- AllowedIn],
+-spec validate([varname()], t()) ->
+    ok | {error, [_Error :: {varname(), disallowed}]}.
+validate(Allowed, Template) ->
     {_, Errors} = render(Template, #{}),
     {Used, _} = lists:unzip(Errors),
     case lists:usort(Used) -- Allowed of
@@ -138,11 +139,6 @@ validate(AllowedIn, Template) ->
         Disallowed ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
-
-try_parse_var(Var) when is_binary(Var) ->
-    parse_var(Var);
-try_parse_var(Name) when is_list(Name) ->
-    Name.
 
 -spec trivial(t()) ->
     boolean().
@@ -156,7 +152,7 @@ unparse({'$tpl', Template}) ->
 unparse(Template) ->
     unicode:characters_to_list(lists:map(fun unparse_part/1, Template)).
 
-unparse_part({var, Name}) ->
+unparse_part({var, Name, _Accessor}) ->
     render_placeholder(Name);
 unparse_part(Part = <<"${", _/binary>>) ->
     <<"$", Part/binary>>;
@@ -164,7 +160,7 @@ unparse_part(Part) ->
     Part.
 
 render_placeholder(Name) ->
-    "${" ++ lists:join($., Name) ++ "}".
+    "${" ++ Name ++ "}".
 
 %% @doc Render a template with given bindings.
 %% Returns a term with all placeholders replaced with values from bindings.
@@ -172,17 +168,17 @@ render_placeholder(Name) ->
 %% By default, all binding values are converted to strings using `to_string/1`
 %% function. Option `var_trans` can be used to override this behaviour.
 -spec render(t(), bindings()) ->
-    {term(), [_Error :: {var(), undefined}]}.
+    {term(), [_Error :: {varname(), undefined}]}.
 render(Template, Bindings) ->
     render(Template, Bindings, #{}).
 
 -spec render(t(), bindings(), render_opts()) ->
-    {term(), [_Error :: {var(), undefined}]}.
+    {term(), [_Error :: {varname(), undefined}]}.
 render(Template, Bindings, Opts) when is_list(Template) ->
     lists:mapfoldl(
         fun
-            ({var, Name}, EAcc) ->
-                {String, Errors} = render_binding(Name, Bindings, Opts),
+            ({var, Name, Accessor}, EAcc) ->
+                {String, Errors} = render_binding(Name, Accessor, Bindings, Opts),
                 {String, Errors ++ EAcc};
             (String, EAcc) ->
                 {String, EAcc}
@@ -193,8 +189,8 @@ render(Template, Bindings, Opts) when is_list(Template) ->
 render({'$tpl', Template}, Bindings, Opts) ->
     render_deep(Template, Bindings, Opts).
 
-render_binding(Name, Bindings, Opts) ->
-    case lookup_var(Name, Bindings) of
+render_binding(Name, Accessor, Bindings, Opts) ->
+    case lookup_var(Accessor, Bindings) of
         {ok, Value} ->
             {render_value(Name, Value, Opts), []};
         {error, Reason} ->
@@ -231,12 +227,12 @@ render_strict(Template, Bindings, Opts) ->
 %% lists are not analyzed for "printability" and are treated as nested terms.
 %% The result is a usual template, and can be fed to other functions in this
 %% module.
--spec parse_deep(unicode:chardata()) ->
+-spec parse_deep(term()) ->
     t().
 parse_deep(Term) ->
     parse_deep(Term, #{}).
 
--spec parse_deep(unicode:chardata(), parse_opts()) ->
+-spec parse_deep(term(), parse_opts()) ->
     t().
 parse_deep(Term, Opts) ->
     {'$tpl', parse_deep_term(Term, Opts)}.
@@ -305,7 +301,7 @@ unparse_deep(Term) ->
 
 %%
 
--spec lookup_var(var(), bindings()) ->
+-spec lookup_var(accessor(), bindings()) ->
     {ok, binding()} | {error, undefined}.
 lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     {ok, Value};

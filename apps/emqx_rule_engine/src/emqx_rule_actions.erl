@@ -224,8 +224,8 @@ parse_user_properties(_) ->
     %% invalid, discard
     undefined.
 
-render_simple_var([{var, Name}], Data, Default) ->
-    case emqx_connector_template:lookup_var(Name, Data) of
+render_simple_var([{var, _Name, Accessor}], Data, Default) ->
+    case emqx_connector_template:lookup_var(Accessor, Data) of
         {ok, Var} -> Var;
         %% cannot find the variable from Data
         {error, _} -> Default

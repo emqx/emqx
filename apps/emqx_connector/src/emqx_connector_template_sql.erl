@@ -88,14 +88,14 @@ render_strict(Template, Bindings, Opts) ->
 %%     #{parameters => '$n'}
 %% ),
 %% Statement = <<"INSERT INTO table (id, name, age) VALUES ($1, $2, 42)">>,
-%% RowTemplate = [{var, [...]}, ...]
+%% RowTemplate = [{var, "...", [...]}, ...]
 %% ```
 -spec parse_prepstmt(unicode:chardata(), parse_opts()) ->
     {unicode:chardata(), row_template()}.
 parse_prepstmt(String, Opts) ->
     Template = emqx_connector_template:parse(String, maps:with(?TEMPLATE_PARSE_OPTS, Opts)),
     Statement = mk_prepared_statement(Template, Opts),
-    Placeholders = [Placeholder || Placeholder = {var, _} <- Template],
+    Placeholders = [Placeholder || Placeholder <- Template, element(1, Placeholder) == var],
     {Statement, Placeholders}.
 
 mk_prepared_statement(Template, Opts) ->
@@ -103,7 +103,7 @@ mk_prepared_statement(Template, Opts) ->
     {Statement, _} =
         lists:mapfoldl(
             fun
-                ({var, _}, Acc) ->
+                (Var, Acc) when element(1, Var) == var ->
                     mk_replace(ParameterFormat, Acc);
                 (String, Acc) ->
                     {String, Acc}

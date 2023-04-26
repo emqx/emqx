@@ -47,7 +47,7 @@ t_render_var_trans(_) ->
     {String, Errors} = emqx_connector_template:render(
         Template,
         Bindings,
-        #{var_trans => fun(Name, _) -> "<" ++ lists:join($., Name) ++ ">" end}
+        #{var_trans => fun(Name, _) -> "<" ++ Name ++ ">" end}
     ),
     ?assertEqual(
         {<<"a:<a>,b:<b>,c:<c.prop>">>, []},
@@ -59,7 +59,7 @@ t_render_path(_) ->
     Template = emqx_connector_template:parse(<<"d.d1:${d.d1}">>),
     ?assertEqual(
         ok,
-        emqx_connector_template:validate([<<"d.d1">>], Template)
+        emqx_connector_template:validate(["d.d1"], Template)
     ),
     ?assertEqual(
         {<<"d.d1:hi">>, []},
@@ -70,8 +70,8 @@ t_render_custom_ph(_) ->
     Bindings = #{a => <<"a">>, b => <<"b">>},
     Template = emqx_connector_template:parse(<<"a:${a},b:${b}">>),
     ?assertEqual(
-        {error, [{[<<"b">>], disallowed}]},
-        emqx_connector_template:validate([<<"a">>], Template)
+        {error, [{"b", disallowed}]},
+        emqx_connector_template:validate(["a"], Template)
     ),
     ?assertEqual(
         <<"a:a,b:b">>,
@@ -81,7 +81,7 @@ t_render_custom_ph(_) ->
 t_render_this(_) ->
     Bindings = #{a => <<"a">>, b => [1, 2, 3]},
     Template = emqx_connector_template:parse(<<"this:${} / also:${.}">>),
-    ?assertEqual(ok, emqx_connector_template:validate([?PH_VAR_THIS], Template)),
+    ?assertEqual(ok, emqx_connector_template:validate(["."], Template)),
     ?assertEqual(
         % NOTE: order of the keys in the JSON object depends on the JSON encoder
         <<"this:{\"b\":[1,2,3],\"a\":\"a\"} / also:{\"b\":[1,2,3],\"a\":\"a\"}">>,
@@ -95,21 +95,21 @@ t_render_missing_bindings(_) ->
     ),
     ?assertEqual(
         {<<"a:,b:,c:,d:,e:">>, [
-            {[<<"no">>, <<"such_atom_i_swear">>], undefined},
-            {[<<"d">>, <<"d1">>], undefined},
-            {[<<"c">>], undefined},
-            {[<<"b">>], undefined},
-            {[<<"a">>], undefined}
+            {"no.such_atom_i_swear", undefined},
+            {"d.d1", undefined},
+            {"c", undefined},
+            {"b", undefined},
+            {"a", undefined}
         ]},
         render_string(Template, Bindings)
     ),
     ?assertError(
         [
-            {[<<"no">>, <<"such_atom_i_swear">>], undefined},
-            {[<<"d">>, <<"d1">>], undefined},
-            {[<<"c">>], undefined},
-            {[<<"b">>], undefined},
-            {[<<"a">>], undefined}
+            {"no.such_atom_i_swear", undefined},
+            {"d.d1", undefined},
+            {"c", undefined},
+            {"b", undefined},
+            {"a", undefined}
         ],
         render_strict_string(Template, Bindings)
     ).
@@ -256,10 +256,10 @@ t_render_cql(_) ->
 
 t_render_sql_custom_ph(_) ->
     {PrepareStatement, RowTemplate} =
-        emqx_connector_template_sql:parse_prepstmt(<<"a:${a},b:${b}">>, #{parameters => '$n'}),
+        emqx_connector_template_sql:parse_prepstmt(<<"a:${a},b:${b.c}">>, #{parameters => '$n'}),
     ?assertEqual(
-        {error, [{[<<"b">>], disallowed}]},
-        emqx_connector_template:validate([<<"a">>], RowTemplate)
+        {error, [{"b.c", disallowed}]},
+        emqx_connector_template:validate(["a"], RowTemplate)
     ),
     ?assertEqual(<<"a:$1,b:$2">>, bin(PrepareStatement)).
 
@@ -296,8 +296,8 @@ t_render_tmpl_deep(_) ->
     ),
 
     ?assertEqual(
-        {error, [{V, disallowed} || V <- [[<<"b">>], [<<"c">>]]]},
-        emqx_connector_template:validate([<<"a">>], Template)
+        {error, [{V, disallowed} || V <- ["b", "c"]]},
+        emqx_connector_template:validate(["a"], Template)
     ),
 
     ?assertEqual(

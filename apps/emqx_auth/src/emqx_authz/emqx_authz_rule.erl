@@ -184,7 +184,7 @@ compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
     Template = emqx_connector_template:parse(Topic),
-    ok = emqx_connector_template:validate([<<?VAR_USERNAME>>, <<?VAR_CLIENTID>>], Template),
+    ok = emqx_connector_template:validate([?VAR_USERNAME, ?VAR_CLIENTID], Template),
     case emqx_connector_template:trivial(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}

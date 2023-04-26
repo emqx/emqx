@@ -39,15 +39,15 @@
 -endif.
 
 -define(PLACEHOLDERS, [
-    <<?VAR_USERNAME>>,
-    <<?VAR_CLIENTID>>,
-    <<?VAR_PEERHOST>>,
-    <<?VAR_PROTONAME>>,
-    <<?VAR_MOUNTPOINT>>,
-    <<?VAR_TOPIC>>,
-    <<?VAR_ACTION>>,
-    <<?VAR_CERT_SUBJECT>>,
-    <<?VAR_CERT_CN_NAME>>
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PEERHOST,
+    ?VAR_PROTONAME,
+    ?VAR_MOUNTPOINT,
+    ?VAR_TOPIC,
+    ?VAR_ACTION,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_CERT_CN_NAME
 ]).
 
 -define(PLACEHOLDERS_FOR_RICH_ACTIONS, [

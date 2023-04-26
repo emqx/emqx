@@ -36,11 +36,11 @@
 -endif.
 
 -define(PLACEHOLDERS, [
-    <<?VAR_CERT_CN_NAME>>,
-    <<?VAR_CERT_SUBJECT>>,
-    <<?VAR_PEERHOST>>,
-    <<?VAR_CLIENTID>>,
-    <<?VAR_USERNAME>>
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_PEERHOST,
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME
 ]).
 
 description() ->
