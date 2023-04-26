@@ -59,7 +59,8 @@
     read_schema_configs/2,
     render_config_file/2,
     wait_for/4,
-    wait_mqtt_payload/1
+    wait_mqtt_payload/1,
+    select_free_port/1
 ]).
 
 -export([
@@ -1242,3 +1243,34 @@ get_or_spawn_janitor() ->
 on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
+
+%%-------------------------------------------------------------------------------
+%% Select a free transport port from the OS
+%%-------------------------------------------------------------------------------
+%% @doc get unused port from OS
+-spec select_free_port(tcp | udp | ssl | quic) -> inets:port_number().
+select_free_port(tcp) ->
+    select_free_port(gen_tcp, listen);
+select_free_port(udp) ->
+    select_free_port(gen_udp, open);
+select_free_port(ssl) ->
+    select_free_port(tcp);
+select_free_port(quic) ->
+    select_free_port(udp).
+
+select_free_port(GenModule, Fun) when
+    GenModule == gen_tcp orelse
+        GenModule == gen_udp
+->
+    {ok, S} = GenModule:Fun(0, [{reuseaddr, true}]),
+    {ok, Port} = inet:port(S),
+    ok = GenModule:close(S),
+    case os:type() of
+        {unix, darwin} ->
+            %% in MacOS, still get address_in_use after close port
+            timer:sleep(500);
+        _ ->
+            skip
+    end,
+    ct:pal("Select free OS port: ~p", [Port]),
+    Port.
