@@ -34,17 +34,11 @@ local_topic.label:
 
 template.desc:
 """Template, the default value is empty. When this value is empty the whole message will be stored in the RocketMQ.<br>
-The template can be any valid string with placeholders, example:<br>
-- ${id}, ${username}, ${clientid}, ${timestamp}<br>
-- {\"id\" : ${id}, \"username\" : ${username}}"""
+            The template can be any valid string with placeholders, example:<br>
+            - ${id}, ${username}, ${clientid}, ${timestamp}<br>
+            - {"id" : ${id}, "username" : ${username}}"""
 
 template.label:
 """Template"""
-
-config_enable.desc: 
-"""Enable or disable this bridge"""
-
-config_enable.label:
-"""Enable Or Disable Bridge"""
 
 }
