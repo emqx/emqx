@@ -9,7 +9,6 @@
 -export([
     start_link/1,
     is_connected/1,
-    query/5,
     query/4
 ]).
 
@@ -28,21 +27,21 @@
 -export([execute/2]).
 -endif.
 
+%% The default timeout for DynamoDB REST API calls is 10 seconds,
+%% but this value for `gen_server:call` is 5s,
+%% so we should pass the timeout to `gen_server:call`
+-define(HEALTH_CHECK_TIMEOUT, 10000).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 is_connected(Pid) ->
     try
-        gen_server:call(Pid, is_connected)
+        gen_server:call(Pid, is_connected, ?HEALTH_CHECK_TIMEOUT)
     catch
         _:_ ->
             false
     end.
-
-query(Pid, sync, Table, Query, Templates) ->
-    query(Pid, Table, Query, Templates);
-query(Pid, {async, ReplyCtx}, Table, Query, Templates) ->
-    gen_server:cast(Pid, {query, Table, Query, Templates, ReplyCtx}).
 
 query(Pid, Table, Query, Templates) ->
     gen_server:call(Pid, {query, Table, Query, Templates}, infinity).
