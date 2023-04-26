@@ -291,7 +291,7 @@ t_setup_via_config_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(dynamo_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _}}], Trace),
             ok
         end
     ),
@@ -328,7 +328,7 @@ t_setup_via_http_api_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(dynamo_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _}}], Trace),
             ok
         end
     ),
