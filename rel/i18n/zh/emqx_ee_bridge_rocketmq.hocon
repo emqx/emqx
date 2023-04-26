@@ -32,7 +32,10 @@ local_topic.label:
 """本地 Topic"""
 
 template.desc:
-"""模板, 默认为空，为空时将会将整个消息转发给 RocketMQ"""
+"""模板, 默认为空，为空时将会将整个消息转发给 RocketMQ。 <br>
+            模板可以是任意带有占位符的合法字符串, 例如:<br>
+            - ${id}, ${username}, ${clientid}, ${timestamp}<br>
+            - {"id" : ${id}, "username" : ${username}}"""
 
 template.label:
 """模板"""

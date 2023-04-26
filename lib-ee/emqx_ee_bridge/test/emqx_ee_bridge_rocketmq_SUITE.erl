@@ -136,7 +136,7 @@ rocketmq_config(BridgeType, Config) ->
         io_lib:format(
             "bridges.~s.~s {\n"
             "  enable = true\n"
-            "  server = ~p\n"
+            "  servers = ~p\n"
             "  topic = ~p\n"
             "  resource_opts = {\n"
             "    request_timeout = 1500ms\n"

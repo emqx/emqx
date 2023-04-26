@@ -333,6 +333,7 @@ init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
     init_load(HasDeprecatedFile, SchemaMod, RawConf, Opts).
 
 init_load(true, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
+    ok = save_schema_mod_and_names(SchemaMod),
     %% deprecated conf will be removed in 5.1
     %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),

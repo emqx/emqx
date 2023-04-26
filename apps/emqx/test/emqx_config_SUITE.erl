@@ -58,3 +58,22 @@ t_fill_default_values(_) ->
     %% ensure JSON compatible
     _ = emqx_utils_json:encode(WithDefaults),
     ok.
+
+t_init_load(_Config) ->
+    ConfFile = "./test_emqx.conf",
+    ok = file:write_file(ConfFile, <<"">>),
+    ExpectRootNames = lists:sort(hocon_schema:root_names(emqx_schema)),
+    emqx_config:erase_schema_mod_and_names(),
+    {ok, DeprecatedFile} = application:get_env(emqx, cluster_override_conf_file),
+    ?assertEqual(false, filelib:is_regular(DeprecatedFile), DeprecatedFile),
+    %% Don't has deprecated file
+    ok = emqx_config:init_load(emqx_schema, [ConfFile]),
+    ?assertEqual(ExpectRootNames, lists:sort(emqx_config:get_root_names())),
+    ?assertMatch({ok, #{raw_config := 256}}, emqx:update_config([mqtt, max_topic_levels], 256)),
+    emqx_config:erase_schema_mod_and_names(),
+    %% Has deprecated file
+    ok = file:write_file(DeprecatedFile, <<"{}">>),
+    ok = emqx_config:init_load(emqx_schema, [ConfFile]),
+    ?assertEqual(ExpectRootNames, lists:sort(emqx_config:get_root_names())),
+    ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
+    ok = file:delete(DeprecatedFile).
