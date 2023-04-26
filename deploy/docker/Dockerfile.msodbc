@@ -1,0 +1,25 @@
+## This Dockerfile should not run in GitHub Action or any other automated process.
+## It should be manually executed by the needs of the user.
+##
+## Before manaually execute:
+## Please confirm the EMQX-Enterprise version you are using and modify the base layer image tag
+## ```bash
+## $ docker build -f=Dockerfile.msodbc -t emqx-enterprise-with-msodbc:5.0.3-alpha.2 .
+## ```
+
+# FROM emqx/emqx-enterprise:latest
+FROM emqx/emqx-enterprise:5.0.3-alpha.2
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y gnupg2 curl apt-utils \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-mkc crelease.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev \
+    && sed -i 's/ODBC Driver 17 for SQL Server/ms-sql/g' /etc/odbcinst.ini \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER emqx
