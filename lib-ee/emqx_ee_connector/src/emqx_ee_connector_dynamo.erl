@@ -22,8 +22,6 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_query_async/4,
-    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -60,7 +58,7 @@ fields(config) ->
 %% `emqx_resource' API
 %%========================================================================================
 
-callback_mode() -> async_if_possible.
+callback_mode() -> always_sync.
 
 is_buffer_supported() -> false.
 
@@ -117,32 +115,15 @@ on_stop(InstanceId, #{pool_name := PoolName}) ->
     emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, Query, State) ->
-    do_query(InstanceId, Query, sync, State).
-
-on_query_async(InstanceId, Query, ReplyCtx, State) ->
-    do_query(
-        InstanceId,
-        Query,
-        {async, ReplyCtx},
-        State
-    ).
+    do_query(InstanceId, Query, State).
 
 %% we only support batch insert
 on_batch_query(InstanceId, [{send_message, _} | _] = Query, State) ->
-    do_query(InstanceId, Query, sync, State);
+    do_query(InstanceId, Query, State);
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
 %% we only support batch insert
-on_batch_query_async(InstanceId, [{send_message, _} | _] = Query, ReplyCtx, State) ->
-    do_query(
-        InstanceId,
-        Query,
-        {async, ReplyCtx},
-        State
-    );
-on_batch_query_async(_InstanceId, Query, _Reply, _State) ->
-    {error, {unrecoverable_error, {invalid_request, Query}}}.
 
 on_get_status(_InstanceId, #{pool_name := Pool}) ->
     Health = emqx_resource_pool:health_check_workers(
@@ -160,7 +141,6 @@ status_result(_Status = false) -> connecting.
 do_query(
     InstanceId,
     Query,
-    ApplyMode,
     #{pool_name := PoolName, templates := Templates, table := Table} = State
 ) ->
     ?TRACE(
@@ -170,7 +150,7 @@ do_query(
     ),
     Result = ecpool:pick_and_do(
         PoolName,
-        {emqx_ee_connector_dynamo_client, query, [ApplyMode, Table, Query, Templates]},
+        {emqx_ee_connector_dynamo_client, query, [Table, Query, Templates]},
         no_handover
     ),
 
