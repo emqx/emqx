@@ -1,74 +1,45 @@
 emqx_ee_bridge_redis {
-    local_topic {
-        desc {
-            en: """The MQTT topic filter to be forwarded to Redis. All MQTT 'PUBLISH' messages with the topic
+
+command_template.desc:
+"""Redis command template used to export messages. Each list element stands for a command name or its argument.
+For example, to push payloads in a Redis list by key `msgs`, the elements should be the following:
+`rpush`, `msgs`, `${payload}`."""
+
+command_template.label:
+"""Redis Command Template"""
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_config.desc:
+"""Configuration for a Redis bridge."""
+
+desc_config.label:
+"""Redis Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+local_topic.desc:
+"""The MQTT topic filter to be forwarded to Redis. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.</br>
 NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic
 will be forwarded."""
-            zh: """发送到 'local_topic' 的消息都会转发到 Redis。 </br>
-注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 Redis。"""
-        }
-        label {
-                en: "Local Topic"
-                zh: "本地 Topic"
-            }
-    }
 
-    command_template {
-        desc {
-            en: """Redis command template used to export messages. Each list element stands for a command name or its argument.
-For example, to push payloads in a Redis list by key `msgs`, the elements should be the following:
-`rpush`, `msgs`, `${payload}`."""
-            zh: """用于推送数据的 Redis 命令模板。 每个列表元素代表一个命令名称或其参数。
-例如，要通过键值 `msgs` 将消息体推送到 Redis 列表中，数组元素应该是： `rpush`, `msgs`, `${payload}`。"""
-            }
-        label {
-            en: "Redis Command Template"
-            zh: "Redis Command  模板"
-        }
-    }
-    config_enable {
-        desc {
-            en: """Enable or disable this bridge"""
-            zh: """启用/禁用桥接"""
-        }
-        label {
-            en: "Enable Or Disable Bridge"
-            zh: "启用/禁用桥接"
-        }
-        }
+local_topic.label:
+"""Local Topic"""
 
-    desc_config {
-        desc {
-            en: """Configuration for a Redis bridge."""
-            zh: """Resis 桥接配置"""
-        }
-        label: {
-            en: "Redis Bridge Configuration"
-            zh: "Redis 桥接配置"
-        }
-    }
-
-    desc_type {
-        desc {
-            en: """The Bridge Type"""
-            zh: """Bridge 类型"""
-        }
-        label {
-            en: "Bridge Type"
-            zh: "桥接类型"
-        }
-    }
-
-    desc_name {
-        desc {
-            en: """Bridge name, used as a human-readable description of the bridge."""
-            zh: """桥接名字，可读描述"""
-        }
-        label {
-            en: "Bridge Name"
-            zh: "桥接名字"
-        }
-    }
 }

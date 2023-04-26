@@ -1,319 +1,178 @@
 emqx_connector_mqtt_schema {
-    ingress_desc {
-        desc {
-                en: """The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
+
+bridge_mode.desc:
+"""If enable bridge mode.
+NOTE: This setting is only for MQTT protocol version older than 5.0, and the remote MQTT
+broker MUST support this feature.
+If bridge_mode is set to true, the bridge will indicate to the remote broker that it is a bridge not an ordinary client.
+This means that loop detection will be more effective and that retained messages will be propagated correctly."""
+
+bridge_mode.label:
+"""Bridge Mode"""
+
+clean_start.desc:
+"""Whether to start a clean session when reconnecting a remote broker for ingress bridge"""
+
+clean_start.label:
+"""Clean Session"""
+
+clientid_prefix.desc:
+"""Optional prefix to prepend to the clientid used by egress bridges."""
+
+clientid_prefix.label:
+"""Clientid Prefix"""
+
+egress_desc.desc:
+"""The egress config defines how this bridge forwards messages from the local broker to the remote broker.<br/>
+Template with variables is allowed in 'remote.topic', 'local.qos', 'local.retain', 'local.payload'.<br/>
+NOTE: if this bridge is used as the action of a rule, and also 'local.topic'
+is configured, then both the data got from the rule and the MQTT messages that matches
+'local.topic' will be forwarded."""
+
+egress_desc.label:
+"""Egress Configs"""
+
+egress_local.desc:
+"""The configs about receiving messages from local broker."""
+
+egress_local.label:
+"""Local Configs"""
+
+egress_local_topic.desc:
+"""The local topic to be forwarded to the remote broker"""
+
+egress_local_topic.label:
+"""Local Topic"""
+
+egress_remote.desc:
+"""The configs about sending message to the remote broker."""
+
+egress_remote.label:
+"""Remote Configs"""
+
+egress_remote_qos.desc:
+"""The QoS of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
+
+egress_remote_qos.label:
+"""Remote QoS"""
+
+egress_remote_topic.desc:
+"""Forward to which topic of the remote broker.<br/>
+Template with variables is allowed."""
+
+egress_remote_topic.label:
+"""Remote Topic"""
+
+ingress_desc.desc:
+"""The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
         send them to the local broker.<br/>
         Template with variables is allowed in 'remote.qos', 'local.topic', 'local.qos', 'local.retain', 'local.payload'.<br/>
         NOTE: if this bridge is used as the input of a rule, and also 'local.topic' is
         configured, then messages got from the remote broker will be sent to both the 'local.topic' and
         the rule."""
-                zh: """入口配置定义了该桥接如何从远程 MQTT Broker 接收消息，然后将消息发送到本地 Broker。<br/>
-        以下字段中允许使用带有变量的模板：'remote.qos', 'local.topic', 'local.qos', 'local.retain', 'local.payload'。<br/>
-        注意：如果此桥接被用作规则的输入，并且配置了 'local.topic'，则从远程代理获取的消息将同时被发送到 'local.topic' 和规则。"""
-        }
-        label: {
-                en: "Ingress Configs"
-                zh: "入方向配置"
-        }
-    }
 
-    egress_desc {
-        desc {
-                en: """The egress config defines how this bridge forwards messages from the local broker to the remote broker.<br/>
-Template with variables is allowed in 'remote.topic', 'local.qos', 'local.retain', 'local.payload'.<br/>
-NOTE: if this bridge is used as the action of a rule, and also 'local.topic'
-is configured, then both the data got from the rule and the MQTT messages that matches
-'local.topic' will be forwarded."""
-                zh: """出口配置定义了该桥接如何将消息从本地 Broker 转发到远程 Broker。
-以下字段中允许使用带有变量的模板：'remote.topic', 'local.qos', 'local.retain', 'local.payload'。<br/>
-注意：如果此桥接被用作规则的动作，并且配置了 'local.topic'，则从规则输出的数据以及匹配到 'local.topic' 的 MQTT 消息都会被转发。"""
-        }
-        label: {
-                en: "Egress Configs"
-                zh: "出方向配置"
-        }
-    }
+ingress_desc.label:
+"""Ingress Configs"""
 
-    ingress_remote {
-        desc {
-                en: """The configs about subscribing to the remote broker."""
-                zh: """订阅远程 Broker 相关的配置。"""
-        }
-        label: {
-                en: "Remote Configs"
-                zh: "远程配置"
-        }
-    }
+ingress_local.desc:
+"""The configs about sending message to the local broker."""
 
-    ingress_local {
-        desc {
-                en: """The configs about sending message to the local broker."""
-                zh: """发送消息到本地 Broker 相关的配置。"""
-        }
-        label: {
-                en: "Local Configs"
-                zh: "本地配置"
-        }
-    }
+ingress_local.label:
+"""Local Configs"""
 
-    egress_remote {
-        desc {
-                en: """The configs about sending message to the remote broker."""
-                zh: """发送消息到远程 Broker 相关的配置。"""
-        }
-        label: {
-                en: "Remote Configs"
-                zh: "远程配置"
-        }
-    }
+ingress_local_qos.desc:
+"""The QoS of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
 
-    egress_local {
-        desc {
-                en: """The configs about receiving messages from local broker."""
-                zh: """如何从本地 Broker 接收消息相关的配置。"""
-        }
-        label: {
-                en: "Local Configs"
-                zh: "本地配置"
-        }
-    }
+ingress_local_qos.label:
+"""Local QoS"""
 
-    mode {
-        desc {
-          en: """The mode of the MQTT Bridge.<br/>
+ingress_local_topic.desc:
+"""Send messages to which topic of the local broker.<br/>
+Template with variables is allowed."""
+
+ingress_local_topic.label:
+"""Local Topic"""
+
+ingress_remote.desc:
+"""The configs about subscribing to the remote broker."""
+
+ingress_remote.label:
+"""Remote Configs"""
+
+ingress_remote_qos.desc:
+"""The QoS level to be used when subscribing to the remote broker"""
+
+ingress_remote_qos.label:
+"""Remote QoS"""
+
+ingress_remote_topic.desc:
+"""Receive messages from which topic of the remote broker"""
+
+ingress_remote_topic.label:
+"""Remote Topic"""
+
+max_inflight.desc:
+"""Max inflight (sent, but un-acked) messages of the MQTT protocol"""
+
+max_inflight.label:
+"""Max Inflight Message"""
+
+mode.desc:
+"""The mode of the MQTT Bridge.<br/>
 - cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br/>
 In 'cluster_shareload' mode, the incoming load from the remote broker is shared by
 using shared subscription.<br/>
 Note that the 'clientid' is suffixed by the node name, this is to avoid
 clientid conflicts between different nodes. And we can only use shared subscription
 topic filters for <code>remote.topic</code> of ingress connections."""
-          zh: """MQTT 桥的模式。 <br/>
-- cluster_shareload：在 emqx 集群的每个节点上创建一个 MQTT 连接。<br/>
-在“cluster_shareload”模式下，来自远程代理的传入负载通过共享订阅的方式接收。<br/>
-请注意，<code>clientid</code> 以节点名称为后缀，这是为了避免不同节点之间的 <code> clientid</code> 冲突。
-而且对于入口连接的 <code>remote.topic</code>，我们只能使用共享订阅主题过滤器。"""
-        }
-        label: {
-          en: "MQTT Bridge Mode"
-          zh: "MQTT 桥接模式"
-        }
-    }
 
-    server {
-        desc {
-          en: "The host and port of the remote MQTT broker"
-          zh: "远程 MQTT Broker的主机和端口。"
-        }
-        label: {
-          en: "Broker IP And Port"
-          zh: "Broker主机和端口"
-        }
-    }
+mode.label:
+"""MQTT Bridge Mode"""
 
-    bridge_mode {
-        desc {
-            en: """If enable bridge mode.
-NOTE: This setting is only for MQTT protocol version older than 5.0, and the remote MQTT
-broker MUST support this feature.
-If bridge_mode is set to true, the bridge will indicate to the remote broker that it is a bridge not an ordinary client.
-This means that loop detection will be more effective and that retained messages will be propagated correctly."""
-            zh: """是否启用 Bridge Mode。
-注意：此设置只针对 MQTT 协议版本 < 5.0 有效，并且需要远程 MQTT Broker 支持 Bridge Mode。
-如果设置为 true ，桥接会告诉远端服务器当前连接是一个桥接而不是一个普通的客户端。
-这意味着消息回环检测会更加高效，并且远端服务器收到的保留消息的标志位会透传给本地。"""
-        }
-        label {
-            en: "Bridge Mode"
-            zh: "Bridge 模式"
-        }
-    }
+password.desc:
+"""The password of the MQTT protocol"""
 
-    proto_ver {
-        desc {
-          en: "The MQTT protocol version"
-          zh: "MQTT 协议版本"
-        }
-        label: {
-              en: "Protocol Version"
-              zh: "协议版本"
-            }
-    }
+password.label:
+"""Password"""
 
-    username {
-        desc {
-          en: "The username of the MQTT protocol"
-          zh: "MQTT 协议的用户名"
-        }
-        label: {
-              en: "Username"
-              zh: "用户名"
-            }
-    }
-
-    password {
-        desc {
-          en: "The password of the MQTT protocol"
-          zh: "MQTT 协议的密码"
-        }
-        label: {
-              en: "Password"
-              zh: "密码"
-            }
-    }
-
-    clean_start {
-        desc {
-          en: "Whether to start a clean session when reconnecting a remote broker for ingress bridge"
-          zh: "与 ingress MQTT 桥的远程服务器重连时是否清除老的 MQTT 会话。"
-        }
-        label: {
-              en: "Clean Session"
-              zh: "清除会话"
-            }
-    }
-
-    max_inflight {
-        desc {
-          en: "Max inflight (sent, but un-acked) messages of the MQTT protocol"
-          zh: "MQTT 协议的最大飞行（已发送但未确认）消息"
-        }
-        label: {
-              en: "Max Inflight Message"
-              zh: "最大飞行消息"
-            }
-    }
-
-    ingress_remote_topic {
-        desc {
-          en: "Receive messages from which topic of the remote broker"
-          zh: "从远程broker的哪个topic接收消息"
-        }
-        label: {
-              en: "Remote Topic"
-              zh: "远程主题"
-            }
-    }
-
-    ingress_remote_qos {
-        desc {
-          en: "The QoS level to be used when subscribing to the remote broker"
-          zh: "订阅远程borker时要使用的 QoS 级别"
-        }
-        label: {
-              en: "Remote QoS"
-              zh: "远程 QoS"
-            }
-    }
-
-    ingress_local_topic {
-        desc {
-          en: """Send messages to which topic of the local broker.<br/>
+payload.desc:
+"""The payload of the MQTT message to be sent.<br/>
 Template with variables is allowed."""
-          zh: """向本地broker的哪个topic发送消息。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Local Topic"
-              zh: "本地主题"
-            }
-    }
 
-    ingress_local_qos {
-        desc {
-          en: """The QoS of the MQTT message to be sent.<br/>
+payload.label:
+"""Payload"""
+
+proto_ver.desc:
+"""The MQTT protocol version"""
+
+proto_ver.label:
+"""Protocol Version"""
+
+retain.desc:
+"""The 'retain' flag of the MQTT message to be sent.<br/>
 Template with variables is allowed."""
-          zh: """待发送 MQTT 消息的 QoS。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Local QoS"
-              zh: "本地 QoS"
-            }
-    }
 
-    egress_local_topic {
-        desc {
-          en: "The local topic to be forwarded to the remote broker"
-          zh: "要转发到远程broker的本地主题"
-        }
-        label: {
-              en: "Local Topic"
-              zh: "本地主题"
-            }
-    }
+retain.label:
+"""Retain Flag"""
 
-    egress_remote_topic {
-        desc {
-          en: """Forward to which topic of the remote broker.<br/>
-Template with variables is allowed."""
-          zh: """转发到远程broker的哪个topic。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Remote Topic"
-              zh: "远程主题"
-            }
-    }
+server.desc:
+"""The host and port of the remote MQTT broker"""
 
-    egress_remote_qos {
-        desc {
-          en: """The QoS of the MQTT message to be sent.<br/>
-Template with variables is allowed."""
-          zh: """待发送 MQTT 消息的 QoS。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Remote QoS"
-              zh: "远程 QoS"
-            }
-    }
+server.label:
+"""Broker IP And Port"""
 
-    retain {
-        desc {
-          en: """The 'retain' flag of the MQTT message to be sent.<br/>
-Template with variables is allowed."""
-          zh: """要发送的 MQTT 消息的“保留”标志。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Retain Flag"
-              zh: "保留消息标志"
-            }
-    }
+server_configs.desc:
+"""Configs related to the server."""
 
-    payload {
-        desc {
-          en: """The payload of the MQTT message to be sent.<br/>
-Template with variables is allowed."""
-          zh: """要发送的 MQTT 消息的负载。<br/>
-允许使用带有变量的模板。"""
-        }
-        label: {
-              en: "Payload"
-              zh: "消息负载"
-            }
-    }
+server_configs.label:
+"""Server Configs"""
 
-    server_configs {
-      desc {
-        en: """Configs related to the server."""
-        zh: """服务器相关的配置。"""
-      }
-      label: {
-        en: "Server Configs"
-        zh: "服务配置。"
-      }
-    }
+username.desc:
+"""The username of the MQTT protocol"""
 
-    clientid_prefix {
-      desc {
-        en: """Optional prefix to prepend to the clientid used by egress bridges."""
-        zh: """可选的前缀，用于在出口网桥使用的clientid前加上前缀。"""
-      }
-      label: {
-        en: "Clientid Prefix"
-        zh: "客户ID前缀"
-      }
-    }
+username.label:
+"""Username"""
 
 }

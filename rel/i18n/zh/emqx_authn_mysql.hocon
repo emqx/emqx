@@ -1,0 +1,18 @@
+emqx_authn_mysql {
+
+mysql.desc:
+"""使用 MySQL 作为认证数据源的认证器的配置项。"""
+
+query.desc:
+"""用于查询密码散列等用于认证的数据的 SQL 语句。"""
+
+query.label:
+"""查询语句"""
+
+query_timeout.desc:
+"""SQL 查询的超时时间。"""
+
+query_timeout.label:
+"""查询超时"""
+
+}

@@ -49,14 +49,16 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-postgresql".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
-roots() -> [?CONF_NS].
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, postgresql))}].
 
-fields(?CONF_NS) ->
+fields(postgresql) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(postgresql)},
@@ -66,8 +68,8 @@ fields(?CONF_NS) ->
         emqx_authn_schema:common_fields() ++
         proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config)).
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(postgresql) ->
+    ?DESC(postgresql);
 desc(_) ->
     undefined.
 
@@ -81,7 +83,7 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, postgresql)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).

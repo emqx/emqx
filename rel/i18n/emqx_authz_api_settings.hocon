@@ -1,15 +1,9 @@
 emqx_authz_api_settings {
-  authorization_settings_get {
-    desc {
-      en: """Get authorization settings"""
-      zh: """获取授权配置"""
-    }
-  }
 
-  authorization_settings_put {
-    desc {
-      en: """Update authorization settings"""
-      zh: """更新授权配置"""
-    }
-  }
+authorization_settings_get.desc:
+"""Get authorization settings"""
+
+authorization_settings_put.desc:
+"""Update authorization settings"""
+
 }

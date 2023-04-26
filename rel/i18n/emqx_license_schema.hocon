@@ -1,55 +1,33 @@
 emqx_license_schema {
-  license_root {
-    desc {
-      en: "Defines the EMQX Enterprise license. \n\n"
-          "\n"
-          "The default license has 100 connections limit, it is "
-          "issued on 2023-01-09 and valid for 5 years (1825 days).\n"
-          "\n"
-          "EMQX comes with a default trial license.  For production use, please \n"
-          "visit https://www.emqx.com/apply-licenses/emqx to apply."
-      zh: "EMQX企业许可证。\n"
-          "EMQX 自带一个默认的试用许可证，"
-          "默认试用许可允许最多接入 100 个连接，签发时间是 2023年1月9日，有效期是 5 年（1825 天）。"
-          "若需要在生产环境部署，\n"
-          "请访问 https://www.emqx.com/apply-licenses/emqx 来申请。"
-    }
-    label {
-      en: "License"
-      zh: "许可证"
-    }
-  }
 
-  key_field {
-    desc {
-      en: "License string"
-      zh: "许可证字符串"
-    }
-    label {
-      en: "License string"
-      zh: "许可证字符串"
-    }
-  }
+connection_high_watermark_field.desc:
+"""High watermark limit above which license connection quota usage alarms are activated"""
 
-  connection_low_watermark_field {
-    desc {
-      en: "Low watermark limit below which license connection quota usage alarms are deactivated"
-      zh: "低水位限制，低于此水位线时系统会清除连接配额使用告警"
-    }
-    label {
-      en: "Connection low watermark"
-      zh: "连接低水位线"
-    }
-  }
+connection_high_watermark_field.label:
+"""Connection high watermark"""
 
-  connection_high_watermark_field {
-    desc {
-      en: "High watermark limit above which license connection quota usage alarms are activated"
-      zh: "高水位线，连接数超过这个水位线时，系统会触发许可证连接配额使用告警"
-    }
-    label {
-      en: "Connection high watermark"
-      zh: "连接高水位"
-    }
-  }
+connection_low_watermark_field.desc:
+"""Low watermark limit below which license connection quota usage alarms are deactivated"""
+
+connection_low_watermark_field.label:
+"""Connection low watermark"""
+
+key_field.desc:
+"""License string"""
+
+key_field.label:
+"""License string"""
+
+license_root.desc:
+"""Defines the EMQX Enterprise license. 
+
+
+The default license has 100 connections limit, it is issued on 2023-01-09 and valid for 5 years (1825 days).
+
+EMQX comes with a default trial license.  For production use, please 
+visit https://www.emqx.com/apply-licenses/emqx to apply."""
+
+license_root.label:
+"""License"""
+
 }

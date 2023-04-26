@@ -1,0 +1,30 @@
+emqx_statsd_schema {
+
+enable.desc:
+"""启用或禁用 StatsD 指标采集和推送服务。"""
+
+flush_interval.desc:
+"""指标的推送间隔。"""
+
+get_statsd_config_api.desc:
+"""列出 StatsD 指标采集和推送服务的的配置。"""
+
+sample_interval.desc:
+"""指标的采样间隔。"""
+
+server.desc:
+"""StatsD 服务器地址。"""
+
+statsd.desc:
+"""StatsD 指标采集与推送配置。"""
+
+statsd.label:
+"""StatsD"""
+
+tags.desc:
+"""指标的标签。"""
+
+update_statsd_config_api.desc:
+"""更新 StatsD 指标采集和推送服务的配置。"""
+
+}

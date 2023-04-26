@@ -24,10 +24,12 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    meck:expect(emqx, running_nodes, 0, [node(), 'fake@node']),
     emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
+    meck:unload(emqx),
     emqx_mgmt_api_test_util:end_suite().
 
 t_stats_api(_) ->

@@ -79,6 +79,21 @@ is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
+is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
+is_community_umbrella_app("apps/emqx_bridge_opents") -> false;
+is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
+is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
+is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_influxdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
+is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_pgsql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
+is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
+is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
+is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -439,6 +454,22 @@ relx_apps_per_edition(ee) ->
         emqx_ee_connector,
         emqx_ee_bridge,
         emqx_bridge_kafka,
+        emqx_bridge_pulsar,
+        emqx_bridge_gcp_pubsub,
+        emqx_bridge_cassandra,
+        emqx_bridge_opents,
+        emqx_bridge_clickhouse,
+        emqx_bridge_dynamo,
+        emqx_bridge_hstreamdb,
+        emqx_bridge_influxdb,
+        emqx_bridge_matrix,
+        emqx_bridge_mongodb,
+        emqx_bridge_mysql,
+        emqx_bridge_pgsql,
+        emqx_bridge_redis,
+        emqx_bridge_rocketmq,
+        emqx_bridge_tdengine,
+        emqx_bridge_timescale,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
@@ -479,8 +510,7 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.en.example",
-            "etc/emqx.conf.example"}
+        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.example", "etc/emqx.conf.example"}
     ] ++
         lists:map(
             fun

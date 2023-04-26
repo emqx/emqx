@@ -199,7 +199,7 @@ t_query_params(_Config) ->
                 peerhost := <<"127.0.0.1">>,
                 proto_name := <<"MQTT">>,
                 mountpoint := <<"MOUNTPOINT">>,
-                topic := <<"t">>,
+                topic := <<"t/1">>,
                 action := <<"publish">>
             } = cowboy_req:match_qs(
                 [
@@ -241,7 +241,7 @@ t_query_params(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, publish, <<"t/1">>)
     ).
 
 t_path(_Config) ->
@@ -249,13 +249,13 @@ t_path(_Config) ->
         fun(Req0, State) ->
             ?assertEqual(
                 <<
-                    "/authz/users/"
+                    "/authz/use%20rs/"
                     "user%20name/"
                     "client%20id/"
                     "127.0.0.1/"
                     "MQTT/"
                     "MOUNTPOINT/"
-                    "t/1/"
+                    "t%2F1/"
                     "publish"
                 >>,
                 cowboy_req:path(Req0)
@@ -264,7 +264,7 @@ t_path(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/users/"
+                "http://127.0.0.1:33333/authz/use%20rs/"
                 "${username}/"
                 "${clientid}/"
                 "${peerhost}/"

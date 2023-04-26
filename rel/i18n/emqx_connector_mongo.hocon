@@ -1,277 +1,152 @@
 emqx_connector_mongo {
 
-    single_mongo_type {
-        desc {
-          en: "Standalone instance. Must be set to 'single' when MongoDB server is running in standalone mode."
-          zh: "Standalone 模式。当 MongoDB 服务运行在 standalone 模式下，该配置必须设置为 'single'。"
-        }
-        label: {
-              en: "Standalone instance"
-              zh: "Standalone 模式"
-            }
-    }
+auth_source.desc:
+"""Database name associated with the user's credentials."""
 
-    rs_mongo_type {
-        desc {
-          en: "Replica set. Must be set to 'rs' when MongoDB server is running in 'replica set' mode."
-          zh: "Replica set模式。当 MongoDB 服务运行在 replica-set 模式下，该配置必须设置为 'rs'。"
-        }
-        label: {
-              en: "Replica set"
-              zh: "Replica set 模式"
-            }
-    }
+auth_source.label:
+"""Auth Source"""
 
-    sharded_mongo_type {
-        desc {
-          en: "Sharded cluster. Must be set to 'sharded' when MongoDB server is running in 'sharded' mode."
-          zh: "Sharded cluster模式。当 MongoDB 服务运行在 sharded 模式下，该配置必须设置为 'sharded'。"
-        }
-        label: {
-              en: "Sharded cluster"
-              zh: "Sharded cluster 模式"
-            }
-    }
+connect_timeout.desc:
+"""The duration to attempt a connection before timing out."""
 
-    auth_source {
-        desc {
-          en: "Database name associated with the user's credentials."
-          zh: "与用户证书关联的数据库名称。"
-        }
-        label: {
-              en: "Auth Source"
-              zh: "认证源"
-            }
-    }
+connect_timeout.label:
+"""Connect Timeout"""
 
-    server {
-        desc {
-          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
+desc_rs.desc:
+"""Settings for replica set."""
+
+desc_rs.label:
+"""Setting Replica Set"""
+
+desc_sharded.desc:
+"""Settings for sharded cluster."""
+
+desc_sharded.label:
+"""Setting Sharded Cluster"""
+
+desc_single.desc:
+"""Settings for a single MongoDB instance."""
+
+desc_single.label:
+"""Setting Single MongoDB"""
+
+desc_topology.desc:
+"""Topology of MongoDB."""
+
+desc_topology.label:
+"""Setting Topology"""
+
+heartbeat_period.desc:
+"""Controls when the driver checks the state of the MongoDB deployment. Specify the interval between checks, counted from the end of the previous check until the beginning of the next one. If the number of connections is increased (which will happen, for example, if you increase the pool size), you may need to increase this period as well to avoid creating too many log entries in the MongoDB log file."""
+
+heartbeat_period.label:
+"""Heartbeat period"""
+
+local_threshold.desc:
+"""The size of the latency window for selecting among multiple suitable MongoDB instances."""
+
+local_threshold.label:
+"""Local Threshold"""
+
+max_overflow.desc:
+"""Max Overflow."""
+
+max_overflow.label:
+"""Max Overflow"""
+
+min_heartbeat_period.desc:
+"""Controls the minimum amount of time to wait between heartbeats."""
+
+min_heartbeat_period.label:
+"""Minimum Heartbeat Period"""
+
+overflow_check_period.desc:
+"""Period for checking if there are more workers than configured ("overflow")."""
+
+overflow_check_period.label:
+"""Overflow Check Period"""
+
+overflow_ttl.desc:
+"""Period of time before workers that exceed the configured pool size ("overflow") to be terminated."""
+
+overflow_ttl.label:
+"""Overflow TTL"""
+
+r_mode.desc:
+"""Read mode."""
+
+r_mode.label:
+"""Read Mode"""
+
+replica_set_name.desc:
+"""Name of the replica set."""
+
+replica_set_name.label:
+"""Replica Set Name"""
+
+rs_mongo_type.desc:
+"""Replica set. Must be set to 'rs' when MongoDB server is running in 'replica set' mode."""
+
+rs_mongo_type.label:
+"""Replica set"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
 The MongoDB default port 27017 is used if `[:Port]` is not specified."""
-          zh: """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
-主机名具有以下形式：`Host[:Port]`。<br/>
-如果未指定 `[:Port]`，则使用 MongoDB 默认端口 27017。"""
-        }
-        label: {
-              en: "Server Host"
-              zh: "服务器地址"
-            }
-    }
 
-    servers {
-        desc {
-          en: """A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
+server.label:
+"""Server Host"""
+
+server_selection_timeout.desc:
+"""Specifies how long to block for server selection before throwing an exception."""
+
+server_selection_timeout.label:
+"""Server Selection Timeout"""
+
+servers.desc:
+"""A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
 For each Node should be: The IPv4 or IPv6 address or the hostname to connect to.
 A host entry has the following form: `Host[:Port]`.
 The MongoDB default port 27017 is used if `[:Port]` is not specified."""
-          zh: """集群将要连接的节点列表。 节点之间用逗号分隔，如：`Node[,Node].`
-每个节点的配置为：将要连接的 IPv4 或 IPv6 地址或主机名。
-主机名具有以下形式：`Host[:Port]`。
-如果未指定 `[:Port]`，则使用 MongoDB 默认端口 27017。"""
-        }
-        label: {
-              en: "Servers"
-              zh: "服务器列表"
-            }
-    }
 
-    w_mode {
-        desc {
-          en: "Write mode."
-          zh: "写模式。"
-        }
-        label: {
-              en: "Write Mode"
-              zh: "写模式"
-            }
-    }
+servers.label:
+"""Servers"""
 
-    r_mode {
-        desc {
-          en: "Read mode."
-          zh: "读模式。"
-        }
-        label: {
-              en: "Read Mode"
-              zh: "读模式"
-            }
-    }
+sharded_mongo_type.desc:
+"""Sharded cluster. Must be set to 'sharded' when MongoDB server is running in 'sharded' mode."""
 
-    overflow_ttl {
-      desc {
-        en: "Period of time before workers that exceed the configured pool size (\"overflow\") to be terminated."
-        zh: "当池内工人太多时，等待多久清除多余工人。"
-      }
-      label {
-        en: "Overflow TTL"
-        zh: "溢出TTL"
-      }
-    }
+sharded_mongo_type.label:
+"""Sharded cluster"""
 
-    overflow_check_period {
-      desc {
-        en: "Period for checking if there are more workers than configured (\"overflow\")."
-        zh: "检查是否有超过配置的工人的周期（\"溢出\"）。"
-      }
-      label {
-        en: "Overflow Check Period"
-        zh: "溢出检查周期"
-      }
-    }
+single_mongo_type.desc:
+"""Standalone instance. Must be set to 'single' when MongoDB server is running in standalone mode."""
 
-    local_threshold {
-      desc {
-        en: "The size of the latency window for selecting among multiple suitable MongoDB instances."
-        zh: "在多个合适的MongoDB实例中进行选择的延迟窗口的大小。"
-      }
-      label {
-        en: "Local Threshold"
-        zh: "本地阈值"
-      }
-    }
+single_mongo_type.label:
+"""Standalone instance"""
 
-    connect_timeout {
-      desc {
-        en: "The duration to attempt a connection before timing out."
-        zh: "超时重连的等待时间。"
-      }
-      label {
-        en: "Connect Timeout"
-        zh: "连接超时"
-      }
-    }
+socket_timeout.desc:
+"""The duration to attempt to send or to receive on a socket before the attempt times out."""
 
-    socket_timeout {
-      desc {
-        en: "The duration to attempt to send or to receive on a socket before the attempt times out."
-        zh: "在尝试超时之前，在套接字上尝试发送或接收的持续时间。"
-      }
-      label {
-        en: "Socket Timeout"
-        zh: "套接字操作超时"
-      }
-    }
+socket_timeout.label:
+"""Socket Timeout"""
 
-    server_selection_timeout {
-      desc {
-        en: "Specifies how long to block for server selection before throwing an exception."
-        zh: "指定在抛出异常之前为服务器选择阻断多长时间。"
-      }
-      label {
-        en: "Server Selection Timeout"
-        zh: "服务器选择超时"
-      }
-    }
+srv_record.desc:
+"""Use DNS SRV record."""
 
-    wait_queue_timeout {
-      desc {
-        en: "The maximum duration that a worker can wait for a connection to become available."
-        zh: "工作者等待连接可用的最长时间。"
-      }
-      label {
-        en: "Wait Queue Timeout"
-        zh: "等待队列超时"
-      }
-    }
+srv_record.label:
+"""Srv Record"""
 
-    heartbeat_period {
-      desc {
-        en: "Controls when the driver checks the state of the MongoDB deployment. Specify the interval between checks, counted from the end of the previous check until the beginning of the next one. If the number of connections is increased (which will happen, for example, if you increase the pool size), you may need to increase this period as well to avoid creating too many log entries in the MongoDB log file."
-        zh: "控制驱动程序何时检查MongoDB部署的状态。指定检查的间隔时间，从上一次检查结束到下一次检查开始计算。如果连接数增加（例如，如果你增加池子的大小，就会发生这种情况），你可能也需要增加这个周期，以避免在MongoDB日志文件中创建太多的日志条目。"
-      }
-      label {
-        en: "Heartbeat period"
-        zh: "心跳期"
-      }
-    }
+w_mode.desc:
+"""Write mode."""
 
-    min_heartbeat_period {
-      desc {
-        en: "Controls the minimum amount of time to wait between heartbeats."
-        zh: "心跳间的最小间隙"
-      }
-      label {
-        en: "Minimum Heartbeat Period"
-        zh: "最小心跳周期"
-      }
-    }
+w_mode.label:
+"""Write Mode"""
 
-    max_overflow {
-        desc {
-          en: "Max Overflow."
-          zh: "最大溢出。"
-        }
-        label: {
-              en: "Max Overflow"
-              zh: "最大溢出"
-            }
-    }
+wait_queue_timeout.desc:
+"""The maximum duration that a worker can wait for a connection to become available."""
 
-    replica_set_name {
-        desc {
-          en: "Name of the replica set."
-          zh: "副本集的名称。"
-        }
-        label: {
-              en: "Replica Set Name"
-              zh: "副本集名称"
-            }
-    }
-
-    srv_record {
-        desc {
-          en: "Use DNS SRV record."
-          zh: "使用 DNS SRV 记录。"
-        }
-        label: {
-              en: "Srv Record"
-              zh: "SRV 记录"
-            }
-    }
-
-    desc_single {
-                   desc {
-                         en: """Settings for a single MongoDB instance."""
-                         zh: """配置 Single 模式"""
-                        }
-                   label: {
-                           en: "Setting Single MongoDB"
-                           zh: "配置 Single 模式"
-                          }
-                  }
-
-    desc_rs {
-                   desc {
-                         en: """Settings for replica set."""
-                         zh: """配置 Replica Set"""
-                        }
-                   label: {
-                           en: "Setting Replica Set"
-                           zh: "配置 Replica Set"
-                          }
-                  }
-
-    desc_sharded {
-                   desc {
-                         en: """Settings for sharded cluster."""
-                         zh: """配置 Sharded Cluster"""
-                        }
-                   label: {
-                           en: "Setting Sharded Cluster"
-                           zh: "配置 Sharded Cluster"
-                          }
-                  }
-
-    desc_topology {
-                   desc {
-                         en: """Topology of MongoDB."""
-                         zh: """配置 Topology"""
-                        }
-                   label: {
-                           en: "Setting Topology"
-                           zh: "配置 Topology"
-                          }
-                  }
+wait_queue_timeout.label:
+"""Wait Queue Timeout"""
 
 }

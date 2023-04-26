@@ -101,5 +101,23 @@
     "listen": "0.0.0.0:1433",
     "upstream": "sqlserver:1433",
     "enabled": true
+  },
+  {
+    "name": "opents",
+    "listen": "0.0.0.0:4242",
+    "upstream": "opents:4242",
+    "enabled": true
+  },
+  {
+    "name": "pulsar_plain",
+    "listen": "0.0.0.0:6652",
+    "upstream": "pulsar:6652",
+    "enabled": true
+  },
+  {
+    "name": "pulsar_tls",
+    "listen": "0.0.0.0:6653",
+    "upstream": "pulsar:6653",
+    "enabled": true
   }
 ]

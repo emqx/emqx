@@ -96,7 +96,7 @@ on_start(
         config => emqx_utils:redact(Config)
     }),
 
-    {Host, Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),
     Options = [
         {host, to_bin(Host)},
         {port, Port},
@@ -107,20 +107,20 @@ on_start(
     ],
 
     Prepares = parse_prepare_sql(Config),
-    State = maps:merge(Prepares, #{poolname => InstanceId, query_opts => query_opts(Config)}),
-    case emqx_plugin_libs_pool:start_pool(InstanceId, ?MODULE, Options) of
+    State = Prepares#{pool_name => InstanceId, query_opts => query_opts(Config)},
+    case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
         Error ->
             Error
     end.
 
-on_stop(InstanceId, #{poolname := PoolName} = _State) ->
+on_stop(InstanceId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_tdengine_connector",
         connector => InstanceId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, {query, SQL}, State) ->
     do_query(InstanceId, SQL, State);
@@ -150,8 +150,8 @@ on_batch_query(
             {error, {unrecoverable_error, invalid_request}}
     end.
 
-on_get_status(_InstanceId, #{poolname := Pool}) ->
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
+on_get_status(_InstanceId, #{pool_name := PoolName}) ->
+    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
     status_result(Health).
 
 do_get_status(Conn) ->
@@ -171,7 +171,7 @@ do_batch_insert(InstanceId, BatchReqs, InsertPart, Tokens, State) ->
     SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, InsertPart, Tokens),
     do_query(InstanceId, SQL, State).
 
-do_query(InstanceId, Query, #{poolname := PoolName, query_opts := Opts} = State) ->
+do_query(InstanceId, Query, #{pool_name := PoolName, query_opts := Opts} = State) ->
     ?TRACE(
         "QUERY",
         "tdengine_connector_received",

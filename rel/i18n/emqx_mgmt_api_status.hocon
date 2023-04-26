@@ -1,48 +1,21 @@
 emqx_mgmt_api_status {
-  get_status_api {
-    desc {
-      en: "Serves as a health check for the node.  Returns a plain text response"
-          " describing the status of the node.  This endpoint requires no"
-          " authentication.\n"
-          "\n"
-          "Returns status code 200 if the EMQX application is up and running, "
-          "503 otherwise."
-          "\n"
-          "This API was introduced in v5.0.10."
-          "\n"
-          "The GET `/status` endpoint (without the `/api/...` prefix) is also an alias"
-          " to this endpoint and works in the same way.  This alias has been available since"
-          " v5.0.0."
-      zh: "作为节点的健康检查。 返回一个纯文本的响应，描述节点的状态。\n"
-          "\n"
-          "如果 EMQX 应用程序已经启动并运行，返回状态代码 200，否则返回 503。\n"
-          "\n"
-          "这个API是在v5.0.10中引入的。"
-          "\n"
-          "GET `/status`端点（没有`/api/...`前缀）也是这个端点的一个别名，工作方式相同。"
-          " 这个别名从v5.0.0开始就有了。"
-    }
-    label {
-       en: "Service health check"
-       zh: "服务健康检查"
-    }
-  }
 
-  get_status_response200 {
-    desc {
-      en: "Node emqx@127.0.0.1 is started\n"
-          "emqx is running"
-      zh: "Node emqx@127.0.0.1 is started\n"
-          "emqx is running"
-    }
-  }
+get_status_api.desc:
+"""Serves as a health check for the node.  Returns a plain text response describing the status of the node.  This endpoint requires no authentication.
 
-  get_status_response503 {
-    desc {
-      en: "Node emqx@127.0.0.1 is stopped\n"
-          "emqx is not_running"
-      zh: "Node emqx@127.0.0.1 is stopped\n"
-          "emqx is not_running"
-    }
-  }
+Returns status code 200 if the EMQX application is up and running, 503 otherwise.
+This API was introduced in v5.0.10.
+The GET `/status` endpoint (without the `/api/...` prefix) is also an alias to this endpoint and works in the same way.  This alias has been available since v5.0.0."""
+
+get_status_api.label:
+"""Service health check"""
+
+get_status_response200.desc:
+"""Node emqx@127.0.0.1 is started
+emqx is running"""
+
+get_status_response503.desc:
+"""Node emqx@127.0.0.1 is stopped
+emqx is not_running"""
+
 }

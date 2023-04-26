@@ -1,0 +1,11 @@
+emqx_connector_pgsql {
+
+server.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+主机名具有以下形式：`Host[:Port]`。<br/>
+如果未指定 `[:Port]`，则使用 PostgreSQL 默认端口 5432。"""
+
+server.label:
+"""服务器地址"""
+
+}

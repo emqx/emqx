@@ -30,6 +30,12 @@
     stop/0
 ]).
 
+%% Cluster API
+-export([
+    cluster_nodes/1,
+    running_nodes/0
+]).
+
 %% PubSub API
 -export([
     subscribe/1,
@@ -101,6 +107,18 @@ is_running() ->
         undefined -> false;
         _ -> true
     end.
+
+%%--------------------------------------------------------------------
+%% Cluster API
+%%--------------------------------------------------------------------
+
+-spec running_nodes() -> [node()].
+running_nodes() ->
+    mria:running_nodes().
+
+-spec cluster_nodes(all | running | cores | stopped) -> [node()].
+cluster_nodes(Type) ->
+    mria:cluster_nodes(Type).
 
 %%--------------------------------------------------------------------
 %% PubSub API

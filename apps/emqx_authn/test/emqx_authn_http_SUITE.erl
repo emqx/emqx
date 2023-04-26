@@ -47,7 +47,6 @@
     })
 ).
 
--define(SERVER_RESPONSE_URLENCODE(Result), ?SERVER_RESPONSE_URLENCODE(Result, false)).
 -define(SERVER_RESPONSE_URLENCODE(Result, IsSuperuser),
     list_to_binary(
         "result=" ++
@@ -162,6 +161,54 @@ test_user_auth(#{
     ?assertEqual(Result, emqx_access_control:authenticate(?CREDENTIALS)),
 
     emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ).
+
+t_authenticate_path_placeholders(_Config) ->
+    ok = emqx_authn_http_test_server:stop(),
+    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, <<"/[...]">>),
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req =
+                case cowboy_req:path(Req0) of
+                    <<"/my/p%20ath//us%20er/auth//">> ->
+                        cowboy_req:reply(
+                            200,
+                            #{<<"content-type">> => <<"application/json">>},
+                            emqx_utils_json:encode(#{result => allow, is_superuser => false}),
+                            Req0
+                        );
+                    Path ->
+                        ct:pal("Unexpected path: ~p", [Path]),
+                        cowboy_req:reply(403, Req0)
+                end,
+            {ok, Req, State}
+        end
+    ),
+
+    Credentials = ?CREDENTIALS#{
+        username => <<"us er">>
+    },
+
+    AuthConfig = maps:merge(
+        raw_http_auth_config(),
+        #{
+            <<"url">> => <<"http://127.0.0.1:32333/my/p%20ath//${username}/auth//">>,
+            <<"body">> => #{}
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
+
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+
+    _ = emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ).

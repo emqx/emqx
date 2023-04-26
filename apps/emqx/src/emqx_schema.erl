@@ -42,7 +42,12 @@
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
 -type port_number() :: 1..65536.
--type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
+-type server_parse_option() :: #{
+    default_port => port_number(),
+    no_port => boolean(),
+    supported_schemes => [string()],
+    default_scheme => string()
+}.
 -type url() :: binary().
 -type json_binary() :: binary().
 
@@ -60,6 +65,12 @@
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
+
+-type parsed_server() :: #{
+    hostname := string(),
+    port => port_number(),
+    scheme => string()
+}.
 
 -export([
     validate_heap_size/1,
@@ -164,7 +175,7 @@ roots(high) ->
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
-        %% NOTE: authorization schema here is only to keep emqx app prue
+        %% NOTE: authorization schema here is only to keep emqx app pure
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
@@ -1489,10 +1500,8 @@ fields("broker") ->
             sc(
                 boolean(),
                 #{
-                    %% TODO: deprecated => {since, "5.1.0"}
-                    %% in favor of session message re-dispatch at termination
-                    %% we will stop supporting dispatch acks for shared
-                    %% subscriptions.
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => false,
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
@@ -2227,6 +2236,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => AvailableVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
+                    importance => ?IMPORTANCE_HIGH,
                     validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
                 }
             )},
@@ -2897,7 +2907,7 @@ servers_validator(Opts, Required) ->
 %% `no_port': by default it's `false', when set to `true',
 %%            a `throw' exception is raised if the port is found.
 -spec parse_server(undefined | string() | binary(), server_parse_option()) ->
-    {string(), port_number()}.
+    undefined | parsed_server().
 parse_server(Str, Opts) ->
     case parse_servers(Str, Opts) of
         undefined ->
@@ -2911,7 +2921,7 @@ parse_server(Str, Opts) ->
 %% @doc Parse comma separated `host[:port][,host[:port]]' endpoints
 %% into a list of `{Host, Port}' tuples or just `Host' string.
 -spec parse_servers(undefined | string() | binary(), server_parse_option()) ->
-    [{string(), port_number()}].
+    undefined | [parsed_server()].
 parse_servers(undefined, _Opts) ->
     %% should not parse 'undefined' as string,
     %% not to throw exception either,
@@ -2957,6 +2967,9 @@ split_host_port(Str) ->
 do_parse_server(Str, Opts) ->
     DefaultPort = maps:get(default_port, Opts, undefined),
     NotExpectingPort = maps:get(no_port, Opts, false),
+    DefaultScheme = maps:get(default_scheme, Opts, undefined),
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -2965,22 +2978,129 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
+    case is_list(DefaultScheme) andalso (not lists:member(DefaultScheme, SupportedSchemes)) of
+        true ->
+            %% inconsistent schema
+            error("bad_schema");
+        false ->
+            ok
+    end,
     %% do not split with space, there should be no space allowed between host and port
-    case string:tokens(Str, ":") of
-        [Hostname, Port] ->
-            NotExpectingPort andalso throw("not_expecting_port_number"),
-            {check_hostname(Hostname), parse_port(Port)};
-        [Hostname] ->
-            case is_integer(DefaultPort) of
-                true ->
-                    {check_hostname(Hostname), DefaultPort};
-                false when NotExpectingPort ->
-                    check_hostname(Hostname);
-                false ->
-                    throw("missing_port_number")
-            end;
-        _ ->
-            throw("bad_host_port")
+    Tokens = string:tokens(Str, ":"),
+    Context = #{
+        not_expecting_port => NotExpectingPort,
+        not_expecting_scheme => NotExpectingScheme,
+        default_port => DefaultPort,
+        default_scheme => DefaultScheme,
+        opts => Opts
+    },
+    check_server_parts(Tokens, Context).
+
+check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        opts := Opts
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    #{
+        scheme => check_scheme(Scheme, Opts),
+        hostname => check_hostname(Hostname),
+        port => parse_port(Port)
+    };
+check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        opts := Opts
+    } = Context,
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    case is_integer(DefaultPort) of
+        true ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        false when NotExpectingPort ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname)
+            };
+        false ->
+            throw("missing_port_number")
+    end;
+check_server_parts([Hostname, Port], Context) ->
+    #{
+        not_expecting_port := NotExpectingPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    case is_list(DefaultScheme) of
+        false ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            };
+        true ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            }
+    end;
+check_server_parts([Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    case is_integer(DefaultPort) orelse NotExpectingPort of
+        true ->
+            ok;
+        false ->
+            throw("missing_port_number")
+    end,
+    case is_list(DefaultScheme) orelse NotExpectingScheme of
+        true ->
+            ok;
+        false ->
+            throw("missing_scheme")
+    end,
+    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
+        {true, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {true, false} ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {false, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname)
+            };
+        {false, false} ->
+            #{hostname => check_hostname(Hostname)}
+    end;
+check_server_parts(_Tokens, _Context) ->
+    throw("bad_host_port").
+
+check_scheme(Str, Opts) ->
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    IsSupported = lists:member(Str, SupportedSchemes),
+    case IsSupported of
+        true ->
+            Str;
+        false ->
+            throw("unsupported_scheme")
     end.
 
 check_hostname(Str) ->

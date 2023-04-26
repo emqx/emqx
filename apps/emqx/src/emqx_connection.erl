@@ -111,7 +111,7 @@
     listener :: {Type :: atom(), Name :: atom()},
 
     %% Limiter
-    limiter :: maybe(limiter()),
+    limiter :: limiter(),
 
     %% limiter buffer for overload use
     limiter_buffer :: queue:queue(pending_req()),
@@ -182,10 +182,8 @@
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 
-%% use macro to do compile time limiter's type check
--define(LIMITER_BYTES_IN, bytes_in).
--define(LIMITER_MESSAGE_IN, message_in).
--define(EMPTY_QUEUE, {[], []}).
+-define(LIMITER_BYTES_IN, bytes).
+-define(LIMITER_MESSAGE_IN, messages).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer(
@@ -976,55 +974,61 @@ handle_cast(Req, State) ->
     list(any()),
     state()
 ) -> _.
+
+check_limiter(
+    _Needs,
+    Data,
+    WhenOk,
+    Msgs,
+    #state{limiter = infinity} = State
+) ->
+    WhenOk(Data, Msgs, State);
 check_limiter(
     Needs,
     Data,
     WhenOk,
     Msgs,
-    #state{
-        limiter = Limiter,
-        limiter_timer = LimiterTimer,
-        limiter_buffer = Cache
-    } = State
-) when Limiter =/= undefined ->
-    case LimiterTimer of
-        undefined ->
-            case emqx_limiter_container:check_list(Needs, Limiter) of
-                {ok, Limiter2} ->
-                    WhenOk(Data, Msgs, State#state{limiter = Limiter2});
-                {pause, Time, Limiter2} ->
-                    ?SLOG(debug, #{
-                        msg => "pause_time_dueto_rate_limit",
-                        needs => Needs,
-                        time_in_ms => Time
-                    }),
+    #state{limiter_timer = undefined, limiter = Limiter} = State
+) ->
+    case emqx_limiter_container:check_list(Needs, Limiter) of
+        {ok, Limiter2} ->
+            WhenOk(Data, Msgs, State#state{limiter = Limiter2});
+        {pause, Time, Limiter2} ->
+            ?SLOG(debug, #{
+                msg => "pause_time_dueto_rate_limit",
+                needs => Needs,
+                time_in_ms => Time
+            }),
 
-                    Retry = #retry{
-                        types = [Type || {_, Type} <- Needs],
-                        data = Data,
-                        next = WhenOk
-                    },
+            Retry = #retry{
+                types = [Type || {_, Type} <- Needs],
+                data = Data,
+                next = WhenOk
+            },
 
-                    Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
+            Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
 
-                    TRef = start_timer(Time, limit_timeout),
+            TRef = start_timer(Time, limit_timeout),
 
-                    {ok, State#state{
-                        limiter = Limiter3,
-                        limiter_timer = TRef
-                    }};
-                {drop, Limiter2} ->
-                    {ok, State#state{limiter = Limiter2}}
-            end;
-        _ ->
-            %% if there has a retry timer,
-            %% cache the operation and execute it after the retry is over
-            %% the maximum length of the cache queue is equal to the active_n
-            New = #pending_req{need = Needs, data = Data, next = WhenOk},
-            {ok, State#state{limiter_buffer = queue:in(New, Cache)}}
+            {ok, State#state{
+                limiter = Limiter3,
+                limiter_timer = TRef
+            }};
+        {drop, Limiter2} ->
+            {ok, State#state{limiter = Limiter2}}
     end;
-check_limiter(_, Data, WhenOk, Msgs, State) ->
-    WhenOk(Data, Msgs, State).
+check_limiter(
+    Needs,
+    Data,
+    WhenOk,
+    _Msgs,
+    #state{limiter_buffer = Cache} = State
+) ->
+    %% if there has a retry timer,
+    %% cache the operation and execute it after the retry is over
+    %% the maximum length of the cache queue is equal to the active_n
+    New = #pending_req{need = Needs, data = Data, next = WhenOk},
+    {ok, State#state{limiter_buffer = queue:in(New, Cache)}}.
 
 %% try to perform a retry
 -spec retry_limiter(state()) -> _.

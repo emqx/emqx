@@ -53,34 +53,35 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-http".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(fun union_member_selector/1),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(get) ->
+fields(http_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
-fields(post) ->
+fields(http_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
-desc(get) ->
+desc(http_get) ->
     ?DESC(get);
-desc(post) ->
+desc(http_post) ->
     ?DESC(post);
 desc(_) ->
     undefined.
@@ -158,8 +159,8 @@ request_timeout(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, get),
-        hoconsc:ref(?MODULE, post)
+        hoconsc:ref(?MODULE, http_get),
+        hoconsc:ref(?MODULE, http_post)
     ].
 
 union_member_selector(all_union_members) ->
@@ -168,9 +169,9 @@ union_member_selector({value, Value}) ->
     refs(Value).
 
 refs(#{<<"method">> := <<"get">>}) ->
-    [hoconsc:ref(?MODULE, get)];
+    [hoconsc:ref(?MODULE, http_get)];
 refs(#{<<"method">> := <<"post">>}) ->
-    [hoconsc:ref(?MODULE, post)];
+    [hoconsc:ref(?MODULE, http_post)];
 refs(_) ->
     throw(#{
         field_name => method,
@@ -313,9 +314,9 @@ parse_url(Url) ->
                     BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
                     case string:split(Remaining, "?", leading) of
                         [Path, QueryString] ->
-                            {BaseUrl, Path, QueryString};
+                            {BaseUrl, <<"/", Path/binary>>, QueryString};
                         [Path] ->
-                            {BaseUrl, Path, <<>>}
+                            {BaseUrl, <<"/", Path/binary>>, <<>>}
                     end;
                 [HostPort] ->
                     {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
@@ -356,7 +357,7 @@ generate_request(Credential, #{
     body_template := BodyTemplate
 }) ->
     Headers = maps:to_list(Headers0),
-    Path = emqx_authn_utils:render_str(BasePathTemplate, Credential),
+    Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
     Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
     case Method of
@@ -371,9 +372,9 @@ generate_request(Credential, #{
     end.
 
 append_query(Path, []) ->
-    encode_path(Path);
+    Path;
 append_query(Path, Query) ->
-    encode_path(Path) ++ "?" ++ binary_to_list(qs(Query)).
+    Path ++ "?" ++ binary_to_list(qs(Query)).
 
 qs(KVs) ->
     qs(KVs, []).
@@ -434,10 +435,6 @@ parse_body(ContentType, _) ->
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
-
-encode_path(Path) ->
-    Parts = string:split(Path, "/", all),
-    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 request_for_log(Credential, #{url := Url} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),

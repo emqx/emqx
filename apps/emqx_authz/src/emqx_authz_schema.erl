@@ -54,7 +54,7 @@ type_names() ->
         file,
         http_get,
         http_post,
-        mnesia,
+        builtin_db,
         mongo_single,
         mongo_rs,
         mongo_sharded,
@@ -93,7 +93,7 @@ fields(http_post) ->
             {method, method(post)},
             {headers, fun headers/1}
         ];
-fields(mnesia) ->
+fields(builtin_db) ->
     authz_common_fields(built_in_database);
 fields(mongo_single) ->
     authz_common_fields(mongodb) ++
@@ -191,8 +191,8 @@ desc(http_get) ->
     ?DESC(http_get);
 desc(http_post) ->
     ?DESC(http_post);
-desc(mnesia) ->
-    ?DESC(mnesia);
+desc(builtin_db) ->
+    ?DESC(builtin_db);
 desc(mongo_single) ->
     ?DESC(mongo_single);
 desc(mongo_rs) ->
@@ -459,7 +459,7 @@ select_union_member(#{<<"type">> := <<"http">>} = Value) ->
             })
     end;
 select_union_member(#{<<"type">> := <<"built_in_database">>}) ->
-    ?R_REF(mnesia);
+    ?R_REF(builtin_db);
 select_union_member(#{<<"type">> := Type}) ->
     select_union_member_loop(Type, type_names());
 select_union_member(_) ->

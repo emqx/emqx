@@ -1,34 +1,21 @@
 emqx_bridge_mqtt_schema {
-    config {
-        desc {
-                en: """The config for MQTT Bridges."""
-                zh: """MQTT Bridge 的配置。"""
-        }
-        label: {
-                en: "Config"
-                zh: "配置"
-        }
-    }
-    desc_type {
-                   desc {
-                         en: """The bridge type."""
-                         zh: """Bridge 的类型"""
-                        }
-                   label: {
-                           en: "Bridge Type"
-                           zh: "Bridge 类型"
-                          }
-                  }
 
-    desc_name {
-                   desc {
-                         en: """Bridge name, used as a human-readable description of the bridge."""
-                         zh: """Bridge 名字，Bridge 的可读描述"""
-                        }
-                   label: {
-                           en: "Bridge Name"
-                           zh: "Bridge 名字"
-                          }
-                  }
+config.desc:
+"""The config for MQTT Bridges."""
+
+config.label:
+"""Config"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The bridge type."""
+
+desc_type.label:
+"""Bridge Type"""
 
 }

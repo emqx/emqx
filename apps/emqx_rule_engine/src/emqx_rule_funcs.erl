@@ -227,7 +227,18 @@
     now_timestamp/1,
     format_date/3,
     format_date/4,
+    date_to_unix_ts/3,
     date_to_unix_ts/4
+]).
+
+%% MongoDB specific date functions. These functions return a date tuple. The
+%% MongoDB bridge converts such date tuples to a MongoDB date type. The
+%% following functions are therefore only useful for rules with at least one
+%% MongoDB action.
+-export([
+    mongo_date/0,
+    mongo_date/1,
+    mongo_date/2
 ]).
 
 %% Proc Dict Func
@@ -1085,6 +1096,9 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
         )
     ).
 
+date_to_unix_ts(TimeUnit, FormatString, InputString) ->
+    date_to_unix_ts(TimeUnit, "Z", FormatString, InputString).
+
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     emqx_rule_date:parse_date(
         time_unit(TimeUnit),
@@ -1135,3 +1149,21 @@ function_literal(Fun, [FArg | Args]) when is_atom(Fun), is_list(Args) ->
     ) ++ ")";
 function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.
+
+mongo_date() ->
+    erlang:timestamp().
+
+mongo_date(MillisecondsTimestamp) ->
+    convert_timestamp(MillisecondsTimestamp).
+
+mongo_date(Timestamp, Unit) ->
+    InsertedTimeUnit = time_unit(Unit),
+    ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
+    convert_timestamp(ScaledEpoch).
+
+convert_timestamp(MillisecondsTimestamp) ->
+    MicroTimestamp = MillisecondsTimestamp * 1000,
+    MegaSecs = MicroTimestamp div 1000_000_000_000,
+    Secs = MicroTimestamp div 1000_000 - MegaSecs * 1000_000,
+    MicroSecs = MicroTimestamp rem 1000_000,
+    {MegaSecs, Secs, MicroSecs}.

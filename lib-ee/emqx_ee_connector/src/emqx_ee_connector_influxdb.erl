@@ -294,7 +294,7 @@ client_config(
         server := Server
     }
 ) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?INFLUXDB_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?INFLUXDB_HOST_OPTIONS),
     [
         {host, str(Host)},
         {port, Port},

@@ -10,5 +10,4 @@ tdengine
 clickhouse
 dynamo
 rocketmq
-cassandra
 sqlserver

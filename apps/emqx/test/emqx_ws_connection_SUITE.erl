@@ -443,7 +443,12 @@ t_websocket_info_deliver(_) ->
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
-    LimiterT = init_limiter(),
+    {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
+    LimiterT = init_limiter(#{
+        bytes => bucket_cfg(),
+        messages => bucket_cfg(),
+        client => #{bytes => client_cfg(Rate)}
+    }),
     Next = fun emqx_ws_connection:when_msg_in/3,
     Limiter = emqx_limiter_container:set_retry_context({retry, [], [], Next}, LimiterT),
     Event = {timeout, Ref, limit_timeout},
@@ -509,16 +514,16 @@ t_handle_timeout_emit_stats(_) ->
 t_ensure_rate_limit(_) ->
     {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
     Limiter = init_limiter(#{
-        bytes_in => bucket_cfg(),
-        message_in => bucket_cfg(),
-        client => #{bytes_in => client_cfg(Rate)}
+        bytes => bucket_cfg(),
+        messages => bucket_cfg(),
+        client => #{bytes => client_cfg(Rate)}
     }),
     St = st(#{limiter => Limiter}),
 
     %% must bigger than value in emqx_ratelimit_SUITE
     {ok, Need} = emqx_limiter_schema:to_capacity("1GB"),
     St1 = ?ws_conn:check_limiter(
-        [{Need, bytes_in}],
+        [{Need, bytes}],
         [],
         fun(_, _, S) -> S end,
         [],
@@ -699,23 +704,21 @@ init_limiter() ->
     init_limiter(limiter_cfg()).
 
 init_limiter(LimiterCfg) ->
-    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], LimiterCfg).
+    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes, messages], LimiterCfg).
 
 limiter_cfg() ->
     Cfg = bucket_cfg(),
     Client = client_cfg(),
-    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
+    #{bytes => Cfg, messages => Cfg, client => #{bytes => Client, messages => Client}}.
 
 client_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
-    client_cfg(Infinity).
+    client_cfg(infinity).
 
 client_cfg(Rate) ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     #{
         rate => Rate,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
@@ -723,14 +726,13 @@ client_cfg(Rate) ->
     }.
 
 bucket_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
-    #{rate => Infinity, initial => 0, capacity => Infinity}.
+    #{rate => infinity, initial => 0, burst => 0}.
 
 add_bucket() ->
     Cfg = bucket_cfg(),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes, Cfg),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, messages, Cfg).
 
 del_bucket() ->
-    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
-    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).
+    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes),
+    emqx_limiter_server:del_bucket(?LIMITER_ID, messages).

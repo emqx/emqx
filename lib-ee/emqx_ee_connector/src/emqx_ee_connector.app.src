@@ -1,6 +1,6 @@
 {application, emqx_ee_connector, [
     {description, "EMQX Enterprise connectors"},
-    {vsn, "0.1.10"},
+    {vsn, "0.1.11"},
     {registered, []},
     {applications, [
         kernel,
@@ -12,7 +12,6 @@
         clickhouse,
         erlcloud,
         rocketmq,
-        ecql,
         odbc
     ]},
     {env, []},

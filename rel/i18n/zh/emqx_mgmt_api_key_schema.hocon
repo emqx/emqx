@@ -1,0 +1,19 @@
+emqx_mgmt_api_key_schema {
+
+api_key.desc:
+"""API 密钥， 可用于请求除管理 API 密钥及 Dashboard 用户管理 API 的其它接口"""
+
+api_key.label:
+"""API 密钥"""
+
+bootstrap_file.desc:
+"""用于在启动 emqx 时，添加 API 密钥，其格式为：
+      ```
+      7e729ae70d23144b:2QILI9AcQ9BYlVqLDHQNWN2saIjBV4egr1CZneTNKr9CpK
+      ec3907f865805db0:Ee3taYltUKtoBVD9C3XjQl9C6NXheip8Z9B69BpUv5JxVHL
+      ```"""
+
+bootstrap_file.label:
+"""API 密钥初始化文件"""
+
+}

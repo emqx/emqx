@@ -182,12 +182,11 @@ on_start(
         {options, init_topology_options(maps:to_list(Topology), [])},
         {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Collection = maps:get(collection, Config, <<"mqtt">>),
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
         ok ->
             {ok, #{
-                poolname => PoolName,
+                pool_name => InstId,
                 type => Type,
                 collection => Collection
             }};
@@ -195,17 +194,17 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_mongodb_connector",
         connector => InstId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(
     InstId,
     {send_message, Document},
-    #{poolname := PoolName, collection := Collection} = State
+    #{pool_name := PoolName, collection := Collection} = State
 ) ->
     Request = {insert, Collection, Document},
     ?TRACE(
@@ -234,7 +233,7 @@ on_query(
 on_query(
     InstId,
     {Action, Collection, Filter, Projector},
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     Request = {Action, Collection, Filter, Projector},
     ?TRACE(
@@ -263,8 +262,7 @@ on_query(
             {ok, Result}
     end.
 
--dialyzer({nowarn_function, [on_get_status/2]}).
-on_get_status(InstId, #{poolname := PoolName} = _State) ->
+on_get_status(InstId, #{pool_name := PoolName}) ->
     case health_check(PoolName) of
         true ->
             ?tp(debug, emqx_connector_mongo_health_check, #{
@@ -281,8 +279,10 @@ on_get_status(InstId, #{poolname := PoolName} = _State) ->
     end.
 
 health_check(PoolName) ->
-    emqx_plugin_libs_pool:health_check_ecpool_workers(
-        PoolName, fun ?MODULE:check_worker_health/1, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
+    emqx_resource_pool:health_check_workers(
+        PoolName,
+        fun ?MODULE:check_worker_health/1,
+        ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
     ).
 
 %% ===================================================================
@@ -537,4 +537,9 @@ format_hosts(Hosts) ->
     lists:map(fun format_host/1, Hosts).
 
 parse_servers(HoconValue) ->
-    emqx_schema:parse_servers(HoconValue, ?MONGO_HOST_OPTIONS).
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(HoconValue, ?MONGO_HOST_OPTIONS)
+    ).

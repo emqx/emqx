@@ -62,6 +62,7 @@ set_callback_mode(Mode) ->
     persistent_term:put(?CM_KEY, Mode).
 
 on_start(_InstId, #{create_error := true}) ->
+    ?tp(connector_demo_start_error, #{}),
     error("some error");
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
@@ -144,7 +145,11 @@ on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
             Result
     after 1000 ->
         {error, timeout}
-    end.
+    end;
+on_query(_InstId, {sync_sleep_before_reply, SleepFor}, _State) ->
+    %% This simulates a slow sync call
+    timer:sleep(SleepFor),
+    {ok, slept}.
 
 on_query_async(_InstId, block, ReplyFun, #{pid := Pid}) ->
     Pid ! {block, ReplyFun},
@@ -239,6 +244,7 @@ batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}
     {ok, Pid}.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
+    ?tp(connector_demo_health_check_error, #{}),
     disconnected;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),

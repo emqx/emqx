@@ -31,7 +31,7 @@ It helps to shut down EMQX broker gracefully when it receives `SIGTERM` signal.
 
 Currently `emqx_machine` boots the business apps before starting autocluster, so a fresh node joining the cluster actually starts business application twice: first in the singleton mode, and then in clustered mode.
 
-# Documention links
+# Documentation links
 
 Configuration: [node.global_gc_interval](https://www.emqx.io/docs/en/v5.0/configuration/configuration-manual.html#node-and-cookie)
 

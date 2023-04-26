@@ -764,6 +764,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                 load_apps => LoadApps,
                 apps => Apps,
                 env => Env,
+                join_to => JoinTo,
                 start_apps => StartApps
             }
         ]

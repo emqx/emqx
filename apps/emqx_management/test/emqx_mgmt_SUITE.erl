@@ -36,16 +36,16 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
 
 init_per_testcase(TestCase, Config) ->
-    meck:expect(mria, running_nodes, 0, [node()]),
+    meck:expect(emqx, running_nodes, 0, [node()]),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config).
 
 end_per_testcase(TestCase, Config) ->
-    meck:unload(mria),
+    meck:unload(emqx),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 t_list_nodes(init, Config) ->
     meck:expect(
-        mria,
+        emqx,
         cluster_nodes,
         fun
             (running) -> [node()];
@@ -125,7 +125,7 @@ t_lookup_client(_Config) ->
         emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN)
     ),
     ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)),
-    meck:expect(mria, running_nodes, 0, [node(), 'fake@nonode']),
+    meck:expect(emqx, running_nodes, 0, [node(), 'fake@nonode']),
     ?assertMatch(
         [_ | {error, nodedown}], emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN)
     ).
@@ -188,7 +188,7 @@ t_clean_cache(_Config) ->
         {error, _},
         emqx_mgmt:clean_pem_cache_all()
     ),
-    meck:expect(mria, running_nodes, 0, [node(), 'fake@nonode']),
+    meck:expect(emqx, running_nodes, 0, [node(), 'fake@nonode']),
     ?assertMatch(
         {error, [{'fake@nonode', {error, _}}]},
         emqx_mgmt:clean_authz_cache_all()
