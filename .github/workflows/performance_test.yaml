@@ -24,14 +24,14 @@ jobs:
       with:
         fetch-depth: 0
         ref: ${{ github.event.inputs.ref }}
+    - name: Work around https://github.com/actions/checkout/issues/766
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - id: prepare
       run: |
         echo "EMQX_NAME=emqx" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
         echo "BENCH_ID=$(date --utc +%F)/emqx-$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
-    - name: Work around https://github.com/actions/checkout/issues/766
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Build deb package
       run: |
         make ${EMQX_NAME}-pkg
