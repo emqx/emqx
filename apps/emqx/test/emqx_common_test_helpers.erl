@@ -271,6 +271,7 @@ app_schema(App) ->
 mustache_vars(App, Opts) ->
     ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
     Defaults = #{
+        node_cookie => atom_to_list(erlang:get_cookie()),
         platform_data_dir => app_path(App, "data"),
         platform_etc_dir => app_path(App, "etc"),
         platform_log_dir => app_path(App, "log")
@@ -667,6 +668,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
     SlaveMod = maps:get(peer_mod, Opts, ct_slave),
     Node = node_name(Name),
     put_peer_mod(Node, SlaveMod),
+    Cookie = atom_to_list(erlang:get_cookie()),
     DoStart =
         fun() ->
             case SlaveMod of
@@ -678,7 +680,11 @@ start_slave(Name, Opts) when is_map(Opts) ->
                             {monitor_master, true},
                             {init_timeout, 20_000},
                             {startup_timeout, 20_000},
-                            {erl_flags, erl_flags()}
+                            {erl_flags, erl_flags()},
+                            {env, [
+                                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
+                                {"EMQX_NODE__COOKIE", Cookie}
+                            ]}
                         ]
                     );
                 slave ->
