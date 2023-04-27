@@ -14,6 +14,9 @@ on:
       - e*
   pull_request:
 
+env:
+  IS_CI: "yes"
+
 jobs:
   build-matrix:
     runs-on: ubuntu-22.04
