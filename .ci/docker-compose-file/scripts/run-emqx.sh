@@ -20,8 +20,6 @@ esac
 
 {
   echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_"
-  echo "EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s"
-  echo "EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10"
   echo "EMQX_AUTHORIZATION__SOURCES=[]"
   echo "EMQX_AUTHORIZATION__NO_MATCH=allow"
 } >> .ci/docker-compose-file/conf.cluster.env
