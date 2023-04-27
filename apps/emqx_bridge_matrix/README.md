@@ -1,7 +1,6 @@
 # EMQX MatrixDB Bridge
 
-[MatrixDB](http://matrixdb.univ-lyon1.fr/) is a biological database focused on
-molecular interactions between extracellular proteins and polysaccharides.
+[YMatrix](https://www.ymatrix.cn/) is a hyper-converged database product developed by YMatrix based on the PostgreSQL / Greenplum classic open source database. In addition to being able to handle time series scenarios with ease, it also supports classic scenarios such as online transaction processing (OLTP) and online analytical processing (OLAP).
 
 The application is used to connect EMQX and MatrixDB.
 User can create a rule and easily ingest IoT data into MatrixDB by leveraging
