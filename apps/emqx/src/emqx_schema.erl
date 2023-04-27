@@ -2794,6 +2794,7 @@ authentication(Which) ->
     hoconsc:mk(Type, #{
         desc => Desc,
         converter => fun ensure_array/2,
+        default => [],
         importance => Importance
     }).
 

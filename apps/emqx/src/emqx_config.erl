@@ -35,7 +35,6 @@
     save_to_config_map/2,
     save_to_override_conf/3
 ]).
--export([raw_conf_with_default/4]).
 -export([merge_envs/2]).
 
 -export([
@@ -329,7 +328,7 @@ init_load(SchemaMod, ConfFiles) ->
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
     HasDeprecatedFile = has_deprecated_file(),
-    RawConf = parse_hocon(HasDeprecatedFile, Conf),
+    RawConf = load_config_files(HasDeprecatedFile, Conf),
     init_load(HasDeprecatedFile, SchemaMod, RawConf, Opts).
 
 init_load(true, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
@@ -339,18 +338,16 @@ init_load(true, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
     Overrides = read_override_confs(),
     RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
-    RootNames = get_root_names(),
-    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
+    RawConfAll = maybe_fill_defaults(SchemaMod, RawConfWithOverrides, Opts),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConfAll);
 init_load(false, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    RootNames = get_root_names(),
     %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
-    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithEnvs, Opts),
+    RawConfAll = maybe_fill_defaults(SchemaMod, RawConfWithEnvs, Opts),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
     save_to_app_env(AppEnvs),
@@ -363,47 +360,53 @@ read_override_confs() ->
     hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
-raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
-    Fun = fun(Name, Acc) ->
-        case maps:is_key(Name, RawConf) of
-            true ->
-                Acc;
-            false ->
-                case lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)) of
-                    false ->
-                        Acc;
-                    {_, {_, Schema}} ->
-                        Acc#{Name => schema_default(Schema)}
-                end
-        end
-    end,
-    RawDefault = lists:foldl(Fun, #{}, RootNames),
-    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{}));
-raw_conf_with_default(_SchemaMod, _RootNames, RawConf, _Opts) ->
+maybe_fill_defaults(SchemaMod, RawConf0, #{raw_with_default := true}) ->
+    RootSchemas = hocon_schema:roots(SchemaMod),
+    %% the roots which are missing from the loaded configs
+    MissingRoots = lists:filtermap(
+        fun({BinName, Sc}) ->
+            case maps:is_key(BinName, RawConf0) of
+                true -> false;
+                false -> {true, Sc}
+            end
+        end,
+        RootSchemas
+    ),
+    RawConf = lists:foldl(
+        fun({RootName, Schema}, Acc) ->
+            Acc#{bin(RootName) => seed_default(Schema)}
+        end,
+        RawConf0,
+        MissingRoots
+    ),
+    fill_defaults(RawConf);
+maybe_fill_defaults(_SchemaMod, RawConf, _Opts) ->
     RawConf.
 
-schema_default(Schema) ->
-    case hocon_schema:field_schema(Schema, type) of
-        ?ARRAY(_) ->
-            [];
-        _ ->
-            #{}
+%% if a root is not found in the raw conf, fill it with default values.
+seed_default(Schema) ->
+    case hocon_schema:field_schema(Schema, default) of
+        undefined ->
+            %% so far all roots without a default value are objects
+            #{};
+        Value ->
+            Value
     end.
 
-parse_hocon(HasDeprecatedFile, Conf) ->
+load_config_files(HasDeprecatedFile, Conf) ->
     IncDirs = include_dirs(),
     case do_parse_hocon(HasDeprecatedFile, Conf, IncDirs) of
         {ok, HoconMap} ->
             HoconMap;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_load_hocon_file",
+                msg => "failed_to_load_config_file",
                 reason => Reason,
                 pwd => file:get_cwd(),
                 include_dirs => IncDirs,
                 config_file => Conf
             }),
-            error(failed_to_load_hocon_file)
+            error(failed_to_load_config_file)
     end.
 
 do_parse_hocon(true, Conf, IncDirs) ->
