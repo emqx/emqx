@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authn.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     create_resource/3,
@@ -44,13 +45,13 @@
     default_headers_no_content_type/0
 ]).
 
--define(AUTHN_PLACEHOLDERS, [
-    <<?VAR_USERNAME>>,
-    <<?VAR_CLIENTID>>,
-    <<?VAR_PASSWORD>>,
-    <<?VAR_PEERHOST>>,
-    <<?VAR_CERT_SUBJECT>>,
-    <<?VAR_CERT_CN_NAME>>
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PASSWORD,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_CERT_CN_NAME
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
@@ -108,21 +109,55 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
 
 parse_deep(Template) ->
     Result = emqx_connector_template:parse_deep(Template),
-    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
-    Result.
+    handle_disallowed_placeholders(Result, {deep, Template}).
 
 parse_str(Template) ->
     Result = emqx_connector_template:parse(Template),
-    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
-    Result.
+    handle_disallowed_placeholders(Result, {string, Template}).
 
 parse_sql(Template, ReplaceWith) ->
     {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    ok = emqx_connector_template:validate(?AUTHN_PLACEHOLDERS, Result),
-    {Statement, Result}.
+    {Statement, handle_disallowed_placeholders(Result, {string, Template})}.
+
+handle_disallowed_placeholders(Template, Source) ->
+    case emqx_connector_template:validate(?ALLOWED_VARS, Template) of
+        ok ->
+            Template;
+        {error, Disallowed} ->
+            ?tp(warning, "authn_template_invalid", #{
+                template => Source,
+                reason => Disallowed,
+                allowed => #{placeholders => ?ALLOWED_VARS},
+                notice =>
+                    "Disallowed placeholders will be rendered as is."
+                    " However, consider using `$${...}` escaping for literal `${...}` where"
+                    " needed to avoid unexpected results."
+            }),
+            Result = prerender_disallowed_placeholders(Template),
+            case Source of
+                {string, _} ->
+                    emqx_connector_template:parse(Result);
+                {deep, _} ->
+                    emqx_connector_template:parse_deep(Result)
+            end
+    end.
+
+prerender_disallowed_placeholders(Template) ->
+    {Result, _} = emqx_connector_template:render(Template, #{}, #{
+        var_trans => fun(Name, _) ->
+            % NOTE
+            % Rendering disallowed placeholders in escaped form, which will then
+            % parse as a literal string.
+            case lists:member(Name, ?ALLOWED_VARS) of
+                true -> "${" ++ Name ++ "}";
+                false -> "$${" ++ Name ++ "}"
+            end
+        end
+    }),
+    Result.
 
 render_deep(Template, Credential) ->
     % NOTE
@@ -130,7 +165,7 @@ render_deep(Template, Credential) ->
     {Term, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{var_trans => fun handle_var/2}
+        #{var_trans => fun to_string/2}
     ),
     Term.
 
@@ -140,7 +175,7 @@ render_str(Template, Credential) ->
     {String, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{var_trans => fun handle_var/2}
+        #{var_trans => fun to_string/2}
     ),
     unicode:characters_to_binary(String).
 
@@ -150,7 +185,7 @@ render_urlencoded_str(Template, Credential) ->
     {String, _Errors} = emqx_connector_template:render(
         Template,
         mapping_credential(Credential),
-        #{var_trans => fun urlencode_var/2}
+        #{var_trans => fun to_urlencoded_string/2}
     ),
     unicode:characters_to_binary(String).
 
@@ -160,7 +195,7 @@ render_sql_params(ParamList, Credential) ->
     {Row, _Errors} = emqx_connector_template:render(
         ParamList,
         mapping_credential(Credential),
-        #{var_trans => fun handle_sql_var/2}
+        #{var_trans => fun to_sql_valaue/2}
     ),
     Row.
 
@@ -283,22 +318,24 @@ without_password(Credential, [Name | Rest]) ->
             without_password(Credential, Rest)
     end.
 
-urlencode_var(Var, Value) ->
-    emqx_http_lib:uri_encode(handle_var(Var, Value)).
+to_urlencoded_string(Name, Value) ->
+    emqx_http_lib:uri_encode(to_string(Name, Value)).
 
-handle_var(_, undefined) ->
-    <<>>;
-handle_var([<<"peerhost">>], PeerHost) ->
-    emqx_connector_template:to_string(inet:ntoa(PeerHost));
-handle_var(_, Value) ->
-    emqx_connector_template:to_string(Value).
+to_string(Name, Value) ->
+    emqx_connector_template:to_string(render_var(Name, Value)).
 
-handle_sql_var(_, undefined) ->
+to_sql_valaue(Name, Value) ->
+    emqx_connector_sql:to_sql_value(render_var(Name, Value)).
+
+render_var(_, undefined) ->
+    % NOTE
+    % Any allowed but undefined binding will be replaced with empty string, even when
+    % rendering SQL values.
     <<>>;
-handle_sql_var([<<"peerhost">>], PeerHost) ->
-    emqx_connector_sql:to_sql_value(inet:ntoa(PeerHost));
-handle_sql_var(_, Value) ->
-    emqx_connector_sql:to_sql_value(Value).
+render_var(?VAR_PEERHOST, Value) ->
+    inet:ntoa(Value);
+render_var(_Name, Value) ->
+    Value.
 
 mapping_credential(C = #{cn := CN, dn := DN}) ->
     C#{cert_common_name => CN, cert_subject => DN};

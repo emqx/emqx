@@ -16,7 +16,9 @@
 
 -module(emqx_authz_utils).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authz.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     cleanup_resources/0,
@@ -109,21 +111,56 @@ update_config(Path, ConfigRequest) ->
 
 parse_deep(Template, PlaceHolders) ->
     Result = emqx_connector_template:parse_deep(Template),
-    ok = emqx_connector_template:validate(PlaceHolders, Result),
-    Result.
+    handle_disallowed_placeholders(Result, {deep, Template}, PlaceHolders).
 
 parse_str(Template, PlaceHolders) ->
     Result = emqx_connector_template:parse(Template),
-    ok = emqx_connector_template:validate(PlaceHolders, Result),
-    Result.
+    handle_disallowed_placeholders(Result, {string, Template}, PlaceHolders).
 
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
     {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    ok = emqx_connector_template:validate(PlaceHolders, Result),
-    {Statement, Result}.
+    FResult = handle_disallowed_placeholders(Result, {string, Template}, PlaceHolders),
+    {Statement, FResult}.
+
+handle_disallowed_placeholders(Template, Source, Allowed) ->
+    case emqx_connector_template:validate(Allowed, Template) of
+        ok ->
+            Template;
+        {error, Disallowed} ->
+            ?tp(warning, "authz_template_invalid", #{
+                template => Source,
+                reason => Disallowed,
+                allowed => #{placeholders => Allowed},
+                notice =>
+                    "Disallowed placeholders will be rendered as is."
+                    " However, consider using `$${...}` escaping for literal `${...}` where"
+                    " needed to avoid unexpected results."
+            }),
+            Result = prerender_disallowed_placeholders(Template, Allowed),
+            case Source of
+                {string, _} ->
+                    emqx_connector_template:parse(Result);
+                {deep, _} ->
+                    emqx_connector_template:parse_deep(Result)
+            end
+    end.
+
+prerender_disallowed_placeholders(Template, Allowed) ->
+    {Result, _} = emqx_connector_template:render(Template, #{}, #{
+        var_trans => fun(Name, _) ->
+            % NOTE
+            % Rendering disallowed placeholders in escaped form, which will then
+            % parse as a literal string.
+            case lists:member(Name, Allowed) of
+                true -> "${" ++ Name ++ "}";
+                false -> "$${" ++ Name ++ "}"
+            end
+        end
+    }),
+    Result.
 
 render_deep(Template, Values) ->
     % NOTE
@@ -131,7 +168,7 @@ render_deep(Template, Values) ->
     {Term, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{var_trans => fun handle_var/2}
+        #{var_trans => fun to_string/2}
     ),
     Term.
 
@@ -141,7 +178,7 @@ render_str(Template, Values) ->
     {String, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{var_trans => fun handle_var/2}
+        #{var_trans => fun to_string/2}
     ),
     unicode:characters_to_binary(String).
 
@@ -151,7 +188,7 @@ render_urlencoded_str(Template, Values) ->
     {String, _Errors} = emqx_connector_template:render(
         Template,
         client_vars(Values),
-        #{var_trans => fun urlencode_var/2}
+        #{var_trans => fun to_urlencoded_string/2}
     ),
     unicode:characters_to_binary(String).
 
@@ -161,7 +198,7 @@ render_sql_params(ParamList, Values) ->
     {Row, _Errors} = emqx_connector_template:render(
         ParamList,
         client_vars(Values),
-        #{var_trans => fun handle_sql_var/2}
+        #{var_trans => fun to_sql_value/2}
     ),
     Row.
 
@@ -229,22 +266,24 @@ convert_client_var({dn, DN}) -> {cert_subject, DN};
 convert_client_var({protocol, Proto}) -> {proto_name, Proto};
 convert_client_var(Other) -> Other.
 
-urlencode_var(Var, Value) ->
-    emqx_http_lib:uri_encode(handle_var(Var, Value)).
+to_urlencoded_string(Name, Value) ->
+    emqx_http_lib:uri_encode(to_string(Name, Value)).
 
-handle_var(_, undefined) ->
-    <<>>;
-handle_var([<<"peerhost">>], IpAddr) ->
-    inet_parse:ntoa(IpAddr);
-handle_var(_Name, Value) ->
-    emqx_connector_template:to_string(Value).
+to_string(Name, Value) ->
+    emqx_connector_template:to_string(render_var(Name, Value)).
 
-handle_sql_var(_, undefined) ->
+to_sql_value(Name, Value) ->
+    emqx_connector_sql:to_sql_value(render_var(Name, Value)).
+
+render_var(_, undefined) ->
+    % NOTE
+    % Any allowed but undefined binding will be replaced with empty string, even when
+    % rendering SQL values.
     <<>>;
-handle_sql_var([<<"peerhost">>], IpAddr) ->
-    inet_parse:ntoa(IpAddr);
-handle_sql_var(_Name, Value) ->
-    emqx_connector_sql:to_sql_value(Value).
+render_var(?VAR_PEERHOST, Value) ->
+    inet:ntoa(Value);
+render_var(_Name, Value) ->
+    Value.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

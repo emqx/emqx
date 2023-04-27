@@ -38,7 +38,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
+-define(ALLOWED_VARS, [
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_PEERHOST,
@@ -50,9 +50,9 @@
     ?VAR_CERT_CN_NAME
 ]).
 
--define(PLACEHOLDERS_FOR_RICH_ACTIONS, [
-    <<?VAR_QOS>>,
-    <<?VAR_RETAIN>>
+-define(ALLOWED_VARS_RICH_ACTIONS, [
+    ?VAR_QOS,
+    ?VAR_RETAIN
 ]).
 
 description() ->
@@ -157,14 +157,14 @@ parse_config(
         method => Method,
         base_url => BaseUrl,
         headers => Headers,
-        base_path_templete => emqx_authz_utils:parse_str(Path, placeholders()),
+        base_path_templete => emqx_authz_utils:parse_str(Path, allowed_vars()),
         base_query_template => emqx_authz_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query)),
-            placeholders()
+            allowed_vars()
         ),
         body_template => emqx_authz_utils:parse_deep(
             maps:to_list(maps:get(body, Conf, #{})),
-            placeholders()
+            allowed_vars()
         ),
         request_timeout => ReqTimeout,
         %% pool_type default value `random`
@@ -260,10 +260,10 @@ to_bin(B) when is_binary(B) -> B;
 to_bin(L) when is_list(L) -> list_to_binary(L);
 to_bin(X) -> X.
 
-placeholders() ->
-    placeholders(emqx_authz:feature_available(rich_actions)).
+allowed_vars() ->
+    allowed_vars(emqx_authz:feature_available(rich_actions)).
 
-placeholders(true) ->
-    ?PLACEHOLDERS ++ ?PLACEHOLDERS_FOR_RICH_ACTIONS;
-placeholders(false) ->
-    ?PLACEHOLDERS.
+allowed_vars(true) ->
+    ?ALLOWED_VARS ++ ?ALLOWED_VARS_RICH_ACTIONS;
+allowed_vars(false) ->
+    ?ALLOWED_VARS.
