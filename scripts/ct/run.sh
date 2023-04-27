@@ -47,7 +47,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         --app)
-            WHICH_APP="$2"
+            WHICH_APP="${2%/}"
             shift 2
             ;;
         --only-up)
