@@ -441,6 +441,7 @@ post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefin
     start_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
+    ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
     case NewConf of
         #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
         _ -> ok
@@ -448,6 +449,7 @@ post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf
 post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
     ok;
 post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
+    ok = unregister_ocsp_stapling_refresh(Type, Name),
     case stop_listener(Type, Name, OldConf) of
         ok ->
             _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
@@ -460,10 +462,18 @@ post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldCo
     #{enabled := NewEnabled} = NewConf,
     #{enabled := OldEnabled} = OldConf,
     case {NewEnabled, OldEnabled} of
-        {true, true} -> restart_listener(Type, Name, {OldConf, NewConf});
-        {true, false} -> start_listener(Type, Name, NewConf);
-        {false, true} -> stop_listener(Type, Name, OldConf);
-        {false, false} -> stop_listener(Type, Name, OldConf)
+        {true, true} ->
+            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+            restart_listener(Type, Name, {OldConf, NewConf});
+        {true, false} ->
+            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+            start_listener(Type, Name, NewConf);
+        {false, true} ->
+            ok = unregister_ocsp_stapling_refresh(Type, Name),
+            stop_listener(Type, Name, OldConf);
+        {false, false} ->
+            ok = unregister_ocsp_stapling_refresh(Type, Name),
+            stop_listener(Type, Name, OldConf)
     end;
 post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
@@ -813,3 +823,16 @@ inject_crl_config(
     };
 inject_crl_config(Conf) ->
     Conf.
+
+maybe_unregister_ocsp_stapling_refresh(
+    ssl = Type, Name, #{ssl_options := #{ocsp := #{enable_ocsp_stapling := false}}} = _Conf
+) ->
+    unregister_ocsp_stapling_refresh(Type, Name),
+    ok;
+maybe_unregister_ocsp_stapling_refresh(_Type, _Name, _Conf) ->
+    ok.
+
+unregister_ocsp_stapling_refresh(Type, Name) ->
+    ListenerId = listener_id(Type, Name),
+    emqx_ocsp_cache:unregister_listener(ListenerId),
+    ok.
