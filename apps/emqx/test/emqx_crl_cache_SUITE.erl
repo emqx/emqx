@@ -35,6 +35,7 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx),
+    {ok, _} = application:ensure_all_started(ssl),
     emqx_config:save_schema_mod_and_names(emqx_schema),
     emqx_common_test_helpers:boot_modules(all),
     Config.
@@ -328,7 +329,15 @@ drain_msgs() ->
 
 clear_crl_cache() ->
     %% reset the CRL cache
+    Ref = monitor(process, whereis(ssl_manager)),
     exit(whereis(ssl_manager), kill),
+    receive
+        {'DOWN', Ref, process, _, _} ->
+            ok
+    after 1_000 ->
+        ct:fail("ssl_manager didn't die")
+    end,
+    ensure_ssl_manager_alive(),
     ok.
 
 force_cacertfile(Cacertfile) ->
@@ -382,7 +391,6 @@ setup_crl_options(Config, #{is_cached := IsCached} = Opts) ->
         false ->
             %% ensure cache is empty
             clear_crl_cache(),
-            ct:sleep(200),
             ok
     end,
     drain_msgs(),
@@ -457,6 +465,13 @@ of_kinds(Trace0, Kinds0) ->
     lists:filter(
         fun(#{?snk_kind := K}) -> sets:is_element(K, Kinds) end,
         Trace0
+    ).
+
+ensure_ssl_manager_alive() ->
+    ?retry(
+        _Sleep0 = 200,
+        _Attempts0 = 50,
+        true = is_pid(whereis(ssl_manager))
     ).
 
 %%--------------------------------------------------------------------
