@@ -2424,9 +2424,9 @@ client_ssl_opts_schema(Defaults) ->
         ].
 
 default_tls_vsns(dtls_all_available) ->
-    emqx_tls_lib:available_versions(dtls);
+    emqx_tls_lib:available_versions(dtls) -- [dtlsv1];
 default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:available_versions(tls).
+    emqx_tls_lib:available_versions(tls) -- ['tlsv1.1', tlsv1].
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
