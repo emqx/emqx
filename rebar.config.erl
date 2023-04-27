@@ -94,6 +94,8 @@ is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
 is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
 is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
+is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
+is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -470,6 +472,8 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_rocketmq,
         emqx_bridge_tdengine,
         emqx_bridge_timescale,
+        emqx_oracle,
+        emqx_bridge_oracle,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->

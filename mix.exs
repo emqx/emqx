@@ -170,7 +170,9 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_rocketmq,
       :emqx_bridge_tdengine,
       :emqx_bridge_timescale,
-      :emqx_bridge_pulsar
+      :emqx_bridge_pulsar,
+      :emqx_oracle,
+      :emqx_bridge_oracle
     ])
   end
 
@@ -377,6 +379,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_rocketmq: :permanent,
           emqx_bridge_tdengine: :permanent,
           emqx_bridge_timescale: :permanent,
+          emqx_oracle: :permanent,
+          emqx_bridge_oracle: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
         else: []
