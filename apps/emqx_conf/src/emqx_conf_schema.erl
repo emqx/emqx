@@ -1199,7 +1199,7 @@ log_handler_common_confs(Enable) ->
     ].
 
 crash_dump_file_default() ->
-    case os:getenv("RUNNER_LOG_DIR") of
+    case os:getenv("EMQX_LOG_DIR") of
         false ->
             %% testing, or running emqx app as deps
             <<"log/erl_crash.dump">>;

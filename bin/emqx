@@ -304,7 +304,7 @@ if [ "$ES" -ne 0 ]; then
 fi
 
 # Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
+mkdir -p "$EMQX_LOG_DIR"
 
 # turn off debug as this is static
 set +x
@@ -757,7 +757,7 @@ generate_config() {
     local node_name="$2"
     ## Delete the *.siz files first or it can't start after
     ## changing the config 'log.rotation.size'
-    rm -f "${RUNNER_LOG_DIR}"/*.siz
+    rm -f "${EMQX_LOG_DIR}"/*.siz
 
     ## timestamp for each generation
     local NOW_TIME
@@ -979,7 +979,7 @@ diagnose_boot_failure_and_die() {
     local ps_line
     ps_line="$(find_emqx_process)"
     if [ -z "$ps_line" ]; then
-        echo "Find more information in the latest log file: ${RUNNER_LOG_DIR}/erlang.log.*"
+        echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
         exit 1
     fi
     if ! relx_nodetool "ping" > /dev/null; then
@@ -990,7 +990,7 @@ diagnose_boot_failure_and_die() {
     fi
     if ! relx_nodetool 'eval' 'true = emqx:is_running()' > /dev/null; then
         logerr "$NAME node is started, but failed to complete the boot sequence in time."
-        echo "Please collect the logs in ${RUNNER_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
+        echo "Please collect the logs in ${EMQX_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
         pipe_shutdown
         exit 3
     fi
@@ -1065,7 +1065,7 @@ case "${COMMAND}" in
 
         mkdir -p "$PIPE_DIR"
 
-        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
+        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$EMQX_LOG_DIR" \
                           "$(relx_start_command)"
 
         WAIT_TIME=${EMQX_WAIT_FOR_START:-120}
