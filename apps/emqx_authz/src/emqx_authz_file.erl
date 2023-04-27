@@ -38,7 +38,8 @@
 description() ->
     "AuthZ with static rules".
 
-create(#{path := Path} = Source) ->
+create(#{path := Path0} = Source) ->
+    Path = emqx_schema:naive_env_interpolation(Path0),
     Rules =
         case file:consult(Path) of
             {ok, Terms} ->

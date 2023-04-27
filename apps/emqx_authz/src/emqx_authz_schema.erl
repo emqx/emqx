@@ -491,7 +491,7 @@ authz_fields() ->
             ?HOCON(
                 ?ARRAY(?UNION(UnionMemberSelector)),
                 #{
-                    default => [],
+                    default => [default_authz()],
                     desc => ?DESC(sources),
                     %% doc_lift is force a root level reference instead of nesting sub-structs
                     extra => #{doc_lift => true},
@@ -501,3 +501,10 @@ authz_fields() ->
                 }
             )}
     ].
+
+default_authz() ->
+    #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
+    }.
