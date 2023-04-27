@@ -3181,5 +3181,13 @@ resolve_env(Name0) ->
         true ->
             {ok, Value};
         false ->
-            error
+            special_env(Name)
     end.
+
+-ifdef(TEST).
+%% when running tests, we need to mock the env variables
+special_env("EMQX_ETC_DIR") ->
+    {ok, filename:join([code:lib_dir(emqx), etc])}.
+-else.
+special_env(_Name) -> error.
+-endif.
