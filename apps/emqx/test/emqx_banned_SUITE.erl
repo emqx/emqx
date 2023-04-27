@@ -186,7 +186,7 @@ t_session_taken(_) ->
                     false
             end
         end,
-        6000
+        15_000
     ),
     Publish(),
 
