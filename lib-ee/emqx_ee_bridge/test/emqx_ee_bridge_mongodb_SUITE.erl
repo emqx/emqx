@@ -425,7 +425,7 @@ t_mongo_date_rule_engine_functions(Config) ->
     RuleId = <<"rule:t_mongo_date_rule_engine_functions">>,
     emqx_rule_engine:delete_rule(RuleId),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    {ok, Rule} = emqx_rule_engine:create_rule(
+    {ok, _Rule} = emqx_rule_engine:create_rule(
         #{
             id => <<"rule:t_mongo_date_rule_engine_functions">>,
             sql => SQL,
