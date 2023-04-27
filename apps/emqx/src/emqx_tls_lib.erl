@@ -309,19 +309,19 @@ ensure_ssl_files(Dir, SSL, Opts) ->
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->
             KeyPaths = ?SSL_FILE_OPT_PATHS ++ ?SSL_FILE_OPT_PATHS_A,
-            ensure_ssl_files(Dir, SSL, KeyPaths, Opts);
+            ensure_ssl_files_per_key(Dir, SSL, KeyPaths, Opts);
         {error, _} = Error ->
             Error
     end.
 
-ensure_ssl_files(_Dir, SSL, [], _Opts) ->
+ensure_ssl_files_per_key(_Dir, SSL, [], _Opts) ->
     {ok, SSL};
-ensure_ssl_files(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
+ensure_ssl_files_per_key(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
     case
         ensure_ssl_file(Dir, KeyPath, SSL, emqx_utils_maps:deep_get(KeyPath, SSL, undefined), Opts)
     of
         {ok, NewSSL} ->
-            ensure_ssl_files(Dir, NewSSL, KeyPaths, Opts);
+            ensure_ssl_files_per_key(Dir, NewSSL, KeyPaths, Opts);
         {error, Reason} ->
             {error, Reason#{which_options => [KeyPath]}}
     end.
@@ -347,7 +347,8 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
 delete_old_file(New, Old) when New =:= Old -> ok;
 delete_old_file(_New, _Old = undefined) ->
     ok;
-delete_old_file(_New, Old) ->
+delete_old_file(_New, Old0) ->
+    Old = resolve_cert_path(Old0),
     case is_generated_file(Old) andalso filelib:is_regular(Old) andalso file:delete(Old) of
         ok ->
             ok;
@@ -355,7 +356,7 @@ delete_old_file(_New, Old) ->
         false ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
+            ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old0, reason => Reason})
     end.
 
 ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
@@ -414,7 +415,8 @@ is_pem(MaybePem) ->
 %% To make it simple, the file is always overwritten.
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
-save_pem_file(Dir, KeyPath, Pem, DryRun) ->
+save_pem_file(Dir0, KeyPath, Pem, DryRun) ->
+    Dir = resolve_cert_path(Dir0),
     Path = pem_file_name(Dir, KeyPath, Pem),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
@@ -472,7 +474,8 @@ hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
 
 %% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
-is_valid_pem_file(Path) ->
+is_valid_pem_file(Path0) ->
+    Path = resolve_cert_path(Path0),
     case file:read_file(Path) of
         {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
         {error, Reason} -> {error, Reason}
@@ -513,10 +516,15 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
 to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
-    maps:to_list(Opts#{
-        ciphers => Ciphers,
-        versions => Versions
-    }).
+    filter(
+        maps:to_list(Opts#{
+            keyfile => resolve_cert_path_strict(maps:get(keyfile, Opts, undefined)),
+            certfile => resolve_cert_path_strict(maps:get(certfile, Opts, undefined)),
+            cacertfile => resolve_cert_path_strict(maps:get(cacertfile, Opts, undefined)),
+            ciphers => Ciphers,
+            versions => Versions
+        })
+    ).
 
 %% @doc Convert hocon-checked tls client options (map()) to
 %% proplist accepted by ssl library.
@@ -532,9 +540,9 @@ to_client_opts(Type, Opts) ->
     Get = fun(Key) -> GetD(Key, undefined) end,
     case GetD(enable, false) of
         true ->
-            KeyFile = ensure_str(Get(keyfile)),
-            CertFile = ensure_str(Get(certfile)),
-            CAFile = ensure_str(Get(cacertfile)),
+            KeyFile = resolve_cert_path_strict(Get(keyfile)),
+            CertFile = resolve_cert_path_strict(Get(certfile)),
+            CAFile = resolve_cert_path_strict(Get(cacertfile)),
             Verify = GetD(verify, verify_none),
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
@@ -555,6 +563,59 @@ to_client_opts(Type, Opts) ->
         false ->
             []
     end.
+
+resolve_cert_path_strict(Path) ->
+    case resolve_cert_path(Path) of
+        undefined ->
+            undefined;
+        ResolvedPath ->
+            case filelib:is_regular(ResolvedPath) of
+                true ->
+                    ResolvedPath;
+                false ->
+                    PathToLog = ensure_str(Path),
+                    LogData =
+                        case PathToLog =:= ResolvedPath of
+                            true ->
+                                #{path => PathToLog};
+                            false ->
+                                #{path => PathToLog, resolved_path => ResolvedPath}
+                        end,
+                    ?SLOG(error, LogData#{msg => "cert_file_not_found"}),
+                    undefined
+            end
+    end.
+
+resolve_cert_path(undefined) ->
+    undefined;
+resolve_cert_path(Path) ->
+    case ensure_str(Path) of
+        "$" ++ Maybe ->
+            naive_env_resolver(Maybe);
+        Other ->
+            Other
+    end.
+
+%% resolves a file path like "ENV_VARIABLE/sub/path" or "{ENV_VARIABLE}/sub/path"
+%% in windows, it could be "ENV_VARIABLE/sub\path" or "{ENV_VARIABLE}/sub\path"
+naive_env_resolver(Maybe) ->
+    case string:split(Maybe, "/") of
+        [_] ->
+            Maybe;
+        [Env, SubPath] ->
+            case os:getenv(trim_env_name(Env)) of
+                false ->
+                    SubPath;
+                "" ->
+                    SubPath;
+                EnvValue ->
+                    filename:join(EnvValue, SubPath)
+            end
+    end.
+
+%% delete the first and last curly braces
+trim_env_name(Env) ->
+    string:trim(Env, both, "{}").
 
 filter([]) -> [];
 filter([{_, undefined} | T]) -> filter(T);

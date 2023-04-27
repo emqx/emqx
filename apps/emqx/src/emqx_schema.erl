@@ -779,6 +779,7 @@ fields("listeners") ->
                 map(name, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
+                    default => default_listener(tcp),
                     required => {false, recursively}
                 }
             )},
@@ -787,6 +788,7 @@ fields("listeners") ->
                 map(name, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
+                    default => default_listener(ssl),
                     required => {false, recursively}
                 }
             )},
@@ -795,6 +797,7 @@ fields("listeners") ->
                 map(name, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
+                    default => default_listener(ws),
                     required => {false, recursively}
                 }
             )},
@@ -803,6 +806,7 @@ fields("listeners") ->
                 map(name, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
+                    default => default_listener(wss),
                     required => {false, recursively}
                 }
             )},
@@ -3082,4 +3086,53 @@ assert_required_field(Conf, Key, ErrorMessage) ->
             throw(ErrorMessage);
         _ ->
             ok
+    end.
+
+default_listener(tcp) ->
+    #{
+        <<"default">> =>
+            #{
+                <<"bind">> => <<"0.0.0.0:1883">>,
+                <<"max_connections">> => 1024000
+            }
+    };
+default_listener(ws) ->
+    #{
+        <<"default">> =>
+            #{
+                <<"bind">> => <<"0.0.0.0:8083">>,
+                <<"max_connections">> => 1024000,
+                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+            }
+    };
+default_listener(SSLListener) ->
+    %% The env variable is resolved in emqx_tls_lib
+    CertFile = fun(Name) ->
+        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
+    end,
+    SslOptions = #{
+        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
+        <<"certfile">> => CertFile(<<"cert.pem">>),
+        <<"keyfile">> => CertFile(<<"key.pem">>)
+    },
+    case SSLListener of
+        ssl ->
+            #{
+                <<"default">> =>
+                    #{
+                        <<"bind">> => <<"0.0.0.0:8883">>,
+                        <<"max_connections">> => 512000,
+                        <<"ssl_options">> => SslOptions
+                    }
+            };
+        wss ->
+            #{
+                <<"default">> =>
+                    #{
+                        <<"bind">> => <<"0.0.0.0:8084">>,
+                        <<"max_connections">> => 512000,
+                        <<"ssl_options">> => SslOptions,
+                        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+                    }
+            }
     end.
