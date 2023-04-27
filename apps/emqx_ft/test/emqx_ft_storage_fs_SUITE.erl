@@ -84,7 +84,9 @@ client_id(Config) ->
     atom_to_binary(?config(tc, Config), utf8).
 
 storage(Config) ->
-    emqx_ft_test_helpers:local_storage(Config).
+    RawConfig = #{<<"storage">> => emqx_ft_test_helpers:local_storage(Config)},
+    #{storage := Storage} = emqx_ft_schema:translate(RawConfig),
+    Storage.
 
 list_files(Config) ->
     {ok, #{items := Files}} = emqx_ft_storage_fs:files(storage(Config), #{}),

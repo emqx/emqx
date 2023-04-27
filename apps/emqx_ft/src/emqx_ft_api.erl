@@ -33,6 +33,9 @@
     fields/1
 ]).
 
+%% Minirest filter for checking if file transfer is enabled
+-export([check_ft_enabled/2]).
+
 %% API callbacks
 -export([
     '/file_transfer/files'/2,
@@ -44,7 +47,9 @@
 namespace() -> "file_transfer".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => true, filter => fun ?MODULE:check_ft_enabled/2
+    }).
 
 paths() ->
     [
@@ -96,6 +101,14 @@ schema("/file_transfer/files/:clientid/:fileid") ->
             }
         }
     }.
+
+check_ft_enabled(Params, _Meta) ->
+    case emqx_ft_conf:enabled() of
+        true ->
+            {ok, Params};
+        false ->
+            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
+    end.
 
 '/file_transfer/files'(get, #{
     query_string := QueryString

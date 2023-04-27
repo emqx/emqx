@@ -47,7 +47,9 @@
 namespace() -> "file_transfer".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => true, filter => fun emqx_ft_api:check_ft_enabled/2
+    }).
 
 paths() ->
     [
