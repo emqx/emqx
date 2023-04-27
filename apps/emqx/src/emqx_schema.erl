@@ -66,7 +66,8 @@
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     non_empty_string/1,
-    validations/0
+    validations/0,
+    naive_env_interpolation/1
 ]).
 
 -export([qos/0]).
@@ -825,7 +826,7 @@ fields("crl_cache") ->
     %% same URL.  If they had diverging timeout options, it would be
     %% confusing.
     [
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -833,7 +834,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_interval")
                 }
             )},
-        {"http_timeout",
+        {http_timeout,
             sc(
                 duration(),
                 #{
@@ -841,7 +842,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_http_timeout")
                 }
             )},
-        {"capacity",
+        {capacity,
             sc(
                 pos_integer(),
                 #{
@@ -1358,7 +1359,7 @@ fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("ocsp") ->
     [
-        {"enable_ocsp_stapling",
+        {enable_ocsp_stapling,
             sc(
                 boolean(),
                 #{
@@ -1366,7 +1367,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_enable_ocsp_stapling")
                 }
             )},
-        {"responder_url",
+        {responder_url,
             sc(
                 url(),
                 #{
@@ -1374,7 +1375,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_responder_url")
                 }
             )},
-        {"issuer_pem",
+        {issuer_pem,
             sc(
                 binary(),
                 #{
@@ -1382,7 +1383,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_issuer_pem")
                 }
             )},
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -1390,7 +1391,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_refresh_interval")
                 }
             )},
-        {"refresh_http_timeout",
+        {refresh_http_timeout,
             sc(
                 duration(),
                 #{
@@ -2317,12 +2318,12 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             Field
          || not IsRanchListener,
             Field <- [
-                {"gc_after_handshake",
+                {gc_after_handshake,
                     sc(boolean(), #{
                         default => false,
                         desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
                     })},
-                {"ocsp",
+                {ocsp,
                     sc(
                         ref("ocsp"),
                         #{
@@ -2330,7 +2331,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
-                {"enable_crl_check",
+                {enable_crl_check,
                     sc(
                         boolean(),
                         #{
@@ -3106,7 +3107,7 @@ default_listener(ws) ->
             }
     };
 default_listener(SSLListener) ->
-    %% The env variable is resolved in emqx_tls_lib
+    %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
     CertFile = fun(Name) ->
         iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
     end,
@@ -3135,4 +3136,49 @@ default_listener(SSLListener) ->
                         <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
                     }
             }
+    end.
+
+%% @doc This function helps to perform a naive string interpolation which
+%% only looks at the first segment of the string and tries to replace it.
+%% For example
+%%  "$MY_FILE_PATH"
+%%  "${MY_FILE_PATH}"
+%%  "$ENV_VARIABLE/sub/path"
+%%  "${ENV_VARIABLE}/sub/path"
+%%  "${ENV_VARIABLE}\sub\path" # windows
+%% This function returns undefined if the input is undefined
+%% otherwise always return string.
+naive_env_interpolation(undefined) ->
+    undefined;
+naive_env_interpolation(Bin) when is_binary(Bin) ->
+    naive_env_interpolation(unicode:characters_to_list(Bin, utf8));
+naive_env_interpolation("$" ++ Maybe = Original) ->
+    {Env, Tail} = split_path(Maybe),
+    case resolve_env(Env) of
+        {ok, Path} ->
+            filename:join([Path, Tail]);
+        error ->
+            Original
+    end;
+naive_env_interpolation(Other) ->
+    Other.
+
+split_path(Path) ->
+    split_path(Path, []).
+
+split_path([], Acc) ->
+    {lists:reverse(Acc), []};
+split_path([Char | Rest], Acc) when Char =:= $/ orelse Char =:= $\\ ->
+    {lists:reverse(Acc), string:trim(Rest, leading, "/\\")};
+split_path([Char | Rest], Acc) ->
+    split_path(Rest, [Char | Acc]).
+
+resolve_env(Name0) ->
+    Name = string:trim(Name0, both, "{}"),
+    Value = os:getenv(Name),
+    case Value =/= false andalso Value =/= "" of
+        true ->
+            {ok, Value};
+        false ->
+            error
     end.

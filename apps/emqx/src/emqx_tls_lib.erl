@@ -347,8 +347,7 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
 delete_old_file(New, Old) when New =:= Old -> ok;
 delete_old_file(_New, _Old = undefined) ->
     ok;
-delete_old_file(_New, Old0) ->
-    Old = resolve_cert_path(Old0),
+delete_old_file(_New, Old) ->
     case is_generated_file(Old) andalso filelib:is_regular(Old) andalso file:delete(Old) of
         ok ->
             ok;
@@ -356,7 +355,7 @@ delete_old_file(_New, Old0) ->
         false ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old0, reason => Reason})
+            ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
 
 ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
@@ -415,8 +414,7 @@ is_pem(MaybePem) ->
 %% To make it simple, the file is always overwritten.
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
-save_pem_file(Dir0, KeyPath, Pem, DryRun) ->
-    Dir = resolve_cert_path(Dir0),
+save_pem_file(Dir, KeyPath, Pem, DryRun) ->
     Path = pem_file_name(Dir, KeyPath, Pem),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
@@ -475,7 +473,7 @@ hex_str(Bin) ->
 
 %% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
 is_valid_pem_file(Path0) ->
-    Path = resolve_cert_path(Path0),
+    Path = resolve_cert_path_for_read(Path0),
     case file:read_file(Path) of
         {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
         {error, Reason} -> {error, Reason}
@@ -516,11 +514,12 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
 to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
+    Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
     filter(
         maps:to_list(Opts#{
-            keyfile => resolve_cert_path_strict(maps:get(keyfile, Opts, undefined)),
-            certfile => resolve_cert_path_strict(maps:get(certfile, Opts, undefined)),
-            cacertfile => resolve_cert_path_strict(maps:get(cacertfile, Opts, undefined)),
+            keyfile => Path(keyfile),
+            certfile => Path(certfile),
+            cacertfile => Path(cacertfile),
             ciphers => Ciphers,
             versions => Versions
         })
@@ -538,11 +537,12 @@ to_client_opts(Opts) ->
 to_client_opts(Type, Opts) ->
     GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
+    Path = fun(Key) -> resolve_cert_path_for_read_strict(Get(Key)) end,
     case GetD(enable, false) of
         true ->
-            KeyFile = resolve_cert_path_strict(Get(keyfile)),
-            CertFile = resolve_cert_path_strict(Get(certfile)),
-            CAFile = resolve_cert_path_strict(Get(cacertfile)),
+            KeyFile = Path(keyfile),
+            CertFile = Path(certfile),
+            CAFile = Path(cacertfile),
             Verify = GetD(verify, verify_none),
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
@@ -564,8 +564,8 @@ to_client_opts(Type, Opts) ->
             []
     end.
 
-resolve_cert_path_strict(Path) ->
-    case resolve_cert_path(Path) of
+resolve_cert_path_for_read_strict(Path) ->
+    case resolve_cert_path_for_read(Path) of
         undefined ->
             undefined;
         ResolvedPath ->
@@ -586,36 +586,8 @@ resolve_cert_path_strict(Path) ->
             end
     end.
 
-resolve_cert_path(undefined) ->
-    undefined;
-resolve_cert_path(Path) ->
-    case ensure_str(Path) of
-        "$" ++ Maybe ->
-            naive_env_resolver(Maybe);
-        Other ->
-            Other
-    end.
-
-%% resolves a file path like "ENV_VARIABLE/sub/path" or "{ENV_VARIABLE}/sub/path"
-%% in windows, it could be "ENV_VARIABLE/sub\path" or "{ENV_VARIABLE}/sub\path"
-naive_env_resolver(Maybe) ->
-    case string:split(Maybe, "/") of
-        [_] ->
-            Maybe;
-        [Env, SubPath] ->
-            case os:getenv(trim_env_name(Env)) of
-                false ->
-                    SubPath;
-                "" ->
-                    SubPath;
-                EnvValue ->
-                    filename:join(EnvValue, SubPath)
-            end
-    end.
-
-%% delete the first and last curly braces
-trim_env_name(Env) ->
-    string:trim(Env, both, "{}").
+resolve_cert_path_for_read(Path) ->
+    emqx_schema:naive_env_interpolation(Path).
 
 filter([]) -> [];
 filter([{_, undefined} | T]) -> filter(T);
