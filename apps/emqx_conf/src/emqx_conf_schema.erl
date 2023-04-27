@@ -471,7 +471,7 @@ fields("node") ->
                     %% for now, it's tricky to use a different data_dir
                     %% otherwise data paths in cluster config may differ
                     %% TODO: change configurable data file paths to relative
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(node_data_dir)
                 }
             )},
