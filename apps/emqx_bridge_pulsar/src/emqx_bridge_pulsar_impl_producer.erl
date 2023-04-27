@@ -87,11 +87,14 @@ on_start(InstanceId, Config) ->
     },
     case pulsar:ensure_supervised_client(ClientId, Servers, ClientOpts) of
         {ok, _Pid} ->
-            ?SLOG(info, #{
-                msg => "pulsar_client_started",
-                instance_id => InstanceId,
-                pulsar_hosts => Servers
-            });
+            ?tp(
+                info,
+                "pulsar_client_started",
+                #{
+                    instance_id => InstanceId,
+                    pulsar_hosts => Servers
+                }
+            );
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_pulsar_client",
@@ -115,7 +118,7 @@ on_stop(_InstanceId, State) ->
     ok.
 
 -spec on_get_status(manager_id(), state()) -> connected | disconnected.
-on_get_status(_InstanceId, State) ->
+on_get_status(_InstanceId, State = #{}) ->
     #{
         pulsar_client_id := ClientId,
         producers := Producers
@@ -135,7 +138,11 @@ on_get_status(_InstanceId, State) ->
             end;
         {error, _} ->
             disconnected
-    end.
+    end;
+on_get_status(_InstanceId, _State) ->
+    %% If a health check happens just after a concurrent request to
+    %% create the bridge is not quite finished, `State = undefined'.
+    connecting.
 
 -spec on_query(manager_id(), {send_message, map()}, state()) ->
     {ok, term()}
@@ -160,6 +167,13 @@ on_query(_InstanceId, {send_message, Message}, State) ->
 ) ->
     {ok, pid()}.
 on_query_async(_InstanceId, {send_message, Message}, AsyncReplyFn, State) ->
+    ?tp_span(
+        pulsar_producer_on_query_async,
+        #{instance_id => _InstanceId, message => Message},
+        do_on_query_async(Message, AsyncReplyFn, State)
+    ).
+
+do_on_query_async(Message, AsyncReplyFn, State) ->
     #{
         producers := Producers,
         message_template := MessageTemplate
@@ -283,6 +297,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
         drop_if_highmem => MemOLP
     },
     ProducerName = producer_name(ClientId),
+    ?tp(pulsar_producer_capture_name, #{producer_name => ProducerName}),
     MessageTemplate = compile_message_template(MessageTemplateOpts),
     ProducerOpts0 =
         #{
@@ -298,6 +313,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
         },
     ProducerOpts = maps:merge(ReplayQOpts, ProducerOpts0),
     PulsarTopic = binary_to_list(PulsarTopic0),
+    ?tp(pulsar_producer_about_to_start_producers, #{producer_name => ProducerName}),
     try pulsar:ensure_supervised_producers(ClientId, PulsarTopic, ProducerOpts) of
         {ok, Producers} ->
             State = #{
@@ -310,13 +326,16 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
             {ok, State}
     catch
         Kind:Error:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_pulsar_producer",
-                instance_id => InstanceId,
-                kind => Kind,
-                reason => Error,
-                stacktrace => Stacktrace
-            }),
+            ?tp(
+                error,
+                "failed_to_start_pulsar_producer",
+                #{
+                    instance_id => InstanceId,
+                    kind => Kind,
+                    reason => Error,
+                    stacktrace => Stacktrace
+                }
+            ),
             stop_client(ClientId),
             throw(failed_to_start_pulsar_producer)
     end.

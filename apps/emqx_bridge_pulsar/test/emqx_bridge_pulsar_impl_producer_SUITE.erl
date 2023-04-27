@@ -37,7 +37,14 @@ groups() ->
     ].
 
 only_once_tests() ->
-    [t_create_via_http].
+    [
+        t_create_via_http,
+        t_start_when_down,
+        t_send_when_down,
+        t_send_when_timeout,
+        t_failure_to_start_producer,
+        t_producer_process_crash
+    ].
 
 init_per_suite(Config) ->
     Config.
@@ -750,6 +757,198 @@ t_on_get_status(Config) ->
         _Sleep = 1_000,
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    ok.
+
+t_start_when_down(Config) ->
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+    ResourceId = resource_id(Config),
+    ?check_trace(
+        begin
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?assertMatch(
+                    {ok, _},
+                    create_bridge(Config)
+                ),
+                ok
+            end),
+            %% Should recover given enough time.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_send_when_down(Config) ->
+    do_t_send_with_failure(Config, down).
+
+t_send_when_timeout(Config) ->
+    do_t_send_with_failure(Config, timeout).
+
+do_t_send_with_failure(Config, FailureType) ->
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+    MQTTTopic = ?config(mqtt_topic, Config),
+    QoS = 0,
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Message0 = emqx_message:make(ClientId, QoS, MQTTTopic, Payload),
+
+    {{ok, _}, {ok, _}} =
+        ?wait_async_action(
+            create_bridge(Config),
+            #{?snk_kind := pulsar_producer_bridge_started},
+            10_000
+        ),
+    ?check_trace(
+        begin
+            emqx_common_test_helpers:with_failure(
+                FailureType, ProxyName, ProxyHost, ProxyPort, fun() ->
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            emqx:publish(Message0),
+                            #{
+                                ?snk_kind := pulsar_producer_on_query_async,
+                                ?snk_span := {complete, _}
+                            },
+                            5_000
+                        ),
+                    ok
+                end
+            ),
+            ok
+        end,
+        fun(_Trace) ->
+            %% Should recover given enough time.
+            Data0 = receive_consumed(20_000),
+            ?assertMatch(
+                [
+                    #{
+                        <<"clientid">> := ClientId,
+                        <<"event">> := <<"message.publish">>,
+                        <<"payload">> := Payload,
+                        <<"topic">> := MQTTTopic
+                    }
+                ],
+                Data0
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Check that we correctly terminate the pulsar client when the pulsar
+%% producer processes fail to start for whatever reason.
+t_failure_to_start_producer(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := name_registered},
+                #{?snk_kind := pulsar_producer_about_to_start_producers}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_register_name, #{}),
+                {ok, #{producer_name := ProducerName}} = ?block_until(
+                    #{?snk_kind := pulsar_producer_capture_name}, 10_000
+                ),
+                true = register(ProducerName, self()),
+                ?tp(name_registered, #{name => ProducerName}),
+                %% Just simulating another process so that starting the
+                %% producers fail.  Currently it does a gen_server:call
+                %% with `infinity' timeout, so this is just to avoid
+                %% hanging.
+                receive
+                    {'$gen_call', From, _Request} ->
+                        gen_server:reply(From, {error, im_not, your_producer})
+                end,
+                receive
+                    die -> ok
+                end
+            end),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := pulsar_bridge_client_stopped},
+                    20_000
+                ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Check the driver recovers itself if one of the producer processes
+%% die for whatever reason.
+t_producer_process_crash(Config) ->
+    MQTTTopic = ?config(mqtt_topic, Config),
+    ResourceId = resource_id(Config),
+    QoS = 0,
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Message0 = emqx_message:make(ClientId, QoS, MQTTTopic, Payload),
+    ?check_trace(
+        begin
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(
+                        Config,
+                        #{<<"buffer">> => #{<<"mode">> => <<"disk">>}}
+                    ),
+                    #{?snk_kind := pulsar_producer_bridge_started},
+                    10_000
+                ),
+            [ProducerPid | _] = [
+                Pid
+             || {_Name, PS, _Type, _Mods} <- supervisor:which_children(pulsar_producers_sup),
+                Pid <- element(2, process_info(PS, links)),
+                case proc_lib:initial_call(Pid) of
+                    {pulsar_producer, init, _} -> true;
+                    _ -> false
+                end
+            ],
+            Ref = monitor(process, ProducerPid),
+            exit(ProducerPid, kill),
+            receive
+                {'DOWN', Ref, process, ProducerPid, _Killed} ->
+                    ok
+            after 1_000 -> ct:fail("pid didn't die")
+            end,
+            ?assertEqual({ok, connecting}, emqx_resource_manager:health_check(ResourceId)),
+            %% Should recover given enough time.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqx:publish(Message0),
+                    #{?snk_kind := pulsar_producer_on_query_async, ?snk_span := {complete, _}},
+                    5_000
+                ),
+            Data0 = receive_consumed(20_000),
+            ?assertMatch(
+                [
+                    #{
+                        <<"clientid">> := ClientId,
+                        <<"event">> := <<"message.publish">>,
+                        <<"payload">> := Payload,
+                        <<"topic">> := MQTTTopic
+                    }
+                ],
+                Data0
+            ),
+            ok
+        end,
+        []
     ),
     ok.
 
