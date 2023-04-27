@@ -30,6 +30,7 @@
     sni_fun/2,
     fetch_response/1,
     register_listener/2,
+    unregister_listener/1,
     inject_sni_fun/2
 ]).
 
@@ -107,6 +108,9 @@ fetch_response(ListenerID) ->
 register_listener(ListenerID, Opts) ->
     gen_server:call(?MODULE, {register_listener, ListenerID, Opts}, ?CALL_TIMEOUT).
 
+unregister_listener(ListenerID) ->
+    gen_server:cast(?MODULE, {unregister_listener, ListenerID}).
+
 -spec inject_sni_fun(emqx_listeners:listener_id(), map()) -> map().
 inject_sni_fun(ListenerID, Conf0) ->
     SNIFun = emqx_const_v1:make_sni_fun(ListenerID),
@@ -160,6 +164,18 @@ handle_call({register_listener, ListenerID, Conf}, _From, State0) ->
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
+handle_cast({unregister_listener, ListenerID}, State0) ->
+    State2 =
+        case maps:take(?REFRESH_TIMER(ListenerID), State0) of
+            error ->
+                State0;
+            {TRef, State1} ->
+                emqx_utils:cancel_timer(TRef),
+                State1
+        end,
+    State = maps:remove({refresh_interval, ListenerID}, State2),
+    ?tp(ocsp_cache_listener_unregistered, #{listener_id => ListenerID}),
+    {noreply, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 

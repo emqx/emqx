@@ -254,10 +254,15 @@ does_module_exist(Mod) ->
     end.
 
 assert_no_http_get() ->
+    Timeout = 0,
+    Error = should_be_cached,
+    assert_no_http_get(Timeout, Error).
+
+assert_no_http_get(Timeout, Error) ->
     receive
         {http_get, _URL} ->
-            error(should_be_cached)
-    after 0 ->
+            error(Error)
+    after Timeout ->
         ok
     end.
 
@@ -702,7 +707,9 @@ do_t_update_listener(Config) ->
                             %% the API converts that to an internally
                             %% managed file
                             <<"issuer_pem">> => IssuerPem,
-                            <<"responder_url">> => <<"http://localhost:9877">>
+                            <<"responder_url">> => <<"http://localhost:9877">>,
+                            %% for quicker testing; min refresh in tests is 5 s.
+                            <<"refresh_interval">> => <<"5s">>
                         }
                 }
         },
@@ -739,6 +746,70 @@ do_t_update_listener(Config) ->
         )
     ),
     assert_http_get(1, 5_000),
+
+    %% Disable OCSP Stapling; the periodic refreshes should stop
+    RefreshInterval = emqx_config:get([listeners, ssl, default, ssl_options, ocsp, refresh_interval]),
+    OCSPConfig1 =
+        #{
+            <<"ssl_options">> =>
+                #{
+                    <<"ocsp">> =>
+                        #{
+                            <<"enable_ocsp_stapling">> => false
+                        }
+                }
+        },
+    ListenerData3 = emqx_utils_maps:deep_merge(ListenerData2, OCSPConfig1),
+    {ok, {_, _, ListenerData4}} = update_listener_via_api(ListenerId, ListenerData3),
+    ?assertMatch(
+        #{
+            <<"ssl_options">> :=
+                #{
+                    <<"ocsp">> :=
+                        #{
+                            <<"enable_ocsp_stapling">> := false
+                        }
+                }
+        },
+        ListenerData4
+    ),
+
+    assert_no_http_get(2 * RefreshInterval, should_stop_refreshing),
+
+    ok.
+
+t_double_unregister(_Config) ->
+    ListenerID = <<"ssl:test_ocsp">>,
+    Conf = emqx_config:get_listener_conf(ssl, test_ocsp, []),
+    ?check_trace(
+        begin
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:register_listener(ListenerID, Conf),
+                    #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID},
+                    5_000
+                ),
+            assert_http_get(1),
+
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:unregister_listener(ListenerID),
+                    #{?snk_kind := ocsp_cache_listener_unregistered, listener_id := ListenerID},
+                    5_000
+                ),
+
+            %% Should be idempotent and not crash
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:unregister_listener(ListenerID),
+                    #{?snk_kind := ocsp_cache_listener_unregistered, listener_id := ListenerID},
+                    5_000
+                ),
+            ok
+        end,
+        []
+    ),
+
     ok.
 
 t_ocsp_responder_error_responses(_Config) ->
