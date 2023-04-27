@@ -271,8 +271,7 @@ mustache_vars(App, Opts) ->
     ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
     Defaults = #{
         platform_data_dir => app_path(App, "data"),
-        platform_etc_dir => app_path(App, "etc"),
-        platform_log_dir => app_path(App, "log")
+        platform_etc_dir => app_path(App, "etc")
     },
     maps:merge(Defaults, ExtraMustacheVars).
 

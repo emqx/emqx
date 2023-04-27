@@ -861,7 +861,13 @@ wait_until_return_val() {
     done
 }
 
-# backward compatible with 4.x
+# First, there is EMQX_DEFAULT_LOG_HANDLER which can control the default values
+# to be used when generating configs.
+# It's set in docker entrypoint and in systemd service file.
+#
+# To be backward compatible with 4.x and v5.0.0 ~ v5.0.24/e5.0.2:
+# if EMQX_LOG__TO is set, we try to enable handlers from environment variables.
+# i.e. it overrides the default value set in EMQX_DEFAULT_LOG_HANDLER
 tr_log_to_env() {
     local log_to=${EMQX_LOG__TO:-undefined}
     # unset because it's unknown to 5.0
@@ -893,13 +899,11 @@ tr_log_to_env() {
 
 maybe_log_to_console() {
     if [ "${EMQX_LOG__TO:-}" = 'default' ]; then
-        # want to use config file defaults, do nothing
+        # want to use defaults, do nothing
         unset EMQX_LOG__TO
     else
         tr_log_to_env
-        # ensure defaults
-        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
-        export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-false}"
+        export EMQX_DEFAULT_LOG_HANDLER=${EMQX_DEFAULT_LOG_HANDLER:-console}
     fi
 }
 

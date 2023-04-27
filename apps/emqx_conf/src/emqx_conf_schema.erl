@@ -93,7 +93,10 @@ roots() ->
             {"log",
                 sc(
                     ?R_REF("log"),
-                    #{translate_to => ["kernel"]}
+                    #{
+                        translate_to => ["kernel"],
+                        importance => ?IMPORTANCE_HIGH
+                    }
                 )},
             {"rpc",
                 sc(
@@ -862,15 +865,25 @@ fields("rpc") ->
     ];
 fields("log") ->
     [
-        {"console_handler", ?R_REF("console_handler")},
+        {"console_handler",
+            sc(
+                ?R_REF("console_handler"),
+                #{importance => ?IMPORTANCE_HIGH}
+            )},
         {"file_handlers",
             sc(
                 map(name, ?R_REF("log_file_handler")),
-                #{desc => ?DESC("log_file_handlers")}
+                #{
+                    desc => ?DESC("log_file_handlers"),
+                    %% because file_handlers is a map
+                    %% so there has to be a default value in order to populate the raw configs
+                    default => #{<<"default">> => #{<<"level">> => <<"warning">>}},
+                    importance => ?IMPORTANCE_HIGH
+                }
             )}
     ];
 fields("console_handler") ->
-    log_handler_common_confs(false);
+    log_handler_common_confs(console);
 fields("log_file_handler") ->
     [
         {"file",
@@ -878,6 +891,8 @@ fields("log_file_handler") ->
                 file(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
+                    default => <<"${EMQX_LOG_DIR}/emqx.log">>,
+                    converter => fun emqx_schema:naive_env_interpolation/1,
                     validator => fun validate_file_location/1
                 }
             )},
@@ -891,10 +906,11 @@ fields("log_file_handler") ->
                 hoconsc:union([infinity, emqx_schema:bytesize()]),
                 #{
                     default => <<"50MB">>,
-                    desc => ?DESC("log_file_handler_max_size")
+                    desc => ?DESC("log_file_handler_max_size"),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
-    ] ++ log_handler_common_confs(true);
+    ] ++ log_handler_common_confs(file);
 fields("log_rotation") ->
     [
         {"enable",
@@ -1103,14 +1119,33 @@ tr_logger_level(Conf) ->
 tr_logger_handlers(Conf) ->
     emqx_config_logger:tr_handlers(Conf).
 
-log_handler_common_confs(Enable) ->
+log_handler_common_confs(Handler) ->
+    lists:map(
+        fun
+            ({_Name, #{importance := _}} = F) -> F;
+            ({Name, Sc}) -> {Name, Sc#{importance => ?IMPORTANCE_LOW}}
+        end,
+        do_log_handler_common_confs(Handler)
+    ).
+do_log_handler_common_confs(Handler) ->
+    %% we rarely support dynamic defaults like this
+    %% for this one, we have build-time defualut the same as runtime default
+    %% so it's less tricky
+    EnableValues =
+        case Handler of
+            console -> ["console", "both"];
+            file -> ["file", "both", "", false]
+        end,
+    EnvValue = os:getenv("EMQX_DEFAULT_LOG_HANDLER"),
+    Enable = lists:member(EnvValue, EnableValues),
     [
         {"enable",
             sc(
                 boolean(),
                 #{
                     default => Enable,
-                    desc => ?DESC("common_handler_enable")
+                    desc => ?DESC("common_handler_enable"),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"level",
@@ -1127,7 +1162,8 @@ log_handler_common_confs(Enable) ->
                 #{
                     default => <<"system">>,
                     desc => ?DESC("common_handler_time_offset"),
-                    validator => fun validate_time_offset/1
+                    validator => fun validate_time_offset/1,
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"chars_limit",
@@ -1135,7 +1171,8 @@ log_handler_common_confs(Enable) ->
                 hoconsc:union([unlimited, range(100, inf)]),
                 #{
                     default => unlimited,
-                    desc => ?DESC("common_handler_chars_limit")
+                    desc => ?DESC("common_handler_chars_limit"),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"formatter",
@@ -1143,7 +1180,8 @@ log_handler_common_confs(Enable) ->
                 hoconsc:enum([text, json]),
                 #{
                     default => text,
-                    desc => ?DESC("common_handler_formatter")
+                    desc => ?DESC("common_handler_formatter"),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {"single_line",
@@ -1151,7 +1189,8 @@ log_handler_common_confs(Enable) ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("common_handler_single_line")
+                    desc => ?DESC("common_handler_single_line"),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"sync_mode_qlen",

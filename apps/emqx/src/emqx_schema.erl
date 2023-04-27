@@ -3187,7 +3187,12 @@ resolve_env(Name0) ->
 -ifdef(TEST).
 %% when running tests, we need to mock the env variables
 special_env("EMQX_ETC_DIR") ->
-    {ok, filename:join([code:lib_dir(emqx), etc])}.
+    {ok, filename:join([code:lib_dir(emqx), etc])};
+special_env("EMQX_LOG_DIR") ->
+    {ok, "log"};
+special_env(_Name) ->
+    %% only in tests
+    error.
 -else.
 special_env(_Name) -> error.
 -endif.

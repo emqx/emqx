@@ -10,8 +10,8 @@ Group=emqx
 Type=simple
 Environment=HOME=/var/lib/emqx
 
-# Enable logging to file
-Environment=EMQX_LOG__TO=default
+# log to file by default (if no log handler config)
+Environment=EMQX_DEFAULT_LOG_HANDLER=file
 
 # Start 'foreground' but not 'start' (daemon) mode.
 # Because systemd monitor/restarts 'simple' services
