@@ -2227,6 +2227,7 @@ common_ssl_opts_schema(Defaults) ->
                     example => <<"">>,
                     format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password),
+                    importance => ?IMPORTANCE_LOW,
                     converter => fun password_converter/2
                 }
             )},
