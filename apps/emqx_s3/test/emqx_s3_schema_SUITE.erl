@@ -23,7 +23,6 @@ t_minimal_config(_Config) ->
             bucket := "bucket",
             host := "s3.us-east-1.endpoint.com",
             port := 443,
-            acl := private,
             min_part_size := 5242880,
             transport_options :=
                 #{

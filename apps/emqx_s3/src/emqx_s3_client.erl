@@ -57,7 +57,7 @@
     port := part_number(),
     bucket := string(),
     headers := headers(),
-    acl := emqx_s3:acl(),
+    acl := emqx_s3:acl() | undefined,
     url_expire_time := pos_integer(),
     access_key_id := string() | undefined,
     secret_access_key := string() | undefined,
