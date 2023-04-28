@@ -237,8 +237,9 @@ parse_spec_ref(Module, Path, Options) ->
             erlang:apply(Module, schema, [Path])
             %% better error message
         catch
-            error:Reason ->
-                throw({error, #{mfa => {Module, schema, [Path]}, reason => Reason}})
+            error:Reason:Stacktrace ->
+                MoreInfo = #{module => Module, path => Path, reason => Reason},
+                erlang:raise(error, MoreInfo, Stacktrace)
         end,
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->

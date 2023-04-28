@@ -24,6 +24,7 @@
 -export([get_by_node/2, get_by_node/3]).
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
+-export([tombstone/2]).
 -export([reset/2, reset/3]).
 -export([dump_schema/1, dump_schema/3]).
 -export([schema_module/0]).
@@ -106,6 +107,10 @@ update(Node, KeyPath, UpdateReq, Opts0) when Node =:= node() ->
     emqx:update_config(KeyPath, UpdateReq, Opts0#{override_to => local});
 update(Node, KeyPath, UpdateReq, Opts) ->
     emqx_conf_proto_v2:update(Node, KeyPath, UpdateReq, Opts).
+
+%% @doc Mark the specified key path as tombstone
+tombstone(KeyPath, Opts) ->
+    update(KeyPath, emqx_schema:tombstone(), Opts).
 
 %% @doc remove all value of key path in cluster-override.conf or local-override.conf.
 -spec remove(emqx_utils_maps:config_key_path(), emqx_config:update_opts()) ->

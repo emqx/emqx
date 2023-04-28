@@ -447,11 +447,17 @@ merge_to_override_config(RawConf, Opts) ->
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
 
-return_change_result(ConfKeyPath, {{update, _Req}, Opts}) ->
-    #{
-        config => emqx_config:get(ConfKeyPath),
-        raw_config => return_rawconf(ConfKeyPath, Opts)
-    };
+return_change_result(ConfKeyPath, {{update, Req}, Opts}) ->
+    case Req =/= emqx_schema:tombstone() of
+        true ->
+            #{
+                config => emqx_config:get(ConfKeyPath),
+                raw_config => return_rawconf(ConfKeyPath, Opts)
+            };
+        false ->
+            %% like remove, nothing to return
+            #{}
+    end;
 return_change_result(_ConfKeyPath, {remove, _Opts}) ->
     #{}.
 

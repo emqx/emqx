@@ -22,7 +22,9 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 %% APIs
 -export([
     list_raw/0,
@@ -33,7 +35,8 @@
     is_running/1,
     current_conns/2,
     max_conns/2,
-    id_example/0
+    id_example/0,
+    default_max_conn/0
 ]).
 
 -export([
@@ -61,8 +64,12 @@
 -export([certs_dir/2]).
 -endif.
 
+-type listener_id() :: atom() | binary().
+
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
+-define(MARK_DEL, marked_for_deletion).
+-define(MARK_DEL_BIN, <<"marked_for_deletion">>).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -105,19 +112,22 @@ do_list_raw() ->
 
 format_raw_listeners({Type0, Conf}) ->
     Type = binary_to_atom(Type0),
-    lists:map(
-        fun({LName, LConf0}) when is_map(LConf0) ->
-            Bind = parse_bind(LConf0),
-            Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
-            LConf1 = maps:remove(<<"authentication">>, LConf0),
-            LConf3 = maps:put(<<"running">>, Running, LConf1),
-            CurrConn =
-                case Running of
-                    true -> current_conns(Type, LName, Bind);
-                    false -> 0
-                end,
-            LConf4 = maps:put(<<"current_connections">>, CurrConn, LConf3),
-            {Type0, LName, LConf4}
+    lists:filtermap(
+        fun
+            ({LName, LConf0}) when is_map(LConf0) ->
+                Bind = parse_bind(LConf0),
+                Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
+                LConf1 = maps:remove(<<"authentication">>, LConf0),
+                LConf3 = maps:put(<<"running">>, Running, LConf1),
+                CurrConn =
+                    case Running of
+                        true -> current_conns(Type, LName, Bind);
+                        false -> 0
+                    end,
+                LConf4 = maps:put(<<"current_connections">>, CurrConn, LConf3),
+                {true, {Type0, LName, LConf4}};
+            ({_LName, _MarkDel}) ->
+                false
         end,
         maps:to_list(Conf)
     ).
@@ -195,7 +205,7 @@ start() ->
     ok = emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
     foreach_listeners(fun start_listener/3).
 
--spec start_listener(atom()) -> ok | {error, term()}.
+-spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun start_listener/3).
 
@@ -246,7 +256,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
 restart() ->
     foreach_listeners(fun restart_listener/3).
 
--spec restart_listener(atom()) -> ok | {error, term()}.
+-spec restart_listener(listener_id()) -> ok | {error, term()}.
 restart_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun restart_listener/3).
 
@@ -271,7 +281,7 @@ stop() ->
     _ = emqx_config_handler:remove_handler(?CONF_KEY_PATH),
     foreach_listeners(fun stop_listener/3).
 
--spec stop_listener(atom()) -> ok | {error, term()}.
+-spec stop_listener(listener_id()) -> ok | {error, term()}.
 stop_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun stop_listener/3).
 
@@ -419,7 +429,9 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     end.
 
 %% Update the listeners at runtime
-pre_config_update([listeners, Type, Name], {create, NewConf}, undefined) ->
+pre_config_update([listeners, Type, Name], {create, NewConf}, V) when
+    V =:= undefined orelse V =:= ?MARK_DEL_BIN
+->
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
 pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
@@ -434,6 +446,8 @@ pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
 pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     NewConf = emqx_utils_maps:deep_merge(RawConf, Updated),
     {ok, NewConf};
+pre_config_update([listeners, _Type, _Name], ?MARK_DEL, _RawConf) ->
+    {ok, ?MARK_DEL};
 pre_config_update(_Path, _Request, RawConf) ->
     {ok, RawConf}.
 
@@ -446,9 +460,9 @@ post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf
         #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
         _ -> ok
     end;
-post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
-    ok;
-post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
+post_config_update([listeners, Type, Name], Op, _, OldConf, _AppEnvs) when
+    Op =:= ?MARK_DEL andalso is_map(OldConf)
+->
     ok = unregister_ocsp_stapling_refresh(Type, Name),
     case stop_listener(Type, Name, OldConf) of
         ok ->
@@ -611,6 +625,7 @@ format_bind(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
+-spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
     case string:split(str(Id), ":", leading) of
         [Type, Name] ->
@@ -836,3 +851,15 @@ unregister_ocsp_stapling_refresh(Type, Name) ->
     ListenerId = listener_id(Type, Name),
     emqx_ocsp_cache:unregister_listener(ListenerId),
     ok.
+
+%% There is currently an issue with frontend
+%% infinity is not a good value for it, so we use 5m for now
+default_max_conn() ->
+    %% TODO: <<"infinity">>
+    5_000_000.
+
+-ifdef(TEST).
+%% since it's a copy-paste. we need to ensure it's the same atom.
+ensure_same_atom_test() ->
+    ?assertEqual(?MARK_DEL, emqx_schema:tombstone()).
+-endif.

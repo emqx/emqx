@@ -51,13 +51,13 @@ init_per_group(with_defaults_in_file, Config) ->
     %% if there is no config file, the such deletion would result in a deletion
     %% of the default listener.
     Name = atom_to_list(?MODULE) ++ "-default-listeners",
-    TmpConfFullPath = inject_tmp_config_content(Name, default_listeners_hcon_text()),
+    TmpConfFullPath = inject_tmp_config_content(Name, default_listeners_hocon_text()),
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     [{injected_conf_file, TmpConfFullPath} | Config].
 
 end_per_group(Group, Config) ->
-    emqx_conf:remove([listeners, tcp, new], #{override_to => cluster}),
-    emqx_conf:remove([listeners, tcp, new1], #{override_to => local}),
+    emqx_conf:tombstone([listeners, tcp, new], #{override_to => cluster}),
+    emqx_conf:tombstone([listeners, tcp, new1], #{override_to => local}),
     case Group =:= with_defaults_in_file of
         true ->
             {_, File} = lists:keyfind(injected_conf_file, 1, Config),
@@ -94,16 +94,16 @@ t_max_connection_default({init, Config}) ->
 t_max_connection_default({'end', Config}) ->
     ok = file:delete(proplists:get_value(tmp_config_file, Config));
 t_max_connection_default(Config) when is_list(Config) ->
-    %% Check infinity is binary not atom.
     #{<<"listeners">> := Listeners} = emqx_mgmt_api_listeners:do_list_listeners(),
     Target = lists:filter(
         fun(#{<<"id">> := Id}) -> Id =:= 'tcp:max_connection_test' end,
         Listeners
     ),
-    ?assertMatch([#{<<"max_connections">> := <<"infinity">>}], Target),
+    DefaultMaxConn = emqx_listeners:default_max_conn(),
+    ?assertMatch([#{<<"max_connections">> := DefaultMaxConn}], Target),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:max_connection_test"]),
-    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, request(get, NewPath, [], [])),
-    emqx_conf:remove([listeners, tcp, max_connection_test], #{override_to => cluster}),
+    ?assertMatch(#{<<"max_connections">> := DefaultMaxConn}, request(get, NewPath, [], [])),
+    emqx_conf:tombstone([listeners, tcp, max_connection_test], #{override_to => cluster}),
     ok.
 
 t_list_listeners(Config) when is_list(Config) ->
@@ -114,7 +114,7 @@ t_list_listeners(Config) when is_list(Config) ->
 
     %% POST /listeners
     ListenerId = <<"tcp:default">>,
-    NewListenerId = <<"tcp:new">>,
+    NewListenerId = <<"tcp:new11">>,
 
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
@@ -128,7 +128,7 @@ t_list_listeners(Config) when is_list(Config) ->
     OriginListener2 = maps:remove(<<"id">>, OriginListener),
     Port = integer_to_binary(?PORT),
     NewConf = OriginListener2#{
-        <<"name">> => <<"new">>,
+        <<"name">> => <<"new11">>,
         <<"bind">> => <<"0.0.0.0:", Port/binary>>,
         <<"max_connections">> := <<"infinity">>
     },
@@ -298,8 +298,6 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, Port
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
     OriginListener = request(get, OriginPath, [], []),
-    ct:pal("raw conf: ~p~n", [emqx_config:get_raw([listeners])]),
-    ct:pal("OriginListener:~p", [OriginListener]),
 
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
@@ -314,7 +312,7 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, Port
     ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
-    ?assert(is_running(NewListenerId)),
+    ?assertEqual({true, NewListenerId}, {is_running(NewListenerId), NewListenerId}),
 
     %% create with required options
     MinPath = emqx_mgmt_api_test_util:api_path(["listeners", MinListenerId]),
@@ -448,7 +446,7 @@ data_file(Name) ->
 cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
 
-default_listeners_hcon_text() ->
+default_listeners_hocon_text() ->
     Sc = #{roots => emqx_schema:fields("listeners")},
     Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
     Config = #{<<"listeners">> => Listeners},

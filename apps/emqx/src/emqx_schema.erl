@@ -100,6 +100,13 @@
     convert_servers/2
 ]).
 
+%% tombstone types
+-export([
+    tombstone/0,
+    tombstone_map/2,
+    get_tombstone_map_value_type/1
+]).
+
 -behaviour(hocon_schema).
 
 -reflect_type([
@@ -777,45 +784,48 @@ fields("listeners") ->
     [
         {"tcp",
             sc(
-                map(name, ref("mqtt_tcp_listener")),
+                tombstone_map(name, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
-                    default => default_listener(tcp),
+                    converter => fun(X, _) ->
+                        ensure_default_listener(X, tcp)
+                    end,
                     required => {false, recursively}
                 }
             )},
         {"ssl",
             sc(
-                map(name, ref("mqtt_ssl_listener")),
+                tombstone_map(name, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
-                    default => default_listener(ssl),
+                    converter => fun(X, _) -> ensure_default_listener(X, ssl) end,
                     required => {false, recursively}
                 }
             )},
         {"ws",
             sc(
-                map(name, ref("mqtt_ws_listener")),
+                tombstone_map(name, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
-                    default => default_listener(ws),
+                    converter => fun(X, _) -> ensure_default_listener(X, ws) end,
                     required => {false, recursively}
                 }
             )},
         {"wss",
             sc(
-                map(name, ref("mqtt_wss_listener")),
+                tombstone_map(name, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
-                    default => default_listener(wss),
+                    converter => fun(X, _) -> ensure_default_listener(X, wss) end,
                     required => {false, recursively}
                 }
             )},
         {"quic",
             sc(
-                map(name, ref("mqtt_quic_listener")),
+                tombstone_map(name, ref("mqtt_quic_listener")),
                 #{
                     desc => ?DESC(fields_listeners_quic),
+                    converter => fun keep_default_tombstone/2,
                     required => {false, recursively}
                 }
             )}
@@ -1943,7 +1953,7 @@ base_listener(Bind) ->
             sc(
                 hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => <<"infinity">>,
+                    default => emqx_listeners:default_max_conn(),
                     desc => ?DESC(base_listener_max_connections)
                 }
             )},
@@ -3092,20 +3102,12 @@ assert_required_field(Conf, Key, ErrorMessage) ->
 
 default_listener(tcp) ->
     #{
-        <<"default">> =>
-            #{
-                <<"bind">> => <<"0.0.0.0:1883">>,
-                <<"max_connections">> => 1024000
-            }
+        <<"bind">> => <<"0.0.0.0:1883">>
     };
 default_listener(ws) ->
     #{
-        <<"default">> =>
-            #{
-                <<"bind">> => <<"0.0.0.0:8083">>,
-                <<"max_connections">> => 1024000,
-                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
-            }
+        <<"bind">> => <<"0.0.0.0:8083">>,
+        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
     };
 default_listener(SSLListener) ->
     %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
@@ -3120,22 +3122,14 @@ default_listener(SSLListener) ->
     case SSLListener of
         ssl ->
             #{
-                <<"default">> =>
-                    #{
-                        <<"bind">> => <<"0.0.0.0:8883">>,
-                        <<"max_connections">> => 512000,
-                        <<"ssl_options">> => SslOptions
-                    }
+                <<"bind">> => <<"0.0.0.0:8883">>,
+                <<"ssl_options">> => SslOptions
             };
         wss ->
             #{
-                <<"default">> =>
-                    #{
-                        <<"bind">> => <<"0.0.0.0:8084">>,
-                        <<"max_connections">> => 512000,
-                        <<"ssl_options">> => SslOptions,
-                        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
-                    }
+                <<"bind">> => <<"0.0.0.0:8084">>,
+                <<"ssl_options">> => SslOptions,
+                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
             }
     end.
 
@@ -3196,3 +3190,47 @@ special_env(_Name) ->
 -else.
 special_env(_Name) -> error.
 -endif.
+
+%% The tombstone atom.
+tombstone() ->
+    marked_for_deletion.
+
+%% Make a map type, the value of which is allowed to be 'marked_for_deletion'
+%% 'marked_for_delition' is a special value which means the key is deleted.
+%% This is used to support the 'delete' operation in configs,
+%% since deleting the key would result in default value being used.
+tombstone_map(Name, Type) ->
+    %% marked_for_deletion must be the last member of the union
+    %% because we need to first union member to populate the default values
+    map(Name, ?UNION([Type, tombstone()])).
+
+%% inverse of mark_del_map
+get_tombstone_map_value_type(Schema) ->
+    %% TODO: violation of abstraction, expose an API in hoconsc
+    %% hoconsc:map_value_type(Schema)
+    ?MAP(_Name, Union) = hocon_schema:field_schema(Schema, type),
+    %% TODO: violation of abstraction, fix hoconsc:union_members/1
+    ?UNION(Members) = Union,
+    Tombstone = tombstone(),
+    [Type, Tombstone] = hoconsc:union_members(Members),
+    Type.
+
+%% Keep the 'default' tombstone, but delete others.
+keep_default_tombstone(Map, _Opts) when is_map(Map) ->
+    maps:filter(
+        fun(Key, Value) ->
+            Key =:= <<"default">> orelse Value =/= atom_to_binary(tombstone())
+        end,
+        Map
+    );
+keep_default_tombstone(Value, _Opts) ->
+    Value.
+
+ensure_default_listener(undefined, ListenerType) ->
+    %% let the schema's default value do its job
+    #{<<"default">> => default_listener(ListenerType)};
+ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
+    keep_default_tombstone(Map, #{});
+ensure_default_listener(Map, ListenerType) ->
+    NewMap = Map#{<<"default">> => default_listener(ListenerType)},
+    keep_default_tombstone(NewMap, #{}).
