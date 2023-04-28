@@ -306,7 +306,20 @@ on_query(
             Retry
         )
     of
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+        {error, Reason} when
+            Reason =:= econnrefused;
+            Reason =:= timeout;
+            Reason =:= {shutdown, normal};
+            Reason =:= {shutdown, closed}
+        ->
+            ?SLOG(warning, #{
+                msg => "http_connector_do_request_failed",
+                reason => Reason,
+                connector => InstId
+            }),
+            {error, {recoverable_error, Reason}};
+        {error, {closed, _Message} = Reason} ->
+            %% _Message = "The connection was lost."
             ?SLOG(warning, #{
                 msg => "http_connector_do_request_failed",
                 reason => Reason,
@@ -568,7 +581,16 @@ reply_delegator(ReplyFunAndArgs, Result) ->
     case Result of
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout; Reason =:= normal ->
+        {error, Reason} when
+            Reason =:= econnrefused;
+            Reason =:= timeout;
+            Reason =:= normal;
+            Reason =:= {shutdown, normal}
+        ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        {error, {closed, _Message} = Reason} ->
+            %% _Message = "The connection was lost."
             Result1 = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
         _ ->
