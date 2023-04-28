@@ -24,10 +24,29 @@
 -define(PORT, ?PORT(20000)).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, with_defaults_in_file},
+        {group, without_defaults_in_file}
+    ].
+
+groups() ->
+    AllTests = emqx_common_test_helpers:all(?MODULE),
+    [
+        {with_defaults_in_file, AllTests},
+        {without_defaults_in_file, AllTests}
+    ].
 
 init_per_suite(Config) ->
-    %% we have to materialize the config file with default values for this test suite
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(without_defaults_in_file, Config) ->
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    Config;
+init_per_group(with_defaults_in_file, Config) ->
+    %% we have to materialize the config file with default values for this test group
     %% because we want to test the deletion of non-existing listener
     %% if there is no config file, the such deletion would result in a deletion
     %% of the default listener.
@@ -36,11 +55,16 @@ init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     [{injected_conf_file, TmpConfFullPath} | Config].
 
-end_per_suite(Config) ->
+end_per_group(Group, Config) ->
     emqx_conf:remove([listeners, tcp, new], #{override_to => cluster}),
     emqx_conf:remove([listeners, tcp, new1], #{override_to => local}),
-    {_, File} = lists:keyfind(injected_conf_file, 1, Config),
-    ok = file:delete(File),
+    case Group =:= with_defaults_in_file of
+        true ->
+            {_, File} = lists:keyfind(injected_conf_file, 1, Config),
+            ok = file:delete(File);
+        false ->
+            ok
+    end,
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 init_per_testcase(Case, Config) ->
