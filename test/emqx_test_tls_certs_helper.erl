@@ -20,7 +20,17 @@
         , gen_host_cert/4
 
         , select_free_port/1
+        , generate_tls_certs/1
+
+        , fail_when_ssl_error/1
+        , fail_when_ssl_error/2
+        , fail_when_no_ssl_alert/2
+        , fail_when_no_ssl_alert/3
+
+
         ]).
+
+-include_lib("common_test/include/ct.hrl").
 
 %%-------------------------------------------------------------------------------
 %% TLS certs
@@ -154,3 +164,64 @@ select_free_port(GenModule, Fun) when
     end,
     ct:pal("Select free OS port: ~p", [Port]),
     Port.
+
+%% @doc fail the test if ssl_error recvd
+%%      post check for success conn establishment
+fail_when_ssl_error(Socket) ->
+    fail_when_ssl_error(Socket, 1000).
+fail_when_ssl_error(Socket, Timeout) ->
+  receive
+    {ssl_error, Socket, _} ->
+      ct:fail("Handshake failed!")
+  after Timeout ->
+      ok
+  end.
+
+%% @doc fail the test if no ssl_error recvd
+fail_when_no_ssl_alert(Socket, Alert) ->
+    fail_when_no_ssl_alert(Socket, Alert, 1000).
+fail_when_no_ssl_alert(Socket, Alert, Timeout) ->
+  receive
+    {ssl_error, Socket, {tls_alert, {Alert, AlertInfo}}} ->
+        ct:pal("alert info: ~p~n", [AlertInfo]);
+    {ssl_error, Socket, Other} ->
+        ct:fail("recv unexpected ssl_error: ~p~n", [Other])
+  after Timeout ->
+      ct:fail("No expected alert: ~p from Socket: ~p ", [Alert, Socket])
+  end.
+
+%% @doc Generate TLS cert chain for tests
+generate_tls_certs(Config) ->
+  DataDir = ?config(data_dir, Config),
+  gen_ca(DataDir, "root"),
+  gen_host_cert("intermediate1", "root", DataDir),
+  gen_host_cert("intermediate2", "root", DataDir),
+  gen_host_cert("server1", "intermediate1", DataDir),
+  gen_host_cert("client1", "intermediate1", DataDir),
+  gen_host_cert("server2", "intermediate2", DataDir),
+  gen_host_cert("client2", "intermediate2", DataDir),
+  os:cmd(io_lib:format("cat ~p ~p ~p > ~p", [filename:join(DataDir, "client2.pem"),
+                                             filename:join(DataDir, "intermediate2.pem"),
+                                             filename:join(DataDir, "root.pem"),
+                                             filename:join(DataDir, "client2-complete-bundle.pem")
+                                            ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "client2.pem"),
+                                          filename:join(DataDir, "intermediate2.pem"),
+                                          filename:join(DataDir, "client2-intermediate2-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "client2.pem"),
+                                          filename:join(DataDir, "root.pem"),
+                                          filename:join(DataDir, "client2-root-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "server1.pem"),
+                                          filename:join(DataDir, "intermediate1.pem"),
+                                          filename:join(DataDir, "server1-intermediate1-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate1.pem"),
+                                          filename:join(DataDir, "server1.pem"),
+                                          filename:join(DataDir, "intermediate1-server1-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate1.pem"),
+                                          filename:join(DataDir, "root.pem"),
+                                          filename:join(DataDir, "intermediate1-root-bundle.pem")
+                                         ])).
