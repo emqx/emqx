@@ -105,7 +105,13 @@ deep_remove([Key], Map) ->
 deep_remove([Key | KeyPath], Map) ->
     case maps:find(Key, Map) of
         {ok, SubMap} when is_map(SubMap) ->
-            Map#{Key => deep_remove(KeyPath, SubMap)};
+            NewSubMap = deep_remove(KeyPath, SubMap),
+            case NewSubMap =:= #{} of
+                true ->
+                    maps:remove(Key, Map);
+                false ->
+                    Map#{Key => NewSubMap}
+            end;
         {ok, _Val} ->
             Map;
         error ->
