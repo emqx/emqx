@@ -105,7 +105,6 @@ fields(s3) ->
                     bucket_owner_full_control
                 ]),
                 #{
-                    default => private,
                     desc => ?DESC("acl"),
                     required => false
                 }

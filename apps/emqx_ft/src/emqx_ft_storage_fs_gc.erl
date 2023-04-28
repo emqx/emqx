@@ -29,8 +29,9 @@
 
 -export([start_link/1]).
 
--export([collect/1]).
+-export([collect/0]).
 -export([collect/3]).
+-export([reset/0]).
 -export([reset/1]).
 
 -behaviour(gen_server).
@@ -40,38 +41,43 @@
 -export([handle_info/2]).
 
 -record(st, {
-    storage :: emqx_ft_storage_fs:storage(),
     next_gc_timer :: maybe(reference()),
     last_gc :: maybe(gcstats())
 }).
 
 -type gcstats() :: #gcstats{}.
 
+-define(IS_ENABLED(INTERVAL), (is_integer(INTERVAL) andalso INTERVAL > 0)).
+
 %%
 
 start_link(Storage) ->
-    gen_server:start_link(mk_server_ref(Storage), ?MODULE, Storage, []).
+    gen_server:start_link(mk_server_ref(global), ?MODULE, Storage, []).
 
--spec collect(emqx_ft_storage_fs:storage()) -> gcstats().
-collect(Storage) ->
-    gen_server:call(mk_server_ref(Storage), {collect, erlang:system_time()}, infinity).
+-spec collect() -> gcstats().
+collect() ->
+    gen_server:call(mk_server_ref(global), {collect, erlang:system_time()}, infinity).
+
+-spec reset() -> ok.
+reset() ->
+    reset(emqx_ft_conf:storage()).
 
 -spec reset(emqx_ft_storage_fs:storage()) -> ok.
 reset(Storage) ->
-    gen_server:cast(mk_server_ref(Storage), reset).
+    gen_server:cast(mk_server_ref(global), {reset, gc_interval(Storage)}).
 
 collect(Storage, Transfer, Nodes) ->
-    gen_server:cast(mk_server_ref(Storage), {collect, Transfer, Nodes}).
+    gc_enabled(Storage) andalso cast_collect(mk_server_ref(global), Storage, Transfer, Nodes).
 
-mk_server_ref(Storage) ->
+mk_server_ref(Name) ->
     % TODO
-    {via, gproc, {n, l, {?MODULE, get_segments_root(Storage)}}}.
+    {via, gproc, {n, l, {?MODULE, Name}}}.
 
 %%
 
 init(Storage) ->
-    St = #st{storage = Storage},
-    {ok, start_timer(St)}.
+    St = #st{},
+    {ok, start_timer(gc_interval(Storage), St)}.
 
 handle_call({collect, CalledAt}, _From, St) ->
     StNext = maybe_collect_garbage(CalledAt, St),
@@ -80,22 +86,17 @@ handle_call(Call, From, St) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Call, from => From}),
     {noreply, St}.
 
-handle_cast({collect, Transfer, [Node | Rest]}, St) ->
-    case gc_enabled(St) of
-        true ->
-            ok = do_collect_transfer(Transfer, Node, St),
-            case Rest of
-                [_ | _] ->
-                    gen_server:cast(self(), {collect, Transfer, Rest});
-                [] ->
-                    ok
-            end;
-        false ->
-            skip
+handle_cast({collect, Storage, Transfer, [Node | Rest]}, St) ->
+    ok = do_collect_transfer(Storage, Transfer, Node, St),
+    case Rest of
+        [_ | _] ->
+            cast_collect(self(), Storage, Transfer, Rest);
+        [] ->
+            ok
     end,
     {noreply, St};
-handle_cast(reset, St) ->
-    {noreply, reset_timer(St)};
+handle_cast({reset, Interval}, St) ->
+    {noreply, start_timer(Interval, cancel_timer(St))};
 handle_cast(Cast, St) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Cast}),
     {noreply, St}.
@@ -104,13 +105,16 @@ handle_info({timeout, TRef, collect}, St = #st{next_gc_timer = TRef}) ->
     StNext = do_collect_garbage(St),
     {noreply, start_timer(StNext#st{next_gc_timer = undefined})}.
 
-do_collect_transfer(Transfer, Node, St = #st{storage = Storage}) when Node == node() ->
+do_collect_transfer(Storage, Transfer, Node, St = #st{}) when Node == node() ->
     Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
     ok = maybe_report(Stats, St),
     ok;
-do_collect_transfer(_Transfer, _Node, _St = #st{}) ->
+do_collect_transfer(_Storage, _Transfer, _Node, _St = #st{}) ->
     % TODO
     ok.
+
+cast_collect(Ref, Storage, Transfer, Nodes) ->
+    gen_server:cast(Ref, {collect, Storage, Transfer, Nodes}).
 
 maybe_collect_garbage(_CalledAt, St = #st{last_gc = undefined}) ->
     do_collect_garbage(St);
@@ -119,36 +123,41 @@ maybe_collect_garbage(CalledAt, St = #st{last_gc = #gcstats{finished_at = Finish
         true ->
             St;
         false ->
-            reset_timer(do_collect_garbage(St))
+            start_timer(do_collect_garbage(cancel_timer(St)))
     end.
 
-do_collect_garbage(St = #st{storage = Storage}) ->
-    Stats = collect_garbage(Storage),
-    ok = maybe_report(Stats, St),
-    St#st{last_gc = Stats}.
+do_collect_garbage(St = #st{}) ->
+    emqx_ft_storage:with_storage_type(local, fun(Storage) ->
+        Stats = collect_garbage(Storage),
+        ok = maybe_report(Stats, Storage),
+        St#st{last_gc = Stats}
+    end).
 
-maybe_report(#gcstats{errors = Errors}, #st{storage = Storage}) when map_size(Errors) > 0 ->
+maybe_report(#gcstats{errors = Errors}, Storage) when map_size(Errors) > 0 ->
     ?tp(warning, "garbage_collection_errors", #{errors => Errors, storage => Storage});
-maybe_report(#gcstats{} = _Stats, #st{storage = _Storage}) ->
+maybe_report(#gcstats{} = _Stats, _Storage) ->
     ?tp(garbage_collection, #{stats => _Stats, storage => _Storage}).
 
-start_timer(St = #st{storage = Storage, next_gc_timer = undefined}) ->
-    case emqx_ft_conf:gc_interval(Storage) of
-        Delay when Delay > 0 ->
-            St#st{next_gc_timer = emqx_utils:start_timer(Delay, collect)};
-        0 ->
-            ?SLOG(warning, #{msg => "periodic_gc_disabled"}),
-            St
-    end.
+start_timer(St) ->
+    start_timer(gc_interval(emqx_ft_conf:storage()), St).
 
-reset_timer(St = #st{next_gc_timer = undefined}) ->
-    start_timer(St);
-reset_timer(St = #st{next_gc_timer = TRef}) ->
+start_timer(Interval, St = #st{next_gc_timer = undefined}) when ?IS_ENABLED(Interval) ->
+    St#st{next_gc_timer = emqx_utils:start_timer(Interval, collect)};
+start_timer(Interval, St) ->
+    ?SLOG(warning, #{msg => "periodic_gc_disabled", interval => Interval}),
+    St.
+
+cancel_timer(St = #st{next_gc_timer = undefined}) ->
+    St;
+cancel_timer(St = #st{next_gc_timer = TRef}) ->
     ok = emqx_utils:cancel_timer(TRef),
-    start_timer(St#st{next_gc_timer = undefined}).
+    St#st{next_gc_timer = undefined}.
 
-gc_enabled(St) ->
-    emqx_ft_conf:gc_interval(St#st.storage) > 0.
+gc_enabled(Storage) ->
+    ?IS_ENABLED(gc_interval(Storage)).
+
+gc_interval(Storage) ->
+    emqx_ft_conf:gc_interval(Storage).
 
 %%
 
@@ -175,8 +184,13 @@ try_collect_transfer(Storage, Transfer, TransferInfo = #{}, Stats) ->
     % heuristic we only delete transfer directory itself only if it is also outdated
     % _and was empty at the start of GC_, as a precaution against races between
     % writers and GCs.
-    TTL = get_segments_ttl(Storage, TransferInfo),
-    Cutoff = erlang:system_time(second) - TTL,
+    Cutoff =
+        case get_segments_ttl(Storage, TransferInfo) of
+            TTL when is_integer(TTL) ->
+                erlang:system_time(second) - TTL;
+            undefined ->
+                0
+        end,
     {FragCleaned, Stats1} = collect_outdated_fragments(Storage, Transfer, Cutoff, Stats),
     {TempCleaned, Stats2} = collect_outdated_tempfiles(Storage, Transfer, Cutoff, Stats1),
     % TODO: collect empty directories separately
@@ -338,16 +352,17 @@ filepath_to_binary(S) ->
     unicode:characters_to_binary(S, unicode, file:native_name_encoding()).
 
 get_segments_ttl(Storage, TransferInfo) ->
-    {MinTTL, MaxTTL} = emqx_ft_conf:segments_ttl(Storage),
-    clamp(MinTTL, MaxTTL, try_get_filemeta_ttl(TransferInfo)).
+    clamp(emqx_ft_conf:segments_ttl(Storage), try_get_filemeta_ttl(TransferInfo)).
 
 try_get_filemeta_ttl(#{filemeta := Filemeta}) ->
     maps:get(segments_ttl, Filemeta, undefined);
 try_get_filemeta_ttl(#{}) ->
     undefined.
 
-clamp(Min, Max, V) ->
-    min(Max, max(Min, V)).
+clamp({Min, Max}, V) ->
+    min(Max, max(Min, V));
+clamp(undefined, V) ->
+    V.
 
 %%
 

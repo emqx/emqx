@@ -23,6 +23,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% Accessors
+-export([enabled/0]).
 -export([storage/0]).
 -export([gc_interval/1]).
 -export([segments_ttl/1]).
@@ -45,49 +46,32 @@
 -type milliseconds() :: non_neg_integer().
 -type seconds() :: non_neg_integer().
 
-%% 5 minutes (s)
--define(DEFAULT_MIN_SEGMENTS_TTL, 300).
-%% 1 day (s)
--define(DEFAULT_MAX_SEGMENTS_TTL, 86400).
-%% 1 minute (ms)
--define(DEFAULT_GC_INTERVAL, 60000).
-
 %%--------------------------------------------------------------------
 %% Accessors
 %%--------------------------------------------------------------------
 
+-spec enabled() -> boolean().
+enabled() ->
+    emqx_config:get([file_transfer, enable], false).
+
 -spec storage() -> _Storage.
 storage() ->
-    emqx_config:get([file_transfer, storage]).
+    emqx_config:get([file_transfer, storage], undefined).
 
--spec gc_interval(_Storage) -> milliseconds().
-gc_interval(_Storage) ->
-    Conf = assert_storage(local),
-    emqx_utils_maps:deep_get([segments, gc, interval], Conf, ?DEFAULT_GC_INTERVAL).
+-spec gc_interval(_Storage) -> emqx_maybe:t(milliseconds()).
+gc_interval(Conf = #{type := local}) ->
+    emqx_utils_maps:deep_get([segments, gc, interval], Conf);
+gc_interval(_) ->
+    undefined.
 
--spec segments_ttl(_Storage) -> {_Min :: seconds(), _Max :: seconds()}.
-segments_ttl(_Storage) ->
-    Conf = assert_storage(local),
+-spec segments_ttl(_Storage) -> emqx_maybe:t({_Min :: seconds(), _Max :: seconds()}).
+segments_ttl(Conf = #{type := local}) ->
     {
-        emqx_utils_maps:deep_get(
-            [segments, gc, minimum_segments_ttl],
-            Conf,
-            ?DEFAULT_MIN_SEGMENTS_TTL
-        ),
-        emqx_utils_maps:deep_get(
-            [segments, gc, maximum_segments_ttl],
-            Conf,
-            ?DEFAULT_MAX_SEGMENTS_TTL
-        )
-    }.
-
-assert_storage(Type) ->
-    case storage() of
-        Conf = #{type := Type} ->
-            Conf;
-        Conf ->
-            error({inapplicable, Conf})
-    end.
+        emqx_utils_maps:deep_get([segments, gc, minimum_segments_ttl], Conf),
+        emqx_utils_maps:deep_get([segments, gc, maximum_segments_ttl], Conf)
+    };
+segments_ttl(_) ->
+    undefined.
 
 init_timeout() ->
     emqx_config:get([file_transfer, init_timeout]).
@@ -104,10 +88,7 @@ store_segment_timeout() ->
 
 -spec load() -> ok.
 load() ->
-    ok = emqx_ft_storage_exporter:update_exporter(
-        undefined,
-        storage()
-    ),
+    ok = on_config_update(#{}, emqx_config:get([file_transfer], #{})),
     emqx_conf:add_handler([file_transfer], ?MODULE).
 
 -spec unload() -> ok.
@@ -131,7 +112,26 @@ pre_config_update(_, Req, _Config) ->
     emqx_config:app_envs()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
-post_config_update(_Path, _Req, NewConfig, OldConfig, _AppEnvs) ->
-    OldStorageConfig = maps:get(storage, OldConfig, undefined),
-    NewStorageConfig = maps:get(storage, NewConfig, undefined),
-    emqx_ft_storage_exporter:update_exporter(OldStorageConfig, NewStorageConfig).
+post_config_update([file_transfer | _], _Req, NewConfig, OldConfig, _AppEnvs) ->
+    on_config_update(OldConfig, NewConfig).
+
+on_config_update(OldConfig, NewConfig) ->
+    lists:foreach(
+        fun(ConfKey) ->
+            on_config_update(
+                ConfKey,
+                maps:get(ConfKey, OldConfig, undefined),
+                maps:get(ConfKey, NewConfig, undefined)
+            )
+        end,
+        [storage, enable]
+    ).
+
+on_config_update(_, Config, Config) ->
+    ok;
+on_config_update(storage, OldConfig, NewConfig) ->
+    ok = emqx_ft_storage:on_config_update(OldConfig, NewConfig);
+on_config_update(enable, _, true) ->
+    ok = emqx_ft:hook();
+on_config_update(enable, _, false) ->
+    ok = emqx_ft:unhook().

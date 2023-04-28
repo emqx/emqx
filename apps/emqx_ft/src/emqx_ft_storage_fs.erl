@@ -47,6 +47,8 @@
 
 -export([files/1]).
 
+-export([on_config_update/2]).
+
 -export_type([storage/0]).
 -export_type([filefrag/1]).
 -export_type([filefrag/0]).
@@ -96,6 +98,7 @@
 }.
 
 -type storage() :: #{
+    type := 'local',
     segments := segments(),
     exporter := emqx_ft_storage_exporter:exporter()
 }.
@@ -216,6 +219,13 @@ assemble(Storage, Transfer, Size) ->
 
 files(Storage) ->
     emqx_ft_storage_exporter:list(Storage).
+
+%%
+
+on_config_update(StorageOld, StorageNew) ->
+    % NOTE: this will reset GC timer, frequent changes would postpone GC indefinitely
+    ok = emqx_ft_storage_fs_gc:reset(StorageNew),
+    emqx_ft_storage_exporter:on_config_update(StorageOld, StorageNew).
 
 %%
 

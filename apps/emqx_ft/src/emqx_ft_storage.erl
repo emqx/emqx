@@ -27,7 +27,9 @@
         files/0,
 
         with_storage_type/2,
-        with_storage_type/3
+        with_storage_type/3,
+
+        on_config_update/2
     ]
 ).
 
@@ -90,26 +92,35 @@ child_spec() ->
 -spec store_filemeta(emqx_ft:transfer(), emqx_ft:filemeta()) ->
     ok | {async, pid()} | {error, term()}.
 store_filemeta(Transfer, FileMeta) ->
-    Mod = mod(),
-    Mod:store_filemeta(storage(), Transfer, FileMeta).
+    with_storage(store_filemeta, [Transfer, FileMeta]).
 
 -spec store_segment(emqx_ft:transfer(), emqx_ft:segment()) ->
     ok | {async, pid()} | {error, term()}.
 store_segment(Transfer, Segment) ->
-    Mod = mod(),
-    Mod:store_segment(storage(), Transfer, Segment).
+    with_storage(store_segment, [Transfer, Segment]).
 
 -spec assemble(emqx_ft:transfer(), emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
 assemble(Transfer, Size) ->
-    Mod = mod(),
-    Mod:assemble(storage(), Transfer, Size).
+    with_storage(assemble, [Transfer, Size]).
 
 -spec files() ->
     {ok, [file_info()]} | {error, term()}.
 files() ->
-    Mod = mod(),
-    Mod:files(storage()).
+    with_storage(files, []).
+
+-spec with_storage(atom() | function()) -> any().
+with_storage(Fun) ->
+    with_storage(Fun, []).
+
+-spec with_storage(atom() | function(), list(term())) -> any().
+with_storage(Fun, Args) ->
+    case storage() of
+        Storage = #{} ->
+            apply_storage(Storage, Fun, Args);
+        undefined ->
+            {error, disabled}
+    end.
 
 -spec with_storage_type(atom(), atom() | function()) -> any().
 with_storage_type(Type, Fun) ->
@@ -117,17 +128,61 @@ with_storage_type(Type, Fun) ->
 
 -spec with_storage_type(atom(), atom() | function(), list(term())) -> any().
 with_storage_type(Type, Fun, Args) ->
-    Storage = storage(),
-    case Storage of
-        #{type := Type} when is_function(Fun) ->
-            apply(Fun, [Storage | Args]);
-        #{type := Type} when is_atom(Fun) ->
-            Mod = mod(Storage),
-            apply(Mod, Fun, [Storage | Args]);
-        disabled ->
-            {error, disabled};
-        _ ->
-            {error, {invalid_storage_type, Type}}
+    with_storage(fun(Storage) ->
+        case Storage of
+            #{type := Type} ->
+                apply_storage(Storage, Fun, Args);
+            _ ->
+                {error, {invalid_storage_type, Storage}}
+        end
+    end).
+
+apply_storage(Storage, Fun, Args) when is_atom(Fun) ->
+    apply(mod(Storage), Fun, [Storage | Args]);
+apply_storage(Storage, Fun, Args) when is_function(Fun) ->
+    apply(Fun, [Storage | Args]).
+
+%%
+
+-spec on_config_update(_Old :: emqx_maybe:t(storage()), _New :: emqx_maybe:t(storage())) ->
+    ok.
+on_config_update(Storage, Storage) ->
+    ok;
+on_config_update(#{type := Type} = StorageOld, #{type := Type} = StorageNew) ->
+    ok = (mod(StorageNew)):on_config_update(StorageOld, StorageNew);
+on_config_update(StorageOld, StorageNew) ->
+    _ = emqx_maybe:apply(fun on_storage_stop/1, StorageOld),
+    _ = emqx_maybe:apply(fun on_storage_start/1, StorageNew),
+    _ = emqx_maybe:apply(
+        fun(Storage) -> (mod(Storage)):on_config_update(StorageOld, StorageNew) end,
+        StorageNew
+    ),
+    ok.
+
+on_storage_start(Storage = #{type := _}) ->
+    lists:foreach(
+        fun(ChildSpec) ->
+            {ok, _Child} = supervisor:start_child(emqx_ft_sup, ChildSpec)
+        end,
+        child_spec(Storage)
+    ).
+
+on_storage_stop(Storage = #{type := _}) ->
+    lists:foreach(
+        fun(#{id := ChildId}) ->
+            _ = supervisor:terminate_child(emqx_ft_sup, ChildId),
+            ok = supervisor:delete_child(emqx_ft_sup, ChildId)
+        end,
+        child_spec(Storage)
+    ).
+
+child_spec(Storage) ->
+    try
+        Mod = mod(Storage),
+        Mod:child_spec(Storage)
+    catch
+        error:disabled -> [];
+        error:undef -> []
     end.
 
 %%--------------------------------------------------------------------
@@ -144,7 +199,6 @@ mod(Storage) ->
     case Storage of
         #{type := local} ->
             emqx_ft_storage_fs;
-        disabled ->
+        undefined ->
             error(disabled)
-        % emqx_ft_storage_dummy
     end.
