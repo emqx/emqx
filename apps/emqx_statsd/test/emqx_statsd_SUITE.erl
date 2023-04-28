@@ -92,8 +92,10 @@ t_server_validator(_) ->
     ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?DEFAULT_CONF, #{
         raw_with_default => true
     }),
-    undefined = emqx_conf:get_raw([statsd, server], undefined),
-    ?assertMatch("127.0.0.1:8125", emqx_conf:get([statsd, server])),
+    DefaultServer = default_server(),
+    ?assertEqual(DefaultServer, emqx_conf:get_raw([statsd, server])),
+    DefaultServerStr = binary_to_list(DefaultServer),
+    ?assertEqual(DefaultServerStr, emqx_conf:get([statsd, server])),
     %% recover
     ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF, #{
         raw_with_default => true
@@ -204,3 +206,7 @@ request(Method, Body) ->
         {ok, _Status, _} ->
             error
     end.
+
+default_server() ->
+    {server, Schema} = lists:keyfind(server, 1, emqx_statsd_schema:fields("statsd")),
+    hocon_schema:field_schema(Schema, default).
