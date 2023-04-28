@@ -34,7 +34,7 @@
 -type values() :: [emqx_connector_sql:value()].
 
 -type parse_opts() :: #{
-    parameters => '$n' | '?',
+    parameters => '$n' | ':n' | '?',
     % Inherited from `emqx_connector_template:parse_opts()`
     strip_double_quote => boolean()
 }.
@@ -116,7 +116,9 @@ mk_prepared_statement(Template, Opts) ->
 mk_replace('?', Acc) ->
     {"?", Acc};
 mk_replace('$n', N) ->
-    {"$" ++ integer_to_list(N), N + 1}.
+    {"$" ++ integer_to_list(N), N + 1};
+mk_replace(':n', N) ->
+    {":" ++ integer_to_list(N), N + 1}.
 
 %% @doc Render a row template into a list of SQL values.
 %% An _SQL value_ is a vaguely defined concept here, it is something that's considered

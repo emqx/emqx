@@ -188,6 +188,13 @@ t_parse_sql_prepstmt_n(_) ->
         emqx_connector_template_sql:render_prepstmt_strict(RowTemplate, Bindings)
     ).
 
+t_parse_sql_prepstmt_colon(_) ->
+    {PrepareStatement, _RowTemplate} =
+        emqx_connector_template_sql:parse_prepstmt(<<"a=${a},b=${b},c=${c},d=${d}">>, #{
+            parameters => ':n'
+        }),
+    ?assertEqual(<<"a=:1,b=:2,c=:3,d=:4">>, bin(PrepareStatement)).
+
 t_parse_sql_prepstmt_partial_ph(_) ->
     Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     {PrepareStatement, RowTemplate} =
