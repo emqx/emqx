@@ -140,6 +140,11 @@ COMMON_DEPS := $(REBAR)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(BUILD) $(@) rel
 
+.PHONY: compile $(PROFILES:%=compile-%)
+compile: $(PROFILES:%=compile-%)
+$(PROFILES:%=compile-%):
+	@$(BUILD) $(@:compile-%=%) apps
+
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
 ## 2. it's slow
