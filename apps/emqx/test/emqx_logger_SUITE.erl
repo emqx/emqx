@@ -22,7 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(LOGGER, emqx_logger).
--define(a, "a").
 -define(SUPPORTED_LEVELS, [emergency, alert, critical, error, warning, notice, info, debug]).
 
 all() -> emqx_common_test_helpers:all(?MODULE).

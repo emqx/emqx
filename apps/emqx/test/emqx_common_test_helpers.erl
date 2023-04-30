@@ -489,7 +489,7 @@ load_config(SchemaModule, Config, Opts) ->
     ok.
 
 load_config(SchemaModule, Config) ->
-    load_config(SchemaModule, Config, #{raw_with_default => false}).
+    load_config(SchemaModule, Config, #{raw_with_default => true}).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
     Servers :: [{Host, Port}],
