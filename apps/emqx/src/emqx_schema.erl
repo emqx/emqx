@@ -2165,7 +2165,7 @@ common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
-    AvailableVersions = default_tls_vsns(Collection),
+    DefaultVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -2235,10 +2235,10 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 hoconsc:array(typerefl:atom()),
                 #{
-                    default => AvailableVersions,
+                    default => DefaultVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
                     importance => ?IMPORTANCE_HIGH,
-                    validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
+                    validator => fun(Input) -> validate_tls_versions(Collection, Input) end
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
@@ -2424,10 +2424,14 @@ client_ssl_opts_schema(Defaults) ->
                 )}
         ].
 
-default_tls_vsns(dtls_all_available) ->
-    emqx_tls_lib:available_versions(dtls) -- [dtlsv1];
-default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:available_versions(tls) -- ['tlsv1.1', tlsv1].
+available_tls_vsns(dtls_all_available) -> emqx_tls_lib:available_versions(dtls);
+available_tls_vsns(tls_all_available) -> emqx_tls_lib:available_versions(tls).
+
+outdated_tls_vsn(dtls_all_available) -> [dtlsv1];
+outdated_tls_vsn(tls_all_available) -> ['tlsv1.1', tlsv1].
+
+default_tls_vsns(Key) ->
+    available_tls_vsns(Key) -- outdated_tls_vsn(Key).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
@@ -2736,7 +2740,8 @@ validate_ciphers(Ciphers) ->
         Bad -> {error, {bad_ciphers, Bad}}
     end.
 
-validate_tls_versions(AvailableVersions, Versions) ->
+validate_tls_versions(Collection, Versions) ->
+    AvailableVersions = available_tls_vsns(Collection),
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
         Vs -> {error, {unsupported_tls_versions, Vs}}
