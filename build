@@ -125,6 +125,7 @@ assert_no_compile_time_only_deps() {
 }
 
 make_rel() {
+    local release_or_tar="${1}"
     ./scripts/pre-compile.sh "$PROFILE"
     # make_elixir_rel always create rebar.lock
     # delete it to make git clone + checkout work because we use shallow close for rebar deps
@@ -134,7 +135,7 @@ make_rel() {
     # generate docs (require beam compiled), generated to etc and priv dirs
     make_docs
     # now assemble the release tar
-    ./rebar3 as "$PROFILE" tar
+    ./rebar3 as "$PROFILE" "$release_or_tar"
     assert_no_compile_time_only_deps
 }
 
@@ -220,7 +221,7 @@ make_tgz() {
     else
       # build the src_tarball again to ensure relup is included
       # elixir does not have relup yet.
-      make_rel
+      make_rel tar
 
       local relpath="_build/${PROFILE}/rel/emqx"
       full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
@@ -378,7 +379,7 @@ case "$ARTIFACT" in
         make_docs
         ;;
     rel)
-        make_rel
+        make_rel release
         ;;
     relup)
         make_relup
@@ -397,7 +398,7 @@ case "$ARTIFACT" in
         if [ "${IS_ELIXIR:-}" = 'yes' ]; then
             make_elixir_rel
         else
-            make_rel
+            make_rel tar
         fi
         env EMQX_REL="$(pwd)" \
             EMQX_BUILD="${PROFILE}" \

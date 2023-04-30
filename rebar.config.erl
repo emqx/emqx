@@ -156,7 +156,7 @@ project_app_dirs(Edition) ->
 
 plugins() ->
     [
-        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
+        %{relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
@@ -495,11 +495,8 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
-        %% for relup
         {copy, "bin/emqx", "bin/emqx-{{release_version}}"},
-        %% for relup
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
-        %% for relup
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
         {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
