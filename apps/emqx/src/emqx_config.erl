@@ -360,12 +360,13 @@ read_override_confs() ->
     hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
+%% TODO: remove raw_with_default as it's now always true.
 maybe_fill_defaults(SchemaMod, RawConf0, #{raw_with_default := true}) ->
     RootSchemas = hocon_schema:roots(SchemaMod),
     %% the roots which are missing from the loaded configs
     MissingRoots = lists:filtermap(
         fun({BinName, Sc}) ->
-            case maps:is_key(BinName, RawConf0) of
+            case maps:is_key(BinName, RawConf0) orelse is_already_loaded(BinName) of
                 true -> false;
                 false -> {true, Sc}
             end
@@ -382,6 +383,13 @@ maybe_fill_defaults(SchemaMod, RawConf0, #{raw_with_default := true}) ->
     fill_defaults(RawConf);
 maybe_fill_defaults(_SchemaMod, RawConf, _Opts) ->
     RawConf.
+
+%% So far, this can only return true when testing.
+%% e.g. when testing an app, we need to load its config first
+%% then start emqx_conf application which will load the
+%% possibly empty config again (then filled with defaults).
+is_already_loaded(Name) ->
+    ?MODULE:get_raw([Name], #{}) =/= #{}.
 
 %% if a root is not found in the raw conf, fill it with default values.
 seed_default(Schema) ->
