@@ -249,10 +249,19 @@ start_app(App, SpecAppConfig, Opts) ->
     case application:ensure_all_started(App) of
         {ok, _} ->
             ok = ensure_dashboard_listeners_started(App),
+            ok = wait_for_app_processes(App),
             ok;
         {error, Reason} ->
             error({failed_to_start_app, App, Reason})
     end.
+
+wait_for_app_processes(emqx_conf) ->
+    %% emqx_conf app has a gen_server which
+    %% initializes its state asynchronously
+    gen_server:call(emqx_cluster_rpc, dummy),
+    ok;
+wait_for_app_processes(_) ->
+    ok.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
@@ -309,7 +318,7 @@ stop_apps(Apps) ->
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
-    emqx_config:erase_schema_mod_and_names(),
+    emqx_config:erase_all(),
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),

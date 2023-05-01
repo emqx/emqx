@@ -67,7 +67,7 @@ init_per_suite(Config) ->
     emqx_config:erase(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY),
     _ = application:load(emqx_conf),
     ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_authn]
+        [emqx_conf, emqx_authn]
     ),
 
     ?AUTHN:delete_chain(?GLOBAL),

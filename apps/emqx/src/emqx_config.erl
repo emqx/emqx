@@ -89,7 +89,7 @@
 ]).
 
 -ifdef(TEST).
--export([erase_schema_mod_and_names/0]).
+-export([erase_all/0]).
 -endif.
 
 -include("logger.hrl").
@@ -559,7 +559,9 @@ save_schema_mod_and_names(SchemaMod) ->
     }).
 
 -ifdef(TEST).
-erase_schema_mod_and_names() ->
+erase_all() ->
+    Names = get_root_names(),
+    lists:foreach(fun erase/1, Names),
     persistent_term:erase(?PERSIS_SCHEMA_MODS).
 -endif.
 
