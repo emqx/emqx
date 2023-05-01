@@ -228,11 +228,11 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: $(PROFILE) quickrun
+run: compile-$(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
-	./_build/$(PROFILE)/rel/emqx/bin/emqx console
+	./dev -p $(PROFILE)
 
 ## Take the currently set PROFILE
 docker:
