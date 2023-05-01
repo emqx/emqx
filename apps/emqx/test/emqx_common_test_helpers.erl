@@ -31,6 +31,7 @@
     start_apps/2,
     start_apps/3,
     stop_apps/1,
+    stop_apps/2,
     reload/2,
     app_path/2,
     proj_root/0,
@@ -313,12 +314,21 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
+    stop_apps(Apps, #{}).
+
+stop_apps(Apps, Opts) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
-    emqx_config:erase_all(),
+    case Opts of
+        #{erase_all_configs := false} ->
+            %% FIXME: this means inter-suite or inter-test dependencies
+            ok;
+        _ ->
+            emqx_config:erase_all()
+    end,
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
