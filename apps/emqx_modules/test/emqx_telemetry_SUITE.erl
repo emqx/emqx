@@ -463,6 +463,16 @@ t_num_clients(_Config) ->
     ok.
 
 t_advanced_mqtt_features(_) ->
+    try
+        ok = test_advanced_mqtt_features()
+    catch
+        _:_ ->
+            %% delayed messages' metrics might not be reported yet
+            timer:sleep(1000),
+            test_advanced_mqtt_features()
+    end.
+
+test_advanced_mqtt_features() ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     AdvFeats = get_value(advanced_mqtt_features, TelemetryData),
     ?assertEqual(
