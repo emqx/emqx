@@ -70,3 +70,5 @@ apps/emqx/test/emqx_static_checks_data/master.bpapi
 lux_logs/
 /.prepare
 bom.json
+ct_run*/
+apps/emqx_conf/etc/emqx.conf.all.rendered*

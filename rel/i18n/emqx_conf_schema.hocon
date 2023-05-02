@@ -1369,9 +1369,12 @@ this is where to look."""
 
   desc_log {
     desc {
-      en: """EMQX logging supports multiple sinks for the log events.
-Each sink is represented by a _log handler_, which can be configured independently."""
-      zh: """EMQX 日志记录支持日志事件的多个接收器。 每个接收器由一个_log handler_表示，可以独立配置。"""
+      en: """EMQX supports multiple log handlers, one console handler and multiple file handlers.
+EMQX by default logs to console when running in docker or in console/foreground mode,
+otherwise it logs to file $EMQX_LOG_DIR/emqx.log.
+For advanced configuration, you can find more parameters in this section."""
+      zh: """EMQX 支持同时多个日志输出，一个控制台输出，和多个文件输出。
+默认情况下，EMQX 运行在容器中，或者在 'console' 或 'foreground' 模式下运行时，会输出到 控制台，否则输出到文件。"""
     }
     label {
       en: "Log"

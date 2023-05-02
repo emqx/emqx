@@ -78,7 +78,8 @@ t_check_schema(_Config) ->
     ).
 
 t_union_member_selector(_) ->
-    ?assertMatch(#{authentication := undefined}, check(undefined)),
+    %% default value for authentication
+    ?assertMatch(#{authentication := []}, check(undefined)),
     C1 = #{<<"backend">> => <<"built_in_database">>},
     ?assertThrow(
         #{

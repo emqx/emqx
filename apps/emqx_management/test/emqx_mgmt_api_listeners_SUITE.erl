@@ -20,18 +20,51 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(PORT, (20000 + ?LINE)).
+-define(PORT(Base), (Base + ?LINE)).
+-define(PORT, ?PORT(20000)).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, with_defaults_in_file},
+        {group, without_defaults_in_file}
+    ].
+
+groups() ->
+    AllTests = emqx_common_test_helpers:all(?MODULE),
+    [
+        {with_defaults_in_file, AllTests},
+        {without_defaults_in_file, AllTests}
+    ].
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-end_per_suite(_) ->
-    emqx_conf:remove([listeners, tcp, new], #{override_to => cluster}),
-    emqx_conf:remove([listeners, tcp, new1], #{override_to => local}),
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(without_defaults_in_file, Config) ->
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    Config;
+init_per_group(with_defaults_in_file, Config) ->
+    %% we have to materialize the config file with default values for this test group
+    %% because we want to test the deletion of non-existing listener
+    %% if there is no config file, the such deletion would result in a deletion
+    %% of the default listener.
+    Name = atom_to_list(?MODULE) ++ "-default-listeners",
+    TmpConfFullPath = inject_tmp_config_content(Name, default_listeners_hocon_text()),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    [{injected_conf_file, TmpConfFullPath} | Config].
+
+end_per_group(Group, Config) ->
+    emqx_conf:tombstone([listeners, tcp, new], #{override_to => cluster}),
+    emqx_conf:tombstone([listeners, tcp, new1], #{override_to => local}),
+    case Group =:= with_defaults_in_file of
+        true ->
+            {_, File} = lists:keyfind(injected_conf_file, 1, Config),
+            ok = file:delete(File);
+        false ->
+            ok
+    end,
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 init_per_testcase(Case, Config) ->
@@ -52,30 +85,25 @@ end_per_testcase(Case, Config) ->
 
 t_max_connection_default({init, Config}) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf]),
-    Etc = filename:join(["etc", "emqx.conf.all"]),
-    TmpConfName = atom_to_list(?FUNCTION_NAME) ++ ".conf",
-    Inc = filename:join(["etc", TmpConfName]),
-    ConfFile = emqx_common_test_helpers:app_path(emqx_conf, Etc),
-    IncFile = emqx_common_test_helpers:app_path(emqx_conf, Inc),
     Port = integer_to_binary(?PORT),
     Bin = <<"listeners.tcp.max_connection_test {bind = \"0.0.0.0:", Port/binary, "\"}">>,
-    ok = file:write_file(IncFile, Bin),
-    ok = file:write_file(ConfFile, ["include \"", TmpConfName, "\""], [append]),
+    TmpConfName = atom_to_list(?FUNCTION_NAME) ++ ".conf",
+    TmpConfFullPath = inject_tmp_config_content(TmpConfName, Bin),
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    [{tmp_config_file, IncFile} | Config];
+    [{tmp_config_file, TmpConfFullPath} | Config];
 t_max_connection_default({'end', Config}) ->
     ok = file:delete(proplists:get_value(tmp_config_file, Config));
 t_max_connection_default(Config) when is_list(Config) ->
-    %% Check infinity is binary not atom.
     #{<<"listeners">> := Listeners} = emqx_mgmt_api_listeners:do_list_listeners(),
     Target = lists:filter(
         fun(#{<<"id">> := Id}) -> Id =:= 'tcp:max_connection_test' end,
         Listeners
     ),
-    ?assertMatch([#{<<"max_connections">> := <<"infinity">>}], Target),
+    DefaultMaxConn = emqx_listeners:default_max_conn(),
+    ?assertMatch([#{<<"max_connections">> := DefaultMaxConn}], Target),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:max_connection_test"]),
-    ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, request(get, NewPath, [], [])),
-    emqx_conf:remove([listeners, tcp, max_connection_test], #{override_to => cluster}),
+    ?assertMatch(#{<<"max_connections">> := DefaultMaxConn}, request(get, NewPath, [], [])),
+    emqx_conf:tombstone([listeners, tcp, max_connection_test], #{override_to => cluster}),
     ok.
 
 t_list_listeners(Config) when is_list(Config) ->
@@ -86,7 +114,7 @@ t_list_listeners(Config) when is_list(Config) ->
 
     %% POST /listeners
     ListenerId = <<"tcp:default">>,
-    NewListenerId = <<"tcp:new">>,
+    NewListenerId = <<"tcp:new11">>,
 
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
@@ -100,7 +128,7 @@ t_list_listeners(Config) when is_list(Config) ->
     OriginListener2 = maps:remove(<<"id">>, OriginListener),
     Port = integer_to_binary(?PORT),
     NewConf = OriginListener2#{
-        <<"name">> => <<"new">>,
+        <<"name">> => <<"new11">>,
         <<"bind">> => <<"0.0.0.0:", Port/binary>>,
         <<"max_connections">> := <<"infinity">>
     },
@@ -123,7 +151,7 @@ t_tcp_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"tcp:min">>,
     BadId = <<"tcp:bad">>,
     Type = <<"tcp">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 31000).
 
 t_ssl_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"ssl:default">>,
@@ -131,7 +159,7 @@ t_ssl_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"ssl:min">>,
     BadId = <<"ssl:bad">>,
     Type = <<"ssl">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 32000).
 
 t_ws_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"ws:default">>,
@@ -139,7 +167,7 @@ t_ws_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"ws:min">>,
     BadId = <<"ws:bad">>,
     Type = <<"ws">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 33000).
 
 t_wss_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"wss:default">>,
@@ -147,7 +175,7 @@ t_wss_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"wss:min">>,
     BadId = <<"wss:bad">>,
     Type = <<"wss">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 34000).
 
 t_api_listeners_list_not_ready(Config) when is_list(Config) ->
     net_kernel:start(['listeners@127.0.0.1', longnames]),
@@ -266,7 +294,7 @@ cluster(Specs) ->
         end}
     ]).
 
-crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
+crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, PortBase) ->
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
     OriginListener = request(get, OriginPath, [], []),
@@ -274,8 +302,8 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    Port1 = integer_to_binary(?PORT),
-    Port2 = integer_to_binary(?PORT),
+    Port1 = integer_to_binary(?PORT(PortBase)),
+    Port2 = integer_to_binary(?PORT(PortBase)),
     NewConf = OriginListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:", Port1/binary>>
@@ -284,7 +312,7 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
-    ?assert(is_running(NewListenerId)),
+    ?assertEqual({true, NewListenerId}, {is_running(NewListenerId), NewListenerId}),
 
     %% create with required options
     MinPath = emqx_mgmt_api_test_util:api_path(["listeners", MinListenerId]),
@@ -417,3 +445,21 @@ data_file(Name) ->
 
 cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
+
+default_listeners_hocon_text() ->
+    Sc = #{roots => emqx_schema:fields("listeners")},
+    Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
+    Config = #{<<"listeners">> => Listeners},
+    hocon_pp:do(Config, #{}).
+
+%% inject a 'include' at the end of emqx.conf.all
+%% the 'include' can be kept after test,
+%% as long as the file has been deleted it is a no-op
+inject_tmp_config_content(TmpFile, Content) ->
+    Etc = filename:join(["etc", "emqx.conf.all"]),
+    Inc = filename:join(["etc", TmpFile]),
+    ConfFile = emqx_common_test_helpers:app_path(emqx_conf, Etc),
+    TmpFileFullPath = emqx_common_test_helpers:app_path(emqx_conf, Inc),
+    ok = file:write_file(TmpFileFullPath, Content),
+    ok = file:write_file(ConfFile, ["\ninclude \"", TmpFileFullPath, "\"\n"], [append]),
+    TmpFileFullPath.

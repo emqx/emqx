@@ -513,3 +513,81 @@ url_type_test_() ->
             typerefl:from_string(emqx_schema:url(), <<"">>)
         )
     ].
+
+env_test_() ->
+    Do = fun emqx_schema:naive_env_interpolation/1,
+    [
+        {"undefined", fun() -> ?assertEqual(undefined, Do(undefined)) end},
+        {"full env abs path",
+            with_env_fn(
+                "MY_FILE",
+                "/path/to/my/file",
+                fun() -> ?assertEqual("/path/to/my/file", Do("$MY_FILE")) end
+            )},
+        {"full env relative path",
+            with_env_fn(
+                "MY_FILE",
+                "path/to/my/file",
+                fun() -> ?assertEqual("path/to/my/file", Do("${MY_FILE}")) end
+            )},
+        %% we can not test windows style file join though
+        {"windows style",
+            with_env_fn(
+                "MY_FILE",
+                "path\\to\\my\\file",
+                fun() -> ?assertEqual("path\\to\\my\\file", Do("$MY_FILE")) end
+            )},
+        {"dir no {}",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"$MY_DIR/foobar">>)) end
+            )},
+        {"dir with {}",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}/foobar">>)) end
+            )},
+        %% a trailing / should not cause the sub path to become absolute
+        {"env dir with trailing /",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir//",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}/foobar">>)) end
+            )},
+        {"string dir with doulbe /",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir/",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}//foobar">>)) end
+            )},
+        {"env not found",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir/",
+                fun() -> ?assertEqual("${MY_DIR2}//foobar", Do(<<"${MY_DIR2}//foobar">>)) end
+            )}
+    ].
+
+with_env_fn(Name, Value, F) ->
+    fun() ->
+        with_envs(F, [{Name, Value}])
+    end.
+
+with_envs(Fun, Envs) ->
+    with_envs(Fun, [], Envs).
+
+with_envs(Fun, Args, [{_Name, _Value} | _] = Envs) ->
+    set_envs(Envs),
+    try
+        apply(Fun, Args)
+    after
+        unset_envs(Envs)
+    end.
+
+set_envs([{_Name, _Value} | _] = Envs) ->
+    lists:map(fun({Name, Value}) -> os:putenv(Name, Value) end, Envs).
+
+unset_envs([{_Name, _Value} | _] = Envs) ->
+    lists:map(fun({Name, _}) -> os:unsetenv(Name) end, Envs).

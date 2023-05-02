@@ -37,7 +37,7 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    emqx_common_test_helpers:start_apps([emqx_authn]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn]),
     application:ensure_all_started(emqx_resource),
     application:ensure_all_started(emqx_connector),
     Config.

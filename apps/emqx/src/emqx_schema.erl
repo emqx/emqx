@@ -23,6 +23,7 @@
 -dialyzer(no_fail_call).
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
+-include("emqx_schema.hrl").
 -include("emqx_authentication.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -66,7 +67,8 @@
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     non_empty_string/1,
-    validations/0
+    validations/0,
+    naive_env_interpolation/1
 ]).
 
 -export([qos/0]).
@@ -97,6 +99,12 @@
     servers_sc/2,
     convert_servers/1,
     convert_servers/2
+]).
+
+%% tombstone types
+-export([
+    tombstone_map/2,
+    get_tombstone_map_value_type/1
 ]).
 
 -behaviour(hocon_schema).
@@ -776,41 +784,48 @@ fields("listeners") ->
     [
         {"tcp",
             sc(
-                map(name, ref("mqtt_tcp_listener")),
+                tombstone_map(name, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
+                    converter => fun(X, _) ->
+                        ensure_default_listener(X, tcp)
+                    end,
                     required => {false, recursively}
                 }
             )},
         {"ssl",
             sc(
-                map(name, ref("mqtt_ssl_listener")),
+                tombstone_map(name, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
+                    converter => fun(X, _) -> ensure_default_listener(X, ssl) end,
                     required => {false, recursively}
                 }
             )},
         {"ws",
             sc(
-                map(name, ref("mqtt_ws_listener")),
+                tombstone_map(name, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
+                    converter => fun(X, _) -> ensure_default_listener(X, ws) end,
                     required => {false, recursively}
                 }
             )},
         {"wss",
             sc(
-                map(name, ref("mqtt_wss_listener")),
+                tombstone_map(name, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
+                    converter => fun(X, _) -> ensure_default_listener(X, wss) end,
                     required => {false, recursively}
                 }
             )},
         {"quic",
             sc(
-                map(name, ref("mqtt_quic_listener")),
+                tombstone_map(name, ref("mqtt_quic_listener")),
                 #{
                     desc => ?DESC(fields_listeners_quic),
+                    converter => fun keep_default_tombstone/2,
                     required => {false, recursively}
                 }
             )}
@@ -821,7 +836,7 @@ fields("crl_cache") ->
     %% same URL.  If they had diverging timeout options, it would be
     %% confusing.
     [
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -829,7 +844,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_interval")
                 }
             )},
-        {"http_timeout",
+        {http_timeout,
             sc(
                 duration(),
                 #{
@@ -837,7 +852,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_http_timeout")
                 }
             )},
-        {"capacity",
+        {capacity,
             sc(
                 pos_integer(),
                 #{
@@ -1354,7 +1369,7 @@ fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("ocsp") ->
     [
-        {"enable_ocsp_stapling",
+        {enable_ocsp_stapling,
             sc(
                 boolean(),
                 #{
@@ -1362,7 +1377,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_enable_ocsp_stapling")
                 }
             )},
-        {"responder_url",
+        {responder_url,
             sc(
                 url(),
                 #{
@@ -1370,7 +1385,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_responder_url")
                 }
             )},
-        {"issuer_pem",
+        {issuer_pem,
             sc(
                 binary(),
                 #{
@@ -1378,7 +1393,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_issuer_pem")
                 }
             )},
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -1386,7 +1401,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_refresh_interval")
                 }
             )},
-        {"refresh_http_timeout",
+        {refresh_http_timeout,
             sc(
                 duration(),
                 #{
@@ -1938,7 +1953,7 @@ base_listener(Bind) ->
             sc(
                 hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => <<"infinity">>,
+                    default => emqx_listeners:default_max_conn(),
                     desc => ?DESC(base_listener_max_connections)
                 }
             )},
@@ -2313,12 +2328,12 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             Field
          || not IsRanchListener,
             Field <- [
-                {"gc_after_handshake",
+                {gc_after_handshake,
                     sc(boolean(), #{
                         default => false,
                         desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
                     })},
-                {"ocsp",
+                {ocsp,
                     sc(
                         ref("ocsp"),
                         #{
@@ -2326,7 +2341,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
-                {"enable_crl_check",
+                {enable_crl_check,
                     sc(
                         boolean(),
                         #{
@@ -2789,6 +2804,7 @@ authentication(Which) ->
     hoconsc:mk(Type, #{
         desc => Desc,
         converter => fun ensure_array/2,
+        default => [],
         importance => Importance
     }).
 
@@ -3083,3 +3099,138 @@ assert_required_field(Conf, Key, ErrorMessage) ->
         _ ->
             ok
     end.
+
+default_listener(tcp) ->
+    #{
+        <<"bind">> => <<"0.0.0.0:1883">>
+    };
+default_listener(ws) ->
+    #{
+        <<"bind">> => <<"0.0.0.0:8083">>,
+        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+    };
+default_listener(SSLListener) ->
+    %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
+    CertFile = fun(Name) ->
+        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
+    end,
+    SslOptions = #{
+        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
+        <<"certfile">> => CertFile(<<"cert.pem">>),
+        <<"keyfile">> => CertFile(<<"key.pem">>)
+    },
+    case SSLListener of
+        ssl ->
+            #{
+                <<"bind">> => <<"0.0.0.0:8883">>,
+                <<"ssl_options">> => SslOptions
+            };
+        wss ->
+            #{
+                <<"bind">> => <<"0.0.0.0:8084">>,
+                <<"ssl_options">> => SslOptions,
+                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+            }
+    end.
+
+%% @doc This function helps to perform a naive string interpolation which
+%% only looks at the first segment of the string and tries to replace it.
+%% For example
+%%  "$MY_FILE_PATH"
+%%  "${MY_FILE_PATH}"
+%%  "$ENV_VARIABLE/sub/path"
+%%  "${ENV_VARIABLE}/sub/path"
+%%  "${ENV_VARIABLE}\sub\path" # windows
+%% This function returns undefined if the input is undefined
+%% otherwise always return string.
+naive_env_interpolation(undefined) ->
+    undefined;
+naive_env_interpolation(Bin) when is_binary(Bin) ->
+    naive_env_interpolation(unicode:characters_to_list(Bin, utf8));
+naive_env_interpolation("$" ++ Maybe = Original) ->
+    {Env, Tail} = split_path(Maybe),
+    case resolve_env(Env) of
+        {ok, Path} ->
+            filename:join([Path, Tail]);
+        error ->
+            Original
+    end;
+naive_env_interpolation(Other) ->
+    Other.
+
+split_path(Path) ->
+    split_path(Path, []).
+
+split_path([], Acc) ->
+    {lists:reverse(Acc), []};
+split_path([Char | Rest], Acc) when Char =:= $/ orelse Char =:= $\\ ->
+    {lists:reverse(Acc), string:trim(Rest, leading, "/\\")};
+split_path([Char | Rest], Acc) ->
+    split_path(Rest, [Char | Acc]).
+
+resolve_env(Name0) ->
+    Name = string:trim(Name0, both, "{}"),
+    Value = os:getenv(Name),
+    case Value =/= false andalso Value =/= "" of
+        true ->
+            {ok, Value};
+        false ->
+            special_env(Name)
+    end.
+
+-ifdef(TEST).
+%% when running tests, we need to mock the env variables
+special_env("EMQX_ETC_DIR") ->
+    {ok, filename:join([code:lib_dir(emqx), etc])};
+special_env("EMQX_LOG_DIR") ->
+    {ok, "log"};
+special_env(_Name) ->
+    %% only in tests
+    error.
+-else.
+special_env(_Name) -> error.
+-endif.
+
+%% The tombstone atom.
+tombstone() ->
+    ?TOMBSTONE_TYPE.
+
+%% Make a map type, the value of which is allowed to be 'marked_for_deletion'
+%% 'marked_for_delition' is a special value which means the key is deleted.
+%% This is used to support the 'delete' operation in configs,
+%% since deleting the key would result in default value being used.
+tombstone_map(Name, Type) ->
+    %% marked_for_deletion must be the last member of the union
+    %% because we need to first union member to populate the default values
+    map(Name, ?UNION([Type, ?TOMBSTONE_TYPE])).
+
+%% inverse of mark_del_map
+get_tombstone_map_value_type(Schema) ->
+    %% TODO: violation of abstraction, expose an API in hoconsc
+    %% hoconsc:map_value_type(Schema)
+    ?MAP(_Name, Union) = hocon_schema:field_schema(Schema, type),
+    %% TODO: violation of abstraction, fix hoconsc:union_members/1
+    ?UNION(Members) = Union,
+    Tombstone = tombstone(),
+    [Type, Tombstone] = hoconsc:union_members(Members),
+    Type.
+
+%% Keep the 'default' tombstone, but delete others.
+keep_default_tombstone(Map, _Opts) when is_map(Map) ->
+    maps:filter(
+        fun(Key, Value) ->
+            Key =:= <<"default">> orelse Value =/= ?TOMBSTONE_VALUE
+        end,
+        Map
+    );
+keep_default_tombstone(Value, _Opts) ->
+    Value.
+
+ensure_default_listener(undefined, ListenerType) ->
+    %% let the schema's default value do its job
+    #{<<"default">> => default_listener(ListenerType)};
+ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
+    keep_default_tombstone(Map, #{});
+ensure_default_listener(Map, ListenerType) ->
+    NewMap = Map#{<<"default">> => default_listener(ListenerType)},
+    keep_default_tombstone(NewMap, #{}).

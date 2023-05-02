@@ -235,10 +235,17 @@ parse_spec_ref(Module, Path, Options) ->
     Schema =
         try
             erlang:apply(Module, schema, [Path])
-            %% better error message
         catch
-            error:Reason ->
-                throw({error, #{mfa => {Module, schema, [Path]}, reason => Reason}})
+            Error:Reason:Stacktrace ->
+                %% This error is intended to fail the build
+                %% hence print to standard_error
+                io:format(
+                    standard_error,
+                    "Failed to generate swagger for path ~p in module ~p~n"
+                    "error:~p~nreason:~p~n~p~n",
+                    [Module, Path, Error, Reason, Stacktrace]
+                ),
+                error({failed_to_generate_swagger_spec, Module, Path})
         end,
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->
