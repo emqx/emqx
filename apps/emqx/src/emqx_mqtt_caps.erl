@@ -58,18 +58,18 @@
     exclusive_subscription
 ]).
 
--define(DEFAULT_CAPS, #{
-    max_packet_size => ?MAX_PACKET_SIZE,
-    max_clientid_len => ?MAX_CLIENTID_LEN,
-    max_topic_alias => ?MAX_TOPIC_AlIAS,
-    max_topic_levels => ?MAX_TOPIC_LEVELS,
-    max_qos_allowed => ?QOS_2,
-    retain_available => true,
-    wildcard_subscription => true,
-    subscription_identifiers => true,
-    shared_subscription => true,
-    exclusive_subscription => false
-}).
+-define(DEFAULT_CAPS_KEYS, [
+    max_packet_size,
+    max_clientid_len,
+    max_topic_alias,
+    max_topic_levels,
+    max_qos_allowed,
+    retain_available,
+    wildcard_subscription,
+    subscription_identifiers,
+    shared_subscription,
+    exclusive_subscription
+]).
 
 -spec check_pub(
     emqx_types:zone(),
@@ -152,12 +152,12 @@ do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 
 get_caps(Zone) ->
-    get_caps(maps:keys(?DEFAULT_CAPS), Zone).
+    get_caps(?DEFAULT_CAPS_KEYS, Zone).
 get_caps(Keys, Zone) ->
     maps:with(
         Keys,
         maps:merge(
-            ?DEFAULT_CAPS,
+            emqx_config:get([mqtt]),
             emqx_config:get_zone_conf(Zone, [mqtt])
         )
     ).

@@ -267,6 +267,8 @@ t_chan_info(_) ->
 t_chan_caps(_) ->
     ?assertMatch(
         #{
+            exclusive_subscription := false,
+            max_packet_size := 1048576,
             max_clientid_len := 65535,
             max_qos_allowed := 2,
             max_topic_alias := 65535,
