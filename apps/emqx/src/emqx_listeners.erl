@@ -20,11 +20,10 @@
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 10000}}]).
 
 -include("emqx_mqtt.hrl").
+-include("emqx_schema.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
+
 %% APIs
 -export([
     list_raw/0,
@@ -68,8 +67,8 @@
 
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
--define(MARK_DEL, marked_for_deletion).
--define(MARK_DEL_BIN, <<"marked_for_deletion">>).
+-define(MARK_DEL, ?TOMBSTONE).
+-define(MARK_DEL_BIN, ?TOMBSTONE_BIN).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -857,9 +856,3 @@ unregister_ocsp_stapling_refresh(Type, Name) ->
 default_max_conn() ->
     %% TODO: <<"infinity">>
     5_000_000.
-
--ifdef(TEST).
-%% since it's a copy-paste. we need to ensure it's the same atom.
-ensure_same_atom_test() ->
-    ?assertEqual(?MARK_DEL, emqx_schema:tombstone()).
--endif.

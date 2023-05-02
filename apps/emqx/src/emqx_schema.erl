@@ -23,6 +23,7 @@
 -dialyzer(no_fail_call).
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
+-include("emqx_schema.hrl").
 -include("emqx_authentication.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -3193,7 +3194,7 @@ special_env(_Name) -> error.
 
 %% The tombstone atom.
 tombstone() ->
-    marked_for_deletion.
+    ?TOMBSTONE.
 
 %% Make a map type, the value of which is allowed to be 'marked_for_deletion'
 %% 'marked_for_delition' is a special value which means the key is deleted.
@@ -3219,7 +3220,7 @@ get_tombstone_map_value_type(Schema) ->
 keep_default_tombstone(Map, _Opts) when is_map(Map) ->
     maps:filter(
         fun(Key, Value) ->
-            Key =:= <<"default">> orelse Value =/= atom_to_binary(tombstone())
+            Key =:= <<"default">> orelse Value =/= ?TOMBSTONE_BIN
         end,
         Map
     );

@@ -644,7 +644,7 @@ create(Path, Conf) ->
     wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
 
 ensure_remove(Path) ->
-    wrap(emqx_conf:update(Path, emqx_schema:tombstone(), ?OPTS(cluster))).
+    wrap(emqx_conf:tombstone(Path, ?OPTS(cluster))).
 
 wrap({error, {post_config_update, emqx_listeners, Reason}}) -> {error, Reason};
 wrap({error, {pre_config_update, emqx_listeners, Reason}}) -> {error, Reason};
