@@ -74,6 +74,10 @@ proper: $(REBAR)
 test-compile: $(REBAR) merge-config
 	$(REBAR) as test compile
 
+.PHONY: $(REL_PROFILES:%=%-compile)
+$(REL_PROFILES:%=%-compile): $(REBAR) merge-config
+	$(REBAR) as $(@:%-compile=%) compile
+
 .PHONY: ct
 ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
@@ -89,10 +93,9 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct: $(REBAR)
+$1-ct: $(REBAR) merge-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-		@$(SCRIPTS)/pre-compile.sh $(PROFILE)
 		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
 			--readable=$(CT_READABLE) \
 			--name $(CT_NODE_NAME) \
