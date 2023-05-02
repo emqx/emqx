@@ -59,9 +59,7 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_dashboard, emqx_statsd],
         fun set_special_configs/1
     ),
-    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF),
     Config.
 
 end_per_suite(_Config) ->
@@ -84,22 +82,16 @@ t_server_validator(_) ->
             reason := "cannot_be_empty",
             value := ""
         },
-        emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BAD_CONF, #{
-            raw_with_default => true
-        })
+        emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BAD_CONF)
     ),
     %% default
-    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?DEFAULT_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?DEFAULT_CONF),
     DefaultServer = default_server(),
     ?assertEqual(DefaultServer, emqx_conf:get_raw([statsd, server])),
     DefaultServerStr = binary_to_list(DefaultServer),
     ?assertEqual(DefaultServerStr, emqx_conf:get([statsd, server])),
     %% recover
-    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF),
     Server2 = emqx_conf:get_raw([statsd, server]),
     ?assertMatch(Server0, Server2),
     ok.

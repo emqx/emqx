@@ -11,8 +11,7 @@ This API was introduced in v5.0.10.
 The GET `/status` endpoint (without the `/api/...` prefix) is also an alias to this endpoint and works in the same way.
 This alias has been available since v5.0.0.
 
-Starting from v5.0.25 or e5.0.4, you can also use 'format' parameter to get JSON format information.
-"""
+Starting from v5.0.25 or e5.0.4, you can also use 'format' parameter to get JSON format information."""
 
 get_status_api.label:
 """Service health check"""
@@ -32,8 +31,7 @@ emqx is running"""
 
 get_status_response503.desc:
 """When EMQX application is temporary not running or being restarted, it may return 'emqx is not_running'.
-If the 'format' parameter is provided 'json', the nthe 'app_status' field in the JSON object is 'not_running'.
-"""
+If the 'format' parameter is provided 'json', the nthe 'app_status' field in the JSON object is 'not_running'."""
 
 get_status_api_format.desc:
 """Specify the response format, 'text' (default) to return the HTTP body in free text,
