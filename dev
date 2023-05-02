@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+UNAME="$(uname -s)"
+
 PROJ_ROOT="$(git rev-parse --show-toplevel)"
 cd "$PROJ_ROOT"
 
@@ -138,7 +140,11 @@ mustache() {
     local name="$1"
     local value="$2"
     local file="$3"
-    sed -i "s|{{\s*${name}\s*}}|${value}|g" "$file"
+    if [[ "$UNAME" == "Darwin" ]]; then
+        sed -i '' "s|{{[[:space:]]*${name}[[:space:]]*}}|${value}|g" "$file"
+    else
+        sed -i "s|{{\s*${name}\s*}}|${value}|g" "$file"
+    fi
 }
 
 ## render the merged boot conf file.
