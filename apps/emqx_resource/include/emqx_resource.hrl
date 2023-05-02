@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 -type resource_type() :: module().
 -type resource_id() :: binary().
--type manager_id() :: binary().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().

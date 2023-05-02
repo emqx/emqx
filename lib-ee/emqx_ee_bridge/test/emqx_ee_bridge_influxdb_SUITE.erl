@@ -502,11 +502,6 @@ resource_id(Config) ->
     Name = ?config(influxdb_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
 
-instance_id(Config) ->
-    ResourceId = resource_id(Config),
-    [{_, InstanceId}] = ets:lookup(emqx_resource_manager, {owner, ResourceId}),
-    InstanceId.
-
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -581,14 +576,14 @@ t_start_already_started(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    InstanceId = instance_id(Config),
+    ResourceId = resource_id(Config),
     TypeAtom = binary_to_atom(Type),
     NameAtom = binary_to_atom(Name),
     {ok, #{bridges := #{TypeAtom := #{NameAtom := InfluxDBConfigMap}}}} = emqx_hocon:check(
         emqx_bridge_schema, InfluxDBConfigString
     ),
     ?check_trace(
-        emqx_ee_connector_influxdb:on_start(InstanceId, InfluxDBConfigMap),
+        emqx_ee_connector_influxdb:on_start(ResourceId, InfluxDBConfigMap),
         fun(Result, Trace) ->
             ?assertMatch({ok, _}, Result),
             ?assertMatch([_], ?of_kind(influxdb_connector_start_already_started, Trace)),

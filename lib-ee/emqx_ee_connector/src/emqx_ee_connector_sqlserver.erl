@@ -174,7 +174,7 @@ callback_mode() -> async_if_possible.
 is_buffer_supported() -> false.
 
 on_start(
-    InstanceId = PoolName,
+    ResourceId = PoolName,
     #{
         server := Server,
         username := Username,
@@ -187,7 +187,7 @@ on_start(
 ) ->
     ?SLOG(info, #{
         msg => "starting_sqlserver_connector",
-        connector => InstanceId,
+        connector => ResourceId,
         config => emqx_utils:redact(Config)
     }),
 
@@ -212,7 +212,7 @@ on_start(
     ],
 
     State = #{
-        %% also InstanceId
+        %% also ResourceId
         pool_name => PoolName,
         sql_templates => parse_sql_template(Config),
         resource_opts => ResourceOpts
@@ -228,15 +228,15 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
+on_stop(ResourceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_sqlserver_connector",
-        connector => InstanceId
+        connector => ResourceId
     }),
-    emqx_resource_pool:stop(PoolName).
+    emqx_resource_pool:stop(ResourceId).
 
 -spec on_query(
-    manager_id(),
+    resource_id(),
     {?ACTION_SEND_MESSAGE, map()},
     state()
 ) ->
@@ -244,16 +244,16 @@ on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
     | {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(InstanceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
+on_query(ResourceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "bridge_sqlserver_received",
-        #{requests => Query, connector => InstanceId, state => State}
+        #{requests => Query, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, Query, ?SYNC_QUERY_MODE, State).
+    do_query(ResourceId, Query, ?SYNC_QUERY_MODE, State).
 
 -spec on_query_async(
-    manager_id(),
+    resource_id(),
     {?ACTION_SEND_MESSAGE, map()},
     {ReplyFun :: function(), Args :: list()},
     state()
@@ -261,7 +261,7 @@ on_query(InstanceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
     {ok, any()}
     | {error, term()}.
 on_query_async(
-    InstanceId,
+    ResourceId,
     {?ACTION_SEND_MESSAGE, _Msg} = Query,
     ReplyFunAndArgs,
     State
@@ -269,12 +269,12 @@ on_query_async(
     ?TRACE(
         "SINGLE_QUERY_ASYNC",
         "bridge_sqlserver_received",
-        #{requests => Query, connector => InstanceId, state => State}
+        #{requests => Query, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, Query, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
+    do_query(ResourceId, Query, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
 
 -spec on_batch_query(
-    manager_id(),
+    resource_id(),
     [{?ACTION_SEND_MESSAGE, map()}],
     state()
 ) ->
@@ -282,29 +282,29 @@ on_query_async(
     | {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_batch_query(InstanceId, BatchRequests, State) ->
+on_batch_query(ResourceId, BatchRequests, State) ->
     ?TRACE(
         "BATCH_QUERY_SYNC",
         "bridge_sqlserver_received",
-        #{requests => BatchRequests, connector => InstanceId, state => State}
+        #{requests => BatchRequests, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, BatchRequests, ?SYNC_QUERY_MODE, State).
+    do_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
 
 -spec on_batch_query_async(
-    manager_id(),
+    resource_id(),
     [{?ACTION_SEND_MESSAGE, map()}],
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, any()}.
-on_batch_query_async(InstanceId, Requests, ReplyFunAndArgs, State) ->
+on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     ?TRACE(
         "BATCH_QUERY_ASYNC",
         "bridge_sqlserver_received",
-        #{requests => Requests, connector => InstanceId, state => State}
+        #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
+    do_query(ResourceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
+on_get_status(_ResourceId, #{pool_name := PoolName} = _State) ->
     Health = emqx_resource_pool:health_check_workers(
         PoolName,
         {?MODULE, do_get_status, []}
@@ -366,7 +366,7 @@ conn_str([{_, _} | Opts], Acc) ->
 
 %% Sync & Async query with singe & batch sql statement
 -spec do_query(
-    manager_id(),
+    resource_id(),
     Query :: {?ACTION_SEND_MESSAGE, map()} | [{?ACTION_SEND_MESSAGE, map()}],
     ApplyMode ::
         handover
@@ -377,7 +377,7 @@ conn_str([{_, _} | Opts], Acc) ->
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 do_query(
-    InstanceId,
+    ResourceId,
     Query,
     ApplyMode,
     #{pool_name := PoolName, sql_templates := Templates} = State
@@ -385,7 +385,7 @@ do_query(
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "sqlserver_connector_received",
-        #{query => Query, connector => InstanceId, state => State}
+        #{query => Query, connector => ResourceId, state => State}
     ),
 
     %% only insert sql statement for single query and batch query
@@ -409,7 +409,7 @@ do_query(
             ),
             ?SLOG(error, #{
                 msg => "sqlserver_connector_do_query_failed",
-                connector => InstanceId,
+                connector => ResourceId,
                 query => Query,
                 reason => Reason
             }),
@@ -423,9 +423,9 @@ do_query(
     end.
 
 worker_do_insert(
-    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := InstanceId} = State
+    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := ResourceId} = State
 ) ->
-    LogMeta = #{connector => InstanceId, state => State},
+    LogMeta = #{connector => ResourceId, state => State},
     try
         case execute(Conn, SQL, ?REQUEST_TIMEOUT(ResourceOpts)) of
             {selected, Rows, _} ->

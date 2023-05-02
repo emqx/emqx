@@ -1055,28 +1055,22 @@ t_list_filter(_) ->
     ).
 
 t_create_dry_run_local(_) ->
-    ets:match_delete(emqx_resource_manager, {{owner, '$1'}, '_'}),
     lists:foreach(
         fun(_) ->
             create_dry_run_local_succ()
         end,
         lists:seq(1, 10)
     ),
-    case [] =:= ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}) of
-        false ->
-            %% Sleep to remove flakyness in test case. It take some time for
-            %% the ETS table to be cleared.
-            timer:sleep(2000),
-            [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'});
-        true ->
-            ok
-    end.
+    ?retry(
+        100,
+        5,
+        ?assertEqual(
+            [],
+            emqx_resource:list_instances_verbose()
+        )
+    ).
 
 create_dry_run_local_succ() ->
-    case whereis(test_resource) of
-        undefined -> ok;
-        Pid -> exit(Pid, kill)
-    end,
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(
@@ -1107,7 +1101,15 @@ t_create_dry_run_local_failed(_) ->
         ?TEST_RESOURCE,
         #{name => test_resource, stop_error => true}
     ),
-    ?assertEqual(ok, Res3).
+    ?assertEqual(ok, Res3),
+    ?retry(
+        100,
+        5,
+        ?assertEqual(
+            [],
+            emqx_resource:list_instances_verbose()
+        )
+    ).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
