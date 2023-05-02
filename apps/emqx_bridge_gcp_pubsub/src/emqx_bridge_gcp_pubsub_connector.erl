@@ -38,7 +38,6 @@
 }.
 -type state() :: #{
     connect_timeout := timer:time(),
-    instance_id := manager_id(),
     jwt_worker_id := jwt_worker(),
     max_retries := non_neg_integer(),
     payload_template := emqx_plugin_libs_rule:tmpl_token(),
@@ -61,9 +60,9 @@ is_buffer_supported() -> false.
 
 callback_mode() -> async_if_possible.
 
--spec on_start(manager_id(), config()) -> {ok, state()} | {error, term()}.
+-spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
 on_start(
-    InstanceId,
+    ResourceId,
     #{
         connect_timeout := ConnectTimeout,
         max_retries := MaxRetries,
@@ -75,7 +74,7 @@ on_start(
 ) ->
     ?SLOG(info, #{
         msg => "starting_gcp_pubsub_bridge",
-        connector => InstanceId,
+        connector => ResourceId,
         config => Config
     }),
     %% emulating the emulator behavior
@@ -100,14 +99,13 @@ on_start(
     #{
         jwt_worker_id := JWTWorkerId,
         project_id := ProjectId
-    } = ensure_jwt_worker(InstanceId, Config),
+    } = ensure_jwt_worker(ResourceId, Config),
     State = #{
         connect_timeout => ConnectTimeout,
-        instance_id => InstanceId,
         jwt_worker_id => JWTWorkerId,
         max_retries => MaxRetries,
         payload_template => emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
-        pool_name => InstanceId,
+        pool_name => ResourceId,
         project_id => ProjectId,
         pubsub_topic => PubSubTopic,
         request_timeout => RequestTimeout
@@ -115,39 +113,39 @@ on_start(
     ?tp(
         gcp_pubsub_on_start_before_starting_pool,
         #{
-            instance_id => InstanceId,
-            pool_name => InstanceId,
+            resource_id => ResourceId,
+            pool_name => ResourceId,
             pool_opts => PoolOpts
         }
     ),
-    ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => InstanceId}),
-    case ehttpc_sup:start_pool(InstanceId, PoolOpts) of
+    ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => ResourceId}),
+    case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
         {ok, _} ->
             {ok, State};
         {error, {already_started, _}} ->
-            ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => InstanceId}),
+            ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => ResourceId}),
             {ok, State};
         {error, Reason} ->
             ?tp(gcp_pubsub_ehttpc_pool_start_failure, #{
-                pool_name => InstanceId,
+                pool_name => ResourceId,
                 reason => Reason
             }),
             {error, Reason}
     end.
 
--spec on_stop(manager_id(), state()) -> ok | {error, term()}.
+-spec on_stop(resource_id(), state()) -> ok | {error, term()}.
 on_stop(
-    InstanceId,
-    _State = #{jwt_worker_id := JWTWorkerId, pool_name := PoolName}
+    ResourceId,
+    _State = #{jwt_worker_id := JWTWorkerId}
 ) ->
-    ?tp(gcp_pubsub_stop, #{instance_id => InstanceId, jwt_worker_id => JWTWorkerId}),
+    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId, jwt_worker_id => JWTWorkerId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_pubsub_bridge",
-        connector => InstanceId
+        connector => ResourceId
     }),
     emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
-    emqx_connector_jwt:delete_jwt(?JWT_TABLE, InstanceId),
-    ehttpc_sup:stop_pool(PoolName).
+    emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
+    ehttpc_sup:stop_pool(ResourceId).
 
 -spec on_query(
     resource_id(),
@@ -213,9 +211,9 @@ on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     ),
     do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
 
--spec on_get_status(manager_id(), state()) -> connected | disconnected.
-on_get_status(InstanceId, #{connect_timeout := Timeout, pool_name := PoolName} = State) ->
-    case do_get_status(InstanceId, PoolName, Timeout) of
+-spec on_get_status(resource_id(), state()) -> connected | disconnected.
+on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
+    case do_get_status(ResourceId, Timeout) of
         true ->
             connected;
         false ->
@@ -230,12 +228,12 @@ on_get_status(InstanceId, #{connect_timeout := Timeout, pool_name := PoolName} =
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
--spec ensure_jwt_worker(manager_id(), config()) ->
+-spec ensure_jwt_worker(resource_id(), config()) ->
     #{
         jwt_worker_id := jwt_worker(),
         project_id := binary()
     }.
-ensure_jwt_worker(InstanceId, #{
+ensure_jwt_worker(ResourceId, #{
     service_account_json := ServiceAccountJSON
 }) ->
     #{
@@ -250,7 +248,7 @@ ensure_jwt_worker(InstanceId, #{
     Alg = <<"RS256">>,
     Config = #{
         private_key => PrivateKeyPEM,
-        resource_id => InstanceId,
+        resource_id => ResourceId,
         expiration => ExpirationMS,
         table => ?JWT_TABLE,
         iss => ServiceAccountEmail,
@@ -260,14 +258,14 @@ ensure_jwt_worker(InstanceId, #{
         alg => Alg
     },
 
-    JWTWorkerId = <<"gcp_pubsub_jwt_worker:", InstanceId/binary>>,
+    JWTWorkerId = <<"gcp_pubsub_jwt_worker:", ResourceId/binary>>,
     Worker =
         case emqx_connector_jwt_sup:ensure_worker_present(JWTWorkerId, Config) of
             {ok, Worker0} ->
                 Worker0;
             Error ->
                 ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
-                    connector => InstanceId,
+                    connector => ResourceId,
                     reason => Error
                 }),
                 _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
@@ -281,18 +279,18 @@ ensure_jwt_worker(InstanceId, #{
     %% produced by the worker.
     receive
         {Ref, token_created} ->
-            ?tp(gcp_pubsub_bridge_jwt_created, #{resource_id => InstanceId}),
+            ?tp(gcp_pubsub_bridge_jwt_created, #{resource_id => ResourceId}),
             demonitor(MRef, [flush]),
             ok;
         {'DOWN', MRef, process, Worker, Reason} ->
             ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
-                connector => InstanceId,
+                connector => ResourceId,
                 reason => Reason
             }),
             _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
             throw(failed_to_start_jwt_worker)
     after 10_000 ->
-        ?tp(warning, "gcp_pubsub_bridge_jwt_timeout", #{connector => InstanceId}),
+        ?tp(warning, "gcp_pubsub_bridge_jwt_timeout", #{connector => ResourceId}),
         demonitor(MRef, [flush]),
         _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
         throw(timeout_creating_jwt)
@@ -325,8 +323,8 @@ publish_path(
     <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
 
 -spec get_jwt_authorization_header(resource_id()) -> [{binary(), binary()}].
-get_jwt_authorization_header(InstanceId) ->
-    case emqx_connector_jwt:lookup_jwt(?JWT_TABLE, InstanceId) of
+get_jwt_authorization_header(ResourceId) ->
+    case emqx_connector_jwt:lookup_jwt(?JWT_TABLE, ResourceId) of
         %% Since we synchronize the JWT creation during resource start
         %% (see `on_start/2'), this will be always be populated.
         {ok, JWT} ->
@@ -345,7 +343,6 @@ get_jwt_authorization_header(InstanceId) ->
 do_send_requests_sync(State, Requests, ResourceId) ->
     #{
         pool_name := PoolName,
-        instance_id := InstanceId,
         max_retries := MaxRetries,
         request_timeout := RequestTimeout
     } = State,
@@ -353,12 +350,11 @@ do_send_requests_sync(State, Requests, ResourceId) ->
         gcp_pubsub_bridge_do_send_requests,
         #{
             query_mode => sync,
-            instance_id => InstanceId,
             resource_id => ResourceId,
             requests => Requests
         }
     ),
-    Headers = get_jwt_authorization_header(InstanceId),
+    Headers = get_jwt_authorization_header(ResourceId),
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->
@@ -471,19 +467,17 @@ do_send_requests_sync(State, Requests, ResourceId) ->
 do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
     #{
         pool_name := PoolName,
-        instance_id := InstanceId,
         request_timeout := RequestTimeout
     } = State,
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
         #{
             query_mode => async,
-            instance_id => InstanceId,
             resource_id => ResourceId,
             requests => Requests
         }
     ),
-    Headers = get_jwt_authorization_header(InstanceId),
+    Headers = get_jwt_authorization_header(ResourceId),
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->
@@ -541,9 +535,9 @@ reply_delegator(_ResourceId, ReplyFunAndArgs, Result) ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
     end.
 
--spec do_get_status(manager_id(), binary(), timer:time()) -> boolean().
-do_get_status(InstanceId, PoolName, Timeout) ->
-    Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
+-spec do_get_status(resource_id(), timer:time()) -> boolean().
+do_get_status(ResourceId, Timeout) ->
+    Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ResourceId)],
     DoPerWorker =
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
@@ -552,7 +546,7 @@ do_get_status(InstanceId, PoolName, Timeout) ->
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "ehttpc_health_check_failed",
-                        instance_id => InstanceId,
+                        connector => ResourceId,
                         reason => Reason,
                         worker => Worker
                     }),
