@@ -32,14 +32,15 @@
     create/1,
     update/1,
     destroy/1,
-    authorize/4
+    authorize/4,
+    read_file/1
 ]).
 
 description() ->
     "AuthZ with static rules".
 
 create(#{path := Path0} = Source) ->
-    Path = emqx_schema:naive_env_interpolation(Path0),
+    Path = filename(Path0),
     Rules =
         case file:consult(Path) of
             {ok, Terms} ->
@@ -64,3 +65,9 @@ destroy(_Source) -> ok.
 
 authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
     emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
+
+read_file(Path) ->
+    file:read_file(filename(Path)).
+
+filename(PathMaybeTemplate) ->
+    emqx_schema:naive_env_interpolation(PathMaybeTemplate).

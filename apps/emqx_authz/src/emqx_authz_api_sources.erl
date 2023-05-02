@@ -205,7 +205,7 @@ sources(get, _) ->
                 },
                 AccIn
             ) ->
-                case file:read_file(Path) of
+                case emqx_authz_file:read_file(Path) of
                     {ok, Rules} ->
                         lists:append(AccIn, [
                             #{
@@ -242,7 +242,7 @@ source(get, #{bindings := #{type := Type}}) ->
         Type,
         fun
             (#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}) ->
-                case file:read_file(Path) of
+                case emqx_authz_file:read_file(Path) of
                     {ok, Rules} ->
                         {200, #{
                             type => file,
