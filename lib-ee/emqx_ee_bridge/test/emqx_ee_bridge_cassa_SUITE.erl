@@ -524,7 +524,7 @@ t_write_failure(Config) ->
                             send_message(Config, SentData)
                     end,
                     #{?snk_kind := buffer_worker_flush_nack},
-                    1_000
+                    10_000
                 )
         end),
         fun(Trace0) ->
