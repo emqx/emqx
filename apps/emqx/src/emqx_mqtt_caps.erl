@@ -37,7 +37,6 @@
     max_qos_allowed => emqx_types:qos(),
     retain_available => boolean(),
     wildcard_subscription => boolean(),
-    subscription_identifiers => boolean(),
     shared_subscription => boolean(),
     exclusive_subscription => boolean()
 }.
@@ -66,7 +65,6 @@
     max_qos_allowed,
     retain_available,
     wildcard_subscription,
-    subscription_identifiers,
     shared_subscription,
     exclusive_subscription
 ]).

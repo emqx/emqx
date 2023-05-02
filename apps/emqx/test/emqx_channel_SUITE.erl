@@ -275,7 +275,6 @@ t_chan_caps(_) ->
             max_topic_levels := Level,
             retain_available := true,
             shared_subscription := true,
-            subscription_identifiers := true,
             wildcard_subscription := true
         } when is_integer(Level),
         emqx_channel:caps(channel())
