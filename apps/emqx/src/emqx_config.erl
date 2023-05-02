@@ -151,7 +151,7 @@ get_root([RootName | _]) ->
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
-    #{bin(RootName) => do_get_raw([RootName], #{})}.
+    #{bin(RootName) => get_raw([RootName], #{})}.
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
@@ -288,9 +288,11 @@ get_default_value([RootName | _] = KeyPath) ->
     end.
 
 -spec get_raw(emqx_utils_maps:config_key_path()) -> term().
+get_raw([Root | T]) when is_atom(Root) -> get_raw([bin(Root) | T]);
 get_raw(KeyPath) -> do_get_raw(KeyPath).
 
 -spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
+get_raw([Root | T], Default) when is_atom(Root) -> get_raw([bin(Root) | T], Default);
 get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
 
 -spec put_raw(map()) -> ok.
