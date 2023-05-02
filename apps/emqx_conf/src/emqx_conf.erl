@@ -18,6 +18,7 @@
 -compile({no_auto_import, [get/1, get/2]}).
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 
 -export([add_handler/2, remove_handler/1]).
 -export([get/1, get/2, get_raw/1, get_raw/2, get_all/1]).
@@ -110,7 +111,7 @@ update(Node, KeyPath, UpdateReq, Opts) ->
 
 %% @doc Mark the specified key path as tombstone
 tombstone(KeyPath, Opts) ->
-    update(KeyPath, emqx_schema:tombstone(), Opts).
+    update(KeyPath, ?TOMBSTONE_CONFIG_CHANGE_REQ, Opts).
 
 %% @doc remove all value of key path in cluster-override.conf or local-override.conf.
 -spec remove(emqx_utils_maps:config_key_path(), emqx_config:update_opts()) ->

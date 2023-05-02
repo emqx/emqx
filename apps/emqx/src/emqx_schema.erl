@@ -103,7 +103,6 @@
 
 %% tombstone types
 -export([
-    tombstone/0,
     tombstone_map/2,
     get_tombstone_map_value_type/1
 ]).
@@ -3194,7 +3193,7 @@ special_env(_Name) -> error.
 
 %% The tombstone atom.
 tombstone() ->
-    ?TOMBSTONE.
+    ?TOMBSTONE_TYPE.
 
 %% Make a map type, the value of which is allowed to be 'marked_for_deletion'
 %% 'marked_for_delition' is a special value which means the key is deleted.
@@ -3203,7 +3202,7 @@ tombstone() ->
 tombstone_map(Name, Type) ->
     %% marked_for_deletion must be the last member of the union
     %% because we need to first union member to populate the default values
-    map(Name, ?UNION([Type, tombstone()])).
+    map(Name, ?UNION([Type, ?TOMBSTONE_TYPE])).
 
 %% inverse of mark_del_map
 get_tombstone_map_value_type(Schema) ->
@@ -3220,7 +3219,7 @@ get_tombstone_map_value_type(Schema) ->
 keep_default_tombstone(Map, _Opts) when is_map(Map) ->
     maps:filter(
         fun(Key, Value) ->
-            Key =:= <<"default">> orelse Value =/= ?TOMBSTONE_BIN
+            Key =:= <<"default">> orelse Value =/= ?TOMBSTONE_VALUE
         end,
         Map
     );

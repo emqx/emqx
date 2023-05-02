@@ -18,6 +18,7 @@
 -module(emqx_config_handler).
 
 -include("logger.hrl").
+-include("emqx_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(gen_server).
@@ -448,7 +449,7 @@ up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
 
 return_change_result(ConfKeyPath, {{update, Req}, Opts}) ->
-    case Req =/= emqx_schema:tombstone() of
+    case Req =/= ?TOMBSTONE_CONFIG_CHANGE_REQ of
         true ->
             #{
                 config => emqx_config:get(ConfKeyPath),

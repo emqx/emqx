@@ -67,8 +67,7 @@
 
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
--define(MARK_DEL, ?TOMBSTONE).
--define(MARK_DEL_BIN, ?TOMBSTONE_BIN).
+-define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -429,7 +428,7 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
 
 %% Update the listeners at runtime
 pre_config_update([listeners, Type, Name], {create, NewConf}, V) when
-    V =:= undefined orelse V =:= ?MARK_DEL_BIN
+    V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
 ->
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
@@ -446,7 +445,7 @@ pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf
     NewConf = emqx_utils_maps:deep_merge(RawConf, Updated),
     {ok, NewConf};
 pre_config_update([listeners, _Type, _Name], ?MARK_DEL, _RawConf) ->
-    {ok, ?MARK_DEL};
+    {ok, ?TOMBSTONE_VALUE};
 pre_config_update(_Path, _Request, RawConf) ->
     {ok, RawConf}.
 
