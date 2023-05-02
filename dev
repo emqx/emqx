@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJ_ROOT="$(git rev-parse --show-toplevel)"
+cd "$PROJ_ROOT"
+
+usage() {
+cat <<EOF
+
+Run EMQX without building a release (which takes longer time).
+Node state is stored in '_build/dev-run/$PROFILE'.
+The node is started in interactive mode without a boot file.
+
+USAGE: $0 [OPTION]
+
+OPTIONS:
+  -h|--help:         Print this help usage info.
+  -p|--profile:      emqx | emqx-enterprise, defaults to 'PROFILE' env.
+  -c|--compile:      Force recompile, otherwise starts with the already built libs
+                     in '_build/\$PROFILE/lib/'.
+  -e|--ekka-epmd:    Force to use ekka_epmd.
+  -n|--name:         Node name, defaults to \$EMQX_NODE_NAME env.
+  -r|--remsh [NAME]: Attach to running node's remote console.
+
+ENVIRONMENT VARIABLES:
+
+  PROFILE:           Overriden by '-p|--profile' option, defaults to 'emqx'.
+  EMQX_NODE_NAME:    Overriden by '-n|--name' or '-r|--remsh' option.
+                     The node name of the EMQX node. Default to emqx@127.0.0.1'.
+  EMQX_NODE_COOKIE:  Erlang cookie, defaults to ~/.erlang.cookie
+
+EOF
+}
+
+if [ -n "${DEBUG:-}" ]; then
+    set -x
+fi
+
+export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
+EMQX_NODE_NAME="${EMQX_NODE_NAME:-emqx@127.0.0.1}"
+PROFILE="${PROFILE:-emqx}"
+FORCE_COMPILE=0
+# Do not start using ekka epmd by default, so your IDE can connect to it
+EKKA_EPMD=0
+REMSH=0
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -n|--name)
+            EMQX_NODE_NAME="$2"
+            shift 1
+            ;;
+        -r|--remsh)
+            REMSH=1
+            if [[ $2 == *@* ]]; then
+                EMQX_NODE_NAME="$2"
+                shift 1
+            fi
+            ;;
+        -p|--profile)
+            PROFILE="${2}"
+            shift 1;
+            ;;
+        -c|--compile)
+            FORCE_COMPILE=1
+            ;;
+        -e|--ekka-epmd)
+            EKKA_EPMD=1
+            ;;
+        *)
+            echo "Unknown argument $1" >&2
+            exit 1
+            ;;
+    esac
+    shift 1;
+done
+
+case "${PROFILE}" in
+    ce|emqx)
+        PROFILE='emqx'
+        ;;
+    ee|emqx-enterprise)
+        PROFILE='emqx-enterprise'
+        ;;
+    *)
+        echo "Unknown profile $PROFILE"
+        exit 1
+        ;;
+esac
+export PROFILE
+
+case "${PROFILE}" in
+    emqx)
+        SCHEMA_MOD='emqx_conf_schema'
+        ;;
+    emqx-enterprise)
+        SCHEMA_MOD='emqx_ee_conf_schema'
+        ;;
+esac
+
+BASE_DIR="_build/dev-run/$PROFILE"
+export EMQX_ETC_DIR="$BASE_DIR/etc"
+export EMQX_DATA_DIR="$BASE_DIR/data"
+export EMQX_LOG_DIR="$BASE_DIR/log"
+CONFIGS_DIR="$EMQX_DATA_DIR/configs"
+# Use your cookie so your IDE can connect to it.
+COOKIE="${EMQX_NODE__COOKIE:-${EMQX_NODE_COOKIE:-$(cat ~/.erlang.cookie || echo 'emqxsecretcookie')}}"
+mkdir -p "$EMQX_ETC_DIR" "$EMQX_DATA_DIR/patches" "$EMQX_LOG_DIR" "$CONFIGS_DIR"
+if [ $EKKA_EPMD -eq 1 ]; then
+    EPMD_ARGS='-start_epmd false -epmd_module ekka_epmd'
+else
+    EPMD_ARGS=''
+fi
+
+
+## build compile the profile is it's not compiled yet
+prepare_erl_libs() {
+    local profile="$1"
+    local libs_dir="_build/${profile}/lib"
+    local erl_libs=''
+    if [ $FORCE_COMPILE -eq 1 ] || [ ! -d "$libs_dir" ]; then
+        make "compile-${PROFILE}"
+    else
+        echo "Running from code in $libs_dir"
+    fi
+    for app in "${libs_dir}"/*; do
+        erl_libs="${erl_libs}:${app}"
+    done
+    export ERL_LIBS="$erl_libs"
+}
+
+## poorman's mustache templating
+mustache() {
+    local name="$1"
+    local value="$2"
+    local file="$3"
+    sed -i "s|{{\s*${name}\s*}}|${value}|g" "$file"
+}
+
+## render the merged boot conf file.
+## the merge action is done before the profile is compiled
+render_hocon_conf() {
+    input="apps/emqx_conf/etc/emqx.conf.all"
+    output="$EMQX_ETC_DIR/emqx.conf"
+    cp "$input" "$output"
+    mustache emqx_default_erlang_cookie "$COOKIE" "$output"
+    mustache platform_data_dir "${EMQX_DATA_DIR}" "$output"
+    mustache platform_log_dir "${EMQX_LOG_DIR}" "$output"
+    mustache platform_etc_dir "${EMQX_ETC_DIR}" "$output"
+}
+
+call_hocon() {
+    local in=("$@")
+    local args=''
+    for arg in "${in[@]}"; do
+        if [ -z "$args" ]; then
+            args="\"$arg\""
+        else
+            args="$args, \"$arg\""
+        fi
+    done
+    erl -noshell -eval "{ok, _} = application:ensure_all_started(hocon), ok = hocon_cli:main([$args]), init:stop()."
+}
+
+# Function to generate app.config and vm.args
+# sets two environment variables CONF_FILE and ARGS_FILE
+generate_app_conf() {
+    ## timestamp for each generation
+    local NOW_TIME
+    NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
+
+    ## this command populates two files: app.<time>.config and vm.<time>.args
+    ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
+    ## but does not include the cluster-override.conf and local-override.conf
+    ## meaning, certain overrides will not be mapped to app.<time>.config file
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$EMQX_DATA_DIR"/configs generate
+
+    ## filenames are per-hocon convention
+    CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
+    ARGS_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
+}
+
+# apps/emqx/etc/vm.args.cloud
+append_args_file() {
+    ## ensure a new line at the end
+    echo '' >> "$ARGS_FILE"
+    cat <<EOF >> "$ARGS_FILE"
+-name $EMQX_NODE_NAME
+-mnesia dir '"$EMQX_DATA_DIR/mnesia/$EMQX_NODE_NAME"'
+-stdlib restricted_shell emqx_restricted_shell
++spp true
++A 4
++IOt 4
++SDio 8
+-shutdown_time 30000
+-pa '"$EMQX_DATA_DIR/patches"'
+-mnesia dump_log_write_threshold 5000
+-mnesia dump_log_time_threshold 60000
+-os_mon start_disksup false
+EOF
+}
+
+# copy cert files and acl.conf to etc
+copy_other_conf_files() {
+    cp -r apps/emqx/etc/certs "$EMQX_ETC_DIR"/
+    cp apps/emqx_authz/etc/acl.conf "$EMQX_ETC_DIR"/
+}
+
+is_current_profile_app() {
+    local app="$1"
+    case "$app" in
+        lib-ee*)
+            if [ "$PROFILE" = 'emqx-enterprise' ]; then
+                return 0
+            else
+                return 1
+            fi
+            ;;
+        *)
+            if [ "$PROFILE" = 'emqx' ]; then
+                if [ -f "$app"/BSL.txt ]; then
+                    return 1
+                else
+                    return 0
+                fi
+            else
+                return 0
+            fi
+            ;;
+    esac
+}
+
+## apps to load
+apps_to_load() {
+    local apps csl
+    apps="$(./scripts/find-apps.sh | xargs)"
+    csl=""
+    for app in $apps; do
+        if ! is_current_profile_app "$app"; then
+            continue
+        fi
+        name="$(basename "$app")"
+        if [ -z "$csl" ]; then
+            csl="$name"
+        else
+            csl="$csl,$name"
+        fi
+    done
+    echo "$csl"
+}
+
+boot() {
+    ## Make erl command aware where to load all the beams
+    ## this should be done before every erl command
+    prepare_erl_libs "$PROFILE"
+    render_hocon_conf
+    generate_app_conf
+    append_args_file
+    copy_other_conf_files
+    APPS="$(apps_to_load)"
+
+
+    BOOT_SEQUENCE="
+        Apps=[${APPS}],
+        ok=lists:foreach(fun application:load/1, Apps),
+        io:format(user, \"~nLoaded ~p apps~n\", [length(Apps)]),
+        application:ensure_all_started(emqx_machine).
+    "
+
+    # shellcheck disable=SC2086
+    erl -name "$EMQX_NODE_NAME" \
+        $EPMD_ARGS \
+        -proto_dist ekka \
+        -args_file "$ARGS_FILE" \
+        -config "$CONF_FILE" \
+        -s emqx_restricted_shell set_prompt_func \
+        -eval "$BOOT_SEQUENCE"
+}
+
+# Generate a random id
+gen_node_id() {
+    od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
+}
+
+remsh() {
+    id="remsh$(gen_node_id)-${EMQX_NODE_NAME}"
+    # shellcheck disable=SC2086
+    erl -name "$id" \
+        -setcookie "$COOKIE" \
+        -hidden \
+        -remsh "$EMQX_NODE_NAME" \
+        $EPMD_ARGS
+}
+
+if [ $REMSH -eq 0 ]; then
+    boot
+else
+    remsh
+fi

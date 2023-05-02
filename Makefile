@@ -140,6 +140,11 @@ COMMON_DEPS := $(REBAR)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(BUILD) $(@) rel
 
+.PHONY: compile $(PROFILES:%=compile-%)
+compile: $(PROFILES:%=compile-%)
+$(PROFILES:%=compile-%):
+	@$(BUILD) $(@:compile-%=%) apps
+
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
 ## 2. it's slow
@@ -223,11 +228,11 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: $(PROFILE) quickrun
+run: compile-$(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
-	./_build/$(PROFILE)/rel/emqx/bin/emqx console
+	./dev -p $(PROFILE)
 
 ## Take the currently set PROFILE
 docker:

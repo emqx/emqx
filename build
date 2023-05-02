@@ -124,16 +124,19 @@ assert_no_compile_time_only_deps() {
     :
 }
 
-make_rel() {
-    local release_or_tar="${1}"
+just_compile() {
     ./scripts/pre-compile.sh "$PROFILE"
     # make_elixir_rel always create rebar.lock
     # delete it to make git clone + checkout work because we use shallow close for rebar deps
     rm -f rebar.lock
     # compile all beams
     ./rebar3 as "$PROFILE" compile
-    # generate docs (require beam compiled), generated to etc and priv dirs
     make_docs
+}
+
+make_rel() {
+    local release_or_tar="${1}"
+    just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
     assert_no_compile_time_only_deps
@@ -375,6 +378,9 @@ export_elixir_release_vars() {
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
+    apps)
+        just_compile
+        ;;
     doc|docs)
         make_docs
         ;;
