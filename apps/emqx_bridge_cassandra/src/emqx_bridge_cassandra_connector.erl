@@ -281,7 +281,7 @@ proc_cql_params(query, SQL, Params, _State) ->
 exec_cql_query(InstId, PoolName, Type, Async, PreparedKey, Data) when
     Type == query; Type == prepared_query
 ->
-    case ecpool:pick_and_do(PoolName, {?MODULE, Type, [Async, PreparedKey, Data]}, no_handover) of
+    case exec(PoolName, {?MODULE, Type, [Async, PreparedKey, Data]}) of
         {error, Reason} = Result ->
             ?tp(
                 error,
@@ -295,7 +295,7 @@ exec_cql_query(InstId, PoolName, Type, Async, PreparedKey, Data) when
     end.
 
 exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
-    case ecpool:pick_and_do(PoolName, {?MODULE, batch_query, [Async, CQLs]}, no_handover) of
+    case exec(PoolName, {?MODULE, batch_query, [Async, CQLs]}) of
         {error, Reason} = Result ->
             ?tp(
                 error,
@@ -307,6 +307,13 @@ exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
             ?tp(debug, cassandra_connector_query_return, #{result => Result}),
             Result
     end.
+
+%% Pick one of the pool members to do the query.
+%% Using 'no_handoever' strategy,
+%% meaning the buffer worker does the gen_server call or gen_server cast
+%% towards the connection process.
+exec(PoolName, Query) ->
+    ecpool:pick_and_do(PoolName, Query, no_handover).
 
 on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
@@ -346,17 +353,23 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_cql := {error, Prepar
 query(Conn, sync, CQL, Params) ->
     ecql:query(Conn, CQL, Params);
 query(Conn, {async, Callback}, CQL, Params) ->
-    ecql:async_query(Conn, CQL, Params, one, Callback).
+    ok = ecql:async_query(Conn, CQL, Params, one, Callback),
+    %% return the connection pid for buffer worker to monitor
+    {ok, Conn}.
 
 prepared_query(Conn, sync, PreparedKey, Params) ->
     ecql:execute(Conn, PreparedKey, Params);
 prepared_query(Conn, {async, Callback}, PreparedKey, Params) ->
-    ecql:async_execute(Conn, PreparedKey, Params, Callback).
+    ok = ecql:async_execute(Conn, PreparedKey, Params, Callback),
+    %% return the connection pid for buffer worker to monitor
+    {ok, Conn}.
 
 batch_query(Conn, sync, Rows) ->
     ecql:batch(Conn, Rows);
 batch_query(Conn, {async, Callback}, Rows) ->
-    ecql:async_batch(Conn, Rows, Callback).
+    ok = ecql:async_batch(Conn, Rows, Callback),
+    %% return the connection pid for buffer worker to monitor
+    {ok, Conn}.
 
 %%--------------------------------------------------------------------
 %% callbacks for ecpool

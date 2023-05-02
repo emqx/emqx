@@ -207,7 +207,7 @@ kafka_structs() ->
                 #{
                     desc => <<"Kafka Producer Bridge Config">>,
                     required => false,
-                    converter => fun emqx_bridge_kafka:kafka_producer_converter/2
+                    converter => fun kafka_producer_converter/2
                 }
             )},
         {kafka_consumer,
@@ -302,3 +302,13 @@ sqlserver_structs() ->
                 }
             )}
     ].
+
+kafka_producer_converter(undefined, _) ->
+    undefined;
+kafka_producer_converter(Map, Opts) ->
+    maps:map(
+        fun(_Name, Config) ->
+            emqx_bridge_kafka:kafka_producer_converter(Config, Opts)
+        end,
+        Map
+    ).

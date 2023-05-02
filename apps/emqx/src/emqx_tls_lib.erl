@@ -309,19 +309,19 @@ ensure_ssl_files(Dir, SSL, Opts) ->
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->
             KeyPaths = ?SSL_FILE_OPT_PATHS ++ ?SSL_FILE_OPT_PATHS_A,
-            ensure_ssl_files(Dir, SSL, KeyPaths, Opts);
+            ensure_ssl_files_per_key(Dir, SSL, KeyPaths, Opts);
         {error, _} = Error ->
             Error
     end.
 
-ensure_ssl_files(_Dir, SSL, [], _Opts) ->
+ensure_ssl_files_per_key(_Dir, SSL, [], _Opts) ->
     {ok, SSL};
-ensure_ssl_files(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
+ensure_ssl_files_per_key(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
     case
         ensure_ssl_file(Dir, KeyPath, SSL, emqx_utils_maps:deep_get(KeyPath, SSL, undefined), Opts)
     of
         {ok, NewSSL} ->
-            ensure_ssl_files(Dir, NewSSL, KeyPaths, Opts);
+            ensure_ssl_files_per_key(Dir, NewSSL, KeyPaths, Opts);
         {error, Reason} ->
             {error, Reason#{which_options => [KeyPath]}}
     end.
@@ -472,7 +472,8 @@ hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
 
 %% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
-is_valid_pem_file(Path) ->
+is_valid_pem_file(Path0) ->
+    Path = resolve_cert_path_for_read(Path0),
     case file:read_file(Path) of
         {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
         {error, Reason} -> {error, Reason}
@@ -513,10 +514,16 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
 to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
-    maps:to_list(Opts#{
-        ciphers => Ciphers,
-        versions => Versions
-    }).
+    Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
+    filter(
+        maps:to_list(Opts#{
+            keyfile => Path(keyfile),
+            certfile => Path(certfile),
+            cacertfile => Path(cacertfile),
+            ciphers => Ciphers,
+            versions => Versions
+        })
+    ).
 
 %% @doc Convert hocon-checked tls client options (map()) to
 %% proplist accepted by ssl library.
@@ -530,11 +537,12 @@ to_client_opts(Opts) ->
 to_client_opts(Type, Opts) ->
     GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
+    Path = fun(Key) -> resolve_cert_path_for_read_strict(Get(Key)) end,
     case GetD(enable, false) of
         true ->
-            KeyFile = ensure_str(Get(keyfile)),
-            CertFile = ensure_str(Get(certfile)),
-            CAFile = ensure_str(Get(cacertfile)),
+            KeyFile = Path(keyfile),
+            CertFile = Path(certfile),
+            CAFile = Path(cacertfile),
             Verify = GetD(verify, verify_none),
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
@@ -555,6 +563,31 @@ to_client_opts(Type, Opts) ->
         false ->
             []
     end.
+
+resolve_cert_path_for_read_strict(Path) ->
+    case resolve_cert_path_for_read(Path) of
+        undefined ->
+            undefined;
+        ResolvedPath ->
+            case filelib:is_regular(ResolvedPath) of
+                true ->
+                    ResolvedPath;
+                false ->
+                    PathToLog = ensure_str(Path),
+                    LogData =
+                        case PathToLog =:= ResolvedPath of
+                            true ->
+                                #{path => PathToLog};
+                            false ->
+                                #{path => PathToLog, resolved_path => ResolvedPath}
+                        end,
+                    ?SLOG(error, LogData#{msg => "cert_file_not_found"}),
+                    undefined
+            end
+    end.
+
+resolve_cert_path_for_read(Path) ->
+    emqx_schema:naive_env_interpolation(Path).
 
 filter([]) -> [];
 filter([{_, undefined} | T]) -> filter(T);

@@ -31,6 +31,7 @@
     start_apps/2,
     start_apps/3,
     stop_apps/1,
+    stop_apps/2,
     reload/2,
     app_path/2,
     proj_root/0,
@@ -250,10 +251,19 @@ start_app(App, SpecAppConfig, Opts) ->
     case application:ensure_all_started(App) of
         {ok, _} ->
             ok = ensure_dashboard_listeners_started(App),
+            ok = wait_for_app_processes(App),
             ok;
         {error, Reason} ->
             error({failed_to_start_app, App, Reason})
     end.
+
+wait_for_app_processes(emqx_conf) ->
+    %% emqx_conf app has a gen_server which
+    %% initializes its state asynchronously
+    gen_server:call(emqx_cluster_rpc, dummy),
+    ok;
+wait_for_app_processes(_) ->
+    ok.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
@@ -273,8 +283,7 @@ mustache_vars(App, Opts) ->
     Defaults = #{
         node_cookie => atom_to_list(erlang:get_cookie()),
         platform_data_dir => app_path(App, "data"),
-        platform_etc_dir => app_path(App, "etc"),
-        platform_log_dir => app_path(App, "log")
+        platform_etc_dir => app_path(App, "etc")
     },
     maps:merge(Defaults, ExtraMustacheVars).
 
@@ -307,12 +316,21 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
+    stop_apps(Apps, #{}).
+
+stop_apps(Apps, Opts) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
-    emqx_config:erase_schema_mod_and_names(),
+    case Opts of
+        #{erase_all_configs := false} ->
+            %% FIXME: this means inter-suite or inter-test dependencies
+            ok;
+        _ ->
+            emqx_config:erase_all()
+    end,
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
@@ -492,7 +510,7 @@ load_config(SchemaModule, Config, Opts) ->
     ok.
 
 load_config(SchemaModule, Config) ->
-    load_config(SchemaModule, Config, #{raw_with_default => false}).
+    load_config(SchemaModule, Config, #{raw_with_default => true}).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
     Servers :: [{Host, Port}],

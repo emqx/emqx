@@ -32,12 +32,8 @@ start(_StartType, _StartArgs) ->
         ok = init_conf()
     catch
         C:E:St ->
-            ?SLOG(critical, #{
-                msg => failed_to_init_config,
-                exception => C,
-                reason => E,
-                stacktrace => St
-            }),
+            %% logger is not quite ready.
+            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
             init:stop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
@@ -92,15 +88,8 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
--ifdef(TEST).
-init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => false}).
-
--else.
-
 init_load() ->
     emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => true}).
--endif.
 
 init_conf() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:

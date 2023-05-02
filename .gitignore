@@ -43,8 +43,7 @@ tmp/
 _packages
 elvis
 emqx_dialyzer_*_plt
-*/emqx_dashboard/priv/www
-*/emqx_dashboard/priv/i18n.conf
+*/emqx_dashboard/priv/
 dist.zip
 scripts/git-token
 apps/*/etc/*.all
@@ -71,3 +70,5 @@ apps/emqx/test/emqx_static_checks_data/master.bpapi
 lux_logs/
 /.prepare
 bom.json
+ct_run*/
+apps/emqx_conf/etc/emqx.conf.all.rendered*
