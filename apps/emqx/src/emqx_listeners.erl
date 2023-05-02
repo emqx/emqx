@@ -118,14 +118,14 @@ format_raw_listeners({Type0, Conf}) ->
                 Bind = parse_bind(LConf0),
                 Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
                 LConf1 = maps:remove(<<"authentication">>, LConf0),
-                LConf3 = maps:put(<<"running">>, Running, LConf1),
+                LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
                     case Running of
                         true -> current_conns(Type, LName, Bind);
                         false -> 0
                     end,
-                LConf4 = maps:put(<<"current_connections">>, CurrConn, LConf3),
-                {true, {Type0, LName, LConf4}};
+                LConf = maps:put(<<"current_connections">>, CurrConn, LConf2),
+                {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->
                 false
         end,
