@@ -61,9 +61,6 @@ hidden() ->
         "flapping_detect"
     ].
 
-%% optimized for mqtt field
-fields("mqtt") ->
-    emqx_schema:fields("mqtt");
 %% zone schemas are clones from the same name from root level
 %% only not allowed to have default values.
 fields(Name) ->
