@@ -657,7 +657,8 @@ mock_advanced_mqtt_features() ->
 
     lists:foreach(
         fun(N) ->
-            Num = integer_to_binary(N),
+            %% append 10s to ensure message is not published
+            Num = integer_to_binary(N + 10),
             Message = emqx_message:make(<<"$delayed/", Num/binary, "/delayed">>, <<"payload">>),
             {stop, _} = emqx_delayed:on_message_publish(Message)
         end,
