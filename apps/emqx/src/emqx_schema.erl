@@ -935,15 +935,17 @@ fields("mqtt_quic_listener") ->
                 string(),
                 #{
                     %% TODO: deprecated => {since, "5.1.0"}
-                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keyfile",
             sc(
                 string(),
-                %% TODO: deprecated => {since, "5.1.0"}
                 #{
-                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"ciphers", ciphers_schema(quic)},
@@ -1019,7 +1021,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% deprecated, use idle_timeout_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"idle_timeout_ms",
@@ -1033,7 +1038,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => <<"10s">>,
-                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use handshake_idle_timeout_ms
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"handshake_idle_timeout_ms",
@@ -1047,7 +1055,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use keep_alive_interval_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keep_alive_interval_ms",
