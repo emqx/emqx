@@ -1,7 +1,7 @@
 # EMQX Modules
 
 The application provides some minor functional modules that are not included in the MQTT
-protocol standard, including "Delayed Publish", "Topic Rewrite", "Topic Metrics" and "Telemetry".
+protocol standard, including "Delayed Publish", "Topic Rewrite", "Topic Metrics".
 
 
 ## Delayed Publish
@@ -42,12 +42,4 @@ See HTTP API docs to [List all monitored topics](https://www.emqx.io/docs/en/v5.
 and [Get the monitored result](https://www.emqx.io/docs/en/v5.0/admin/api-docs.html#tag/MQTT/paths/~1mqtt~1topic_metrics~1%7Btopic%7D/get).
 
 
-## Telemetry
 
-Telemetry is used for collecting non-sensitive information about the EMQX cluster.
-
-More introduction about [Telemetry](https://www.emqx.io/docs/en/v5.0/telemetry/telemetry.html#telemetry).
-
-See HTTP API docs to [Enable/Disable telemetry](https://www.emqx.io/docs/en/v5.0/admin/api-docs.html#tag/Telemetry/paths/~1telemetry~1status/put),
-[Get the enabled status](https://www.emqx.io/docs/en/v5.0/admin/api-docs.html#tag/Telemetry/paths/~1telemetry~1status/get)
-and [Get the data of the module collected](https://www.emqx.io/docs/en/v5.0/admin/api-docs.html#tag/Telemetry/paths/~1telemetry~1data/get).
