@@ -23,10 +23,13 @@
         , integral_ciphers/2
         , drop_tls13_for_old_otp/1
         , inject_root_fun/1
+        , inject_verify_fun/1
         , opt_partial_chain/1
+        , opt_verify_fun/1
         ]).
 
 -include("logger.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
@@ -182,6 +185,14 @@ inject_root_fun(Options) ->
             replace(Options, ssl_options, opt_partial_chain(SslOpts))
     end.
 
+inject_verify_fun(Options) ->
+    case proplists:get_value(ssl_options, Options) of
+        undefined ->
+            Options;
+        SslOpts ->
+            replace(Options, ssl_options, emqx_tls_lib:opt_verify_fun(SslOpts))
+    end.
+
 %% @doc enable TLS partial_chain validation if set.
 -spec opt_partial_chain(SslOpts :: proplists:proplist()) -> NewSslOpts :: proplists:proplist().
 opt_partial_chain(SslOpts) ->
@@ -194,6 +205,17 @@ opt_partial_chain(SslOpts) ->
             replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts));
         V when V =:= two_cacerts_from_cacertfile -> %% for certificate rotations
             replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(2, SslOpts))
+    end.
+
+
+-spec opt_verify_fun(SslOpts :: proplists:proplist()) -> NewSslOpts :: proplists:proplist().
+opt_verify_fun(SslOpts) ->
+    case proplists:get_value(verify_peer_ext_key_usage, SslOpts, undefined) of
+        undefined ->
+            SslOpts;
+        V ->
+            Fun = emqx_const_v2:make_tls_verify_fun(verify_cert_extKeyUsage, V),
+            replace(SslOpts, verify_fun, {Fun, #{}})
     end.
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].

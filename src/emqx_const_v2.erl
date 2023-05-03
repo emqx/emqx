@@ -19,8 +19,10 @@
 -module(emqx_const_v2).
 
 -export([ make_tls_root_fun/2
+        , make_tls_verify_fun/2
         ]).
 
+-include_lib("public_key/include/public_key.hrl").
 %% @doc Build a root fun for verify TLS partial_chain.
 %% The `InputChain' is composed by OTP SSL with local cert store
 %% AND the cert (chain if any) from the client.
@@ -43,3 +45,78 @@ make_tls_root_fun(cacert_from_cacertfile, [TrustedOne, TrustedTwo]) ->
           {trusted_ca, TrustedTwo}
       end
   end.
+
+make_tls_verify_fun(verify_cert_extKeyUsage, KeyUsages) ->
+    AllowedKeyUsages = ext_key_opts(KeyUsages),
+    fun(A, B, C) ->
+        verify_fun_peer_extKeyUsage(A, B, C, AllowedKeyUsages)
+    end.
+
+verify_fun_peer_extKeyUsage(_, {bad_cert, invalid_ext_key_usage}, UserState, AllowedKeyUsages) ->
+  %% !! Override OTP verify peer default
+  %% OTP SSL is unhappy with the ext_key_usage but we will check on ower own.
+  {unknown, UserState};
+verify_fun_peer_extKeyUsage(_, {bad_cert, _} = Reason, _, AllowedKeyUsages) ->
+  %% OTP verify_peer default
+  {fail, Reason};
+verify_fun_peer_extKeyUsage(_, {extension, _}, UserState, _AllowedKeyUsages) ->
+  %% OTP verify_peer default
+  {unknown, UserState};
+verify_fun_peer_extKeyUsage(_, valid, UserState, _AllowedKeyUsages) ->
+  %% OTP verify_peer default
+  {valid, UserState};
+verify_fun_peer_extKeyUsage(#'OTPCertificate'{tbsCertificate = #'OTPTBSCertificate'{extensions = ExtL}},
+                            valid_peer,  %% valid peer cert
+                            UserState, AllowedKeyUsages) ->
+  %% override OTP verify_peer default
+  %% must have id-ce-extKeyUsage
+  case lists:keyfind(?'id-ce-extKeyUsage', 2, ExtL) of
+    #'Extension'{extnID = ?'id-ce-extKeyUsage', extnValue = VL} ->
+      case do_verify_ext_key_usage(VL, AllowedKeyUsages) of
+        true ->
+          %% pass the check,
+          %% fallback to OTP verify_peer default
+          {valid, UserState};
+        false ->
+          {fail, extKeyUsage_unmatched}
+      end;
+    _ ->
+      {fail, extKeyUsage_not_set}
+  end.
+
+%% @doc check required extkeyUsages are presented in the cert
+do_verify_ext_key_usage(_, []) ->
+    %% Verify finished
+    true;
+do_verify_ext_key_usage(CertExtL, [Usage | T] = _Required) ->
+    case lists:member(Usage, CertExtL) of
+        true ->
+            do_verify_ext_key_usage(CertExtL, T);
+        false ->
+            false
+    end.
+
+%% @doc Helper tls cert extension
+-spec ext_key_opts(string()) -> [OidString::string() | public_key:oid()];
+                  (undefined) -> undefined.
+ext_key_opts(undefined) ->
+    %% disabled
+    undefined;
+ext_key_opts(Str) ->
+    Usages = string:tokens(Str, ","),
+    lists:map(fun("clientAuth") ->
+                      ?'id-kp-clientAuth';
+                 ("serverAuth") ->
+                      ?'id-kp-serverAuth';
+                 ("codeSigning") ->
+                      ?'id-kp-codeSigning';
+                 ("emailProtection") ->
+                      ?'id-kp-emailProtection';
+                 ("timeStamping") ->
+                      ?'id-kp-timeStamping';
+                 ("ocspSigning") ->
+                      ?'id-kp-OCSPSigning';
+                 ([$O,$I,$D,$: | OidStr]) ->
+                      OidList = string:tokens(OidStr, "."),
+                      list_to_tuple(lists:map(fun list_to_integer/1, OidList))
+              end, Usages).

@@ -89,8 +89,9 @@ gen_host_cert(H, CaName, Path, Opts) ->
       HEXT,
       "keyUsage=digitalSignature,keyAgreement,keyCertSign\n"
       "basicConstraints=CA:TRUE \n"
+      "~s \n"
       "subjectAltName=DNS:~s\n",
-      [CN]
+      [maps:get(ext, Opts, ""), CN]
     ),
 
     CSR_Cmd = csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN),

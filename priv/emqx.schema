@@ -1650,6 +1650,11 @@ end}.
   {datatype, atom}
 ]}.
 
+{mapping, "listener.ssl.$name.verify_peer_ext_key_usage", "emqx.listeners", [
+  {datatype, string},
+  {default, ""}
+]}.
+
 {mapping, "listener.ssl.$name.fail_if_no_peer_cert", "emqx.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
@@ -2382,6 +2387,7 @@ end}.
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                           {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
                           {partial_chain, cuttlefish:conf_get(Prefix ++ ".partial_chain", Conf, undefined)},
+                          {verify_peer_ext_key_usage, cuttlefish:conf_get(Prefix ++ ".verify_peer_ext_key_usage", Conf, undefined)},
                           {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
                           {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
                           {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
