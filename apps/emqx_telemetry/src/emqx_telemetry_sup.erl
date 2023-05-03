@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,5 +14,32 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(API_TAG_MQTT, [<<"MQTT">>]).
--define(API_SCHEMA_MODULE, emqx_modules_schema).
+-module(emqx_telemetry_sup).
+
+-behaviour(supervisor).
+
+-export([start_link/0]).
+
+-export([init/1]).
+
+-define(SERVER, ?MODULE).
+-define(CHILD(Mod), #{
+    id => Mod,
+    start => {Mod, start_link, []},
+    restart => transient,
+    shutdown => 5000,
+    type => worker,
+    modules => [Mod]
+}).
+
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+init([]) ->
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 0,
+        period => 1
+    },
+    ChildSpecs = [?CHILD(emqx_telemetry)],
+    {ok, {SupFlags, ChildSpecs}}.

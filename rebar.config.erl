@@ -477,8 +477,7 @@ relx_apps_per_edition(ee) ->
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->
-    [].
-
+    [emqx_telemetry].
 relx_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "log/"},

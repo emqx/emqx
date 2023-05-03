@@ -235,14 +235,18 @@ render_and_load_app_config(App, Opts) ->
             %% turn throw into error
             error({Conf, E, St})
     end.
-
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
-    Vars = mustache_vars(App, Opts),
-    RenderedConfigFile = render_config_file(ConfigFile, Vars),
-    read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
-    copy_certs(App, RenderedConfigFile),
-    ok.
+    try
+        Vars = mustache_vars(App, Opts),
+        RenderedConfigFile = render_config_file(ConfigFile, Vars),
+        read_schema_configs(Schema, RenderedConfigFile),
+        force_set_config_file_paths(App, [RenderedConfigFile]),
+        copy_certs(App, RenderedConfigFile),
+        ok
+    catch
+        throw:skip ->
+            ok
+    end.
 
 start_app(App, SpecAppConfig, Opts) ->
     render_and_load_app_config(App, Opts),
@@ -290,6 +294,7 @@ render_config_file(ConfigFile, Vars0) ->
     Temp =
         case file:read_file(ConfigFile) of
             {ok, T} -> T;
+            {error, enoent} -> throw(skip);
             {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
         end,
     Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],

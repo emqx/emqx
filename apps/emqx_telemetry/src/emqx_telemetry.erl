@@ -18,13 +18,6 @@
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
-
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--include("emqx_modules.hrl").
-
 -export([
     start_link/0,
     stop/0
@@ -41,9 +34,10 @@
     code_change/3
 ]).
 
+%% config change hook points
 -export([
-    enable/0,
-    disable/0
+    start_reporting/0,
+    stop_reporting/0
 ]).
 
 -export([
@@ -51,8 +45,6 @@
     get_cluster_uuid/0,
     get_telemetry/0
 ]).
-
--export([official_version/1]).
 
 %% Internal exports (RPC)
 -export([
@@ -71,6 +63,15 @@
     get_value/2,
     get_value/3
 ]).
+
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+%% The destination URL for the telemetry data report
+-define(TELEMETRY_URL, "https://telemetry.emqx.io/api/telemetry").
+-define(REPORT_INTERVAL, 604800).
 
 -record(telemetry, {
     id :: atom(),
@@ -112,11 +113,17 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-enable() ->
-    gen_server:call(?MODULE, enable, 15_000).
+%% @doc Re-start the reporting timer after disabled.
+%% This is an async notification which never fails.
+%% This is a no-op in enterprise edition.
+start_reporting() ->
+    gen_server:cast(?MODULE, start_reporting).
 
-disable() ->
-    gen_server:call(?MODULE, disable).
+%% @doc Stop the reporting timer.
+%% This is an async notification which never fails.
+%% This is a no-op in enterprise eidtion.
+stop_reporting() ->
+    gen_server:cast(?MODULE, stop_reporting).
 
 get_node_uuid() ->
     gen_server:call(?MODULE, get_node_uuid).
@@ -132,7 +139,9 @@ get_telemetry() ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    {ok, undefined, {continue, init}}.
+    process_flag(trap_exit, true),
+    emqx_telemetry_config:on_server_start(),
+    {ok, "ignored", {continue, init}}.
 
 handle_continue(init, _) ->
     ok = mria:create_table(
@@ -148,21 +157,12 @@ handle_continue(init, _) ->
     ok = mria:wait_for_tables([?TELEMETRY]),
     State0 = empty_state(),
     {NodeUUID, ClusterUUID} = ensure_uuids(),
-    {noreply, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}};
-handle_continue(Continue, State) ->
-    ?SLOG(error, #{msg => "unexpected_continue", continue => Continue}),
-    {noreply, State}.
+    case is_enabled() of
+        true -> ok = start_reporting();
+        false -> ok
+    end,
+    {noreply, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}}.
 
-handle_call(enable, _From, State) ->
-    %% Wait a few moments before reporting the first telemetry, as the
-    %% apps might still be starting up.  Also, this avoids hanging
-    %% `emqx_modules_app' initialization in case the POST request
-    %% takes a lot of time.
-    FirstReportTimeoutMS = timer:seconds(10),
-    {reply, ok, ensure_report_timer(FirstReportTimeoutMS, State)};
-handle_call(disable, _From, State = #state{timer = Timer}) ->
-    emqx_utils:cancel_timer(Timer),
-    {reply, ok, State#state{timer = undefined}};
 handle_call(get_node_uuid, _From, State = #state{node_uuid = UUID}) ->
     {reply, {ok, UUID}, State};
 handle_call(get_cluster_uuid, _From, State = #state{cluster_uuid = UUID}) ->
@@ -174,6 +174,14 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
+handle_cast(start_reporting, State) ->
+    %% Wait a few moments before reporting the first telemetry, as the
+    %% apps might still be starting up.
+    FirstReportTimeoutMS = timer:seconds(10),
+    {noreply, ensure_report_timer(FirstReportTimeoutMS, State)};
+handle_cast(stop_reporting, State = #state{timer = Timer}) ->
+    emqx_utils:cancel_timer(Timer),
+    {noreply, State#state{timer = undefined}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -188,7 +196,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok.
+    emqx_conf:remove_handler([telemetry]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -197,9 +205,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-official_version(Version) ->
-    Pt = "^\\d+\\.\\d+(?:\\.\\d+)?(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*))?$",
-    match =:= re:run(Version, Pt, [{capture, none}]).
+is_enabled() ->
+    emqx_telemetry_config:is_enabled().
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     ensure_report_timer(ReportInterval, State).

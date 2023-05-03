@@ -33,7 +33,6 @@ namespace() -> modules.
 roots() ->
     [
         "delayed",
-        "telemetry",
         array("rewrite", #{
             desc => "List of topic rewrite rules.",
             importance => ?IMPORTANCE_HIDDEN,
@@ -46,8 +45,6 @@ roots() ->
         })
     ].
 
-fields("telemetry") ->
-    [{enable, ?HOCON(boolean(), #{default => true, desc => "Enable telemetry."})}];
 fields("delayed") ->
     [
         {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})},
@@ -76,8 +73,6 @@ fields("rewrite") ->
 fields("topic_metrics") ->
     [{topic, ?HOCON(binary(), #{desc => "Collect metrics for the topic."})}].
 
-desc("telemetry") ->
-    "Settings for the telemetry module.";
 desc("delayed") ->
     "Settings for the delayed module.";
 desc("rewrite") ->
