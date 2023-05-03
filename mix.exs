@@ -385,7 +385,9 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_oracle: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
-        else: []
+        else: [
+          emqx_telemetry: :permanent
+        ]
       )
   end
 
@@ -523,14 +525,6 @@ defmodule EMQXUmbrella.MixProject do
       assigns,
       Path.join(etc, "emqx.conf")
     )
-
-    if edition_type == :enterprise do
-      render_template(
-        "apps/emqx_conf/etc/emqx-enterprise.conf.all",
-        assigns,
-        Path.join(etc, "emqx-enterprise.conf")
-      )
-    end
 
     render_template(
       "rel/emqx_vars",

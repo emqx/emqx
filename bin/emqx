@@ -612,7 +612,7 @@ check_license() {
       set +x
       logerr "License not found."
       logerr "Please specify one via the EMQX_LICENSE__KEY variable"
-      logerr "or via license.key in emqx-enterprise.conf."
+      logerr "or via license.key in emqx.conf."
       return 1
     fi
 }
