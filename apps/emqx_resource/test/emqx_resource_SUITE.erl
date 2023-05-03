@@ -2327,7 +2327,7 @@ t_expiration_retry(_Config) ->
             resume_interval => 300
         }
     ),
-    do_t_expiration_retry(single).
+    do_t_expiration_retry().
 
 t_expiration_retry_batch(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
@@ -2344,9 +2344,9 @@ t_expiration_retry_batch(_Config) ->
             resume_interval => 300
         }
     ),
-    do_t_expiration_retry(batch).
+    do_t_expiration_retry().
 
-do_t_expiration_retry(IsBatch) ->
+do_t_expiration_retry() ->
     ResumeInterval = 300,
     ?check_trace(
         begin
@@ -2399,15 +2399,10 @@ do_t_expiration_retry(IsBatch) ->
                     ResumeInterval * 10
                 ),
 
-            SuccessEventKind =
-                case IsBatch of
-                    batch -> buffer_worker_retry_inflight_succeeded;
-                    single -> buffer_worker_flush_ack
-                end,
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_resource:simple_sync_query(?ID, resume),
-                    #{?snk_kind := SuccessEventKind},
+                    #{?snk_kind := buffer_worker_retry_inflight_succeeded},
                     ResumeInterval * 5
                 ),
 

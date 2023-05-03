@@ -585,7 +585,8 @@ reply_delegator(ReplyFunAndArgs, Result) ->
             Reason =:= econnrefused;
             Reason =:= timeout;
             Reason =:= normal;
-            Reason =:= {shutdown, normal}
+            Reason =:= {shutdown, normal};
+            Reason =:= {shutdown, closed}
         ->
             Result1 = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
