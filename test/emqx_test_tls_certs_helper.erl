@@ -73,7 +73,9 @@ gen_host_cert(H, CaName, Path, Opts) ->
     CN = str(H),
     HKey = filename(Path, "~s.key", [H]),
     HCSR = filename(Path, "~s.csr", [H]),
+    HCSR2 = filename(Path, "~s.csr", [H]),
     HPEM = filename(Path, "~s.pem", [H]),
+    HPEM2 = filename(Path, "~s_renewed.pem", [H]),
     HEXT = filename(Path, "~s.extfile", [H]),
     PasswordArg =
         case maps:get(password, Opts, undefined) of
@@ -82,44 +84,56 @@ gen_host_cert(H, CaName, Path, Opts) ->
             Password ->
                 io_lib:format(" -passout pass:'~s' ", [Password])
         end,
-    CSR_Cmd =
-        lists:flatten(
-            io_lib:format(
-                "openssl req -new ~s -newkey ec:~s "
-                "-keyout ~s -out ~s "
-                "-addext \"subjectAltName=DNS:~s\" "
-                "-addext basicConstraints=CA:TRUE "
-                "-addext keyUsage=digitalSignature,keyAgreement,keyCertSign "
-                "-subj \"/C=SE/O=Internet Widgits Pty Ltd/CN=~s\"",
-                [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
-            )
-        ),
+
     create_file(
-        HEXT,
-        "keyUsage=digitalSignature,keyAgreement,keyCertSign\n"
-        "basicConstraints=CA:TRUE \n"
-        "subjectAltName=DNS:~s\n",
-        [CN]
+      HEXT,
+      "keyUsage=digitalSignature,keyAgreement,keyCertSign\n"
+      "basicConstraints=CA:TRUE \n"
+      "subjectAltName=DNS:~s\n",
+      [CN]
     ),
-    CERT_Cmd =
-        lists:flatten(
+
+    CSR_Cmd = csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN),
+    CSR_Cmd2 = csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR2, CN),
+
+    CERT_Cmd = cert_sign_cmd(HEXT, HCSR, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM),
+    %% 2nd cert for testing renewed cert.
+    CERT_Cmd2 = cert_sign_cmd(HEXT, HCSR, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM2),
+    ct:pal(os:cmd(CSR_Cmd)),
+    ct:pal(os:cmd(CSR_Cmd2)),
+    ct:pal(os:cmd(CERT_Cmd)),
+    ct:pal(os:cmd(CERT_Cmd2)),
+    file:delete(HEXT).
+
+cert_sign_cmd(ExtFile, CSRFile, CACert, CAKey, OutputCert)->
+    lists:flatten(
             io_lib:format(
                 "openssl x509 -req "
                 "-extfile ~s "
                 "-in ~s -CA ~s -CAkey ~s -CAcreateserial "
                 "-out ~s -days 500",
                 [
-                    HEXT,
-                    HCSR,
-                    ca_cert_name(Path, CaName),
-                    ca_key_name(Path, CaName),
-                    HPEM
+                    ExtFile,
+                    CSRFile,
+                    CACert,
+                    CAKey,
+                    OutputCert
                 ]
             )
-        ),
-    ct:pal(os:cmd(CSR_Cmd)),
-    ct:pal(os:cmd(CERT_Cmd)),
-    file:delete(HEXT).
+        ).
+
+csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN) ->
+    lists:flatten(
+      io_lib:format(
+        "openssl req -new ~s -newkey ec:~s "
+        "-keyout ~s -out ~s "
+        "-addext \"subjectAltName=DNS:~s\" "
+        "-addext basicConstraints=CA:TRUE "
+        "-addext keyUsage=digitalSignature,keyAgreement,keyCertSign "
+        "-subj \"/C=SE/O=Internet Widgits Pty Ltd/CN=~s\"",
+        [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
+       )
+     ).
 
 filename(Path, F, A) ->
     filename:join(Path, str(io_lib:format(F, A))).

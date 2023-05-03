@@ -186,7 +186,9 @@ opt_partial_chain(SslOpts) ->
     case proplists:get_value(partial_chain, SslOpts, undefined) of
         undefined ->
             SslOpts;
-        cacert_from_cacertfile ->
+        false ->
+            SslOpts;
+        V when V =:= cacert_from_cacertfile orelse V == true ->
             replace(SslOpts, partial_chain, cacert_from_cacertfile(SslOpts))
     end.
 
