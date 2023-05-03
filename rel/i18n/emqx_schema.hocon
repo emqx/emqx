@@ -1300,6 +1300,11 @@ you drop support for the insecure renegotiation, prone to MitM attacks."""
 common_ssl_opts_schema_secure_renegotiate.label:
 """SSL renegotiate"""
 
+common_ssl_opts_schema_log_level.desc:
+"""Log level for SSL communication. Default is 'notice'. Set to 'debug' to inspect TLS handshake messages."""
+common_ssl_opts_schema_log_level.label:
+"""SSL log level"""
+
 sysmon_vm_busy_port.desc:
 """When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,
 and an MQTT message is published to the system topic <code>$SYS/sysmon/busy_port</code>."""
