@@ -102,6 +102,8 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 
+-define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
+
 -export_type([
     update_request/0,
     raw_config/0,
@@ -163,9 +165,8 @@ get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 -spec find(emqx_utils_maps:config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find([]) ->
-    Ref = make_ref(),
-    case do_get(?CONF, [], Ref) of
-        Ref -> {not_found, []};
+    case do_get(?CONF, [], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find(KeyPath) ->
@@ -178,9 +179,8 @@ find(KeyPath) ->
 -spec find_raw(emqx_utils_maps:config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_raw([]) ->
-    Ref = make_ref(),
-    case do_get_raw([], Ref) of
-        Ref -> {not_found, []};
+    case do_get_raw([], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find_raw(KeyPath) ->
@@ -679,11 +679,9 @@ do_get_raw(Path, Default) ->
     do_get(?RAW_CONF, Path, Default).
 
 do_get(Type, KeyPath) ->
-    Ref = make_ref(),
-    Res = do_get(Type, KeyPath, Ref),
-    case Res =:= Ref of
-        true -> error({config_not_found, KeyPath});
-        false -> Res
+    case do_get(Type, KeyPath, ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> error({config_not_found, KeyPath});
+        Res -> Res
     end.
 
 do_get(Type, [], Default) ->
