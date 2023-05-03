@@ -113,10 +113,18 @@ handle_info(_Msg, State) ->
 
 push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
-    JobName1 = emqx_connector_template:render_strict(
+    % NOTE: allowing errors here to keep rough backward compatibility
+    {JobName1, Errors} = emqx_connector_template:render(
         emqx_connector_template:parse(JobName),
         #{<<"name">> => Name, <<"host">> => Ip}
     ),
+    _ =
+        Errors == [] orelse
+            ?SLOG(warning, #{
+                msg => "prometheus_job_name_template_invalid",
+                errors => Errors,
+                template => JobName
+            }),
     Data = prometheus_text_format:format(),
     Url = lists:concat([Uri, "/metrics/job/", unicode:characters_to_list(JobName1)]),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
