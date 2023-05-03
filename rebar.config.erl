@@ -352,7 +352,6 @@ overlay_vars_pkg(bin) ->
     [
         {platform_data_dir, "data"},
         {platform_etc_dir, "etc"},
-        {platform_log_dir, "log"},
         {platform_plugins_dir, "plugins"},
         {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"},
         {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"},
@@ -365,7 +364,6 @@ overlay_vars_pkg(pkg) ->
     [
         {platform_data_dir, "/var/lib/emqx"},
         {platform_etc_dir, "/etc/emqx"},
-        {platform_log_dir, "/var/log/emqx"},
         {platform_plugins_dir, "/var/lib/emqx/plugins"},
         {runner_bin_dir, "/usr/bin"},
         {emqx_etc_dir, "/etc/emqx"},

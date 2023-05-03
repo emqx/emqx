@@ -230,7 +230,12 @@ webhook_bridge_converter(Conf0, _HoconOpts) ->
         undefined ->
             undefined;
         _ ->
-            do_convert_webhook_config(Conf1)
+            maps:map(
+                fun(_Name, Conf) ->
+                    do_convert_webhook_config(Conf)
+                end,
+                Conf1
+            )
     end.
 
 do_convert_webhook_config(

@@ -84,8 +84,10 @@ common_handler_max_depth.label:
 """Max Depth"""
 
 desc_log.desc:
-"""EMQX logging supports multiple sinks for the log events.
-Each sink is represented by a _log handler_, which can be configured independently."""
+"""EMQX supports multiple log handlers, one console handler and multiple file handlers.
+EMQX by default logs to console when running in docker or in console/foreground mode,
+otherwise it logs to file $EMQX_LOG_DIR/emqx.log.
+For advanced configuration, you can find more parameters in this section."""
 
 desc_log.label:
 """Log"""

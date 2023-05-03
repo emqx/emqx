@@ -138,13 +138,13 @@ end_per_testcase(t_ws_non_check_origin, Config) ->
     del_bucket(),
     PrevConfig = ?config(prev_config, Config),
     emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
-    emqx_common_test_helpers:stop_apps([]),
+    stop_apps(),
     ok;
 end_per_testcase(_, Config) ->
     del_bucket(),
     PrevConfig = ?config(prev_config, Config),
     emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
-    emqx_common_test_helpers:stop_apps([]),
+    stop_apps(),
     Config.
 
 init_per_suite(Config) ->
@@ -155,6 +155,10 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_common_test_helpers:stop_apps([]),
     ok.
+
+%% FIXME: this is a temp fix to tests share configs.
+stop_apps() ->
+    emqx_common_test_helpers:stop_apps([], #{erase_all_configs => false}).
 
 %%--------------------------------------------------------------------
 %% Test Cases

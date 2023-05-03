@@ -114,18 +114,19 @@ on_start(
         sync_timeout => SyncTimeout,
         templates => Templates,
         producers_map_pid => ProducersMapPID,
-        producers_opts => ProducerOpts
+        producers_opts => emqx_secret:wrap(ProducerOpts)
     },
 
     case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
         {ok, _Pid} ->
             {ok, State};
-        {error, _Reason} = Error ->
+        {error, Reason0} ->
+            Reason = redact(Reason0),
             ?tp(
                 rocketmq_connector_start_failed,
-                #{error => _Reason}
+                #{error => Reason}
             ),
-            Error
+            {error, Reason}
     end.
 
 on_stop(InstanceId, #{client_id := ClientId, topic := RawTopic, producers_map_pid := Pid} = _State) ->
@@ -222,7 +223,7 @@ safe_do_produce(InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, R
         produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout)
     catch
         _Type:Reason ->
-            {error, {unrecoverable_error, Reason}}
+            {error, {unrecoverable_error, redact(Reason)}}
     end.
 
 produce(_InstanceId, QueryFunc, Producers, Data, RequestTimeout) ->
@@ -336,7 +337,7 @@ get_producers(ClientId, {_, Topic1} = TopicKey, ProducerOpts) ->
         _ ->
             ProducerGroup = iolist_to_binary([atom_to_list(ClientId), "_", Topic1]),
             {ok, Producers0} = rocketmq:ensure_supervised_producers(
-                ClientId, ProducerGroup, Topic1, ProducerOpts
+                ClientId, ProducerGroup, Topic1, emqx_secret:unwrap(ProducerOpts)
             ),
             ets:insert(ClientId, {TopicKey, Producers0}),
             Producers0

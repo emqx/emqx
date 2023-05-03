@@ -279,8 +279,7 @@ render_config_file() ->
 mustache_vars() ->
     [
         {platform_data_dir, local_path(["data"])},
-        {platform_etc_dir, local_path(["etc"])},
-        {platform_log_dir, local_path(["log"])}
+        {platform_etc_dir, local_path(["etc"])}
     ].
 
 generate_config() ->

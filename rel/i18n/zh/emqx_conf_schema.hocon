@@ -90,7 +90,8 @@ common_handler_max_depth.label:
 """最大深度"""
 
 desc_log.desc:
-"""EMQX 日志记录支持日志事件的多个接收器。 每个接收器由一个_log handler_表示，可以独立配置。"""
+"""EMQX 支持同时多个日志输出，一个控制台输出，和多个文件输出。
+默认情况下，EMQX 运行在容器中，或者在 'console' 或 'foreground' 模式下运行时，会输出到 控制台，否则输出到文件。"""
 
 desc_log.label:
 """日志"""

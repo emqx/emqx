@@ -404,7 +404,7 @@ t_setup_via_config_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _Pid}}], Trace),
             ok
         end
     ),
@@ -443,7 +443,7 @@ t_setup_via_http_api_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _Pid}}], Trace),
             ok
         end
     ),
@@ -604,7 +604,7 @@ t_missing_data(Config) ->
         fun(Trace0) ->
             %% 1. ecql driver will return `ok` first in async query
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _Pid}}], Trace),
             %% 2. then it will return an error in callback function
             Trace1 = ?of_kind(handle_async_reply, Trace0),
             ?assertMatch([#{result := {error, {8704, _}}}], Trace1),
