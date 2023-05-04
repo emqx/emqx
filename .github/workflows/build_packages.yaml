@@ -259,13 +259,6 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       run: |
         set -eu
-        git config --global --add safe.directory "/__w/emqx/emqx"
-        # Align path for CMake caches
-        if [ ! "$PWD" = "/emqx" ]; then
-          ln -s $PWD /emqx
-          cd /emqx
-        fi
-        echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
         if [ ${{ matrix.release_with }} == 'elixir' ]; then
@@ -333,13 +326,6 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       run: |
         set -eu
-        git config --global --add safe.directory "/__w/emqx/emqx"
-        # Align path for CMake caches
-        if [ ! "$PWD" = "/emqx" ]; then
-          ln -s $PWD /emqx
-          cd /emqx
-        fi
-        echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
         for PKGTYPE in ${PKGTYPES};
