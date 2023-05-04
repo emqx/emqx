@@ -206,10 +206,21 @@ make_erlang_args() {
 }
 
 call_hocon() {
+    local args erl_code
     args="$(make_erlang_args "$@")"
-    erl -noshell \
-        -eval "{ok, _} = application:ensure_all_started(hocon), \
-               ok = hocon_cli:main([$args]), init:stop()."
+    erl_code="
+        {ok, _} = application:ensure_all_started(hocon), \
+        try
+          mnesia_hook:module_info()
+        catch _:_->
+          io:format(standard_error, \"Force setting DB backend to 'mnesia', and 'role' to 'core'~n\", []),
+          os:putenv(\"EMQX_NODE__DB_BACKEND\", \"mnesia\"),
+          os:putenv(\"EMQX_NODE__DB_ROLE\", \"core\")
+        end,
+        ok = hocon_cli:main([$args]),
+        init:stop().
+    "
+    erl -noshell -eval "$erl_code"
 }
 
 # Function to generate app.config and vm.args
