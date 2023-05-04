@@ -89,7 +89,7 @@ sync_data_from_node() ->
 %% ------------------------------------------------------------------------------
 
 init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => true}).
+    emqx_config:init_load(emqx_conf:schema_module()).
 
 init_conf() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:

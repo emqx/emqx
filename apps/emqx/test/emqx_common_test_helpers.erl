@@ -55,7 +55,6 @@
     is_tcp_server_available/2,
     is_tcp_server_available/3,
     load_config/2,
-    load_config/3,
     not_wait_mqtt_payload/1,
     read_schema_configs/2,
     render_config_file/2,
@@ -499,18 +498,14 @@ copy_certs(emqx_conf, Dest0) ->
 copy_certs(_, _) ->
     ok.
 
-load_config(SchemaModule, Config, Opts) ->
+load_config(SchemaModule, Config) ->
     ConfigBin =
         case is_map(Config) of
             true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
-    ok = emqx_config:init_load(SchemaModule, ConfigBin, Opts),
-    ok.
-
-load_config(SchemaModule, Config) ->
-    load_config(SchemaModule, Config, #{raw_with_default => true}).
+    ok = emqx_config:init_load(SchemaModule, ConfigBin).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
     Servers :: [{Host, Port}],
