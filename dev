@@ -7,6 +7,14 @@ UNAME="$(uname -s)"
 PROJ_ROOT="$(git rev-parse --show-toplevel)"
 cd "$PROJ_ROOT"
 
+logerr() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo -e "ERROR: $*" 1>&2
+    else
+        echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+    fi
+}
+
 usage() {
 cat <<EOF
 
@@ -14,16 +22,24 @@ Run EMQX without building a release (which takes longer time).
 Node state is stored in '_build/dev-run/$PROFILE'.
 The node is started in interactive mode without a boot file.
 
-USAGE: $0 [OPTION]
+USAGE: $0 [COMMAND] [OPTION[]
+
+COMMANDS:
+  help:   Print this usage info.
+  run:    Default command.
+  remsh:  Attach to running node's remote console.
+          Target node name is to be specified with -n|--name,
+          otherwise defaults to 'emqx@127.0.0.1'.
+  ctl:    Equivalent to 'emqx ctl'.
+          ctl command arguments should be passed after '--'
+          e.g. $0 ctl -- help
 
 OPTIONS:
-  -h|--help:         Print this help usage info.
   -p|--profile:      emqx | emqx-enterprise, defaults to 'PROFILE' env.
   -c|--compile:      Force recompile, otherwise starts with the already built libs
                      in '_build/\$PROFILE/lib/'.
   -e|--ekka-epmd:    Force to use ekka_epmd.
   -n|--name:         Node name, defaults to \$EMQX_NODE_NAME env.
-  -r|--remsh [NAME]: Attach to running node's remote console.
 
 ENVIRONMENT VARIABLES:
 
@@ -45,23 +61,34 @@ PROFILE="${PROFILE:-emqx}"
 FORCE_COMPILE=0
 # Do not start using ekka epmd by default, so your IDE can connect to it
 EKKA_EPMD=0
-REMSH=0
+COMMAND='run'
+case "${1:-novalue}" in
+    novalue)
+        ;;
+    run)
+        shift
+        ;;
+    remsh)
+        COMMAND='remsh'
+        shift
+        ;;
+    ctl)
+        COMMAND='ctl'
+        shift
+        ;;
+    help)
+        usage
+        exit 0
+        ;;
+    -*)
+        ;;
+esac
+
 while [ "$#" -gt 0 ]; do
     case $1 in
-        -h|--help)
-            usage
-            exit 0
-            ;;
         -n|--name)
             EMQX_NODE_NAME="$2"
             shift 1
-            ;;
-        -r|--remsh)
-            REMSH=1
-            if [[ $2 == *@* ]]; then
-                EMQX_NODE_NAME="$2"
-                shift 1
-            fi
             ;;
         -p|--profile)
             PROFILE="${2}"
@@ -73,8 +100,13 @@ while [ "$#" -gt 0 ]; do
         -e|--ekka-epmd)
             EKKA_EPMD=1
             ;;
+        --)
+            shift
+            PASSTHROUGH_ARGS=("$@")
+            break
+            ;;
         *)
-            echo "Unknown argument $1" >&2
+            logerr "Unknown argument $1"
             exit 1
             ;;
     esac
@@ -159,7 +191,8 @@ render_hocon_conf() {
     mustache platform_etc_dir "${EMQX_ETC_DIR}" "$output"
 }
 
-call_hocon() {
+## Make comma separated quoted strings
+make_erlang_args() {
     local in=("$@")
     local args=''
     for arg in "${in[@]}"; do
@@ -169,7 +202,25 @@ call_hocon() {
             args="$args, \"$arg\""
         fi
     done
-    erl -noshell -eval "{ok, _} = application:ensure_all_started(hocon), ok = hocon_cli:main([$args]), init:stop()."
+    echo "$args"
+}
+
+call_hocon() {
+    local args erl_code
+    args="$(make_erlang_args "$@")"
+    erl_code="
+        {ok, _} = application:ensure_all_started(hocon), \
+        try
+          mnesia_hook:module_info()
+        catch _:_->
+          io:format(standard_error, \"Force setting DB backend to 'mnesia', and 'role' to 'core'~n\", []),
+          os:putenv(\"EMQX_NODE__DB_BACKEND\", \"mnesia\"),
+          os:putenv(\"EMQX_NODE__DB_ROLE\", \"core\")
+        end,
+        ok = hocon_cli:main([$args]),
+        init:stop().
+    "
+    erl -noshell -eval "$erl_code"
 }
 
 # Function to generate app.config and vm.args
@@ -226,6 +277,13 @@ is_current_profile_app() {
                 return 1
             fi
             ;;
+        *emqx_telemetry*)
+            if [ "$PROFILE" = 'emqx-enterprise' ]; then
+                return 1
+            else
+                return 0
+            fi
+            ;;
         *)
             if [ "$PROFILE" = 'emqx' ]; then
                 if [ -f "$app"/BSL.txt ]; then
@@ -274,7 +332,7 @@ boot() {
         Apps=[${APPS}],
         ok=lists:foreach(fun application:load/1, Apps),
         io:format(user, \"~nLoaded ~p apps~n\", [length(Apps)]),
-        application:ensure_all_started(emqx_machine).
+        {ok, _} = application:ensure_all_started(emqx_machine).
     "
 
     # shellcheck disable=SC2086
@@ -288,22 +346,60 @@ boot() {
 }
 
 # Generate a random id
-gen_node_id() {
-    od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
+gen_tmp_node_name() {
+    local rnd
+    rnd="$(od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}')"
+    echo "remsh${rnd}-$EMQX_NODE_NAME}"
 }
 
 remsh() {
-    id="remsh$(gen_node_id)-${EMQX_NODE_NAME}"
+    local tmpnode
+    tmpnode="$(gen_tmp_node_name)"
     # shellcheck disable=SC2086
-    erl -name "$id" \
-        -setcookie "$COOKIE" \
+    erl -name "$tmpnode" \
         -hidden \
+        -setcookie "$COOKIE" \
         -remsh "$EMQX_NODE_NAME" \
         $EPMD_ARGS
 }
 
-if [ $REMSH -eq 0 ]; then
-    boot
-else
-    remsh
-fi
+ctl() {
+    if [ -z "${PASSTHROUGH_ARGS:-}" ]; then
+        logerr "Need at least one argument for ctl command"
+        logerr "e.g. $0 ctl -- help"
+        exit 1
+    fi
+    local tmpnode args rpc_code output result
+    tmpnode="$(gen_tmp_node_name)"
+    args="$(make_erlang_args "${PASSTHROUGH_ARGS[@]}")"
+    rpc_code="
+        case rpc:call('$EMQX_NODE_NAME', emqx_ctl, run_command, [[$args]]) of
+          ok ->
+            init:stop(0);
+          Error ->
+            io:format(\"~p~n\", [Error]),
+            init:stop(1)
+        end"
+    set +e
+    # shellcheck disable=SC2086
+    output="$(erl -name "$tmpnode" -setcookie "$COOKIE" -hidden -noshell $EPMD_ARGS -eval "$rpc_code" 2>&1)"
+    result=$?
+    if [ $result -eq 0 ]; then
+        echo -e "$output"
+    else
+        logerr "$output"
+    fi
+    exit $result
+}
+
+case "$COMMAND" in
+    run)
+        boot
+        ;;
+    remsh)
+        remsh
+        ;;
+    ctl)
+        ctl
+        ;;
+esac
