@@ -19,8 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(
     emqx_exproto_echo_svr,
@@ -37,12 +40,16 @@
     ]
 ).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
+
+-define(PORT, 7993).
+
+-define(DEFAULT_CLIENT, #{
+    proto_name => <<"demo">>,
+    proto_ver => <<"v0.1">>,
+    clientid => <<"test_client_1">>
+}).
 
 %%--------------------------------------------------------------------
 -define(CONF_DEFAULT, <<
@@ -50,6 +57,7 @@
     "gateway.exproto {\n"
     "  server.bind = 9100,\n"
     "  handler.address = \"http://127.0.0.1:9001\"\n"
+    "  handler.service_name = \"ConnectionHandler\"\n"
     "  listeners.tcp.default {\n"
     "    bind = 7993,\n"
     "    acceptors = 8\n"
@@ -62,43 +70,109 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, Name} || Name <- metrics()].
+    [
+        {group, tcp_listener},
+        {group, ssl_listener},
+        {group, udp_listener},
+        {group, dtls_listener},
+        {group, https_grpc_server},
+        {group, streaming_connection_handler}
+    ].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
 
 groups() ->
-    Cases = emqx_common_test_helpers:all(?MODULE),
-    [{Name, Cases} || Name <- metrics()].
+    MainCases = [
+        t_keepalive_timeout,
+        t_mountpoint_echo,
+        t_auth_deny,
+        t_acl_deny,
+        t_hook_connected_disconnected,
+        t_hook_session_subscribed_unsubscribed,
+        t_hook_message_delivered
+    ],
+    [
+        {tcp_listener, [sequence], MainCases},
+        {ssl_listener, [sequence], MainCases},
+        {udp_listener, [sequence], MainCases},
+        {dtls_listener, [sequence], MainCases},
+        {streaming_connection_handler, [sequence], MainCases},
+        {https_grpc_server, [sequence], MainCases}
+    ].
 
-%% @private
-metrics() ->
-    [tcp, ssl, udp, dtls].
+init_per_group(GrpName, Cfg) when
+    GrpName == tcp_listener;
+    GrpName == ssl_listener;
+    GrpName == udp_listener;
+    GrpName == dtls_listener
+->
+    LisType =
+        case GrpName of
+            tcp_listener -> tcp;
+            ssl_listener -> ssl;
+            udp_listener -> udp;
+            dtls_listener -> dtls
+        end,
+    init_per_group(LisType, 'ConnectionUnaryHandler', http, Cfg);
+init_per_group(https_grpc_server, Cfg) ->
+    init_per_group(tcp, 'ConnectionUnaryHandler', https, Cfg);
+init_per_group(streaming_connection_handler, Cfg) ->
+    init_per_group(tcp, 'ConnectionHandler', http, Cfg);
+init_per_group(_, Cfg) ->
+    init_per_group(tcp, 'ConnectionUnaryHandler', http, Cfg).
 
-init_per_group(GrpName, Cfg) ->
+init_per_group(LisType, ServiceName, Scheme, Cfg) ->
+    Svrs = emqx_exproto_echo_svr:start(Scheme),
     application:load(emqx_gateway_exproto),
-    put(grpname, GrpName),
-    Svrs = emqx_exproto_echo_svr:start(),
-    emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway], fun set_special_cfg/1),
-    [{servers, Svrs}, {listener_type, GrpName} | Cfg].
+    emqx_common_test_helpers:start_apps(
+        [emqx_authn, emqx_gateway],
+        fun(App) ->
+            set_special_cfg(App, LisType, ServiceName, Scheme)
+        end
+    ),
+    [
+        {servers, Svrs},
+        {listener_type, LisType},
+        {service_name, ServiceName},
+        {grpc_client_scheme, Scheme}
+        | Cfg
+    ].
 
 end_per_group(_, Cfg) ->
     emqx_config:erase(gateway),
     emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
-set_special_cfg(emqx_gateway) ->
-    LisType = get(grpname),
+init_per_testcase(TestCase, Cfg) when
+    TestCase == t_enter_passive_mode
+->
+    case proplists:get_value(listener_type, Cfg) of
+        udp -> {skip, ignore};
+        _ -> Cfg
+    end;
+init_per_testcase(_TestCase, Cfg) ->
+    Cfg.
+
+end_per_testcase(_TestCase, _Cfg) ->
+    ok.
+
+set_special_cfg(emqx_gateway, LisType, ServiceName, Scheme) ->
+    Addrs = lists:flatten(io_lib:format("~s://127.0.0.1:9001", [Scheme])),
     emqx_config:put(
         [gateway, exproto],
         #{
             server => #{bind => 9100},
             idle_timeout => 5000,
-            handler => #{address => "http://127.0.0.1:9001"},
+            handler => #{
+                address => Addrs,
+                service_name => ServiceName,
+                ssl_options => #{enable => Scheme == https}
+            },
             listeners => listener_confs(LisType)
         }
     );
-set_special_cfg(_App) ->
+set_special_cfg(_, _, _, _) ->
     ok.
 
 listener_confs(Type) ->
@@ -111,9 +185,6 @@ default_config() ->
 %%--------------------------------------------------------------------
 %% Tests cases
 %%--------------------------------------------------------------------
-
-t_start_stop(_) ->
-    ok.
 
 t_mountpoint_echo(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -264,7 +335,7 @@ t_keepalive_timeout(Cfg) ->
             ?assertMatch(
                 {ok, #{
                     clientid := ClientId1,
-                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                    reason := {shutdown, keepalive_timeout}
                 }},
                 ?block_until(#{?snk_kind := conn_process_terminated}, 8000)
             );
@@ -272,7 +343,7 @@ t_keepalive_timeout(Cfg) ->
             ?assertMatch(
                 {ok, #{
                     clientid := ClientId1,
-                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                    reason := {shutdown, keepalive_timeout}
                 }},
                 ?block_until(#{?snk_kind := conn_process_terminated}, 12000)
             ),

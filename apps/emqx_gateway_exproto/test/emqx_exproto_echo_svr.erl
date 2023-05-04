@@ -19,7 +19,7 @@
 -behaviour(emqx_exproto_v_1_connection_handler_bhvr).
 
 -export([
-    start/0,
+    start/1,
     stop/1
 ]).
 
@@ -32,7 +32,10 @@
     frame_suback/1,
     frame_unsubscribe/1,
     frame_unsuback/1,
-    frame_disconnect/0
+    frame_disconnect/0,
+    handle_in/3,
+    handle_out/2,
+    handle_out/3
 ]).
 
 -export([
@@ -44,19 +47,6 @@
 ]).
 
 -define(LOG(Fmt, Args), ct:pal(Fmt, Args)).
-
--define(HTTP, #{
-    grpc_opts => #{
-        service_protos => [emqx_exproto_pb],
-        services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
-    },
-    listen_opts => #{
-        port => 9001,
-        socket_options => []
-    },
-    pool_opts => #{size => 8},
-    transport_opts => #{ssl => false}
-}).
 
 -define(CLIENT, emqx_exproto_v_1_connection_adapter_client).
 
@@ -104,9 +94,9 @@ end).
 %% APIs
 %%--------------------------------------------------------------------
 
-start() ->
+start(Scheme) ->
     application:ensure_all_started(grpc),
-    [ensure_channel(), start_server()].
+    [ensure_channel(), start_server(Scheme)].
 
 ensure_channel() ->
     case grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}) of
@@ -114,12 +104,40 @@ ensure_channel() ->
         {ok, Pid} -> {ok, Pid}
     end.
 
-start_server() ->
+start_server(Scheme) when Scheme == http; Scheme == https ->
     Services = #{
         protos => [emqx_exproto_pb],
-        services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
+        services => #{
+            'emqx.exproto.v1.ConnectionHandler' => ?MODULE,
+            'emqx.exproto.v1.ConnectionUnaryHandler' => emqx_exproto_unary_echo_svr
+        }
     },
-    Options = [],
+    CertsDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx",
+            "etc",
+            "certs"
+        ]
+    ),
+
+    Options =
+        case Scheme of
+            https ->
+                CAfile = filename:join([CertsDir, "cacert.pem"]),
+                Keyfile = filename:join([CertsDir, "key.pem"]),
+                Certfile = filename:join([CertsDir, "cert.pem"]),
+                [
+                    {ssl_options, [
+                        {cacertfile, CAfile},
+                        {certfile, Certfile},
+                        {keyfile, Keyfile}
+                    ]}
+                ];
+            _ ->
+                []
+        end,
     grpc:start_server(?MODULE, 9001, Services, Options).
 
 stop([_ChannPid, _SvrPid]) ->
