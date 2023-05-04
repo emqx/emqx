@@ -37,12 +37,23 @@
 %% Internal API for RPC
 -export([list_local/1]).
 -export([list_local/2]).
+-export([list_local_transfer/2]).
 -export([start_reader/3]).
 
-% TODO
-% -export([list/2]).
+-export([list/2]).
 
--type options() :: _TODO.
+-export_type([export_st/0]).
+-export_type([options/0]).
+
+-type options() :: #{
+    root => file:name(),
+    _ => _
+}.
+
+-type query() :: emqx_ft_storage:query(cursor()).
+-type page(T) :: emqx_ft_storage:page(T, cursor()).
+-type cursor() :: iodata().
+
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
 -type exportinfo() :: emqx_ft_storage:file_info().
@@ -69,22 +80,6 @@
 -define(BUCKET1_LEN, 2).
 %% 2 symbols = at most 256 directories on the second level
 -define(BUCKET2_LEN, 2).
-
--define(SLOG_UNEXPECTED(RelFilepath, Fileinfo, Options),
-    ?SLOG(notice, "filesystem_object_unexpected", #{
-        relpath => RelFilepath,
-        fileinfo => Fileinfo,
-        options => Options
-    })
-).
-
--define(SLOG_INACCESSIBLE(RelFilepath, Reason, Options),
-    ?SLOG(warning, "filesystem_object_inaccessible", #{
-        relpath => RelFilepath,
-        reason => Reason,
-        options => Options
-    })
-).
 
 %%--------------------------------------------------------------------
 %% Exporter behaviour
@@ -162,33 +157,33 @@ update(_OldOptions, _NewOptions) -> ok.
 %% Internal API
 %%--------------------------------------------------------------------
 
--spec list_local(options(), transfer()) ->
-    {ok, [exportinfo(), ...]} | {error, file_error()}.
-list_local(Options, Transfer) ->
-    TransferRoot = mk_absdir(Options, Transfer, result),
-    case
-        emqx_ft_fs_util:fold(
-            fun
-                (_Path, {error, Reason}, [], []) ->
-                    {error, Reason};
-                (_Path, Fileinfo = #file_info{type = regular}, [Filename | _], Acc) ->
-                    RelFilepath = filename:join(mk_result_reldir(Transfer) ++ [Filename]),
-                    Info = mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo),
-                    [Info | Acc];
-                (RelFilepath, Fileinfo = #file_info{}, _, Acc) ->
-                    ?SLOG_UNEXPECTED(RelFilepath, Fileinfo, Options),
-                    Acc;
-                (RelFilepath, {error, Reason}, _, Acc) ->
-                    ?SLOG_INACCESSIBLE(RelFilepath, Reason, Options),
-                    Acc
-            end,
-            [],
-            TransferRoot,
-            [fun filter_manifest/1]
-        )
-    of
+-type local_query() :: emqx_ft_storage:query({transfer(), file:name()}).
+
+-spec list_local_transfer(options(), transfer()) ->
+    {ok, [exportinfo()]} | {error, file_error()}.
+list_local_transfer(Options, Transfer) ->
+    It = emqx_ft_fs_iterator:new(
+        mk_absdir(Options, Transfer, result),
+        [fun filter_manifest/1]
+    ),
+    Result = emqx_ft_fs_iterator:fold(
+        fun
+            ({leaf, _Path, Fileinfo = #file_info{type = regular}, [Filename | _]}, Acc) ->
+                RelFilepath = filename:join(mk_result_reldir(Transfer) ++ [Filename]),
+                Info = mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo),
+                [Info | Acc];
+            ({node, _Path, {error, Reason}, []}, []) ->
+                {error, Reason};
+            (Entry, Acc) ->
+                ok = log_invalid_entry(Options, Entry),
+                Acc
+        end,
+        [],
+        It
+    ),
+    case Result of
         Infos = [_ | _] ->
-            {ok, Infos};
+            {ok, lists:reverse(Infos)};
         [] ->
             {error, enoent};
         {error, Reason} ->
@@ -196,9 +191,17 @@ list_local(Options, Transfer) ->
     end.
 
 -spec list_local(options()) ->
-    {ok, #{transfer() => [exportinfo(), ...]}}.
+    {ok, [exportinfo()]} | {error, file_error()}.
 list_local(Options) ->
-    Pattern = [
+    list_local(Options, #{}).
+
+-spec list_local(options(), local_query()) ->
+    {ok, [exportinfo()]} | {error, file_error()}.
+list_local(Options, #{transfer := Transfer}) ->
+    list_local_transfer(Options, Transfer);
+list_local(Options, #{} = Query) ->
+    Root = get_storage_root(Options),
+    Glob = [
         _Bucket1 = '*',
         _Bucket2 = '*',
         _Rest = '*',
@@ -206,16 +209,30 @@ list_local(Options) ->
         _FileId = '*',
         fun filter_manifest/1
     ],
-    Root = get_storage_root(Options),
-    {ok,
-        emqx_ft_fs_util:fold(
-            fun(RelFilepath, Info, Stack, Acc) ->
-                read_exportinfo(Options, RelFilepath, Info, Stack, Acc)
-            end,
-            [],
-            Root,
-            Pattern
-        )}.
+    It =
+        case Query of
+            #{following := Cursor} ->
+                emqx_ft_fs_iterator:seek(mk_path_seek(Cursor), Root, Glob);
+            #{} ->
+                emqx_ft_fs_iterator:new(Root, Glob)
+        end,
+    % NOTE
+    % In the rare case when some transfer contain more than one file, the paging mechanic
+    % here may skip over some files, when the cursor is transfer-only.
+    Limit = maps:get(limit, Query, -1),
+    {Exports, _} = emqx_ft_fs_iterator:fold_n(
+        fun(Entry, Acc) -> read_exportinfo(Options, Entry, Acc) end,
+        [],
+        It,
+        Limit
+    ),
+    {ok, Exports}.
+
+mk_path_seek(#{transfer := Transfer, name := Filename}) ->
+    mk_result_reldir(Transfer) ++ [Filename];
+mk_path_seek(#{transfer := Transfer}) ->
+    % NOTE: Any bitstring is greater than any list.
+    mk_result_reldir(Transfer) ++ [<<>>].
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -227,16 +244,21 @@ filter_manifest(?MANIFEST) ->
 filter_manifest(Filename) ->
     ?MANIFEST =/= string:find(Filename, ?MANIFEST, trailing).
 
-read_exportinfo(Options, RelFilepath, Fileinfo = #file_info{type = regular}, Stack, Acc) ->
-    [Filename, FileId, ClientId | _] = Stack,
+read_exportinfo(
+    Options,
+    {leaf, RelFilepath, Fileinfo = #file_info{type = regular}, [Filename, FileId, ClientId | _]},
+    Acc
+) ->
+    % NOTE
+    % There might be more than one file for a single transfer (though
+    % extremely bad luck is needed for that, e.g. concurrent assemblers with
+    % different filemetas from different nodes). This might be unexpected for a
+    % client given the current protocol, yet might be helpful in the future.
     Transfer = dirnames_to_transfer(ClientId, FileId),
     Info = mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo),
     [Info | Acc];
-read_exportinfo(Options, RelFilepath, Fileinfo = #file_info{}, _Stack, Acc) ->
-    ?SLOG_UNEXPECTED(RelFilepath, Fileinfo, Options),
-    Acc;
-read_exportinfo(Options, RelFilepath, {error, Reason}, _Stack, Acc) ->
-    ?SLOG_INACCESSIBLE(RelFilepath, Reason, Options),
+read_exportinfo(Options, Entry, Acc) ->
+    ok = log_invalid_entry(Options, Entry),
     Acc.
 
 mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo) ->
@@ -268,6 +290,19 @@ try_read_filemeta(Filepath, Info) ->
 mk_export_uri(RelFilepath) ->
     emqx_ft_storage_exporter_fs_api:mk_export_uri(node(), RelFilepath).
 
+log_invalid_entry(Options, {_Type, RelFilepath, Fileinfo = #file_info{}, _Stack}) ->
+    ?SLOG(notice, "filesystem_object_unexpected", #{
+        relpath => RelFilepath,
+        fileinfo => Fileinfo,
+        options => Options
+    });
+log_invalid_entry(Options, {_Type, RelFilepath, {error, Reason}, _Stack}) ->
+    ?SLOG(warning, "filesystem_object_inaccessible", #{
+        relpath => RelFilepath,
+        reason => Reason,
+        options => Options
+    }).
+
 -spec start_reader(options(), file:name(), _Caller :: pid()) ->
     {ok, reader()} | {error, enoent}.
 start_reader(Options, RelFilepath, CallerPid) ->
@@ -282,32 +317,112 @@ start_reader(Options, RelFilepath, CallerPid) ->
 
 %%
 
--spec list(options()) ->
-    {ok, [exportinfo(), ...]} | {error, [{node(), _Reason}]}.
-list(_Options) ->
-    Nodes = mria_mnesia:running_nodes(),
-    Replies = emqx_ft_storage_exporter_fs_proto_v1:list_exports(Nodes),
-    {Results, Errors} = lists:foldl(
-        fun
-            ({_Node, {ok, {ok, Files}}}, {Acc, Errors}) ->
-                {Files ++ Acc, Errors};
-            ({Node, {ok, {error, _} = Error}}, {Acc, Errors}) ->
-                {Acc, [{Node, Error} | Errors]};
-            ({Node, Error}, {Acc, Errors}) ->
-                {Acc, [{Node, Error} | Errors]}
-        end,
-        {[], []},
-        lists:zip(Nodes, Replies)
-    ),
-    length(Errors) > 0 andalso
-        ?SLOG(warning, #{msg => "list_remote_exports_failed", errors => Errors}),
-    case Results of
-        [_ | _] ->
-            {ok, Results};
-        [] when Errors =:= [] ->
-            {ok, Results};
-        [] ->
-            {error, Errors}
+-spec list(options(), query()) ->
+    {ok, page(exportinfo())} | {error, [{node(), _Reason}]}.
+list(_Options, Query = #{transfer := _Transfer}) ->
+    case list(Query) of
+        #{items := Exports = [_ | _]} ->
+            {ok, #{items => Exports}};
+        #{items := [], errors := NodeErrors} ->
+            {error, NodeErrors}
+    end;
+list(_Options, Query) ->
+    Result = list(Query),
+    case Result of
+        #{errors := NodeErrors} ->
+            ?SLOG(warning, "list_exports_errors", #{
+                query => Query,
+                errors => NodeErrors
+            });
+        #{} ->
+            ok
+    end,
+    case Result of
+        #{items := Exports, cursor := Cursor} ->
+            {ok, #{items => lists:reverse(Exports), cursor => encode_cursor(Cursor)}};
+        #{items := Exports} ->
+            {ok, #{items => lists:reverse(Exports)}}
+    end.
+
+list(QueryIn) ->
+    {Nodes, NodeQuery} = decode_query(QueryIn, lists:sort(mria_mnesia:running_nodes())),
+    list_nodes(NodeQuery, Nodes, #{items => []}).
+
+list_nodes(Query, Nodes = [Node | Rest], Acc) ->
+    case emqx_ft_storage_exporter_fs_proto_v1:list_exports([Node], Query) of
+        [{ok, Result}] ->
+            list_accumulate(Result, Query, Nodes, Acc);
+        [Failure] ->
+            ?SLOG(warning, #{
+                msg => "list_remote_exports_failed",
+                node => Node,
+                query => Query,
+                failure => Failure
+            }),
+            list_next(Query, Rest, Acc)
+    end;
+list_nodes(_Query, [], Acc) ->
+    Acc.
+
+list_accumulate({ok, Exports}, Query, [Node | Rest], Acc = #{items := EAcc}) ->
+    NExports = length(Exports),
+    AccNext = Acc#{items := Exports ++ EAcc},
+    case Query of
+        #{limit := Limit} when NExports < Limit ->
+            list_next(Query#{limit => Limit - NExports}, Rest, AccNext);
+        #{limit := _} ->
+            AccNext#{cursor => mk_cursor(Node, Exports)};
+        #{} ->
+            list_next(Query, Rest, AccNext)
+    end;
+list_accumulate({error, Reason}, Query, [Node | Rest], Acc) ->
+    EAcc = maps:get(errors, Acc, []),
+    list_next(Query, Rest, Acc#{errors => [{Node, Reason} | EAcc]}).
+
+list_next(Query, Nodes, Acc) ->
+    list_nodes(maps:remove(following, Query), Nodes, Acc).
+
+decode_query(Query = #{following := Cursor}, Nodes) ->
+    {Node, NodeCursor} = decode_cursor(Cursor),
+    {skip_query_nodes(Node, Nodes), Query#{following => NodeCursor}};
+decode_query(Query = #{}, Nodes) ->
+    {Nodes, Query}.
+
+skip_query_nodes(CNode, Nodes) ->
+    lists:dropwhile(fun(N) -> N < CNode end, Nodes).
+
+mk_cursor(Node, [_Last = #{transfer := Transfer, name := Name} | _]) ->
+    {Node, #{transfer => Transfer, name => Name}}.
+
+encode_cursor({Node, #{transfer := {ClientId, FileId}, name := Name}}) ->
+    emqx_utils_json:encode(#{
+        <<"n">> => Node,
+        <<"cid">> => ClientId,
+        <<"fid">> => FileId,
+        <<"fn">> => unicode:characters_to_binary(Name)
+    }).
+
+decode_cursor(Cursor) ->
+    try
+        #{
+            <<"n">> := NodeIn,
+            <<"cid">> := ClientId,
+            <<"fid">> := FileId,
+            <<"fn">> := NameIn
+        } = emqx_utils_json:decode(Cursor),
+        true = is_binary(ClientId),
+        true = is_binary(FileId),
+        Node = binary_to_existing_atom(NodeIn),
+        Name = unicode:characters_to_list(NameIn),
+        true = is_list(Name),
+        {Node, #{transfer => {ClientId, FileId}, name => Name}}
+    catch
+        error:{_, invalid_json} ->
+            error({badarg, cursor});
+        error:{badmatch, _} ->
+            error({badarg, cursor});
+        error:badarg ->
+            error({badarg, cursor})
     end.
 
 %%
@@ -352,9 +467,9 @@ mk_result_reldir(Transfer = {ClientId, FileId}) ->
         BucketRest/binary
     >> = binary:encode_hex(Hash),
     [
-        Bucket1,
-        Bucket2,
-        BucketRest,
+        binary_to_list(Bucket1),
+        binary_to_list(Bucket2),
+        binary_to_list(BucketRest),
         emqx_ft_fs_util:escape_filename(ClientId),
         emqx_ft_fs_util:escape_filename(FileId)
     ].

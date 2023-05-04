@@ -34,7 +34,7 @@ t_fold_single_level(Config) ->
             {"c", #file_info{type = directory}, ["c"]},
             {"d", #file_info{type = directory}, ["d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*']))
+        sort(fold(fun cons/4, [], Root, ['*']))
     ).
 
 t_fold_multi_level(Config) ->
@@ -45,7 +45,7 @@ t_fold_multi_level(Config) ->
             {"a/b/foo/Я", #file_info{type = regular}, ["Я", "foo", "b", "a"]},
             {"d/e/baz/needle", #file_info{type = regular}, ["needle", "baz", "e", "d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*', '*']))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*', '*']))
     ),
     ?assertMatch(
         [
@@ -53,32 +53,32 @@ t_fold_multi_level(Config) ->
             {"c/bar/中文", #file_info{type = regular}, ["中文", "bar", "c"]},
             {"d/e/baz", #file_info{type = directory}, ["baz", "e", "d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*']))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*']))
     ).
 
 t_fold_no_glob(Config) ->
     Root = ?config(data_dir, Config),
     ?assertMatch(
         [{"", #file_info{type = directory}, []}],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, []))
+        sort(fold(fun cons/4, [], Root, []))
     ).
 
 t_fold_glob_too_deep(Config) ->
     Root = ?config(data_dir, Config),
     ?assertMatch(
         [],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*', '*', '*']))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*', '*', '*']))
     ).
 
 t_fold_invalid_root(Config) ->
     Root = ?config(data_dir, Config),
     ?assertMatch(
         [],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], filename:join([Root, "a", "link"]), ['*']))
+        sort(fold(fun cons/4, [], filename:join([Root, "a", "link"]), ['*']))
     ),
     ?assertMatch(
         [],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], filename:join([Root, "d", "haystack"]), ['*']))
+        sort(fold(fun cons/4, [], filename:join([Root, "d", "haystack"]), ['*']))
     ).
 
 t_fold_filter_unicode(Config) ->
@@ -88,13 +88,13 @@ t_fold_filter_unicode(Config) ->
             {"a/b/foo/42", #file_info{type = regular}, ["42", "foo", "b", "a"]},
             {"d/e/baz/needle", #file_info{type = regular}, ["needle", "baz", "e", "d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*', fun is_latin1/1]))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*', fun is_latin1/1]))
     ),
     ?assertMatch(
         [
             {"a/b/foo/Я", #file_info{type = regular}, ["Я", "foo", "b", "a"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*', is_not(fun is_latin1/1)]))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*', is_not(fun is_latin1/1)]))
     ).
 
 t_fold_filter_levels(Config) ->
@@ -104,7 +104,7 @@ t_fold_filter_levels(Config) ->
             {"a/b/foo", #file_info{type = directory}, ["foo", "b", "a"]},
             {"d/e/baz", #file_info{type = directory}, ["baz", "e", "d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, [fun is_letter/1, fun is_letter/1, '*']))
+        sort(fold(fun cons/4, [], Root, [fun is_letter/1, fun is_letter/1, '*']))
     ).
 
 t_fold_errors(Config) ->
@@ -128,10 +128,98 @@ t_fold_errors(Config) ->
             {"c/link", {error, enotsup}, ["link", "c"]},
             {"d/e/baz/needle", {error, ebusy}, ["needle", "baz", "e", "d"]}
         ],
-        sort(emqx_ft_fs_util:fold(fun cons/4, [], Root, ['*', '*', '*', '*']))
+        sort(fold(fun cons/4, [], Root, ['*', '*', '*', '*']))
+    ).
+
+t_seek_fold(Config) ->
+    Root = ?config(data_dir, Config),
+    ?assertMatch(
+        [
+            {leaf, "a/b/foo/42", #file_info{type = regular}, ["42", "foo", "b", "a"]},
+            {leaf, "a/b/foo/Я", #file_info{type = regular}, ["Я", "foo", "b", "a"]},
+            {leaf, "d/e/baz/needle", #file_info{type = regular}, ["needle", "baz", "e", "d"]}
+            | _Nodes
+        ],
+        sort(
+            emqx_ft_fs_iterator:fold(
+                fun cons/2,
+                [],
+                emqx_ft_fs_iterator:seek(["a", "a"], Root, ['*', '*', '*', '*'])
+            )
+        )
+    ),
+    ?assertMatch(
+        [
+            {leaf, "a/b/foo/Я", #file_info{type = regular}, ["Я", "foo", "b", "a"]},
+            {leaf, "d/e/baz/needle", #file_info{type = regular}, ["needle", "baz", "e", "d"]}
+            | _Nodes
+        ],
+        sort(
+            emqx_ft_fs_iterator:fold(
+                fun cons/2,
+                [],
+                emqx_ft_fs_iterator:seek(["a", "b", "foo", "42"], Root, ['*', '*', '*', '*'])
+            )
+        )
+    ),
+    ?assertMatch(
+        [
+            {leaf, "d/e/baz/needle", #file_info{type = regular}, ["needle", "baz", "e", "d"]}
+            | _Nodes
+        ],
+        sort(
+            emqx_ft_fs_iterator:fold(
+                fun cons/2,
+                [],
+                emqx_ft_fs_iterator:seek(["c", "d", "e", "f"], Root, ['*', '*', '*', '*'])
+            )
+        )
+    ).
+
+t_seek_empty(Config) ->
+    Root = ?config(data_dir, Config),
+    ?assertEqual(
+        emqx_ft_fs_iterator:fold(
+            fun cons/2,
+            [],
+            emqx_ft_fs_iterator:new(Root, ['*', '*', '*', '*'])
+        ),
+        emqx_ft_fs_iterator:fold(
+            fun cons/2,
+            [],
+            emqx_ft_fs_iterator:seek([], Root, ['*', '*', '*', '*'])
+        )
+    ).
+
+t_seek_past_end(Config) ->
+    Root = ?config(data_dir, Config),
+    ?assertEqual(
+        none,
+        emqx_ft_fs_iterator:next(
+            emqx_ft_fs_iterator:seek(["g", "h"], Root, ['*', '*', '*', '*'])
+        )
+    ).
+
+t_seek_with_filter(Config) ->
+    Root = ?config(data_dir, Config),
+    ?assertMatch(
+        [
+            {leaf, "d/e/baz", #file_info{type = directory}, ["baz", "e", "d"]}
+            | _Nodes
+        ],
+        sort(
+            emqx_ft_fs_iterator:fold(
+                fun cons/2,
+                [],
+                emqx_ft_fs_iterator:seek(["a", "link"], Root, ['*', fun is_letter/1, '*'])
+            )
+        )
     ).
 
 %%
+
+fold(FoldFun, Acc, Root, Glob) ->
+    emqx_ft_fs_util:fold(FoldFun, Acc, Root, Glob).
 
 is_not(F) ->
     fun(X) -> not F(X) end.
@@ -154,6 +242,9 @@ is_letter(Filename) ->
 
 cons(Path, Info, Stack, Acc) ->
     [{Path, Info, Stack} | Acc].
+
+cons(Entry, Acc) ->
+    [Entry | Acc].
 
 sort(L) when is_list(L) ->
     lists:sort(L).

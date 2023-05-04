@@ -25,18 +25,16 @@
 
 -export([read_decode_file/2]).
 -export([read_info/1]).
+-export([list_dir/1]).
 
 -export([fold/4]).
 
--type glob() :: ['*' | globfun()].
--type globfun() ::
-    fun((_Filename :: file:name()) -> boolean()).
 -type foldfun(Acc) ::
     fun(
         (
             _Filepath :: file:name(),
-            _Info :: file:file_info() | {error, _IoError},
-            _Stack :: [file:name()],
+            _Info :: file:file_info() | {error, file:posix()},
+            _Stack :: emqx_ft_fs_iterator:pathstack(),
             Acc
         ) -> Acc
     ).
@@ -153,46 +151,8 @@ read_info(AbsPath) ->
     % Be aware that this function is occasionally mocked in `emqx_ft_fs_util_SUITE`.
     file:read_link_info(AbsPath, [{time, posix}, raw]).
 
--spec fold(foldfun(Acc), Acc, _Root :: file:name(), glob()) ->
-    Acc.
-fold(Fun, Acc, Root, Glob) ->
-    fold(Fun, Acc, [], Root, Glob, []).
-
-fold(Fun, AccIn, Path, Root, [Glob | Rest], Stack) when Glob == '*' orelse is_function(Glob) ->
-    case list_dir(filename:join(Root, Path)) of
-        {ok, Filenames} ->
-            lists:foldl(
-                fun(FN, Acc) ->
-                    case matches_glob(Glob, FN) of
-                        true when Path == [] ->
-                            fold(Fun, Acc, FN, Root, Rest, [FN | Stack]);
-                        true ->
-                            fold(Fun, Acc, filename:join(Path, FN), Root, Rest, [FN | Stack]);
-                        false ->
-                            Acc
-                    end
-                end,
-                AccIn,
-                Filenames
-            );
-        {error, enotdir} ->
-            AccIn;
-        {error, Reason} ->
-            Fun(Path, {error, Reason}, Stack, AccIn)
-    end;
-fold(Fun, AccIn, Filepath, Root, [], Stack) ->
-    case ?MODULE:read_info(filename:join(Root, Filepath)) of
-        {ok, Info} ->
-            Fun(Filepath, Info, Stack, AccIn);
-        {error, Reason} ->
-            Fun(Filepath, {error, Reason}, Stack, AccIn)
-    end.
-
-matches_glob('*', _) ->
-    true;
-matches_glob(FilterFun, Filename) when is_function(FilterFun) ->
-    FilterFun(Filename).
-
+-spec list_dir(file:name_all()) ->
+    {ok, [file:name()]} | {error, file:posix() | badarg}.
 list_dir(AbsPath) ->
     case ?MODULE:read_info(AbsPath) of
         {ok, #file_info{type = directory}} ->
@@ -201,4 +161,20 @@ list_dir(AbsPath) ->
             {error, enotdir};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+-spec fold(foldfun(Acc), Acc, _Root :: file:name(), emqx_ft_fs_iterator:glob()) ->
+    Acc.
+fold(FoldFun, Acc, Root, Glob) ->
+    fold(FoldFun, Acc, emqx_ft_fs_iterator:new(Root, Glob)).
+
+fold(FoldFun, Acc, It) ->
+    case emqx_ft_fs_iterator:next(It) of
+        {{node, _Path, {error, enotdir}, _PathStack}, ItNext} ->
+            fold(FoldFun, Acc, ItNext);
+        {{_Type, Path, Info, PathStack}, ItNext} ->
+            AccNext = FoldFun(Path, Info, PathStack, Acc),
+            fold(FoldFun, AccNext, ItNext);
+        none ->
+            Acc
     end.

@@ -25,6 +25,7 @@
         assemble/2,
 
         files/0,
+        files/1,
 
         with_storage_type/2,
         with_storage_type/3,
@@ -36,11 +37,26 @@
 -type storage() :: emqx_config:config().
 
 -export_type([assemble_callback/0]).
+
+-export_type([query/1]).
+-export_type([page/2]).
 -export_type([file_info/0]).
 -export_type([export_data/0]).
 -export_type([reader/0]).
 
 -type assemble_callback() :: fun((ok | {error, term()}) -> any()).
+
+-type query(Cursor) ::
+    #{transfer => emqx_ft:transfer()}
+    | #{
+        limit => non_neg_integer(),
+        following => Cursor
+    }.
+
+-type page(Item, Cursor) :: #{
+    items := [Item],
+    cursor => Cursor
+}.
 
 -type file_info() :: #{
     transfer := emqx_ft:transfer(),
@@ -71,8 +87,8 @@
 -callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
 
--callback files(storage()) ->
-    {ok, [file_info()]} | {error, term()}.
+-callback files(storage(), query(Cursor)) ->
+    {ok, page(file_info(), Cursor)} | {error, term()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -105,9 +121,14 @@ assemble(Transfer, Size) ->
     with_storage(assemble, [Transfer, Size]).
 
 -spec files() ->
-    {ok, [file_info()]} | {error, term()}.
+    {ok, page(file_info(), _)} | {error, term()}.
 files() ->
-    with_storage(files, []).
+    files(#{}).
+
+-spec files(query(Cursor)) ->
+    {ok, page(file_info(), Cursor)} | {error, term()}.
+files(Query) ->
+    with_storage(files, [Query]).
 
 -spec with_storage(atom() | function()) -> any().
 with_storage(Fun) ->

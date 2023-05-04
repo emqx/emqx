@@ -45,7 +45,7 @@
 -export([get_subdir/2]).
 -export([get_subdir/3]).
 
--export([files/1]).
+-export([files/2]).
 
 -export([on_config_update/2]).
 
@@ -217,8 +217,8 @@ assemble(Storage, Transfer, Size) ->
 
 %%
 
-files(Storage) ->
-    emqx_ft_storage_exporter:list(Storage).
+files(Storage, Query) ->
+    emqx_ft_storage_exporter:list(Storage, Query).
 
 %%
 
