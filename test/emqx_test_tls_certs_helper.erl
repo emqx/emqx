@@ -235,6 +235,14 @@ generate_tls_certs(Config) ->
                                           filename:join(DataDir, "server1.pem"),
                                           filename:join(DataDir, "intermediate1-server1-bundle.pem")
                                          ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate1_renewed.pem"),
+                                          filename:join(DataDir, "root.pem"),
+                                          filename:join(DataDir, "intermediate1_renewed-root-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate2.pem"),
+                                          filename:join(DataDir, "intermediate2_renewed.pem"),
+                                          filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")
+                                         ])),
   os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate1.pem"),
                                           filename:join(DataDir, "root.pem"),
                                           filename:join(DataDir, "intermediate1-root-bundle.pem")

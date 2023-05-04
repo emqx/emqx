@@ -22,9 +22,6 @@
         ]).
 
 make_tls_root_fun(cacert_from_cacertfile, CADer) ->
-    fun(InputChain) ->
-            case lists:member(CADer, InputChain) of
-                true -> {trusted_ca, CADer};
-                _ -> unknown_ca
-            end
+    fun(_InputChain) ->
+            {trusted_ca, CADer}
     end.

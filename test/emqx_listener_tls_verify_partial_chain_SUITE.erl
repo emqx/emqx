@@ -100,6 +100,37 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_complete_bundl
   fail_when_no_ssl_alert(Socket, unknown_ca),
   ssl:close(Socket).
 
+t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config) ->
+  Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+  DataDir = ?config(data_dir, Config),
+  Options = [{ssl_options, [ {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")}
+                           , {certfile, filename:join(DataDir, "server2.pem")}
+                           , {keyfile, filename:join(DataDir, "server2.key")}
+                           | ?config(ssl_config, Config)
+                           ]}],
+  emqx_listeners:start_listener(ssl, Port, Options),
+  {ok, Socket} = ssl:connect({127, 0, 0, 1}, Port, [{keyfile,  filename:join(DataDir, "client2.key")},
+                                                    {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+                                                   ], 1000),
+  fail_when_no_ssl_alert(Socket, unknown_ca),
+  ssl:close(Socket).
+
+%%@TODO limitation: EMQX is not able to check if the trusted CAcert and the old CAcert belongs to same CA.
+t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle(Config) ->
+  Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+  DataDir = ?config(data_dir, Config),
+  Options = [{ssl_options, [ {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")}
+                           , {certfile, filename:join(DataDir, "server2.pem")}
+                           , {keyfile, filename:join(DataDir, "server2.key")}
+                           | ?config(ssl_config, Config)
+                           ]}],
+  emqx_listeners:start_listener(ssl, Port, Options),
+  {ok, Socket} = ssl:connect({127, 0, 0, 1}, Port, [{keyfile,  filename:join(DataDir, "client2.key")},
+                                                    {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+                                                   ], 1000),
+  fail_when_no_ssl_alert(Socket, unknown_ca),
+  ssl:close(Socket).
+
 t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
   Port = emqx_test_tls_certs_helper:select_free_port(ssl),
   DataDir = ?config(data_dir, Config),

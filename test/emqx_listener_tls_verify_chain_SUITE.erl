@@ -98,10 +98,26 @@ t_conn_success_with_other_signed_client_composed_complete_chain(Config) ->
                            , {keyfile, filename:join(DataDir, "server1.key")}
                            | ?config(ssl_config, Config)
                            ]}],
-  %% Client has complete chain
+  %% Client has partial_chain
   emqx_listeners:start_listener(ssl, Port, Options),
   {ok, Socket} = ssl:connect({127, 0, 0, 1}, Port, [{keyfile, filename:join(DataDir, "client2.key")},
                                                     {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+                                                   ], 1000),
+  fail_when_ssl_error(Socket),
+  ok = ssl:close(Socket).
+
+t_conn_success_with_renewed_intermediate_root_bundle(Config) ->
+  Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+  DataDir = ?config(data_dir, Config),
+  %% Server has root ca cert
+  Options = [{ssl_options, [ {cacertfile, filename:join(DataDir, "intermediate1_renewed-root-bundle.pem")}
+                           , {certfile, filename:join(DataDir, "server1.pem")}
+                           , {keyfile, filename:join(DataDir, "server1.key")}
+                           | ?config(ssl_config, Config)
+                           ]}],
+  emqx_listeners:start_listener(ssl, Port, Options),
+  {ok, Socket} = ssl:connect({127, 0, 0, 1}, Port, [{keyfile, filename:join(DataDir, "client1.key")},
+                                                    {certfile, filename:join(DataDir, "client1.pem")}
                                                    ], 1000),
   fail_when_ssl_error(Socket),
   ok = ssl:close(Socket).
