@@ -31,7 +31,7 @@ emqx is running"""
 
 get_status_response503.desc:
 """When EMQX application is temporary not running or being restarted, it may return 'emqx is not_running'.
-If the 'format' parameter is provided 'json', the nthe 'app_status' field in the JSON object is 'not_running'."""
+If the 'format' parameter is provided 'json', then the 'app_status' field in the JSON object will be 'not_running'."""
 
 get_status_api_format.desc:
 """Specify the response format, 'text' (default) to return the HTTP body in free text,
