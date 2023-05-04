@@ -193,9 +193,8 @@ jobs:
 
   linux:
     needs: prepare
-    runs-on: ${{ matrix.build_machine }}
-    container:
-      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    if: github.event_name != 'schedule'
+    runs-on: aws-${{ matrix.arch }}
 
     strategy:
       fail-fast: false
@@ -217,24 +216,15 @@ jobs:
           - el8
           - el7
           - amzn2
-        build_machine:
-          - aws-arm64
-          - ubuntu-22.04
         builder:
           - 5.0-34
         elixir:
           - 1.13.4
-        exclude:
-        - arch: arm64
-          build_machine: ubuntu-22.04
-        - arch: amd64
-          build_machine: aws-arm64
         include:
           - profile: emqx
             otp: 25.1.2-3
             arch: amd64
             os: ubuntu22.04
-            build_machine: ubuntu-22.04
             builder: 5.0-34
             elixir: 1.13.4
             release_with: elixir
@@ -242,7 +232,6 @@ jobs:
             otp: 25.1.2-3
             arch: amd64
             os: amzn2
-            build_machine: ubuntu-22.04
             builder: 5.0-34
             elixir: 1.13.4
             release_with: elixir
@@ -253,18 +242,12 @@ jobs:
 
     steps:
     - uses: AutoModality/action-clean@v1
-      if: matrix.build_machine == 'aws-arm64'
     - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: tmp fix for el9
-      if: matrix.os == 'el9'
-      run: |
-        set -eu
-        dnf install -y krb5-devel
     - name: build emqx packages
       working-directory: source
       env:
@@ -276,13 +259,6 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       run: |
         set -eu
-        git config --global --add safe.directory "/__w/emqx/emqx"
-        # Align path for CMake caches
-        if [ ! "$PWD" = "/emqx" ]; then
-          ln -s $PWD /emqx
-          cd /emqx
-        fi
-        echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
         if [ ${{ matrix.release_with }} == 'elixir' ]; then
@@ -304,9 +280,71 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
+
+  linux-schedule:
+    needs: prepare
+    if: github.event_name == 'schedule'
+    runs-on: aws-${{ matrix.arch }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+        otp:
+          - 24.3.4.2-3
+        arch:
+          - amd64
+        os:
+          - debian10
+        builder:
+          - 5.0-34
+        elixir:
+          - 1.13.4
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - uses: AutoModality/action-clean@v1
+    - uses: actions/download-artifact@v3
+      with:
+        name: source
+        path: .
+    - name: unzip source code
+      run: unzip -q source.zip
+    - name: build emqx packages
+      working-directory: source
+      env:
+        BUILDER: ${{ matrix.builder }}
+        ELIXIR: ${{ matrix.elixir }}
+        OTP: ${{ matrix.otp }}
+        PROFILE: ${{ matrix.profile }}
+        ARCH: ${{ matrix.arch }}
+        SYSTEM: ${{ matrix.os }}
+      run: |
+        set -eu
+        PKGTYPES="tgz pkg"
+        IS_ELIXIR="no"
+        for PKGTYPE in ${PKGTYPES};
+        do
+          ./scripts/buildx.sh \
+            --profile "${PROFILE}" \
+            --pkgtype "${PKGTYPE}" \
+            --arch "${ARCH}" \
+            --elixir "${IS_ELIXIR}" \
+            --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
+        done
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: ${{ matrix.profile }}
+        path: source/_packages/${{ matrix.profile }}/
     - name: Send notification to Slack
       uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
+      if: failure()
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       with:
