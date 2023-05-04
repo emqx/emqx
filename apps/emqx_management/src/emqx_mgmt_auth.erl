@@ -45,6 +45,7 @@
 -endif.
 
 -define(APP, emqx_app).
+-define(API_KEY_LIMIT, 1024).
 
 -record(?APP, {
     name = <<>> :: binary() | '_',
@@ -76,7 +77,7 @@ create(Name, Enable, ExpiredAt, Desc) ->
     create(Name, ApiSecret, Enable, ExpiredAt, Desc).
 
 create(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
-    case mnesia:table_info(?APP, size) < 100 of
+    case mnesia:table_info(?APP, size) < ?API_KEY_LIMIT of
         true -> create_app(Name, ApiSecret, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
