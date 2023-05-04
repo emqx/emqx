@@ -5,8 +5,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  schedule:
-  - cron:  '0 */6 * * *'
   push:
     branches:
     - 'ci/**'
@@ -23,7 +21,6 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
     container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
@@ -134,14 +131,6 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@Windows failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   mac:
     needs: prepare
@@ -182,14 +171,6 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   linux:
     needs: prepare
@@ -304,19 +285,11 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   publish_artifacts:
     runs-on: ubuntu-22.04
     needs: [prepare, mac, linux]
-    if: needs.prepare.outputs.IS_EXACT_TAG && github.event_name != 'schedule'
+    if: needs.prepare.outputs.IS_EXACT_TAG
     strategy:
       fail-fast: false
       matrix:
