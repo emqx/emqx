@@ -184,7 +184,7 @@ compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
     Template = emqx_authz_utils:parse_str(Topic, [?VAR_USERNAME, ?VAR_CLIENTID]),
-    case emqx_connector_template:trivial(Template) of
+    case emqx_connector_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}
     end.

@@ -23,7 +23,7 @@
 -export([parse_deep/1]).
 -export([parse_deep/2]).
 -export([validate/2]).
--export([trivial/1]).
+-export([is_const/1]).
 -export([unparse/1]).
 -export([render/2]).
 -export([render/3]).
@@ -124,7 +124,6 @@ parse_accessor(Var) ->
         [<<>>] ->
             ?PH_VAR_THIS;
         Name ->
-            % TODO: lowercase?
             Name
     end.
 
@@ -140,9 +139,11 @@ validate(Allowed, Template) ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
 
--spec trivial(t()) ->
+%% @doc Check if a template is constant with respect to rendering, i.e. does not
+%% contain any placeholders.
+-spec is_const(t()) ->
     boolean().
-trivial(Template) ->
+is_const(Template) ->
     validate([], Template) == ok.
 
 -spec unparse(t()) ->

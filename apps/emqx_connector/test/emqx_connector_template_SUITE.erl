@@ -122,18 +122,18 @@ t_unparse(_) ->
         unicode:characters_to_binary(emqx_connector_template:unparse(Template))
     ).
 
-t_trivial(_) ->
+t_const(_) ->
     ?assertEqual(
         true,
-        emqx_connector_template:trivial(emqx_connector_template:parse(<<"">>))
+        emqx_connector_template:is_const(emqx_connector_template:parse(<<"">>))
     ),
     ?assertEqual(
         false,
-        emqx_connector_template:trivial(emqx_connector_template:parse(<<"a:${a},b:${b},c:$${c}">>))
+        emqx_connector_template:is_const(emqx_connector_template:parse(<<"a:${a},b:${b},c:$${c}">>))
     ),
     ?assertEqual(
         true,
-        emqx_connector_template:trivial(
+        emqx_connector_template:is_const(
             emqx_connector_template:parse(<<"a:$${a},b:$${b},c:$${c}">>)
         )
     ).
