@@ -6,7 +6,7 @@
 
 -behaviour(hocon_schema).
 
--export([namespace/0, roots/0, fields/1, translations/0, translation/1]).
+-export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0]).
 
 -define(EE_SCHEMA_MODULES, [emqx_license_schema, emqx_ee_schema_registry_schema]).
 
@@ -30,3 +30,6 @@ translations() ->
 
 translation(Name) ->
     emqx_conf_schema:translation(Name).
+
+validations() ->
+    emqx_conf_schema:validations().
