@@ -36,11 +36,13 @@ roots() ->
         "telemetry",
         array("rewrite", #{
             desc => "List of topic rewrite rules.",
-            importance => ?IMPORTANCE_HIDDEN
+            importance => ?IMPORTANCE_HIDDEN,
+            default => []
         }),
         array("topic_metrics", #{
             desc => "List of topics whose metrics are reported.",
-            importance => ?IMPORTANCE_HIDDEN
+            importance => ?IMPORTANCE_HIDDEN,
+            default => []
         })
     ].
 
