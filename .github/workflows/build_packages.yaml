@@ -281,7 +281,7 @@ jobs:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/
 
-  linux:
+  linux-schedule:
     needs: prepare
     if: github.event_name == 'schedule'
     runs-on: aws-${{ matrix.arch }}
