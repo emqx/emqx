@@ -48,7 +48,11 @@ fields(config) ->
         {aws_secret_access_key,
             mk(
                 binary(),
-                #{required => true, desc => ?DESC("aws_secret_access_key")}
+                #{
+                    required => true,
+                    desc => ?DESC("aws_secret_access_key"),
+                    sensitive => true
+                }
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
