@@ -127,6 +127,9 @@ parse_accessor(Var) ->
             Name
     end.
 
+%% @doc Validate a template against a set of allowed variables.
+%% If the given template contains any variable not in the allowed set, an error
+%% is returned.
 -spec validate([varname()], t()) ->
     ok | {error, [_Error :: {varname(), disallowed}]}.
 validate(Allowed, Template) ->
@@ -146,8 +149,9 @@ validate(Allowed, Template) ->
 is_const(Template) ->
     validate([], Template) == ok.
 
+%% @doc Restore original term from a parsed template.
 -spec unparse(t()) ->
-    unicode:chardata().
+    term().
 unparse({'$tpl', Template}) ->
     unparse_deep(Template);
 unparse(Template) ->
@@ -208,17 +212,20 @@ render_value(Name, Value, #{var_trans := TransFun}) when is_function(TransFun, 2
 render_value(_Name, Value, #{}) ->
     to_string(Value).
 
+%% @doc Render a template with given bindings.
+%% Behaves like `render/2`, but raises an error exception if one or more placeholders
+%% are not found in the bindings.
 -spec render_strict(t(), bindings()) ->
-    unicode:chardata().
+    term().
 render_strict(Template, Bindings) ->
     render_strict(Template, Bindings, #{}).
 
 -spec render_strict(t(), bindings(), render_opts()) ->
-    unicode:chardata().
+    term().
 render_strict(Template, Bindings, Opts) ->
     case render(Template, Bindings, Opts) of
-        {String, []} ->
-            String;
+        {Render, []} ->
+            Render;
         {_, Errors = [_ | _]} ->
             error(Errors, [unparse(Template), Bindings])
     end.
