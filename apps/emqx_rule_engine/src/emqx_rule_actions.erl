@@ -118,10 +118,11 @@ republish(
         }
     }
 ) ->
-    Topic = unicode:characters_to_binary(
-        emqx_connector_template:render_strict(TopicTemplate, Selected)
-    ),
-    Payload = emqx_connector_template:render_strict(PayloadTemplate, Selected),
+    % NOTE: rendering missing bindings as string "undefined"
+    {TopicString, _Errors1} = emqx_connector_template:render(TopicTemplate, Selected),
+    {PayloadString, _Errors2} = emqx_connector_template:render(PayloadTemplate, Selected),
+    Topic = iolist_to_binary(TopicString),
+    Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
     Retain = render_simple_var(RetainTemplate, Selected, false),
     %% 'flags' is set for message re-publishes or message related

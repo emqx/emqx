@@ -340,8 +340,6 @@ lookup(Prop, Bindings) when is_binary(Prop) ->
 
 -spec to_string(binding()) ->
     unicode:chardata().
-to_string(undefined) ->
-    [];
 to_string(Bin) when is_binary(Bin) -> Bin;
 to_string(Num) when is_integer(Num) -> integer_to_binary(Num);
 to_string(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);

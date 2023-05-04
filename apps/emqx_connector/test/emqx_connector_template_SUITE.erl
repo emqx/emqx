@@ -94,7 +94,7 @@ t_render_missing_bindings(_) ->
         <<"a:${a},b:${b},c:${c},d:${d.d1},e:${no.such_atom_i_swear}">>
     ),
     ?assertEqual(
-        {<<"a:,b:,c:,d:,e:">>, [
+        {<<"a:undefined,b:undefined,c:undefined,d:undefined,e:undefined">>, [
             {"no.such_atom_i_swear", undefined},
             {"d.d1", undefined},
             {"c", undefined},
