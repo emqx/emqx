@@ -48,6 +48,103 @@ array_nodes_test() ->
     ok.
 
 %% erlfmt-ignore
+-define(OUTDATED_LOG_CONF,
+    """
+console_handler {
+  burst_limit {
+    enable = true
+    max_count = 10000
+    window_time = 1000
+  }
+  chars_limit = unlimited
+  drop_mode_qlen = 3000
+  enable = true
+  flush_qlen = 8000
+  formatter = text
+  level = warning
+  max_depth = 100
+  overload_kill {
+    enable = true
+    mem_size = 31457280
+    qlen = 20000
+    restart_after = 5000
+  }
+  single_line = true
+  supervisor_reports = error
+  sync_mode_qlen = 100
+  time_offset = system
+}
+file_handlers {
+  default {
+    burst_limit {
+      enable = true
+      max_count = 10000
+      window_time = 1000
+    }
+    chars_limit = unlimited
+    drop_mode_qlen = 3000
+    enable = false
+    file = \"log/emqx.log\"
+    flush_qlen = 8000
+    formatter = text
+    level = warning
+    max_depth = 100
+    max_size = 52428800
+    overload_kill {
+      enable = true
+      mem_size = 31457280
+      qlen = 20000
+      restart_after = 5000
+    }
+    rotation {count = 10, enable = true}
+    single_line = true
+    supervisor_reports = error
+    sync_mode_qlen = 100
+    time_offset = \"+01:00\"
+  }
+}
+    """
+).
+
+outdated_log_test() ->
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    Conf0 = <<BaseConf/binary, ?OUTDATED_LOG_CONF>>,
+    {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap0),
+    ct:pal("fff:~p", [ConfList]),
+    Log = proplists:get_value(log, ConfList),
+    Console = proplists:get_value(console, Log),
+    File = proplists:get_value(file, Log),
+    ?assertEqual(1, Console, {Console, File}),
+    ok.
+
+-define(NEW_LOG_CONF,
+    ""
+    "\n"
+    "console {\n"
+    "  enable = true\n"
+    "  formatter = text\n"
+    "  level = warning\n"
+    "  time_offset = system\n"
+    "}\n"
+    "file {\n"
+    "    enable = true\n"
+    "    file = \"log/emqx.log\"\n"
+    "    formatter = text\n"
+    "    level = warning\n"
+    "    rotation {count = 10, enable = true}\n"
+    "    time_offset = \"+01:00\"\n"
+    "  }\n"
+    "file_handlers.default {\n"
+    "    enable = false,\n"
+    "    file = \"log/file_handlres_emqx.log\"\n"
+    "  }\n"
+    "}\n"
+    "    "
+    ""
+).
+
+%% erlfmt-ignore
 -define(BASE_AUTHN_ARRAY,
     """
         authentication = [
