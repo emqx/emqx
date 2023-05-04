@@ -1,0 +1,267 @@
+emqx_node_rebalance_api {
+
+load_rebalance_status.desc:
+"""Get rebalance status of the current node"""
+
+load_rebalance_status.label:
+"""Get rebalance status"""
+
+load_rebalance_global_status.desc:
+"""Get status of all rebalance/evacuation processes across the cluster"""
+
+load_rebalance_global_status.label:
+"""Get global rebalance status"""
+
+load_rebalance_availability_check.desc:
+"""Check if the node is being evacuated or rebalanced"""
+
+load_rebalance_availability_check.label:
+"""Availability check"""
+
+load_rebalance_start.desc:
+"""Start rebalance process"""
+
+load_rebalance_start.label:
+"""Start rebalance"""
+
+load_rebalance_stop.desc:
+"""Stop rebalance process"""
+
+load_rebalance_stop.label:
+"""Stop rebalance"""
+
+load_rebalance_evacuation_start.desc:
+"""Start evacuation process"""
+
+load_rebalance_evacuation_start.label:
+"""Start evacuation"""
+
+load_rebalance_evacuation_stop.desc:
+"""Stop evacuation process"""
+
+load_rebalance_evacuation_stop.label:
+"""Stop evacuation"""
+
+param_node.desc:
+"""Node name"""
+
+param_node.label:
+"""Node name"""
+
+wait_health_check.desc:
+"""Time to wait before starting the rebalance process, in seconds"""
+
+wait_health_check.label:
+"""Wait health check"""
+
+conn_evict_rate.desc:
+"""The rate of evicting connections, in connections per second"""
+
+conn_evict_rate.label:
+"""Connection eviction rate"""
+
+sess_evict_rate.desc:
+"""The rate of evicting sessions, in sessions per second"""
+
+sess_evict_rate.label:
+"""Session eviction rate"""
+
+abs_conn_threshold.desc:
+"""Maximum desired difference between the number of connections on the node and the average number of connections on the recipient nodes"""
+
+abs_conn_threshold.label:
+"""Absolute connection threshold"""
+
+rel_conn_threshold.desc:
+"""Maximum desired fraction between the number of connections on the node and the average number of connections on the recipient nodes"""
+
+rel_conn_threshold.label:
+"""Relative connection threshold"""
+
+abs_sess_threshold.desc:
+"""Maximum desired difference between the number of sessions on the node and the average number of sessions on the recipient nodes"""
+
+abs_sess_threshold.label:
+"""Absolute session threshold"""
+
+rel_sess_threshold.desc:
+"""Maximum desired fraction between the number of sessions on the node and the average number of sessions on the recipient nodes"""
+
+rel_sess_threshold.label:
+"""Relative session threshold"""
+
+wait_takeover.desc:
+"""Time to wait before starting session evacuation process, in seconds"""
+
+wait_takeover.label:
+"""Wait takeover"""
+
+redirect_to.desc:
+"""Server reference to redirect clients to (MQTTv5 Server redirection)"""
+
+redirect_to.label:
+"""Redirect to"""
+
+migrate_to.desc:
+"""Nodes to migrate sessions to"""
+
+migrate_to.label:
+"""Migrate to"""
+
+rebalance_nodes.desc:
+"""Nodes to participate in rebalance"""
+
+rebalance_nodes.label:
+"""Rebalance nodes"""
+
+local_status_enabled.desc:
+"""Whether the node is being evacuated"""
+
+local_status_enabled.label:
+"""Local evacuation status"""
+
+local_status_process.desc:
+"""The process that is being performed on the node: evacuation or rebalance"""
+
+local_status_process.label:
+"""Node process"""
+
+local_status_state.desc:
+"""The state of the process that is being performed on the node"""
+
+local_status_state.label:
+"""Rebalance/evacuation current state"""
+
+local_status_coordinator_node.desc:
+"""The node that is coordinating rebalance process"""
+
+local_status_coordinator_node.label:
+"""Coordinator node"""
+
+local_status_connection_eviction_rate.desc:
+"""The rate of evicting connections, in connections per second"""
+
+local_status_connection_eviction_rate.label:
+"""Connection eviction rate"""
+
+local_status_session_eviction_rate.desc:
+"""The rate of evicting sessions, in sessions per second"""
+
+local_status_session_eviction_rate.label:
+"""Session eviction rate"""
+
+local_status_connection_goal.desc:
+"""The number of connections that the node should have after the rebalance/evacuation process"""
+
+local_status_connection_goal.label:
+"""Connection goal"""
+
+local_status_session_goal.desc:
+"""The number of sessions that the node should have after the evacuation process"""
+
+local_status_session_goal.label:
+"""Session goal"""
+
+local_status_disconnected_session_goal.desc:
+"""The number of disconnected sessions that the node should have after the rebalance process"""
+
+local_status_disconnected_session_goal.label:
+"""Disconnected session goal"""
+
+local_status_session_recipients.desc:
+"""List of nodes to which sessions are being evacuated"""
+
+local_status_session_recipients.label:
+"""Session recipients"""
+
+local_status_recipients.desc:
+"""List of nodes to which connections/sessions are being evacuated during rebalance"""
+
+local_status_recipients.label:
+"""Recipients"""
+
+local_status_stats.desc:
+"""Statistics of the evacuation/rebalance process"""
+
+local_status_stats.label:
+"""Statistics"""
+
+status_stats_initial_connected.desc:
+"""The number of connections on the node before the evacuation/rebalance process"""
+
+status_stats_initial_connected.label:
+"""Initial connected"""
+
+status_stats_current_connected.desc:
+"""Current number of connections on the node"""
+
+status_stats_current_connected.label:
+"""Current connections"""
+
+status_stats_initial_sessions.desc:
+"""The number of sessions on the node before the evacuation/rebalance process"""
+
+status_stats_initial_sessions.label:
+"""Initial sessions"""
+
+status_stats_current_sessions.desc:
+"""Current number of sessions on the node"""
+
+status_stats_current_sessions.label:
+"""Current sessions"""
+
+status_stats_current_disconnected_sessions.desc:
+"""Current number of disconnected sessions on the node"""
+
+status_stats_current_disconnected_sessions.label:
+"""Current disconnected sessions"""
+
+coordinator_status_donors.desc:
+"""List of nodes from which connections/sessions are being evacuated"""
+
+coordinator_status_donors.label:
+"""Donors"""
+
+coordinator_status_donor_conn_avg.desc:
+"""Average number of connections per donor node"""
+
+coordinator_status_donor_conn_avg.label:
+"""Donor connections average"""
+
+coordinator_status_donor_sess_avg.desc:
+"""Average number of sessions per donor node"""
+
+coordinator_status_donor_sess_avg.label:
+"""Donor sessions average"""
+
+coordinator_status_node.desc:
+"""The node that is coordinating the evacuation/rebalance process"""
+
+coordinator_status_node.label:
+"""Coordinator node"""
+
+evacuation_status_node.desc:
+"""The node that is being evacuated"""
+
+evacuation_status_node.label:
+"""Evacuated node"""
+
+global_status_evacuations.desc:
+"""List of nodes that are being evacuated"""
+
+global_status_evacuations.label:
+"""Evacuations"""
+
+global_status_rebalances.desc:
+"""List of nodes that coordinate a rebalance"""
+
+global_status_rebalances.label:
+"""Rebalances"""
+
+empty_response.desc:
+"""The response is empty"""
+
+empty_response.label:
+"""Empty response"""
+
+}

@@ -362,12 +362,76 @@ t_will_msg(_Config) ->
 
     ok = emqtt:disconnect(C).
 
+t_ws_conn(_Config) ->
+    erlang:process_flag(trap_exit, true),
+
+    ClientId = <<"ws_client">>,
+    {ok, C} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {port, 8083},
+        {ws_path, "/mqtt"}
+    ]),
+    {ok, _} = emqtt:ws_connect(C),
+
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+
+    ?assertEqual(
+        1,
+        emqx_eviction_agent:connection_count()
+    ),
+
+    ?assertWaitEvent(
+        ok = emqx_eviction_agent:evict_connections(1),
+        #{?snk_kind := emqx_cm_connected_client_count_dec},
+        1000
+    ),
+
+    ?assertEqual(
+        0,
+        emqx_eviction_agent:connection_count()
+    ).
+
+-ifndef(BUILD_WITHOUT_QUIC).
+
+t_quic_conn(_Config) ->
+    erlang:process_flag(trap_exit, true),
+
+    QuicPort = emqx_common_test_helpers:select_free_port(quic),
+    application:ensure_all_started(quicer),
+    emqx_common_test_helpers:ensure_quic_listener(?MODULE, QuicPort),
+
+    ClientId = <<"quic_client">>,
+    {ok, C} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {port, QuicPort}
+    ]),
+    {ok, _} = emqtt:quic_connect(C),
+
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+
+    ?assertEqual(
+        1,
+        emqx_eviction_agent:connection_count()
+    ),
+
+    ?assertWaitEvent(
+        ok = emqx_eviction_agent:evict_connections(1),
+        #{?snk_kind := emqx_cm_connected_client_count_dec},
+        1000
+    ),
+
+    ?assertEqual(
+        0,
+        emqx_eviction_agent:connection_count()
+    ).
+
+-endif.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
-
-% sn_connect_and_subscribe(ClientId, Topic) ->
-%     emqx_eviction_agent_test_helpers:sn_connect_and_subscribe(ClientId, Topic).
 
 assert_receive_publish([]) ->
     ok;

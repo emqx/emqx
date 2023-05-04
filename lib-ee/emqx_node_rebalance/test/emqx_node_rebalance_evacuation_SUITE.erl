@@ -22,20 +22,19 @@ all() -> [{group, one_node}, {group, two_node}].
 
 groups() ->
     [
-        {one_node, [], [
-            t_agent_busy,
-            t_already_started,
-            t_not_started,
-            t_start,
-            t_persistence,
-            t_unknown_messages
-        ]},
-        {two_node, [], [
-            t_conn_evicted,
-            t_migrate_to,
-            t_session_evicted
-        ]}
+        {one_node, [], one_node_cases()},
+        {two_node, [], two_node_cases()}
     ].
+
+two_node_cases() ->
+    [
+        t_conn_evicted,
+        t_migrate_to,
+        t_session_evicted
+    ].
+
+one_node_cases() ->
+    emqx_common_test_helpers:all(?MODULE) -- two_node_cases().
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps([]),

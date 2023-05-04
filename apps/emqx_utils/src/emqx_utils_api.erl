@@ -72,4 +72,6 @@ is_running_node(Node) ->
 handle_result({ok, Result}) ->
     ?OK(Result);
 handle_result({error, Reason}) ->
-    ?BAD_REQUEST(Reason).
+    ?BAD_REQUEST(Reason);
+handle_result({HTTPCode, Content}) when is_integer(HTTPCode) ->
+    {HTTPCode, Content}.

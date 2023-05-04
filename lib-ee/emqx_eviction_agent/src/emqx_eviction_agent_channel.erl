@@ -13,8 +13,6 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--logger_header("[Evicted Channel]").
-
 -export([
     start_link/1,
     start_supervised/1,
@@ -32,13 +30,6 @@
     terminate/2,
     code_change/3
 ]).
-
--import(
-    emqx_misc,
-    [
-        maybe_apply/2
-    ]
-).
 
 -type opts() :: #{
     conninfo := emqx_types:conninfo(),
@@ -133,7 +124,7 @@ handle_call(
 ) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_misc:drain_deliver(),
+    Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
     ?tp(
         debug,
@@ -156,7 +147,7 @@ handle_call(Req, _From, Channel) ->
     {reply, ignored, Channel}.
 
 handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
-    Delivers = [Deliver | emqx_misc:drain_deliver()],
+    Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
 handle_info(expire_session, Channel) ->
     {stop, expired, Channel};
@@ -186,7 +177,6 @@ code_change(_OldVsn, Channel, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% TODO: sync with emqx_channel
 handle_deliver(
     Delivers,
     #{
@@ -239,7 +229,7 @@ set_expiry_timer(#{conninfo := ConnInfo} = Channel) ->
 
 open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
     Channel = channel(ConnInfo, ClientInfo),
-    case emqx_cm:open_session(false, ClientInfo, ConnInfo) of
+    case emqx_cm:open_session(_CleanSession = false, ClientInfo, ConnInfo) of
         {ok, #{present := false}} ->
             ?SLOG(
                 info,
@@ -259,7 +249,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
                     node => node()
                 }
             ),
-            Pendings1 = lists:usort(lists:append(Pendings0, emqx_misc:drain_deliver())),
+            Pendings1 = lists:usort(lists:append(Pendings0, emqx_utils:drain_deliver())),
             NSession = emqx_session:enqueue(
                 ClientInfo,
                 emqx_session:ignore_local(
@@ -352,7 +342,7 @@ info(Channel) ->
     #{
         conninfo => maps:get(conninfo, Channel, undefined),
         clientinfo => maps:get(clientinfo, Channel, undefined),
-        session => maybe_apply(
+        session => emqx_utils:maybe_apply(
             fun emqx_session:info/1,
             maps:get(session, Channel, undefined)
         ),

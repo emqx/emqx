@@ -48,7 +48,9 @@
 
 -export_type([server_reference/0]).
 
--define(CONN_MODULES, [emqx_connection, emqx_ws_connection, emqx_eviction_agent_channel]).
+-define(CONN_MODULES, [
+    emqx_connection, emqx_ws_connection, emqx_quic_connection, emqx_eviction_agent_channel
+]).
 
 %%--------------------------------------------------------------------
 %% APIs

@@ -81,12 +81,11 @@ start_cluster(NamesWithPorts, Apps, Env) ->
         NamesWithPorts
     ),
     Opts0 = [
-        {env, [{emqx, boot_modules, [broker, listeners]}]},
+        {env, [{emqx, boot_modules, [broker, listeners]}] ++ Env},
         {apps, Apps},
         {conf,
             [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]] ++
-                [{[rpc, mode], async}]},
-        {env, Env}
+                [{[rpc, mode], async}]}
     ],
     Cluster = emqx_common_test_helpers:emqx_cluster(
         Specs,
@@ -99,12 +98,6 @@ start_cluster(NamesWithPorts, Apps, Env) ->
         }
      || {Name, Opts} <- Cluster
     ],
-    ok = lists:foreach(
-        fun({Node, _Port}) ->
-            snabbkaffe:forward_trace(Node)
-        end,
-        NodesWithPorts
-    ),
     NodesWithPorts.
 
 stop_cluster(NodesWithPorts, Apps) ->

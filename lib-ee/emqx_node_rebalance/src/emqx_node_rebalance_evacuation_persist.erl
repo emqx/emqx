@@ -55,7 +55,7 @@ save(
     Filepath = evacuation_filepath(),
     case filelib:ensure_dir(Filepath) of
         ok ->
-            JsonData = emqx_json:encode(
+            JsonData = emqx_utils_json:encode(
                 prepare_for_encode(maps:with(persist_keys(), Data)),
                 [pretty]
             ),
@@ -72,7 +72,7 @@ clear() ->
 read(DefaultOpts) ->
     case file:read_file(evacuation_filepath()) of
         {ok, Data} ->
-            case emqx_json:safe_decode(Data, [return_maps]) of
+            case emqx_utils_json:safe_decode(Data, [return_maps]) of
                 {ok, Map} when is_map(Map) ->
                     {ok, map_to_opts(DefaultOpts, Map)};
                 _NotAMap ->

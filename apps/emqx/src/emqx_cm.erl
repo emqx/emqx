@@ -602,14 +602,14 @@ all_channels() ->
     ets:select(?CHAN_TAB, Pat).
 
 %% @doc Get clientinfo for all clients with sessions
-channel_with_session_table(ConnModules) ->
+channel_with_session_table(ConnModuleList) ->
     Ms = ets:fun2ms(
         fun({{ClientId, _ChanPid}, Info, _Stats}) ->
             {ClientId, Info}
         end
     ),
     Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
-    ConnModuleMap = maps:from_list([{Mod, true} || Mod <- ConnModules]),
+    ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
     qlc:q([
         {ClientId, ConnState, ConnInfo, ClientInfo}
      || {ClientId, #{
@@ -618,7 +618,7 @@ channel_with_session_table(ConnModules) ->
             conninfo := #{clean_start := false, conn_mod := ConnModule} = ConnInfo
         }} <-
             Table,
-        maps:is_key(ConnModule, ConnModuleMap)
+        sets:is_element(ConnModule, ConnModules)
     ]).
 
 %% @doc Get all local connection query handle

@@ -43,7 +43,7 @@ cli(["start" | StartArgs]) ->
             false
     end;
 cli(["node-status", NodeStr]) ->
-    case emqx_misc:safe_to_existing_atom(NodeStr, utf8) of
+    case emqx_utils:safe_to_existing_atom(NodeStr, utf8) of
         {ok, Node} ->
             node_status(emqx_node_rebalance_status:local_status(Node));
         {error, _} ->
@@ -297,7 +297,7 @@ strings_to_atoms(Strings) ->
 strings_to_atoms([], Atoms, Invalid) ->
     {lists:reverse(Atoms), lists:reverse(Invalid)};
 strings_to_atoms([Str | Rest], Atoms, Invalid) ->
-    case emqx_misc:safe_to_existing_atom(Str, utf8) of
+    case emqx_utils:safe_to_existing_atom(Str, utf8) of
         {ok, Atom} ->
             strings_to_atoms(Rest, [Atom | Atoms], Invalid);
         {error, _} ->

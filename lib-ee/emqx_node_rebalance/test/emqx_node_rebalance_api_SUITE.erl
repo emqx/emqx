@@ -88,7 +88,7 @@ t_start_evacuation_validation(Config) ->
         BadOpts
     ),
     ?assertMatch(
-        {ok, 400, #{}},
+        {ok, 404, #{}},
         api_post(
             ["load_rebalance", "bad@node", "evacuation", "start"],
             #{}
@@ -148,7 +148,7 @@ t_start_rebalance_validation(Config) ->
         BadOpts
     ),
     ?assertMatch(
-        {ok, 400, #{}},
+        {ok, 404, #{}},
         api_post(
             ["load_rebalance", "bad@node", "start"],
             #{}
@@ -346,7 +346,7 @@ t_start_stop_rebalance(Config) ->
                     }
                 ]
         }},
-        api_get(["load_rebalance", "global_status"])
+        GlobalStatusResponse
     ),
 
     ?assertMatch(

@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -44,9 +45,9 @@
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
--define(NODE_UNAVAILABLE, 'NODE_UNAVAILABLE').
 -define(NODE_EVACUATING, 'NODE_EVACUATING').
 -define(RPC_ERROR, 'RPC_ERROR').
+-define(NOT_FOUND, 'NOT_FOUND').
 
 %%--------------------------------------------------------------------
 %% API Spec
@@ -120,7 +121,8 @@ schema("/load_rebalance/:node/start") ->
                 ),
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST, ?NODE_UNAVAILABLE], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -134,7 +136,8 @@ schema("/load_rebalance/:node/stop") ->
             parameters => [param_node()],
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST, ?NODE_UNAVAILABLE], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -153,7 +156,8 @@ schema("/load_rebalance/:node/evacuation/start") ->
                 ),
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST, ?NODE_UNAVAILABLE], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -167,7 +171,8 @@ schema("/load_rebalance/:node/evacuation/stop") ->
             parameters => [param_node()],
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST, ?NODE_UNAVAILABLE], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
     }.
@@ -205,7 +210,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     end.
 
 '/load_rebalance/:node/start'(post, #{bindings := #{node := NodeBin}, body := Params0}) ->
-    with_node(NodeBin, fun(Node) ->
+    emqx_utils_api:with_node(NodeBin, fun(Node) ->
         Params1 = translate(rebalance_start, Params0),
         with_nodes_at_key(nodes, Params1, fun(Params2) ->
             wrap_rpc(
@@ -215,7 +220,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     end).
 
 '/load_rebalance/:node/stop'(post, #{bindings := #{node := NodeBin}}) ->
-    with_node(NodeBin, fun(Node) ->
+    emqx_utils_api:with_node(NodeBin, fun(Node) ->
         wrap_rpc(
             Node, emqx_node_rebalance_api_proto_v1:node_rebalance_stop(Node)
         )
@@ -224,7 +229,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
 '/load_rebalance/:node/evacuation/start'(post, #{
     bindings := #{node := NodeBin}, body := Params0
 }) ->
-    with_node(NodeBin, fun(Node) ->
+    emqx_utils_api:with_node(NodeBin, fun(Node) ->
         Params1 = translate(rebalance_evacuation_start, Params0),
         with_nodes_at_key(migrate_to, Params1, fun(Params2) ->
             wrap_rpc(
@@ -237,7 +242,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     end).
 
 '/load_rebalance/:node/evacuation/stop'(post, #{bindings := #{node := NodeBin}}) ->
-    with_node(NodeBin, fun(Node) ->
+    emqx_utils_api:with_node(NodeBin, fun(Node) ->
         wrap_rpc(
             Node, emqx_node_rebalance_api_proto_v1:node_rebalance_evacuation_stop(Node)
         )
@@ -288,19 +293,13 @@ validate_nodes(Key, Params) when is_map_key(Key, Params) ->
 validate_nodes(_Key, Params) ->
     {ok, Params}.
 
-with_node(BinNode, Fun) ->
-    case parse_node(BinNode) of
-        {ok, Node} -> Fun(Node);
-        {error, _} -> error_response(400, ?BAD_REQUEST, [<<"Invalid node: ">>, BinNode])
-    end.
-
 with_nodes_at_key(Key, Params, Fun) ->
     Res = validate_nodes(Key, Params),
     case Res of
         {ok, Params1} ->
             Fun(Params1);
         {error, {unavailable, Nodes}} ->
-            error_response(400, ?NODE_UNAVAILABLE, io_lib:format("Nodes unavailable: ~p", [Nodes]));
+            error_response(400, ?NOT_FOUND, io_lib:format("Nodes unavailable: ~p", [Nodes]));
         {error, {invalid, Nodes}} ->
             error_response(400, ?BAD_REQUEST, io_lib:format("Invalid nodes: ~p", [Nodes]))
     end.
@@ -322,10 +321,7 @@ format_as_map_list(List) ->
     ).
 
 error_response(HttpCode, Code, Message) ->
-    {HttpCode, #{
-        code => atom_to_binary(Code),
-        message => iolist_to_binary(Message)
-    }}.
+    {HttpCode, ?ERROR_MSG(Code, Message)}.
 
 without(Keys, Props) ->
     lists:filter(
@@ -470,11 +466,10 @@ fields(rebalance_evacuation_start) ->
             )},
         {"migrate_to",
             mk(
-                list(binary()),
+                nonempty_list(binary()),
                 #{
                     desc => ?DESC(migrate_to),
-                    required => false,
-                    validator => [fun(Values) -> length(Values) > 0 end]
+                    required => false
                 }
             )}
     ];

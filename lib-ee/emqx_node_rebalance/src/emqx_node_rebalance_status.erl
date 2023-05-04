@@ -208,7 +208,7 @@ format_local_status_field({session_goal, SessGoal}) ->
 format_local_status_field({disconnected_session_goal, DisconnSessGoal}) ->
     io_lib:format("Disconnected session goal: ~p~n", [DisconnSessGoal]);
 format_local_status_field({session_recipients, SessionRecipients}) ->
-    io_lib:format("Session recipient  nodes: ~p~n", [SessionRecipients]);
+    io_lib:format("Session recipient nodes: ~p~n", [SessionRecipients]);
 format_local_status_field({recipients, Recipients}) ->
     io_lib:format("Recipient nodes: ~p~n", [Recipients]);
 format_local_status_field({donors, Donors}) ->
