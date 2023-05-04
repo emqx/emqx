@@ -581,6 +581,15 @@ is_sensitive_key(<<"password">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(secret_key) -> true;
+is_sensitive_key("secret_key") -> true;
+is_sensitive_key(<<"secret_key">>) -> true;
+is_sensitive_key(security_token) -> true;
+is_sensitive_key("security_token") -> true;
+is_sensitive_key(<<"security_token">>) -> true;
+is_sensitive_key(aws_secret_access_key) -> true;
+is_sensitive_key("aws_secret_access_key") -> true;
+is_sensitive_key(<<"aws_secret_access_key">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
