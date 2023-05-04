@@ -8,6 +8,7 @@ on:
   schedule:
     - cron:  '0 */6 * * *'
 
+jobs:
   prepare:
     runs-on: aws-amd64
     if: github.repository_owner == 'emqx'
