@@ -985,6 +985,8 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     case emqx_resource_manager:lookup_cached(Id) of
         {ok, _Group, #{status := stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
+        {ok, _Group, #{status := connecting, error := unhealthy_target}} ->
+            {error, {unrecoverable_error, unhealthy_target}};
         {ok, _Group, Resource} ->
             do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource);
         {error, not_found} ->
