@@ -2,14 +2,15 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_sqlserver).
+-module(emqx_bridge_sqlserver_connector).
 
 -behaviour(emqx_resource).
+
+-include("emqx_bridge_sqlserver.hrl").
 
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("emqx_ee_connector/include/emqx_ee_connector.hrl").
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -51,7 +52,7 @@
 -define(SYNC_QUERY_MODE, handover).
 
 -define(SQLSERVER_HOST_OPTIONS, #{
-    default_port => 1433
+    default_port => ?SQLSERVER_DEFAULT_PORT
 }).
 
 -define(REQUEST_TIMEOUT(RESOURCE_OPTS),

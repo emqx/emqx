@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_sqlserver).
+-module(emqx_bridge_sqlserver).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -96,7 +96,7 @@ fields("config") ->
                 }
             )}
     ] ++
-        (emqx_ee_connector_sqlserver:fields(config) --
+        (emqx_bridge_sqlserver_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts");

@@ -1,4 +1,4 @@
-emqx_ee_connector_sqlserver {
+emqx_bridge_sqlserver_connector {
 
 server.desc:
 """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>

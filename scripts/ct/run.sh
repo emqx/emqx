@@ -193,7 +193,7 @@ for dep in ${CT_DEPS}; do
             ;;
         pulsar)
             FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
-            ;; 
+            ;;
         oracle)
             FILES+=( '.ci/docker-compose-file/docker-compose-oracle.yaml' )
             ;;
