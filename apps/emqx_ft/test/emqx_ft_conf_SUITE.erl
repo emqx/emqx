@@ -34,7 +34,12 @@ end_per_suite(_Config) ->
 init_per_testcase(_Case, Config) ->
     _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
     ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)
+        [emqx_conf, emqx_ft], fun
+            (emqx_ft) ->
+                emqx_ft_test_helpers:load_config(#{});
+            (_) ->
+                ok
+        end
     ),
     {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
@@ -52,7 +57,7 @@ t_update_config(_Config) ->
         {error, #{kind := validation_error}},
         emqx_conf:update(
             [file_transfer],
-            #{<<"storage">> => #{<<"type">> => <<"unknown">>}},
+            #{<<"storage">> => #{<<"unknown">> => #{<<"foo">> => 42}}},
             #{}
         )
     ),
@@ -63,16 +68,18 @@ t_update_config(_Config) ->
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
-                    <<"type">> => <<"local">>,
-                    <<"segments">> => #{
-                        <<"root">> => <<"/tmp/path">>,
-                        <<"gc">> => #{
-                            <<"interval">> => <<"5m">>
+                    <<"local">> => #{
+                        <<"segments">> => #{
+                            <<"root">> => <<"/tmp/path">>,
+                            <<"gc">> => #{
+                                <<"interval">> => <<"5m">>
+                            }
+                        },
+                        <<"exporter">> => #{
+                            <<"local">> => #{
+                                <<"root">> => <<"/tmp/exports">>
+                            }
                         }
-                    },
-                    <<"exporter">> => #{
-                        <<"type">> => <<"local">>,
-                        <<"root">> => <<"/tmp/exports">>
                     }
                 }
             },
@@ -81,11 +88,15 @@ t_update_config(_Config) ->
     ),
     ?assertEqual(
         <<"/tmp/path">>,
-        emqx_config:get([file_transfer, storage, segments, root])
+        emqx_config:get([file_transfer, storage, local, segments, root])
     ),
     ?assertEqual(
         5 * 60 * 1000,
-        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
+        emqx_ft_storage:with_storage_type(local, fun emqx_ft_conf:gc_interval/1)
+    ),
+    ?assertEqual(
+        {5 * 60, 24 * 60 * 60},
+        emqx_ft_storage:with_storage_type(local, fun emqx_ft_conf:segments_ttl/1)
     ).
 
 t_disable_restore_config(Config) ->
@@ -93,13 +104,13 @@ t_disable_restore_config(Config) ->
         {ok, _},
         emqx_conf:update(
             [file_transfer],
-            #{<<"enable">> => true, <<"storage">> => #{<<"type">> => <<"local">>}},
+            #{<<"enable">> => true, <<"storage">> => #{<<"local">> => #{}}},
             #{}
         )
     ),
     ?assertEqual(
         60 * 60 * 1000,
-        emqx_ft_conf:gc_interval(emqx_ft_conf:storage())
+        emqx_ft_storage:with_storage_type(local, fun emqx_ft_conf:gc_interval/1)
     ),
     % Verify that transfers work
     ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>),
@@ -117,7 +128,7 @@ t_disable_restore_config(Config) ->
         emqx_ft_conf:enabled()
     ),
     ?assertMatch(
-        #{type := local, exporter := #{type := local}},
+        #{local := #{exporter := #{local := _}}},
         emqx_ft_conf:storage()
     ),
     ClientId = gen_clientid(),
@@ -147,10 +158,11 @@ t_disable_restore_config(Config) ->
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
-                    <<"type">> => <<"local">>,
-                    <<"segments">> => #{
-                        <<"root">> => Root,
-                        <<"gc">> => #{<<"interval">> => <<"1s">>}
+                    <<"local">> => #{
+                        <<"segments">> => #{
+                            <<"root">> => Root,
+                            <<"gc">> => #{<<"interval">> => <<"1s">>}
+                        }
                     }
                 }
             },
@@ -165,10 +177,7 @@ t_disable_restore_config(Config) ->
                 [
                     #{
                         ?snk_kind := garbage_collection,
-                        storage := #{
-                            type := local,
-                            segments := #{root := Root}
-                        }
+                        storage := #{segments := #{root := Root}}
                     }
                 ],
                 ?of_kind(garbage_collection, Trace)
@@ -188,48 +197,49 @@ t_switch_exporter(_Config) ->
         )
     ),
     ?assertMatch(
-        #{type := local, exporter := #{type := local}},
+        #{local := #{exporter := #{local := _}}},
         emqx_ft_conf:storage()
     ),
     % Verify that switching to a different exporter works
     ?assertMatch(
         {ok, _},
         emqx_conf:update(
-            [file_transfer, storage, exporter],
+            [file_transfer, storage, local, exporter],
             #{
-                <<"type">> => <<"s3">>,
-                <<"bucket">> => <<"emqx">>,
-                <<"host">> => <<"https://localhost">>,
-                <<"port">> => 9000,
-                <<"transport_options">> => #{
-                    <<"ipv6_probe">> => false
+                <<"s3">> => #{
+                    <<"bucket">> => <<"emqx">>,
+                    <<"host">> => <<"https://localhost">>,
+                    <<"port">> => 9000,
+                    <<"transport_options">> => #{
+                        <<"ipv6_probe">> => false
+                    }
                 }
             },
             #{}
         )
     ),
     ?assertMatch(
-        #{type := local, exporter := #{type := s3}},
+        #{local := #{exporter := #{s3 := _}}},
         emqx_ft_conf:storage()
     ),
     % Verify that switching back to local exporter works
     ?assertMatch(
         {ok, _},
         emqx_conf:remove(
-            [file_transfer, storage, exporter],
+            [file_transfer, storage, local, exporter],
             #{}
         )
     ),
     ?assertMatch(
         {ok, _},
         emqx_conf:update(
-            [file_transfer, storage, exporter],
-            #{<<"type">> => <<"local">>},
+            [file_transfer, storage, local, exporter],
+            #{<<"local">> => #{}},
             #{}
         )
     ),
     ?assertMatch(
-        #{type := local, exporter := #{type := local}},
+        #{local := #{exporter := #{local := #{}}}},
         emqx_ft_conf:storage()
     ),
     % Verify that transfers work

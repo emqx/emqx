@@ -54,24 +54,26 @@
 enabled() ->
     emqx_config:get([file_transfer, enable], false).
 
--spec storage() -> _Storage.
+-spec storage() -> emqx_config:config().
 storage() ->
     emqx_config:get([file_transfer, storage]).
 
--spec gc_interval(_Storage) -> emqx_maybe:t(milliseconds()).
-gc_interval(Conf = #{type := local}) ->
-    emqx_utils_maps:deep_get([segments, gc, interval], Conf);
-gc_interval(_) ->
-    undefined.
+-spec gc_interval(emqx_ft_storage_fs:storage()) ->
+    emqx_maybe:t(milliseconds()).
+gc_interval(Storage) ->
+    emqx_utils_maps:deep_get([segments, gc, interval], Storage, undefined).
 
--spec segments_ttl(_Storage) -> emqx_maybe:t({_Min :: seconds(), _Max :: seconds()}).
-segments_ttl(Conf = #{type := local}) ->
-    {
-        emqx_utils_maps:deep_get([segments, gc, minimum_segments_ttl], Conf),
-        emqx_utils_maps:deep_get([segments, gc, maximum_segments_ttl], Conf)
-    };
-segments_ttl(_) ->
-    undefined.
+-spec segments_ttl(emqx_ft_storage_fs:storage()) ->
+    emqx_maybe:t({_Min :: seconds(), _Max :: seconds()}).
+segments_ttl(Storage) ->
+    Min = emqx_utils_maps:deep_get([segments, gc, minimum_segments_ttl], Storage, undefined),
+    Max = emqx_utils_maps:deep_get([segments, gc, maximum_segments_ttl], Storage, undefined),
+    case is_integer(Min) andalso is_integer(Max) of
+        true ->
+            {Min, Max};
+        false ->
+            undefined
+    end.
 
 init_timeout() ->
     emqx_config:get([file_transfer, init_timeout]).

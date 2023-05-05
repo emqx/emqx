@@ -93,36 +93,30 @@ fields(file_transfer) ->
             )},
         {storage,
             mk(
-                hoconsc:union(
-                    fun
-                        (all_union_members) ->
-                            [ref(local_storage)];
-                        ({value, #{<<"type">> := <<"local">>}}) ->
-                            [ref(local_storage)];
-                        ({value, #{<<"type">> := _}}) ->
-                            throw(#{field_name => type, expected => "local"});
-                        ({value, _}) ->
-                            [ref(local_storage)]
-                    end
-                ),
+                ref(storage_backend),
                 #{
+                    desc => ?DESC("storage_backend"),
                     required => false,
-                    desc => ?DESC("storage"),
-                    default => #{<<"type">> => <<"local">>}
+                    validator => validator(backend),
+                    default => #{
+                        <<"local">> => #{}
+                    }
+                }
+            )}
+    ];
+fields(storage_backend) ->
+    [
+        {local,
+            mk(
+                ref(local_storage),
+                #{
+                    desc => ?DESC("local_storage"),
+                    required => {false, recursively}
                 }
             )}
     ];
 fields(local_storage) ->
     [
-        {type,
-            mk(
-                local,
-                #{
-                    default => local,
-                    required => false,
-                    desc => ?DESC("local_type")
-                }
-            )},
         {segments,
             mk(
                 ref(local_storage_segments),
@@ -136,29 +130,13 @@ fields(local_storage) ->
             )},
         {exporter,
             mk(
-                hoconsc:union(
-                    fun
-                        (all_union_members) ->
-                            [
-                                ref(local_storage_exporter),
-                                ref(s3_exporter)
-                            ];
-                        ({value, #{<<"type">> := <<"local">>}}) ->
-                            [ref(local_storage_exporter)];
-                        ({value, #{<<"type">> := <<"s3">>}}) ->
-                            [ref(s3_exporter)];
-                        ({value, #{<<"type">> := _}}) ->
-                            throw(#{field_name => type, expected => "local | s3"});
-                        ({value, _}) ->
-                            % NOTE: default
-                            [ref(local_storage_exporter)]
-                    end
-                ),
+                ref(local_storage_exporter_backend),
                 #{
-                    desc => ?DESC("local_storage_exporter"),
-                    required => true,
+                    desc => ?DESC("local_storage_exporter_backend"),
+                    required => false,
+                    validator => validator(backend),
                     default => #{
-                        <<"type">> => <<"local">>
+                        <<"local">> => #{}
                     }
                 }
             )}
@@ -181,17 +159,27 @@ fields(local_storage_segments) ->
                 }
             )}
     ];
-fields(local_storage_exporter) ->
+fields(local_storage_exporter_backend) ->
     [
-        {type,
+        {local,
             mk(
-                local,
+                ref(local_storage_exporter),
                 #{
-                    default => local,
-                    required => false,
-                    desc => ?DESC("local_storage_exporter_type")
+                    desc => ?DESC("local_storage_exporter"),
+                    required => {false, recursively}
                 }
             )},
+        {s3,
+            mk(
+                ref(s3_exporter),
+                #{
+                    desc => ?DESC("s3_exporter"),
+                    required => {false, recursively}
+                }
+            )}
+    ];
+fields(local_storage_exporter) ->
+    [
         {root,
             mk(
                 binary(),
@@ -202,18 +190,7 @@ fields(local_storage_exporter) ->
             )}
     ];
 fields(s3_exporter) ->
-    [
-        {type,
-            mk(
-                s3,
-                #{
-                    default => s3,
-                    required => false,
-                    desc => ?DESC("s3_exporter_type")
-                }
-            )}
-    ] ++
-        emqx_s3_schema:fields(s3);
+    emqx_s3_schema:fields(s3);
 fields(local_storage_segments_gc) ->
     [
         {interval,
@@ -287,7 +264,16 @@ validator(filename) ->
             byte_size(Bin) =< ?MAX_FILENAME_BYTELEN orelse {error, max_length_exceeded}
         end,
         fun emqx_ft_fs_util:is_filename_safe/1
-    ].
+    ];
+validator(backend) ->
+    fun(Config) ->
+        case maps:keys(Config) of
+            [_Type] ->
+                ok;
+            _Conflicts = [_ | _] ->
+                {error, multiple_conflicting_backends}
+        end
+    end.
 
 converter(checksum) ->
     fun

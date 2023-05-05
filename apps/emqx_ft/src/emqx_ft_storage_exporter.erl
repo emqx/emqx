@@ -169,14 +169,11 @@ stop({ExporterMod, ExporterOpts}) ->
 
 exporter(Storage) ->
     case maps:get(exporter, Storage) of
-        #{type := local} = Options ->
-            {emqx_ft_storage_exporter_fs, without_type(Options)};
-        #{type := s3} = Options ->
-            {emqx_ft_storage_exporter_s3, without_type(Options)}
+        #{local := Options} ->
+            {emqx_ft_storage_exporter_fs, Options};
+        #{s3 := Options} ->
+            {emqx_ft_storage_exporter_s3, Options}
     end.
-
-without_type(#{type := _} = Options) ->
-    maps:without([type], Options).
 
 init_checksum(#{checksum := {Algo, _}}) ->
     crypto:hash_init(Algo);

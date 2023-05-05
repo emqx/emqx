@@ -18,8 +18,6 @@
 
 -export(
     [
-        child_spec/0,
-
         store_filemeta/2,
         store_segment/2,
         assemble/2,
@@ -30,11 +28,17 @@
         with_storage_type/2,
         with_storage_type/3,
 
+        backend/0,
         on_config_update/2
     ]
 ).
 
--type storage() :: emqx_config:config().
+-type type() :: local.
+-type backend() :: {type(), storage()}.
+-type storage() :: config().
+-type config() :: emqx_config:config().
+
+-export_type([backend/0]).
 
 -export_type([assemble_callback/0]).
 
@@ -100,31 +104,20 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec child_spec() ->
-    [supervisor:child_spec()].
-child_spec() ->
-    try
-        Mod = mod(),
-        Mod:child_spec(storage())
-    catch
-        error:disabled -> [];
-        error:undef -> []
-    end.
-
 -spec store_filemeta(emqx_ft:transfer(), emqx_ft:filemeta()) ->
     ok | {async, pid()} | {error, term()}.
 store_filemeta(Transfer, FileMeta) ->
-    with_storage(store_filemeta, [Transfer, FileMeta]).
+    dispatch(store_filemeta, [Transfer, FileMeta]).
 
 -spec store_segment(emqx_ft:transfer(), emqx_ft:segment()) ->
     ok | {async, pid()} | {error, term()}.
 store_segment(Transfer, Segment) ->
-    with_storage(store_segment, [Transfer, Segment]).
+    dispatch(store_segment, [Transfer, Segment]).
 
 -spec assemble(emqx_ft:transfer(), emqx_ft:bytes()) ->
     ok | {async, pid()} | {error, term()}.
 assemble(Transfer, Size) ->
-    with_storage(assemble, [Transfer, Size]).
+    dispatch(assemble, [Transfer, Size]).
 
 -spec files() ->
     {ok, page(file_info(), _)} | {error, term()}.
@@ -134,20 +127,18 @@ files() ->
 -spec files(query(Cursor)) ->
     {ok, page(file_info(), Cursor)} | {error, term()}.
 files(Query) ->
-    with_storage(files, [Query]).
+    dispatch(files, [Query]).
 
--spec with_storage(atom() | function()) -> any().
-with_storage(Fun) ->
-    with_storage(Fun, []).
-
--spec with_storage(atom() | function(), list(term())) -> any().
-with_storage(Fun, Args) ->
-    case storage() of
-        Storage = #{} ->
-            apply_storage(Storage, Fun, Args);
-        undefined ->
+-spec dispatch(atom(), list(term())) -> any().
+dispatch(Fun, Args) when is_atom(Fun) ->
+    case backend() of
+        {Type, Storage} ->
+            apply(mod(Type), Fun, [Storage | Args]);
+        _ ->
             {error, disabled}
     end.
+
+%%
 
 -spec with_storage_type(atom(), atom() | function()) -> any().
 with_storage_type(Type, Fun) ->
@@ -155,56 +146,56 @@ with_storage_type(Type, Fun) ->
 
 -spec with_storage_type(atom(), atom() | function(), list(term())) -> any().
 with_storage_type(Type, Fun, Args) ->
-    with_storage(fun(Storage) ->
-        case Storage of
-            #{type := Type} ->
-                apply_storage(Storage, Fun, Args);
-            _ ->
-                {error, {invalid_storage_type, Storage}}
-        end
-    end).
-
-apply_storage(Storage, Fun, Args) when is_atom(Fun) ->
-    apply(mod(Storage), Fun, [Storage | Args]);
-apply_storage(Storage, Fun, Args) when is_function(Fun) ->
-    apply(Fun, [Storage | Args]).
+    case backend() of
+        {Type, Storage} when is_atom(Fun) ->
+            apply(mod(Type), Fun, [Storage | Args]);
+        {Type, Storage} when is_function(Fun) ->
+            apply(Fun, [Storage | Args]);
+        {_, _} = Backend ->
+            {error, {invalid_storage_backend, Backend}};
+        _ ->
+            {error, disabled}
+    end.
 
 %%
 
--spec on_config_update(_Old :: emqx_maybe:t(storage()), _New :: emqx_maybe:t(storage())) ->
+-spec backend() -> backend().
+backend() ->
+    backend(emqx_ft_conf:storage()).
+
+-spec on_config_update(_Old :: emqx_maybe:t(config()), _New :: emqx_maybe:t(config())) ->
     ok.
-on_config_update(#{type := _} = Storage, #{type := _} = Storage) ->
+on_config_update(ConfigOld, ConfigNew) ->
+    on_backend_update(
+        emqx_maybe:apply(fun backend/1, ConfigOld),
+        emqx_maybe:apply(fun backend/1, ConfigNew)
+    ).
+
+on_backend_update({Type, _} = Backend, {Type, _} = Backend) ->
     ok;
-on_config_update(#{type := Type} = StorageOld, #{type := Type} = StorageNew) ->
-    ok = (mod(StorageNew)):on_config_update(StorageOld, StorageNew);
-on_config_update(StorageOld, StorageNew) when
-    (StorageOld =:= undefined orelse is_map_key(type, StorageOld)) andalso
-        (StorageNew =:= undefined orelse is_map_key(type, StorageNew))
+on_backend_update({Type, StorageOld}, {Type, StorageNew}) ->
+    ok = (mod(Type)):on_config_update(StorageOld, StorageNew);
+on_backend_update(BackendOld, BackendNew) when
+    (BackendOld =:= undefined orelse is_tuple(BackendOld)) andalso
+        (BackendNew =:= undefined orelse is_tuple(BackendNew))
 ->
-    _ = emqx_maybe:apply(fun on_storage_stop/1, StorageOld),
-    _ = emqx_maybe:apply(fun on_storage_start/1, StorageNew),
+    _ = emqx_maybe:apply(fun on_storage_stop/1, BackendOld),
+    _ = emqx_maybe:apply(fun on_storage_start/1, BackendNew),
     ok.
 
 %%--------------------------------------------------------------------
 %% Local API
 %%--------------------------------------------------------------------
 
-on_storage_start(Storage) ->
-    (mod(Storage)):start(Storage).
+-spec backend(config()) -> backend().
+backend(#{local := Storage}) ->
+    {local, Storage}.
 
-on_storage_stop(Storage) ->
-    (mod(Storage)):stop(Storage).
+on_storage_start({Type, Storage}) ->
+    (mod(Type)):start(Storage).
 
-storage() ->
-    emqx_ft_conf:storage().
+on_storage_stop({Type, Storage}) ->
+    (mod(Type)):stop(Storage).
 
-mod() ->
-    mod(storage()).
-
-mod(Storage) ->
-    case Storage of
-        #{type := local} ->
-            emqx_ft_storage_fs;
-        undefined ->
-            error(disabled)
-    end.
+mod(local) ->
+    emqx_ft_storage_fs.
