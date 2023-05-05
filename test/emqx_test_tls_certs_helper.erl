@@ -47,7 +47,7 @@ gen_ca(Path, Name) ->
             "-newkey ec:~s "
             "-keyout ~s -out ~s -days 3650 "
             "-addext basicConstraints=CA:TRUE "
-            "-subj \"/C=SE/O=Internet Widgits Pty Ltd CA\"",
+            "-subj \"/C=SE/O=TEST CA\"",
             [
                 ECKeyFile,
                 ca_key_name(Path, Name),
@@ -130,7 +130,7 @@ csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN) ->
         "-addext \"subjectAltName=DNS:~s\" "
         "-addext basicConstraints=CA:TRUE "
         "-addext keyUsage=digitalSignature,keyAgreement,keyCertSign "
-        "-subj \"/C=SE/O=Internet Widgits Pty Ltd/CN=~s\"",
+        "-subj \"/C=SE/O=TEST/CN=~s\"",
         [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
        )
      ).
