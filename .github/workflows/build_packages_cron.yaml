@@ -7,39 +7,9 @@ concurrency:
 on:
   schedule:
     - cron:  '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
-  prepare:
-    runs-on: aws-amd64
-    if: github.repository_owner == 'emqx'
-    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-ubuntu22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - ['emqx', 'master']
-          - ['emqx-enterprise', 'release-50']
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ matrix.profile[1] }}
-          path: source
-          fetch-depth: 0
-      - name: get_all_deps
-        run: |
-          cd source
-          # make sure all previous left-overs are cleaned
-          make clean-all
-          # enterprise is a super-set, should be enough for all profiles
-          make deps-emqx-enterprise
-          cd ..
-          zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: source-${{ matrix.profile[0] }}
-          path: source.zip
-
   linux:
     needs: prepare
     runs-on: aws-${{ matrix.arch }}
@@ -54,6 +24,9 @@ jobs:
         profile:
           - emqx
           - emqx-enterprise
+        branch:
+          - master
+          - release-50
         otp:
           - 24.3.4.2-3
         arch:
@@ -71,18 +44,16 @@ jobs:
         shell: bash
 
     steps:
-      - uses: AutoModality/action-clean@v1
-      - uses: actions/download-artifact@v3
+      - uses: emqx/self-hosted-cleanup-action@v1.0.3
+      - uses: actions/checkout@v3
         with:
-          name: source-${{ matrix.profile }}
-          path: .
-      - name: unzip source code
-        run: unzip -q source.zip
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+
       - name: build emqx packages
-        working-directory: source
         env:
           ELIXIR: ${{ matrix.elixir }}
-          PROFILE: ${{ matrix.profile[0] }}
+          PROFILE: ${{ matrix.profile }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -eu
@@ -101,7 +72,7 @@ jobs:
         if: success()
         with:
           name: ${{ matrix.profile }}
-          path: source/_packages/${{ matrix.profile }}/
+          path: _packages/${{ matrix.profile }}/
       - name: Send notification to Slack
         uses: slackapi/slack-github-action@v1.23.0
         if: failure()
@@ -126,15 +97,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: emqx/self-hosted-cleanup-action@v1.0.3
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@v3
         with:
-          name: source-${{ matrix.profile }}
-          path: .
-      - name: unzip source code
-        run: |
-          ln -s . source
-          unzip -o -q source.zip
-          rm source source.zip
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
       - uses: ./.github/actions/package-macos
         with:
           profile: ${{ matrix.profile }}
