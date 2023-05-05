@@ -98,7 +98,7 @@ gen_host_cert(H, CaName, Path, Opts) ->
 
     CERT_Cmd = cert_sign_cmd(HEXT, HCSR, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM),
     %% 2nd cert for testing renewed cert.
-    CERT_Cmd2 = cert_sign_cmd(HEXT, HCSR, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM2),
+    CERT_Cmd2 = cert_sign_cmd(HEXT, HCSR2, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM2),
     ct:pal(os:cmd(CSR_Cmd)),
     ct:pal(os:cmd(CSR_Cmd2)),
     ct:pal(os:cmd(CERT_Cmd)),
