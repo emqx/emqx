@@ -44,11 +44,6 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    dbg:tracer(process, {fun dbg:dhandler/2,group_leader()}),
-    dbg:p(all,c),
-    dbg:tpl(emqx_tls_lib, opt_verify_fun, cx),
-    dbg:tpl(emqx_const_v2, verify_fun_peer_extKeyUsage, cx),
-    dbg:tpl(emqx_const_v2, do_verify_ext_key_usage,cx),
     generate_tls_certs(Config),
     application:ensure_all_started(esockd),
     Config.
@@ -229,6 +224,6 @@ ssl_config_verify_peer(Config) ->
   , {fail_if_no_peer_cert, true}
   , {keyfile, filename:join(DataDir, "server1.key")}
   , {certfile, filename:join(DataDir, "server1.pem")}
-  , {log_level, debug}
+  %% , {log_level, debug}
   ].
 

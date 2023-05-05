@@ -47,27 +47,25 @@ make_tls_root_fun(cacert_from_cacertfile, [TrustedOne, TrustedTwo]) ->
   end.
 
 make_tls_verify_fun(verify_cert_extKeyUsage, KeyUsages) ->
-    AllowedKeyUsages = ext_key_opts(KeyUsages),
-    fun(A, B, C) ->
-        verify_fun_peer_extKeyUsage(A, B, C, AllowedKeyUsages)
-    end.
+  AllowedKeyUsages = ext_key_opts(KeyUsages),
+  {fun verify_fun_peer_extKeyUsage/3, AllowedKeyUsages}.
 
-verify_fun_peer_extKeyUsage(_, {bad_cert, invalid_ext_key_usage}, UserState, AllowedKeyUsages) ->
+verify_fun_peer_extKeyUsage(_, {bad_cert, invalid_ext_key_usage}, UserState) ->
   %% !! Override OTP verify peer default
   %% OTP SSL is unhappy with the ext_key_usage but we will check on ower own.
   {unknown, UserState};
-verify_fun_peer_extKeyUsage(_, {bad_cert, _} = Reason, _, AllowedKeyUsages) ->
+verify_fun_peer_extKeyUsage(_, {bad_cert, _} = Reason, _UserState) ->
   %% OTP verify_peer default
   {fail, Reason};
-verify_fun_peer_extKeyUsage(_, {extension, _}, UserState, _AllowedKeyUsages) ->
+verify_fun_peer_extKeyUsage(_, {extension, _}, UserState) ->
   %% OTP verify_peer default
   {unknown, UserState};
-verify_fun_peer_extKeyUsage(_, valid, UserState, _AllowedKeyUsages) ->
+verify_fun_peer_extKeyUsage(_, valid, UserState) ->
   %% OTP verify_peer default
   {valid, UserState};
 verify_fun_peer_extKeyUsage(#'OTPCertificate'{tbsCertificate = #'OTPTBSCertificate'{extensions = ExtL}},
                             valid_peer,  %% valid peer cert
-                            UserState, AllowedKeyUsages) ->
+                            AllowedKeyUsages) ->
   %% override OTP verify_peer default
   %% must have id-ce-extKeyUsage
   case lists:keyfind(?'id-ce-extKeyUsage', 2, ExtL) of
@@ -76,7 +74,7 @@ verify_fun_peer_extKeyUsage(#'OTPCertificate'{tbsCertificate = #'OTPTBSCertifica
         true ->
           %% pass the check,
           %% fallback to OTP verify_peer default
-          {valid, UserState};
+          {valid, AllowedKeyUsages};
         false ->
           {fail, extKeyUsage_unmatched}
       end;

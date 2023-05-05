@@ -214,8 +214,8 @@ opt_verify_fun(SslOpts) ->
         undefined ->
             SslOpts;
         V ->
-            Fun = emqx_const_v2:make_tls_verify_fun(verify_cert_extKeyUsage, V),
-            replace(SslOpts, verify_fun, {Fun, #{}})
+            VerifyFun = emqx_const_v2:make_tls_verify_fun(verify_cert_extKeyUsage, V),
+            replace(SslOpts, verify_fun, VerifyFun)
     end.
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
