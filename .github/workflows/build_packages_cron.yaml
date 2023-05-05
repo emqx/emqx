@@ -32,7 +32,7 @@ jobs:
           zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v3
         with:
-          name: source-${{ matrix.profile[1] }}
+          name: source-${{ matrix.profile[0] }}
           path: source.zip
 
   linux:
