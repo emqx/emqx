@@ -494,7 +494,7 @@ esockd_opts(ListenerId, Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Limiter = limiter(Opts0),
     Opts2 =
-        case maps:get(connection, Limiter, undefined) of
+        case emqx_limiter_schema:extract_with_type(connection, Limiter) of
             undefined ->
                 Opts1;
             BucketCfg ->
@@ -639,7 +639,7 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts, #{}).
+    maps:get(limiter, Opts, undefined).
 
 add_limiter_bucket(Id, #{limiter := Limiter}) ->
     maps:fold(
