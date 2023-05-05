@@ -909,6 +909,7 @@ fields("log_file_handler") ->
                 #{
                     aliases => [rotation],
                     default => 10,
+                    converter => fun convert_rotation/2,
                     desc => ?DESC("log_rotation_count"),
                     importance => ?IMPORTANCE_MEDIUM
                 }
@@ -1345,3 +1346,7 @@ ensure_file_handlers(Conf, _Opts) ->
     HandlersWithoutName = maps:with(FileFields, Conf),
     HandlersWithName = maps:without(FileFields, Conf),
     emqx_utils_maps:deep_merge(#{<<"default">> => HandlersWithoutName}, HandlersWithName).
+
+convert_rotation(undefined, _Opts) -> undefined;
+convert_rotation(#{} = Rotation, _Opts) -> maps:get(count, Rotation, 10);
+convert_rotation(Count, _Opts) when is_integer(Count) -> Count.
