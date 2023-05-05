@@ -270,7 +270,8 @@ jobs:
         echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
-        if [ ${{ matrix.release_with }} == 'elixir' ]; then
+        WITH_ELIXIR=${{ matrix.release_with }}
+        if [ "${WITH_ELIXIR:-}" == 'elixir' ]; then
           PKGTYPES="tgz"
           # set Elixir build flag
           IS_ELIXIR="yes"
