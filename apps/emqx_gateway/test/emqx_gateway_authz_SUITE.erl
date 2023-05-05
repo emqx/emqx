@@ -332,7 +332,7 @@ t_case_sn_subscribe(_) ->
 t_case_exproto_publish(_) ->
     Mod = emqx_exproto_SUITE,
     SvrMod = emqx_exproto_echo_svr,
-    Svrs = SvrMod:start(),
+    Svrs = SvrMod:start(http),
     Payload = <<"publish with authz">>,
     Publish = fun(Topic, Checker) ->
         with_resource(
@@ -369,7 +369,7 @@ t_case_exproto_publish(_) ->
 t_case_exproto_subscribe(_) ->
     Mod = emqx_exproto_SUITE,
     SvrMod = emqx_exproto_echo_svr,
-    Svrs = SvrMod:start(),
+    Svrs = SvrMod:start(http),
     WaitTime = 5000,
     Sub = fun(Topic, ErrorCode) ->
         with_resource(
