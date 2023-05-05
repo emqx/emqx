@@ -262,7 +262,7 @@ jobs:
   publish_artifacts:
     runs-on: ubuntu-22.04
     needs: [prepare, mac, linux]
-    if: needs.prepare.outputs.IS_EXACT_TAG
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
     strategy:
       fail-fast: false
       matrix:
