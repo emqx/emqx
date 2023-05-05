@@ -140,7 +140,7 @@ BUILDER_SYSTEM="$(echo "$BUILDER" | awk -F'-' '{print $NF}')"
 CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 
 IS_NATIVE_SYSTEM='no'
-if [[ "$HOST_SYSTEM" = "$BUILDER_SYSTEM" ]]; then
+if [[ "$BUILDER_SYSTEM" == "force_host" ]] || [[ "$BUILDER_SYSTEM" == "$HOST_SYSTEM" ]]; then
     IS_NATIVE_SYSTEM='yes'
 fi
 

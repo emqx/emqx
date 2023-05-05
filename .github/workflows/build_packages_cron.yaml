@@ -95,7 +95,7 @@ jobs:
               --pkgtype "${PKGTYPE}" \
               --arch "${ARCH}" \
               --elixir "${IS_ELIXIR}" \
-              --builder "builder_to_be_ignored"
+              --builder "force_host"
           done
       - uses: actions/upload-artifact@v3
         if: success()
