@@ -136,7 +136,7 @@ handle_disallowed_placeholders(Template, Source, Allowed) ->
                 allowed => #{placeholders => Allowed},
                 notice =>
                     "Disallowed placeholders will be rendered as is."
-                    " However, consider using `$${...}` escaping for literal `${...}` where"
+                    " However, consider using `${$}` escaping for literal `$` where"
                     " needed to avoid unexpected results."
             }),
             Result = prerender_disallowed_placeholders(Template, Allowed),
@@ -156,7 +156,7 @@ prerender_disallowed_placeholders(Template, Allowed) ->
             % parse as a literal string.
             case lists:member(Name, Allowed) of
                 true -> "${" ++ Name ++ "}";
-                false -> "$${" ++ Name ++ "}"
+                false -> "${$}{" ++ Name ++ "}"
             end
         end
     }),

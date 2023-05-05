@@ -42,7 +42,7 @@
 
 -type t() :: str() | {'$tpl', deeptpl()}.
 
--type str() :: [unicode:chardata() | placeholder()].
+-type str() :: [iodata() | byte() | placeholder()].
 -type deep() :: {'$tpl', deeptpl()}.
 
 -type deeptpl() ::
@@ -76,7 +76,8 @@
     var_trans => var_trans()
 }.
 
--define(RE_PLACEHOLDER, "\\$(\\$?)\\{[.]?([a-zA-Z0-9._]*)\\}").
+-define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
+-define(RE_ESCAPE, "\\$\\{(\\$)\\}").
 
 %% @doc Parse a unicode string into a template.
 %% String might contain zero or more of placeholders in the form of `${var}`,
@@ -95,22 +96,21 @@ parse(String, Opts) ->
     RE =
         case Opts of
             #{strip_double_quote := true} ->
-                <<"((?|" ?RE_PLACEHOLDER "|\"" ?RE_PLACEHOLDER "\"))">>;
+                <<"((?|" ?RE_PLACEHOLDER "|\"" ?RE_PLACEHOLDER "\")|" ?RE_ESCAPE ")">>;
             #{} ->
-                <<"(" ?RE_PLACEHOLDER ")">>
+                <<"(" ?RE_PLACEHOLDER "|" ?RE_ESCAPE ")">>
         end,
     Splits = re:split(String, RE, [{return, binary}, group, trim, unicode]),
     Components = lists:flatmap(fun parse_split/1, Splits),
     Components.
 
-parse_split([Part, _PH, <<>>, Var]) ->
+parse_split([Part, _PH, Var, <<>>]) ->
     % Regular placeholder
     prepend(Part, [{var, unicode:characters_to_list(Var), parse_accessor(Var)}]);
-parse_split([Part, _PH = <<B1, $$, Rest/binary>>, <<"$">>, _]) ->
-    % Escaped literal, take all but the second byte, which is always `$`.
-    % Important to make a whole token starting with `$` so the `unparse/11`
-    % function can distinguish escaped literals.
-    prepend(Part, [<<B1, Rest/binary>>]);
+parse_split([Part, _Escape, <<>>, <<"$">>]) ->
+    % Escaped literal `$`.
+    % Use single char as token so the `unparse/1` function can distinguish escaped `$`.
+    prepend(Part, [$$]);
 parse_split([Tail]) ->
     [Tail].
 
@@ -159,8 +159,8 @@ unparse(Template) ->
 
 unparse_part({var, Name, _Accessor}) ->
     render_placeholder(Name);
-unparse_part(Part = <<"${", _/binary>>) ->
-    <<"$", Part/binary>>;
+unparse_part($$) ->
+    <<"${$}">>;
 unparse_part(Part) ->
     Part.
 

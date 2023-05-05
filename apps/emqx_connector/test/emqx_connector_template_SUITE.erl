@@ -115,7 +115,7 @@ t_render_missing_bindings(_) ->
     ).
 
 t_unparse(_) ->
-    TString = <<"a:${a},b:${b},c:$${c},d:{${d.d1}}">>,
+    TString = <<"a:${a},b:${b},c:$${c},d:{${d.d1}},e:${$}{e},lit:${$}{$}">>,
     Template = emqx_connector_template:parse(TString),
     ?assertEqual(
         TString,
@@ -129,12 +129,14 @@ t_const(_) ->
     ),
     ?assertEqual(
         false,
-        emqx_connector_template:is_const(emqx_connector_template:parse(<<"a:${a},b:${b},c:$${c}">>))
+        emqx_connector_template:is_const(
+            emqx_connector_template:parse(<<"a:${a},b:${b},c:${$}{c}">>)
+        )
     ),
     ?assertEqual(
         true,
         emqx_connector_template:is_const(
-            emqx_connector_template:parse(<<"a:$${a},b:$${b},c:$${c}">>)
+            emqx_connector_template:parse(<<"a:${$}{a},b:${$}{b}">>)
         )
     ).
 
@@ -147,16 +149,16 @@ t_render_partial_ph(_) ->
     ).
 
 t_parse_escaped(_) ->
-    Bindings = #{a => <<"1">>, b => 1},
-    Template = emqx_connector_template:parse(<<"a:${a},b:$${b}">>),
+    Bindings = #{a => <<"1">>, b => 1, c => "VAR"},
+    Template = emqx_connector_template:parse(<<"a:${a},b:${$}{b},c:${$}{${c}},lit:${$}{$}">>),
     ?assertEqual(
-        <<"a:1,b:${b}">>,
+        <<"a:1,b:${b},c:${VAR},lit:${$}">>,
         render_strict_string(Template, Bindings)
     ).
 
 t_parse_escaped_dquote(_) ->
     Bindings = #{a => <<"1">>, b => 1},
-    Template = emqx_connector_template:parse(<<"a:\"${a}\",b:\"$${b}\"">>, #{
+    Template = emqx_connector_template:parse(<<"a:\"${a}\",b:\"${$}{b}\"">>, #{
         strip_double_quote => true
     }),
     ?assertEqual(
@@ -299,7 +301,7 @@ t_render_tmpl_deep(_) ->
     Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
 
     Template = emqx_connector_template:parse_deep(
-        #{<<"${a}">> => [<<"${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>, <<"$${d}">>], 0}]}
+        #{<<"${a}">> => [<<"$${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>, <<"${$}{d}">>], 0}]}
     ),
 
     ?assertEqual(
@@ -308,12 +310,12 @@ t_render_tmpl_deep(_) ->
     ),
 
     ?assertEqual(
-        #{<<"1">> => [<<"1">>, "c", 2, 3.0, '${d}', {[<<"1.0">>, <<"${d}">>], 0}]},
+        #{<<"1">> => [<<"$1">>, "c", 2, 3.0, '${d}', {[<<"1.0">>, <<"${d}">>], 0}]},
         emqx_connector_template:render_strict(Template, Bindings)
     ).
 
 t_unparse_tmpl_deep(_) ->
-    Term = #{<<"${a}">> => [<<"$${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>], 0}]},
+    Term = #{<<"${a}">> => [<<"$${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>], <<"${$}{d}">>, 0}]},
     Template = emqx_connector_template:parse_deep(Term),
     ?assertEqual(Term, emqx_connector_template:unparse(Template)).
 
