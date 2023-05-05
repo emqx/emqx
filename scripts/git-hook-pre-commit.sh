@@ -5,7 +5,7 @@ set -euo pipefail
 OPT="${1:--c}"
 
 # mix format check is quite fast
-mix format --check-formatted
+which mix && mix format --check-formatted
 
 files_dirty="$(git diff --name-only | grep -E '.*\.erl' || true)"
 files_cached="$(git diff --cached --name-only | grep -E '.*\.erl' || true)"
