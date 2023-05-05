@@ -28,7 +28,12 @@ jobs:
           fetch-depth: 0
       - name: get_all_deps
         run: |
-          make -C source deps-all
+          pushd source
+          # make sure all previous left-overs are cleaned
+          make clean-all
+          # enterprise is a super-set, should be enough for all profiles
+          make deps-emqx-enterprise
+          popd
           zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v3
         with:
@@ -38,6 +43,10 @@ jobs:
   linux:
     needs: prepare
     runs-on: aws-${{ matrix.arch }}
+    # always run in builder container because the host might have the wrong OTP version etc.
+    # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
+    container:
+      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -72,12 +81,9 @@ jobs:
       - name: build emqx packages
         working-directory: source
         env:
-          BUILDER: ${{ matrix.builder }}
           ELIXIR: ${{ matrix.elixir }}
-          OTP: ${{ matrix.otp }}
           PROFILE: ${{ matrix.profile[0] }}
           ARCH: ${{ matrix.arch }}
-          OS: ${{ matrix.os }}
         run: |
           set -eu
           PKGTYPES="tgz pkg"
@@ -89,7 +95,7 @@ jobs:
               --pkgtype "${PKGTYPE}" \
               --arch "${ARCH}" \
               --elixir "${IS_ELIXIR}" \
-              --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${OS}
+              --builder "builder_to_be_ignored"
           done
       - uses: actions/upload-artifact@v3
         if: success()
