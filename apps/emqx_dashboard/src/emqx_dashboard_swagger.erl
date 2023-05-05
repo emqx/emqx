@@ -31,7 +31,11 @@
 -export([relative_uri/1]).
 -export([compose_filters/2]).
 
--export([filter_check_request/2, filter_check_request_and_translate_body/2]).
+-export([
+    filter_check_request/2,
+    filter_check_request_and_translate_body/2,
+    gen_api_schema_json_iodata/3
+]).
 
 -ifdef(TEST).
 -export([
@@ -76,6 +80,8 @@
         ?TO_REF(namespace(_M_), _F_)
     ])
 ).
+
+-define(SPECIAL_LANG_MSGID, <<"$msgid">>).
 
 -define(MAX_ROW_LIMIT, 1000).
 -define(DEFAULT_ROW, 100).
@@ -221,6 +227,50 @@ file_schema(FileName) ->
         }
     }.
 
+gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
+    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
+        SchemaMod,
+        #{
+            schema_converter => Converter,
+            i18n_lang => ?SPECIAL_LANG_MSGID
+        }
+    ),
+    ApiSpec = lists:foldl(
+        fun({Path, Spec, _, _}, Acc) ->
+            NewSpec = maps:fold(
+                fun(Method, #{responses := Responses}, SubAcc) ->
+                    case Responses of
+                        #{
+                            <<"200">> :=
+                                #{
+                                    <<"content">> := #{
+                                        <<"application/json">> := #{<<"schema">> := Schema}
+                                    }
+                                }
+                        } ->
+                            SubAcc#{Method => Schema};
+                        _ ->
+                            SubAcc
+                    end
+                end,
+                #{},
+                Spec
+            ),
+            Acc#{list_to_atom(Path) => NewSpec}
+        end,
+        #{},
+        ApiSpec0
+    ),
+    Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
+    emqx_utils_json:encode(
+        #{
+            info => SchemaInfo,
+            paths => ApiSpec,
+            components => #{schemas => Components}
+        },
+        [pretty, force_utf8]
+    ).
+
 -spec compose_filters(filter(), filter()) -> filter().
 compose_filters(undefined, Filter2) ->
     Filter2;
@@ -288,18 +338,17 @@ parse_spec_ref(Module, Path, Options) ->
     Schema =
         try
             erlang:apply(Module, schema, [Path])
-            %% better error message
         catch
-            error:Reason:Stacktrace ->
-                %% raise a new error with the same stacktrace.
-                %% it's a bug if this happens.
-                %% i.e. if a path is listed in the spec but the module doesn't
-                %% implement it or crashes when trying to build the schema.
-                erlang:raise(
-                    error,
-                    #{mfa => {Module, schema, [Path]}, reason => Reason},
-                    Stacktrace
-                )
+            Error:Reason:Stacktrace ->
+                %% This error is intended to fail the build
+                %% hence print to standard_error
+                io:format(
+                    standard_error,
+                    "Failed to generate swagger for path ~p in module ~p~n"
+                    "error:~p~nreason:~p~n~p~n",
+                    [Module, Path, Error, Reason, Stacktrace]
+                ),
+                error({failed_to_generate_swagger_spec, Module, Path})
         end,
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->
@@ -534,12 +583,28 @@ maybe_add_summary_from_label(Spec, Hocon, Options) ->
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
+    case Lang of
+        ?SPECIAL_LANG_MSGID ->
+            make_msgid(Namespace, Id, Tag);
+        _ ->
+            get_i18n_text(Lang, Namespace, Id, Tag, Default)
+    end.
+
+get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
     case emqx_dashboard_desc_cache:lookup(Lang, Namespace, Id, Tag) of
         undefined ->
             Default;
         Text ->
             Text
     end.
+
+%% Format：$msgid:Namespace.Id.Tag
+%% e.g. $msgid:emqx_schema.key.desc
+%%      $msgid:emqx_schema.key.label
+%% if needed, the consumer of this schema JSON can use this msgid to
+%% resolve the text in the i18n database.
+make_msgid(Namespace, Id, Tag) ->
+    iolist_to_binary(["$msgid:", to_bin(Namespace), ".", to_bin(Id), ".", Tag]).
 
 %% So far i18n_lang in options is only used at build time.
 %% At runtime, it's still the global config which controls the language.

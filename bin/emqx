@@ -304,7 +304,7 @@ if [ "$ES" -ne 0 ]; then
 fi
 
 # Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
+mkdir -p "$EMQX_LOG_DIR"
 
 # turn off debug as this is static
 set +x
@@ -396,7 +396,7 @@ relx_get_pid() {
 remsh() {
     # Generate a unique id used to allow multiple remsh to the same node
     # transparently
-    id="remsh$(relx_gen_id)-${NAME}"
+    id="remsh$(gen_node_id)-${NAME}"
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
@@ -424,7 +424,7 @@ remsh() {
 }
 
 # Generate a random id
-relx_gen_id() {
+gen_node_id() {
     od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
 }
 
@@ -757,7 +757,7 @@ generate_config() {
     local node_name="$2"
     ## Delete the *.siz files first or it can't start after
     ## changing the config 'log.rotation.size'
-    rm -f "${RUNNER_LOG_DIR}"/*.siz
+    rm -f "${EMQX_LOG_DIR}"/*.siz
 
     ## timestamp for each generation
     local NOW_TIME
@@ -861,7 +861,13 @@ wait_until_return_val() {
     done
 }
 
-# backward compatible with 4.x
+# First, there is EMQX_DEFAULT_LOG_HANDLER which can control the default values
+# to be used when generating configs.
+# It's set in docker entrypoint and in systemd service file.
+#
+# To be backward compatible with 4.x and v5.0.0 ~ v5.0.24/e5.0.2:
+# if EMQX_LOG__TO is set, we try to enable handlers from environment variables.
+# i.e. it overrides the default value set in EMQX_DEFAULT_LOG_HANDLER
 tr_log_to_env() {
     local log_to=${EMQX_LOG__TO:-undefined}
     # unset because it's unknown to 5.0
@@ -893,13 +899,11 @@ tr_log_to_env() {
 
 maybe_log_to_console() {
     if [ "${EMQX_LOG__TO:-}" = 'default' ]; then
-        # want to use config file defaults, do nothing
+        # want to use defaults, do nothing
         unset EMQX_LOG__TO
     else
         tr_log_to_env
-        # ensure defaults
-        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
-        export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-false}"
+        export EMQX_DEFAULT_LOG_HANDLER=${EMQX_DEFAULT_LOG_HANDLER:-console}
     fi
 }
 
@@ -979,7 +983,7 @@ diagnose_boot_failure_and_die() {
     local ps_line
     ps_line="$(find_emqx_process)"
     if [ -z "$ps_line" ]; then
-        echo "Find more information in the latest log file: ${RUNNER_LOG_DIR}/erlang.log.*"
+        echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
         exit 1
     fi
     if ! relx_nodetool "ping" > /dev/null; then
@@ -990,7 +994,7 @@ diagnose_boot_failure_and_die() {
     fi
     if ! relx_nodetool 'eval' 'true = emqx:is_running()' > /dev/null; then
         logerr "$NAME node is started, but failed to complete the boot sequence in time."
-        echo "Please collect the logs in ${RUNNER_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
+        echo "Please collect the logs in ${EMQX_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
         pipe_shutdown
         exit 3
     fi
@@ -1065,7 +1069,7 @@ case "${COMMAND}" in
 
         mkdir -p "$PIPE_DIR"
 
-        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
+        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$EMQX_LOG_DIR" \
                           "$(relx_start_command)"
 
         WAIT_TIME=${EMQX_WAIT_FOR_START:-120}
@@ -1273,7 +1277,7 @@ case "${COMMAND}" in
         then
           "$REL_DIR/elixir" \
               --hidden \
-              --name "rand-$(relx_gen_id)-$NAME" \
+              --name "rand-$(gen_node_id)-$NAME" \
               --cookie "$COOKIE" \
               --boot "$REL_DIR/start_clean" \
               --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \

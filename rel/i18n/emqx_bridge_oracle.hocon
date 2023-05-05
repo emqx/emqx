@@ -1,0 +1,52 @@
+emqx_bridge_oracle {
+
+  local_topic {
+    desc = "The MQTT topic filter to be forwarded to Oracle Database. All MQTT 'PUBLISH' messages with the topic"
+           " matching the local_topic will be forwarded.</br>"
+           "NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is"
+           " configured, then both the data got from the rule and the MQTT messages that match local_topic"
+           " will be forwarded."
+    label = "Local Topic"
+  }
+
+  sql_template {
+    desc = "SQL Template. The template string can contain placeholders"
+           " for message metadata and payload field. The placeholders are inserted"
+           " without any checking and special formatting, so it is important to"
+           " ensure that the inserted values are formatted and escaped correctly."
+    label = "SQL Template"
+  }
+
+  server {
+    desc = "The IPv4 or IPv6 address or the hostname to connect to.<br/>"
+           "A host entry has the following form: `Host[:Port]`.<br/>"
+           "The Oracle Database default port 1521 is used if `[:Port]` is not specified."
+    label = "Server Host"
+  }
+
+  sid {
+    desc = "Sid for Oracle Database"
+    label = "Oracle Database Sid."
+  }
+
+  config_enable {
+    desc = "Enable or disable this bridge"
+    label = "Enable Or Disable Bridge"
+  }
+
+  desc_config {
+    desc = "Configuration for an Oracle Database bridge."
+    label = "Oracle Database Bridge Configuration"
+  }
+
+  desc_type {
+    desc = "The Bridge Type"
+    label = "Bridge Type"
+  }
+
+  desc_name {
+    desc = "Bridge name."
+    label = "Bridge Name"
+  }
+
+}

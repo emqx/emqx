@@ -449,9 +449,14 @@ all_test_hosts() ->
     ).
 
 parse_servers(Servers) ->
-    emqx_schema:parse_servers(Servers, #{
-        default_port => 6379
-    }).
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers, #{
+            default_port => 6379
+        })
+    ).
 
 redis_connect_ssl_opts(Type) ->
     maps:merge(

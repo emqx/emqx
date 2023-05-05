@@ -537,4 +537,9 @@ format_hosts(Hosts) ->
     lists:map(fun format_host/1, Hosts).
 
 parse_servers(HoconValue) ->
-    emqx_schema:parse_servers(HoconValue, ?MONGO_HOST_OPTIONS).
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(HoconValue, ?MONGO_HOST_OPTIONS)
+    ).

@@ -32,6 +32,7 @@
     start_apps/3,
     start_app/2,
     stop_apps/1,
+    stop_apps/2,
     reload/2,
     app_path/2,
     proj_root/0,
@@ -55,12 +56,12 @@
     is_tcp_server_available/2,
     is_tcp_server_available/3,
     load_config/2,
-    load_config/3,
     not_wait_mqtt_payload/1,
     read_schema_configs/2,
     render_config_file/2,
     wait_for/4,
-    wait_mqtt_payload/1
+    wait_mqtt_payload/1,
+    select_free_port/1
 ]).
 
 -export([
@@ -253,10 +254,19 @@ start_app(App, SpecAppConfig, Opts) ->
     case application:ensure_all_started(App) of
         {ok, _} ->
             ok = ensure_dashboard_listeners_started(App),
+            ok = wait_for_app_processes(App),
             ok;
         {error, Reason} ->
             error({failed_to_start_app, App, Reason})
     end.
+
+wait_for_app_processes(emqx_conf) ->
+    %% emqx_conf app has a gen_server which
+    %% initializes its state asynchronously
+    gen_server:call(emqx_cluster_rpc, dummy),
+    ok;
+wait_for_app_processes(_) ->
+    ok.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
@@ -274,9 +284,9 @@ app_schema(App) ->
 mustache_vars(App, Opts) ->
     ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
     Defaults = #{
+        node_cookie => atom_to_list(erlang:get_cookie()),
         platform_data_dir => app_path(App, "data"),
-        platform_etc_dir => app_path(App, "etc"),
-        platform_log_dir => app_path(App, "log")
+        platform_etc_dir => app_path(App, "etc")
     },
     maps:merge(Defaults, ExtraMustacheVars).
 
@@ -304,12 +314,21 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 
 -spec stop_apps(list()) -> ok.
 stop_apps(Apps) ->
+    stop_apps(Apps, #{}).
+
+stop_apps(Apps, Opts) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
-    emqx_config:erase_schema_mod_and_names(),
+    case Opts of
+        #{erase_all_configs := false} ->
+            %% FIXME: this means inter-suite or inter-test dependencies
+            ok;
+        _ ->
+            emqx_config:erase_all()
+    end,
     ok = emqx_config:delete_override_conf_files(),
     application:unset_env(emqx, local_override_conf_file),
     application:unset_env(emqx, cluster_override_conf_file),
@@ -478,18 +497,14 @@ copy_certs(emqx_conf, Dest0) ->
 copy_certs(_, _) ->
     ok.
 
-load_config(SchemaModule, Config, Opts) ->
+load_config(SchemaModule, Config) ->
     ConfigBin =
         case is_map(Config) of
             true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
-    ok = emqx_config:init_load(SchemaModule, ConfigBin, Opts),
-    ok.
-
-load_config(SchemaModule, Config) ->
-    load_config(SchemaModule, Config, #{raw_with_default => false}).
+    ok = emqx_config:init_load(SchemaModule, ConfigBin).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
     Servers :: [{Host, Port}],
@@ -665,6 +680,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
     SlaveMod = maps:get(peer_mod, Opts, ct_slave),
     Node = node_name(Name),
     put_peer_mod(Node, SlaveMod),
+    Cookie = atom_to_list(erlang:get_cookie()),
     DoStart =
         fun() ->
             case SlaveMod of
@@ -676,7 +692,11 @@ start_slave(Name, Opts) when is_map(Opts) ->
                             {monitor_master, true},
                             {init_timeout, 20_000},
                             {startup_timeout, 20_000},
-                            {erl_flags, erl_flags()}
+                            {erl_flags, erl_flags()},
+                            {env, [
+                                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
+                                {"EMQX_NODE__COOKIE", Cookie}
+                            ]}
                         ]
                     );
                 slave ->
@@ -1241,3 +1261,34 @@ get_or_spawn_janitor() ->
 on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
+
+%%-------------------------------------------------------------------------------
+%% Select a free transport port from the OS
+%%-------------------------------------------------------------------------------
+%% @doc get unused port from OS
+-spec select_free_port(tcp | udp | ssl | quic) -> inets:port_number().
+select_free_port(tcp) ->
+    select_free_port(gen_tcp, listen);
+select_free_port(udp) ->
+    select_free_port(gen_udp, open);
+select_free_port(ssl) ->
+    select_free_port(tcp);
+select_free_port(quic) ->
+    select_free_port(udp).
+
+select_free_port(GenModule, Fun) when
+    GenModule == gen_tcp orelse
+        GenModule == gen_udp
+->
+    {ok, S} = GenModule:Fun(0, [{reuseaddr, true}]),
+    {ok, Port} = inet:port(S),
+    ok = GenModule:close(S),
+    case os:type() of
+        {unix, darwin} ->
+            %% in MacOS, still get address_in_use after close port
+            timer:sleep(500);
+        _ ->
+            skip
+    end,
+    ct:pal("Select free OS port: ~p", [Port]),
+    Port.

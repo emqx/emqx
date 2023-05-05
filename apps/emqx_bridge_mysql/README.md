@@ -1,6 +1,6 @@
 # EMQX MySQL Bridge
 
-[MySQL](https://github.com/MySQL/MySQL) is a popular open-source relational database
+[MySQL](https://github.com/mysql/mysql-server) is a popular open-source relational database
 management system.
 
 The application is used to connect EMQX and MySQL.

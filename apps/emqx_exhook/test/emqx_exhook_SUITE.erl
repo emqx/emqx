@@ -301,10 +301,10 @@ t_cluster_name(_) ->
                 ok
         end,
 
-    emqx_common_test_helpers:stop_apps([emqx, emqx_exhook]),
+    stop_apps([emqx, emqx_exhook]),
     emqx_common_test_helpers:start_apps([emqx, emqx_exhook], SetEnvFun),
     on_exit(fun() ->
-        emqx_common_test_helpers:stop_apps([emqx, emqx_exhook]),
+        stop_apps([emqx, emqx_exhook]),
         load_cfg(?CONF_DEFAULT),
         emqx_common_test_helpers:start_apps([emqx_exhook]),
         mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT])
@@ -489,3 +489,7 @@ data_file(Name) ->
 
 cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
+
+%% FIXME: this creats inter-test dependency
+stop_apps(Apps) ->
+    emqx_common_test_helpers:stop_apps(Apps, #{erase_all_configs => false}).

@@ -91,7 +91,7 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
     ?SLOG(info, #{
         msg => "starting_postgresql_connector",
         connector => InstId,

@@ -45,6 +45,17 @@ schema("/status") ->
     #{
         'operationId' => get_status,
         get => #{
+            parameters => [
+                {format,
+                    hoconsc:mk(
+                        string(),
+                        #{
+                            in => query,
+                            default => <<"text">>,
+                            desc => ?DESC(get_status_api_format)
+                        }
+                    )}
+            ],
             description => ?DESC(get_status_api),
             tags => ?TAGS,
             security => [],
@@ -70,7 +81,16 @@ path() ->
     "/status".
 
 init(Req0, State) ->
-    {Code, Headers, Body} = running_status(),
+    Format =
+        try
+            QS = cowboy_req:parse_qs(Req0),
+            {_, F} = lists:keyfind(<<"format">>, 1, QS),
+            F
+        catch
+            _:_ ->
+                <<"text">>
+        end,
+    {Code, Headers, Body} = running_status(Format),
     Req = cowboy_req:reply(Code, Headers, Body, Req0),
     {ok, Req, State}.
 
@@ -78,28 +98,51 @@ init(Req0, State) ->
 %% API Handler funcs
 %%--------------------------------------------------------------------
 
-get_status(get, _Params) ->
-    running_status().
+get_status(get, Params) ->
+    Format = maps:get(<<"format">>, maps:get(query_string, Params, #{}), <<"text">>),
+    running_status(iolist_to_binary(Format)).
 
-running_status() ->
+running_status(Format) ->
     case emqx_dashboard_listener:is_ready(timer:seconds(20)) of
         true ->
-            BrokerStatus = broker_status(),
             AppStatus = application_status(),
-            Body = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),
+            Body = do_get_status(AppStatus, Format),
             StatusCode =
                 case AppStatus of
                     running -> 200;
                     not_running -> 503
                 end,
+            ContentType =
+                case Format of
+                    <<"json">> -> <<"applicatin/json">>;
+                    _ -> <<"text/plain">>
+                end,
             Headers = #{
-                <<"content-type">> => <<"text/plain">>,
+                <<"content-type">> => ContentType,
                 <<"retry-after">> => <<"15">>
             },
-            {StatusCode, Headers, list_to_binary(Body)};
+            {StatusCode, Headers, iolist_to_binary(Body)};
         false ->
             {503, #{<<"retry-after">> => <<"15">>}, <<>>}
     end.
+
+do_get_status(AppStatus, <<"json">>) ->
+    BrokerStatus = broker_status(),
+    emqx_utils_json:encode(#{
+        node_name => atom_to_binary(node(), utf8),
+        rel_vsn => vsn(),
+        broker_status => atom_to_binary(BrokerStatus),
+        app_status => atom_to_binary(AppStatus)
+    });
+do_get_status(AppStatus, _) ->
+    BrokerStatus = broker_status(),
+    io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]).
+
+vsn() ->
+    iolist_to_binary([
+        emqx_release:edition_vsn_prefix(),
+        emqx_release:version()
+    ]).
 
 broker_status() ->
     case emqx:is_running() of

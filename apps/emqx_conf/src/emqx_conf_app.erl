@@ -32,12 +32,8 @@ start(_StartType, _StartArgs) ->
         ok = init_conf()
     catch
         C:E:St ->
-            ?SLOG(critical, #{
-                msg => failed_to_init_config,
-                exception => C,
-                reason => E,
-                stacktrace => St
-            }),
+            %% logger is not quite ready.
+            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
             init:stop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
@@ -66,7 +62,8 @@ get_override_config_file() ->
                             conf => Conf,
                             tnx_id => TnxId,
                             node => Node,
-                            has_deprecated_file => HasDeprecateFile
+                            has_deprecated_file => HasDeprecateFile,
+                            release => emqx_app:get_release()
                         }
                     end,
                     case mria:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
@@ -91,15 +88,8 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
--ifdef(TEST).
 init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => false}).
-
--else.
-
-init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => true}).
--endif.
+    emqx_config:init_load(emqx_conf:schema_module()).
 
 init_conf() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
@@ -175,11 +165,13 @@ copy_override_conf_from_core_node() ->
                 _ ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
-                    HasDeprecatedFile = maps:get(has_deprecated_file, Info, false),
+                    HasDeprecatedFile = has_deprecated_file(Info),
                     ?SLOG(debug, #{
                         msg => "copy_cluster_conf_from_core_node_success",
                         node => Node,
                         has_deprecated_file => HasDeprecatedFile,
+                        local_release => emqx_app:get_release(),
+                        remote_release => maps:get(release, Info, "before_v5.0.24|e5.0.3"),
                         data_dir => emqx:data_dir(),
                         tnx_id => TnxId
                     }),
@@ -226,4 +218,14 @@ sync_data_from_node(Node) ->
         Error ->
             ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
             error(Error)
+    end.
+
+has_deprecated_file(#{conf := Conf} = Info) ->
+    case maps:find(has_deprecated_file, Info) of
+        {ok, HasDeprecatedFile} ->
+            HasDeprecatedFile;
+        error ->
+            %% The old version don't have emqx_config:has_deprecated_file/0
+            %% Conf is not empty if deprecated file is found.
+            Conf =/= #{}
     end.

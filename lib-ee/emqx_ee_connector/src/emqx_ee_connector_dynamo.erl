@@ -22,27 +22,14 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_query_async/4,
-    on_batch_query_async/4,
     on_get_status/2
 ]).
 
 -export([
-    connect/1,
-    do_get_status/1,
-    do_async_reply/2,
-    worker_do_query/4
+    connect/1
 ]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
-
--define(DYNAMO_HOST_OPTIONS, #{
-    default_port => 8000
-}).
-
--ifdef(TEST).
--export([execute/2]).
--endif.
 
 %%=====================================================================
 %% Hocon schema
@@ -71,7 +58,7 @@ fields(config) ->
 %% `emqx_resource' API
 %%========================================================================================
 
-callback_mode() -> async_if_possible.
+callback_mode() -> always_sync.
 
 is_buffer_supported() -> false.
 
@@ -91,8 +78,10 @@ on_start(
         config => redact(Config)
     }),
 
-    {Schema, Server} = get_host_schema(to_str(Url)),
-    {Host, Port} = emqx_schema:parse_server(Server, ?DYNAMO_HOST_OPTIONS),
+    {Schema, Server, DefaultPort} = get_host_info(to_str(Url)),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{
+        default_port => DefaultPort
+    }),
 
     Options = [
         {config, #{
@@ -126,44 +115,21 @@ on_stop(InstanceId, #{pool_name := PoolName}) ->
     emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, Query, State) ->
-    do_query(InstanceId, Query, handover, State).
-
-on_query_async(InstanceId, Query, Reply, State) ->
-    do_query(
-        InstanceId,
-        Query,
-        {handover_async, {?MODULE, do_async_reply, [Reply]}},
-        State
-    ).
+    do_query(InstanceId, Query, State).
 
 %% we only support batch insert
 on_batch_query(InstanceId, [{send_message, _} | _] = Query, State) ->
-    do_query(InstanceId, Query, handover, State);
+    do_query(InstanceId, Query, State);
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
 %% we only support batch insert
-on_batch_query_async(InstanceId, [{send_message, _} | _] = Query, Reply, State) ->
-    do_query(
-        InstanceId,
-        Query,
-        {handover_async, {?MODULE, do_async_reply, [Reply]}},
-        State
-    );
-on_batch_query_async(_InstanceId, Query, _Reply, _State) ->
-    {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{pool_name := PoolName}) ->
-    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
+on_get_status(_InstanceId, #{pool_name := Pool}) ->
+    Health = emqx_resource_pool:health_check_workers(
+        Pool, {emqx_ee_connector_dynamo_client, is_connected, []}
+    ),
     status_result(Health).
-
-do_get_status(_Conn) ->
-    %% because the dynamodb driver connection process is the ecpool worker self
-    %% so we must call the checker function inside the worker
-    case erlcloud_ddb2:list_tables() of
-        {ok, _} -> true;
-        _ -> false
-    end.
 
 status_result(_Status = true) -> connected;
 status_result(_Status = false) -> connecting.
@@ -175,7 +141,6 @@ status_result(_Status = false) -> connecting.
 do_query(
     InstanceId,
     Query,
-    ApplyMode,
     #{pool_name := PoolName, templates := Templates, table := Table} = State
 ) ->
     ?TRACE(
@@ -185,8 +150,8 @@ do_query(
     ),
     Result = ecpool:pick_and_do(
         PoolName,
-        {?MODULE, worker_do_query, [Table, Query, Templates]},
-        ApplyMode
+        {emqx_ee_connector_dynamo_client, query, [Table, Query, Templates]},
+        no_handover
     ),
 
     case Result of
@@ -210,47 +175,10 @@ do_query(
             Result
     end.
 
-worker_do_query(_Client, Table, Query0, Templates) ->
-    try
-        Query = apply_template(Query0, Templates),
-        execute(Query, Table)
-    catch
-        _Type:Reason ->
-            {error, {unrecoverable_error, {invalid_request, Reason}}}
-    end.
-
-%% some simple query commands for authn/authz or test
-execute({insert_item, Msg}, Table) ->
-    Item = convert_to_item(Msg),
-    erlcloud_ddb2:put_item(Table, Item);
-execute({delete_item, Key}, Table) ->
-    erlcloud_ddb2:delete_item(Table, Key);
-execute({get_item, Key}, Table) ->
-    erlcloud_ddb2:get_item(Table, Key);
-%% commands for data bridge query or batch query
-execute({send_message, Msg}, Table) ->
-    Item = convert_to_item(Msg),
-    erlcloud_ddb2:put_item(Table, Item);
-execute([{put, _} | _] = Msgs, Table) ->
-    %% type of batch_write_item argument :: batch_write_item_request_items()
-    %% batch_write_item_request_items() :: maybe_list(batch_write_item_request_item())
-    %% batch_write_item_request_item() :: {table_name(), list(batch_write_item_request())}
-    %% batch_write_item_request() :: {put, item()} | {delete, key()}
-    erlcloud_ddb2:batch_write_item({Table, Msgs}).
-
 connect(Opts) ->
-    #{
-        aws_access_key_id := AccessKeyID,
-        aws_secret_access_key := SecretAccessKey,
-        host := Host,
-        port := Port,
-        schema := Schema
-    } = proplists:get_value(config, Opts),
-    erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Schema),
-
-    %% The dynamodb driver uses caller process as its connection process
-    %% so at here, the connection process is the ecpool worker self
-    {ok, self()}.
+    Options = proplists:get_value(config, Opts),
+    {ok, _Pid} = Result = emqx_ee_connector_dynamo_client:start_link(Options),
+    Result.
 
 parse_template(Config) ->
     Templates =
@@ -276,61 +204,12 @@ to_str(List) when is_list(List) ->
 to_str(Bin) when is_binary(Bin) ->
     erlang:binary_to_list(Bin).
 
-get_host_schema("http://" ++ Server) ->
-    {"http://", Server};
-get_host_schema("https://" ++ Server) ->
-    {"https://", Server};
-get_host_schema(Server) ->
-    {"http://", Server}.
-
-apply_template({Key, Msg} = Req, Templates) ->
-    case maps:get(Key, Templates, undefined) of
-        undefined ->
-            Req;
-        Template ->
-            {Key, emqx_plugin_libs_rule:proc_tmpl(Template, Msg)}
-    end;
-%% now there is no batch delete, so
-%% 1. we can simply replace the `send_message` to `put`
-%% 2. convert the message to in_item() here, not at the time when calling `batch_write_items`,
-%%    so we can reduce some list map cost
-apply_template([{send_message, _Msg} | _] = Msgs, Templates) ->
-    lists:map(
-        fun(Req) ->
-            {_, Msg} = apply_template(Req, Templates),
-            {put, convert_to_item(Msg)}
-        end,
-        Msgs
-    ).
-
-convert_to_item(Msg) when is_map(Msg), map_size(Msg) > 0 ->
-    maps:fold(
-        fun
-            (_K, <<>>, AccIn) ->
-                AccIn;
-            (K, V, AccIn) ->
-                [{convert2binary(K), convert2binary(V)} | AccIn]
-        end,
-        [],
-        Msg
-    );
-convert_to_item(MsgBin) when is_binary(MsgBin) ->
-    Msg = emqx_utils_json:decode(MsgBin),
-    convert_to_item(Msg);
-convert_to_item(Item) ->
-    erlang:throw({invalid_item, Item}).
-
-convert2binary(Value) when is_atom(Value) ->
-    erlang:atom_to_binary(Value, utf8);
-convert2binary(Value) when is_binary(Value); is_number(Value) ->
-    Value;
-convert2binary(Value) when is_list(Value) ->
-    unicode:characters_to_binary(Value);
-convert2binary(Value) when is_map(Value) ->
-    emqx_utils_json:encode(Value).
-
-do_async_reply(Result, {ReplyFun, [Context]}) ->
-    ReplyFun(Context, Result).
+get_host_info("http://" ++ Server) ->
+    {"http://", Server, 80};
+get_host_info("https://" ++ Server) ->
+    {"https://", Server, 443};
+get_host_info(Server) ->
+    {"http://", Server, 80}.
 
 redact(Data) ->
     emqx_utils:redact(Data, fun(Any) -> Any =:= aws_secret_access_key end).

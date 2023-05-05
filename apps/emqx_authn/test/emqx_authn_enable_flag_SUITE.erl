@@ -42,15 +42,16 @@ init_per_testcase(_Case, Config) ->
         <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"clientid">>
     },
-    emqx:update_config(
+    {ok, _} = emqx:update_config(
         ?PATH,
         {create_authenticator, ?GLOBAL, AuthnConfig}
     ),
-
-    emqx_conf:update(
-        [listeners, tcp, listener_authn_enabled], {create, listener_mqtt_tcp_conf(18830, true)}, #{}
+    {ok, _} = emqx_conf:update(
+        [listeners, tcp, listener_authn_enabled],
+        {create, listener_mqtt_tcp_conf(18830, true)},
+        #{}
     ),
-    emqx_conf:update(
+    {ok, _} = emqx_conf:update(
         [listeners, tcp, listener_authn_disabled],
         {create, listener_mqtt_tcp_conf(18831, false)},
         #{}

@@ -179,7 +179,12 @@ deregister_all() ->
     gen_server:call(?MODULE, {deregister, all}).
 
 is_registered(Topic) ->
-    ets:member(?TAB, Topic).
+    try
+        ets:member(?TAB, Topic)
+    catch
+        error:badarg ->
+            false
+    end.
 
 all_registered_topics() ->
     [Topic || {Topic, _} <- ets:tab2list(?TAB)].

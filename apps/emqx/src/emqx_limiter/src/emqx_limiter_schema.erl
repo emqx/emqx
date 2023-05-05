@@ -32,15 +32,17 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
-    calc_capacity/1
+    calc_capacity/1,
+    extract_with_type/2,
+    default_client_config/0
 ]).
 
 -define(KILOBYTE, 1024).
--define(BUCKET_KEYS, [
-    {bytes, bucket_infinity},
-    {messages, bucket_infinity},
-    {connection, bucket_limit},
-    {message_routing, bucket_infinity}
+-define(LISTENER_BUCKET_KEYS, [
+    bytes,
+    messages,
+    connection,
+    message_routing
 ]).
 
 -type limiter_type() ::
@@ -94,30 +96,33 @@
 namespace() -> limiter.
 
 roots() ->
-    [{limiter, hoconsc:mk(hoconsc:ref(?MODULE, limiter), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [
+        {limiter,
+            hoconsc:mk(hoconsc:ref(?MODULE, limiter), #{
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ].
 
 fields(limiter) ->
     [
         {Type,
             ?HOCON(?R_REF(node_opts), #{
                 desc => ?DESC(Type),
-                default => #{},
                 importance => ?IMPORTANCE_HIDDEN,
                 aliases => alias_of_type(Type)
             })}
      || Type <- types()
     ] ++
         [
+            %% This is an undocumented feature, and it won't be support anymore
             {client,
                 ?HOCON(
                     ?R_REF(client_fields),
                     #{
                         desc => ?DESC(client),
                         importance => ?IMPORTANCE_HIDDEN,
-                        default => maps:from_list([
-                            {erlang:atom_to_binary(Type), #{}}
-                         || Type <- types()
-                        ])
+                        required => {false, recursively},
+                        deprecated => {since, "5.0.25"}
                     }
                 )}
         ];
@@ -131,11 +136,9 @@ fields(node_opts) ->
             })}
     ];
 fields(client_fields) ->
-    client_fields(types(), #{default => #{}});
-fields(bucket_infinity) ->
+    client_fields(types());
+fields(bucket_opts) ->
     fields_of_bucket(<<"infinity">>);
-fields(bucket_limit) ->
-    fields_of_bucket(<<"1000/s">>);
 fields(client_opts) ->
     [
         {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
@@ -194,10 +197,9 @@ fields(client_opts) ->
             )}
     ];
 fields(listener_fields) ->
-    composite_bucket_fields(?BUCKET_KEYS, listener_client_fields);
+    composite_bucket_fields(?LISTENER_BUCKET_KEYS, listener_client_fields);
 fields(listener_client_fields) ->
-    {Types, _} = lists:unzip(?BUCKET_KEYS),
-    client_fields(Types, #{required => false});
+    client_fields(?LISTENER_BUCKET_KEYS);
 fields(Type) ->
     simple_bucket_field(Type).
 
@@ -205,10 +207,8 @@ desc(limiter) ->
     "Settings for the rate limiter.";
 desc(node_opts) ->
     "Settings for the limiter of the node level.";
-desc(bucket_infinity) ->
+desc(bucket_opts) ->
     "Settings for the bucket.";
-desc(bucket_limit) ->
-    desc(bucket_infinity);
 desc(client_opts) ->
     "Settings for the client in bucket level.";
 desc(client_fields) ->
@@ -240,6 +240,31 @@ calc_capacity(#{rate := infinity}) ->
     infinity;
 calc_capacity(#{rate := Rate, burst := Burst}) ->
     erlang:floor(1000 * Rate / default_period()) + Burst.
+
+extract_with_type(_Type, undefined) ->
+    undefined;
+extract_with_type(Type, #{client := ClientCfg} = BucketCfg) ->
+    BucketVal = maps:find(Type, BucketCfg),
+    ClientVal = maps:find(Type, ClientCfg),
+    merge_client_bucket(Type, ClientVal, BucketVal);
+extract_with_type(Type, BucketCfg) ->
+    BucketVal = maps:find(Type, BucketCfg),
+    merge_client_bucket(Type, undefined, BucketVal).
+
+%% Since the client configuration can be absent and be a undefined value,
+%% but we must need some basic settings to control the behaviour of the limiter,
+%% so here add this helper function to generate a default setting.
+%% This is a temporary workaround until we found a better way to simplify.
+default_client_config() ->
+    #{
+        rate => infinity,
+        initial => 0,
+        low_watermark => 0,
+        burst => 0,
+        divisible => false,
+        max_retry_time => timer:seconds(10),
+        failure_strategy => force
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -360,14 +385,14 @@ apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
 %% A bucket with only one type
 simple_bucket_field(Type) when is_atom(Type) ->
-    fields(bucket_infinity) ++
+    fields(bucket_opts) ++
         [
             {client,
                 ?HOCON(
                     ?R_REF(?MODULE, client_opts),
                     #{
                         desc => ?DESC(client),
-                        required => false,
+                        required => {false, recursively},
                         importance => importance_of_type(Type),
                         aliases => alias_of_type(Type)
                     }
@@ -378,13 +403,13 @@ simple_bucket_field(Type) when is_atom(Type) ->
 composite_bucket_fields(Types, ClientRef) ->
     [
         {Type,
-            ?HOCON(?R_REF(?MODULE, Opts), #{
+            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
                 desc => ?DESC(?MODULE, Type),
-                required => false,
+                required => {false, recursively},
                 importance => importance_of_type(Type),
                 aliases => alias_of_type(Type)
             })}
-     || {Type, Opts} <- Types
+     || Type <- Types
     ] ++
         [
             {client,
@@ -392,7 +417,7 @@ composite_bucket_fields(Types, ClientRef) ->
                     ?R_REF(?MODULE, ClientRef),
                     #{
                         desc => ?DESC(client),
-                        required => false
+                        required => {false, recursively}
                     }
                 )}
         ].
@@ -415,11 +440,12 @@ fields_of_bucket(Default) ->
             })}
     ].
 
-client_fields(Types, Meta) ->
+client_fields(Types) ->
     [
         {Type,
-            ?HOCON(?R_REF(client_opts), Meta#{
+            ?HOCON(?R_REF(client_opts), #{
                 desc => ?DESC(Type),
+                required => false,
                 importance => importance_of_type(Type),
                 aliases => alias_of_type(Type)
             })}
@@ -441,3 +467,12 @@ alias_of_type(bytes) ->
     [bytes_in];
 alias_of_type(_) ->
     [].
+
+merge_client_bucket(Type, {ok, ClientVal}, {ok, BucketVal}) ->
+    #{Type => BucketVal, client => #{Type => ClientVal}};
+merge_client_bucket(Type, {ok, ClientVal}, _) ->
+    #{client => #{Type => ClientVal}};
+merge_client_bucket(Type, _, {ok, BucketVal}) ->
+    #{Type => BucketVal};
+merge_client_bucket(_, _, _) ->
+    undefined.

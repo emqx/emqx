@@ -42,23 +42,24 @@
 ]).
 
 -export([
-    set_resource_status_connecting/1,
-    manager_id_to_resource_id/1
+    set_resource_status_connecting/1
 ]).
 
 % Server
--export([start_link/6]).
+-export([start_link/5]).
 
 % Behaviour
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % State record
 -record(data, {
-    id, manager_id, group, mod, callback_mode, query_mode, config, opts, status, state, error, pid
+    id, group, mod, callback_mode, query_mode, config, opts, status, state, error, pid
 }).
 -type data() :: #data{}.
 
--define(ETS_TABLE, ?MODULE).
+-define(NAME(ResId), {n, l, {?MODULE, ResId}}).
+-define(REF(ResId), {via, gproc, ?NAME(ResId)}).
+
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
 -define(T_LOOKUP, 1000).
@@ -68,13 +69,6 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
-
-make_manager_id(ResId) ->
-    emqx_resource:generate_id(ResId).
-
-manager_id_to_resource_id(MgrId) ->
-    [ResId, _Index] = string:split(MgrId, ":", trailing),
-    ResId.
 
 %% @doc Called from emqx_resource when starting a resource instance.
 %%
@@ -92,8 +86,7 @@ ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
         {ok, _Group, Data} ->
             {ok, Data};
         {error, not_found} ->
-            MgrId = set_new_owner(ResId),
-            create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts)
+            create_and_return_data(ResId, Group, ResourceType, Config, Opts)
     end.
 
 %% @doc Called from emqx_resource when recreating a resource which may or may not exist
@@ -103,23 +96,22 @@ recreate(ResId, ResourceType, NewConfig, Opts) ->
     case lookup(ResId) of
         {ok, Group, #{mod := ResourceType, status := _} = _Data} ->
             _ = remove(ResId, false),
-            MgrId = set_new_owner(ResId),
-            create_and_return_data(MgrId, ResId, Group, ResourceType, NewConfig, Opts);
+            create_and_return_data(ResId, Group, ResourceType, NewConfig, Opts);
         {ok, _, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
             {error, not_found}
     end.
 
-create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts) ->
-    _ = create(MgrId, ResId, Group, ResourceType, Config, Opts),
+create_and_return_data(ResId, Group, ResourceType, Config, Opts) ->
+    _ = create(ResId, Group, ResourceType, Config, Opts),
     {ok, _Group, Data} = lookup(ResId),
     {ok, Data}.
 
 %% @doc Create a resource_manager and wait until it is running
-create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
+create(ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
-    ok = emqx_resource_manager_sup:ensure_child(MgrId, ResId, Group, ResourceType, Config, Opts),
+    ok = emqx_resource_manager_sup:ensure_child(ResId, Group, ResourceType, Config, Opts),
     ok = emqx_metrics_worker:create_metrics(
         ?RES_METRICS,
         ResId,
@@ -164,10 +156,12 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
     ResId = make_test_id(),
-    MgrId = set_new_owner(ResId),
-    ok = emqx_resource_manager_sup:ensure_child(
-        MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
-    ),
+    Opts =
+        case is_map(Config) of
+            true -> maps:get(resource_opts, Config, #{});
+            false -> #{}
+        end,
+    ok = emqx_resource_manager_sup:ensure_child(ResId, <<"dry_run">>, ResourceType, Config, Opts),
     case wait_for_ready(ResId, 5000) of
         ok ->
             remove(ResId);
@@ -237,10 +231,11 @@ lookup(ResId) ->
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    case read_cache(ResId) of
-        {Group, Data} ->
-            {ok, Group, data_record_to_external_map(Data)};
-        not_found ->
+    try read_cache(ResId) of
+        Data = #data{group = Group} ->
+            {ok, Group, data_record_to_external_map(Data)}
+    catch
+        error:badarg ->
             {error, not_found}
     end.
 
@@ -256,20 +251,16 @@ reset_metrics(ResId) ->
 %% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()].
 list_all() ->
-    try
-        [
-            data_record_to_external_map(Data)
-         || {_Id, _Group, Data} <- ets:tab2list(?ETS_TABLE)
-        ]
-    catch
-        error:badarg -> []
-    end.
+    lists:map(
+        fun data_record_to_external_map/1,
+        gproc:select({local, names}, [{{?NAME('_'), '_', '$1'}, [], ['$1']}])
+    ).
 
 %% @doc Returns a list of ids for all the resources in a group
 -spec list_group(resource_group()) -> [resource_id()].
 list_group(Group) ->
-    List = ets:match(?ETS_TABLE, {'$1', Group, '_'}),
-    lists:flatten(List).
+    Guard = {'==', {element, #data.group, '$1'}, Group},
+    gproc:select({local, names}, [{{?NAME('$2'), '_', '$1'}, [Guard], ['$2']}]).
 
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
@@ -278,10 +269,9 @@ health_check(ResId) ->
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
-start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
+start_link(ResId, Group, ResourceType, Config, Opts) ->
     Data = #data{
         id = ResId,
-        manager_id = MgrId,
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),
@@ -295,7 +285,7 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         state = undefined,
         error = undefined
     },
-    gen_statem:start_link(?MODULE, {Data, Opts}, []).
+    gen_statem:start_link(?REF(ResId), ?MODULE, {Data, Opts}, []).
 
 init({DataIn, Opts}) ->
     process_flag(trap_exit, true),
@@ -315,7 +305,7 @@ terminate({shutdown, removed}, _State, _Data) ->
     ok;
 terminate(_Reason, _State, Data) ->
     _ = maybe_stop_resource(Data),
-    ok = delete_cache(Data#data.id, Data#data.manager_id),
+    _ = erase_cache(Data),
     ok.
 
 %% Behavior callback
@@ -340,9 +330,6 @@ handle_event({call, From}, start, State, Data) when
     start_resource(Data, From);
 handle_event({call, From}, start, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
-% Called when the resource received a `quit` message
-handle_event(info, quit, _State, _Data) ->
-    {stop, {shutdown, quit}};
 % Called when the resource is to be stopped
 handle_event({call, From}, stop, stopped, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -413,9 +400,9 @@ log_state_consistency(State, Data) ->
         data => Data
     }).
 
-log_cache_consistency({_, Data}, Data) ->
+log_cache_consistency(Data, Data) ->
     ok;
-log_cache_consistency({_, DataCached}, Data) ->
+log_cache_consistency(DataCached, Data) ->
     ?tp(warning, "inconsistent_cache", #{
         cache => DataCached,
         data => Data
@@ -424,56 +411,20 @@ log_cache_consistency({_, DataCached}, Data) ->
 %%------------------------------------------------------------------------------
 %% internal functions
 %%------------------------------------------------------------------------------
-insert_cache(ResId, Group, Data = #data{manager_id = MgrId}) ->
-    case get_owner(ResId) of
-        not_found ->
-            ets:insert(?ETS_TABLE, {ResId, Group, Data});
-        MgrId ->
-            ets:insert(?ETS_TABLE, {ResId, Group, Data});
-        _ ->
-            ?SLOG(error, #{
-                msg => get_resource_owner_failed,
-                resource_id => ResId,
-                action => quit_resource
-            }),
-            self() ! quit
-    end.
+insert_cache(ResId, Data = #data{}) ->
+    gproc:set_value(?NAME(ResId), Data).
 
 read_cache(ResId) ->
-    case ets:lookup(?ETS_TABLE, ResId) of
-        [{_Id, Group, Data}] -> {Group, Data};
-        [] -> not_found
-    end.
+    gproc:lookup_value(?NAME(ResId)).
 
-delete_cache(ResId, MgrId) ->
-    case get_owner(ResId) of
-        MgrIdNow when MgrIdNow == not_found; MgrIdNow == MgrId ->
-            do_delete_cache(ResId);
-        _ ->
-            ok
-    end.
+erase_cache(_Data = #data{id = ResId}) ->
+    gproc:unreg(?NAME(ResId)).
 
-do_delete_cache(<<?TEST_ID_PREFIX, _/binary>> = ResId) ->
-    true = ets:delete(?ETS_TABLE, {owner, ResId}),
-    true = ets:delete(?ETS_TABLE, ResId),
-    ok;
-do_delete_cache(ResId) ->
-    true = ets:delete(?ETS_TABLE, ResId),
-    ok.
-
-set_new_owner(ResId) ->
-    MgrId = make_manager_id(ResId),
-    ok = set_owner(ResId, MgrId),
-    MgrId.
-
-set_owner(ResId, MgrId) ->
-    ets:insert(?ETS_TABLE, {{owner, ResId}, MgrId}),
-    ok.
-
-get_owner(ResId) ->
-    case ets:lookup(?ETS_TABLE, {owner, ResId}) of
-        [{_, MgrId}] -> MgrId;
-        [] -> not_found
+try_read_cache(ResId) ->
+    try
+        read_cache(ResId)
+    catch
+        error:badarg -> not_found
     end.
 
 retry_actions(Data) ->
@@ -489,17 +440,17 @@ health_check_actions(Data) ->
 
 handle_remove_event(From, ClearMetrics, Data) ->
     _ = stop_resource(Data),
-    ok = delete_cache(Data#data.id, Data#data.manager_id),
     ok = emqx_resource_buffer_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     case ClearMetrics of
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
+    _ = erase_cache(Data),
     {stop_and_reply, {shutdown, removed}, [{reply, From, ok}]}.
 
 start_resource(Data, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
-    case emqx_resource:call_start(Data#data.manager_id, Data#data.mod, Data#data.config) of
+    case emqx_resource:call_start(Data#data.id, Data#data.mod, Data#data.config) of
         {ok, ResourceState} ->
             UpdatedData = Data#data{status = connecting, state = ResourceState},
             %% Perform an initial health_check immediately before transitioning into a connected state
@@ -530,7 +481,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     %% is returned.
     case ResState /= undefined of
         true ->
-            emqx_resource:call_stop(Data#data.manager_id, Data#data.mod, ResState);
+            emqx_resource:call_stop(Data#data.id, Data#data.mod, ResState);
         false ->
             ok
     end,
@@ -584,7 +535,7 @@ with_health_check(#data{state = undefined} = Data, Func) ->
     Func(disconnected, Data);
 with_health_check(#data{error = PrevError} = Data, Func) ->
     ResId = Data#data.id,
-    HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
+    HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId, Err, PrevError),
     ok = maybe_resume_resource_workers(ResId, Status),
@@ -599,7 +550,7 @@ update_state(Data) ->
 update_state(DataWas, DataWas) ->
     DataWas;
 update_state(Data, _DataWas) ->
-    _ = insert_cache(Data#data.id, Data#data.group, Data),
+    _ = insert_cache(Data#data.id, Data),
     Data.
 
 health_check_interval(Opts) ->
@@ -689,10 +640,10 @@ wait_for_ready(ResId, WaitTime) ->
 do_wait_for_ready(_ResId, 0) ->
     timeout;
 do_wait_for_ready(ResId, Retry) ->
-    case read_cache(ResId) of
-        {_Group, #data{status = connected}} ->
+    case try_read_cache(ResId) of
+        #data{status = connected} ->
             ok;
-        {_Group, #data{status = disconnected, error = Err}} ->
+        #data{status = disconnected, error = Err} ->
             {error, external_error(Err)};
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
@@ -701,12 +652,7 @@ do_wait_for_ready(ResId, Retry) ->
 
 safe_call(ResId, Message, Timeout) ->
     try
-        case read_cache(ResId) of
-            not_found ->
-                {error, not_found};
-            {_, #data{pid = ManagerPid}} ->
-                gen_statem:call(ManagerPid, Message, {clean_timeout, Timeout})
-        end
+        gen_statem:call(?REF(ResId), Message, {clean_timeout, Timeout})
     catch
         error:badarg ->
             {error, not_found};

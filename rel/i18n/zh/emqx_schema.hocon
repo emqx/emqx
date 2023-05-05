@@ -1313,9 +1313,10 @@ persistent_session_store_message_gc_interval.label:
 """消息清理间隔"""
 
 broker_shared_dispatch_ack_enabled.desc:
-"""该配置项已废弃，会在 5.1 中移除。
+"""该配置项已废弃。
 启用/禁用 QoS 1 和 QoS 2 消息的共享派发确认。
-开启后，允许将消息从未及时回复 ACK 的订阅者 （例如，客户端离线） 重新派发给另外一个订阅者。"""
+该配置最初设计用于避免将消息派发给客户端离线状态下的会话中去。
+但新版本中，已做增强：在一个会话结束时，会话中的消息会重新派发到组内的其他会话中 -- 使这个老配置失去存在的意义。"""
 
 base_listener_enable_authn.desc:
 """配置 <code>true</code> （默认值）启用客户端进行身份认证，通过检查认配置的认认证器链来决定是否允许接入。

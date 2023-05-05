@@ -81,6 +81,7 @@ is_enterprise(ee) -> true.
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
 is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
 is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
+is_community_umbrella_app("apps/emqx_bridge_opents") -> false;
 is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
 is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
 is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
@@ -93,6 +94,8 @@ is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
 is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
 is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
+is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
+is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app("apps/emqx_ft") -> false;
 is_community_umbrella_app("apps/emqx_s3") -> false;
 is_community_umbrella_app(_) -> true.
@@ -155,7 +158,7 @@ project_app_dirs(Edition) ->
 
 plugins() ->
     [
-        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
+        %{relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
@@ -351,7 +354,6 @@ overlay_vars_pkg(bin) ->
     [
         {platform_data_dir, "data"},
         {platform_etc_dir, "etc"},
-        {platform_log_dir, "log"},
         {platform_plugins_dir, "plugins"},
         {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"},
         {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"},
@@ -364,7 +366,6 @@ overlay_vars_pkg(pkg) ->
     [
         {platform_data_dir, "/var/lib/emqx"},
         {platform_etc_dir, "/etc/emqx"},
-        {platform_log_dir, "/var/log/emqx"},
         {platform_plugins_dir, "/var/lib/emqx/plugins"},
         {runner_bin_dir, "/usr/bin"},
         {emqx_etc_dir, "/etc/emqx"},
@@ -455,8 +456,10 @@ relx_apps_per_edition(ee) ->
         emqx_ee_connector,
         emqx_ee_bridge,
         emqx_bridge_kafka,
+        emqx_bridge_pulsar,
         emqx_bridge_gcp_pubsub,
         emqx_bridge_cassandra,
+        emqx_bridge_opents,
         emqx_bridge_clickhouse,
         emqx_bridge_dynamo,
         emqx_bridge_hstreamdb,
@@ -469,6 +472,8 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_rocketmq,
         emqx_bridge_tdengine,
         emqx_bridge_timescale,
+        emqx_oracle,
+        emqx_bridge_oracle,
         emqx_ee_schema_registry,
         emqx_ft
     ];
@@ -491,11 +496,8 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
-        %% for relup
         {copy, "bin/emqx", "bin/emqx-{{release_version}}"},
-        %% for relup
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
-        %% for relup
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
         {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
@@ -510,7 +512,7 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ name(Edition) ++ "/emqx.conf.example", "etc/emqx.conf.example"}
+        {copy, "_build/docgen/" ++ profile() ++ "/emqx.conf.example", "etc/emqx.conf.example"}
     ] ++
         lists:map(
             fun
@@ -647,5 +649,15 @@ list_dir(Dir) ->
             []
     end.
 
-name(ce) -> "emqx";
-name(ee) -> "emqx-enterprise".
+profile() ->
+    case os:getenv("PROFILE") of
+        Profile = "emqx-enterprise" ++ _ ->
+            Profile;
+        Profile = "emqx" ++ _ ->
+            Profile;
+        false ->
+            "emqx-enterprise";
+        Profile ->
+            io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [Profile]),
+            exit(bad_PROFILE)
+    end.

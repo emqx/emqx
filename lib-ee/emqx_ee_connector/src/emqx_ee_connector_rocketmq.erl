@@ -38,11 +38,27 @@ roots() ->
 
 fields(config) ->
     [
-        {server, server()},
+        {servers, servers()},
         {topic,
             mk(
                 binary(),
                 #{default => <<"TopicTest">>, desc => ?DESC(topic)}
+            )},
+        {access_key,
+            mk(
+                binary(),
+                #{default => <<>>, desc => ?DESC("access_key")}
+            )},
+        {secret_key,
+            mk(
+                binary(),
+                #{default => <<>>, desc => ?DESC("secret_key")}
+            )},
+        {security_token, mk(binary(), #{default => <<>>, desc => ?DESC(security_token)})},
+        {sync_timeout,
+            mk(
+                emqx_schema:duration(),
+                #{default => <<"3s">>, desc => ?DESC(sync_timeout)}
             )},
         {refresh_interval,
             mk(
@@ -54,38 +70,14 @@ fields(config) ->
                 emqx_schema:bytesize(),
                 #{default => <<"1024KB">>, desc => ?DESC(send_buffer)}
             )},
-        {security_token, mk(binary(), #{default => <<>>, desc => ?DESC(security_token)})}
-        | relational_fields()
+
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
+        {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 
-add_default_username(Fields) ->
-    lists:map(
-        fun
-            ({username, OrigUsernameFn}) ->
-                {username, add_default_fn(OrigUsernameFn, <<"">>)};
-            (Field) ->
-                Field
-        end,
-        Fields
-    ).
-
-add_default_fn(OrigFn, Default) ->
-    fun
-        (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
-
-server() ->
-    Meta = #{desc => ?DESC("server")},
+servers() ->
+    Meta = #{desc => ?DESC("servers")},
     emqx_schema:servers_sc(Meta, ?ROCKETMQ_HOST_OPTIONS).
-
-relational_fields() ->
-    Fields = [username, password, auto_reconnect],
-    Values = lists:filter(
-        fun({E, _}) -> lists:member(E, Fields) end,
-        emqx_connector_schema_lib:relational_db_fields()
-    ),
-    add_default_username(Values).
 
 %%========================================================================================
 %% `emqx_resource' API
@@ -97,49 +89,61 @@ is_buffer_supported() -> false.
 
 on_start(
     InstanceId,
-    #{server := Server, topic := Topic} = Config1
+    #{servers := BinServers, topic := Topic, sync_timeout := SyncTimeout} = Config
 ) ->
     ?SLOG(info, #{
         msg => "starting_rocketmq_connector",
         connector => InstanceId,
-        config => redact(Config1)
+        config => redact(Config)
     }),
-    Config = maps:merge(default_security_info(), Config1),
-    {Host, Port} = emqx_schema:parse_server(Server, ?ROCKETMQ_HOST_OPTIONS),
-
-    Server1 = [{Host, Port}],
+    Servers = lists:map(
+        fun(#{hostname := Host, port := Port}) -> {Host, Port} end,
+        emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS)
+    ),
     ClientId = client_id(InstanceId),
-    ClientCfg = #{acl_info => #{}},
 
     TopicTks = emqx_plugin_libs_rule:preproc_tmpl(Topic),
-    ProducerOpts = make_producer_opts(Config),
+    #{acl_info := AclInfo} = ProducerOpts = make_producer_opts(Config),
+    ClientCfg = #{acl_info => AclInfo},
     Templates = parse_template(Config),
     ProducersMapPID = create_producers_map(ClientId),
     State = #{
         client_id => ClientId,
+        topic => Topic,
         topic_tokens => TopicTks,
-        config => Config,
+        sync_timeout => SyncTimeout,
         templates => Templates,
         producers_map_pid => ProducersMapPID,
-        producers_opts => ProducerOpts
+        producers_opts => emqx_secret:wrap(ProducerOpts)
     },
 
-    case rocketmq:ensure_supervised_client(ClientId, Server1, ClientCfg) of
+    case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
         {ok, _Pid} ->
             {ok, State};
-        {error, _Reason} = Error ->
+        {error, Reason0} ->
+            Reason = redact(Reason0),
             ?tp(
                 rocketmq_connector_start_failed,
-                #{error => _Reason}
+                #{error => Reason}
             ),
-            Error
+            {error, Reason}
     end.
 
-on_stop(InstanceId, #{client_id := ClientId, producers_map_pid := Pid} = _State) ->
+on_stop(InstanceId, #{client_id := ClientId, topic := RawTopic, producers_map_pid := Pid} = _State) ->
     ?SLOG(info, #{
         msg => "stopping_rocketmq_connector",
         connector => InstanceId
     }),
+
+    Producers = ets:match(ClientId, {{RawTopic, '$1'}, '$2'}),
+    lists:foreach(
+        fun([Topic, Producer]) ->
+            ets:delete(ClientId, {RawTopic, Topic}),
+            _ = rocketmq:stop_and_delete_supervised_producers(Producer)
+        end,
+        Producers
+    ),
+
     Pid ! ok,
     ok = rocketmq:stop_and_delete_supervised_client(ClientId).
 
@@ -154,11 +158,14 @@ on_batch_query(_InstanceId, Query, _State) ->
 
 on_get_status(_InstanceId, #{client_id := ClientId}) ->
     case rocketmq_client_sup:find_client(ClientId) of
-        {ok, _Pid} ->
-            connected;
+        {ok, Pid} ->
+            status_result(rocketmq_client:get_status(Pid));
         _ ->
             connecting
     end.
+
+status_result(_Status = true) -> connected;
+status_result(_Status) -> connecting.
 
 %%========================================================================================
 %% Helper fns
@@ -171,9 +178,10 @@ do_query(
     #{
         templates := Templates,
         client_id := ClientId,
+        topic := RawTopic,
         topic_tokens := TopicTks,
         producers_opts := ProducerOpts,
-        config := #{topic := RawTopic, resource_opts := #{request_timeout := RequestTimeout}}
+        sync_timeout := RequestTimeout
     } = State
 ) ->
     ?TRACE(
@@ -215,7 +223,7 @@ safe_do_produce(InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, R
         produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout)
     catch
         _Type:Reason ->
-            {error, {unrecoverable_error, Reason}}
+            {error, {unrecoverable_error, redact(Reason)}}
     end.
 
 produce(_InstanceId, QueryFunc, Producers, Data, RequestTimeout) ->
@@ -260,13 +268,14 @@ apply_template([{Key, _} | _] = Reqs, Templates) ->
             [emqx_plugin_libs_rule:proc_tmpl(Template, Msg) || {_, Msg} <- Reqs]
     end.
 
-client_id(InstanceId) ->
-    Name = emqx_resource_manager:manager_id_to_resource_id(InstanceId),
-    erlang:binary_to_atom(Name, utf8).
+client_id(ResourceId) ->
+    erlang:binary_to_atom(ResourceId, utf8).
 
 redact(Msg) ->
     emqx_utils:redact(Msg, fun is_sensitive_key/1).
 
+is_sensitive_key(secret_key) ->
+    true;
 is_sensitive_key(security_token) ->
     true;
 is_sensitive_key(_) ->
@@ -274,14 +283,14 @@ is_sensitive_key(_) ->
 
 make_producer_opts(
     #{
-        username := Username,
-        password := Password,
+        access_key := AccessKey,
+        secret_key := SecretKey,
         security_token := SecurityToken,
         send_buffer := SendBuff,
         refresh_interval := RefreshInterval
     }
 ) ->
-    ACLInfo = acl_info(Username, Password, SecurityToken),
+    ACLInfo = acl_info(AccessKey, SecretKey, SecurityToken),
     #{
         tcp_opts => [{sndbuf, SendBuff}],
         ref_topic_route_interval => RefreshInterval,
@@ -290,17 +299,17 @@ make_producer_opts(
 
 acl_info(<<>>, <<>>, <<>>) ->
     #{};
-acl_info(Username, Password, <<>>) when is_binary(Username), is_binary(Password) ->
+acl_info(AccessKey, SecretKey, <<>>) when is_binary(AccessKey), is_binary(SecretKey) ->
     #{
-        access_key => Username,
-        secret_key => Password
+        access_key => AccessKey,
+        secret_key => SecretKey
     };
-acl_info(Username, Password, SecurityToken) when
-    is_binary(Username), is_binary(Password), is_binary(SecurityToken)
+acl_info(AccessKey, SecretKey, SecurityToken) when
+    is_binary(AccessKey), is_binary(SecretKey), is_binary(SecurityToken)
 ->
     #{
-        access_key => Username,
-        secret_key => Password,
+        access_key => AccessKey,
+        secret_key => SecretKey,
         security_token => SecurityToken
     };
 acl_info(_, _, _) ->
@@ -328,11 +337,8 @@ get_producers(ClientId, {_, Topic1} = TopicKey, ProducerOpts) ->
         _ ->
             ProducerGroup = iolist_to_binary([atom_to_list(ClientId), "_", Topic1]),
             {ok, Producers0} = rocketmq:ensure_supervised_producers(
-                ClientId, ProducerGroup, Topic1, ProducerOpts
+                ClientId, ProducerGroup, Topic1, emqx_secret:unwrap(ProducerOpts)
             ),
             ets:insert(ClientId, {TopicKey, Producers0}),
             Producers0
     end.
-
-default_security_info() ->
-    #{username => <<>>, password => <<>>, security_token => <<>>}.

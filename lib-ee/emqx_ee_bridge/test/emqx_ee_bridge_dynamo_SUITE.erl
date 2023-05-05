@@ -251,7 +251,7 @@ directly_setup_dynamo() ->
 
 directly_query(Query) ->
     directly_setup_dynamo(),
-    emqx_ee_connector_dynamo:execute(Query, ?TABLE_BIN).
+    emqx_ee_connector_dynamo_client:execute(Query, ?TABLE_BIN).
 
 directly_get_payload(Key) ->
     case directly_query({get_item, {<<"id">>, Key}}) of
@@ -291,7 +291,7 @@ t_setup_via_config_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(dynamo_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _}}], Trace),
             ok
         end
     ),
@@ -328,7 +328,7 @@ t_setup_via_http_api_and_publish(Config) ->
         end,
         fun(Trace0) ->
             Trace = ?of_kind(dynamo_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            ?assertMatch([#{result := {ok, _}}], Trace),
             ok
         end
     ),

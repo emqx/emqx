@@ -69,7 +69,7 @@
 
 -type preproc_sql_opts() :: #{
     placeholders => list(binary()),
-    replace_with => '?' | '$n',
+    replace_with => '?' | '$n' | ':n',
     strip_double_quote => boolean()
 }.
 
@@ -149,7 +149,7 @@ proc_cmd(Tokens, Data, Opts) ->
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
--spec preproc_sql(binary(), '?' | '$n' | preproc_sql_opts()) ->
+-spec preproc_sql(binary(), '?' | '$n' | ':n' | preproc_sql_opts()) ->
     {prepare_statement_key(), tmpl_token()}.
 preproc_sql(Sql, ReplaceWith) when is_atom(ReplaceWith) ->
     preproc_sql(Sql, #{replace_with => ReplaceWith});
@@ -316,13 +316,17 @@ preproc_tmpl_deep_map_key(Key, _) ->
 replace_with(Tmpl, RE, '?') ->
     re:replace(Tmpl, RE, "?", [{return, binary}, global]);
 replace_with(Tmpl, RE, '$n') ->
+    replace_with(Tmpl, RE, <<"$">>);
+replace_with(Tmpl, RE, ':n') ->
+    replace_with(Tmpl, RE, <<":">>);
+replace_with(Tmpl, RE, String) when is_binary(String) ->
     Parts = re:split(Tmpl, RE, [{return, binary}, trim, group]),
     {Res, _} =
         lists:foldl(
             fun
                 ([Tkn, _Phld], {Acc, Seq}) ->
                     Seq1 = erlang:integer_to_binary(Seq),
-                    {<<Acc/binary, Tkn/binary, "$", Seq1/binary>>, Seq + 1};
+                    {<<Acc/binary, Tkn/binary, String/binary, Seq1/binary>>, Seq + 1};
                 ([Tkn], {Acc, Seq}) ->
                     {<<Acc/binary, Tkn/binary>>, Seq}
             end,
@@ -330,6 +334,7 @@ replace_with(Tmpl, RE, '$n') ->
             Parts
         ),
     Res.
+
 parse_nested(<<".", R/binary>>) ->
     %% ignore the root .
     parse_nested(R);

@@ -47,7 +47,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         --app)
-            WHICH_APP="$2"
+            WHICH_APP="${2%/}"
             shift 2
             ;;
         --only-up)
@@ -194,6 +194,15 @@ for dep in ${CT_DEPS}; do
             ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
+        opents)
+            FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
+            ;;
+        pulsar)
+            FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
+            ;;
+        oracle)
+            FILES+=( '.ci/docker-compose-file/docker-compose-oracle.yaml' )
+            ;;
         minio)
             FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )
@@ -206,9 +215,9 @@ for dep in ${CT_DEPS}; do
 done
 
 if [ "$ODBC_REQUEST" = 'yes' ]; then
-    INSTALL_ODBC="./scripts/install-odbc-driver.sh"
+    INSTALL_ODBC="./scripts/install-msodbc-driver.sh"
 else
-    INSTALL_ODBC="echo 'Driver msodbcsql driver not requested'"
+    INSTALL_ODBC="echo 'msodbc driver not requested'"
 fi
 
 F_OPTIONS=""

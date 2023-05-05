@@ -89,7 +89,7 @@
     %% Authentication Data Cache
     auth_cache :: maybe(map()),
     %% Quota checkers
-    quota :: maybe(emqx_limiter_container:limiter()),
+    quota :: emqx_limiter_container:limiter(),
     %% Timers
     timers :: #{atom() => disabled | maybe(reference())},
     %% Conn State
@@ -768,7 +768,7 @@ do_finish_publish(PacketId, PubRes, RC, Channel) ->
     NChannel = ensure_quota(PubRes, Channel),
     handle_out(puback, {PacketId, RC}, NChannel).
 
-ensure_quota(_, Channel = #channel{quota = undefined}) ->
+ensure_quota(_, Channel = #channel{quota = infinity}) ->
     Channel;
 ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
     Cnt = lists:foldl(

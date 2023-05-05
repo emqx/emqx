@@ -67,7 +67,17 @@ on_start(
         connector => InstId,
         config => emqx_utils:redact(Config)
     }),
-    Servers = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
+    Servers1 = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
+    Servers =
+        lists:map(
+            fun
+                (#{hostname := Host, port := Port0}) ->
+                    {Host, Port0};
+                (#{hostname := Host}) ->
+                    Host
+            end,
+            Servers1
+        ),
     SslOpts =
         case maps:get(enable, SSL) of
             true ->

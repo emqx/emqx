@@ -43,6 +43,8 @@ services:
       - 19000:19000
       # S3 TLS
       - 19100:19100
+      # IOTDB
+      - 14242:4242
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

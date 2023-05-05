@@ -7,7 +7,8 @@ export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v1.2.3
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.6-beta.1
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.6-beta.2
+
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -73,6 +74,10 @@ proper: $(REBAR)
 test-compile: $(REBAR) merge-config
 	$(REBAR) as test compile
 
+.PHONY: $(REL_PROFILES:%=%-compile)
+$(REL_PROFILES:%=%-compile): $(REBAR) merge-config
+	$(REBAR) as $(@:%-compile=%) compile
+
 .PHONY: ct
 ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
@@ -88,10 +93,9 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct: $(REBAR)
+$1-ct: $(REBAR) merge-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-		@$(SCRIPTS)/pre-compile.sh $(PROFILE)
 		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
 			--readable=$(CT_READABLE) \
 			--name $(CT_NODE_NAME) \
@@ -138,6 +142,11 @@ COMMON_DEPS := $(REBAR)
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(BUILD) $(@) rel
+
+.PHONY: compile $(PROFILES:%=compile-%)
+compile: $(PROFILES:%=compile-%)
+$(PROFILES:%=compile-%):
+	@$(BUILD) $(@:compile-%=%) apps
 
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
@@ -222,11 +231,11 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: $(PROFILE) quickrun
+run: compile-$(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
-	./_build/$(PROFILE)/rel/emqx/bin/emqx console
+	./dev -p $(PROFILE)
 
 ## Take the currently set PROFILE
 docker:

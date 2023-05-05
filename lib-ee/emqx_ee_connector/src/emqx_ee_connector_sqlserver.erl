@@ -34,8 +34,6 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_query_async/4,
-    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -43,7 +41,7 @@
 -export([connect/1]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/2, worker_do_insert/3, do_async_reply/2]).
+-export([do_get_status/1, worker_do_insert/3]).
 
 -import(emqx_plugin_libs_rule, [str/1]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -51,7 +49,6 @@
 -define(ACTION_SEND_MESSAGE, send_message).
 
 -define(SYNC_QUERY_MODE, handover).
--define(ASYNC_QUERY_MODE(REPLY), {handover_async, {?MODULE, do_async_reply, [REPLY]}}).
 
 -define(SQLSERVER_HOST_OPTIONS, #{
     default_port => 1433
@@ -169,12 +166,12 @@ server() ->
 %% Callbacks defined in emqx_resource
 %%====================================================================
 
-callback_mode() -> async_if_possible.
+callback_mode() -> always_sync.
 
 is_buffer_supported() -> false.
 
 on_start(
-    InstanceId = PoolName,
+    ResourceId = PoolName,
     #{
         server := Server,
         username := Username,
@@ -187,7 +184,7 @@ on_start(
 ) ->
     ?SLOG(info, #{
         msg => "starting_sqlserver_connector",
-        connector => InstanceId,
+        connector => ResourceId,
         config => emqx_utils:redact(Config)
     }),
 
@@ -212,7 +209,7 @@ on_start(
     ],
 
     State = #{
-        %% also InstanceId
+        %% also ResourceId
         pool_name => PoolName,
         sql_templates => parse_sql_template(Config),
         resource_opts => ResourceOpts
@@ -228,15 +225,15 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
+on_stop(ResourceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_sqlserver_connector",
-        connector => InstanceId
+        connector => ResourceId
     }),
-    emqx_resource_pool:stop(PoolName).
+    emqx_resource_pool:stop(ResourceId).
 
 -spec on_query(
-    manager_id(),
+    resource_id(),
     {?ACTION_SEND_MESSAGE, map()},
     state()
 ) ->
@@ -244,37 +241,16 @@ on_stop(InstanceId, #{pool_name := PoolName} = _State) ->
     | {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(InstanceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
+on_query(ResourceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "bridge_sqlserver_received",
-        #{requests => Query, connector => InstanceId, state => State}
+        #{requests => Query, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, Query, ?SYNC_QUERY_MODE, State).
-
--spec on_query_async(
-    manager_id(),
-    {?ACTION_SEND_MESSAGE, map()},
-    {ReplyFun :: function(), Args :: list()},
-    state()
-) ->
-    {ok, any()}
-    | {error, term()}.
-on_query_async(
-    InstanceId,
-    {?ACTION_SEND_MESSAGE, _Msg} = Query,
-    ReplyFunAndArgs,
-    State
-) ->
-    ?TRACE(
-        "SINGLE_QUERY_ASYNC",
-        "bridge_sqlserver_received",
-        #{requests => Query, connector => InstanceId, state => State}
-    ),
-    do_query(InstanceId, Query, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
+    do_query(ResourceId, Query, ?SYNC_QUERY_MODE, State).
 
 -spec on_batch_query(
-    manager_id(),
+    resource_id(),
     [{?ACTION_SEND_MESSAGE, map()}],
     state()
 ) ->
@@ -282,34 +258,18 @@ on_query_async(
     | {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_batch_query(InstanceId, BatchRequests, State) ->
+on_batch_query(ResourceId, BatchRequests, State) ->
     ?TRACE(
         "BATCH_QUERY_SYNC",
         "bridge_sqlserver_received",
-        #{requests => BatchRequests, connector => InstanceId, state => State}
+        #{requests => BatchRequests, connector => ResourceId, state => State}
     ),
-    do_query(InstanceId, BatchRequests, ?SYNC_QUERY_MODE, State).
+    do_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
 
--spec on_batch_query_async(
-    manager_id(),
-    [{?ACTION_SEND_MESSAGE, map()}],
-    {ReplyFun :: function(), Args :: list()},
-    state()
-) -> {ok, any()}.
-on_batch_query_async(InstanceId, Requests, ReplyFunAndArgs, State) ->
-    ?TRACE(
-        "BATCH_QUERY_ASYNC",
-        "bridge_sqlserver_received",
-        #{requests => Requests, connector => InstanceId, state => State}
-    ),
-    do_query(InstanceId, Requests, ?ASYNC_QUERY_MODE(ReplyFunAndArgs), State).
-
-on_get_status(_InstanceId, #{pool_name := PoolName, resource_opts := ResourceOpts} = _State) ->
-    RequestTimeout = ?REQUEST_TIMEOUT(ResourceOpts),
+on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
     Health = emqx_resource_pool:health_check_workers(
         PoolName,
-        {?MODULE, do_get_status, [RequestTimeout]},
-        RequestTimeout
+        {?MODULE, do_get_status, []}
     ),
     status_result(Health).
 
@@ -328,9 +288,9 @@ connect(Options) ->
     Opts = proplists:get_value(options, Options, []),
     odbc:connect(ConnectStr, Opts).
 
--spec do_get_status(connection_reference(), time_out()) -> Result :: boolean().
-do_get_status(Conn, RequestTimeout) ->
-    case execute(Conn, <<"SELECT 1">>, RequestTimeout) of
+-spec do_get_status(connection_reference()) -> Result :: boolean().
+do_get_status(Conn) ->
+    case execute(Conn, <<"SELECT 1">>) of
         {selected, [[]], [{1}]} -> true;
         _ -> false
     end.
@@ -355,7 +315,7 @@ conn_str([], Acc) ->
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?SQLSERVER_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SQLSERVER_HOST_OPTIONS),
     conn_str(Opts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
 conn_str([{database, Database} | Opts], Acc) ->
     conn_str(Opts, ["Database=" ++ str(Database) | Acc]);
@@ -366,20 +326,18 @@ conn_str([{password, Password} | Opts], Acc) ->
 conn_str([{_, _} | Opts], Acc) ->
     conn_str(Opts, Acc).
 
-%% Sync & Async query with singe & batch sql statement
+%% Query with singe & batch sql statement
 -spec do_query(
-    manager_id(),
+    resource_id(),
     Query :: {?ACTION_SEND_MESSAGE, map()} | [{?ACTION_SEND_MESSAGE, map()}],
-    ApplyMode ::
-        handover
-        | {handover_async, {?MODULE, do_async_reply, [{ReplyFun :: function(), Args :: list()}]}},
+    ApplyMode :: handover,
     state()
 ) ->
     {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 do_query(
-    InstanceId,
+    ResourceId,
     Query,
     ApplyMode,
     #{pool_name := PoolName, sql_templates := Templates} = State
@@ -387,7 +345,7 @@ do_query(
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "sqlserver_connector_received",
-        #{query => Query, connector => InstanceId, state => State}
+        #{query => Query, connector => ResourceId, state => State}
     ),
 
     %% only insert sql statement for single query and batch query
@@ -411,7 +369,7 @@ do_query(
             ),
             ?SLOG(error, #{
                 msg => "sqlserver_connector_do_query_failed",
-                connector => InstanceId,
+                connector => ResourceId,
                 query => Query,
                 reason => Reason
             }),
@@ -425,9 +383,9 @@ do_query(
     end.
 
 worker_do_insert(
-    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := InstanceId} = State
+    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := ResourceId} = State
 ) ->
-    LogMeta = #{connector => InstanceId, state => State},
+    LogMeta = #{connector => ResourceId, state => State},
     try
         case execute(Conn, SQL, ?REQUEST_TIMEOUT(ResourceOpts)) of
             {selected, Rows, _} ->
@@ -443,6 +401,15 @@ worker_do_insert(
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
+
+-spec execute(pid(), sql()) ->
+    updated_tuple()
+    | selected_tuple()
+    | [updated_tuple()]
+    | [selected_tuple()]
+    | {error, common_reason()}.
+execute(Conn, SQL) ->
+    odbc:sql_query(Conn, str(SQL)).
 
 -spec execute(pid(), sql(), time_out()) ->
     updated_tuple()
@@ -523,6 +490,3 @@ apply_template(Query, Templates) ->
     %% TODO: more detail infomatoin
     ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}),
     {error, failed_to_apply_sql_template}.
-
-do_async_reply(Result, {ReplyFun, Args}) ->
-    erlang:apply(ReplyFun, Args ++ [Result]).

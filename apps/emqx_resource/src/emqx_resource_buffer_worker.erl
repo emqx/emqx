@@ -1466,7 +1466,7 @@ mark_inflight_items_as_retriable(Data, WorkerMRef) ->
             end
         ),
     _NumAffected = ets:select_replace(InflightTID, MatchSpec),
-    ?tp(buffer_worker_worker_down_update, #{num_affected => _NumAffected}),
+    ?tp(buffer_worker_async_agent_down, #{num_affected => _NumAffected}),
     ok.
 
 %% used to update a batch after dropping expired individual queries.

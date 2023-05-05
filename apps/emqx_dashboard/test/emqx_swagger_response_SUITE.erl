@@ -278,10 +278,7 @@ t_bad_ref(_Config) ->
 t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertError(
-        #{
-            mfa := {?MODULE, schema, ["/ref/none"]},
-            reason := function_clause
-        },
+        {failed_to_generate_swagger_spec, ?MODULE, Path},
         validate(Path, #{}, [])
     ),
     ok.

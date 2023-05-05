@@ -1,0 +1,9 @@
+version: '3.9'
+
+services:
+  opents_server:
+    container_name: opents
+    image: petergrace/opentsdb-docker:${OPENTS_TAG}
+    restart: always
+    networks:
+      - emqx_bridge

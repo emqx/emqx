@@ -35,7 +35,10 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
         ref(emqx_ee_bridge_rocketmq, Method),
-        ref(emqx_ee_bridge_sqlserver, Method)
+        ref(emqx_ee_bridge_sqlserver, Method),
+        ref(emqx_bridge_opents, Method),
+        ref(emqx_bridge_pulsar, Method ++ "_producer"),
+        ref(emqx_bridge_oracle, Method)
     ].
 
 schema_modules() ->
@@ -55,7 +58,10 @@ schema_modules() ->
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
         emqx_ee_bridge_rocketmq,
-        emqx_ee_bridge_sqlserver
+        emqx_ee_bridge_sqlserver,
+        emqx_bridge_opents,
+        emqx_bridge_pulsar,
+        emqx_bridge_oracle
     ].
 
 examples(Method) ->
@@ -94,7 +100,10 @@ resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
-resource_type(sqlserver) -> emqx_ee_connector_sqlserver.
+resource_type(sqlserver) -> emqx_ee_connector_sqlserver;
+resource_type(opents) -> emqx_bridge_opents_connector;
+resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
+resource_type(oracle) -> emqx_oracle.
 
 fields(bridges) ->
     [
@@ -153,8 +162,25 @@ fields(bridges) ->
                     desc => <<"Cassandra Bridge Config">>,
                     required => false
                 }
+            )},
+        {opents,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_opents, "config")),
+                #{
+                    desc => <<"OpenTSDB Bridge Config">>,
+                    required => false
+                }
+            )},
+        {oracle,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_oracle, "config")),
+                #{
+                    desc => <<"Oracle Bridge Config">>,
+                    required => false
+                }
             )}
-    ] ++ kafka_structs() ++ mongodb_structs() ++ influxdb_structs() ++ redis_structs() ++
+    ] ++ kafka_structs() ++ pulsar_structs() ++ mongodb_structs() ++ influxdb_structs() ++
+        redis_structs() ++
         pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs().
 
 mongodb_structs() ->
@@ -181,13 +207,25 @@ kafka_structs() ->
                 #{
                     desc => <<"Kafka Producer Bridge Config">>,
                     required => false,
-                    converter => fun emqx_bridge_kafka:kafka_producer_converter/2
+                    converter => fun kafka_producer_converter/2
                 }
             )},
         {kafka_consumer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_consumer)),
                 #{desc => <<"Kafka Consumer Bridge Config">>, required => false}
+            )}
+    ].
+
+pulsar_structs() ->
+    [
+        {pulsar_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_pulsar, pulsar_producer)),
+                #{
+                    desc => <<"Pulsar Producer Bridge Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -264,3 +302,13 @@ sqlserver_structs() ->
                 }
             )}
     ].
+
+kafka_producer_converter(undefined, _) ->
+    undefined;
+kafka_producer_converter(Map, Opts) ->
+    maps:map(
+        fun(_Name, Config) ->
+            emqx_bridge_kafka:kafka_producer_converter(Config, Opts)
+        end,
+        Map
+    ).

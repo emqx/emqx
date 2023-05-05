@@ -23,6 +23,7 @@
 -dialyzer(no_fail_call).
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
+-include("emqx_schema.hrl").
 -include("emqx_authentication.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -42,7 +43,12 @@
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
 -type port_number() :: 1..65536.
--type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
+-type server_parse_option() :: #{
+    default_port => port_number(),
+    no_port => boolean(),
+    supported_schemes => [string()],
+    default_scheme => string()
+}.
 -type url() :: binary().
 -type json_binary() :: binary().
 
@@ -61,12 +67,19 @@
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
 
+-type parsed_server() :: #{
+    hostname := string(),
+    port => port_number(),
+    scheme => string()
+}.
+
 -export([
     validate_heap_size/1,
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     non_empty_string/1,
-    validations/0
+    validations/0,
+    naive_env_interpolation/1
 ]).
 
 -export([qos/0]).
@@ -97,6 +110,12 @@
     servers_sc/2,
     convert_servers/1,
     convert_servers/2
+]).
+
+%% tombstone types
+-export([
+    tombstone_map/2,
+    get_tombstone_map_value_type/1
 ]).
 
 -behaviour(hocon_schema).
@@ -776,41 +795,48 @@ fields("listeners") ->
     [
         {"tcp",
             sc(
-                map(name, ref("mqtt_tcp_listener")),
+                tombstone_map(name, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
+                    converter => fun(X, _) ->
+                        ensure_default_listener(X, tcp)
+                    end,
                     required => {false, recursively}
                 }
             )},
         {"ssl",
             sc(
-                map(name, ref("mqtt_ssl_listener")),
+                tombstone_map(name, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
+                    converter => fun(X, _) -> ensure_default_listener(X, ssl) end,
                     required => {false, recursively}
                 }
             )},
         {"ws",
             sc(
-                map(name, ref("mqtt_ws_listener")),
+                tombstone_map(name, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
+                    converter => fun(X, _) -> ensure_default_listener(X, ws) end,
                     required => {false, recursively}
                 }
             )},
         {"wss",
             sc(
-                map(name, ref("mqtt_wss_listener")),
+                tombstone_map(name, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
+                    converter => fun(X, _) -> ensure_default_listener(X, wss) end,
                     required => {false, recursively}
                 }
             )},
         {"quic",
             sc(
-                map(name, ref("mqtt_quic_listener")),
+                tombstone_map(name, ref("mqtt_quic_listener")),
                 #{
                     desc => ?DESC(fields_listeners_quic),
+                    converter => fun keep_default_tombstone/2,
                     required => {false, recursively}
                 }
             )}
@@ -821,7 +847,7 @@ fields("crl_cache") ->
     %% same URL.  If they had diverging timeout options, it would be
     %% confusing.
     [
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -829,7 +855,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_interval")
                 }
             )},
-        {"http_timeout",
+        {http_timeout,
             sc(
                 duration(),
                 #{
@@ -837,7 +863,7 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_http_timeout")
                 }
             )},
-        {"capacity",
+        {capacity,
             sc(
                 pos_integer(),
                 #{
@@ -909,15 +935,17 @@ fields("mqtt_quic_listener") ->
                 string(),
                 #{
                     %% TODO: deprecated => {since, "5.1.0"}
-                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keyfile",
             sc(
                 string(),
-                %% TODO: deprecated => {since, "5.1.0"}
                 #{
-                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"ciphers", ciphers_schema(quic)},
@@ -993,7 +1021,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% deprecated, use idle_timeout_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"idle_timeout_ms",
@@ -1007,7 +1038,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => <<"10s">>,
-                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use handshake_idle_timeout_ms
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"handshake_idle_timeout_ms",
@@ -1021,7 +1055,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use keep_alive_interval_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keep_alive_interval_ms",
@@ -1354,7 +1391,7 @@ fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("ocsp") ->
     [
-        {"enable_ocsp_stapling",
+        {enable_ocsp_stapling,
             sc(
                 boolean(),
                 #{
@@ -1362,7 +1399,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_enable_ocsp_stapling")
                 }
             )},
-        {"responder_url",
+        {responder_url,
             sc(
                 url(),
                 #{
@@ -1370,7 +1407,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_responder_url")
                 }
             )},
-        {"issuer_pem",
+        {issuer_pem,
             sc(
                 binary(),
                 #{
@@ -1378,7 +1415,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_issuer_pem")
                 }
             )},
-        {"refresh_interval",
+        {refresh_interval,
             sc(
                 duration(),
                 #{
@@ -1386,7 +1423,7 @@ fields("ocsp") ->
                     desc => ?DESC("server_ssl_opts_schema_ocsp_refresh_interval")
                 }
             )},
-        {"refresh_http_timeout",
+        {refresh_http_timeout,
             sc(
                 duration(),
                 #{
@@ -1489,10 +1526,8 @@ fields("broker") ->
             sc(
                 boolean(),
                 #{
-                    %% TODO: deprecated => {since, "5.1.0"}
-                    %% in favor of session message re-dispatch at termination
-                    %% we will stop supporting dispatch acks for shared
-                    %% subscriptions.
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => false,
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
@@ -1938,7 +1973,7 @@ base_listener(Bind) ->
             sc(
                 hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => <<"infinity">>,
+                    default => emqx_listeners:default_max_conn(),
                     desc => ?DESC(base_listener_max_connections)
                 }
             )},
@@ -2314,12 +2349,12 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             Field
          || not IsRanchListener,
             Field <- [
-                {"gc_after_handshake",
+                {gc_after_handshake,
                     sc(boolean(), #{
                         default => false,
                         desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
                     })},
-                {"ocsp",
+                {ocsp,
                     sc(
                         ref("ocsp"),
                         #{
@@ -2327,7 +2362,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             validator => fun ocsp_inner_validator/1
                         }
                     )},
-                {"enable_crl_check",
+                {enable_crl_check,
                     sc(
                         boolean(),
                         #{
@@ -2790,6 +2825,7 @@ authentication(Which) ->
     hoconsc:mk(Type, #{
         desc => Desc,
         converter => fun ensure_array/2,
+        default => [],
         importance => Importance
     }).
 
@@ -2898,7 +2934,7 @@ servers_validator(Opts, Required) ->
 %% `no_port': by default it's `false', when set to `true',
 %%            a `throw' exception is raised if the port is found.
 -spec parse_server(undefined | string() | binary(), server_parse_option()) ->
-    {string(), port_number()}.
+    undefined | parsed_server().
 parse_server(Str, Opts) ->
     case parse_servers(Str, Opts) of
         undefined ->
@@ -2912,7 +2948,7 @@ parse_server(Str, Opts) ->
 %% @doc Parse comma separated `host[:port][,host[:port]]' endpoints
 %% into a list of `{Host, Port}' tuples or just `Host' string.
 -spec parse_servers(undefined | string() | binary(), server_parse_option()) ->
-    [{string(), port_number()}].
+    undefined | [parsed_server()].
 parse_servers(undefined, _Opts) ->
     %% should not parse 'undefined' as string,
     %% not to throw exception either,
@@ -2958,6 +2994,9 @@ split_host_port(Str) ->
 do_parse_server(Str, Opts) ->
     DefaultPort = maps:get(default_port, Opts, undefined),
     NotExpectingPort = maps:get(no_port, Opts, false),
+    DefaultScheme = maps:get(default_scheme, Opts, undefined),
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -2966,22 +3005,129 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
+    case is_list(DefaultScheme) andalso (not lists:member(DefaultScheme, SupportedSchemes)) of
+        true ->
+            %% inconsistent schema
+            error("bad_schema");
+        false ->
+            ok
+    end,
     %% do not split with space, there should be no space allowed between host and port
-    case string:tokens(Str, ":") of
-        [Hostname, Port] ->
-            NotExpectingPort andalso throw("not_expecting_port_number"),
-            {check_hostname(Hostname), parse_port(Port)};
-        [Hostname] ->
-            case is_integer(DefaultPort) of
-                true ->
-                    {check_hostname(Hostname), DefaultPort};
-                false when NotExpectingPort ->
-                    check_hostname(Hostname);
-                false ->
-                    throw("missing_port_number")
-            end;
-        _ ->
-            throw("bad_host_port")
+    Tokens = string:tokens(Str, ":"),
+    Context = #{
+        not_expecting_port => NotExpectingPort,
+        not_expecting_scheme => NotExpectingScheme,
+        default_port => DefaultPort,
+        default_scheme => DefaultScheme,
+        opts => Opts
+    },
+    check_server_parts(Tokens, Context).
+
+check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        opts := Opts
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    #{
+        scheme => check_scheme(Scheme, Opts),
+        hostname => check_hostname(Hostname),
+        port => parse_port(Port)
+    };
+check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        opts := Opts
+    } = Context,
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    case is_integer(DefaultPort) of
+        true ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        false when NotExpectingPort ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname)
+            };
+        false ->
+            throw("missing_port_number")
+    end;
+check_server_parts([Hostname, Port], Context) ->
+    #{
+        not_expecting_port := NotExpectingPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    case is_list(DefaultScheme) of
+        false ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            };
+        true ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            }
+    end;
+check_server_parts([Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    case is_integer(DefaultPort) orelse NotExpectingPort of
+        true ->
+            ok;
+        false ->
+            throw("missing_port_number")
+    end,
+    case is_list(DefaultScheme) orelse NotExpectingScheme of
+        true ->
+            ok;
+        false ->
+            throw("missing_scheme")
+    end,
+    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
+        {true, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {true, false} ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {false, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname)
+            };
+        {false, false} ->
+            #{hostname => check_hostname(Hostname)}
+    end;
+check_server_parts(_Tokens, _Context) ->
+    throw("bad_host_port").
+
+check_scheme(Str, Opts) ->
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    IsSupported = lists:member(Str, SupportedSchemes),
+    case IsSupported of
+        true ->
+            Str;
+        false ->
+            throw("unsupported_scheme")
     end.
 
 check_hostname(Str) ->
@@ -3084,3 +3230,138 @@ assert_required_field(Conf, Key, ErrorMessage) ->
         _ ->
             ok
     end.
+
+default_listener(tcp) ->
+    #{
+        <<"bind">> => <<"0.0.0.0:1883">>
+    };
+default_listener(ws) ->
+    #{
+        <<"bind">> => <<"0.0.0.0:8083">>,
+        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+    };
+default_listener(SSLListener) ->
+    %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
+    CertFile = fun(Name) ->
+        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
+    end,
+    SslOptions = #{
+        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
+        <<"certfile">> => CertFile(<<"cert.pem">>),
+        <<"keyfile">> => CertFile(<<"key.pem">>)
+    },
+    case SSLListener of
+        ssl ->
+            #{
+                <<"bind">> => <<"0.0.0.0:8883">>,
+                <<"ssl_options">> => SslOptions
+            };
+        wss ->
+            #{
+                <<"bind">> => <<"0.0.0.0:8084">>,
+                <<"ssl_options">> => SslOptions,
+                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+            }
+    end.
+
+%% @doc This function helps to perform a naive string interpolation which
+%% only looks at the first segment of the string and tries to replace it.
+%% For example
+%%  "$MY_FILE_PATH"
+%%  "${MY_FILE_PATH}"
+%%  "$ENV_VARIABLE/sub/path"
+%%  "${ENV_VARIABLE}/sub/path"
+%%  "${ENV_VARIABLE}\sub\path" # windows
+%% This function returns undefined if the input is undefined
+%% otherwise always return string.
+naive_env_interpolation(undefined) ->
+    undefined;
+naive_env_interpolation(Bin) when is_binary(Bin) ->
+    naive_env_interpolation(unicode:characters_to_list(Bin, utf8));
+naive_env_interpolation("$" ++ Maybe = Original) ->
+    {Env, Tail} = split_path(Maybe),
+    case resolve_env(Env) of
+        {ok, Path} ->
+            filename:join([Path, Tail]);
+        error ->
+            Original
+    end;
+naive_env_interpolation(Other) ->
+    Other.
+
+split_path(Path) ->
+    split_path(Path, []).
+
+split_path([], Acc) ->
+    {lists:reverse(Acc), []};
+split_path([Char | Rest], Acc) when Char =:= $/ orelse Char =:= $\\ ->
+    {lists:reverse(Acc), string:trim(Rest, leading, "/\\")};
+split_path([Char | Rest], Acc) ->
+    split_path(Rest, [Char | Acc]).
+
+resolve_env(Name0) ->
+    Name = string:trim(Name0, both, "{}"),
+    Value = os:getenv(Name),
+    case Value =/= false andalso Value =/= "" of
+        true ->
+            {ok, Value};
+        false ->
+            special_env(Name)
+    end.
+
+-ifdef(TEST).
+%% when running tests, we need to mock the env variables
+special_env("EMQX_ETC_DIR") ->
+    {ok, filename:join([code:lib_dir(emqx), etc])};
+special_env("EMQX_LOG_DIR") ->
+    {ok, "log"};
+special_env(_Name) ->
+    %% only in tests
+    error.
+-else.
+special_env(_Name) -> error.
+-endif.
+
+%% The tombstone atom.
+tombstone() ->
+    ?TOMBSTONE_TYPE.
+
+%% Make a map type, the value of which is allowed to be 'marked_for_deletion'
+%% 'marked_for_delition' is a special value which means the key is deleted.
+%% This is used to support the 'delete' operation in configs,
+%% since deleting the key would result in default value being used.
+tombstone_map(Name, Type) ->
+    %% marked_for_deletion must be the last member of the union
+    %% because we need to first union member to populate the default values
+    map(Name, ?UNION([Type, ?TOMBSTONE_TYPE])).
+
+%% inverse of mark_del_map
+get_tombstone_map_value_type(Schema) ->
+    %% TODO: violation of abstraction, expose an API in hoconsc
+    %% hoconsc:map_value_type(Schema)
+    ?MAP(_Name, Union) = hocon_schema:field_schema(Schema, type),
+    %% TODO: violation of abstraction, fix hoconsc:union_members/1
+    ?UNION(Members) = Union,
+    Tombstone = tombstone(),
+    [Type, Tombstone] = hoconsc:union_members(Members),
+    Type.
+
+%% Keep the 'default' tombstone, but delete others.
+keep_default_tombstone(Map, _Opts) when is_map(Map) ->
+    maps:filter(
+        fun(Key, Value) ->
+            Key =:= <<"default">> orelse Value =/= ?TOMBSTONE_VALUE
+        end,
+        Map
+    );
+keep_default_tombstone(Value, _Opts) ->
+    Value.
+
+ensure_default_listener(undefined, ListenerType) ->
+    %% let the schema's default value do its job
+    #{<<"default">> => default_listener(ListenerType)};
+ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
+    keep_default_tombstone(Map, #{});
+ensure_default_listener(Map, ListenerType) ->
+    NewMap = Map#{<<"default">> => default_listener(ListenerType)},
+    keep_default_tombstone(NewMap, #{}).
