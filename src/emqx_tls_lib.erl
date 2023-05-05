@@ -26,6 +26,8 @@
         , opt_partial_chain/1
         ]).
 
+-include("logger.hrl").
+
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
 %% non-empty list of strings
@@ -189,14 +191,23 @@ opt_partial_chain(SslOpts) ->
         false ->
             SslOpts;
         V when V =:= cacert_from_cacertfile orelse V == true ->
-            replace(SslOpts, partial_chain, cacert_from_cacertfile(SslOpts))
+            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(SslOpts))
     end.
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 
 %% @doc Helper, make TLS root_fun
-cacert_from_cacertfile(SslOpts) ->
+rootfun_trusted_ca_from_cacertfile(SslOpts) ->
     Cacertfile = proplists:get_value(cacertfile, SslOpts, undefined),
+    try do_rootfun_trusted_ca_from_cacertfile(Cacertfile)
+    catch _Error:_ ->
+            %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
+            %% We are touching security sutffs, don't leak extra info..
+            ?LOG(error, "Failed to look for trusted cacert from cacertfile. loc: ~p:~p",
+                 [?MODULE, ?FUNCTION_NAME]),
+            throw({error, ?FUNCTION_NAME})
+    end.
+do_rootfun_trusted_ca_from_cacertfile(Cacertfile) ->
     {ok, PemBin} = file:read_file(Cacertfile),
     %% The last one should be the top parent in the chain if it is a chain
     {'Certificate', CADer, _} = lists:last(public_key:pem_decode(PemBin)),

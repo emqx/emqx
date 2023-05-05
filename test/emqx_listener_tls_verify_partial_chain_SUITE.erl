@@ -281,6 +281,17 @@ t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
   fail_when_ssl_error(Socket),
   ok = ssl:close(Socket).
 
+t_error_handling_invalid_cacertfile(Config) ->
+  Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+  DataDir = ?config(data_dir, Config),
+  Options = [{ssl_options, [ {cacertfile, filename:join(DataDir, "server2.key")} %% trigger error
+                           , {certfile, filename:join(DataDir, "server2.pem")}
+                           , {keyfile, filename:join(DataDir, "server2.key")}
+                           | ?config(ssl_config, Config)
+                           ]}],
+  ?assertException(throw, {error, rootfun_trusted_ca_from_cacertfile}, emqx_listeners:start_listener(ssl, Port, Options)).
+
+
 ssl_config_verify_partial_chain() ->
   [ {verify, verify_peer}
   , {fail_if_no_peer_cert, true}
