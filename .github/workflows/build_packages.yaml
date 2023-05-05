@@ -77,12 +77,12 @@ jobs:
           echo "VERSION=$(./pkg-vsn.sh $PROFILE)" >> $GITHUB_OUTPUT
       - name: get_all_deps
         run: |
-          pushd source
+          cd source
           # make sure all previous left-overs are cleaned
           make clean-all
           # enterprise is a super-set, should be enough for all profiles
           make deps-emqx-enterprise
-          popd
+          cd ..
           zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v3
         with:
