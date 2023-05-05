@@ -43,8 +43,8 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
 
-  PROFILE:           Overriden by '-p|--profile' option, defaults to 'emqx'.
-  EMQX_NODE_NAME:    Overriden by '-n|--name' or '-r|--remsh' option.
+  PROFILE:           Overridden by '-p|--profile' option, defaults to 'emqx'.
+  EMQX_NODE_NAME:    Overridden by '-n|--name' or '-r|--remsh' option.
                      The node name of the EMQX node. Default to emqx@127.0.0.1'.
   EMQX_NODE_COOKIE:  Erlang cookie, defaults to ~/.erlang.cookie
 
@@ -56,6 +56,8 @@ if [ -n "${DEBUG:-}" ]; then
 fi
 
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
+export EMQX_LOG__FILE__DEFAULT__ENABLE='false'
+export EMQX_LOG__CONSOLE__ENABLE='true'
 EMQX_NODE_NAME="${EMQX_NODE_NAME:-emqx@127.0.0.1}"
 PROFILE="${PROFILE:-emqx}"
 FORCE_COMPILE=0
