@@ -3,8 +3,8 @@ emqx_ft_schema {
 enable.desc:
 """Enable the File Transfer feature.<br/>
 Enabling File Transfer implies reserving special MQTT topics in order to serve the protocol.<br/>
-This toggle does not have an effect neither on the availability of the File Transfer REST API, nor
-on storage-dependent background activities (e.g. garbage collection)."""
+This toggle also affects the availability of the File Transfer REST API and
+storage-dependent background activities (e.g. garbage collection)."""
 
 init_timeout.desc:
 """Timeout for initializing the file transfer.<br/>

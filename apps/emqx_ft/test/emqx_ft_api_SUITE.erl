@@ -83,6 +83,8 @@ mk_cluster_specs(Config) ->
 
 init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
+end_per_testcase(t_ft_disabled, _Config) ->
+    emqx_config:put([file_transfer, enable], true);
 end_per_testcase(_Case, _Config) ->
     ok.
 
@@ -222,6 +224,35 @@ t_list_files_paging(Config) ->
     ?assertEqual(Files, PageThrough(#{limit => 1}, [])),
     ?assertEqual(Files, PageThrough(#{limit => 8}, [])),
     ?assertEqual(Files, PageThrough(#{limit => NFiles}, [])).
+
+t_ft_disabled(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        request_json(get, uri(["file_transfer", "files"]))
+    ),
+
+    ?assertMatch(
+        {ok, 400, _},
+        request_json(
+            get,
+            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>})
+        )
+    ),
+
+    ok = emqx_config:put([file_transfer, enable], false),
+
+    ?assertMatch(
+        {ok, 503, _},
+        request_json(get, uri(["file_transfer", "files"]))
+    ),
+
+    ?assertMatch(
+        {ok, 503, _},
+        request_json(
+            get,
+            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>, node => node()})
+        )
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers

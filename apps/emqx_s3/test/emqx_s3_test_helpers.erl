@@ -36,19 +36,24 @@
 %%--------------------------------------------------------------------
 
 aws_config(tcp) ->
+    aws_config(tcp, ?TCP_HOST, ?TCP_PORT);
+aws_config(tls) ->
+    aws_config(tls, ?TLS_HOST, ?TLS_PORT).
+
+aws_config(tcp, Host, Port) ->
     erlcloud_s3_new(
         ?ACCESS_KEY_ID,
         ?SECRET_ACCESS_KEY,
-        ?TCP_HOST,
-        ?TCP_PORT,
+        Host,
+        Port,
         "http://"
     );
-aws_config(tls) ->
+aws_config(tls, Host, Port) ->
     erlcloud_s3_new(
         ?ACCESS_KEY_ID,
         ?SECRET_ACCESS_KEY,
-        ?TLS_HOST,
-        ?TLS_PORT,
+        Host,
+        Port,
         "https://"
     ).
 

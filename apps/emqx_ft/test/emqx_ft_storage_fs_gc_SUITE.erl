@@ -40,14 +40,15 @@ init_per_testcase(TC, Config) ->
         emqx_ft,
         fun(emqx_ft) ->
             emqx_ft_test_helpers:load_config(#{
-                storage => #{
-                    type => local,
-                    segments => #{
-                        root => emqx_ft_test_helpers:root(Config, node(), [TC, segments])
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"type">> => <<"local">>,
+                    <<"segments">> => #{
+                        <<"root">> => emqx_ft_test_helpers:root(Config, node(), [TC, segments])
                     },
-                    exporter => #{
-                        type => local,
-                        root => emqx_ft_test_helpers:root(Config, node(), [TC, exports])
+                    <<"exporter">> => #{
+                        <<"type">> => <<"local">>,
+                        <<"root">> => emqx_ft_test_helpers:root(Config, node(), [TC, exports])
                     }
                 }
             })

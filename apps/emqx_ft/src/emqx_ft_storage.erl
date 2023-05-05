@@ -90,6 +90,12 @@
 -callback files(storage(), query(Cursor)) ->
     {ok, page(file_info(), Cursor)} | {error, term()}.
 
+-callback start(emqx_config:config()) -> any().
+-callback stop(emqx_config:config()) -> any().
+
+-callback on_config_update(_OldConfig :: emqx_config:config(), _NewConfig :: emqx_config:config()) ->
+    any().
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -167,48 +173,27 @@ apply_storage(Storage, Fun, Args) when is_function(Fun) ->
 
 -spec on_config_update(_Old :: emqx_maybe:t(storage()), _New :: emqx_maybe:t(storage())) ->
     ok.
-on_config_update(Storage, Storage) ->
+on_config_update(#{type := _} = Storage, #{type := _} = Storage) ->
     ok;
 on_config_update(#{type := Type} = StorageOld, #{type := Type} = StorageNew) ->
     ok = (mod(StorageNew)):on_config_update(StorageOld, StorageNew);
-on_config_update(StorageOld, StorageNew) ->
+on_config_update(StorageOld, StorageNew) when
+    (StorageOld =:= undefined orelse is_map_key(type, StorageOld)) andalso
+        (StorageNew =:= undefined orelse is_map_key(type, StorageNew))
+->
     _ = emqx_maybe:apply(fun on_storage_stop/1, StorageOld),
     _ = emqx_maybe:apply(fun on_storage_start/1, StorageNew),
-    _ = emqx_maybe:apply(
-        fun(Storage) -> (mod(Storage)):on_config_update(StorageOld, StorageNew) end,
-        StorageNew
-    ),
     ok.
 
-on_storage_start(Storage = #{type := _}) ->
-    lists:foreach(
-        fun(ChildSpec) ->
-            {ok, _Child} = supervisor:start_child(emqx_ft_sup, ChildSpec)
-        end,
-        child_spec(Storage)
-    ).
-
-on_storage_stop(Storage = #{type := _}) ->
-    lists:foreach(
-        fun(#{id := ChildId}) ->
-            _ = supervisor:terminate_child(emqx_ft_sup, ChildId),
-            ok = supervisor:delete_child(emqx_ft_sup, ChildId)
-        end,
-        child_spec(Storage)
-    ).
-
-child_spec(Storage) ->
-    try
-        Mod = mod(Storage),
-        Mod:child_spec(Storage)
-    catch
-        error:disabled -> [];
-        error:undef -> []
-    end.
-
 %%--------------------------------------------------------------------
-%% Local FS API
+%% Local API
 %%--------------------------------------------------------------------
+
+on_storage_start(Storage) ->
+    (mod(Storage)):start(Storage).
+
+on_storage_stop(Storage) ->
+    (mod(Storage)):stop(Storage).
 
 storage() ->
     emqx_ft_conf:storage().

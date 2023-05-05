@@ -21,6 +21,9 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(S3_HOST, <<"minio">>).
+-define(S3_PORT, 9000).
+
 start_additional_node(Config, Name) ->
     emqx_common_test_helpers:start_slave(
         Name,
@@ -41,32 +44,41 @@ stop_additional_node(Node) ->
 env_handler(Config) ->
     fun
         (emqx_ft) ->
-            load_config(#{enable => true, storage => local_storage(Config)});
+            load_config(#{<<"enable">> => true, <<"storage">> => local_storage(Config)});
         (_) ->
             ok
     end.
 
 local_storage(Config) ->
+    local_storage(Config, #{exporter => local}).
+
+local_storage(Config, Opts) ->
     #{
-        type => local,
-        segments => #{
-            root => root(Config, node(), [segments])
-        },
-        exporter => #{
-            type => local,
-            root => root(Config, node(), [exports])
-        }
+        <<"type">> => <<"local">>,
+        <<"segments">> => #{<<"root">> => root(Config, node(), [segments])},
+        <<"exporter">> => exporter(Config, Opts)
+    }.
+
+exporter(Config, #{exporter := local}) ->
+    #{<<"type">> => <<"local">>, <<"root">> => root(Config, node(), [exports])};
+exporter(_Config, #{exporter := s3, bucket_name := BucketName}) ->
+    BaseConfig = emqx_s3_test_helpers:base_raw_config(tcp),
+    BaseConfig#{
+        <<"bucket">> => list_to_binary(BucketName),
+        <<"type">> => <<"s3">>,
+        <<"host">> => ?S3_HOST,
+        <<"port">> => ?S3_PORT
     }.
 
 load_config(Config) ->
-    emqx_common_test_helpers:load_config(emqx_ft_schema, #{file_transfer => Config}).
+    emqx_common_test_helpers:load_config(emqx_ft_schema, #{<<"file_transfer">> => Config}).
 
 tcp_port(Node) ->
     {_, Port} = rpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
 
 root(Config, Node, Tail) ->
-    filename:join([?config(priv_dir, Config), "file_transfer", Node | Tail]).
+    iolist_to_binary(filename:join([?config(priv_dir, Config), "file_transfer", Node | Tail])).
 
 start_client(ClientId) ->
     start_client(ClientId, node()).
@@ -94,9 +106,21 @@ upload_file(ClientId, FileId, Name, Data, Node) ->
     ct:pal("MetaPayload = ~ts", [MetaPayload]),
 
     MetaTopic = <<"$file/", FileId/binary, "/init">>,
-    {ok, _} = emqtt:publish(C1, MetaTopic, MetaPayload, 1),
-    {ok, _} = emqtt:publish(C1, <<"$file/", FileId/binary, "/0">>, Data, 1),
+    {ok, #{reason_code_name := success}} = emqtt:publish(C1, MetaTopic, MetaPayload, 1),
+    {ok, #{reason_code_name := success}} = emqtt:publish(
+        C1, <<"$file/", FileId/binary, "/0">>, Data, 1
+    ),
 
     FinTopic = <<"$file/", FileId/binary, "/fin/", (integer_to_binary(Size))/binary>>,
-    {ok, _} = emqtt:publish(C1, FinTopic, <<>>, 1),
-    ok = emqtt:stop(C1).
+    FinResult =
+        case emqtt:publish(C1, FinTopic, <<>>, 1) of
+            {ok, #{reason_code_name := success}} ->
+                ok;
+            {ok, #{reason_code_name := Error}} ->
+                {error, Error}
+        end,
+    ok = emqtt:stop(C1),
+    FinResult.
+
+aws_config() ->
+    emqx_s3_test_helpers:aws_config(tcp, binary_to_list(?S3_HOST), ?S3_PORT).

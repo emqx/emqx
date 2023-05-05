@@ -149,7 +149,7 @@ list(Client, _Options, #{transfer := Transfer}) ->
     end;
 list(Client, _Options, Query) ->
     Limit = maps:get(limit, Query, undefined),
-    Marker = emqx_maybe:apply(fun decode_cursor/1, maps:get(cursor, Query, undefined)),
+    Marker = emqx_maybe:apply(fun decode_cursor/1, maps:get(following, Query, undefined)),
     case list_pages(Client, Marker, Limit, []) of
         {ok, {Exports, undefined}} ->
             {ok, #{items => Exports}};

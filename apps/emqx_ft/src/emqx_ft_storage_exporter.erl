@@ -153,14 +153,14 @@ on_exporter_update(Config, Config) ->
 on_exporter_update({ExporterMod, ConfigOld}, {ExporterMod, ConfigNew}) ->
     ExporterMod:update(ConfigOld, ConfigNew);
 on_exporter_update(ExporterOld, ExporterNew) ->
-    _ = emqx_maybe:apply(fun stop_exporter/1, ExporterOld),
-    _ = emqx_maybe:apply(fun start_exporter/1, ExporterNew),
+    _ = emqx_maybe:apply(fun stop/1, ExporterOld),
+    _ = emqx_maybe:apply(fun start/1, ExporterNew),
     ok.
 
-start_exporter({ExporterMod, ExporterOpts}) ->
+start({ExporterMod, ExporterOpts}) ->
     ok = ExporterMod:start(ExporterOpts).
 
-stop_exporter({ExporterMod, ExporterOpts}) ->
+stop({ExporterMod, ExporterOpts}) ->
     ok = ExporterMod:stop(ExporterOpts).
 
 %%------------------------------------------------------------------------------

@@ -56,7 +56,7 @@ enabled() ->
 
 -spec storage() -> _Storage.
 storage() ->
-    emqx_config:get([file_transfer, storage], undefined).
+    emqx_config:get([file_transfer, storage]).
 
 -spec gc_interval(_Storage) -> emqx_maybe:t(milliseconds()).
 gc_interval(Conf = #{type := local}) ->
@@ -88,11 +88,12 @@ store_segment_timeout() ->
 
 -spec load() -> ok.
 load() ->
-    ok = on_config_update(#{}, emqx_config:get([file_transfer], #{})),
+    ok = maybe_start(),
     emqx_conf:add_handler([file_transfer], ?MODULE).
 
 -spec unload() -> ok.
 unload() ->
+    ok = stop(),
     emqx_conf:remove_handler([file_transfer]).
 
 %%--------------------------------------------------------------------
@@ -115,23 +116,26 @@ pre_config_update(_, Req, _Config) ->
 post_config_update([file_transfer | _], _Req, NewConfig, OldConfig, _AppEnvs) ->
     on_config_update(OldConfig, NewConfig).
 
-on_config_update(OldConfig, NewConfig) ->
-    lists:foreach(
-        fun(ConfKey) ->
-            on_config_update(
-                ConfKey,
-                maps:get(ConfKey, OldConfig, undefined),
-                maps:get(ConfKey, NewConfig, undefined)
-            )
-        end,
-        [storage, enable]
-    ).
-
-on_config_update(_, Config, Config) ->
+on_config_update(#{enable := false}, #{enable := false}) ->
     ok;
-on_config_update(storage, OldConfig, NewConfig) ->
-    ok = emqx_ft_storage:on_config_update(OldConfig, NewConfig);
-on_config_update(enable, _, true) ->
+on_config_update(#{enable := true, storage := OldStorage}, #{enable := false}) ->
+    ok = emqx_ft_storage:on_config_update(OldStorage, undefined),
+    ok = emqx_ft:unhook();
+on_config_update(#{enable := false}, #{enable := true, storage := NewStorage}) ->
+    ok = emqx_ft_storage:on_config_update(undefined, NewStorage),
     ok = emqx_ft:hook();
-on_config_update(enable, _, false) ->
-    ok = emqx_ft:unhook().
+on_config_update(#{enable := true, storage := OldStorage}, #{enable := true, storage := NewStorage}) ->
+    ok = emqx_ft_storage:on_config_update(OldStorage, NewStorage).
+
+maybe_start() ->
+    case emqx_config:get([file_transfer]) of
+        #{enable := true, storage := Storage} ->
+            ok = emqx_ft_storage:on_config_update(undefined, Storage),
+            ok = emqx_ft:hook();
+        _ ->
+            ok
+    end.
+
+stop() ->
+    ok = emqx_ft:unhook(),
+    ok = emqx_ft_storage:on_config_update(storage(), undefined).

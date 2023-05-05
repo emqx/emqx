@@ -32,9 +32,10 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    % NOTE: running each testcase with clean config
     _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft], fun(_) -> ok end),
+    ok = emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)
+    ),
     {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
 
