@@ -122,7 +122,7 @@ fields(limiter) ->
                         desc => ?DESC(client),
                         importance => ?IMPORTANCE_HIDDEN,
                         required => {false, recursively},
-                        deprecated => {since, "5.0.24"}
+                        deprecated => {since, "5.0.25"}
                     }
                 )}
         ];
