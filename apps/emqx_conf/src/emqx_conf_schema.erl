@@ -1342,11 +1342,17 @@ node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
 
 ensure_file_handlers(Conf, _Opts) ->
-    FileFields = lists:map(fun({F, _}) -> list_to_binary(F) end, fields("log_file_handler")),
+    FileFields = lists:flatmap(
+        fun({F, Schema}) ->
+            Alias = [atom_to_binary(A) || A <- maps:get(aliases, Schema, [])],
+            [list_to_binary(F) | Alias]
+        end,
+        fields("log_file_handler")
+    ),
     HandlersWithoutName = maps:with(FileFields, Conf),
     HandlersWithName = maps:without(FileFields, Conf),
     emqx_utils_maps:deep_merge(#{<<"default">> => HandlersWithoutName}, HandlersWithName).
 
 convert_rotation(undefined, _Opts) -> undefined;
-convert_rotation(#{} = Rotation, _Opts) -> maps:get(count, Rotation, 10);
+convert_rotation(#{} = Rotation, _Opts) -> maps:get(<<"count">>, Rotation, 10);
 convert_rotation(Count, _Opts) when is_integer(Count) -> Count.
