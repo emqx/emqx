@@ -52,7 +52,7 @@ jobs:
     env:
       TF_VAR_bench_id: ${{ needs.prepare.outputs.BENCH_ID }}
       TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
-      TF_VAR_test_duration_seconds: 300
+      TF_VAR_test_duration: 300
       TF_VAR_grafana_api_key: ${{ secrets.TF_EMQX_PERF_TEST_GRAFANA_API_KEY }}
       TF_AWS_REGION: eu-north-1
 
@@ -85,15 +85,17 @@ jobs:
       run: |
         terraform apply -auto-approve
     - name: Wait for test results
+      timeout-minutes: 30
       working-directory: ./tf-emqx-performance-test
       id: test-results
       run: |
-        sleep $TF_VAR_test_duration_seconds
+        sleep $TF_VAR_test_duration
         until aws s3api head-object --bucket tf-emqx-performance-test --key "$TF_VAR_bench_id/DONE" > /dev/null 2>&1
         do
-          echo 'waiting'
+          printf '.'
           sleep 10
         done
+        echo
         aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/metrics.json" ./
         aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/stats.json" ./
         echo MESSAGES_DELIVERED=$(cat metrics.json | jq '[.[]."messages.delivered"] | add') >> $GITHUB_OUTPUT
