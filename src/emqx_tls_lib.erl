@@ -200,11 +200,10 @@ replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 rootfun_trusted_ca_from_cacertfile(SslOpts) ->
     Cacertfile = proplists:get_value(cacertfile, SslOpts, undefined),
     try do_rootfun_trusted_ca_from_cacertfile(Cacertfile)
-    catch _Error:_ ->
+    catch _Error:_Info:ST ->
             %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
             %% We are touching security sutffs, don't leak extra info..
-            ?LOG(error, "Failed to look for trusted cacert from cacertfile. loc: ~p:~p",
-                 [?MODULE, ?FUNCTION_NAME]),
+            ?LOG(error, "Failed to look for trusted cacert from cacertfile. Stacktrace: ~p", [ST]),
             throw({error, ?FUNCTION_NAME})
     end.
 do_rootfun_trusted_ca_from_cacertfile(Cacertfile) ->
