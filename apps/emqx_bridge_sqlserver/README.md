@@ -9,25 +9,14 @@ The application is used to connect EMQX and Microsoft SQL Server.
 User can create a rule and easily ingest IoT data into Microsoft SQL Server by leveraging
 [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html).
 
-<!---
 
-# Documentation
-
-- Refer to [Ingest data into Cassandra](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-cassa.html)
-  for how to use EMQX dashboard to ingest IoT data into Cassandra.
-- Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
-  for the EMQX rules engine introduction.
-
---->
-
-# Documentation links
+## Documentation links
 
 For more information about Microsoft SQL Server, please see the [official site](https://learn.microsoft.com/en-us/sql/sql-server/?view=sql-server-ver16)
 
 # Configurations
 
-
-Please see [our official documentation](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-sqlserver.html) for more detailed information.
+Please see [Ingest data into SQL Server](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-sqlserver.html) for more detailed information.
 
 # HTTP APIs
 
