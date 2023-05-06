@@ -183,7 +183,7 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.9", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},

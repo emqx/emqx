@@ -19,6 +19,7 @@ RUN export PROFILE=${EMQX_NAME%%-elixir} \
     && mv $EMQX_REL_PATH /emqx-rel
 
 FROM $RUN_FROM
+ARG EXTRA_DEPS=''
 
 # Elixir complains if runs without UTF-8
 ENV LC_ALL=C.UTF-8
@@ -30,7 +31,7 @@ COPY --from=builder /emqx-rel/emqx /opt/emqx
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 
 RUN apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates procps; \
+    apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/emqx
