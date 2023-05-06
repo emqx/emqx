@@ -1,7 +1,10 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.17",
+  [{"4.4.18",
+    [{load_module,emqx_relup,brutal_purge,soft_purge,[]},
+     {load_module,emqx_app,brutal_purge,soft_purge,[]}]},
+   {"4.4.17",
     [{load_module,emqx_relup,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
@@ -537,7 +540,10 @@
      {apply,{application,set_env,
                          [gen_rpc,insecure_auth_fallback_allowed,true]}}]},
    {<<".*">>,[]}],
-  [{"4.4.17",
+  [{"4.4.18",
+    [{load_module,emqx_relup,brutal_purge,soft_purge,[]},
+     {load_module,emqx_app,brutal_purge,soft_purge,[]}]},
+   {"4.4.17",
     [{load_module,emqx_relup,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
