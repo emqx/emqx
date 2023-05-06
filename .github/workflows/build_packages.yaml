@@ -5,8 +5,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  schedule:
-  - cron:  '0 */6 * * *'
   push:
     branches:
     - 'ci/**'
@@ -23,25 +21,20 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    if: (github.repository_owner == 'emqx' && github.event_name == 'schedule') || github.event_name != 'schedule'
     container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
       VERSION: ${{ steps.get_profile.outputs.VERSION }}
-
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
-          path: source
           fetch-depth: 0
 
       - name: Get profile to build
         id: get_profile
         run: |
-          cd source
-          git config --global --add safe.directory "$(pwd)"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
             echo "WARN: This is an exact git tag, will publish release"
@@ -78,31 +71,21 @@ jobs:
           esac
           echo "BUILD_PROFILE=$PROFILE" >> $GITHUB_OUTPUT
           echo "VERSION=$(./pkg-vsn.sh $PROFILE)" >> $GITHUB_OUTPUT
-      - name: get_all_deps
-        run: |
-          make -C source deps-all
-          zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: source
-          path: source.zip
 
   windows:
     runs-on: windows-2019
     if: startsWith(github.ref_name, 'v')
-    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         profile: # for now only CE for windows
           - emqx
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: Expand-Archive -Path source.zip -DestinationPath ./
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
+
     - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1.15.2
       with:
@@ -111,14 +94,12 @@ jobs:
       env:
         PYTHON: python
         DIAGNOSTIC: 1
-      working-directory: source
       run: |
         # ensure crypto app (openssl)
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
         make ${{ matrix.profile }}-tgz
     - name: run emqx
       timeout-minutes: 5
-      working-directory: source
       run: |
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
@@ -133,15 +114,7 @@ jobs:
       if: success()
       with:
         name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@Windows failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+        path: _packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -159,15 +132,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: |
-        ln -s . source
-        unzip -o -q source.zip
-        rm source source.zip
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
@@ -182,19 +150,14 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure() && github.event_name == 'schedule'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
   linux:
     needs: prepare
-    if: github.event_name != 'schedule'
-    runs-on: aws-${{ matrix.arch }}
+    runs-on: ${{ matrix.build_machine }}
+    # always run in builder container because the host might have the wrong OTP version etc.
+    # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
+    container:
+      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -216,15 +179,24 @@ jobs:
           - el8
           - el7
           - amzn2
+        build_machine:
+          - aws-arm64
+          - ubuntu-22.04
         builder:
           - 5.0-34
         elixir:
           - 1.13.4
+        exclude:
+        - arch: arm64
+          build_machine: ubuntu-22.04
+        - arch: amd64
+          build_machine: aws-arm64
         include:
           - profile: emqx
             otp: 25.1.2-3
             arch: amd64
             os: ubuntu22.04
+            build_machine: ubuntu-22.04
             builder: 5.0-34
             elixir: 1.13.4
             release_with: elixir
@@ -232,6 +204,7 @@ jobs:
             otp: 25.1.2-3
             arch: amd64
             os: amzn2
+            build_machine: ubuntu-22.04
             builder: 5.0-34
             elixir: 1.13.4
             release_with: elixir
@@ -242,26 +215,31 @@ jobs:
 
     steps:
     - uses: AutoModality/action-clean@v1
-    - uses: actions/download-artifact@v3
+      if: matrix.build_machine == 'aws-arm64'
+
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: unzip -q source.zip
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
+
     - name: build emqx packages
-      working-directory: source
       env:
-        BUILDER: ${{ matrix.builder }}
         ELIXIR: ${{ matrix.elixir }}
-        OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
-        SYSTEM: ${{ matrix.os }}
       run: |
         set -eu
+        git config --global --add safe.directory "/__w/emqx/emqx"
+        # Align path for CMake caches
+        if [ ! "$PWD" = "/emqx" ]; then
+          ln -s $PWD /emqx
+          cd /emqx
+        fi
+        echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
-        if [ ${{ matrix.release_with }} == 'elixir' ]; then
+        WITH_ELIXIR=${{ matrix.release_with }}
+        if [ "${WITH_ELIXIR:-}" == 'elixir' ]; then
           PKGTYPES="tgz"
           # set Elixir build flag
           IS_ELIXIR="yes"
@@ -273,88 +251,18 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IS_ELIXIR}" \
-            --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "force_host"
         done
     - uses: actions/upload-artifact@v3
       if: success()
       with:
         name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/
-
-  linux-schedule:
-    needs: prepare
-    if: github.event_name == 'schedule'
-    runs-on: aws-${{ matrix.arch }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - emqx
-          - emqx-enterprise
-        otp:
-          - 24.3.4.2-3
-        arch:
-          - amd64
-        os:
-          - debian10
-        builder:
-          - 5.0-34
-        elixir:
-          - 1.13.4
-
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-    - uses: AutoModality/action-clean@v1
-    - uses: actions/download-artifact@v3
-      with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: unzip -q source.zip
-    - name: build emqx packages
-      working-directory: source
-      env:
-        BUILDER: ${{ matrix.builder }}
-        ELIXIR: ${{ matrix.elixir }}
-        OTP: ${{ matrix.otp }}
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch }}
-        SYSTEM: ${{ matrix.os }}
-      run: |
-        set -eu
-        PKGTYPES="tgz pkg"
-        IS_ELIXIR="no"
-        for PKGTYPE in ${PKGTYPES};
-        do
-          ./scripts/buildx.sh \
-            --profile "${PROFILE}" \
-            --pkgtype "${PKGTYPE}" \
-            --arch "${ARCH}" \
-            --elixir "${IS_ELIXIR}" \
-            --builder "ghcr.io/emqx/emqx-builder/${BUILDER}:${ELIXIR}-${OTP}-${SYSTEM}"
-        done
-    - uses: actions/upload-artifact@v3
-      if: success()
-      with:
-        name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/
-    - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      if: failure()
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      with:
-        payload: |
-          {"text": "Scheduled run of ${{ github.workflow }}@${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+        path: _packages/${{ matrix.profile }}/
 
   publish_artifacts:
     runs-on: ubuntu-22.04
     needs: [prepare, mac, linux]
-    if: needs.prepare.outputs.IS_EXACT_TAG && github.event_name != 'schedule'
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
     strategy:
       fail-fast: false
       matrix:
