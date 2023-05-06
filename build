@@ -120,8 +120,15 @@ make_docs() {
          halt(0)."
 }
 
-assert_no_compile_time_only_deps() {
-    :
+assert_no_excluded_deps() {
+    if [ "$PROFILE" != 'emqx-enterprise' ]; then
+        return 0
+    fi
+    local rel_dir="_build/$PROFILE/rel/emqx/lib"
+    if [ -d "$rel_dir"/emqx_telemetry-* ]; then
+        echo "emqx_telemetry should not be included in $PROFILE"
+        exit 1
+    fi
 }
 
 just_compile() {
@@ -139,20 +146,20 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_compile_time_only_deps
+    assert_no_excluded_deps
 }
 
 make_elixir_rel() {
-  ./scripts/pre-compile.sh "$PROFILE"
-  export_elixir_release_vars "$PROFILE"
-  # for some reason, this has to be run outside "do"...
-  mix local.rebar --if-missing --force
-  # shellcheck disable=SC1010
-  mix do local.hex --if-missing --force, \
-      local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
-      deps.get
-  mix release --overwrite
-  assert_no_compile_time_only_deps
+    ./scripts/pre-compile.sh "$PROFILE"
+    export_elixir_release_vars "$PROFILE"
+    # for some reason, this has to be run outside "do"...
+    mix local.rebar --if-missing --force
+    # shellcheck disable=SC1010
+    mix do local.hex --if-missing --force, \
+        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
+        deps.get
+    mix release --overwrite
+    assert_no_excluded_deps
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
