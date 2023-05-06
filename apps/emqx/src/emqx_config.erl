@@ -18,6 +18,7 @@
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     init_load/1,
@@ -323,6 +324,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
+    warning_deprecated_root_key(RawConf0),
     RawConf1 =
         case HasDeprecatedFile of
             true ->
@@ -747,6 +749,22 @@ atom(Atom) when is_atom(Atom) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+warning_deprecated_root_key(RawConf) ->
+    case maps:keys(RawConf) -- get_root_names() of
+        [] ->
+            ok;
+        Keys ->
+            Unknowns = string:join([binary_to_list(K) || K <- Keys], ","),
+            ?tp(unknown_config_keys, #{unknown_config_keys => Unknowns}),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "config_key_not_recognized",
+                    unknown_config_keys => Unknowns
+                }
+            )
+    end.
 
 conf_key(?CONF, RootName) ->
     atom(RootName);
