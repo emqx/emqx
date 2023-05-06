@@ -1,6 +1,6 @@
 {application, emqx_rule_engine,
  [{description, "EMQX Rule Engine"},
-  {vsn, "4.4.18"}, % strict semver, bump manually!
+  {vsn, "4.4.19"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_rule_engine_sup, emqx_rule_registry, emqx_rule_engine_jwt_sup]},
   {applications, [kernel,stdlib,rulesql,getopt,jose]},

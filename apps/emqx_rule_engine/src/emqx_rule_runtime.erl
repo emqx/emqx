@@ -103,12 +103,12 @@ do_apply_rule(#rule{id = RuleId,
     case ?RAISE(match_conditions(Conditions, ColumnsAndSelected),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
-            Collection2 = filter_collection(Input, InCase, DoEach, Collection),
+            Collection2 = filter_collection(ColumnsAndSelected, InCase, DoEach, Collection),
             case Collection2 of
                 [] -> emqx_rule_metrics:inc_rules_no_result(RuleId);
                 _ -> emqx_rule_metrics:inc_rules_passed(RuleId)
             end,
-            {ok, [take_actions(Actions, Coll, Input, OnFailed) || Coll <- Collection2]};
+            {ok, [take_actions(Actions, Coll, ColumnsAndSelected, OnFailed) || Coll <- Collection2]};
         false ->
             ok = emqx_rule_metrics:inc_rules_no_result(RuleId),
             {error, nomatch}

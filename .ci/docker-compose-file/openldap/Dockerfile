@@ -1,4 +1,4 @@
-FROM buildpack-deps:stretch
+FROM buildpack-deps:stable
 
 ARG LDAP_TAG=2.4.50
 
