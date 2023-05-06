@@ -26,19 +26,15 @@ jobs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
       VERSION: ${{ steps.get_profile.outputs.VERSION }}
-
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
-          path: source
           fetch-depth: 0
 
       - name: Get profile to build
         id: get_profile
         run: |
-          cd source
-          git config --global --add safe.directory "$(pwd)"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
             echo "WARN: This is an exact git tag, will publish release"
@@ -75,36 +71,21 @@ jobs:
           esac
           echo "BUILD_PROFILE=$PROFILE" >> $GITHUB_OUTPUT
           echo "VERSION=$(./pkg-vsn.sh $PROFILE)" >> $GITHUB_OUTPUT
-      - name: get_all_deps
-        run: |
-          pushd source
-          # make sure all previous left-overs are cleaned
-          make clean-all
-          # enterprise is a super-set, should be enough for all profiles
-          make deps-emqx-enterprise
-          popd
-          zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: source
-          path: source.zip
 
   windows:
     runs-on: windows-2019
     if: startsWith(github.ref_name, 'v')
-    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         profile: # for now only CE for windows
           - emqx
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: Expand-Archive -Path source.zip -DestinationPath ./
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
+
     - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1.15.2
       with:
@@ -113,14 +94,12 @@ jobs:
       env:
         PYTHON: python
         DIAGNOSTIC: 1
-      working-directory: source
       run: |
         # ensure crypto app (openssl)
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
         make ${{ matrix.profile }}-tgz
     - name: run emqx
       timeout-minutes: 5
-      working-directory: source
       run: |
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
@@ -135,7 +114,7 @@ jobs:
       if: success()
       with:
         name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/
+        path: _packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -153,15 +132,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: |
-        ln -s . source
-        unzip -o -q source.zip
-        rm source source.zip
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
@@ -242,19 +216,13 @@ jobs:
     steps:
     - uses: AutoModality/action-clean@v1
       if: matrix.build_machine == 'aws-arm64'
-    - uses: actions/download-artifact@v3
+
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: unzip -q source.zip
-    - name: tmp fix for el9
-      if: matrix.os == 'el9'
-      run: |
-        set -eu
-        dnf install -y krb5-devel
+        ref: ${{ github.event.inputs.branch_or_tag }}
+        fetch-depth: 0
+
     - name: build emqx packages
-      working-directory: source
       env:
         ELIXIR: ${{ matrix.elixir }}
         PROFILE: ${{ matrix.profile }}
@@ -270,7 +238,8 @@ jobs:
         echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
         IS_ELIXIR="no"
-        if [ ${{ matrix.release_with }} == 'elixir' ]; then
+        WITH_ELIXIR=${{ matrix.release_with }}
+        if [ "${WITH_ELIXIR:-}" == 'elixir' ]; then
           PKGTYPES="tgz"
           # set Elixir build flag
           IS_ELIXIR="yes"
@@ -282,18 +251,18 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IS_ELIXIR}" \
-            --builder "builder_to_be_ignored"
+            --builder "force_host"
         done
     - uses: actions/upload-artifact@v3
       if: success()
       with:
         name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/
+        path: _packages/${{ matrix.profile }}/
 
   publish_artifacts:
     runs-on: ubuntu-22.04
     needs: [prepare, mac, linux]
-    if: needs.prepare.outputs.IS_EXACT_TAG
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
     strategy:
       fail-fast: false
       matrix:
