@@ -7,4 +7,3 @@ redis
 redis_cluster
 pgsql
 clickhouse
-dynamo

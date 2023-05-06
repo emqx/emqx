@@ -1,7 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_connector_dynamo_client).
+
+-module(emqx_bridge_dynamo_connector_client).
 
 -behaviour(gen_server).
 

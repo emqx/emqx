@@ -190,6 +190,7 @@ defmodule EMQXUmbrella.MixProject do
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
+      {:erlcloud, github: "emqx/erlcloud", tag: "3.5.16-emqx-1", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions

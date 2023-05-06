@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_dynamo_SUITE).
+-module(emqx_bridge_dynamo_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -23,6 +23,14 @@
 -define(PAYLOAD, <<"HELLO">>).
 
 -define(GET_CONFIG(KEY__, CFG__), proplists:get_value(KEY__, CFG__)).
+
+%% How to run it locally (all commands are run in $PROJ_ROOT dir):
+%% run ct in docker container
+%% run script:
+%% ```bash
+%% ./scripts/ct/run.sh --ci --app apps/emqx_bridge_dynamo -- \
+%%                     --name 'test@127.0.0.1' -c -v --readable true \
+%%                     --suite apps/emqx_bridge_dynamo/test/emqx_bridge_dynamo_SUITE.erl
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -251,7 +259,7 @@ directly_setup_dynamo() ->
 
 directly_query(Query) ->
     directly_setup_dynamo(),
-    emqx_ee_connector_dynamo_client:execute(Query, ?TABLE_BIN).
+    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN).
 
 directly_get_payload(Key) ->
     case directly_query({get_item, {<<"id">>, Key}}) of
