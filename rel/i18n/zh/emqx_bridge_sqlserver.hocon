@@ -1,4 +1,4 @@
-emqx_ee_bridge_sqlserver {
+emqx_bridge_sqlserver {
 
 config_enable.desc:
 """启用/禁用桥接"""

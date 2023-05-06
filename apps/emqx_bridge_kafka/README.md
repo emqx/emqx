@@ -12,14 +12,11 @@ not used by authentication and authorization applications.
 
 # Documentation links
 
-For more information on Apache Kafka, please see its [official
-site](https://kafka.apache.org/).
+For more information about Apache Kafka, please see its [official site](https://kafka.apache.org/).
 
 # Configurations
 
-Please see [our official
-documentation](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-kafka.html)
-for more detailed info.
+Please see [Ingest data into Kafka](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-kafka.html) for more detailed info.
 
 # Contributing
 

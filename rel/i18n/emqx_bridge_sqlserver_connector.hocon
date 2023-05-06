@@ -1,4 +1,4 @@
-emqx_ee_connector_sqlserver {
+emqx_bridge_sqlserver_connector {
 
 server.desc:
 """The IPv4 or IPv6 address or the hostname to connect to.<br/>

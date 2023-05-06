@@ -2,11 +2,12 @@
 % Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_sqlserver_SUITE).
+-module(emqx_bridge_sqlserver_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_bridge_sqlserver/include/emqx_bridge_sqlserver.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -59,24 +60,30 @@
 %% How to run it locally (all commands are run in $PROJ_ROOT dir):
 %%   A: run ct on host
 %%     1. Start all deps services
+%%       ```bash
 %%       sudo docker compose -f .ci/docker-compose-file/docker-compose.yaml \
 %%                           -f .ci/docker-compose-file/docker-compose-sqlserver.yaml \
 %%                           -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
 %%                           up --build
+%%       ```
 %%
 %%     2. Run use cases with special environment variables
 %%       11433 is toxiproxy exported port.
 %%       Local:
-%%       ```
+%%       ```bash
 %%       SQLSERVER_HOST=toxiproxy SQLSERVER_PORT=11433 \
 %%           PROXY_HOST=toxiproxy PROXY_PORT=1433 \
-%%           ./rebar3 as test ct -c -v --readable true --name ct@127.0.0.1 --suite lib-ee/emqx_ee_bridge/test/emqx_ee_bridge_sqlserver_SUITE.erl
+%%           ./rebar3 as test ct -c -v --readable true --name ct@127.0.0.1 \
+%%                               --suite apps/emqx_bridge_sqlserver/test/emqx_bridge_sqlserver_SUITE.erl
 %%       ```
 %%
 %%   B: run ct in docker container
 %%     run script:
-%%     ./scripts/ct/run.sh --ci --app lib-ee/emqx_ee_bridge/ \
-%%                        -- --name 'test@127.0.0.1' -c -v --readable true --suite lib-ee/emqx_ee_bridge/test/emqx_ee_bridge_sqlserver_SUITE.erl
+%%     ```bash
+%%     ./scripts/ct/run.sh --ci --app apps/emqx_bridge_sqlserver/ -- \
+%%                         --name 'test@127.0.0.1' -c -v --readable true \
+%%                         --suite apps/emqx_bridge_sqlserver/test/emqx_bridge_sqlserver_SUITE.erl
+%%     ````
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -391,7 +398,7 @@ t_bad_parameter(Config) ->
 
 common_init(ConfigT) ->
     Host = os:getenv("SQLSERVER_HOST", "toxiproxy"),
-    Port = list_to_integer(os:getenv("SQLSERVER_PORT", "1433")),
+    Port = list_to_integer(os:getenv("SQLSERVER_PORT", str(?SQLSERVER_DEFAULT_PORT))),
 
     Config0 = [
         {sqlserver_host, Host},
@@ -631,7 +638,7 @@ conn_str([], Acc) ->
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{host, Host} | Opts], Acc) ->
-    Port = proplists:get_value(port, Opts, "1433"),
+    Port = proplists:get_value(port, Opts, str(?SQLSERVER_DEFAULT_PORT)),
     NOpts = proplists:delete(port, Opts),
     conn_str(NOpts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
 conn_str([{port, Port} | Opts], Acc) ->
