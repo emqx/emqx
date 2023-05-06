@@ -4,5 +4,41 @@
     "listen": "0.0.0.0:27017",
     "upstream": "mongo:27017",
     "enabled": true
+  },
+  {
+    "name": "mongo_rs1",
+    "listen": "0.0.0.0:27011",
+    "upstream": "mongo_rs1:27017",
+    "enabled": true
+  },
+  {
+    "name": "mongo_rs2",
+    "listen": "0.0.0.0:27012",
+    "upstream": "mongo_rs2:27017",
+    "enabled": true
+  },
+  {
+    "name": "mongo_rs3",
+    "listen": "0.0.0.0:27013",
+    "upstream": "mongo_rs3:27017",
+    "enabled": true
+  },
+  {
+    "name": "mongo_sharded1",
+    "listen": "0.0.0.0:27014",
+    "upstream": "mongosharded1:27017",
+    "enabled": true
+  },
+  {
+    "name": "mongo_sharded2",
+    "listen": "0.0.0.0:27015",
+    "upstream": "mongosharded2:27017",
+    "enabled": true
+  },
+  {
+    "name": "mongo_sharded3",
+    "listen": "0.0.0.0:27016",
+    "upstream": "mongosharded3:27017",
+    "enabled": true
   }
 ]

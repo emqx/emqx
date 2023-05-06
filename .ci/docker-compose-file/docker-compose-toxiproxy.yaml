@@ -11,6 +11,9 @@ services:
       - "./toxiproxy.json:/config/toxiproxy.json"
     ports:
       - 8474:8474
+      - 27011:27011
+      - 27016:27016
+      - 27017:27017
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

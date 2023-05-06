@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(POOL, emqx_auth_pgsql).
+-define(POOL, emqx_auth_pgsql_test_suite).
 
 -define(APP, emqx_auth_pgsql).
 
@@ -67,6 +67,12 @@
                      (6, false, 'bcrypt_foo', '$2a$12$sSS8Eg.ovVzaHzi1nUHYK.HbUIOdlQI0iS22Q5rd5z.JVVYH6sfm6', '$2a$12$sSS8Eg.ovVzaHzi1nUHYK.'),
                      (7, false, 'bcrypt', '$2y$16$rEVsDarhgHYB0TGnDFJzyu5f.T.Ha9iXMTk9J36NCMWWM7O16qyaK', 'salt')").
 
+-define(OS_ENVS(SERVER, USER, PASSWD, DB), [SERVER, USER, PASSWD, DB]).
+-define(CMD,"EMQX_AUTH__PGSQL__SERVER=127.0.0.1:5432 "
+            "EMQX_AUTH__PGSQL__USERNAME=root "
+            "EMQX_AUTH__PGSQL__PASSWORD=public "
+            "EMQX_AUTH__PGSQL__DATABASE=mqtt "
+            "./rebar3 ct --name 'test@127.0.0.1' -v --suite apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE").
 all() ->
     emqx_ct:all(?MODULE).
 
@@ -74,13 +80,70 @@ suite() ->
     [{timetrap, {seconds, 120}}].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_auth_pgsql]),
+    {ok, _} = application:ensure_all_started(ecpool),
+    case get_params_from_os_env(?OS_ENVS(
+            "EMQX_AUTH__PGSQL__SERVER",
+            "EMQX_AUTH__PGSQL__USERNAME",
+            "EMQX_AUTH__PGSQL__PASSWORD",
+            "EMQX_AUTH__PGSQL__DATABASE")) of
+        {error, Reason} ->
+            ct:print("You could start your test as: "?CMD),
+            {skip, Reason};
+        {ok, ?OS_ENVS(Server, Username, Password, Database)} ->
+            do_init_per_suite(Server, Username, Password, Database, Config)
+    end.
+
+get_params_from_os_env(Keys) ->
+    get_params_from_os_env(Keys, []).
+
+get_params_from_os_env([], Acc) ->
+    {ok, lists:reverse(Acc)};
+get_params_from_os_env([Key | Keys], Acc) ->
+    case os:getenv(Key) of
+        false -> {error, iolist_to_binary(io_lib:format("OS Env ~s is undefined", [Key]))};
+        Val -> get_params_from_os_env(Keys, [Val | Acc])
+    end.
+
+do_init_per_suite(Server, Username, Password, Database, Config) ->
+    {HostS, Port} = case string:split(Server, ":", trailing) of
+        [Domain] -> {string:trim(Domain), 5432};
+        [Domain, PortS] -> {string:trim(Domain), list_to_integer(string:trim(PortS))}
+    end,
+    Host = case inet:parse_address(HostS) of
+        {ok, IpAddr} -> IpAddr;
+        _ -> HostS
+    end,
+    Opts = [{host, Host},
+            {port, Port},
+            {username, Username},
+            {password, Password},
+            {database, Database},
+            {timeout, 5000},
+            {auto_reconnect, 15},
+            {encoding, utf8},
+            {pool_type, random},
+            {pool_size, 8}],
+    case ecpool:start_sup_pool(?POOL, ?MODULE, Opts) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            {error, Reason}
+    end,
     drop_acl(),
     drop_auth(),
     init_auth(),
     init_acl(),
+    emqx_ct_helpers:start_apps([emqx_auth_pgsql]),
     set_special_configs(),
     Config.
+
+connect(Opts) ->
+    Host = proplists:get_value(host, Opts),
+    Username = proplists:get_value(username, Opts),
+    Password = proplists:get_value(password, Opts),
+    case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
+        {ok, C} -> {ok, C};
+        {error, Reason} -> {error, Reason}
+    end.
 
 end_per_suite(Config) ->
     emqx_ct_helpers:stop_apps([emqx_auth_pgsql]),
@@ -204,21 +267,42 @@ reload(Config) when is_list(Config) ->
     application:start(?APP).
 
 init_acl() ->
-    {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?POOL})),
-    {ok, [], []} = epgsql:squery(Pid, ?DROP_ACL_TABLE),
-    {ok, [], []} = epgsql:squery(Pid, ?CREATE_ACL_TABLE),
-    {ok, _} = epgsql:equery(Pid, ?INIT_ACL).
+    ecpool:with_client(?POOL, fun(Pid) ->
+        {ok, [], []} = epgsql:squery(Pid, ?DROP_ACL_TABLE),
+        {ok, [], []} = epgsql:squery(Pid, ?CREATE_ACL_TABLE),
+        {ok, _} = epgsql:equery(Pid, ?INIT_ACL)
+    end).
 
 drop_acl() ->
-    {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?POOL})),
-    {ok, [], []}= epgsql:squery(Pid, ?DROP_ACL_TABLE).
+    ecpool:with_client(?POOL, fun(Pid) ->
+        {ok, [], []}= epgsql:squery(Pid, ?DROP_ACL_TABLE)
+    end).
 
 init_auth() ->
-    {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?POOL})),
-    {ok, [], []} = epgsql:squery(Pid, ?DROP_AUTH_TABLE),
-    {ok, [], []} = epgsql:squery(Pid, ?CREATE_AUTH_TABLE),
-    {ok, _} = epgsql:equery(Pid, ?INIT_AUTH).
+    ecpool:with_client(?POOL, fun(Pid) ->
+        {ok, [], []} = epgsql:squery(Pid, ?DROP_AUTH_TABLE),
+        {ok, [], []} = epgsql:squery(Pid, ?CREATE_AUTH_TABLE),
+        {ok, _} = epgsql:equery(Pid, ?INIT_AUTH)
+    end).
 
 drop_auth() ->
-    {ok, Pid} = ecpool_worker:client(gproc_pool:pick_worker({ecpool, ?POOL})),
-    {ok, [], []} = epgsql:squery(Pid, ?DROP_AUTH_TABLE).
+    ecpool:with_client(?POOL, fun(Pid) ->
+        {ok, [], []} = epgsql:squery(Pid, ?DROP_AUTH_TABLE)
+    end).
+
+conn_opts(Opts) ->
+    conn_opts(Opts, []).
+conn_opts([], Acc) ->
+    Acc;
+conn_opts([Opt = {database, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {port, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {timeout, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
+    conn_opts(Opts, [Opt|Acc]);
+conn_opts([_Opt|Opts], Acc) ->
+    conn_opts(Opts, Acc).

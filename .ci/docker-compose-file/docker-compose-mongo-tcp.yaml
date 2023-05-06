@@ -2,11 +2,13 @@ version: '3.9'
 
 services:
   mongo_server:
-    container_name: mongo 
+    container_name: mongo
     image: mongo:${MONGO_TAG}
     restart: always
     environment:
       MONGO_INITDB_DATABASE: mqtt
+    expose:
+      - 27017
     networks:
       - emqx_bridge
     command:

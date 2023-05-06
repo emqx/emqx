@@ -22,11 +22,20 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
 
 -export([connect/1]).
--export([parse_query/2]).
+-export([parse_query/2, pgvar/2]).
 -export([ equery/4
         , equery/3
+        ]).
+
+-export([ get_sql_conf/1
+        , put_sql_conf/2
+        , clear_sql_conf/1
+        , get_cached_statement/1
+        , put_cached_statement/2
+        , clear_cached_statement/1
         ]).
 
 -type client_info() :: #{username := _,
@@ -44,9 +53,9 @@ parse_query(Par, Sql) ->
     case re:run(Sql, "'%[ucCad]'", [global, {capture, all, list}]) of
         {match, Variables} ->
             Params = [Var || [Var] <- Variables],
-            {atom_to_list(Par), Params};
+            {str(Par), Params};
         nomatch ->
-            {atom_to_list(Par), []}
+            {str(Par), []}
     end.
 
 pgvar(Sql, Params) ->
@@ -86,16 +95,24 @@ connect(Opts) ->
             {error, Reason}
     end.
 
-conn_post(Connection) ->
-    lists:foreach(fun(Par) ->
-        Sql0 = application:get_env(?APP, Par, undefined),
-        case parse_query(Par, Sql0) of
-            undefined -> ok;
-            {_, Params} ->
-                Sql = pgvar(Sql0, Params),
-                epgsql:parse(Connection, atom_to_list(Par), Sql, [])
-        end
-    end,  [auth_query, acl_query, super_query]).
+conn_post(Conn) ->
+    lists:foreach(fun(PreparedStKey) ->
+            case prepare_statement(Conn, PreparedStKey) of
+                {ok, St} -> put_cached_statement(PreparedStKey, St);
+                Error -> Error
+            end
+        end, [auth_query, acl_query, super_query]).
+
+prepare_statement(Conn, PreparedStKey) ->
+    %% for emqx_auth_pgsql plugin, the PreparedStKey is an atom(),
+    %% but for emqx_module_auth_pgsql, it is a list().
+    Sql0 = get_sql_conf(PreparedStKey),
+    case parse_query(PreparedStKey, Sql0) of
+        undefined -> ok;
+        {_, Params} ->
+            Sql = pgvar(Sql0, Params),
+            epgsql:parse(Conn, str(PreparedStKey), Sql, [])
+    end.
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
@@ -115,12 +132,50 @@ conn_opts([_Opt|Opts], Acc) ->
     conn_opts(Opts, Acc).
 
 -spec(equery(atom(), string() | epgsql:statement(), Parameters::[any()]) -> {ok, ColumnsDescription :: [any()], RowsValues :: [any()]} | {error, any()} ).
-equery(Pool, Sql, Params) ->
-    ecpool:with_client(Pool, fun(C) -> epgsql:prepared_query(C, Sql, Params) end).
+equery(Pool, PreparedStKey, Params) ->
+    do_equery(Pool, PreparedStKey, Params).
 
 -spec(equery(atom(), string() | epgsql:statement(), Parameters::[any()], client_info()) ->  {ok, ColumnsDescription :: [any()], RowsValues :: [any()]} | {error, any()} ).
-equery(Pool, Sql, Params, ClientInfo) ->
-    ecpool:with_client(Pool, fun(C) -> epgsql:prepared_query(C, Sql, replvar(Params, ClientInfo)) end).
+equery(Pool, PreparedStKey, Params, ClientInfo) ->
+    Params1 = replvar(Params, ClientInfo),
+    equery(Pool, PreparedStKey, Params1).
+
+get_sql_conf(PreparedStKey) ->
+    application:get_env(?APP, prpst_key_to_atom(PreparedStKey), undefined).
+
+put_sql_conf(PreparedStKey, Sql) ->
+    application:set_env(?APP, prpst_key_to_atom(PreparedStKey), Sql).
+
+clear_sql_conf(PreparedStKey) ->
+    application:unset_env(?APP, prpst_key_to_atom(PreparedStKey)).
+
+get_cached_statement(PreparedStKey) ->
+    application:get_env(?APP, statement_key(PreparedStKey), PreparedStKey).
+
+put_cached_statement(PreparedStKey, St) ->
+    application:set_env(?APP, statement_key(PreparedStKey), St).
+
+clear_cached_statement(PreparedStKey) ->
+    application:unset_env(?APP, statement_key(PreparedStKey)).
+
+do_equery(Pool, PreparedStKey, Params) ->
+    ecpool:with_client(Pool, fun(Conn) ->
+        StOrKey = get_cached_statement(PreparedStKey),
+        case epgsql:prepared_query(Conn, StOrKey, Params) of
+            {error, #error{severity = error, code = <<"26000">>}} ->
+                %% invalid_sql_statement_name, we need to prepare the statement and try again
+                case prepare_statement(Conn, PreparedStKey) of
+                    {ok, St} ->
+                        ok = put_cached_statement(PreparedStKey, St),
+                        epgsql:prepared_query(Conn, St, Params);
+                    {error, _} = Error ->
+                        Error
+                end;
+            Return ->
+                Return
+        end
+
+    end).
 
 replvar(Params, ClientInfo) ->
     replvar(Params, ClientInfo, []).
@@ -147,3 +202,26 @@ safe_get(K, ClientInfo) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;
 bin(X) -> X.
+
+str(B) when is_binary(B) -> binary_to_list(B);
+str(A) when is_atom(A) -> atom_to_list(A);
+str(S) when is_list(S) -> S.
+
+prpst_key_to_atom(super_query) -> super_query;
+prpst_key_to_atom("super_query") -> super_query;
+prpst_key_to_atom(auth_query) -> auth_query;
+prpst_key_to_atom("auth_query") -> auth_query;
+prpst_key_to_atom(acl_query) -> acl_query;
+prpst_key_to_atom("acl_query") -> acl_query;
+prpst_key_to_atom(PreparedStKey) ->
+    throw({unsupported_prepared_statement_key, PreparedStKey}).
+
+%% the spec of application:get_env(App, Key, Def) requires an atom() Key
+statement_key(super_query) -> statement_super_query;
+statement_key("super_query") -> statement_super_query;
+statement_key(auth_query) -> statement_auth_query;
+statement_key("auth_query") -> statement_auth_query;
+statement_key(acl_query) -> statement_acl_query;
+statement_key("acl_query") -> statement_acl_query;
+statement_key(PreparedStKey) ->
+    throw({unsupported_prepared_statement_key, PreparedStKey}).

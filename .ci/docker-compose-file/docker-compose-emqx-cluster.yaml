@@ -32,6 +32,8 @@ services:
     image: $TARGET:$EMQX_TAG
     env_file:
       - conf.cluster.env
+    volumes:
+      - ../../:/src/
     environment:
       - "EMQX_HOST=node1.emqx.io"
     command:
@@ -57,6 +59,8 @@ services:
     image: $TARGET:$EMQX_TAG
     env_file:
       - conf.cluster.env
+    volumes:
+      - ../../:/src/
     environment:
       - "EMQX_HOST=node2.emqx.io"
     command:
