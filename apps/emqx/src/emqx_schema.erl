@@ -2000,7 +2000,8 @@ base_listener(Bind) ->
                     listener_fields
                 ),
                 #{
-                    desc => ?DESC(base_listener_limiter)
+                    desc => ?DESC(base_listener_limiter),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"enable_authn",
@@ -2011,7 +2012,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ].
+    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";

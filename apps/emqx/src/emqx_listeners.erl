@@ -639,7 +639,7 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts, undefined).
+    emqx_limiter_schema:get_listener_opts(Opts).
 
 add_limiter_bucket(Id, #{limiter := Limiter}) ->
     maps:fold(
