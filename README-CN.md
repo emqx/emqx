@@ -73,7 +73,7 @@ EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cl
 
   我们选取了各个编程语言中热门的 MQTT 客户端 SDK，并提供代码示例，帮助您快速掌握 MQTT 客户端库的使用。
 
-- [MQTT X](https://mqttx.app/zh)
+- [MQTTX](https://mqttx.app/zh)
 
   优雅的跨平台 MQTT 5.0 客户端工具，提供了桌面端、命令行、Web 三种版本，帮助您更快的开发和调试 MQTT 服务和应用。
 
