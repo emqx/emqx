@@ -1,90 +1,50 @@
 emqx_connector_redis {
 
-    single {
-        desc {
-          en: "Single mode. Must be set to 'single' when Redis server is running in single mode."
-          zh: "单机模式。当 Redis 服务运行在单机模式下，该配置必须设置为 'single'。"
-        }
-        label: {
-              en: "Single Mode"
-              zh: "单机模式"
-            }
-    }
+cluster.desc:
+"""Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""
 
-    cluster {
-        desc {
-          en: "Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."
-          zh: "集群模式。当 Redis 服务运行在集群模式下，该配置必须设置为 'cluster'。"
-        }
-        label: {
-              en: "Cluster Mode"
-              zh: "集群模式"
-            }
-    }
+cluster.label:
+"""Cluster Mode"""
 
-    sentinel {
-        desc {
-          en: "Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode."
-          zh: "哨兵模式。当 Redis 服务运行在哨兵模式下，该配置必须设置为 'sentinel'。"
-        }
-        label: {
-              en: "Sentinel Mode"
-              zh: "哨兵模式"
-            }
-    }
+database.desc:
+"""Redis database ID."""
 
-    sentinel_desc {
-        desc {
-          en: "The cluster name in Redis sentinel mode."
-          zh: "Redis 哨兵模式下的集群名称。"
-        }
-        label: {
-              en: "Cluster Name"
-              zh: "集群名称"
-            }
-    }
+database.label:
+"""Database ID"""
 
-    server {
-        desc {
-          en: """The IPv4 or IPv6 address or the hostname to connect to.<br/>
+sentinel.desc:
+"""Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode."""
+
+sentinel.label:
+"""Sentinel Mode"""
+
+sentinel_desc.desc:
+"""The cluster name in Redis sentinel mode."""
+
+sentinel_desc.label:
+"""Cluster Name"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
 The Redis default port 6379 is used if `[:Port]` is not specified."""
-          zh: """将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
-主机名具有以下形式：`Host[:Port]`。<br/>
-如果未指定 `[:Port]`，则使用 Redis 默认端口 6379。"""
-        }
-        label: {
-              en: "Server Host"
-              zh: "服务器地址"
-            }
-    }
 
-    servers {
-        desc {
-          en: """A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
+server.label:
+"""Server Host"""
+
+servers.desc:
+"""A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
 For each Node should be: The IPv4 or IPv6 address or the hostname to connect to.
 A host entry has the following form: `Host[:Port]`.
 The Redis default port 6379 is used if `[:Port]` is not specified."""
-          zh: """集群将要连接的节点列表。 节点之间用逗号分隔，如：`Node[,Node].`
-每个节点的配置为：将要连接的 IPv4 或 IPv6 地址或主机名。
-主机名具有以下形式：`Host[:Port]`。
-如果未指定 `[:Port]`，则使用 Redis 默认端口 6379。"""
-        }
-        label: {
-              en: "Servers"
-              zh: "服务器列表"
-            }
-    }
 
-    database {
-        desc {
-          en: "Redis database ID."
-          zh: "Redis 数据库 ID。"
-        }
-        label: {
-              en: "Database ID"
-              zh: "数据库 ID"
-            }
-    }
+servers.label:
+"""Servers"""
+
+single.desc:
+"""Single mode. Must be set to 'single' when Redis server is running in single mode."""
+
+single.label:
+"""Single Mode"""
 
 }

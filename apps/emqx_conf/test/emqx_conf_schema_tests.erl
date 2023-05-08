@@ -25,8 +25,8 @@
 array_nodes_test() ->
     ExpectNodes = ['emqx1@127.0.0.1', 'emqx2@127.0.0.1'],
     lists:foreach(
-        fun({Seeds, Nodes}) ->
-            ConfFile = to_bin(?BASE_CONF, [Seeds, Nodes]),
+        fun(Nodes) ->
+            ConfFile = to_bin(?BASE_CONF, [Nodes, Nodes]),
             {ok, Conf} = hocon:binary(ConfFile, #{format => richmap}),
             ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
             ClusterDiscovery = proplists:get_value(
@@ -43,7 +43,7 @@ array_nodes_test() ->
                 Nodes
             )
         end,
-        [{["emqx1@127.0.0.1", "emqx2@127.0.0.1"], "emqx1@127.0.0.1, emqx2@127.0.0.1"}]
+        [["emqx1@127.0.0.1", "emqx2@127.0.0.1"], "emqx1@127.0.0.1, emqx2@127.0.0.1"]
     ),
     ok.
 
@@ -79,7 +79,7 @@ array_nodes_test() ->
 ).
 
 authn_validations_test() ->
-    BaseConf = to_bin(?BASE_CONF, [["emqx1@127.0.0.1"], "emqx1@127.0.0.1,emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
 
     OKHttps = to_bin(?BASE_AUTHN_ARRAY, [post, true, <<"https://127.0.0.1:8080">>]),
     Conf0 = <<BaseConf/binary, OKHttps/binary>>,

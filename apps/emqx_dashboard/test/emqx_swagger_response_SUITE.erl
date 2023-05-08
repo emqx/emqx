@@ -33,7 +33,6 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    emqx_dashboard:init_i18n(),
     Config.
 
 end_per_suite(Config) ->

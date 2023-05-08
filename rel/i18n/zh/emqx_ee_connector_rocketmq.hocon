@@ -1,0 +1,53 @@
+emqx_ee_connector_rocketmq {
+
+access_key.desc:
+"""RocketMQ 服务器的 `accessKey`。"""
+
+access_key.label:
+"""AccessKey"""
+
+refresh_interval.desc:
+"""RocketMQ 主题路由更新间隔。"""
+
+refresh_interval.label:
+"""主题路由更新间隔"""
+
+secret_key.desc:
+"""RocketMQ 服务器的 `secretKey`。"""
+
+secret_key.label:
+"""SecretKey"""
+
+security_token.desc:
+"""RocketMQ 服务器安全令牌"""
+
+security_token.label:
+"""安全令牌"""
+
+send_buffer.desc:
+"""RocketMQ 驱动的套字节发送消息的缓冲区大小"""
+
+send_buffer.label:
+"""发送消息的缓冲区大小"""
+
+servers.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+主机名具有以下形式：`Host[:Port]`。<br/>
+如果未指定 `[:Port]`，则使用 RocketMQ 默认端口 9876。"""
+
+servers.label:
+"""服务器地址"""
+
+sync_timeout.desc:
+"""RocketMQ 驱动同步调用的超时时间。"""
+
+sync_timeout.label:
+"""同步调用超时时间"""
+
+topic.desc:
+"""RocketMQ 主题"""
+
+topic.label:
+"""RocketMQ 主题"""
+
+}

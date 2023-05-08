@@ -167,8 +167,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \
@@ -185,8 +185,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \

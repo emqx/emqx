@@ -1,139 +1,78 @@
 emqx_connector_http {
-    base_url {
-        desc {
-          en: """The base URL is the URL includes only the scheme, host and port.<br/>
+
+base_url.desc:
+"""The base URL is the URL includes only the scheme, host and port.<br/>
 When send an HTTP request, the real URL to be used is the concatenation of the base URL and the
 path parameter<br/>
 For example: `http://localhost:9901/`"""
-          zh: """base URL 只包含host和port。<br/>
-发送HTTP请求时，真实的URL是由base URL 和 path parameter连接而成。<br/>
-示例：`http://localhost:9901/`"""
-        }
-        label: {
-              en: "Base Url"
-              zh: "Base Url"
-            }
-    }
 
-    connect_timeout {
-        desc {
-          en: "The timeout when connecting to the HTTP server."
-          zh: "连接HTTP服务器的超时时间。"
-        }
-        label: {
-              en: "Connect Timeout"
-              zh: "连接超时"
-            }
-    }
+base_url.label:
+"""Base Url"""
 
-    max_retries {
-        desc {
-          en: "Max retry times if error on sending request."
-          zh: "请求出错时的最大重试次数。"
-        }
-        label: {
-              en: "Max Retries"
-              zh: "最大重试次数"
-            }
-    }
+body.desc:
+"""HTTP request body."""
 
-    pool_type {
-        desc {
-          en: "The type of the pool. Can be one of `random`, `hash`."
-          zh: "连接池的类型，可用类型有`random`, `hash`。"
-        }
-        label: {
-              en: "Pool Type"
-              zh: "连接池类型"
-            }
-    }
+body.label:
+"""HTTP Body"""
 
-    pool_size {
-        desc {
-          en: "The pool size."
-          zh: "连接池大小。"
-        }
-        label: {
-              en: "Pool Size"
-              zh: "连接池大小"
-            }
-    }
+connect_timeout.desc:
+"""The timeout when connecting to the HTTP server."""
 
-    enable_pipelining {
-        desc {
-          en: "A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."
-          zh: "正整数，设置最大可发送的异步 HTTP 请求数量。当设置为 1 时，表示每次发送完成 HTTP 请求后都需要等待服务器返回，再继续发送下一个请求。"
-        }
-        label: {
-              en: "HTTP Pipelineing"
-              zh: "HTTP 管道"
-            }
-    }
+connect_timeout.label:
+"""Connect Timeout"""
 
-    request {
-        desc {
-          en: """Configure HTTP request parameters."""
-          zh: """设置 HTTP 请求的参数。"""
-        }
-        label: {
-              en: "Request"
-              zh: "HTTP 请求"
-            }
-    }
+enable_pipelining.desc:
+"""A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
 
-    method {
-        desc {
-          en: "HTTP method."
-          zh: "HTTP 请求方法。"
-        }
-        label: {
-              en: "HTTP Method"
-              zh: "HTTP 请求方法"
-            }
-    }
+enable_pipelining.label:
+"""HTTP Pipelineing"""
 
-    path {
-        desc {
-          en: "URL path."
-          zh: "HTTP请求路径。"
-        }
-        label: {
-              en: "URL Path"
-              zh: "HTTP请求路径"
-            }
-    }
+headers.desc:
+"""List of HTTP headers."""
 
-    body {
-        desc {
-          en: "HTTP request body."
-          zh: "HTTP请求报文主体。"
-        }
-        label: {
-              en: "HTTP Body"
-              zh: "HTTP请求报文主体"
-            }
-    }
+headers.label:
+"""HTTP Headers"""
 
-    headers {
-        desc {
-          en: "List of HTTP headers."
-          zh: "HTTP 头字段列表。"
-        }
-        label: {
-              en: "HTTP Headers"
-              zh: "HTTP 头字段列表"
-            }
-    }
+max_retries.desc:
+"""Max retry times if error on sending request."""
 
-    request_timeout {
-        desc {
-          en: "HTTP request timeout."
-          zh: "HTTP 请求超时。"
-        }
-        label: {
-              en: "Request Timeout"
-              zh: "HTTP 请求超时"
-            }
-    }
+max_retries.label:
+"""Max Retries"""
+
+method.desc:
+"""HTTP method."""
+
+method.label:
+"""HTTP Method"""
+
+path.desc:
+"""URL path."""
+
+path.label:
+"""URL Path"""
+
+pool_size.desc:
+"""The pool size."""
+
+pool_size.label:
+"""Pool Size"""
+
+pool_type.desc:
+"""The type of the pool. Can be one of `random`, `hash`."""
+
+pool_type.label:
+"""Pool Type"""
+
+request.desc:
+"""Configure HTTP request parameters."""
+
+request.label:
+"""Request"""
+
+request_timeout.desc:
+"""HTTP request timeout."""
+
+request_timeout.label:
+"""Request Timeout"""
 
 }

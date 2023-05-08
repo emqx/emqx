@@ -102,9 +102,7 @@ fields("https") ->
 
 server_ssl_opts() ->
     Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
-    Opts1 = exclude_fields(["fail_if_no_peer_cert"], Opts0),
-    {value, {_, Meta}, Opts2} = lists:keytake("password", 1, Opts1),
-    [{"password", Meta#{importance => ?IMPORTANCE_HIDDEN}} | Opts2].
+    exclude_fields(["fail_if_no_peer_cert"], Opts0).
 
 exclude_fields([], Fields) ->
     Fields;
@@ -233,6 +231,8 @@ cors(required) -> false;
 cors(desc) -> ?DESC(cors);
 cors(_) -> undefined.
 
+%% TODO: change it to string type
+%% It will be up to the dashboard package which languagues to support
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;

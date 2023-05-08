@@ -40,9 +40,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 

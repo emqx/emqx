@@ -14,6 +14,9 @@ on:
       - e*
   pull_request:
 
+env:
+  IS_CI: "yes"
+
 jobs:
   build-matrix:
     runs-on: ubuntu-22.04
@@ -69,21 +72,14 @@ jobs:
       - uses: actions/checkout@v3
         with:
           path: source
-      - uses: actions/cache@v3
-        id: cache
-        with:
-          path: "$HOME/.cache/rebar3/rebar3_${{ matrix.otp }}_plt"
-          key: rebar3-dialyzer-plt-${{ matrix.otp }}
       - name: get_all_deps
         working-directory: source
         env:
           PROFILE: ${{ matrix.profile }}
-            #DIAGNOSTIC: 1
         run: |
           make ensure-rebar3
           # fetch all deps and compile
-          make ${{ matrix.profile }}
-          make static_checks
+          make ${{ matrix.profile }}-compile
           make test-compile
           cd ..
           zip -ryq source.zip source/* source/.[^.]*
@@ -91,6 +87,34 @@ jobs:
         with:
           name: source-${{ matrix.profile }}-${{ matrix.otp }}
           path: source.zip
+
+  static_checks:
+    needs:
+      - build-matrix
+      - prepare
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+      - uses: actions/cache@v3
+        with:
+          path: "source/emqx_dialyzer_${{ matrix.otp }}_plt"
+          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}
+      - name: run static checks
+        env:
+          PROFILE: ${{ matrix.profile }}
+        working-directory: source
+        run: make static_checks
 
   eunit_and_proper:
     needs:
@@ -168,6 +192,7 @@ jobs:
           REDIS_TAG: "7.0"
           INFLUXDB_TAG: "2.5.0"
           TDENGINE_TAG: "3.0.2.4"
+          OPENTS_TAG: "9aa7f88"
           PROFILE: ${{ matrix.profile }}
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}

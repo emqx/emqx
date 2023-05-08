@@ -47,7 +47,7 @@
     namespace/0
 ]).
 
--export([check_ssl_opts/2, validate_method/1]).
+-export([check_ssl_opts/2, validate_method/1, join_paths/2]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -231,9 +231,8 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     State = #{
-        pool_name => PoolName,
+        pool_name => InstId,
         pool_type => PoolType,
         host => Host,
         port => Port,
@@ -241,7 +240,7 @@ on_start(
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
-    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+    case ehttpc_sup:start_pool(InstId, PoolOpts) of
         {ok, _} -> {ok, State};
         {error, {already_started, _}} -> {ok, State};
         {error, Reason} -> {error, Reason}
@@ -471,10 +470,10 @@ preprocess_request(
     } = Req
 ) ->
     #{
-        method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method)),
+        method => emqx_plugin_libs_rule:preproc_tmpl(to_bin(Method)),
         path => emqx_plugin_libs_rule:preproc_tmpl(Path),
         body => maybe_preproc_tmpl(body, Req),
-        headers => preproc_headers(Headers),
+        headers => wrap_auth_header(preproc_headers(Headers)),
         request_timeout => maps:get(request_timeout, Req, 30000),
         max_retries => maps:get(max_retries, Req, 2)
     }.
@@ -484,8 +483,8 @@ preproc_headers(Headers) when is_map(Headers) ->
         fun(K, V, Acc) ->
             [
                 {
-                    emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-                    emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
+                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
                 }
                 | Acc
             ]
@@ -497,12 +496,42 @@ preproc_headers(Headers) when is_list(Headers) ->
     lists:map(
         fun({K, V}) ->
             {
-                emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-                emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+                emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
+                emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
             }
         end,
         Headers
     ).
+
+wrap_auth_header(Headers) ->
+    lists:map(fun maybe_wrap_auth_header/1, Headers).
+
+maybe_wrap_auth_header({[{str, Key}] = StrKey, Val}) ->
+    {_, MaybeWrapped} = maybe_wrap_auth_header({Key, Val}),
+    {StrKey, MaybeWrapped};
+maybe_wrap_auth_header({Key, Val} = Header) when
+    is_binary(Key), (size(Key) =:= 19 orelse size(Key) =:= 13)
+->
+    %% We check the size of potential keys in the guard above and consider only
+    %% those that match the number of characters of either "Authorization" or
+    %% "Proxy-Authorization".
+    case try_bin_to_lower(Key) of
+        <<"authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        <<"proxy-authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        _Other ->
+            Header
+    end;
+maybe_wrap_auth_header(Header) ->
+    Header.
+
+try_bin_to_lower(Bin) ->
+    try iolist_to_binary(string:lowercase(Bin)) of
+        LowercaseBin -> LowercaseBin
+    catch
+        _:_ -> Bin
+    end.
 
 maybe_preproc_tmpl(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of
@@ -538,7 +567,7 @@ proc_headers(HeaderTks, Msg) ->
         fun({K, V}) ->
             {
                 emqx_plugin_libs_rule:proc_tmpl(K, Msg),
-                emqx_plugin_libs_rule:proc_tmpl(V, Msg)
+                emqx_plugin_libs_rule:proc_tmpl(emqx_secret:unwrap(V), Msg)
             }
         end,
         HeaderTks
@@ -566,15 +595,41 @@ formalize_request(Method, BasePath, {Path, Headers, _Body}) when
 ->
     formalize_request(Method, BasePath, {Path, Headers});
 formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
-    {filename:join(BasePath, Path), Headers, Body};
+    {join_paths(BasePath, Path), Headers, Body};
 formalize_request(_Method, BasePath, {Path, Headers}) ->
-    {filename:join(BasePath, Path), Headers}.
+    {join_paths(BasePath, Path), Headers}.
 
-bin(Bin) when is_binary(Bin) ->
+%% By default, we cannot treat HTTP paths as "file" or "resource" paths,
+%% because an HTTP server may handle paths like
+%% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
+%%
+%% So we try to avoid unneccessary path normalization.
+%%
+%% See also: `join_paths_test_/0`
+join_paths(Path1, Path2) ->
+    do_join_paths(lists:reverse(to_list(Path1)), to_list(Path2)).
+
+%% "abc/" + "/cde"
+do_join_paths([$/ | Path1], [$/ | Path2]) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc/" + "cde"
+do_join_paths([$/ | Path1], Path2) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc" + "/cde"
+do_join_paths(Path1, [$/ | Path2]) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc" + "cde"
+do_join_paths(Path1, Path2) ->
+    lists:reverse(Path1) ++ [$/ | Path2].
+
+to_list(List) when is_list(List) -> List;
+to_list(Bin) when is_binary(Bin) -> binary_to_list(Bin).
+
+to_bin(Bin) when is_binary(Bin) ->
     Bin;
-bin(Str) when is_list(Str) ->
+to_bin(Str) when is_list(Str) ->
     list_to_binary(Str);
-bin(Atom) when is_atom(Atom) ->
+to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
 reply_delegator(ReplyFunAndArgs, Result) ->
@@ -604,21 +659,13 @@ is_sensitive_key([{str, StringKey}]) ->
 is_sensitive_key(Atom) when is_atom(Atom) ->
     is_sensitive_key(erlang:atom_to_binary(Atom));
 is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
-    try
-        %% This is wrapped in a try-catch since we don't know that Bin is a
-        %% valid string so string:lowercase/1 might throw an exception.
-        %%
-        %% We want to convert this to lowercase since the http header fields
-        %% are case insensitive, which means that a user of the Webhook bridge
-        %% can write this field name in many different ways.
-        LowercaseBin = iolist_to_binary(string:lowercase(Bin)),
-        case LowercaseBin of
-            <<"authorization">> -> true;
-            <<"proxy-authorization">> -> true;
-            _ -> false
-        end
-    catch
-        _:_ -> false
+    %% We want to convert this to lowercase since the http header fields
+    %% are case insensitive, which means that a user of the Webhook bridge
+    %% can write this field name in many different ways.
+    case try_bin_to_lower(Bin) of
+        <<"authorization">> -> true;
+        <<"proxy-authorization">> -> true;
+        _ -> false
     end;
 is_sensitive_key(_) ->
     false.
@@ -663,6 +710,23 @@ redact_test_() ->
         ?_assertNot(is_sensitive_key(89)),
         ?_assertNotEqual(TestData1, redact(TestData1)),
         ?_assertNotEqual(TestData2, redact(TestData2))
+    ].
+
+join_paths_test_() ->
+    [
+        ?_assertEqual("abc/cde", join_paths("abc", "cde")),
+        ?_assertEqual("abc/cde", join_paths("abc", "/cde")),
+        ?_assertEqual("abc/cde", join_paths("abc/", "cde")),
+        ?_assertEqual("abc/cde", join_paths("abc/", "/cde")),
+
+        ?_assertEqual("/", join_paths("", "")),
+        ?_assertEqual("/cde", join_paths("", "cde")),
+        ?_assertEqual("/cde", join_paths("", "/cde")),
+        ?_assertEqual("/cde", join_paths("/", "cde")),
+        ?_assertEqual("/cde", join_paths("/", "/cde")),
+
+        ?_assertEqual("//cde/", join_paths("/", "//cde/")),
+        ?_assertEqual("abc///cde/", join_paths("abc//", "//cde/"))
     ].
 
 -endif.

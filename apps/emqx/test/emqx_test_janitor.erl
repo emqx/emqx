@@ -60,12 +60,12 @@ init(Parent) ->
     {ok, #{callbacks => [], owner => Parent}}.
 
 terminate(_Reason, #{callbacks := Callbacks}) ->
-    lists:foreach(fun(Fun) -> catch Fun() end, Callbacks).
+    do_terminate(Callbacks).
 
 handle_call({push, Callback}, _From, State = #{callbacks := Callbacks}) ->
     {reply, ok, State#{callbacks := [Callback | Callbacks]}};
 handle_call(terminate, _From, State = #{callbacks := Callbacks}) ->
-    lists:foreach(fun(Fun) -> catch Fun() end, Callbacks),
+    do_terminate(Callbacks),
     {stop, normal, ok, State};
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
@@ -77,3 +77,23 @@ handle_info({'EXIT', Parent, _Reason}, State = #{owner := Parent}) ->
     {stop, normal, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
+
+%%----------------------------------------------------------------------------------
+%% Internal fns
+%%----------------------------------------------------------------------------------
+
+do_terminate(Callbacks) ->
+    lists:foreach(
+        fun(Fun) ->
+            try
+                Fun()
+            catch
+                K:E:S ->
+                    ct:pal("error executing callback ~p: ~p", [Fun, {K, E}]),
+                    ct:pal("stacktrace: ~p", [S]),
+                    ok
+            end
+        end,
+        Callbacks
+    ),
+    ok.

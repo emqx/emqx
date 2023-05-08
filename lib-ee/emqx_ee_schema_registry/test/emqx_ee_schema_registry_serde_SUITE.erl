@@ -60,7 +60,25 @@ schema_params(avro) ->
         ]
     },
     SourceBin = emqx_utils_json:encode(Source),
-    #{type => avro, source => SourceBin}.
+    #{type => avro, source => SourceBin};
+schema_params(protobuf) ->
+    SourceBin =
+        <<
+            "\n"
+            "           message Person {\n"
+            "                required string name = 1;\n"
+            "                required int32 id = 2;\n"
+            "                optional string email = 3;\n"
+            "             }\n"
+            "           message UnionValue {\n"
+            "               oneof u {\n"
+            "                   int32  a = 1;\n"
+            "                   string b = 2;\n"
+            "               }\n"
+            "           }\n"
+            "          "
+        >>,
+    #{type => protobuf, source => SourceBin}.
 
 assert_roundtrip(SerdeName, Original) ->
     Encoded = emqx_ee_schema_registry_serde:encode(SerdeName, Original),
@@ -117,5 +135,38 @@ t_serde_not_found(_Config) ->
     ?assertError(
         {serde_not_found, NonexistentSerde},
         emqx_ee_schema_registry_serde:decode(NonexistentSerde, Original)
+    ),
+    ok.
+
+t_roundtrip_protobuf(_Config) ->
+    SerdeName = my_serde,
+    Params = schema_params(protobuf),
+    ok = emqx_ee_schema_registry:add_schema(SerdeName, Params),
+    ExtraArgsPerson = [<<"Person">>],
+
+    Original0 = #{<<"name">> => <<"some name">>, <<"id">> => 10, <<"email">> => <<"emqx@emqx.io">>},
+    assert_roundtrip(SerdeName, Original0, ExtraArgsPerson, ExtraArgsPerson),
+
+    %% removing optional field
+    Original1 = #{<<"name">> => <<"some name">>, <<"id">> => 10},
+    assert_roundtrip(SerdeName, Original1, ExtraArgsPerson, ExtraArgsPerson),
+
+    %% `oneof' fields
+    ExtraArgsUnion = [<<"UnionValue">>],
+    Original2 = #{<<"a">> => 1},
+    assert_roundtrip(SerdeName, Original2, ExtraArgsUnion, ExtraArgsUnion),
+
+    Original3 = #{<<"b">> => <<"string">>},
+    assert_roundtrip(SerdeName, Original3, ExtraArgsUnion, ExtraArgsUnion),
+
+    ok.
+
+t_protobuf_invalid_schema(_Config) ->
+    SerdeName = my_serde,
+    Params = schema_params(protobuf),
+    WrongParams = Params#{source := <<"xxxx">>},
+    ?assertMatch(
+        {error, {post_config_update, _, {invalid_protobuf_schema, _}}},
+        emqx_ee_schema_registry:add_schema(SerdeName, WrongParams)
     ),
     ok.

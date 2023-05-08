@@ -38,8 +38,6 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
     ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
-    %% Meck Limiter
-    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
     %% Meck Pd
     ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
     %% Meck Metrics
@@ -67,7 +65,6 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_transport),
     catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
-    ok = meck:unload(emqx_htb_limiter),
     ok = meck:unload(emqx_pd),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
@@ -421,20 +418,28 @@ t_ensure_rate_limit(_) ->
     {ok, [], State1} = emqx_connection:check_limiter([], [], WhenOk, [], st(#{limiter => Limiter})),
     ?assertEqual(Limiter, emqx_connection:info(limiter, State1)),
 
+    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
+
+    ok = meck:expect(
+        emqx_htb_limiter,
+        make_infinity_limiter,
+        fun() -> non_infinity end
+    ),
+
     ok = meck:expect(
         emqx_htb_limiter,
         check,
         fun(_, Client) -> {pause, 3000, undefined, Client} end
     ),
     {ok, State2} = emqx_connection:check_limiter(
-        [{1000, bytes_in}],
+        [{1000, bytes}],
         [],
         WhenOk,
         [],
-        st(#{limiter => Limiter})
+        st(#{limiter => init_limiter()})
     ),
     meck:unload(emqx_htb_limiter),
-    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
+
     ?assertNotEqual(undefined, emqx_connection:info(limiter_timer, State2)).
 
 t_activate_socket(_) ->
@@ -495,6 +500,7 @@ t_get_conn_info(_) ->
     end).
 
 t_oom_shutdown(init, Config) ->
+    ok = snabbkaffe:stop(),
     ok = snabbkaffe:start_trace(),
     ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
@@ -703,31 +709,32 @@ handle_call(Pid, Call, St) -> emqx_connection:handle_call(Pid, Call, St).
 -define(LIMITER_ID, 'tcp:default').
 
 init_limiter() ->
-    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], limiter_cfg()).
+    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes, messages], limiter_cfg()).
 
 limiter_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     Cfg = bucket_cfg(),
-    Client = #{
-        rate => Infinity,
+    Client = client_cfg(),
+    #{bytes => Cfg, messages => Cfg, client => #{bytes => Client, messages => Client}}.
+
+bucket_cfg() ->
+    #{rate => infinity, initial => 0, burst => 0}.
+
+client_cfg() ->
+    #{
+        rate => infinity,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
-    },
-    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
-
-bucket_cfg() ->
-    Infinity = emqx_limiter_schema:infinity_value(),
-    #{rate => Infinity, initial => 0, capacity => Infinity}.
+    }.
 
 add_bucket() ->
     Cfg = bucket_cfg(),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes, Cfg),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, messages, Cfg).
 
 del_bucket() ->
-    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
-    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).
+    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes),
+    emqx_limiter_server:del_bucket(?LIMITER_ID, messages).

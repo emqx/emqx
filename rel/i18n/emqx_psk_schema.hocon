@@ -1,8 +1,18 @@
 emqx_psk_schema {
 
-  psk_authentication {
-    desc {
-      en: """PSK stands for 'Pre-Shared Keys'.
+chunk_size.desc:
+"""The size of each chunk used to import to the built-in database from PSK file"""
+
+enable.desc:
+"""Whether to enable TLS PSK support"""
+
+init_file.desc:
+"""If init_file is specified, EMQX will import PSKs from the file into the built-in database at startup for use by the runtime.
+The file has to be structured line-by-line, each line must be in the format of <code>PSKIdentity:SharedSecret</code>.
+For example: <code>mydevice1:c2VjcmV0</code>"""
+
+psk_authentication.desc:
+"""PSK stands for 'Pre-Shared Keys'.
 This config to enable TLS-PSK authentication.
 
 Important! Make sure the SSL listener with only <code>tlsv1.2</code> enabled, and also PSK cipher suites
@@ -11,49 +21,8 @@ configured, such as <code>RSA-PSK-AES256-GCM-SHA384</code>.
 See listener SSL options config for more details.
 
 The IDs and secrets can be provided from a file which is configurable by the <code>init_file</code> field."""
-      zh: """此配置用于启用 TLS-PSK 身份验证。
 
-PSK 是 “Pre-Shared-Keys” 的缩写。
-
-注意: 确保 SSL 监听器仅启用了 'tlsv1.2'，并且配置了PSK 密码套件，例如 'RSA-PSK-AES256-GCM-SHA384'。
-
-可以通过查看监听器中的 SSL 选项，了解更多详细信息。
-
-可以通过配置 'init_file' 来设置初始化的 ID 和 密钥"""
-      }
-    }
-
-  enable {
-    desc {
-      en: "Whether to enable TLS PSK support"
-      zh: "是否开启 TLS PSK 支持"
-      }
-    }
-
-  init_file {
-    desc {
-      en: """If init_file is specified, EMQX will import PSKs from the file into the built-in database at startup for use by the runtime.
-The file has to be structured line-by-line, each line must be in the format of <code>PSKIdentity:SharedSecret</code>.
-For example: <code>mydevice1:c2VjcmV0</code>"""
-      zh: """如果设置了初始化文件，EMQX 将在启动时从初始化文件中导入 PSK 信息到内建数据库中。
-这个文件需要按行进行组织，每一行必须遵守如下格式: <code>PSKIdentity:SharedSecret</code>
-例如: <code>mydevice1:c2VjcmV0</code>"""
-      }
-    }
-
-  separator {
-    desc {
-      en: "The separator between <code>PSKIdentity</code> and <code>SharedSecret</code> in the PSK file"
-
-      zh: "PSK 文件中 <code>PSKIdentity</code> 和 <code>SharedSecret</code> 之间的分隔符"
-      }
-    }
-
-  chunk_size {
-    desc {
-      en: "The size of each chunk used to import to the built-in database from PSK file"
-      zh: "将 PSK 文件导入到内建数据时每个块的大小"
-      }
-    }
+separator.desc:
+"""The separator between <code>PSKIdentity</code> and <code>SharedSecret</code> in the PSK file"""
 
 }

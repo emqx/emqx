@@ -1156,11 +1156,12 @@ t_start_and_consume_ok(Config) ->
                 ),
 
             %% Check that the bridge probe API doesn't leak atoms.
-            ProbeRes = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes0 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes1 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
@@ -1259,11 +1260,12 @@ t_multiple_topic_mappings(Config) ->
             {ok, _} = snabbkaffe:receive_events(SRef0),
 
             %% Check that the bridge probe API doesn't leak atoms.
-            ProbeRes = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes0 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes),
+            ProbeRes1 = probe_bridge_api(Config),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
@@ -1473,7 +1475,10 @@ do_t_receive_after_recovery(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
-            {ok, _} = create_bridge(Config),
+            {ok, _} = create_bridge(
+                Config,
+                #{<<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}}
+            ),
             ping_until_healthy(Config, _Period = 1_500, _Timeout0 = 24_000),
             {ok, connected} = emqx_resource_manager:health_check(ResourceId),
             %% 0) ensure each partition commits its offset so it can

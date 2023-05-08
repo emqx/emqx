@@ -1,225 +1,139 @@
 emqx_dashboard_schema {
-  listeners {
-    desc {
-      en: """HTTP(s) listeners are identified by their protocol type and are
+
+backlog.desc:
+"""Defines the maximum length that the queue of pending connections can grow to."""
+
+backlog.label:
+"""Backlog"""
+
+bind.desc:
+"""Port without IP(18083) or port with specified IP(127.0.0.1:18083)."""
+
+bind.label:
+"""Bind"""
+
+bootstrap_users_file.desc:
+"""Deprecated, use api_key.bootstrap_file."""
+
+bootstrap_users_file.label:
+"""Deprecated"""
+
+cors.desc:
+"""Support Cross-Origin Resource Sharing (CORS).
+Allows a server to indicate any origins (domain, scheme, or port) other than
+its own from which a browser should permit loading resources."""
+
+cors.label:
+"""CORS"""
+
+default_password.desc:
+"""The initial default password for dashboard 'admin' user.
+For safety, it should be changed as soon as possible.
+This value is not valid when you log in to Dashboard for the first time via the web
+and change to a complex password as prompted."""
+
+default_password.label:
+"""Default password"""
+
+default_username.desc:
+"""The default username of the automatically created dashboard user."""
+
+default_username.label:
+"""Default username"""
+
+desc_dashboard.desc:
+"""Configuration for EMQX dashboard."""
+
+desc_dashboard.label:
+"""Dashboard"""
+
+desc_http.desc:
+"""Configuration for the dashboard listener (plaintext)."""
+
+desc_http.label:
+"""HTTP"""
+
+desc_https.desc:
+"""Configuration for the dashboard listener (TLS)."""
+
+desc_https.label:
+"""HTTPS"""
+
+desc_listeners.desc:
+"""Configuration for the dashboard listener."""
+
+desc_listeners.label:
+"""Listeners"""
+
+i18n_lang.desc:
+"""Internationalization language support."""
+
+i18n_lang.label:
+"""I18n language"""
+
+inet6.desc:
+"""Enable IPv6 support, default is false, which means IPv4 only."""
+
+inet6.label:
+"""IPv6"""
+
+ipv6_v6only.desc:
+"""Disable IPv4-to-IPv6 mapping for the listener.
+The configuration is only valid when the inet6 is true."""
+
+ipv6_v6only.label:
+"""IPv6 only"""
+
+listener_enable.desc:
+"""Ignore or enable this listener"""
+
+listener_enable.label:
+"""Enable"""
+
+listeners.desc:
+"""HTTP(s) listeners are identified by their protocol type and are
 used to serve dashboard UI and restful HTTP API.
 Listeners must have a unique combination of port number and IP address.
 For example, an HTTP listener can listen on all configured IP addresses
 on a given port for a machine by specifying the IP address 0.0.0.0.
 Alternatively, the HTTP listener can specify a unique IP address for each listener,
 but use the same port."""
-      zh: """Dashboard 监听器设置。监听器必须有唯一的端口号和IP地址的组合。
-例如，可以通过指定IP地址 0.0.0.0 来监听机器上给定端口上的所有配置的IP地址。
-或者，可以为每个监听器指定唯一的IP地址，但使用相同的端口。"""
-    }
-    label {
-      en: "Listeners"
-      zh: "监听器"
-    }
-  }
-  sample_interval {
-    desc {
-      en: """How often to update metrics displayed in the dashboard.
+
+listeners.label:
+"""Listeners"""
+
+max_connections.desc:
+"""Maximum number of simultaneous connections."""
+
+max_connections.label:
+"""Maximum connections"""
+
+num_acceptors.desc:
+"""Socket acceptor pool size for TCP protocols. Default is the number of schedulers online"""
+
+num_acceptors.label:
+"""Number of acceptors"""
+
+proxy_header.desc:
+"""Enable support for `HAProxy` header. Be aware once enabled regular HTTP requests can't be handled anymore."""
+
+proxy_header.label:
+"""Enable support for HAProxy header"""
+
+sample_interval.desc:
+"""How often to update metrics displayed in the dashboard.
 Note: `sample_interval` should be a divisor of 60, default is 10s."""
-      zh: """Dashboard 中图表指标的时间间隔。必须小于60，且被60的整除，默认设置 10s。"""
-    }
-  }
-  token_expired_time {
-    desc {
-      en: "JWT token expiration time. Default is 60 minutes"
-      zh: "JWT token 过期时间。默认设置为 60 分钟。"
-    }
-    label {
-      en: "Token expired time"
-      zh: "JWT 过期时间"
-    }
-  }
-  num_acceptors {
-    desc {
-      en: "Socket acceptor pool size for TCP protocols. Default is the number of schedulers online"
-      zh: "TCP协议的Socket acceptor池大小, 默认设置在线的调度器数量（通常为 CPU 核数）"
-    }
-    label {
-      en: "Number of acceptors"
-      zh: "Acceptor 数量"
-    }
-  }
-  max_connections {
-    desc {
-      en: "Maximum number of simultaneous connections."
-      zh: "同时处理的最大连接数。"
-    }
-    label {
-      en: "Maximum connections"
-      zh: "最大连接数"
-    }
-  }
-  backlog {
-    desc {
-      en: "Defines the maximum length that the queue of pending connections can grow to."
-      zh: "排队等待连接的队列的最大长度。"
-    }
-    label {
-      en: "Backlog"
-      zh: "排队长度"
-    }
-  }
-  send_timeout {
-    desc {
-      en: "Send timeout for the socket."
-      zh: "Socket发送超时时间。"
-    }
-    label {
-      en: "Send timeout"
-      zh: "发送超时时间"
-    }
-  }
-  inet6 {
-    desc {
-      en: "Enable IPv6 support, default is false, which means IPv4 only."
-      zh: "启用IPv6， 如果机器不支持IPv6，请关闭此选项，否则会导致 Dashboard 无法使用。"
-    }
-    label {
-      en: "IPv6"
-      zh: "IPv6"
-    }
-  }
-  ipv6_v6only {
-    desc {
-      en: """Disable IPv4-to-IPv6 mapping for the listener.
-The configuration is only valid when the inet6 is true."""
-      zh: "当开启 inet6 功能的同时禁用 IPv4-to-IPv6 映射。该配置仅在 inet6 功能开启时有效。"
-    }
-    label {
-      en: "IPv6 only"
-      zh: "IPv6 only"
-    }
-  }
-  proxy_header {
-    desc {
-        en: "Enable support for `HAProxy` header. Be aware once enabled regular HTTP requests can't be handled anymore."
-        zh: "开启对  `HAProxy` 的支持，注意：一旦开启了这个功能，就无法再处理普通的 HTTP 请求了。"
-    }
-    label: {
-        en: "Enable support for HAProxy header"
-        zh: "开启对 `HAProxy` 的支持"
-    }
-  }
-  desc_dashboard {
-    desc {
-      en: "Configuration for EMQX dashboard."
-      zh: "EMQX Dashboard 配置。"
-    }
-    label {
-      en: "Dashboard"
-      zh: "Dashboard"
-    }
-  }
-  desc_listeners {
-    desc {
-      en: "Configuration for the dashboard listener."
-      zh: "Dashboard 监听器配置。"
-    }
-    label {
-      en: "Listeners"
-      zh: "监听器"
-    }
-  }
-  desc_http {
-    desc {
-      en: "Configuration for the dashboard listener (plaintext)."
-      zh: "Dashboard 监听器(HTTP)配置。"
-    }
-    label {
-      en: "HTTP"
-      zh: "HTTP"
-    }
-  }
-  desc_https {
-    desc {
-      en: "Configuration for the dashboard listener (TLS)."
-      zh: "Dashboard 监听器(HTTPS)配置。"
-    }
-    label {
-      en: "HTTPS"
-      zh: "HTTPS"
-    }
-  }
-  listener_enable {
-    desc {
-        en: "Ignore or enable this listener"
-        zh: "忽略或启用该监听器。"
-    }
-    label {
-        en: "Enable"
-        zh: "启用"
-    }
-  }
-  bind {
-    desc {
-      en: "Port without IP(18083) or port with specified IP(127.0.0.1:18083)."
-      zh: "监听地址和端口，热更新此配置时，会重启 Dashboard 服务。"
-    }
-    label {
-      en: "Bind"
-      zh: "绑定端口"
-    }
-  }
-  default_username {
-    desc {
-      en: "The default username of the automatically created dashboard user."
-      zh: "Dashboard 的默认用户名。"
-    }
-    label {
-      en: "Default username"
-      zh: "默认用户名"
-    }
-  }
-  default_password {
-    desc {
-      en: """The initial default password for dashboard 'admin' user.
-For safety, it should be changed as soon as possible.
-This value is not valid when you log in to Dashboard for the first time via the web
-and change to a complex password as prompted."""
-      zh: """Dashboard 的默认密码，为了安全，应该尽快修改密码。
-当通过网页首次登录 Dashboard 并按提示修改成复杂密码后，此值就会失效。"""
-    }
-    label {
-      en: "Default password"
-      zh: "默认密码"
-    }
-  }
-  cors {
-    desc {
-      en: """Support Cross-Origin Resource Sharing (CORS).
-Allows a server to indicate any origins (domain, scheme, or port) other than
-its own from which a browser should permit loading resources."""
-      zh: """支持跨域资源共享(CORS)，
-允许服务器指示任何来源(域名、协议或端口)，除了本服务器之外的任何浏览器应允许加载资源。"""
-    }
-    label {
-      en: "CORS"
-      zh: "跨域资源共享"
-    }
-  }
-  i18n_lang {
-    desc {
-      en: "Internationalization language support."
-      zh: "设置 Swagger 多语言的版本，可为 en 或 zh。"
-    }
-    label {
-      en: "I18n language"
-      zh: "多语言支持"
-    }
-  }
-  bootstrap_users_file {
-    desc {
-      en: "Deprecated, use api_key.bootstrap_file."
-      zh: "已废弃，请使用 api_key.bootstrap_file。"
-    }
-    label {
-      en: """Deprecated"""
-      zh: """已废弃"""
-    }
-  }
+
+send_timeout.desc:
+"""Send timeout for the socket."""
+
+send_timeout.label:
+"""Send timeout"""
+
+token_expired_time.desc:
+"""JWT token expiration time. Default is 60 minutes"""
+
+token_expired_time.label:
+"""Token expired time"""
+
 }

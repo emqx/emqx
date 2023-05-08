@@ -1,326 +1,25 @@
 emqx_rule_engine_schema {
 
-    rules_name {
-                   desc {
-                         en: "The name of the rule"
-                         zh: "规则名字"
-                        }
-                   label: {
-                           en: "Rule Name"
-                           zh: "规则名字"
-                          }
-                  }
+console_function.desc:
+"""Print the actions to the console"""
 
-    rules_sql {
-                   desc {
-                         en: """SQL query to transform the messages.
-Example: <code>SELECT * FROM "test/topic" WHERE payload.x = 1</code>"""
-                         zh: """用于处理消息的 SQL 。
-示例：<code>SELECT * FROM "test/topic" WHERE payload.x = 1</code>"""
-                        }
-                   label: {
-                           en: "Rule SQL"
-                           zh: "规则 SQL"
-                          }
-                  }
+console_function.label:
+"""Console Function"""
 
-    rules_actions {
-                   desc {
-                         en: """A list of actions of the rule.
-An action can be a string that refers to the channel ID of an EMQX bridge, or an object
-that refers to a function.
-There a some built-in functions like "republish" and "console", and we also support user
-provided functions in the format: "{module}:{function}".
-The actions in the list are executed sequentially.
-This means that if one of the action is executing slowly, all the following actions will not
-be executed until it returns.
-If one of the action crashed, all other actions come after it will still be executed, in the
-original order.
-If there's any error when running an action, there will be an error message, and the 'failure'
-counter of the function action or the bridge channel will increase."""
+desc_builtin_action_console.desc:
+"""Configuration for a built-in action."""
 
-                         zh: """规则的动作列表。
-动作可以是指向 EMQX bridge 的引用，也可以是一个指向函数的对象。
-我们支持一些内置函数，如“republish”和“console”，我们还支持用户提供的函数，它的格式为：“{module}:{function}”。
-列表中的动作按顺序执行。这意味着如果其中一个动作执行缓慢，则以下所有动作都不会被执行直到它返回。
-如果其中一个动作崩溃，在它之后的所有动作仍然会被按照原始顺序执行。
-如果运行动作时出现任何错误，则会出现错误消息，并且相应的计数器会增加。"""
-                        }
-                   label: {
-                           en: "Rule Action List"
-                           zh: "动作列表"
-                          }
-                  }
+desc_builtin_action_console.label:
+"""Action Console Configuration"""
 
-    rules_enable {
-                   desc {
-                         en: "Enable or disable the rule"
-                         zh: "启用或禁用规则引擎"
-                        }
-                   label: {
-                           en: "Enable Or Disable Rule"
-                           zh: "启用或禁用规则引擎"
-                          }
-                  }
+desc_builtin_action_republish.desc:
+"""Configuration for a built-in action."""
 
-    rules_metadata {
-                   desc {
-                         en: "Rule metadata, do not change manually"
-                         zh: "规则的元数据，不要手动修改"
-                        }
-                   label: {
-                           en: "Rule metadata"
-                           zh: "规则的元数据"
-                          }
-                  }
+desc_builtin_action_republish.label:
+"""Republish Configuration"""
 
-    rules_description {
-                   desc {
-                         en: "The description of the rule"
-                         zh: "规则的描述"
-                        }
-                   label: {
-                           en: "Rule Description"
-                           zh: "规则描述"
-                          }
-                  }
-
-    republish_function {
-                   desc {
-                         en: """Republish the message as a new MQTT message"""
-                         zh: """将消息重新发布为新的 MQTT 消息"""
-                        }
-                   label: {
-                           en: "Republish Function"
-                           zh: "重新发布函数"
-                          }
-                  }
-
-    console_function {
-                   desc {
-                         en: """Print the actions to the console"""
-                         zh: "将输出打印到控制台"
-                        }
-                   label: {
-                           en: "Console Function"
-                           zh: "控制台函数"
-                          }
-                  }
-
-    user_provided_function_function {
-                   desc {
-                         en: """The user provided function. Should be in the format: '{module}:{function}'.
-Where {module} is the Erlang callback module and {function} is the Erlang function.
-
-To write your own function, checkout the function <code>console</code> and
-<code>republish</code> in the source file:
-<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
-
-                         zh: """用户提供的函数。 格式应为：'{module}:{function}'。
-其中 {module} 是 Erlang 回调模块， {function} 是 Erlang 函数。
-要编写自己的函数，请检查源文件：<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> 中的示例函数 <code>console</code> 和<code>republish</code> 。"""
-                        }
-                   label: {
-                           en: "User Provided Function"
-                           zh: "用户提供的函数"
-                          }
-                  }
-
-    user_provided_function_args {
-                   desc {
-                         en: """The args will be passed as the 3rd argument to module:function/3,
-checkout the function <code>console</code> and <code>republish</code> in the source file:
-<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
-                         zh: """用户提供的参数将作为函数 module:function/3 的第三个参数，
-请检查源文件：<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> 中的示例函数 <code>console</code> 和<code>republish</code> 。"""
-                        }
-                   label: {
-                           en: "User Provided Function Args"
-                           zh: "用户提供函数的参数"
-                          }
-                  }
-
-    republish_args_topic {
-                   desc {
-                         en: """The target topic of message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'."""
-                         zh: """重新发布消息的目标主题。
-允许使用带有变量的模板，请参阅“republish_args”的描述。"""
-                        }
-                   label: {
-                           en: "Target Topic"
-                           zh: "目标主题"
-                          }
-                  }
-
-    republish_args_qos {
-                   desc {
-                         en: """The qos of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.
-Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
-0 is used."""
-                         zh: """要重新发布的消息的 qos。允许使用带有变量的模板，请参阅“republish_args”的描述。
-默认为 ${qos}。 如果从规则的选择结果中没有找到变量 ${qos}，则使用 0。"""
-                        }
-                   label: {
-                           en: "Message QoS"
-                           zh: "消息 QoS 等级"
-                          }
-                  }
-
-    republish_args_retain {
-                   desc {
-                         en: """The 'retain' flag of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.
-Defaults to ${retain}. If variable ${retain} is not found from the selected result
-of the rule, false is used."""
-                         zh: """要重新发布的消息的“保留”标志。允许使用带有变量的模板，请参阅“republish_args”的描述。
-默认为 ${retain}。 如果从所选结果中未找到变量 ${retain}，则使用 false。"""
-                        }
-                   label: {
-                           en: "Retain Flag"
-                           zh: "保留消息标志"
-                          }
-                  }
-
-    republish_args_payload {
-                   desc {
-                         en: """The payload of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.
-Defaults to ${payload}. If variable ${payload} is not found from the selected result
-of the rule, then the string "undefined" is used."""
-                         zh: """要重新发布的消息的有效负载。允许使用带有变量的模板，请参阅“republish_args”的描述。
-默认为 ${payload}。 如果从所选结果中未找到变量 ${payload}，则使用字符串 "undefined"。"""
-                        }
-                   label: {
-                           en: "Message Payload"
-                           zh: "消息负载"
-                          }
-                  }
-    republish_args_user_properties {
-        desc {
-            en: """From which variable should the MQTT message's User-Property pairs be taken from.
-The value must be a map.
-You may configure it to <code>${pub_props.'User-Property'}</code> or
-use <code>SELECT *,pub_props.'User-Property' as user_properties</code>
-to forward the original user properties to the republished message.
-You may also call <code>map_put</code> function like
-<code>map_put('my-prop-name', 'my-prop-value', user_properties) as user_properties</code>
-to inject user properties.
-NOTE: MQTT spec allows duplicated user property names, but EMQX Rule-Engine does not."""
-
-            zh: """指定使用哪个变量来填充 MQTT 消息的 User-Property 列表。这个变量的值必须是一个 map 类型。
-可以设置成 <code>${pub_props.'User-Property'}</code> 或者
-使用 <code>SELECT *,pub_props.'User-Property' as user_properties</code> 来把源 MQTT 消息
-的 User-Property 列表用于填充。
-也可以使用 <code>map_put</code> 函数来添加新的 User-Property，
-<code>map_put('my-prop-name', 'my-prop-value', user_properties) as user_properties</code>
-注意：MQTT 协议允许一个消息中出现多次同一个 property 名，但是 EMQX 的规则引擎不允许。"""
-        }
-    }
-
-    rule_engine_ignore_sys_message {
-                   desc {
-                         en: "When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."
-                         zh: "当设置为“true”（默认）时，规则引擎将忽略发布到 $SYS 主题的消息。"
-                        }
-                   label: {
-                           en: "Ignore Sys Message"
-                           zh: "忽略系统消息"
-                          }
-                  }
-
-    rule_engine_rules {
-                   desc {
-                         en: """The rules"""
-                         zh: "规则"
-                        }
-                   label: {
-                           en: "Rules"
-                           zh: "规则"
-                          }
-                  }
-
-    rule_engine_jq_function_default_timeout {
-      desc {
-          en: "Default timeout for the `jq` rule engine function"
-          zh: "规则引擎内建函数 `jq` 默认时间限制"
-      }
-      label: {
-          en: "Rule engine jq function default timeout"
-          zh: "规则引擎 jq 函数时间限制"
-      }
-    }
-
-    rule_engine_jq_implementation_module {
-      desc {
-          en: "The implementation module for the jq rule engine function. The two options are jq_nif and jq_port. With the jq_nif option an Erlang NIF library is used while with the jq_port option an implementation based on Erlang port programs is used. The jq_nif option (the default option) is the fastest implementation of the two but jq_port is safer as the jq programs will not execute in the same process as the Erlang VM."
-          zh: "jq 规则引擎功能的实现模块。可用的两个选项是 jq_nif 和 jq_port。jq_nif 使用 Erlang NIF 库访问 jq 库，而 jq_port 使用基于 Erlang Port 的实现。jq_nif 方式（默认选项）是这两个选项中最快的实现，但 jq_port 方式更安全，因为这种情况下 jq 程序不会在 Erlang VM 进程中执行。"
-      }
-      label: {
-          en: "JQ Implementation Module"
-          zh: "JQ 实现模块"
-      }
-    }
-
-    desc_rule_engine {
-                   desc {
-                         en: """Configuration for the EMQX Rule Engine."""
-                         zh: """配置 EMQX 规则引擎。"""
-                        }
-                   label: {
-                           en: "Rule Engine Configuration"
-                           zh: "配置规则引擎"
-                          }
-                  }
-
-    desc_rules {
-                   desc {
-                         en: """Configuration for a rule."""
-                         zh: """配置规则"""
-                        }
-                   label: {
-                           en: "Rule Configuration"
-                           zh: "配置规则"
-                          }
-                  }
-
-    desc_builtin_action_republish {
-                   desc {
-                         en: """Configuration for a built-in action."""
-                         zh: """配置重新发布。"""
-                        }
-                   label: {
-                           en: "Republish Configuration"
-                           zh: "配置重新发布"
-                          }
-                  }
-
-    desc_builtin_action_console {
-                   desc {
-                         en: """Configuration for a built-in action."""
-                         zh: """配置打印到控制台"""
-                        }
-                   label: {
-                           en: "Action Console Configuration"
-                           zh: "配置打印到控制台"
-                          }
-                  }
-
-    desc_user_provided_function {
-                   desc {
-                         en: """Configuration for a built-in action."""
-                         zh: """配置用户函数"""
-                        }
-                   label: {
-                           en: "User Provid Function Configuration"
-                           zh: "配置用户函数"
-                          }
-                  }
-
-    desc_republish_args {
-                   desc {
-                         en: """The arguments of the built-in 'republish' action.One can use variables in the args.
+desc_republish_args.desc:
+"""The arguments of the built-in 'republish' action.One can use variables in the args.
 The variables are selected by the rule. For example, if the rule SQL is defined as following:
 <code>
     SELECT clientid, qos, payload FROM "t/1"
@@ -337,27 +36,168 @@ Then there are 3 variables available: <code>clientid</code>, <code>qos</code> an
 When the rule is triggered by an MQTT message with payload = `hello`, qos = 1,
 clientid = `Steve`, the rule will republish a new MQTT message to topic `t/Steve`,
 payload = `msg: hello`, and `qos = 1`."""
-                         zh: """内置 'republish' 动作的参数。
-可以在参数中使用变量。
-变量是规则中选择的字段。 例如规则 SQL 定义如下：
-<code>
-    SELECT clientid, qos, payload FROM "t/1"
-</code>
-然后有 3 个变量可用：<code>clientid</code>、<code>qos</code> 和 <code>payload</code>。 如果我们将参数设置为：
-<code>
-    {
-        topic = "t/${clientid}"
-        qos = "${qos}"
-        payload = "msg: ${payload}"
-    }
-</code>
-当收到一条消息 payload = `hello`, qos = 1, clientid = `Steve` 时，将重新发布一条新的 MQTT 消息到主题 `t/Steve`
-消息内容为 payload = `msg: hello`, and `qos = 1"""
-                        }
-                   label: {
-                           en: "Republish Args"
-                           zh: "重新发布参数"
-                          }
-                  }
+
+desc_republish_args.label:
+"""Republish Args"""
+
+desc_rule_engine.desc:
+"""Configuration for the EMQX Rule Engine."""
+
+desc_rule_engine.label:
+"""Rule Engine Configuration"""
+
+desc_rules.desc:
+"""Configuration for a rule."""
+
+desc_rules.label:
+"""Rule Configuration"""
+
+desc_user_provided_function.desc:
+"""Configuration for a built-in action."""
+
+desc_user_provided_function.label:
+"""User Provid Function Configuration"""
+
+republish_args_payload.desc:
+"""The payload of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${payload}. If variable ${payload} is not found from the selected result
+of the rule, then the string "undefined" is used."""
+
+republish_args_payload.label:
+"""Message Payload"""
+
+republish_args_qos.desc:
+"""The qos of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
+0 is used."""
+
+republish_args_qos.label:
+"""Message QoS"""
+
+republish_args_retain.desc:
+"""The 'retain' flag of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${retain}. If variable ${retain} is not found from the selected result
+of the rule, false is used."""
+
+republish_args_retain.label:
+"""Retain Flag"""
+
+republish_args_topic.desc:
+"""The target topic of message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'."""
+
+republish_args_topic.label:
+"""Target Topic"""
+
+republish_args_user_properties.desc:
+"""From which variable should the MQTT message's User-Property pairs be taken from.
+The value must be a map.
+You may configure it to <code>${pub_props.'User-Property'}</code> or
+use <code>SELECT *,pub_props.'User-Property' as user_properties</code>
+to forward the original user properties to the republished message.
+You may also call <code>map_put</code> function like
+<code>map_put('my-prop-name', 'my-prop-value', user_properties) as user_properties</code>
+to inject user properties.
+NOTE: MQTT spec allows duplicated user property names, but EMQX Rule-Engine does not."""
+
+republish_function.desc:
+"""Republish the message as a new MQTT message"""
+
+republish_function.label:
+"""Republish Function"""
+
+rule_engine_ignore_sys_message.desc:
+"""When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."""
+
+rule_engine_ignore_sys_message.label:
+"""Ignore Sys Message"""
+
+rule_engine_jq_function_default_timeout.desc:
+"""Default timeout for the `jq` rule engine function"""
+
+rule_engine_jq_function_default_timeout.label:
+"""Rule engine jq function default timeout"""
+
+rule_engine_jq_implementation_module.desc:
+"""The implementation module for the jq rule engine function. The two options are jq_nif and jq_port. With the jq_nif option an Erlang NIF library is used while with the jq_port option an implementation based on Erlang port programs is used. The jq_nif option (the default option) is the fastest implementation of the two but jq_port is safer as the jq programs will not execute in the same process as the Erlang VM."""
+
+rule_engine_jq_implementation_module.label:
+"""JQ Implementation Module"""
+
+rule_engine_rules.desc:
+"""The rules"""
+
+rule_engine_rules.label:
+"""Rules"""
+
+rules_actions.desc:
+"""A list of actions of the rule.
+An action can be a string that refers to the channel ID of an EMQX bridge, or an object
+that refers to a function.
+There a some built-in functions like "republish" and "console", and we also support user
+provided functions in the format: "{module}:{function}".
+The actions in the list are executed sequentially.
+This means that if one of the action is executing slowly, all the following actions will not
+be executed until it returns.
+If one of the action crashed, all other actions come after it will still be executed, in the
+original order.
+If there's any error when running an action, there will be an error message, and the 'failure'
+counter of the function action or the bridge channel will increase."""
+
+rules_actions.label:
+"""Rule Action List"""
+
+rules_description.desc:
+"""The description of the rule"""
+
+rules_description.label:
+"""Rule Description"""
+
+rules_enable.desc:
+"""Enable or disable the rule"""
+
+rules_enable.label:
+"""Enable Or Disable Rule"""
+
+rules_metadata.desc:
+"""Rule metadata, do not change manually"""
+
+rules_metadata.label:
+"""Rule metadata"""
+
+rules_name.desc:
+"""The name of the rule"""
+
+rules_name.label:
+"""Rule Name"""
+
+rules_sql.desc:
+"""SQL query to transform the messages.
+Example: <code>SELECT * FROM "test/topic" WHERE payload.x = 1</code>"""
+
+rules_sql.label:
+"""Rule SQL"""
+
+user_provided_function_args.desc:
+"""The args will be passed as the 3rd argument to module:function/3,
+checkout the function <code>console</code> and <code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
+
+user_provided_function_args.label:
+"""User Provided Function Args"""
+
+user_provided_function_function.desc:
+"""The user provided function. Should be in the format: '{module}:{function}'.
+Where {module} is the Erlang callback module and {function} is the Erlang function.
+
+To write your own function, checkout the function <code>console</code> and
+<code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
+
+user_provided_function_function.label:
+"""User Provided Function"""
 
 }

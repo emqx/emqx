@@ -177,7 +177,9 @@ t_sub_key_update_remove(_Config) ->
         {ok, #{post_config_update => #{emqx_config_handler_SUITE => ok}}},
         emqx:remove_config(KeyPath)
     ),
-    ?assertError({config_not_found, KeyPath}, emqx:get_raw_config(KeyPath)),
+    ?assertError(
+        {config_not_found, [<<"sysmon">>, os, cpu_check_interval]}, emqx:get_raw_config(KeyPath)
+    ),
     OSKey = maps:keys(emqx:get_raw_config([sysmon, os])),
     ?assertEqual(false, lists:member(<<"cpu_check_interval">>, OSKey)),
     ?assert(length(OSKey) > 0),

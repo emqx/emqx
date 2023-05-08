@@ -114,8 +114,8 @@ callback_mode() ->
 is_buffer_supported() ->
     true.
 
--spec on_start(manager_id(), config()) -> {ok, state()}.
-on_start(InstanceId, Config) ->
+-spec on_start(resource_id(), config()) -> {ok, state()}.
+on_start(ResourceId, Config) ->
     #{
         authentication := Auth,
         bootstrap_hosts := BootstrapHosts0,
@@ -133,7 +133,7 @@ on_start(InstanceId, Config) ->
     BootstrapHosts = emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
     KafkaType = kafka_consumer,
     %% Note: this is distinct per node.
-    ClientID = make_client_id(InstanceId, KafkaType, BridgeName),
+    ClientID = make_client_id(ResourceId, KafkaType, BridgeName),
     ClientOpts0 =
         case Auth of
             none -> [];
@@ -144,26 +144,26 @@ on_start(InstanceId, Config) ->
         ok ->
             ?tp(
                 kafka_consumer_client_started,
-                #{client_id => ClientID, instance_id => InstanceId}
+                #{client_id => ClientID, resource_id => ResourceId}
             ),
             ?SLOG(info, #{
                 msg => "kafka_consumer_client_started",
-                instance_id => InstanceId,
+                resource_id => ResourceId,
                 kafka_hosts => BootstrapHosts
             });
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer_client",
-                instance_id => InstanceId,
+                resource_id => ResourceId,
                 kafka_hosts => BootstrapHosts,
                 reason => emqx_utils:redact(Reason)
             }),
             throw(?CLIENT_DOWN_MESSAGE)
     end,
-    start_consumer(Config, InstanceId, ClientID).
+    start_consumer(Config, ResourceId, ClientID).
 
--spec on_stop(manager_id(), state()) -> ok.
-on_stop(_InstanceID, State) ->
+-spec on_stop(resource_id(), state()) -> ok.
+on_stop(_ResourceID, State) ->
     #{
         subscriber_id := SubscriberId,
         kafka_client_id := ClientID
@@ -172,14 +172,19 @@ on_stop(_InstanceID, State) ->
     stop_client(ClientID),
     ok.
 
--spec on_get_status(manager_id(), state()) -> connected | disconnected.
-on_get_status(_InstanceID, State) ->
+-spec on_get_status(resource_id(), state()) -> connected | disconnected.
+on_get_status(_ResourceID, State) ->
     #{
         subscriber_id := SubscriberId,
         kafka_client_id := ClientID,
         kafka_topics := KafkaTopics
     } = State,
-    do_get_status(State, ClientID, KafkaTopics, SubscriberId).
+    case do_get_status(ClientID, KafkaTopics, SubscriberId) of
+        {disconnected, Message} ->
+            {disconnected, State, Message};
+        Res ->
+            Res
+    end.
 
 %%-------------------------------------------------------------------------------------
 %% `brod_group_subscriber' API
@@ -266,8 +271,8 @@ ensure_consumer_supervisor_started() ->
             ok
     end.
 
--spec start_consumer(config(), manager_id(), brod:client_id()) -> {ok, state()}.
-start_consumer(Config, InstanceId, ClientID) ->
+-spec start_consumer(config(), resource_id(), brod:client_id()) -> {ok, state()}.
+start_consumer(Config, ResourceId, ClientID) ->
     #{
         bootstrap_hosts := BootstrapHosts0,
         bridge_name := BridgeName,
@@ -287,7 +292,7 @@ start_consumer(Config, InstanceId, ClientID) ->
     InitialState = #{
         key_encoding_mode => KeyEncodingMode,
         hookpoint => Hookpoint,
-        resource_id => emqx_bridge_resource:resource_id(kafka_consumer, BridgeName),
+        resource_id => ResourceId,
         topic_mapping => TopicMapping,
         value_encoding_mode => ValueEncodingMode
     },
@@ -332,7 +337,7 @@ start_consumer(Config, InstanceId, ClientID) ->
         {ok, _ConsumerPid} ->
             ?tp(
                 kafka_consumer_subscriber_started,
-                #{instance_id => InstanceId, subscriber_id => SubscriberId}
+                #{resource_id => ResourceId, subscriber_id => SubscriberId}
             ),
             {ok, #{
                 subscriber_id => SubscriberId,
@@ -342,7 +347,7 @@ start_consumer(Config, InstanceId, ClientID) ->
         {error, Reason2} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer",
-                instance_id => InstanceId,
+                resource_id => ResourceId,
                 kafka_hosts => emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
                 reason => emqx_utils:redact(Reason2)
             }),
@@ -376,41 +381,41 @@ stop_client(ClientID) ->
     ),
     ok.
 
-do_get_status(State, ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
+do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
     case brod:get_partitions_count(ClientID, KafkaTopic) of
         {ok, NPartitions} ->
-            case do_get_status1(ClientID, KafkaTopic, SubscriberId, NPartitions) of
-                connected -> do_get_status(State, ClientID, RestTopics, SubscriberId);
+            case do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
+                connected -> do_get_status(ClientID, RestTopics, SubscriberId);
                 disconnected -> disconnected
             end;
         {error, {client_down, Context}} ->
             case infer_client_error(Context) of
                 auth_error ->
                     Message = "Authentication error. " ++ ?CLIENT_DOWN_MESSAGE,
-                    {disconnected, State, Message};
+                    {disconnected, Message};
                 {auth_error, Message0} ->
                     Message = binary_to_list(Message0) ++ "; " ++ ?CLIENT_DOWN_MESSAGE,
-                    {disconnected, State, Message};
+                    {disconnected, Message};
                 connection_refused ->
                     Message = "Connection refused. " ++ ?CLIENT_DOWN_MESSAGE,
-                    {disconnected, State, Message};
+                    {disconnected, Message};
                 _ ->
-                    {disconnected, State, ?CLIENT_DOWN_MESSAGE}
+                    {disconnected, ?CLIENT_DOWN_MESSAGE}
             end;
         {error, leader_not_available} ->
             Message =
                 "Leader connection not available. Please check the Kafka topic used,"
                 " the connection parameters and Kafka cluster health",
-            {disconnected, State, Message};
+            {disconnected, Message};
         _ ->
             disconnected
     end;
-do_get_status(_State, _ClientID, _KafkaTopics = [], _SubscriberId) ->
+do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
     connected.
 
--spec do_get_status1(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
+-spec do_get_topic_status(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
     connected | disconnected.
-do_get_status1(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
+do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
     Results =
         lists:map(
             fun(N) ->
@@ -466,19 +471,19 @@ consumer_group_id(BridgeName0) ->
     BridgeName = to_bin(BridgeName0),
     <<"emqx-kafka-consumer-", BridgeName/binary>>.
 
--spec is_dry_run(manager_id()) -> boolean().
-is_dry_run(InstanceId) ->
-    TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
+-spec is_dry_run(resource_id()) -> boolean().
+is_dry_run(ResourceId) ->
+    TestIdStart = string:find(ResourceId, ?TEST_ID_PREFIX),
     case TestIdStart of
         nomatch ->
             false;
         _ ->
-            string:equal(TestIdStart, InstanceId)
+            string:equal(TestIdStart, ResourceId)
     end.
 
--spec make_client_id(manager_id(), kafka_consumer, atom() | binary()) -> atom().
-make_client_id(InstanceId, KafkaType, KafkaName) ->
-    case is_dry_run(InstanceId) of
+-spec make_client_id(resource_id(), kafka_consumer, atom() | binary()) -> atom().
+make_client_id(ResourceId, KafkaType, KafkaName) ->
+    case is_dry_run(ResourceId) of
         false ->
             ClientID0 = emqx_bridge_kafka_impl:make_client_id(KafkaType, KafkaName),
             binary_to_atom(ClientID0);

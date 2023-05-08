@@ -29,7 +29,14 @@ start_link(Port, Path) ->
     start_link(Port, Path, false).
 
 start_link(Port, Path, SSLOpts) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Port, Path, SSLOpts]).
+    case Port of
+        random ->
+            PickedPort = pick_port_number(56000),
+            {ok, Pid} = supervisor:start_link({local, ?MODULE}, ?MODULE, [PickedPort, Path, SSLOpts]),
+            {ok, {PickedPort, Pid}};
+        _ ->
+            supervisor:start_link({local, ?MODULE}, ?MODULE, [Port, Path, SSLOpts])
+    end.
 
 stop() ->
     try
@@ -103,3 +110,20 @@ default_handler(Req0, State) ->
         Req0
     ),
     {ok, Req, State}.
+
+pick_port_number(Port) ->
+    case is_port_in_use(Port) of
+        true ->
+            pick_port_number(Port + 1);
+        false ->
+            Port
+    end.
+
+is_port_in_use(Port) ->
+    case gen_tcp:listen(Port, [{reuseaddr, true}, {active, false}]) of
+        {ok, ListenSocket} ->
+            gen_tcp:close(ListenSocket),
+            false;
+        {error, eaddrinuse} ->
+            true
+    end.

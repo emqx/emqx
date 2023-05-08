@@ -59,7 +59,8 @@
     burst := rate(),
     %% token generation interval(second)
     period := pos_integer(),
-    produced := float()
+    produced := float(),
+    correction := emqx_limiter_decimal:zero_or_float()
 }.
 
 -type bucket() :: #{
@@ -98,6 +99,7 @@
 %% minimum coefficient for overloaded limiter
 -define(OVERLOAD_MIN_ALLOC, 0.3).
 -define(COUNTER_SIZE, 8).
+-define(ROOT_COUNTER_IDX, 1).
 
 -export_type([index/0]).
 -import(emqx_limiter_decimal, [add/2, sub/2, mul/2, put_to_counter/3]).
@@ -110,40 +112,24 @@
 -spec connect(
     limiter_id(),
     limiter_type(),
-    bucket_name() | #{limiter_type() => bucket_name() | undefined}
+    hocons:config() | undefined
 ) ->
     {ok, emqx_htb_limiter:limiter()} | {error, _}.
-%% If no bucket path is set in config, there will be no limit
-connect(_Id, _Type, undefined) ->
-    {ok, emqx_htb_limiter:make_infinity_limiter()};
+%% undefined is the default situation, no limiter setting by default
+connect(Id, Type, undefined) ->
+    create_limiter(Id, Type, undefined, undefined);
+connect(Id, Type, #{rate := _} = Cfg) ->
+    create_limiter(Id, Type, maps:get(client, Cfg, undefined), Cfg);
 connect(Id, Type, Cfg) ->
-    case find_limiter_cfg(Type, Cfg) of
-        {undefined, _} ->
-            {ok, emqx_htb_limiter:make_infinity_limiter()};
-        {
-            #{
-                rate := BucketRate,
-                capacity := BucketSize
-            },
-            #{rate := CliRate, capacity := CliSize} = ClientCfg
-        } ->
-            case emqx_limiter_manager:find_bucket(Id, Type) of
-                {ok, Bucket} ->
-                    {ok,
-                        if
-                            CliRate < BucketRate orelse CliSize < BucketSize ->
-                                emqx_htb_limiter:make_token_bucket_limiter(ClientCfg, Bucket);
-                            true ->
-                                emqx_htb_limiter:make_ref_limiter(ClientCfg, Bucket)
-                        end};
-                undefined ->
-                    ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
-                    {error, invalid_bucket}
-            end
-    end.
+    create_limiter(
+        Id,
+        Type,
+        emqx_utils_maps:deep_get([client, Type], Cfg, undefined),
+        maps:get(Type, Cfg, undefined)
+    ).
 
 -spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
-add_bucket(_Id, _Type, undefine) ->
+add_bucket(_Id, _Type, undefined) ->
     ok;
 add_bucket(Id, Type, Cfg) ->
     ?CALL(Type, {add_bucket, Id, Cfg}).
@@ -281,7 +267,8 @@ handle_info(Info, State) ->
     Reason :: normal | shutdown | {shutdown, term()} | term(),
     State :: term()
 ) -> any().
-terminate(_Reason, _State) ->
+terminate(_Reason, #{type := Type}) ->
+    emqx_limiter_manager:delete_root(Type),
     ok.
 
 %%--------------------------------------------------------------------
@@ -336,10 +323,14 @@ oscillation(
     oscillate(Interval),
     Ordereds = get_ordered_buckets(Buckets),
     {Alloced, Buckets2} = transverse(Ordereds, Flow, 0.0, Buckets),
-    maybe_burst(State#{
-        buckets := Buckets2,
-        root := Root#{produced := Produced + Alloced}
-    }).
+    State2 = maybe_adjust_root_tokens(
+        State#{
+            buckets := Buckets2,
+            root := Root#{produced := Produced + Alloced}
+        },
+        Alloced
+    ),
+    maybe_burst(State2).
 
 %% @doc horizontal spread
 -spec transverse(
@@ -412,6 +403,24 @@ get_ordered_buckets(Buckets) ->
         Buckets
     ).
 
+-spec maybe_adjust_root_tokens(state(), float()) -> state().
+maybe_adjust_root_tokens(#{root := #{rate := infinity}} = State, _Alloced) ->
+    State;
+maybe_adjust_root_tokens(#{root := #{rate := Rate}} = State, Alloced) when Alloced >= Rate ->
+    State;
+maybe_adjust_root_tokens(#{root := #{rate := Rate} = Root, counter := Counter} = State, Alloced) ->
+    InFlow = Rate - Alloced,
+    Token = counters:get(Counter, ?ROOT_COUNTER_IDX),
+    case Token >= Rate of
+        true ->
+            State;
+        _ ->
+            Available = erlang:min(Rate - Token, InFlow),
+            {Inc, Root2} = emqx_limiter_correction:add(Available, Root),
+            counters:add(Counter, ?ROOT_COUNTER_IDX, Inc),
+            State#{root := Root2}
+    end.
+
 -spec maybe_burst(state()) -> state().
 maybe_burst(
     #{
@@ -475,12 +484,16 @@ init_tree(Type) when is_atom(Type) ->
     Cfg = emqx:get_config([limiter, Type]),
     init_tree(Type, Cfg).
 
-init_tree(Type, Cfg) ->
+init_tree(Type, #{rate := Rate} = Cfg) ->
+    Counter = counters:new(?COUNTER_SIZE, [write_concurrency]),
+    RootBucket = emqx_limiter_bucket_ref:new(Counter, ?ROOT_COUNTER_IDX, Rate),
+    emqx_limiter_manager:insert_root(Type, RootBucket),
     #{
         type => Type,
         root => make_root(Cfg),
-        counter => counters:new(?COUNTER_SIZE, [write_concurrency]),
-        index => 0,
+        counter => Counter,
+        %% The first slot is reserved for the root
+        index => ?ROOT_COUNTER_IDX,
         buckets => #{}
     }.
 
@@ -490,15 +503,18 @@ make_root(#{rate := Rate, burst := Burst}) ->
         rate => Rate,
         burst => Burst,
         period => emqx_limiter_schema:default_period(),
-        produced => 0.0
+        produced => 0.0,
+        correction => 0
     }.
 
-do_add_bucket(Id, #{rate := Rate, capacity := Capacity} = Cfg, #{buckets := Buckets} = State) ->
+do_add_bucket(_Id, #{rate := infinity}, #{root := #{rate := infinity}} = State) ->
+    State;
+do_add_bucket(Id, #{rate := Rate} = Cfg, #{buckets := Buckets} = State) ->
     case maps:get(Id, Buckets, undefined) of
         undefined ->
             make_bucket(Id, Cfg, State);
         Bucket ->
-            Bucket2 = Bucket#{rate := Rate, capacity := Capacity},
+            Bucket2 = Bucket#{rate := Rate, capacity := emqx_limiter_schema:calc_capacity(Cfg)},
             State#{buckets := Buckets#{Id := Bucket2}}
     end.
 
@@ -509,7 +525,7 @@ make_bucket(Id, Cfg, #{index := ?COUNTER_SIZE} = State) ->
     });
 make_bucket(
     Id,
-    #{rate := Rate, capacity := Capacity} = Cfg,
+    #{rate := Rate} = Cfg,
     #{type := Type, counter := Counter, index := Index, buckets := Buckets} = State
 ) ->
     NewIndex = Index + 1,
@@ -519,7 +535,7 @@ make_bucket(
         rate => Rate,
         obtained => Initial,
         correction => 0,
-        capacity => Capacity,
+        capacity => emqx_limiter_schema:calc_capacity(Cfg),
         counter => Counter,
         index => NewIndex
     },
@@ -541,19 +557,14 @@ do_del_bucket(Id, #{type := Type, buckets := Buckets} = State) ->
 get_initial_val(
     #{
         initial := Initial,
-        rate := Rate,
-        capacity := Capacity
+        rate := Rate
     }
 ) ->
-    %% initial will nevner be infinity(see the emqx_limiter_schema)
-    InfVal = emqx_limiter_schema:infinity_value(),
     if
         Initial > 0 ->
             Initial;
         Rate =/= infinity ->
-            erlang:min(Rate, Capacity);
-        Capacity =/= infinity andalso Capacity =/= InfVal ->
-            Capacity;
+            Rate;
         true ->
             0
     end.
@@ -567,21 +578,61 @@ call(Type, Msg) ->
             gen_server:call(Pid, Msg)
     end.
 
-find_limiter_cfg(Type, #{rate := _} = Cfg) ->
-    {Cfg, find_client_cfg(Type, maps:get(client, Cfg, undefined))};
-find_limiter_cfg(Type, Cfg) ->
-    {
-        maps:get(Type, Cfg, undefined),
-        find_client_cfg(Type, emqx_utils_maps:deep_get([client, Type], Cfg, undefined))
-    }.
+create_limiter(Id, Type, #{rate := Rate} = ClientCfg, BucketCfg) when Rate =/= infinity ->
+    create_limiter_with_client(Id, Type, ClientCfg, BucketCfg);
+create_limiter(Id, Type, _, BucketCfg) ->
+    create_limiter_without_client(Id, Type, BucketCfg).
 
-find_client_cfg(Type, BucketCfg) ->
-    NodeCfg = emqx:get_config([limiter, client, Type], undefined),
-    merge_client_cfg(NodeCfg, BucketCfg).
+%% create a limiter with the client-level configuration
+create_limiter_with_client(Id, Type, ClientCfg, BucketCfg) ->
+    case find_referenced_bucket(Id, Type, BucketCfg) of
+        false ->
+            {ok, emqx_htb_limiter:make_local_limiter(ClientCfg, infinity)};
+        {ok, Bucket, RefCfg} ->
+            create_limiter_with_ref(Bucket, ClientCfg, RefCfg);
+        Error ->
+            Error
+    end.
 
-merge_client_cfg(undefined, BucketCfg) ->
-    BucketCfg;
-merge_client_cfg(NodeCfg, undefined) ->
-    NodeCfg;
-merge_client_cfg(NodeCfg, BucketCfg) ->
-    maps:merge(NodeCfg, BucketCfg).
+%% create a limiter only with the referenced configuration
+create_limiter_without_client(Id, Type, BucketCfg) ->
+    case find_referenced_bucket(Id, Type, BucketCfg) of
+        false ->
+            {ok, emqx_htb_limiter:make_infinity_limiter()};
+        {ok, Bucket, RefCfg} ->
+            ClientCfg = emqx_limiter_schema:default_client_config(),
+            create_limiter_with_ref(Bucket, ClientCfg, RefCfg);
+        Error ->
+            Error
+    end.
+
+create_limiter_with_ref(
+    Bucket,
+    #{rate := CliRate} = ClientCfg,
+    #{rate := RefRate}
+) when CliRate < RefRate ->
+    {ok, emqx_htb_limiter:make_local_limiter(ClientCfg, Bucket)};
+create_limiter_with_ref(Bucket, ClientCfg, _) ->
+    {ok, emqx_htb_limiter:make_ref_limiter(ClientCfg, Bucket)}.
+
+%% this is a listener(server)-level reference
+find_referenced_bucket(Id, Type, #{rate := Rate} = Cfg) when Rate =/= infinity ->
+    case emqx_limiter_manager:find_bucket(Id, Type) of
+        {ok, Bucket} ->
+            {ok, Bucket, Cfg};
+        _ ->
+            ?SLOG(error, #{msg => "bucket not found", type => Type, id => Id}),
+            {error, invalid_bucket}
+    end;
+%% this is a node-level reference
+find_referenced_bucket(Id, Type, _) ->
+    case emqx:get_config([limiter, Type], undefined) of
+        #{rate := infinity} ->
+            false;
+        undefined ->
+            ?SLOG(error, #{msg => "invalid limiter type", type => Type, id => Id}),
+            {error, invalid_bucket};
+        NodeCfg ->
+            {ok, Bucket} = emqx_limiter_manager:find_root(Type),
+            {ok, Bucket, NodeCfg}
+    end.

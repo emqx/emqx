@@ -131,7 +131,13 @@ on_start(
             _ -> servers
         end,
     Servers0 = maps:get(ConfKey, Config),
-    Servers = [{servers, emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)}],
+    Servers1 = lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)
+    ),
+    Servers = [{servers, Servers1}],
     Database =
         case Type of
             cluster -> [];
@@ -153,11 +159,10 @@ on_start(
             false ->
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
-    PoolName = InstId,
-    State = #{poolname => PoolName, type => Type},
+    State = #{pool_name => InstId, type => Type},
     case Type of
         cluster ->
-            case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
+            case eredis_cluster:start_pool(InstId, Opts ++ [{options, Options}]) of
                 {ok, _} ->
                     {ok, State};
                 {ok, _, _} ->
@@ -166,22 +171,20 @@ on_start(
                     {error, Reason}
             end;
         _ ->
-            case
-                emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
-            of
+            case emqx_resource_pool:start(InstId, ?MODULE, Opts ++ [{options, Options}]) of
                 ok -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end
     end.
 
-on_stop(InstId, #{poolname := PoolName, type := Type}) ->
+on_stop(InstId, #{pool_name := PoolName, type := Type}) ->
     ?SLOG(info, #{
         msg => "stopping_redis_connector",
         connector => InstId
     }),
     case Type of
         cluster -> eredis_cluster:stop_pool(PoolName);
-        _ -> emqx_plugin_libs_pool:stop_pool(PoolName)
+        _ -> emqx_resource_pool:stop(PoolName)
     end.
 
 on_query(InstId, {cmd, _} = Query, State) ->
@@ -189,7 +192,7 @@ on_query(InstId, {cmd, _} = Query, State) ->
 on_query(InstId, {cmds, _} = Query, State) ->
     do_query(InstId, Query, State).
 
-do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
+do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
     ?TRACE(
         "QUERY",
         "redis_connector_received",
@@ -227,7 +230,7 @@ is_unrecoverable_error({error, invalid_cluster_command}) ->
 is_unrecoverable_error(_) ->
     false.
 
-on_get_status(_InstId, #{type := cluster, poolname := PoolName}) ->
+on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
             Health = eredis_cluster:ping_all(PoolName),
@@ -235,8 +238,8 @@ on_get_status(_InstId, #{type := cluster, poolname := PoolName}) ->
         false ->
             disconnected
     end;
-on_get_status(_InstId, #{poolname := Pool}) ->
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
+on_get_status(_InstId, #{pool_name := PoolName}) ->
+    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
     status_result(Health).
 
 do_get_status(Conn) ->

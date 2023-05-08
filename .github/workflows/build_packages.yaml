@@ -35,10 +35,7 @@ jobs:
       - name: Get profile to build
         id: get_profile
         run: |
-          set -e
-          THISDIR="$(pwd)"
-          echo "Adding $THISDIR as safe dir for git"
-          git config --global --add safe.directory "${THISDIR}"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
             echo "WARN: This is an exact git tag, will publish release"
@@ -233,7 +230,7 @@ jobs:
         ARCH: ${{ matrix.arch }}
       run: |
         set -eu
-        git config --global --add safe.directory "/__w/emqx/emqx"
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         # Align path for CMake caches
         if [ ! "$PWD" = "/emqx" ]; then
           ln -s $PWD /emqx

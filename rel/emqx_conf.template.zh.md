@@ -17,7 +17,7 @@ EMQX 就不会创建 `cluster.hocon`，并且 `cluster-override.conf` 会继续�
 
 如果环境变量 `$EMQX_NODE__DATA_DIR` 没有设置，那么该目录会从 `emqx.conf` 的 `node.data_dir` 配置中读取。
 
-配置文件 `cluster-override.conf` 的内容会在运行时被EMQX重写。
+配置文件 `cluster.hocon` 的内容会在运行时被EMQX重写。
 这些重写发生在 dashboard UI，管理HTTP API，或者CLI对集群配置进行修改时。
 当EMQX运行在集群中时，一个EMQX节点重启之后，会从集群中其他节点复制该文件内容到本地。
 

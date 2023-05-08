@@ -83,7 +83,9 @@ on_start(
     }),
 
     {Schema, Server, DefaultPort} = get_host_info(to_str(Url)),
-    {Host, Port} = emqx_schema:parse_server(Server, #{default_port => DefaultPort}),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{
+        default_port => DefaultPort
+    }),
 
     Options = [
         {config, #{
@@ -98,23 +100,23 @@ on_start(
 
     Templates = parse_template(Config),
     State = #{
-        poolname => InstanceId,
+        pool_name => InstanceId,
         table => Table,
         templates => Templates
     },
-    case emqx_plugin_libs_pool:start_pool(InstanceId, ?MODULE, Options) of
+    case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
         Error ->
             Error
     end.
 
-on_stop(InstanceId, #{poolname := PoolName} = _State) ->
+on_stop(InstanceId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_dynamo_connector",
         connector => InstanceId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, State).
@@ -127,8 +129,8 @@ on_batch_query(_InstanceId, Query, _State) ->
 
 %% we only support batch insert
 
-on_get_status(_InstanceId, #{poolname := Pool}) ->
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(
+on_get_status(_InstanceId, #{pool_name := Pool}) ->
+    Health = emqx_resource_pool:health_check_workers(
         Pool, {emqx_ee_connector_dynamo_client, is_connected, []}
     ),
     status_result(Health).
@@ -143,7 +145,7 @@ status_result(_Status = false) -> connecting.
 do_query(
     InstanceId,
     Query,
-    #{poolname := PoolName, templates := Templates, table := Table} = State
+    #{pool_name := PoolName, templates := Templates, table := Table} = State
 ) ->
     ?TRACE(
         "QUERY",

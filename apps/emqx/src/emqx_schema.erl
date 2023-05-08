@@ -43,7 +43,12 @@
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
 -type port_number() :: 1..65536.
--type server_parse_option() :: #{default_port => port_number(), no_port => boolean()}.
+-type server_parse_option() :: #{
+    default_port => port_number(),
+    no_port => boolean(),
+    supported_schemes => [string()],
+    default_scheme => string()
+}.
 -type url() :: binary().
 -type json_binary() :: binary().
 
@@ -61,6 +66,12 @@
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
+
+-type parsed_server() :: #{
+    hostname := string(),
+    port => port_number(),
+    scheme => string()
+}.
 
 -export([
     validate_heap_size/1,
@@ -172,7 +183,7 @@ roots(high) ->
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
-        %% NOTE: authorization schema here is only to keep emqx app prue
+        %% NOTE: authorization schema here is only to keep emqx app pure
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
@@ -676,12 +687,13 @@ fields("force_shutdown") ->
                     desc => ?DESC(force_shutdown_enable)
                 }
             )},
-        {"max_message_queue_len",
+        {"max_mailbox_size",
             sc(
                 range(0, inf),
                 #{
                     default => 1000,
-                    desc => ?DESC(force_shutdown_max_message_queue_len)
+                    aliases => [max_message_queue_len],
+                    desc => ?DESC(force_shutdown_max_mailbox_size)
                 }
             )},
         {"max_heap_size",
@@ -924,15 +936,17 @@ fields("mqtt_quic_listener") ->
                 string(),
                 #{
                     %% TODO: deprecated => {since, "5.1.0"}
-                    desc => ?DESC(fields_mqtt_quic_listener_certfile)
+                    desc => ?DESC(fields_mqtt_quic_listener_certfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keyfile",
             sc(
                 string(),
-                %% TODO: deprecated => {since, "5.1.0"}
                 #{
-                    desc => ?DESC(fields_mqtt_quic_listener_keyfile)
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    desc => ?DESC(fields_mqtt_quic_listener_keyfile),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"ciphers", ciphers_schema(quic)},
@@ -1008,7 +1022,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% deprecated, use idle_timeout_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"idle_timeout_ms",
@@ -1022,7 +1039,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => <<"10s">>,
-                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use handshake_idle_timeout_ms
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"handshake_idle_timeout_ms",
@@ -1036,7 +1056,10 @@ fields("mqtt_quic_listener") ->
                 duration_ms(),
                 #{
                     default => 0,
-                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
+                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval),
+                    %% TODO: deprecated => {since, "5.1.0"}
+                    %% use keep_alive_interval_ms instead
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"keep_alive_interval_ms",
@@ -1504,10 +1527,8 @@ fields("broker") ->
             sc(
                 boolean(),
                 #{
-                    %% TODO: deprecated => {since, "5.1.0"}
-                    %% in favor of session message re-dispatch at termination
-                    %% we will stop supporting dispatch acks for shared
-                    %% subscriptions.
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => false,
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
@@ -2171,7 +2192,7 @@ common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
-    AvailableVersions = default_tls_vsns(Collection),
+    DefaultVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -2233,6 +2254,7 @@ common_ssl_opts_schema(Defaults) ->
                     example => <<"">>,
                     format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password),
+                    importance => ?IMPORTANCE_LOW,
                     converter => fun password_converter/2
                 }
             )},
@@ -2240,9 +2262,10 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 hoconsc:array(typerefl:atom()),
                 #{
-                    default => AvailableVersions,
+                    default => DefaultVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
-                    validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
+                    importance => ?IMPORTANCE_HIGH,
+                    validator => fun(Input) -> validate_tls_versions(Collection, Input) end
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
@@ -2428,10 +2451,14 @@ client_ssl_opts_schema(Defaults) ->
                 )}
         ].
 
-default_tls_vsns(dtls_all_available) ->
-    emqx_tls_lib:available_versions(dtls);
-default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:available_versions(tls).
+available_tls_vsns(dtls_all_available) -> emqx_tls_lib:available_versions(dtls);
+available_tls_vsns(tls_all_available) -> emqx_tls_lib:available_versions(tls).
+
+outdated_tls_vsn(dtls_all_available) -> [dtlsv1];
+outdated_tls_vsn(tls_all_available) -> ['tlsv1.1', tlsv1].
+
+default_tls_vsns(Key) ->
+    available_tls_vsns(Key) -- outdated_tls_vsn(Key).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
@@ -2740,7 +2767,8 @@ validate_ciphers(Ciphers) ->
         Bad -> {error, {bad_ciphers, Bad}}
     end.
 
-validate_tls_versions(AvailableVersions, Versions) ->
+validate_tls_versions(Collection, Versions) ->
+    AvailableVersions = available_tls_vsns(Collection),
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
         Vs -> {error, {unsupported_tls_versions, Vs}}
@@ -2913,7 +2941,7 @@ servers_validator(Opts, Required) ->
 %% `no_port': by default it's `false', when set to `true',
 %%            a `throw' exception is raised if the port is found.
 -spec parse_server(undefined | string() | binary(), server_parse_option()) ->
-    {string(), port_number()}.
+    undefined | parsed_server().
 parse_server(Str, Opts) ->
     case parse_servers(Str, Opts) of
         undefined ->
@@ -2927,7 +2955,7 @@ parse_server(Str, Opts) ->
 %% @doc Parse comma separated `host[:port][,host[:port]]' endpoints
 %% into a list of `{Host, Port}' tuples or just `Host' string.
 -spec parse_servers(undefined | string() | binary(), server_parse_option()) ->
-    [{string(), port_number()}].
+    undefined | [parsed_server()].
 parse_servers(undefined, _Opts) ->
     %% should not parse 'undefined' as string,
     %% not to throw exception either,
@@ -2973,6 +3001,9 @@ split_host_port(Str) ->
 do_parse_server(Str, Opts) ->
     DefaultPort = maps:get(default_port, Opts, undefined),
     NotExpectingPort = maps:get(no_port, Opts, false),
+    DefaultScheme = maps:get(default_scheme, Opts, undefined),
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -2981,22 +3012,129 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
+    case is_list(DefaultScheme) andalso (not lists:member(DefaultScheme, SupportedSchemes)) of
+        true ->
+            %% inconsistent schema
+            error("bad_schema");
+        false ->
+            ok
+    end,
     %% do not split with space, there should be no space allowed between host and port
-    case string:tokens(Str, ":") of
-        [Hostname, Port] ->
-            NotExpectingPort andalso throw("not_expecting_port_number"),
-            {check_hostname(Hostname), parse_port(Port)};
-        [Hostname] ->
-            case is_integer(DefaultPort) of
-                true ->
-                    {check_hostname(Hostname), DefaultPort};
-                false when NotExpectingPort ->
-                    check_hostname(Hostname);
-                false ->
-                    throw("missing_port_number")
-            end;
-        _ ->
-            throw("bad_host_port")
+    Tokens = string:tokens(Str, ":"),
+    Context = #{
+        not_expecting_port => NotExpectingPort,
+        not_expecting_scheme => NotExpectingScheme,
+        default_port => DefaultPort,
+        default_scheme => DefaultScheme,
+        opts => Opts
+    },
+    check_server_parts(Tokens, Context).
+
+check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        opts := Opts
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    #{
+        scheme => check_scheme(Scheme, Opts),
+        hostname => check_hostname(Hostname),
+        port => parse_port(Port)
+    };
+check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        opts := Opts
+    } = Context,
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    case is_integer(DefaultPort) of
+        true ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        false when NotExpectingPort ->
+            #{
+                scheme => check_scheme(Scheme, Opts),
+                hostname => check_hostname(Hostname)
+            };
+        false ->
+            throw("missing_port_number")
+    end;
+check_server_parts([Hostname, Port], Context) ->
+    #{
+        not_expecting_port := NotExpectingPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    case is_list(DefaultScheme) of
+        false ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            };
+        true ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => parse_port(Port)
+            }
+    end;
+check_server_parts([Hostname], Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        default_scheme := DefaultScheme
+    } = Context,
+    case is_integer(DefaultPort) orelse NotExpectingPort of
+        true ->
+            ok;
+        false ->
+            throw("missing_port_number")
+    end,
+    case is_list(DefaultScheme) orelse NotExpectingScheme of
+        true ->
+            ok;
+        false ->
+            throw("missing_scheme")
+    end,
+    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
+        {true, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {true, false} ->
+            #{
+                hostname => check_hostname(Hostname),
+                port => DefaultPort
+            };
+        {false, true} ->
+            #{
+                scheme => DefaultScheme,
+                hostname => check_hostname(Hostname)
+            };
+        {false, false} ->
+            #{hostname => check_hostname(Hostname)}
+    end;
+check_server_parts(_Tokens, _Context) ->
+    throw("bad_host_port").
+
+check_scheme(Str, Opts) ->
+    SupportedSchemes = maps:get(supported_schemes, Opts, []),
+    IsSupported = lists:member(Str, SupportedSchemes),
+    case IsSupported of
+        true ->
+            Str;
+        false ->
+            throw("unsupported_scheme")
     end.
 
 check_hostname(Str) ->

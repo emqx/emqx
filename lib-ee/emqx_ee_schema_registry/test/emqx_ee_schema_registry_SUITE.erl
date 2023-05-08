@@ -21,11 +21,19 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    [{group, avro}].
+    [{group, avro}, {group, protobuf}].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    [{avro, TCs}].
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    ProtobufOnlyTCs = protobuf_only_tcs(),
+    TCs = AllTCs -- ProtobufOnlyTCs,
+    [{avro, TCs}, {protobuf, AllTCs}].
+
+protobuf_only_tcs() ->
+    [
+        t_protobuf_union_encode,
+        t_protobuf_union_decode
+    ].
 
 init_per_suite(Config) ->
     emqx_config:save_schema_mod_and_names(emqx_ee_schema_registry_schema),
@@ -38,6 +46,8 @@ end_per_suite(_Config) ->
 
 init_per_group(avro, Config) ->
     [{serde_type, avro} | Config];
+init_per_group(protobuf, Config) ->
+    [{serde_type, protobuf} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -95,8 +105,12 @@ create_rule_http(RuleParams) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res0} ->
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            {ok, Res};
+        Error ->
+            Error
     end.
 
 schema_params(avro) ->
@@ -108,35 +122,174 @@ schema_params(avro) ->
         ]
     },
     SourceBin = emqx_utils_json:encode(Source),
-    #{type => avro, source => SourceBin}.
+    #{type => avro, source => SourceBin};
+schema_params(protobuf) ->
+    SourceBin =
+        <<
+            "message Person {\n"
+            "     required string name = 1;\n"
+            "     required int32 id = 2;\n"
+            "     optional string email = 3;\n"
+            "  }\n"
+            "message UnionValue {\n"
+            "    oneof u {\n"
+            "        int32  a = 1;\n"
+            "        string b = 2;\n"
+            "    }\n"
+            "}\n"
+        >>,
+    #{type => protobuf, source => SourceBin}.
 
 create_serde(SerdeType, SerdeName) ->
     Schema = schema_params(SerdeType),
     ok = emqx_ee_schema_registry:add_schema(SerdeName, Schema),
     ok.
 
-sql_for(avro, encode_decode1) ->
-    <<
-        "select\n"
-        "         schema_decode('my_serde',\n"
-        "           schema_encode('my_serde', json_decode(payload))) as decoded,\n"
-        "         decoded.i as decoded_int,\n"
-        "         decoded.s as decoded_string\n"
-        "       from t"
-    >>;
-sql_for(avro, encode1) ->
-    <<
-        "select\n"
-        "         schema_encode('my_serde', json_decode(payload)) as encoded\n"
-        "       from t"
-    >>;
-sql_for(avro, decode1) ->
-    <<
-        "select\n"
-        "         schema_decode('my_serde', payload) as decoded\n"
-        "       from t"
-    >>;
-sql_for(Type, Name) ->
+test_params_for(avro, encode_decode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_decode('my_serde',\n"
+            "    schema_encode('my_serde', json_decode(payload))) as decoded,\n\n"
+            "  decoded.i as decoded_int,\n"
+            "  decoded.s as decoded_string\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    ExpectedRuleOutput =
+        #{
+            <<"decoded">> => #{<<"i">> => 10, <<"s">> => <<"text">>},
+            <<"decoded_int">> => 10,
+            <<"decoded_string">> => <<"text">>
+        },
+    ExtraArgs = [],
+    #{
+        sql => SQL,
+        payload => Payload,
+        expected_rule_output => ExpectedRuleOutput,
+        extra_args => ExtraArgs
+    };
+test_params_for(avro, encode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_encode('my_serde', json_decode(payload)) as encoded\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    ExtraArgs = [],
+    #{
+        sql => SQL,
+        payload => Payload,
+        extra_args => ExtraArgs
+    };
+test_params_for(avro, decode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_decode('my_serde', payload) as decoded\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    ExtraArgs = [],
+    #{
+        sql => SQL,
+        payload => Payload,
+        extra_args => ExtraArgs
+    };
+test_params_for(protobuf, encode_decode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_decode('my_serde',\n"
+            "    schema_encode('my_serde', json_decode(payload), 'Person'),\n"
+            "      'Person') as decoded,\n"
+            "  decoded.name as decoded_name,\n"
+            "  decoded.email as decoded_email,\n"
+            "  decoded.id as decoded_id\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"name">> => <<"some name">>, <<"id">> => 10, <<"email">> => <<"emqx@emqx.io">>},
+    ExpectedRuleOutput =
+        #{
+            <<"decoded">> =>
+                #{
+                    <<"email">> => <<"emqx@emqx.io">>,
+                    <<"id">> => 10,
+                    <<"name">> => <<"some name">>
+                },
+            <<"decoded_email">> => <<"emqx@emqx.io">>,
+            <<"decoded_id">> => 10,
+            <<"decoded_name">> => <<"some name">>
+        },
+    ExtraArgs = [<<"Person">>],
+    #{
+        sql => SQL,
+        payload => Payload,
+        extra_args => ExtraArgs,
+        expected_rule_output => ExpectedRuleOutput
+    };
+test_params_for(protobuf, decode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_decode('my_serde', payload, 'Person') as decoded\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"name">> => <<"some name">>, <<"id">> => 10, <<"email">> => <<"emqx@emqx.io">>},
+    ExtraArgs = [<<"Person">>],
+    #{
+        sql => SQL,
+        payload => Payload,
+        extra_args => ExtraArgs
+    };
+test_params_for(protobuf, encode1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_encode('my_serde', json_decode(payload), 'Person') as encoded\n"
+            "from t\n"
+        >>,
+    Payload = #{<<"name">> => <<"some name">>, <<"id">> => 10, <<"email">> => <<"emqx@emqx.io">>},
+    ExtraArgs = [<<"Person">>],
+    #{
+        sql => SQL,
+        payload => Payload,
+        extra_args => ExtraArgs
+    };
+test_params_for(protobuf, union1) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_decode('my_serde', payload, 'UnionValue') as decoded,\n"
+            "  decoded.a as decoded_a,\n"
+            "  decoded.b as decoded_b\n"
+            "from t\n"
+        >>,
+    PayloadA = #{<<"a">> => 10},
+    PayloadB = #{<<"b">> => <<"string">>},
+    ExtraArgs = [<<"UnionValue">>],
+    #{
+        sql => SQL,
+        payload => #{a => PayloadA, b => PayloadB},
+        extra_args => ExtraArgs
+    };
+test_params_for(protobuf, union2) ->
+    SQL =
+        <<
+            "select\n"
+            "  schema_encode('my_serde', json_decode(payload), 'UnionValue') as encoded\n"
+            "from t\n"
+        >>,
+    PayloadA = #{<<"a">> => 10},
+    PayloadB = #{<<"b">> => <<"string">>},
+    ExtraArgs = [<<"UnionValue">>],
+    #{
+        sql => SQL,
+        payload => #{a => PayloadA, b => PayloadB},
+        extra_args => ExtraArgs
+    };
+test_params_for(Type, Name) ->
     ct:fail("unimplemented: ~p", [{Type, Name}]).
 
 clear_schemas() ->
@@ -238,6 +391,40 @@ wait_for_cluster_rpc(Node) ->
         true = is_pid(erpc:call(Node, erlang, whereis, [emqx_config_handler]))
     ).
 
+serde_deletion_calls_destructor_spec(#{serde_type := SerdeType}, Trace) ->
+    ?assert(
+        ?strict_causality(
+            #{?snk_kind := will_delete_schema},
+            #{?snk_kind := serde_destroyed, type := SerdeType},
+            Trace
+        )
+    ),
+    ok.
+
+protobuf_unique_cache_hit_spec(#{serde_type := protobuf} = Res, Trace) ->
+    #{nodes := Nodes} = Res,
+    CacheEvents = ?of_kind(
+        [
+            schema_registry_protobuf_cache_hit,
+            schema_registry_protobuf_cache_miss
+        ],
+        Trace
+    ),
+    ?assertMatch(
+        [
+            schema_registry_protobuf_cache_hit,
+            schema_registry_protobuf_cache_miss
+        ],
+        lists:sort(?projection(?snk_kind, CacheEvents))
+    ),
+    ?assertEqual(
+        lists:usort(Nodes),
+        lists:usort([N || #{?snk_meta := #{node := N}} <- CacheEvents])
+    ),
+    ok;
+protobuf_unique_cache_hit_spec(_Res, _Trace) ->
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -259,27 +446,16 @@ t_encode_decode(Config) ->
     SerdeType = ?config(serde_type, Config),
     SerdeName = my_serde,
     ok = create_serde(SerdeType, SerdeName),
-    {ok, #{<<"id">> := RuleId}} = create_rule_http(#{sql => sql_for(SerdeType, encode_decode1)}),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    #{
+        sql := SQL,
+        payload := Payload,
+        expected_rule_output := ExpectedRuleOutput
+    } = test_params_for(SerdeType, encode_decode1),
+    {ok, _} = create_rule_http(#{sql => SQL}),
     PayloadBin = emqx_utils_json:encode(Payload),
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
-    ?assertMatch(
-        #{
-            data :=
-                #{
-                    <<"decoded">> :=
-                        #{
-                            <<"i">> := 10,
-                            <<"s">> := <<"text">>
-                        },
-                    <<"decoded_int">> := 10,
-                    <<"decoded_string">> := <<"text">>
-                }
-        },
-        Res
-    ),
+    ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
 
 t_delete_serde(Config) ->
@@ -308,9 +484,12 @@ t_encode(Config) ->
     SerdeType = ?config(serde_type, Config),
     SerdeName = my_serde,
     ok = create_serde(SerdeType, SerdeName),
-    {ok, #{<<"id">> := RuleId}} = create_rule_http(#{sql => sql_for(SerdeType, encode1)}),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    #{
+        sql := SQL,
+        payload := Payload,
+        extra_args := ExtraArgs
+    } = test_params_for(SerdeType, encode1),
+    {ok, _} = create_rule_http(#{sql => SQL}),
     PayloadBin = emqx_utils_json:encode(Payload),
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Published = receive_published(?LINE),
@@ -320,18 +499,21 @@ t_encode(Config) ->
     ),
     #{payload := #{<<"encoded">> := Encoded}} = Published,
     {ok, #{deserializer := Deserializer}} = emqx_ee_schema_registry:get_serde(SerdeName),
-    ?assertEqual(Payload, Deserializer(Encoded)),
+    ?assertEqual(Payload, apply(Deserializer, [Encoded | ExtraArgs])),
     ok.
 
 t_decode(Config) ->
     SerdeType = ?config(serde_type, Config),
     SerdeName = my_serde,
     ok = create_serde(SerdeType, SerdeName),
-    {ok, #{<<"id">> := RuleId}} = create_rule_http(#{sql => sql_for(SerdeType, decode1)}),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
+    #{
+        sql := SQL,
+        payload := Payload,
+        extra_args := ExtraArgs
+    } = test_params_for(SerdeType, decode1),
+    {ok, _} = create_rule_http(#{sql => SQL}),
     {ok, #{serializer := Serializer}} = emqx_ee_schema_registry:get_serde(SerdeName),
-    EncodedBin = Serializer(Payload),
+    EncodedBin = apply(Serializer, [Payload | ExtraArgs]),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBin)),
     Published = receive_published(?LINE),
     ?assertMatch(
@@ -340,6 +522,76 @@ t_decode(Config) ->
     ),
     #{payload := #{<<"decoded">> := Decoded}} = Published,
     ?assertEqual(Payload, Decoded),
+    ok.
+
+t_protobuf_union_encode(Config) ->
+    SerdeType = ?config(serde_type, Config),
+    ?assertEqual(protobuf, SerdeType),
+    SerdeName = my_serde,
+    ok = create_serde(SerdeType, SerdeName),
+    #{
+        sql := SQL,
+        payload := #{a := PayloadA, b := PayloadB},
+        extra_args := ExtraArgs
+    } = test_params_for(SerdeType, union1),
+    {ok, _} = create_rule_http(#{sql => SQL}),
+    {ok, #{serializer := Serializer}} = emqx_ee_schema_registry:get_serde(SerdeName),
+
+    EncodedBinA = apply(Serializer, [PayloadA | ExtraArgs]),
+    emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
+    PublishedA = receive_published(?LINE),
+    ?assertMatch(
+        #{payload := #{<<"decoded">> := _}},
+        PublishedA
+    ),
+    #{payload := #{<<"decoded">> := DecodedA}} = PublishedA,
+    ?assertEqual(PayloadA, DecodedA),
+
+    EncodedBinB = apply(Serializer, [PayloadB | ExtraArgs]),
+    emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
+    PublishedB = receive_published(?LINE),
+    ?assertMatch(
+        #{payload := #{<<"decoded">> := _}},
+        PublishedB
+    ),
+    #{payload := #{<<"decoded">> := DecodedB}} = PublishedB,
+    ?assertEqual(PayloadB, DecodedB),
+
+    ok.
+
+t_protobuf_union_decode(Config) ->
+    SerdeType = ?config(serde_type, Config),
+    ?assertEqual(protobuf, SerdeType),
+    SerdeName = my_serde,
+    ok = create_serde(SerdeType, SerdeName),
+    #{
+        sql := SQL,
+        payload := #{a := PayloadA, b := PayloadB},
+        extra_args := ExtraArgs
+    } = test_params_for(SerdeType, union2),
+    {ok, _} = create_rule_http(#{sql => SQL}),
+    {ok, #{deserializer := Deserializer}} = emqx_ee_schema_registry:get_serde(SerdeName),
+
+    EncodedBinA = emqx_utils_json:encode(PayloadA),
+    emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
+    PublishedA = receive_published(?LINE),
+    ?assertMatch(
+        #{payload := #{<<"encoded">> := _}},
+        PublishedA
+    ),
+    #{payload := #{<<"encoded">> := EncodedA}} = PublishedA,
+    ?assertEqual(PayloadA, apply(Deserializer, [EncodedA | ExtraArgs])),
+
+    EncodedBinB = emqx_utils_json:encode(PayloadB),
+    emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
+    PublishedB = receive_published(?LINE),
+    ?assertMatch(
+        #{payload := #{<<"encoded">> := _}},
+        PublishedB
+    ),
+    #{payload := #{<<"encoded">> := EncodedB}} = PublishedB,
+    ?assertEqual(PayloadB, apply(Deserializer, [EncodedB | ExtraArgs])),
+
     ok.
 
 t_fail_rollback(Config) ->
@@ -369,6 +621,10 @@ t_cluster_serde_build(Config) ->
     Cluster = cluster(Config),
     SerdeName = my_serde,
     Schema = schema_params(SerdeType),
+    #{
+        payload := Payload,
+        extra_args := ExtraArgs
+    } = test_params_for(SerdeType, encode_decode1),
     ?check_trace(
         begin
             Nodes = [N1, N2 | _] = start_cluster(Cluster),
@@ -385,8 +641,14 @@ t_cluster_serde_build(Config) ->
                         Res0 = emqx_ee_schema_registry:get_serde(SerdeName),
                         ?assertMatch({ok, #{}}, Res0, #{node => N}),
                         {ok, #{serializer := Serializer, deserializer := Deserializer}} = Res0,
-                        Payload = #{<<"i">> => 10, <<"s">> => <<"text">>},
-                        ?assertEqual(Payload, Deserializer(Serializer(Payload)), #{node => N}),
+                        ?assertEqual(
+                            Payload,
+                            apply(
+                                Deserializer,
+                                [apply(Serializer, [Payload | ExtraArgs]) | ExtraArgs]
+                            ),
+                            #{node => N}
+                        ),
                         ok
                     end)
                 end,
@@ -417,17 +679,11 @@ t_cluster_serde_build(Config) ->
                 end,
                 Nodes
             ),
-            ok
+            #{serde_type => SerdeType, nodes => Nodes}
         end,
-        fun(Trace) ->
-            ?assert(
-                ?strict_causality(
-                    #{?snk_kind := will_delete_schema},
-                    #{?snk_kind := serde_destroyed, type := SerdeType},
-                    Trace
-                )
-            ),
-            ok
-        end
+        [
+            {"destructor is always called", fun ?MODULE:serde_deletion_calls_destructor_spec/2},
+            {"protobuf is only built on one node", fun ?MODULE:protobuf_unique_cache_hit_spec/2}
+        ]
     ),
     ok.

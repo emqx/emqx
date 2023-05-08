@@ -55,7 +55,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.14.6", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.15.1", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.38.2", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.4", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -94,7 +94,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.5", override: true, runtime: false},
+      {:gpb, "4.19.7", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
@@ -154,7 +154,27 @@ defmodule EMQXUmbrella.MixProject do
   # need to remove those when listing `/apps/`...
   defp enterprise_umbrella_apps() do
     MapSet.new([
-      :emqx_bridge_kafka
+      :emqx_bridge_kafka,
+      :emqx_bridge_gcp_pubsub,
+      :emqx_bridge_cassandra,
+      :emqx_bridge_opents,
+      :emqx_bridge_clickhouse,
+      :emqx_bridge_dynamo,
+      :emqx_bridge_hstreamdb,
+      :emqx_bridge_influxdb,
+      :emqx_bridge_iotdb,
+      :emqx_bridge_matrix,
+      :emqx_bridge_mongodb,
+      :emqx_bridge_mysql,
+      :emqx_bridge_pgsql,
+      :emqx_bridge_redis,
+      :emqx_bridge_rocketmq,
+      :emqx_bridge_tdengine,
+      :emqx_bridge_timescale,
+      :emqx_bridge_sqlserver,
+      :emqx_bridge_pulsar,
+      :emqx_oracle,
+      :emqx_bridge_oracle
     ])
   end
 
@@ -164,11 +184,12 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.9", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
-      {:supervisor3, "1.1.12", override: true}
+      {:supervisor3, "1.1.12", override: true},
+      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true}
     ]
   end
 
@@ -344,6 +365,26 @@ defmodule EMQXUmbrella.MixProject do
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
+          emqx_bridge_pulsar: :permanent,
+          emqx_bridge_gcp_pubsub: :permanent,
+          emqx_bridge_cassandra: :permanent,
+          emqx_bridge_opents: :permanent,
+          emqx_bridge_clickhouse: :permanent,
+          emqx_bridge_dynamo: :permanent,
+          emqx_bridge_hstreamdb: :permanent,
+          emqx_bridge_influxdb: :permanent,
+          emqx_bridge_iotdb: :permanent,
+          emqx_bridge_matrix: :permanent,
+          emqx_bridge_mongodb: :permanent,
+          emqx_bridge_mysql: :permanent,
+          emqx_bridge_pgsql: :permanent,
+          emqx_bridge_redis: :permanent,
+          emqx_bridge_rocketmq: :permanent,
+          emqx_bridge_tdengine: :permanent,
+          emqx_bridge_timescale: :permanent,
+          emqx_bridge_sqlserver: :permanent,
+          emqx_oracle: :permanent,
+          emqx_bridge_oracle: :permanent,
           emqx_ee_schema_registry: :permanent
         ],
         else: []
@@ -462,7 +503,7 @@ defmodule EMQXUmbrella.MixProject do
     profile = System.get_env("MIX_ENV")
 
     Mix.Generator.copy_file(
-      "_build/docgen/#{profile}/emqx.conf.en.example",
+      "_build/docgen/#{profile}/emqx.conf.example",
       Path.join(etc, "emqx.conf.example"),
       force: overwrite?
     )

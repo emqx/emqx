@@ -138,7 +138,7 @@ fields("cluster") ->
             )},
         {"core_nodes",
             sc(
-                emqx_schema:comma_separated_atoms(),
+                node_array(),
                 #{
                     mapping => "mria.core_nodes",
                     default => [],
@@ -206,7 +206,7 @@ fields(cluster_static) ->
     [
         {"seeds",
             sc(
-                hoconsc:array(atom()),
+                node_array(),
                 #{
                     default => [],
                     desc => ?DESC(cluster_static_seeds),
@@ -338,11 +338,12 @@ fields(cluster_etcd) ->
                     desc => ?DESC(cluster_etcd_node_ttl)
                 }
             )},
-        {"ssl",
+        {"ssl_options",
             sc(
                 ?R_REF(emqx_schema, "ssl_client_opts"),
                 #{
                     desc => ?DESC(cluster_etcd_ssl),
+                    aliases => [ssl],
                     'readOnly' => true
                 }
             )}
@@ -1285,7 +1286,7 @@ cluster_options(dns, Conf) ->
         {type, conf_get("cluster.dns.record_type", Conf)}
     ];
 cluster_options(etcd, Conf) ->
-    Namespace = "cluster.etcd.ssl",
+    Namespace = "cluster.etcd.ssl_options",
     SslOpts = fun(C) ->
         Options = keys(Namespace, C),
         lists:map(fun(Key) -> {to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options)
@@ -1351,3 +1352,6 @@ validator_string_re(Val, RE, Error) ->
     catch
         _:_ -> {error, Error}
     end.
+
+node_array() ->
+    hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).

@@ -1,0 +1,34 @@
+emqx_mgmt_api_status {
+
+get_status_api.desc:
+"""节点的健康检查。 返回节点状态的描述信息。
+
+如果 EMQX 应用程序已经启动并运行，返回状态代码 200，否则返回 503。
+
+这个API是在v5.0.10中引入的。
+GET `/status`端点（没有`/api/...`前缀）也是这个端点的一个别名，工作方式相同。 这个别名从v5.0.0开始就有了。
+自 v5.0.25 和 e5.0.4 开始，可以通过指定 'format' 参数来得到 JSON 格式的信息。"""
+
+get_status_api.label:
+"""服务健康检查"""
+
+get_status_response200.desc:
+"""如果 'format' 参数为 'json'，则返回如下JSON：<br/>
+{
+  "rel_vsn": "v5.0.23",
+  "node_name": "emqx@127.0.0.1",
+  "broker_status": "started",
+  "app_status": "running"
+}
+<br/>
+否则返回2行自由格式的文本，第一行描述节点的状态，第二行描述 EMQX 应用运行状态。例如：<br/>
+Node emqx@127.0.0.1 is started
+emqx is running"""
+
+get_status_response503.desc:
+"""如果 EMQX 应用暂时没有启动，或正在重启，则可能返回 'emqx is not_running'"""
+
+get_status_api_format.desc:
+"""指定返回的内容格式。使用 'text'（默认）则返回自由格式的字符串； 'json' 则返回 JSON 格式。"""
+
+}

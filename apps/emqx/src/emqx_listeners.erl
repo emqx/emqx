@@ -35,7 +35,8 @@
     current_conns/2,
     max_conns/2,
     id_example/0,
-    default_max_conn/0
+    default_max_conn/0,
+    shutdown_count/2
 ]).
 
 -export([
@@ -193,6 +194,17 @@ max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
 max_conns(_, _, _) ->
+    {error, not_support}.
+
+shutdown_count(ID, ListenOn) ->
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
+    shutdown_count(Type, Name, ListenOn).
+
+shutdown_count(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+    esockd:get_shutdown_count({listener_id(Type, Name), ListenOn});
+shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    [];
+shutdown_count(_, _, _) ->
     {error, not_support}.
 
 %% @doc Start all listeners.
@@ -494,7 +506,7 @@ esockd_opts(ListenerId, Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Limiter = limiter(Opts0),
     Opts2 =
-        case maps:get(connection, Limiter, undefined) of
+        case emqx_limiter_schema:extract_with_type(connection, Limiter) of
             undefined ->
                 Opts1;
             BucketCfg ->
@@ -639,7 +651,7 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts, #{}).
+    maps:get(limiter, Opts, undefined).
 
 add_limiter_bucket(Id, #{limiter := Limiter}) ->
     maps:fold(

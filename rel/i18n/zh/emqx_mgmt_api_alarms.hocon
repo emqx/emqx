@@ -1,0 +1,37 @@
+emqx_mgmt_api_alarms {
+
+activate_at.desc:
+"""告警开始时间，使用 rfc3339 标准时间格式。"""
+
+deactivate_at.desc:
+"""告警结束时间，使用 rfc3339 标准时间格式。"""
+
+delete_alarms_api.desc:
+"""删除所有历史告警。"""
+
+delete_alarms_api_response204.desc:
+"""历史告警已成功清除。"""
+
+details.desc:
+"""告警详情，提供了更多的告警信息，主要提供给程序处理。"""
+
+duration.desc:
+"""表明告警已经持续了多久，单位：毫秒。"""
+
+get_alarms_qs_activated.desc:
+"""用于指定查询的告警类型，
+为 true 时返回当前激活的告警，为 false 时返回历史告警，默认为 false。"""
+
+list_alarms_api.desc:
+"""列出当前激活的告警或历史告警，由查询参数决定。"""
+
+message.desc:
+"""告警消息，以人类可读的方式描述告警内容。"""
+
+name.desc:
+"""告警名称，用于区分不同的告警。"""
+
+node.desc:
+"""触发此告警的节点名称。"""
+
+}

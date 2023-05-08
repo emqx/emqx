@@ -56,6 +56,11 @@
     (TYPE) =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
 ).
 
+%% [FIXME] this has no place here, it's used in parse_confs/3, which should
+%% rather delegate to a behavior callback than implementing domain knowledge
+%% here (reversed dependency)
+-define(INSERT_TABLET_PATH, "/rest/v2/insertTablet").
+
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
@@ -87,7 +92,7 @@ parse_bridge_id(BridgeId) ->
         [Type, Name] ->
             {to_type_atom(Type), validate_name(Name)};
         _ ->
-            invalid_bridge_id(
+            invalid_data(
                 <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
             )
     end.
@@ -108,14 +113,14 @@ validate_name(Name0) ->
                 true ->
                     Name0;
                 false ->
-                    invalid_bridge_id(<<"bad name: ", Name0/binary>>)
+                    invalid_data(<<"bad name: ", Name0/binary>>)
             end;
         false ->
-            invalid_bridge_id(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
+            invalid_data(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
     end.
 
--spec invalid_bridge_id(binary()) -> no_return().
-invalid_bridge_id(Reason) -> throw({?FUNCTION_NAME, Reason}).
+-spec invalid_data(binary()) -> no_return().
+invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
 
 is_id_char(C) when C >= $0 andalso C =< $9 -> true;
 is_id_char(C) when C >= $a andalso C =< $z -> true;
@@ -130,7 +135,7 @@ to_type_atom(Type) ->
         erlang:binary_to_existing_atom(Type, utf8)
     catch
         _:_ ->
-            invalid_bridge_id(<<"unknown type: ", Type/binary>>)
+            invalid_data(<<"unknown bridge type: ", Type/binary>>)
     end.
 
 reset_metrics(ResourceId) ->
@@ -243,12 +248,19 @@ create_dry_run(Type, Conf0) ->
         {error, Reason} ->
             {error, Reason};
         {ok, ConfNew} ->
-            ParseConf = parse_confs(bin(Type), TmpPath, ConfNew),
-            Res = emqx_resource:create_dry_run_local(
-                bridge_to_resource_type(Type), ParseConf
-            ),
-            _ = maybe_clear_certs(TmpPath, ConfNew),
-            Res
+            try
+                ParseConf = parse_confs(bin(Type), TmpPath, ConfNew),
+                Res = emqx_resource:create_dry_run_local(
+                    bridge_to_resource_type(Type), ParseConf
+                ),
+                Res
+            catch
+                %% validation errors
+                throw:Reason ->
+                    {error, Reason}
+            after
+                _ = maybe_clear_certs(TmpPath, ConfNew)
+            end
     end.
 
 remove(BridgeId) ->
@@ -300,10 +312,18 @@ parse_confs(
         max_retries := Retry
     } = Conf
 ) ->
-    {BaseUrl, Path} = parse_url(Url),
-    {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
+    Url1 = bin(Url),
+    {BaseUrl, Path} = parse_url(Url1),
+    BaseUrl1 =
+        case emqx_http_lib:uri_parse(BaseUrl) of
+            {ok, BUrl} ->
+                BUrl;
+            {error, Reason} ->
+                Reason1 = emqx_utils:readable_error_msg(Reason),
+                invalid_data(<<"Invalid URL: ", Url1/binary, ", details: ", Reason1/binary>>)
+        end,
     Conf#{
-        base_url => BaseUrl2,
+        base_url => BaseUrl1,
         request =>
             #{
                 path => Path,
@@ -314,6 +334,30 @@ parse_confs(
                 max_retries => Retry
             }
     };
+parse_confs(<<"iotdb">>, Name, Conf) ->
+    #{
+        base_url := BaseURL,
+        authentication :=
+            #{
+                username := Username,
+                password := Password
+            }
+    } = Conf,
+    BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
+    WebhookConfig =
+        Conf#{
+            method => <<"post">>,
+            url => <<BaseURL/binary, ?INSERT_TABLET_PATH>>,
+            headers => [
+                {<<"Content-type">>, <<"application/json">>},
+                {<<"Authorization">>, BasicToken}
+            ]
+        },
+    parse_confs(
+        <<"webhook">>,
+        Name,
+        WebhookConfig
+    );
 parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
@@ -324,6 +368,8 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 parse_confs(<<"kafka">> = _Type, Name, Conf) ->
+    Conf#{bridge_name => Name};
+parse_confs(<<"pulsar_producer">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
@@ -338,7 +384,7 @@ parse_url(Url) ->
                     {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
             end;
         [Url] ->
-            error({invalid_url, Url})
+            invalid_data(<<"Missing scheme in URL: ", Url/binary>>)
     end.
 
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);

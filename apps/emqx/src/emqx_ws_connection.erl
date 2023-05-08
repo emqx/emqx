@@ -90,7 +90,7 @@
     listener :: {Type :: atom(), Name :: atom()},
 
     %% Limiter
-    limiter :: maybe(container()),
+    limiter :: container(),
 
     %% cache operation when overload
     limiter_cache :: queue:queue(cache()),
@@ -121,8 +121,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(ENABLED(X), (X =/= undefined)).
--define(LIMITER_BYTES_IN, bytes_in).
--define(LIMITER_MESSAGE_IN, message_in).
+-define(LIMITER_BYTES_IN, bytes).
+-define(LIMITER_MESSAGE_IN, messages).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [websocket_init/1]}).
@@ -580,53 +580,60 @@ handle_timeout(TRef, TMsg, State) ->
     state()
 ) -> state().
 check_limiter(
+    _Needs,
+    Data,
+    WhenOk,
+    Msgs,
+    #state{limiter = infinity} = State
+) ->
+    WhenOk(Data, Msgs, State);
+check_limiter(
     Needs,
     Data,
     WhenOk,
     Msgs,
-    #state{
-        limiter = Limiter,
-        limiter_timer = LimiterTimer,
-        limiter_cache = Cache
-    } = State
+    #state{limiter_timer = undefined, limiter = Limiter} = State
 ) ->
-    case LimiterTimer of
-        undefined ->
-            case emqx_limiter_container:check_list(Needs, Limiter) of
-                {ok, Limiter2} ->
-                    WhenOk(Data, Msgs, State#state{limiter = Limiter2});
-                {pause, Time, Limiter2} ->
-                    ?SLOG(debug, #{
-                        msg => "pause_time_due_to_rate_limit",
-                        needs => Needs,
-                        time_in_ms => Time
-                    }),
+    case emqx_limiter_container:check_list(Needs, Limiter) of
+        {ok, Limiter2} ->
+            WhenOk(Data, Msgs, State#state{limiter = Limiter2});
+        {pause, Time, Limiter2} ->
+            ?SLOG(debug, #{
+                msg => "pause_time_due_to_rate_limit",
+                needs => Needs,
+                time_in_ms => Time
+            }),
 
-                    Retry = #retry{
-                        types = [Type || {_, Type} <- Needs],
-                        data = Data,
-                        next = WhenOk
-                    },
+            Retry = #retry{
+                types = [Type || {_, Type} <- Needs],
+                data = Data,
+                next = WhenOk
+            },
 
-                    Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
+            Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
 
-                    TRef = start_timer(Time, limit_timeout),
+            TRef = start_timer(Time, limit_timeout),
 
-                    enqueue(
-                        {active, false},
-                        State#state{
-                            sockstate = blocked,
-                            limiter = Limiter3,
-                            limiter_timer = TRef
-                        }
-                    );
-                {drop, Limiter2} ->
-                    {ok, State#state{limiter = Limiter2}}
-            end;
-        _ ->
-            New = #cache{need = Needs, data = Data, next = WhenOk},
-            State#state{limiter_cache = queue:in(New, Cache)}
-    end.
+            enqueue(
+                {active, false},
+                State#state{
+                    sockstate = blocked,
+                    limiter = Limiter3,
+                    limiter_timer = TRef
+                }
+            );
+        {drop, Limiter2} ->
+            {ok, State#state{limiter = Limiter2}}
+    end;
+check_limiter(
+    Needs,
+    Data,
+    WhenOk,
+    _Msgs,
+    #state{limiter_cache = Cache} = State
+) ->
+    New = #cache{need = Needs, data = Data, next = WhenOk},
+    State#state{limiter_cache = queue:in(New, Cache)}.
 
 -spec retry_limiter(state()) -> state().
 retry_limiter(#state{limiter = Limiter} = State) ->

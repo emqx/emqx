@@ -2026,18 +2026,7 @@ stop_emqx() ->
 %% select a random port picked by OS
 -spec select_port() -> inet:port_number().
 select_port() ->
-    {ok, S} = gen_udp:open(0, [{reuseaddr, true}]),
-    {ok, {_, Port}} = inet:sockname(S),
-    gen_udp:close(S),
-    case os:type() of
-        {unix, darwin} ->
-            %% in MacOS, still get address_in_use after close port
-            timer:sleep(500);
-        _ ->
-            skip
-    end,
-    ct:pal("select port: ~p", [Port]),
-    Port.
+    emqx_common_test_helpers:select_free_port(quic).
 
 -spec via_stream({quic, quicer:connection_handle(), quicer:stream_handle()}) ->
     quicer:stream_handle().

@@ -97,8 +97,10 @@ on_start(
         connector => InstanceId,
         config => redact(Config)
     }),
-    Servers = emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS),
-
+    Servers = lists:map(
+        fun(#{hostname := Host, port := Port}) -> {Host, Port} end,
+        emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS)
+    ),
     ClientId = client_id(InstanceId),
 
     TopicTks = emqx_plugin_libs_rule:preproc_tmpl(Topic),
@@ -267,9 +269,8 @@ apply_template([{Key, _} | _] = Reqs, Templates) ->
             [emqx_plugin_libs_rule:proc_tmpl(Template, Msg) || {_, Msg} <- Reqs]
     end.
 
-client_id(InstanceId) ->
-    Name = emqx_resource_manager:manager_id_to_resource_id(InstanceId),
-    erlang:binary_to_atom(Name, utf8).
+client_id(ResourceId) ->
+    erlang:binary_to_atom(ResourceId, utf8).
 
 redact(Msg) ->
     emqx_utils:redact(Msg, fun is_sensitive_key/1).
