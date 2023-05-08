@@ -1,0 +1,77 @@
+emqx_bridge_iotdb {
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+config_authentication.desc:
+"""Authentication configuration"""
+
+config_authentication.label:
+"""Authentication"""
+
+auth_basic.desc:
+"""Parameters for basic authentication."""
+
+auth_basic.label:
+"""Basic auth params"""
+
+config_auth_basic_username.desc:
+"""The username as configured at the IoTDB REST interface"""
+
+config_auth_basic_username.label:
+  """HTTP Basic Auth Username"""
+
+config_auth_basic_password.desc:
+"""The password as configured at the IoTDB REST interface"""
+
+config_auth_basic_password.label:
+"""HTTP Basic Auth Password"""
+
+config_base_url.desc:
+"""The base URL of the external IoTDB service's REST interface."""
+config_base_url.label:
+"""IoTDB REST Service Base URL"""
+
+config_is_aligned.desc:
+"""Whether to align the timeseries"""
+
+config_is_aligned.label:
+"""Align Timeseries"""
+
+config_device_id.desc:
+"""A fixed device name this data should be inserted for. If empty it must either be set in the rule action, the message itself, or it will be extracted from the topic."""
+config_device_id.label:
+"""Device ID"""
+
+config_iotdb_version.desc:
+"""The version of the IoTDB system to connect to."""
+config_iotdb_version.label:
+"""IoTDB Version"""
+
+config_max_retries.desc:
+"""HTTP request max retry times if failed."""
+
+config_max_retries.label:
+"""HTTP Request Max Retries"""
+
+config_request_timeout.desc:
+"""HTTP request timeout."""
+
+config_request_timeout.label:
+"""HTTP Request Timeout"""
+
+desc_config.desc:
+"""Configuration for Apache IoTDB bridge."""
+
+desc_config.label:
+"""IoTDB Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+}

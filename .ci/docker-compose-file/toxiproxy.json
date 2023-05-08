@@ -125,5 +125,11 @@
     "listen": "0.0.0.0:1521",
     "upstream": "oracle:1521",
     "enabled": true
+  },
+  {
+    "name": "iotdb",
+    "listen": "0.0.0.0:18080",
+    "upstream": "iotdb:18080",
+    "enabled": true
   }
 ]

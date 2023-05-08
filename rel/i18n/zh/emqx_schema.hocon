@@ -324,11 +324,11 @@ fields_mqtt_quic_listener_retry_memory_limit.desc:
 fields_mqtt_quic_listener_retry_memory_limit.label:
 """重试内存限制"""
 
-force_shutdown_max_message_queue_len.desc:
-"""消息队列的最大长度。"""
+force_shutdown_max_mailbox_size.desc:
+"""每个在线客户端在 EMQX 服务器中都是独立的一个进程。该配置可以设为单个进程的邮箱消息队列设置最大长度，当超过该上限时，客户端会被强制下线。"""
 
-force_shutdown_max_message_queue_len.label:
-"""进程邮箱消息队列的最大长度"""
+force_shutdown_max_mailbox_size.label:
+"""进程邮箱消息数上限"""
 
 sys_heartbeat_interval.desc:
 """发送心跳系统消息的间隔时间，它包括：

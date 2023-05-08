@@ -56,6 +56,11 @@
     (TYPE) =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
 ).
 
+%% [FIXME] this has no place here, it's used in parse_confs/3, which should
+%% rather delegate to a behavior callback than implementing domain knowledge
+%% here (reversed dependency)
+-define(INSERT_TABLET_PATH, "/rest/v2/insertTablet").
+
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
@@ -329,6 +334,30 @@ parse_confs(
                 max_retries => Retry
             }
     };
+parse_confs(<<"iotdb">>, Name, Conf) ->
+    #{
+        base_url := BaseURL,
+        authentication :=
+            #{
+                username := Username,
+                password := Password
+            }
+    } = Conf,
+    BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
+    WebhookConfig =
+        Conf#{
+            method => <<"post">>,
+            url => <<BaseURL/binary, ?INSERT_TABLET_PATH>>,
+            headers => [
+                {<<"Content-type">>, <<"application/json">>},
+                {<<"Authorization">>, BasicToken}
+            ]
+        },
+    parse_confs(
+        <<"webhook">>,
+        Name,
+        WebhookConfig
+    );
 parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it

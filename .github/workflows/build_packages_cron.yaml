@@ -57,6 +57,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           PKGTYPES="tgz pkg"
           IS_ELIXIR="no"
           for PKGTYPE in ${PKGTYPES};

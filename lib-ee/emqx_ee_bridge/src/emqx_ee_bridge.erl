@@ -38,7 +38,8 @@ api_schemas(Method) ->
         ref(emqx_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
         ref(emqx_bridge_pulsar, Method ++ "_producer"),
-        ref(emqx_bridge_oracle, Method)
+        ref(emqx_bridge_oracle, Method),
+        ref(emqx_bridge_iotdb, Method)
     ].
 
 schema_modules() ->
@@ -61,7 +62,8 @@ schema_modules() ->
         emqx_bridge_sqlserver,
         emqx_bridge_opents,
         emqx_bridge_pulsar,
-        emqx_bridge_oracle
+        emqx_bridge_oracle,
+        emqx_bridge_iotdb
     ].
 
 examples(Method) ->
@@ -103,7 +105,8 @@ resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
 resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
-resource_type(oracle) -> emqx_oracle.
+resource_type(oracle) -> emqx_oracle;
+resource_type(iotdb) -> emqx_bridge_iotdb_impl.
 
 fields(bridges) ->
     [
@@ -176,6 +179,14 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_oracle, "config")),
                 #{
                     desc => <<"Oracle Bridge Config">>,
+                    required => false
+                }
+            )},
+        {iotdb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_iotdb, "config")),
+                #{
+                    desc => <<"Apache IoTDB Bridge Config">>,
                     required => false
                 }
             )}
