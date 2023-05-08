@@ -27,6 +27,7 @@ services:
       - 19042:9042
       - 19142:9142
       - 14242:4242
+      - 28080:18080
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"
