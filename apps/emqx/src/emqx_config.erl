@@ -152,7 +152,7 @@ get_root([RootName | _]) ->
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
-    #{bin(RootName) => do_get_raw([RootName], #{})}.
+    #{bin(RootName) => get_raw([RootName], #{})}.
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
@@ -231,14 +231,14 @@ find_listener_conf(Type, Listener, KeyPath) ->
 put(Config) ->
     maps:fold(
         fun(RootName, RootValue, _) ->
-            ?MODULE:put([RootName], RootValue)
+            ?MODULE:put([atom(RootName)], RootValue)
         end,
         ok,
         Config
     ).
 
 erase(RootName) ->
-    persistent_term:erase(?PERSIS_KEY(?CONF, bin(RootName))),
+    persistent_term:erase(?PERSIS_KEY(?CONF, atom(RootName))),
     persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))),
     ok.
 
@@ -287,9 +287,11 @@ get_default_value([RootName | _] = KeyPath) ->
     end.
 
 -spec get_raw(emqx_utils_maps:config_key_path()) -> term().
+get_raw([Root | T]) when is_atom(Root) -> get_raw([bin(Root) | T]);
 get_raw(KeyPath) -> do_get_raw(KeyPath).
 
 -spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
+get_raw([Root | T], Default) when is_atom(Root) -> get_raw([bin(Root) | T], Default);
 get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
 
 -spec put_raw(map()) -> ok.
@@ -692,9 +694,9 @@ do_get(Type, [], Default) ->
         false -> AllConf
     end;
 do_get(Type, [RootName], Default) ->
-    persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), Default);
+    persistent_term:get(?PERSIS_KEY(Type, RootName), Default);
 do_get(Type, [RootName | KeyPath], Default) ->
-    RootV = persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), #{}),
+    RootV = persistent_term:get(?PERSIS_KEY(Type, RootName), #{}),
     do_deep_get(Type, KeyPath, RootV, Default).
 
 do_put(Type, Putter, [], DeepValue) ->
@@ -708,7 +710,7 @@ do_put(Type, Putter, [], DeepValue) ->
 do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
-    persistent_term:put(?PERSIS_KEY(Type, bin(RootName)), NewValue).
+    persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
 
 do_deep_get(?CONF, KeyPath, Map, Default) ->
     atom_conf_path(

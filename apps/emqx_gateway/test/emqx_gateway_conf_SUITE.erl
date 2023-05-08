@@ -274,7 +274,7 @@ t_load_unload_gateway(_) ->
 
     ?assertException(
         error,
-        {config_not_found, [gateway, stomp]},
+        {config_not_found, [<<"gateway">>, stomp]},
         emqx:get_raw_config([gateway, stomp])
     ),
     ok.
@@ -307,7 +307,7 @@ t_load_remove_authn(_) ->
 
     ?assertException(
         error,
-        {config_not_found, [gateway, stomp, authentication]},
+        {config_not_found, [<<"gateway">>, stomp, authentication]},
         emqx:get_raw_config([gateway, stomp, authentication])
     ),
     ok.
@@ -352,7 +352,7 @@ t_load_remove_listeners(_) ->
 
     ?assertException(
         error,
-        {config_not_found, [gateway, stomp, listeners, tcp, default]},
+        {config_not_found, [<<"gateway">>, stomp, listeners, tcp, default]},
         emqx:get_raw_config([gateway, stomp, listeners, tcp, default])
     ),
     ok.
@@ -401,7 +401,7 @@ t_load_remove_listener_authn(_) ->
     Path = [gateway, stomp, listeners, tcp, default, authentication],
     ?assertException(
         error,
-        {config_not_found, Path},
+        {config_not_found, [<<"gateway">>, stomp, listeners, tcp, default, authentication]},
         emqx:get_raw_config(Path)
     ),
     ok.
@@ -421,7 +421,7 @@ t_load_gateway_with_certs_content(_) ->
     assert_ssl_confs_files_deleted(SslConf),
     ?assertException(
         error,
-        {config_not_found, [gateway, stomp]},
+        {config_not_found, [<<"gateway">>, stomp]},
         emqx:get_raw_config([gateway, stomp])
     ),
     ok.
@@ -489,7 +489,7 @@ t_add_listener_with_certs_content(_) ->
 
     ?assertException(
         error,
-        {config_not_found, [gateway, stomp, listeners, ssl, default]},
+        {config_not_found, [<<"gateway">>, stomp, listeners, ssl, default]},
         emqx:get_raw_config([gateway, stomp, listeners, ssl, default])
     ),
     ok.
