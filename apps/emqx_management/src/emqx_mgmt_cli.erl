@@ -615,13 +615,18 @@ listeners([]) ->
                     {error, _} -> [];
                     MC -> [{max_conns, MC}]
                 end,
+            ShutdownCount =
+                case emqx_listeners:shutdown_count(ID, Bind) of
+                    {error, _} -> [];
+                    SC -> [{shutdown_count, SC}]
+                end,
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
-                ] ++ CurrentConns ++ MaxConn,
+                ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [ID]),
             lists:foreach(fun indent_print/1, Info)
         end,
