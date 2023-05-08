@@ -891,7 +891,7 @@ fields("console_handler") ->
     log_handler_common_confs(console);
 fields("log_file_handler") ->
     [
-        {"sink_to",
+        {"to",
             sc(
                 file(),
                 #{

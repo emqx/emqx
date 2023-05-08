@@ -151,7 +151,7 @@ tr_file_handler({HandlerName, SubConf}) ->
         level => conf_get("level", SubConf),
         config => (log_handler_conf(SubConf))#{
             type => wrap,
-            file => conf_get("sink_to", SubConf),
+            file => conf_get("to", SubConf),
             max_no_files => conf_get("rotation_count", SubConf),
             max_no_bytes => conf_get("rotation_size", SubConf)
         },

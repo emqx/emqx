@@ -180,7 +180,7 @@ validate_log(Conf) ->
     }
     log.file {
         enable = false
-        file = \"log/emqx.log\"
+        file = \"log/xx-emqx.log\"
         formatter = text
         level = debug
         rotation_count = 20
@@ -196,6 +196,48 @@ validate_log(Conf) ->
 
 log_test() ->
     validate_log(?KERNEL_LOG_CONF).
+
+%% erlfmt-ignore
+log_rotation_count_limit_test() ->
+    Format =
+    """
+    log.file {
+    enable = true
+    to = \"log/emqx.log\"
+    formatter = text
+    level = debug
+    rotation = {count = ~w}
+    rotation_size = \"1024MB\"
+    }
+    """,
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    lists:foreach(fun({Conf, Count}) ->
+        Conf0 = <<BaseConf/binary, Conf/binary>>,
+        {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
+        ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap0),
+        Kernel = proplists:get_value(kernel, ConfList),
+        Loggers = proplists:get_value(logger, Kernel),
+        ?assertMatch(
+            {handler, default, logger_disk_log_h, #{
+                config := #{max_no_files := Count}
+            }},
+            lists:keyfind(logger_disk_log_h, 3, Loggers)
+        )
+                  end,
+        [{to_bin(Format, [1]), 1}, {to_bin(Format, [128]), 128}]),
+    lists:foreach(fun({Conf, Count}) ->
+        Conf0 = <<BaseConf/binary, Conf/binary>>,
+        {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
+        ?assertThrow({emqx_conf_schema,
+            [#{kind := validation_error,
+            mismatches := #{"handler_name" :=
+            #{kind := validation_error,
+                path := "log.file.default.rotation_count",
+                reason := #{expected_type := "1..128"},
+                value := Count}
+            }}]},
+            hocon_tconf:generate(emqx_conf_schema, ConfMap0))
+                  end, [{to_bin(Format, [0]), 0}, {to_bin(Format, [129]), 129}]).
 
 %% erlfmt-ignore
 -define(BASE_AUTHN_ARRAY,
