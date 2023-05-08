@@ -86,5 +86,5 @@ is_unwrapped_headers(Headers) ->
     lists:all(fun is_unwrapped_header/1, Headers).
 
 is_unwrapped_header({_, V}) when is_function(V) -> false;
-is_unwrapped_header({_, [{str, _V}]}) -> throw(unecpected_tmpl_token);
+is_unwrapped_header({_, [{str, _V}]}) -> throw(unexpected_tmpl_token);
 is_unwrapped_header(_) -> true.
