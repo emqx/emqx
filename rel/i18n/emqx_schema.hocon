@@ -337,11 +337,11 @@ fields_mqtt_quic_listener_retry_memory_limit.desc:
 fields_mqtt_quic_listener_retry_memory_limit.label:
 """Retry memory limit"""
 
-force_shutdown_max_message_queue_len.desc:
-"""Maximum message queue length."""
+force_shutdown_max_mailbox_size.desc:
+"""In EMQX, each online client corresponds to an individual Erlang process. The configuration value establishes a mailbox size limit for these processes. If the mailbox size surpasses this limit, the client will be automatically terminated."""
 
-force_shutdown_max_message_queue_len.label:
-"""Maximum mailbox queue length of process."""
+force_shutdown_max_mailbox_size.label:
+"""Maximum mailbox size."""
 
 sys_heartbeat_interval.desc:
 """Time interval for publishing following heartbeat messages:
