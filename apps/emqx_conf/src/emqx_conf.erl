@@ -311,7 +311,7 @@ typename_to_spec("float()", _Mod) ->
 typename_to_spec("integer()", _Mod) ->
     #{type => number};
 typename_to_spec("non_neg_integer()", _Mod) ->
-    #{type => number, minimum => 1};
+    #{type => number, minimum => 0};
 typename_to_spec("number()", _Mod) ->
     #{type => number};
 typename_to_spec("string()", _Mod) ->
