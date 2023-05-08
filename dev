@@ -157,7 +157,7 @@ fi
 prepare_erl_libs() {
     local profile="$1"
     local libs_dir="_build/${profile}/lib"
-    local erl_libs=''
+    local erl_libs="${ERL_LIBS:-}"
     if [ $FORCE_COMPILE -eq 1 ] || [ ! -d "$libs_dir" ]; then
         make "compile-${PROFILE}"
     else
