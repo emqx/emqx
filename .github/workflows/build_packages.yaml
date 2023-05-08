@@ -35,6 +35,10 @@ jobs:
       - name: Get profile to build
         id: get_profile
         run: |
+          set -e
+          THISDIR="$(pwd)"
+          echo "Adding $THISDIR as safe dir for git"
+          git config --global --add safe.directory "${THISDIR}"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
             echo "WARN: This is an exact git tag, will publish release"
