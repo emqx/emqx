@@ -120,15 +120,25 @@ make_docs() {
          halt(0)."
 }
 
+## arg1 is the profile for which the following args (as app names) should be excluded
 assert_no_excluded_deps() {
-    if [ "$PROFILE" != 'emqx-enterprise' ]; then
+    local profile="$1"
+    shift 1
+    if [ "$PROFILE" != "$profile" ]; then
+        # not currently building the profile which has apps to be excluded
         return 0
     fi
     local rel_dir="_build/$PROFILE/rel/emqx/lib"
-    if [ -d "$rel_dir"/emqx_telemetry-* ]; then
-        echo "emqx_telemetry should not be included in $PROFILE"
-        exit 1
-    fi
+    local excluded_apps=( "$@" )
+    local found
+    for app in "${excluded_apps[@]}"; do
+        found="$($FIND "$rel_dir" -maxdepth 1 -type d -name "$app-*")"
+        if [ -n "${found}" ]; then
+            echo "ERROR: ${app} should not be included in ${PROFILE}"
+            echo "ERROR: found ${app}in ${rel_dir}"
+            exit 1
+        fi
+    done
 }
 
 just_compile() {
@@ -146,7 +156,7 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_excluded_deps
+    assert_no_excluded_deps emqx-enterprise emqx emqx_telemetry
 }
 
 make_elixir_rel() {
@@ -159,7 +169,7 @@ make_elixir_rel() {
         local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
         deps.get
     mix release --overwrite
-    assert_no_excluded_deps
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
