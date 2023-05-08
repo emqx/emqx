@@ -6,8 +6,9 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
+
 export EMQX_DASHBOARD_VERSION ?= v1.2.4
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.6-beta.2
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.6
 
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1

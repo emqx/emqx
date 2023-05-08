@@ -52,9 +52,10 @@ fields(config) ->
         {secret_key,
             mk(
                 binary(),
-                #{default => <<>>, desc => ?DESC("secret_key")}
+                #{default => <<>>, desc => ?DESC("secret_key"), sensitive => true}
             )},
-        {security_token, mk(binary(), #{default => <<>>, desc => ?DESC(security_token)})},
+        {security_token,
+            mk(binary(), #{default => <<>>, desc => ?DESC(security_token), sensitive => true})},
         {sync_timeout,
             mk(
                 emqx_schema:duration(),
