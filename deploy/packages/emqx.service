@@ -25,7 +25,7 @@ LimitNOFILE=1048576
 # emqx stop will ping node, always return 0 to make sure next command will be executed
 ExecStop=/bin/bash -c '/usr/bin/emqx stop; exit 0'
 # If the process is still running, force kill it
-ExecStop=/bin/sh -c 'if [ ps -p $MAINPID >/dev/null 2>&1 ]; then /bin/kill -15 $MAINPID; fi'
+ExecStop=/bin/bash -c 'if [ ps -p $MAINPID >/dev/null 2>&1 ]; then kill -15 $MAINPID; fi'
 
 # Wait long enough before force kill for graceful shutdown
 TimeoutStopSec=120s
