@@ -42,9 +42,7 @@ init_per_suite(Config) ->
             emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
         end
     ),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
@@ -154,9 +152,7 @@ init_per_testcase(t_exhook_info, Config) ->
     {ok, _} = emqx_exhook_demo_svr:start(),
     {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
     _ = gen_tcp:close(Sock),
-    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
     {ok, _} = application:ensure_all_started(emqx_exhook),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
@@ -177,9 +173,7 @@ init_per_testcase(t_uuid_restored_from_file, Config) ->
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
         fun set_special_configs/1
@@ -332,9 +326,7 @@ t_uuid_saved_to_file(_Config) ->
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
         fun set_special_configs/1
@@ -463,16 +455,6 @@ t_num_clients(_Config) ->
     ok.
 
 t_advanced_mqtt_features(_) ->
-    try
-        ok = test_advanced_mqtt_features()
-    catch
-        _:_ ->
-            %% delayed messages' metrics might not be reported yet
-            timer:sleep(1000),
-            test_advanced_mqtt_features()
-    end.
-
-test_advanced_mqtt_features() ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     AdvFeats = get_value(advanced_mqtt_features, TelemetryData),
     ?assertEqual(
@@ -667,8 +649,10 @@ mock_advanced_mqtt_features() ->
 
     lists:foreach(
         fun(N) ->
-            Num = integer_to_binary(N),
-            Message = emqx_message:make(<<"$delayed/", Num/binary, "/delayed">>, <<"payload">>),
+            DelaySec = integer_to_binary(N + 10),
+            Message = emqx_message:make(
+                <<"$delayed/", DelaySec/binary, "/delayed">>, <<"payload">>
+            ),
             {stop, _} = emqx_delayed:on_message_publish(Message)
         end,
         lists:seq(1, 4)
@@ -834,15 +818,11 @@ start_slave(Name) ->
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
                 ekka:join(TestNode),
-                emqx_common_test_helpers:load_config(
-                    emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}
-                ),
+                emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
 
                 ok;
             (_App) ->
-                emqx_common_test_helpers:load_config(
-                    emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}
-                ),
+                emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
                 ok
         end,
     Opts = #{

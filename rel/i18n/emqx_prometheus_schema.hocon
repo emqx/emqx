@@ -1,95 +1,47 @@
 emqx_prometheus_schema {
 
-  prometheus {
-    desc {
-      en: """Settings for reporting metrics to Prometheus"""
-      zh: """Prometheus 监控数据推送"""
-    }
-    label {
-      en: """Prometheus"""
-      zh: """Prometheus"""
-    }
-  }
+enable.desc:
+"""Turn Prometheus data pushing on or off"""
 
-  push_gateway_server {
-    desc {
-      en: """URL of Prometheus server"""
-      zh: """Prometheus 服务器地址"""
-    }
-  }
-
-  interval {
-    desc {
-      en: """Data reporting interval"""
-      zh: """数据推送间隔"""
-    }
-  }
-
-  headers {
-    desc {
-      en: """A list of HTTP Headers when pushing to Push Gateway.<br/>
+headers.desc:
+"""A list of HTTP Headers when pushing to Push Gateway.<br/>
 For example, <code> { Authorization = "some-authz-tokens"}</code>"""
-      zh: """推送到 Push Gateway 的 HTTP Headers 列表。<br/>
-例如，<code> { Authorization = "some-authz-tokens"}</code>"""
-    }
-  }
 
-  job_name {
-    desc {
-      en: """Job Name that is pushed to the Push Gateway. Available variables:<br/>
+interval.desc:
+"""Data reporting interval"""
+
+job_name.desc:
+"""Job Name that is pushed to the Push Gateway. Available variables:<br/>
 - ${name}: Name of EMQX node.<br/>
 - ${host}: Host name of EMQX node.<br/>
 For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code> variable takes value <code>emqx</code> and the <code>host</code> variable takes value <code>127.0.0.1</code>.<br/>
 Default value is: <code>${name}/instance/${name}~${host}</code>"""
-      zh: """推送到 Push Gateway 的 Job 名称。可用变量为：<br/>
-- ${name}: EMQX 节点的名称。
-- ${host}: EMQX 节点主机名。
-例如，当 EMQX 节点名为 <code>emqx@127.0.0.1</code> 则 name 变量的值为 <code>emqx</code>，host 变量的值为 <code>127.0.0.1</code>。<br/>
-默认值为: <code>${name}/instance/${name}~${host}</code>"""
-    }
-  }
 
-  enable {
-    desc {
-      en: """Turn Prometheus data pushing on or off"""
-      zh: """开启或关闭 Prometheus 数据推送"""
-    }
-  }
-  vm_dist_collector {
-    desc {
-      en: """Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
-      zh: """开启或关闭 VM 分布采集器，收集 Erlang 分布机制中涉及的套接字和进程的信息。"""
-    }
-  }
-  mnesia_collector {
-    desc {
-      en: """Enable or disable Mnesia collector, collects Mnesia metrics mainly using mnesia:system_info/1 ."""
-      zh: """开启或关闭 Mnesia 采集器, 使用 mnesia:system_info/1 收集 Mnesia 相关指标"""
-    }
-  }
-  vm_statistics_collector {
-    desc {
-      en: """Enable or disable VM statistics collector, collects Erlang VM metrics using erlang:statistics/1 ."""
-      zh: """开启或关闭 VM 统计采集器, 使用 erlang:statistics/1 收集 Erlang VM 相关指标"""
-    }
-  }
+mnesia_collector.desc:
+"""Enable or disable Mnesia collector, collects Mnesia metrics mainly using mnesia:system_info/1 ."""
 
-  vm_system_info_collector {
-    desc {
-      en: """Enable or disable VM system info collector, collects Erlang VM metrics using erlang:system_info/1 ."""
-      zh: """开启或关闭 VM 系统信息采集器, 使用 erlang:system_info/1 收集 Erlang VM 相关指标"""
-    }
-  }
-  vm_memory_collector {
-    desc {
-      en: """Enable or disable VM memory collector, collects information about memory dynamically allocated by the Erlang emulator using erlang:memory/0 , also provides basic (D)ETS statistics ."""
-      zh: """开启或关闭 VM 内存采集器, 使用 erlang:memory/0 收集 Erlang 虚拟机动态分配的内存信息，同时提供基本的 (D)ETS 统计信息"""
-    }
-    }
-  vm_msacc_collector {
-    desc {
-      en: """Enable or disable VM msacc collector, collects microstate accounting metrics using erlang:statistics(microstate_accounting) ."""
-      zh: """开启或关闭 VM msacc 采集器, 使用 erlang:statistics(microstate_accounting) 收集微状态计数指标"""
-    }
-  }
+prometheus.desc:
+"""Settings for reporting metrics to Prometheus"""
+
+prometheus.label:
+"""Prometheus"""
+
+push_gateway_server.desc:
+"""URL of Prometheus server"""
+
+vm_dist_collector.desc:
+"""Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
+
+vm_memory_collector.desc:
+"""Enable or disable VM memory collector, collects information about memory dynamically allocated by the Erlang emulator using erlang:memory/0 , also provides basic (D)ETS statistics ."""
+
+vm_msacc_collector.desc:
+"""Enable or disable VM msacc collector, collects microstate accounting metrics using erlang:statistics(microstate_accounting) ."""
+
+vm_statistics_collector.desc:
+"""Enable or disable VM statistics collector, collects Erlang VM metrics using erlang:statistics/1 ."""
+
+vm_system_info_collector.desc:
+"""Enable or disable VM system info collector, collects Erlang VM metrics using erlang:system_info/1 ."""
+
 }

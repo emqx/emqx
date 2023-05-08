@@ -70,7 +70,9 @@
     T == dynamo;
     T == rocketmq;
     T == cassandra;
-    T == sqlserver
+    T == sqlserver;
+    T == pulsar_producer;
+    T == oracle
 ).
 
 load() ->

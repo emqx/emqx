@@ -108,9 +108,12 @@ case "${WHICH_APP}" in
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
         ;;
-    apps/emqx_bridge_kafka)
-        ## ensure enterprise profile when testing ee applications
-        export PROFILE='emqx-enterprise'
+    apps/*)
+        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
+          export PROFILE='emqx-enterprise'
+        else
+          export PROFILE='emqx'
+        fi
         ;;
     *)
         export PROFILE="${PROFILE:-emqx}"
@@ -184,6 +187,15 @@ for dep in ${CT_DEPS}; do
         sqlserver)
             ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
+            ;;
+        opents)
+            FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
+            ;;
+        pulsar)
+            FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
+            ;;
+        oracle)
+            FILES+=( '.ci/docker-compose-file/docker-compose-oracle.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"

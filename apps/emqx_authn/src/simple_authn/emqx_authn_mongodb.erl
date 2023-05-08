@@ -44,32 +44,33 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-mongodb".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(fun union_member_selector/1),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(standalone) ->
+fields(mongo_single) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
-fields('replica-set') ->
+fields(mongo_rs) ->
     common_fields() ++ emqx_connector_mongo:fields(rs);
-fields('sharded-cluster') ->
+fields(mongo_sharded) ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
-desc(standalone) ->
-    ?DESC(standalone);
-desc('replica-set') ->
+desc(mongo_single) ->
+    ?DESC(single);
+desc(mongo_rs) ->
     ?DESC('replica-set');
-desc('sharded-cluster') ->
+desc(mongo_sharded) ->
     ?DESC('sharded-cluster');
 desc(_) ->
     undefined.
@@ -126,9 +127,9 @@ is_superuser_field(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, standalone),
-        hoconsc:ref(?MODULE, 'replica-set'),
-        hoconsc:ref(?MODULE, 'sharded-cluster')
+        hoconsc:ref(?MODULE, mongo_single),
+        hoconsc:ref(?MODULE, mongo_rs),
+        hoconsc:ref(?MODULE, mongo_sharded)
     ].
 
 create(_AuthenticatorID, Config) ->
@@ -254,11 +255,11 @@ union_member_selector({value, Value}) ->
     refs(Value).
 
 refs(#{<<"mongo_type">> := <<"single">>}) ->
-    [hoconsc:ref(?MODULE, standalone)];
+    [hoconsc:ref(?MODULE, mongo_single)];
 refs(#{<<"mongo_type">> := <<"rs">>}) ->
-    [hoconsc:ref(?MODULE, 'replica-set')];
+    [hoconsc:ref(?MODULE, mongo_rs)];
 refs(#{<<"mongo_type">> := <<"sharded">>}) ->
-    [hoconsc:ref(?MODULE, 'sharded-cluster')];
+    [hoconsc:ref(?MODULE, mongo_sharded)];
 refs(_) ->
     throw(#{
         field_name => mongo_type,

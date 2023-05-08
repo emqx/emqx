@@ -1,58 +1,27 @@
 emqx_coap_api {
 
-    send_coap_request {
-        desc {
-            en: """Send a CoAP request message to the client"""
-            zh: """发送 CoAP 消息到指定客户端"""
-        }
-    }
+content_type.desc:
+"""Payload type"""
 
-   token {
-        desc {
-            en: """Message token, can be empty"""
-            zh: """消息 Token, 可以为空"""
-        }
-    }
+message_id.desc:
+"""Message ID"""
 
-    method {
-        desc {
-            en: """Request method type"""
-            zh: """请求 Method 类型"""
-        }
-    }
+method.desc:
+"""Request method type"""
 
-    timeout {
-        desc {
-            en: """Timespan for response"""
-            zh: """请求超时时间"""
-        }
-    }
+payload.desc:
+"""The content of the payload"""
 
-    content_type {
-        desc {
-            en: """Payload type"""
-            zh: """Payload 类型"""
-        }
-    }
+response_code.desc:
+"""Response code"""
 
-    payload {
-        desc {
-            en: """The content of the payload"""
-            zh: """Payload 内容"""
-        }
-    }
+send_coap_request.desc:
+"""Send a CoAP request message to the client"""
 
-    message_id {
-        desc {
-            en: """Message ID"""
-            zh: """消息 ID"""
-        }
-    }
+timeout.desc:
+"""Timespan for response"""
 
-    response_code {
-        desc {
-            en: """Response code"""
-            zh: """应答码"""
-        }
-    }
+token.desc:
+"""Message token, can be empty"""
+
 }

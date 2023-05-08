@@ -1055,28 +1055,22 @@ t_list_filter(_) ->
     ).
 
 t_create_dry_run_local(_) ->
-    ets:match_delete(emqx_resource_manager, {{owner, '$1'}, '_'}),
     lists:foreach(
         fun(_) ->
             create_dry_run_local_succ()
         end,
         lists:seq(1, 10)
     ),
-    case [] =:= ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}) of
-        false ->
-            %% Sleep to remove flakyness in test case. It take some time for
-            %% the ETS table to be cleared.
-            timer:sleep(2000),
-            [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'});
-        true ->
-            ok
-    end.
+    ?retry(
+        100,
+        5,
+        ?assertEqual(
+            [],
+            emqx_resource:list_instances_verbose()
+        )
+    ).
 
 create_dry_run_local_succ() ->
-    case whereis(test_resource) of
-        undefined -> ok;
-        Pid -> exit(Pid, kill)
-    end,
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(
@@ -1107,7 +1101,15 @@ t_create_dry_run_local_failed(_) ->
         ?TEST_RESOURCE,
         #{name => test_resource, stop_error => true}
     ),
-    ?assertEqual(ok, Res3).
+    ?assertEqual(ok, Res3),
+    ?retry(
+        100,
+        5,
+        ?assertEqual(
+            [],
+            emqx_resource:list_instances_verbose()
+        )
+    ).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
@@ -1766,12 +1768,6 @@ t_async_pool_worker_death(_Config) ->
             ?assertEqual(NumReqs, Inflight0),
 
             %% grab one of the worker pids and kill it
-            {ok, SRef1} =
-                snabbkaffe:subscribe(
-                    ?match_event(#{?snk_kind := buffer_worker_worker_down_update}),
-                    NumBufferWorkers,
-                    10_000
-                ),
             {ok, #{pid := Pid0}} = emqx_resource:simple_sync_query(?ID, get_state),
             MRef = monitor(process, Pid0),
             ct:pal("will kill ~p", [Pid0]),
@@ -1785,13 +1781,27 @@ t_async_pool_worker_death(_Config) ->
             end,
 
             %% inflight requests should have been marked as retriable
-            {ok, _} = snabbkaffe:receive_events(SRef1),
+            wait_until_all_marked_as_retriable(NumReqs),
             Inflight1 = emqx_resource_metrics:inflight_get(?ID),
             ?assertEqual(NumReqs, Inflight1),
 
-            ok
+            NumReqs
         end,
-        []
+        fun(NumReqs, Trace) ->
+            Events = ?of_kind(buffer_worker_async_agent_down, Trace),
+            %% At least one buffer worker should have marked its
+            %% requests as retriable.  If a single one has
+            %% received all requests, that's all we got.
+            ?assertMatch([_ | _], Events),
+            %% All requests distributed over all buffer workers
+            %% should have been marked as retriable, by the time
+            %% the inflight has been drained.
+            ?assertEqual(
+                NumReqs,
+                lists:sum([N || #{num_affected := N} <- Events])
+            ),
+            ok
+        end
     ),
     ok.
 
@@ -2630,7 +2640,6 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                     Trace2
                 )
             ),
-
             ok
         end
     ).
@@ -2790,6 +2799,42 @@ t_late_call_reply(_Config) ->
         []
     ),
     ok.
+
+t_resource_create_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, create_error => true},
+        connector_demo_start_error
+    ).
+
+t_resource_health_check_error_activate_alarm_once(_) ->
+    do_t_resource_activate_alarm_once(
+        #{name => test_resource, health_check_error => true},
+        connector_demo_health_check_error
+    ).
+
+do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqx_resource:create_local(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    ResourceConfig,
+                    #{auto_restart_interval => 100, health_check_interval => 100}
+                ),
+                #{?snk_kind := resource_activate_alarm, resource_id := ?ID}
+            ),
+            ?assertMatch([#{activated := true, name := ?ID}], emqx_alarm:get_alarms(activated)),
+            {ok, SubRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := SubscribeEvent}), 4, 7000
+            ),
+            ?assertMatch({ok, [_, _, _, _]}, snabbkaffe:receive_events(SubRef))
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(resource_activate_alarm, Trace))
+        end
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -2977,3 +3022,33 @@ trace_between_span(Trace0, Marker) ->
     {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := {complete, _}}, Trace0),
     {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := start}, Trace1),
     Trace2.
+
+wait_until_all_marked_as_retriable(NumExpected) when NumExpected =< 0 ->
+    ok;
+wait_until_all_marked_as_retriable(NumExpected) ->
+    Seen = #{},
+    do_wait_until_all_marked_as_retriable(NumExpected, Seen).
+
+do_wait_until_all_marked_as_retriable(NumExpected, _Seen) when NumExpected =< 0 ->
+    ok;
+do_wait_until_all_marked_as_retriable(NumExpected, Seen) ->
+    Res = ?block_until(
+        #{?snk_kind := buffer_worker_async_agent_down, ?snk_meta := #{pid := P}} when
+            not is_map_key(P, Seen),
+        10_000
+    ),
+    case Res of
+        {timeout, Evts} ->
+            ct:pal("events so far:\n  ~p", [Evts]),
+            ct:fail("timeout waiting for events");
+        {ok, #{num_affected := NumAffected, ?snk_meta := #{pid := Pid}}} ->
+            ct:pal("affected: ~p; pid: ~p", [NumAffected, Pid]),
+            case NumAffected >= NumExpected of
+                true ->
+                    ok;
+                false ->
+                    do_wait_until_all_marked_as_retriable(NumExpected - NumAffected, Seen#{
+                        Pid => true
+                    })
+            end
+    end.

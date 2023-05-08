@@ -150,11 +150,10 @@ For example, this environment variable sets an array value.
 ```
 export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
 ```
-
-However this also means a string value should be quoted if it happens to contain special
+However, this also means a string value should be quoted if it happens to contain special
 characters such as `=` and `:`.
 
-For example, a string value `"localhost:1883"` would be 
+For example, a string value `"localhost:1883"` would be
 parsed into object (struct): `{"localhost": 1883}`.
 
 To keep it as a string, one should quote the value like below:
@@ -232,7 +231,7 @@ Arrays in EMQX config have two different representations
 Dot-separated paths with number in it are parsed to indexed-maps
 e.g. `authentication.1={...}` is parsed as `authentication={"1": {...}}`
 
-This feature makes it easy to override array elment values. For example:
+This feature makes it easy to override array element values. For example:
 
 ```
 authentication=[{enable=true, backend="built_in_database", mechanism="password_based"}]
@@ -328,4 +327,3 @@ ciphers =
     "PSK-AES128-CBC-SHA"
   ]
 ```
-

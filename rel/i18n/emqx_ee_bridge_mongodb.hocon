@@ -1,100 +1,57 @@
 emqx_ee_bridge_mongodb {
-  desc_config {
-    desc {
-      en: "Configuration for MongoDB Bridge"
-      zh: "为MongoDB桥配置"
-    }
-    label {
-      en: "MongoDB Bridge Configuration"
-      zh: "MongoDB桥配置"
-    }
-  }
 
-  enable {
-    desc {
-      en: "Enable or disable this MongoDB Bridge"
-      zh: "启用或停用该MongoDB桥"
-    }
-    label {
-      en: "Enable or disable"
-      zh: "启用或禁用"
-    }
-  }
+collection.desc:
+"""The collection where data will be stored into"""
 
-  collection {
-    desc {
-      en: "The collection where data will be stored into"
-      zh: "数据将被存储到的集合"
-    }
-    label {
-      en: "Collection to be used"
-      zh: "将要使用的集合（Collection）"
-    }
-  }
+collection.label:
+"""Collection to be used"""
 
-  mongodb_rs_conf {
-    desc {
-      en: "MongoDB (Replica Set) configuration"
-      zh: "MongoDB（Replica Set）配置"
-    }
-    label {
-      en: "MongoDB (Replica Set) Configuration"
-      zh: "MongoDB（Replica Set）配置"
-    }
-  }
+desc_config.desc:
+"""Configuration for MongoDB Bridge"""
 
-  mongodb_sharded_conf {
-    desc {
-      en: "MongoDB (Sharded) configuration"
-      zh: "MongoDB (Sharded)配置"
-    }
-    label {
-      en: "MongoDB (Sharded) Configuration"
-      zh: "MongoDB (Sharded)配置"
-    }
-  }
+desc_config.label:
+"""MongoDB Bridge Configuration"""
 
-  mongodb_single_conf {
-    desc {
-      en: "MongoDB (Standalone) configuration"
-      zh: "MongoDB（独立）配置"
-    }
-    label {
-      en: "MongoDB (Standalone) Configuration"
-      zh: "MongoDB（独立）配置"
-    }
-  }
+desc_name.desc:
+"""Bridge name."""
 
-  desc_type {
-    desc {
-      en: """The Bridge Type."""
-      zh: """桥接类型。"""
-    }
-    label {
-      en: "Bridge Type"
-      zh: "桥接类型"
-    }
-  }
+desc_name.label:
+"""Bridge Name"""
 
-  desc_name {
-    desc {
-      en: """Bridge name."""
-      zh: """桥接名称。"""
-    }
-    label {
-      en: "Bridge Name"
-      zh: "桥接名称"
-    }
-  }
+desc_type.desc:
+"""The Bridge Type."""
 
-  payload_template {
-    desc {
-      en: "The template for formatting the outgoing messages.  If undefined, rule engine will use JSON format to serialize all visible inputs, such as clientid, topic, payload etc."
-      zh: "用于格式化写入 MongoDB 的消息模板。 如果未定义，规则引擎会使用 JSON 格式序列化所有的可见输入，例如 clientid, topic, payload 等。"
-    }
-    label: {
-      en: "Payload template"
-      zh: "有效载荷模板"
-    }
-  }
+desc_type.label:
+"""Bridge Type"""
+
+enable.desc:
+"""Enable or disable this MongoDB Bridge"""
+
+enable.label:
+"""Enable or disable"""
+
+mongodb_rs_conf.desc:
+"""MongoDB (Replica Set) configuration"""
+
+mongodb_rs_conf.label:
+"""MongoDB (Replica Set) Configuration"""
+
+mongodb_sharded_conf.desc:
+"""MongoDB (Sharded) configuration"""
+
+mongodb_sharded_conf.label:
+"""MongoDB (Sharded) Configuration"""
+
+mongodb_single_conf.desc:
+"""MongoDB (Standalone) configuration"""
+
+mongodb_single_conf.label:
+"""MongoDB (Standalone) Configuration"""
+
+payload_template.desc:
+"""The template for formatting the outgoing messages.  If undefined, rule engine will use JSON format to serialize all visible inputs, such as clientid, topic, payload etc."""
+
+payload_template.label:
+"""Payload template"""
+
 }

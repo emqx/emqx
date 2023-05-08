@@ -162,8 +162,7 @@ limiter_conf() ->
     Make = fun() ->
         #{
             burst => 0,
-            rate => infinity,
-            capacity => infinity
+            rate => infinity
         }
     end,
 
@@ -172,7 +171,7 @@ limiter_conf() ->
             Acc#{Name => Make()}
         end,
         #{},
-        [bytes_in, message_in, message_routing, connection, internal]
+        [bytes, messages, message_routing, connection, internal]
     ).
 
 stats_conf() ->
@@ -268,13 +267,14 @@ t_chan_info(_) ->
 t_chan_caps(_) ->
     ?assertMatch(
         #{
+            exclusive_subscription := false,
+            max_packet_size := 1048576,
             max_clientid_len := 65535,
             max_qos_allowed := 2,
             max_topic_alias := 65535,
             max_topic_levels := Level,
             retain_available := true,
             shared_subscription := true,
-            subscription_identifiers := true,
             wildcard_subscription := true
         } when is_integer(Level),
         emqx_channel:caps(channel())
@@ -1258,7 +1258,7 @@ limiter_cfg() ->
     Client = #{
         rate => 5,
         initial => 0,
-        capacity => 5,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
@@ -1270,7 +1270,7 @@ limiter_cfg() ->
     }.
 
 bucket_cfg() ->
-    #{rate => 10, initial => 0, capacity => 10}.
+    #{rate => 10, initial => 0, burst => 0}.
 
 add_bucket() ->
     emqx_limiter_server:add_bucket(?MODULE, message_routing, bucket_cfg()).

@@ -1,0 +1,47 @@
+emqx_ee_bridge_influxdb {
+
+config_enable.desc:
+"""启用/禁用桥接。"""
+
+config_enable.label:
+"""启用/禁用桥接"""
+
+desc_config.desc:
+"""InfluxDB 桥接配置。"""
+
+desc_config.label:
+"""InfluxDB 桥接配置"""
+
+desc_name.desc:
+"""桥接名称。"""
+
+desc_name.label:
+"""桥接名称"""
+
+desc_type.desc:
+"""桥接类型。"""
+
+desc_type.label:
+"""桥接类型"""
+
+local_topic.desc:
+"""发送到 'local_topic' 的消息都会转发到 InfluxDB。 </br>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 InfluxDB。"""
+
+local_topic.label:
+"""本地 Topic"""
+
+write_syntax.desc:
+"""使用 InfluxDB API Line Protocol 写入 InfluxDB 的数据，支持占位符</br>
+参考 [InfluxDB 2.3 Line Protocol](https://docs.influxdata.com/influxdb/v2.3/reference/syntax/line-protocol/) 及
+[InfluxDB 1.8 Line Protocol](https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_tutorial/) </br>
+TLDR: </br>
+```
+<measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
+```
+注意，整形数值占位符后需要添加一个字符 `i` 类型标识。例如 `${payload.int_value}i`"""
+
+write_syntax.label:
+"""写语句"""
+
+}

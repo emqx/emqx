@@ -55,12 +55,12 @@
     is_tcp_server_available/2,
     is_tcp_server_available/3,
     load_config/2,
-    load_config/3,
     not_wait_mqtt_payload/1,
     read_schema_configs/2,
     render_config_file/2,
     wait_for/4,
-    wait_mqtt_payload/1
+    wait_mqtt_payload/1,
+    select_free_port/1
 ]).
 
 -export([
@@ -280,6 +280,7 @@ app_schema(App) ->
 mustache_vars(App, Opts) ->
     ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
     Defaults = #{
+        node_cookie => atom_to_list(erlang:get_cookie()),
         platform_data_dir => app_path(App, "data"),
         platform_etc_dir => app_path(App, "etc")
     },
@@ -497,18 +498,14 @@ copy_certs(emqx_conf, Dest0) ->
 copy_certs(_, _) ->
     ok.
 
-load_config(SchemaModule, Config, Opts) ->
+load_config(SchemaModule, Config) ->
     ConfigBin =
         case is_map(Config) of
             true -> emqx_utils_json:encode(Config);
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
-    ok = emqx_config:init_load(SchemaModule, ConfigBin, Opts),
-    ok.
-
-load_config(SchemaModule, Config) ->
-    load_config(SchemaModule, Config, #{raw_with_default => true}).
+    ok = emqx_config:init_load(SchemaModule, ConfigBin).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
     Servers :: [{Host, Port}],
@@ -684,6 +681,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
     SlaveMod = maps:get(peer_mod, Opts, ct_slave),
     Node = node_name(Name),
     put_peer_mod(Node, SlaveMod),
+    Cookie = atom_to_list(erlang:get_cookie()),
     DoStart =
         fun() ->
             case SlaveMod of
@@ -695,7 +693,11 @@ start_slave(Name, Opts) when is_map(Opts) ->
                             {monitor_master, true},
                             {init_timeout, 20_000},
                             {startup_timeout, 20_000},
-                            {erl_flags, erl_flags()}
+                            {erl_flags, erl_flags()},
+                            {env, [
+                                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
+                                {"EMQX_NODE__COOKIE", Cookie}
+                            ]}
                         ]
                     );
                 slave ->
@@ -782,6 +784,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                 load_apps => LoadApps,
                 apps => Apps,
                 env => Env,
+                join_to => JoinTo,
                 start_apps => StartApps
             }
         ]
@@ -1259,3 +1262,34 @@ get_or_spawn_janitor() ->
 on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
+
+%%-------------------------------------------------------------------------------
+%% Select a free transport port from the OS
+%%-------------------------------------------------------------------------------
+%% @doc get unused port from OS
+-spec select_free_port(tcp | udp | ssl | quic) -> inets:port_number().
+select_free_port(tcp) ->
+    select_free_port(gen_tcp, listen);
+select_free_port(udp) ->
+    select_free_port(gen_udp, open);
+select_free_port(ssl) ->
+    select_free_port(tcp);
+select_free_port(quic) ->
+    select_free_port(udp).
+
+select_free_port(GenModule, Fun) when
+    GenModule == gen_tcp orelse
+        GenModule == gen_udp
+->
+    {ok, S} = GenModule:Fun(0, [{reuseaddr, true}]),
+    {ok, Port} = inet:port(S),
+    ok = GenModule:close(S),
+    case os:type() of
+        {unix, darwin} ->
+            %% in MacOS, still get address_in_use after close port
+            timer:sleep(500);
+        _ ->
+            skip
+    end,
+    ct:pal("Select free OS port: ~p", [Port]),
+    Port.

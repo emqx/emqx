@@ -176,7 +176,14 @@ create_tables() ->
         {record_name, serde},
         {attributes, record_info(fields, serde)}
     ]),
-    ok = mria:wait_for_tables([?SERDE_TAB]),
+    ok = mria:create_table(?PROTOBUF_CACHE_TAB, [
+        {type, set},
+        {rlog_shard, ?SCHEMA_REGISTRY_SHARD},
+        {storage, rocksdb_copies},
+        {record_name, protobuf_cache},
+        {attributes, record_info(fields, protobuf_cache)}
+    ]),
+    ok = mria:wait_for_tables([?SERDE_TAB, ?PROTOBUF_CACHE_TAB]),
     ok.
 
 do_build_serdes(Schemas) ->

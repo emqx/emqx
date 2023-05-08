@@ -56,7 +56,7 @@
 
 -type state() ::
     #{
-        poolname := atom(),
+        pool_name := binary(),
         prepare_sql := prepares(),
         params_tokens := params_tokens(),
         prepare_statement := epgsql:statement()
@@ -91,7 +91,7 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
-    {Host, Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
     ?SLOG(info, #{
         msg => "starting_postgresql_connector",
         connector => InstId,
@@ -120,13 +120,10 @@ on_start(
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    Prepares = parse_prepare_sql(Config),
-    InitState = #{poolname => PoolName, prepare_statement => #{}},
-    State = maps:merge(InitState, Prepares),
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
+    State = parse_prepare_sql(Config),
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State)};
+            {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
         {error, Reason} ->
             ?tp(
                 pgsql_connector_start_failed,
@@ -135,19 +132,19 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping postgresql connector",
         connector => InstId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
-on_query(InstId, {TypeOrKey, NameOrSQL}, #{poolname := _PoolName} = State) ->
+on_query(InstId, {TypeOrKey, NameOrSQL}, State) ->
     on_query(InstId, {TypeOrKey, NameOrSQL, []}, State);
 on_query(
     InstId,
     {TypeOrKey, NameOrSQL, Params},
-    #{poolname := PoolName} = State
+    #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
         msg => "postgresql connector received sql query",
@@ -174,7 +171,7 @@ pgsql_query_type(_) ->
 on_batch_query(
     InstId,
     BatchReq,
-    #{poolname := PoolName, params_tokens := Tokens, prepare_statement := Sts} = State
+    #{pool_name := PoolName, params_tokens := Tokens, prepare_statement := Sts} = State
 ) ->
     case BatchReq of
         [{Key, _} = Request | _] ->
@@ -258,8 +255,8 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
             {error, {unrecoverable_error, invalid_request}}
     end.
 
-on_get_status(_InstId, #{poolname := Pool} = State) ->
-    case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
+on_get_status(_InstId, #{pool_name := PoolName} = State) ->
+    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
         true ->
             case do_check_prepares(State) of
                 ok ->
@@ -280,7 +277,7 @@ do_get_status(Conn) ->
 
 do_check_prepares(#{prepare_sql := Prepares}) when is_map(Prepares) ->
     ok;
-do_check_prepares(State = #{poolname := PoolName, prepare_sql := {error, Prepares}}) ->
+do_check_prepares(State = #{pool_name := PoolName, prepare_sql := {error, Prepares}}) ->
     %% retry to prepare
     case prepare_sql(Prepares, PoolName) of
         {ok, Sts} ->
@@ -358,7 +355,7 @@ parse_prepare_sql([], Prepares, Tokens) ->
         params_tokens => Tokens
     }.
 
-init_prepare(State = #{prepare_sql := Prepares, poolname := PoolName}) ->
+init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName}) ->
     case maps:size(Prepares) of
         0 ->
             State;
@@ -389,17 +386,17 @@ prepare_sql(Prepares, PoolName) ->
     end.
 
 do_prepare_sql(Prepares, PoolName) ->
-    do_prepare_sql(ecpool:workers(PoolName), Prepares, PoolName, #{}).
+    do_prepare_sql(ecpool:workers(PoolName), Prepares, #{}).
 
-do_prepare_sql([{_Name, Worker} | T], Prepares, PoolName, _LastSts) ->
+do_prepare_sql([{_Name, Worker} | T], Prepares, _LastSts) ->
     {ok, Conn} = ecpool_worker:client(Worker),
     case prepare_sql_to_conn(Conn, Prepares) of
         {ok, Sts} ->
-            do_prepare_sql(T, Prepares, PoolName, Sts);
+            do_prepare_sql(T, Prepares, Sts);
         Error ->
             Error
     end;
-do_prepare_sql([], _Prepares, _PoolName, LastSts) ->
+do_prepare_sql([], _Prepares, LastSts) ->
     {ok, LastSts}.
 
 prepare_sql_to_conn(Conn, Prepares) ->

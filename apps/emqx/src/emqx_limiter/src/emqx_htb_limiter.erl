@@ -22,7 +22,7 @@
 
 %% API
 -export([
-    make_token_bucket_limiter/2,
+    make_local_limiter/2,
     make_ref_limiter/2,
     check/2,
     consume/2,
@@ -32,12 +32,11 @@
     make_future/1,
     available/1
 ]).
--export_type([token_bucket_limiter/0]).
+-export_type([local_limiter/0]).
 
-%% a token bucket limiter with a limiter server's bucket reference
-
-%% the number of tokens currently available
--type token_bucket_limiter() :: #{
+%% a token bucket limiter which may or not contains a reference to another limiter,
+%% and can be used in a client alone
+-type local_limiter() :: #{
     tokens := non_neg_integer(),
     rate := decimal(),
     capacity := decimal(),
@@ -58,12 +57,12 @@
     retry_ctx =>
         undefined
         %% the retry context
-        | retry_context(token_bucket_limiter()),
+        | retry_context(local_limiter()),
     %% allow to add other keys
     atom => any()
 }.
 
-%% a limiter server's bucket reference
+%% a limiter instance which only contains a reference to another limiter(bucket)
 -type ref_limiter() :: #{
     max_retry_time := non_neg_integer(),
     failure_strategy := failure_strategy(),
@@ -88,7 +87,7 @@
 }.
 
 -type bucket() :: emqx_limiter_bucket_ref:bucket_ref().
--type limiter() :: token_bucket_limiter() | ref_limiter() | infinity.
+-type limiter() :: local_limiter() | ref_limiter() | infinity.
 -type millisecond() :: non_neg_integer().
 
 -type pause_type() :: pause | partial.
@@ -116,7 +115,7 @@
     rate := decimal(),
     initial := non_neg_integer(),
     low_watermark := non_neg_integer(),
-    capacity := decimal(),
+    burst := decimal(),
     divisible := boolean(),
     max_retry_time := non_neg_integer(),
     failure_strategy := failure_strategy()
@@ -134,12 +133,13 @@
 %%  API
 %%--------------------------------------------------------------------
 %%@doc create a limiter
--spec make_token_bucket_limiter(limiter_bucket_cfg(), bucket()) -> _.
-make_token_bucket_limiter(Cfg, Bucket) ->
+-spec make_local_limiter(limiter_bucket_cfg(), bucket()) -> _.
+make_local_limiter(Cfg, Bucket) ->
     Cfg#{
         tokens => emqx_limiter_server:get_initial_val(Cfg),
         lasttime => ?NOW,
-        bucket => Bucket
+        bucket => Bucket,
+        capacity => emqx_limiter_schema:calc_capacity(Cfg)
     }.
 
 %%@doc create a limiter server's reference
@@ -311,8 +311,8 @@ on_failure(throw, Limiter) ->
     Message = io_lib:format("limiter consume failed, limiter:~p~n", [Limiter]),
     erlang:throw({rate_check_fail, Message}).
 
--spec do_check_with_parent_limiter(pos_integer(), token_bucket_limiter()) ->
-    inner_check_result(token_bucket_limiter()).
+-spec do_check_with_parent_limiter(pos_integer(), local_limiter()) ->
+    inner_check_result(local_limiter()).
 do_check_with_parent_limiter(
     Need,
     #{
@@ -335,7 +335,7 @@ do_check_with_parent_limiter(
             )
     end.
 
--spec do_reset(pos_integer(), token_bucket_limiter()) -> inner_check_result(token_bucket_limiter()).
+-spec do_reset(pos_integer(), local_limiter()) -> inner_check_result(local_limiter()).
 do_reset(
     Need,
     #{

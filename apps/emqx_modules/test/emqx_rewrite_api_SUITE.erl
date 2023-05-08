@@ -33,10 +33,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_modules]
     ),

@@ -1,0 +1,125 @@
+name: Scheduled build packages
+
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron:  '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    needs: prepare
+    runs-on: aws-${{ matrix.arch }}
+    # always run in builder container because the host might have the wrong OTP version etc.
+    # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
+    container:
+      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+        branch:
+          - master
+          - release-50
+        otp:
+          - 24.3.4.2-3
+        arch:
+          - amd64
+        os:
+          - debian10
+          - amzn2
+        builder:
+          - 5.0-34
+        elixir:
+          - 1.13.4
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: emqx/self-hosted-cleanup-action@v1.0.3
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+
+      - name: build emqx packages
+        env:
+          ELIXIR: ${{ matrix.elixir }}
+          PROFILE: ${{ matrix.profile }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          PKGTYPES="tgz pkg"
+          IS_ELIXIR="no"
+          for PKGTYPE in ${PKGTYPES};
+          do
+            ./scripts/buildx.sh \
+              --profile "${PROFILE}" \
+              --pkgtype "${PKGTYPE}" \
+              --arch "${ARCH}" \
+              --elixir "${IS_ELIXIR}" \
+              --builder "force_host"
+          done
+      - uses: actions/upload-artifact@v3
+        if: success()
+        with:
+          name: ${{ matrix.profile }}
+          path: _packages/${{ matrix.profile }}/
+      - name: Send notification to Slack
+        uses: slackapi/slack-github-action@v1.23.0
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {"text": "Scheduled build of ${{ matrix.profile }} package for ${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+
+  mac:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+        otp:
+          - 24.3.4.2-3
+        os:
+          - macos-12
+          - macos-12-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: emqx/self-hosted-cleanup-action@v1.0.3
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+      - uses: ./.github/actions/package-macos
+        with:
+          profile: ${{ matrix.profile }}
+          otp: ${{ matrix.otp }}
+          os: ${{ matrix.os }}
+          apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
+          apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+          apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+          apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
+      - uses: actions/upload-artifact@v3
+        if: success()
+        with:
+          name: ${{ matrix.profile }}
+          path: _packages/${{ matrix.profile }}/
+      - name: Send notification to Slack
+        uses: slackapi/slack-github-action@v1.23.0
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {"text": "Scheduled build of ${{ matrix.profile }} package for ${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}

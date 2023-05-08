@@ -16,7 +16,6 @@
 
 -module(emqx_authz_utils).
 
--include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authz.hrl").
 
 -export([
@@ -28,6 +27,7 @@
     update_config/2,
     parse_deep/2,
     parse_str/2,
+    render_urlencoded_str/2,
     parse_sql/3,
     render_deep/2,
     render_str/2,
@@ -128,6 +128,13 @@ render_str(Template, Values) ->
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
+render_urlencoded_str(Template, Values) ->
+    emqx_placeholder:proc_tmpl(
+        Template,
+        client_vars(Values),
+        #{return => full_binary, var_trans => fun urlencode_var/2}
+    ).
+
 render_sql_params(ParamList, Values) ->
     emqx_placeholder:proc_tmpl(
         ParamList,
@@ -180,6 +187,11 @@ convert_client_var({cn, CN}) -> {cert_common_name, CN};
 convert_client_var({dn, DN}) -> {cert_subject, DN};
 convert_client_var({protocol, Proto}) -> {proto_name, Proto};
 convert_client_var(Other) -> Other.
+
+urlencode_var({var, _} = Var, Value) ->
+    emqx_http_lib:uri_encode(handle_var(Var, Value));
+urlencode_var(Var, Value) ->
+    handle_var(Var, Value).
 
 handle_var({var, _Name}, undefined) ->
     <<>>;

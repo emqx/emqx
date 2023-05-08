@@ -4,7 +4,10 @@
 -module(emqx_ee_schema_registry_serde).
 
 -include("emqx_ee_schema_registry.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_ee_schema_registry_serde]}}]).
 
 %% API
 -export([
@@ -55,6 +58,27 @@ make_serde(avro, Name, Source0) ->
         ?tp(serde_destroyed, #{type => avro, name => Name}),
         ok
     end,
+    {Serializer, Deserializer, Destructor};
+make_serde(protobuf, Name, Source) ->
+    SerdeMod = make_protobuf_serde_mod(Name, Source),
+    Serializer =
+        fun(DecodedData0, MessageName0) ->
+            DecodedData = emqx_utils_maps:safe_atom_key_map(DecodedData0),
+            MessageName = binary_to_existing_atom(MessageName0, utf8),
+            SerdeMod:encode_msg(DecodedData, MessageName)
+        end,
+    Deserializer =
+        fun(EncodedData, MessageName0) ->
+            MessageName = binary_to_existing_atom(MessageName0, utf8),
+            Decoded = SerdeMod:decode_msg(EncodedData, MessageName),
+            emqx_utils_maps:binary_key_map(Decoded)
+        end,
+    Destructor =
+        fun() ->
+            unload_code(SerdeMod),
+            ?tp(serde_destroyed, #{type => protobuf, name => Name}),
+            ok
+        end,
     {Serializer, Deserializer, Destructor}.
 
 %%------------------------------------------------------------------------------
@@ -68,3 +92,111 @@ inject_avro_name(Name, Source0) ->
     Schema0 = emqx_utils_json:decode(Source0, [return_maps]),
     Schema = Schema0#{<<"name">> => Name},
     emqx_utils_json:encode(Schema).
+
+-spec make_protobuf_serde_mod(schema_name(), schema_source()) -> module().
+make_protobuf_serde_mod(Name, Source) ->
+    {SerdeMod0, SerdeModFileName} = protobuf_serde_mod_name(Name),
+    case lazy_generate_protobuf_code(SerdeMod0, Source) of
+        {ok, SerdeMod, ModBinary} ->
+            load_code(SerdeMod, SerdeModFileName, ModBinary),
+            SerdeMod;
+        {error, #{error := Error, warnings := Warnings}} ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "error_generating_protobuf_code",
+                    error => Error,
+                    warnings => Warnings
+                }
+            ),
+            error({invalid_protobuf_schema, Error})
+    end.
+
+-spec protobuf_serde_mod_name(schema_name()) -> {module(), string()}.
+protobuf_serde_mod_name(Name) ->
+    %% must be a string (list)
+    SerdeModName = "$schema_parser_" ++ binary_to_list(Name),
+    SerdeMod = list_to_atom(SerdeModName),
+    %% the "path" to the module, for `code:load_binary'.
+    SerdeModFileName = SerdeModName ++ ".memory",
+    {SerdeMod, SerdeModFileName}.
+
+-spec lazy_generate_protobuf_code(module(), schema_source()) ->
+    {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
+lazy_generate_protobuf_code(SerdeMod0, Source) ->
+    %% We run this inside a transaction with locks to avoid running
+    %% the compile on all nodes; only one will get the lock, compile
+    %% the schema, and other nodes will simply read the final result.
+    {atomic, Res} = mria:transaction(
+        ?SCHEMA_REGISTRY_SHARD,
+        fun lazy_generate_protobuf_code_trans/2,
+        [SerdeMod0, Source]
+    ),
+    Res.
+
+-spec lazy_generate_protobuf_code_trans(module(), schema_source()) ->
+    {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
+lazy_generate_protobuf_code_trans(SerdeMod0, Source) ->
+    Fingerprint = erlang:md5(Source),
+    _ = mnesia:lock({record, ?PROTOBUF_CACHE_TAB, Fingerprint}, write),
+    case mnesia:read(?PROTOBUF_CACHE_TAB, Fingerprint) of
+        [#protobuf_cache{module = SerdeMod, module_binary = ModBinary}] ->
+            ?tp(schema_registry_protobuf_cache_hit, #{}),
+            {ok, SerdeMod, ModBinary};
+        [] ->
+            ?tp(schema_registry_protobuf_cache_miss, #{}),
+            case generate_protobuf_code(SerdeMod0, Source) of
+                {ok, SerdeMod, ModBinary} ->
+                    CacheEntry = #protobuf_cache{
+                        fingerprint = Fingerprint,
+                        module = SerdeMod,
+                        module_binary = ModBinary
+                    },
+                    ok = mnesia:write(?PROTOBUF_CACHE_TAB, CacheEntry, write),
+                    {ok, SerdeMod, ModBinary};
+                {ok, SerdeMod, ModBinary, _Warnings} ->
+                    CacheEntry = #protobuf_cache{
+                        fingerprint = Fingerprint,
+                        module = SerdeMod,
+                        module_binary = ModBinary
+                    },
+                    ok = mnesia:write(?PROTOBUF_CACHE_TAB, CacheEntry, write),
+                    {ok, SerdeMod, ModBinary};
+                error ->
+                    {error, #{error => undefined, warnings => []}};
+                {error, Error} ->
+                    {error, #{error => Error, warnings => []}};
+                {error, Error, Warnings} ->
+                    {error, #{error => Error, warnings => Warnings}}
+            end
+    end.
+
+generate_protobuf_code(SerdeMod, Source) ->
+    gpb_compile:string(
+        SerdeMod,
+        Source,
+        [
+            binary,
+            strings_as_binaries,
+            {maps, true},
+            %% Fixme: currently, some bug in `gpb' prevents this
+            %% option from working with `oneof' types...  We're then
+            %% forced to use atom key maps.
+            %% {maps_key_type, binary},
+            {maps_oneof, flat},
+            {verify, always},
+            {maps_unset_optional, omitted}
+        ]
+    ).
+
+-spec load_code(module(), string(), binary()) -> ok.
+load_code(SerdeMod, SerdeModFileName, ModBinary) ->
+    _ = code:purge(SerdeMod),
+    {module, SerdeMod} = code:load_binary(SerdeMod, SerdeModFileName, ModBinary),
+    ok.
+
+-spec unload_code(module()) -> ok.
+unload_code(SerdeMod) ->
+    _ = code:purge(SerdeMod),
+    _ = code:delete(SerdeMod),
+    ok.

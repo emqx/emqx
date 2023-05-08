@@ -18,11 +18,11 @@
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     init_load/1,
     init_load/2,
-    init_load/3,
     read_override_conf/1,
     has_deprecated_file/0,
     delete_override_conf_files/0,
@@ -102,6 +102,8 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 
+-define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
+
 -export_type([
     update_request/0,
     raw_config/0,
@@ -163,9 +165,8 @@ get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 -spec find(emqx_utils_maps:config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find([]) ->
-    Ref = make_ref(),
-    case do_get(?CONF, [], Ref) of
-        Ref -> {not_found, []};
+    case do_get(?CONF, [], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find(KeyPath) ->
@@ -178,9 +179,8 @@ find(KeyPath) ->
 -spec find_raw(emqx_utils_maps:config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_raw([]) ->
-    Ref = make_ref(),
-    case do_get_raw([], Ref) of
-        Ref -> {not_found, []};
+    case do_get_raw([], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find_raw(KeyPath) ->
@@ -314,44 +314,39 @@ put_raw(KeyPath, Config) ->
 %%============================================================================
 init_load(SchemaMod) ->
     ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles, #{raw_with_default => true}).
-
-init_load(SchemaMod, Opts) when is_map(Opts) ->
-    ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles, Opts);
-init_load(SchemaMod, ConfFiles) ->
-    init_load(SchemaMod, ConfFiles, #{raw_with_default => false}).
+    init_load(SchemaMod, ConfFiles).
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files ordered
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
-init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
-    HasDeprecatedFile = has_deprecated_file(),
-    RawConf = load_config_files(HasDeprecatedFile, Conf),
-    init_load(HasDeprecatedFile, SchemaMod, RawConf, Opts).
-
-init_load(true, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
+init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% deprecated conf will be removed in 5.1
-    %% Merge environment variable overrides on top
+    HasDeprecatedFile = has_deprecated_file(),
+    RawConf0 = load_config_files(HasDeprecatedFile, Conf),
+    warning_deprecated_root_key(RawConf0),
+    RawConf1 =
+        case HasDeprecatedFile of
+            true ->
+                overlay_v0(SchemaMod, RawConf0);
+            false ->
+                overlay_v1(SchemaMod, RawConf0)
+        end,
+    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf1),
+    %% check configs against the schema
+    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
+    save_to_app_env(AppEnvs),
+    ok = save_to_config_map(CheckedConf, RawConf).
+
+%% Merge environment variable overrides on top, then merge with overrides.
+overlay_v0(SchemaMod, RawConf) when is_map(RawConf) ->
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
     Overrides = read_override_confs(),
-    RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
-    RawConfAll = maybe_fill_defaults(SchemaMod, RawConfWithOverrides, Opts),
-    %% check configs against the schema
-    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
-    save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConfAll);
-init_load(false, SchemaMod, RawConf, Opts) when is_map(RawConf) ->
-    ok = save_schema_mod_and_names(SchemaMod),
-    %% Merge environment variable overrides on top
-    RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
-    RawConfAll = maybe_fill_defaults(SchemaMod, RawConfWithEnvs, Opts),
-    %% check configs against the schema
-    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
-    save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConfAll).
+    hocon:deep_merge(RawConfWithEnvs, Overrides).
+
+%% Merge environment variable overrides on top.
+overlay_v1(SchemaMod, RawConf) when is_map(RawConf) ->
+    merge_envs(SchemaMod, RawConf).
 
 %% @doc Read merged cluster + local overrides.
 read_override_confs() ->
@@ -360,8 +355,7 @@ read_override_confs() ->
     hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
-%% TODO: remove raw_with_default as it's now always true.
-maybe_fill_defaults(SchemaMod, RawConf0, #{raw_with_default := true}) ->
+fill_defaults_for_all_roots(SchemaMod, RawConf0) ->
     RootSchemas = hocon_schema:roots(SchemaMod),
     %% the roots which are missing from the loaded configs
     MissingRoots = lists:filtermap(
@@ -380,9 +374,7 @@ maybe_fill_defaults(SchemaMod, RawConf0, #{raw_with_default := true}) ->
         RawConf0,
         MissingRoots
     ),
-    fill_defaults(RawConf);
-maybe_fill_defaults(_SchemaMod, RawConf, _Opts) ->
-    RawConf.
+    fill_defaults(RawConf).
 
 %% So far, this can only return true when testing.
 %% e.g. when testing an app, we need to load its config first
@@ -679,11 +671,9 @@ do_get_raw(Path, Default) ->
     do_get(?RAW_CONF, Path, Default).
 
 do_get(Type, KeyPath) ->
-    Ref = make_ref(),
-    Res = do_get(Type, KeyPath, Ref),
-    case Res =:= Ref of
-        true -> error({config_not_found, KeyPath});
-        false -> Res
+    case do_get(Type, KeyPath, ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> error({config_not_found, KeyPath});
+        Res -> Res
     end.
 
 do_get(Type, [], Default) ->
@@ -759,6 +749,22 @@ atom(Atom) when is_atom(Atom) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+warning_deprecated_root_key(RawConf) ->
+    case maps:keys(RawConf) -- get_root_names() of
+        [] ->
+            ok;
+        Keys ->
+            Unknowns = string:join([binary_to_list(K) || K <- Keys], ","),
+            ?tp(unknown_config_keys, #{unknown_config_keys => Unknowns}),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "config_key_not_recognized",
+                    unknown_config_keys => Unknowns
+                }
+            )
+    end.
 
 conf_key(?CONF, RootName) ->
     atom(RootName);

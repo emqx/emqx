@@ -185,7 +185,7 @@ match_who(#{peerhost := IpAddress}, {ipaddrs, CIDRs}) ->
 match_who(ClientInfo, {'and', Principals}) when is_list(Principals) ->
     lists:foldl(
         fun(Principal, Permission) ->
-            match_who(ClientInfo, Principal) andalso Permission
+            Permission andalso match_who(ClientInfo, Principal)
         end,
         true,
         Principals
@@ -193,7 +193,7 @@ match_who(ClientInfo, {'and', Principals}) when is_list(Principals) ->
 match_who(ClientInfo, {'or', Principals}) when is_list(Principals) ->
     lists:foldl(
         fun(Principal, Permission) ->
-            match_who(ClientInfo, Principal) orelse Permission
+            Permission orelse match_who(ClientInfo, Principal)
         end,
         false,
         Principals

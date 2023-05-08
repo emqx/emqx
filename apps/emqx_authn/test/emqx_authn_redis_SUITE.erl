@@ -162,7 +162,7 @@ t_create_invalid_config(_Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            matched_type := "authn-redis:standalone",
+            matched_type := "authn:redis_single",
             path := "authentication.1.server",
             reason := required_field
         }},

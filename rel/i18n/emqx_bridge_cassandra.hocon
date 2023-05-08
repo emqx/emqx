@@ -1,0 +1,43 @@
+emqx_bridge_cassandra {
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+cql_template.desc:
+"""CQL Template"""
+
+cql_template.label:
+"""CQL Template"""
+
+desc_config.desc:
+"""Configuration for a Cassandra bridge."""
+
+desc_config.label:
+"""Cassandra Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+local_topic.desc:
+"""The MQTT topic filter to be forwarded to Cassandra. All MQTT 'PUBLISH' messages with the topic
+matching the local_topic will be forwarded.</br>
+NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
+configured, then both the data got from the rule and the MQTT messages that match local_topic
+will be forwarded."""
+
+local_topic.label:
+"""Local Topic"""
+
+}

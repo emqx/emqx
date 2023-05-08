@@ -1,0 +1,50 @@
+emqx_connector_redis {
+
+cluster.desc:
+"""集群模式。当 Redis 服务运行在集群模式下，该配置必须设置为 'cluster'。"""
+
+cluster.label:
+"""集群模式"""
+
+database.desc:
+"""Redis 数据库 ID。"""
+
+database.label:
+"""数据库 ID"""
+
+sentinel.desc:
+"""哨兵模式。当 Redis 服务运行在哨兵模式下，该配置必须设置为 'sentinel'。"""
+
+sentinel.label:
+"""哨兵模式"""
+
+sentinel_desc.desc:
+"""Redis 哨兵模式下的集群名称。"""
+
+sentinel_desc.label:
+"""集群名称"""
+
+server.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+主机名具有以下形式：`Host[:Port]`。<br/>
+如果未指定 `[:Port]`，则使用 Redis 默认端口 6379。"""
+
+server.label:
+"""服务器地址"""
+
+servers.desc:
+"""集群将要连接的节点列表。 节点之间用逗号分隔，如：`Node[,Node].`
+每个节点的配置为：将要连接的 IPv4 或 IPv6 地址或主机名。
+主机名具有以下形式：`Host[:Port]`。
+如果未指定 `[:Port]`，则使用 Redis 默认端口 6379。"""
+
+servers.label:
+"""服务器列表"""
+
+single.desc:
+"""单机模式。当 Redis 服务运行在单机模式下，该配置必须设置为 'single'。"""
+
+single.label:
+"""单机模式"""
+
+}

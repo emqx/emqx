@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -50,7 +51,6 @@ t_fill_default_values(_) ->
                         },
                     <<"route_batch_clean">> := false,
                     <<"session_locking_strategy">> := quorum,
-                    <<"shared_dispatch_ack_enabled">> := false,
                     <<"shared_subscription_strategy">> := round_robin
                 }
         },
@@ -78,3 +78,21 @@ t_init_load(_Config) ->
     ?assertEqual(ExpectRootNames, lists:sort(emqx_config:get_root_names())),
     ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
     ok = file:delete(DeprecatedFile).
+
+t_unknown_rook_keys(_) ->
+    ?check_trace(
+        #{timetrap => 1000},
+        begin
+            ok = emqx_config:init_load(
+                emqx_schema, <<"test_1 {}\n test_2 {sub = 100}\n listeners {}">>
+            ),
+            ?block_until(#{?snk_kind := unknown_config_keys})
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{unknown_config_keys := "test_1,test_2"}],
+                ?of_kind(unknown_config_keys, Trace)
+            )
+        end
+    ),
+    ok.

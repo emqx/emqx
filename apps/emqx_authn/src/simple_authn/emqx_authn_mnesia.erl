@@ -107,14 +107,16 @@ mnesia(boot) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-builtin_db".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
-roots() -> [?CONF_NS].
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, builtin_db))}].
 
-fields(?CONF_NS) ->
+fields(builtin_db) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(built_in_database)},
@@ -122,8 +124,8 @@ fields(?CONF_NS) ->
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
     ] ++ emqx_authn_schema:common_fields().
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(builtin_db) ->
+    ?DESC(builtin_db);
 desc(_) ->
     undefined.
 
@@ -138,7 +140,7 @@ user_id_type(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, builtin_db)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).

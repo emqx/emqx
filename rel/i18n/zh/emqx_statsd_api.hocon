@@ -1,0 +1,9 @@
+emqx_statsd_api {
+
+get_statsd_config_api.desc:
+"""列出 StatsD 指标采集和推送服务的的配置。"""
+
+update_statsd_config_api.desc:
+"""更新 StatsD 指标采集和推送服务的配置。"""
+
+}

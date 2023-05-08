@@ -19,7 +19,17 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, avro},
+        {group, protobuf}
+    ].
+
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {avro, AllTCs},
+        {protobuf, AllTCs}
+    ].
 
 init_per_suite(Config) ->
     emqx_config:save_schema_mod_and_names(emqx_ee_schema_registry_schema),
@@ -28,6 +38,48 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(lists:reverse(?APPS)),
+    ok.
+
+init_per_group(avro, Config) ->
+    Source = #{
+        type => record,
+        fields => [
+            #{name => <<"i">>, type => <<"int">>},
+            #{name => <<"s">>, type => <<"string">>}
+        ]
+    },
+    SourceBin = emqx_utils_json:encode(Source),
+    InvalidSourceBin = <<"{}">>,
+    [
+        {serde_type, avro},
+        {schema_source, SourceBin},
+        {invalid_schema_source, InvalidSourceBin}
+        | Config
+    ];
+init_per_group(protobuf, Config) ->
+    SourceBin =
+        <<
+            "message Person {\n"
+            "     required string name = 1;\n"
+            "     required int32 id = 2;\n"
+            "     optional string email = 3;\n"
+            "  }\n"
+            "message UnionValue {\n"
+            "    oneof u {\n"
+            "        int32  a = 1;\n"
+            "        string b = 2;\n"
+            "    }\n"
+            "}\n"
+        >>,
+    InvalidSourceBin = <<"xxxx">>,
+    [
+        {serde_type, protobuf},
+        {schema_source, SourceBin},
+        {invalid_schema_source, InvalidSourceBin}
+        | Config
+    ].
+
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
@@ -93,18 +145,14 @@ clear_schemas() ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_crud(_Config) ->
-    SchemaName = <<"my_avro_schema">>,
-    Source = #{
-        type => record,
-        fields => [
-            #{name => <<"i">>, type => <<"int">>},
-            #{name => <<"s">>, type => <<"string">>}
-        ]
-    },
-    SourceBin = emqx_utils_json:encode(Source),
+t_crud(Config) ->
+    SerdeType = ?config(serde_type, Config),
+    SourceBin = ?config(schema_source, Config),
+    InvalidSourceBin = ?config(invalid_schema_source, Config),
+    SerdeTypeBin = atom_to_binary(SerdeType),
+    SchemaName = <<"my_schema">>,
     Params = #{
-        <<"type">> => <<"avro">>,
+        <<"type">> => SerdeTypeBin,
         <<"source">> => SourceBin,
         <<"name">> => SchemaName,
         <<"description">> => <<"My schema">>
@@ -138,7 +186,7 @@ t_crud(_Config) ->
     %% create a schema
     ?assertMatch(
         {ok, 201, #{
-            <<"type">> := <<"avro">>,
+            <<"type">> := SerdeTypeBin,
             <<"source">> := SourceBin,
             <<"name">> := SchemaName,
             <<"description">> := <<"My schema">>
@@ -147,7 +195,7 @@ t_crud(_Config) ->
     ),
     ?assertMatch(
         {ok, 200, #{
-            <<"type">> := <<"avro">>,
+            <<"type">> := SerdeTypeBin,
             <<"source">> := SourceBin,
             <<"name">> := SchemaName,
             <<"description">> := <<"My schema">>
@@ -157,7 +205,7 @@ t_crud(_Config) ->
     ?assertMatch(
         {ok, 200, [
             #{
-                <<"type">> := <<"avro">>,
+                <<"type">> := SerdeTypeBin,
                 <<"source">> := SourceBin,
                 <<"name">> := SchemaName,
                 <<"description">> := <<"My schema">>
@@ -168,7 +216,7 @@ t_crud(_Config) ->
     UpdateParams1 = UpdateParams#{<<"description">> := <<"My new schema">>},
     ?assertMatch(
         {ok, 200, #{
-            <<"type">> := <<"avro">>,
+            <<"type">> := SerdeTypeBin,
             <<"source">> := SourceBin,
             <<"name">> := SchemaName,
             <<"description">> := <<"My new schema">>
@@ -188,9 +236,9 @@ t_crud(_Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_ee_schema_registry,{not_found,<<\"type\">>}}">>
+                <<"{post_config_update,emqx_ee_schema_registry,", _/binary>>
         }},
-        request({put, SchemaName, UpdateParams#{<<"source">> := <<"{}">>}})
+        request({put, SchemaName, UpdateParams#{<<"source">> := InvalidSourceBin}})
     ),
 
     ?assertMatch(
@@ -229,9 +277,9 @@ t_crud(_Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_ee_schema_registry,{not_found,<<\"type\">>}}">>
+                <<"{post_config_update,emqx_ee_schema_registry,", _/binary>>
         }},
-        request({post, Params#{<<"source">> := <<"{}">>}})
+        request({post, Params#{<<"source">> := InvalidSourceBin}})
     ),
 
     %% unknown serde type

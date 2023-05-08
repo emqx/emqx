@@ -73,9 +73,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, #{}, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, #{}),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
@@ -160,17 +158,13 @@ t_rewrite_re_error(_Config) ->
     ok.
 
 t_list(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Expect = maps:get(<<"rewrite">>, ?REWRITE),
     ?assertEqual(Expect, emqx_rewrite:list()),
     ok.
 
 t_update(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Init = emqx_rewrite:list(),
     Rules = [
         #{
@@ -186,9 +180,7 @@ t_update(_Config) ->
     ok.
 
 t_update_disable(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     ?assertEqual(ok, emqx_rewrite:update([])),
     timer:sleep(150),
 
@@ -203,9 +195,7 @@ t_update_disable(_Config) ->
     ok.
 
 t_update_re_failed(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Re = <<"*^test/*">>,
     Rules = [
         #{
@@ -261,9 +251,7 @@ receive_publish(Timeout) ->
     end.
 
 init() ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     ok = emqx_rewrite:enable(),
     {ok, C} = emqtt:start_link([{clientid, <<"c1">>}, {username, <<"u1">>}]),
     {ok, _} = emqtt:connect(C),

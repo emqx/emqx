@@ -396,7 +396,7 @@ relx_get_pid() {
 remsh() {
     # Generate a unique id used to allow multiple remsh to the same node
     # transparently
-    id="remsh$(relx_gen_id)-${NAME}"
+    id="remsh$(gen_node_id)-${NAME}"
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
@@ -424,7 +424,7 @@ remsh() {
 }
 
 # Generate a random id
-relx_gen_id() {
+gen_node_id() {
     od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
 }
 
@@ -451,7 +451,7 @@ find_emqx_process() {
     if [ -n "${EMQX_NODE__NAME:-}" ]; then
         # if node name is provided, filter by node name
         # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s\-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
     else
         # shellcheck disable=SC2009
         ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
@@ -482,7 +482,7 @@ RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     if [ "$RUNNING_NODES_COUNT" -gt 0 ] && [ "$COMMAND" != 'check_config' ]; then
-        running_node_name=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
+        running_node_name=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
         if [ -n "$running_node_name" ] && [ "$running_node_name" = "${EMQX_NODE__NAME:-}" ]; then
             echo "Node ${running_node_name} is already running!"
             exit 1
@@ -520,10 +520,10 @@ else
     #    would try to stop the new node instead.
     if [ "$RUNNING_NODES_COUNT" -eq 1 ]; then
         ## only one emqx node is running, get running args from 'ps -ef' output
-        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
-        tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
+        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
+        tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s-setcookie.*" | awk '{print $2}' || true)
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
-        tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s\-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
+        tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         if [ -z "$SSL_DIST_OPTFILE" ]; then
@@ -536,7 +536,7 @@ else
     else
         if [ "$RUNNING_NODES_COUNT" -gt 1 ]; then
             if [ -z "${EMQX_NODE__NAME:-}" ]; then
-                tmp_nodenames=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' | tr '\n' ' ')
+                tmp_nodenames=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' | tr '\n' ' ')
                 logerr "More than one EMQX node found running (root dir: ${RUNNER_ROOT_DIR})"
                 logerr "Running nodes: $tmp_nodenames"
                 logerr "Make sure environment variable EMQX_NODE__NAME is set to indicate for which node this command is intended."
@@ -806,6 +806,7 @@ generate_config() {
 }
 
 # check if a PID is down
+# shellcheck disable=SC2317 # call in func `nodetool_shutdown()`
 is_down() {
     PID="$1"
     if ps -p "$PID" >/dev/null; then
@@ -937,7 +938,7 @@ case "$NAME" in
 esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 HOST_NAME="$(echo "$NAME" | awk -F'@' '{print $2}')"
-if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
+if ! (echo "$SHORT_NAME" | $GREP -q '^[0-9A-Za-z_\-]\+$'); then
     logerr "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
 fi
@@ -972,7 +973,7 @@ maybe_warn_default_cookie() {
 ## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
 if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "rlog" ]]; then
-    if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'MNESIA_OK'); then
+    if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'MNESIA_OK'); then
       logerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
       export EMQX_NODE__DB_BACKEND=mnesia
       export EMQX_NODE__DB_ROLE=core
@@ -1277,7 +1278,7 @@ case "${COMMAND}" in
         then
           "$REL_DIR/elixir" \
               --hidden \
-              --name "rand-$(relx_gen_id)-$NAME" \
+              --name "rand-$(gen_node_id)-$NAME" \
               --cookie "$COOKIE" \
               --boot "$REL_DIR/start_clean" \
               --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \

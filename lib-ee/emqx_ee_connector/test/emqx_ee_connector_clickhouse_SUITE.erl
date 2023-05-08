@@ -95,15 +95,15 @@ show(Label, What) ->
     erlang:display({Label, What}),
     What.
 
-perform_lifecycle_check(PoolName, InitialConfig) ->
+perform_lifecycle_check(ResourceID, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?CLICKHOUSE_RESOURCE_MOD, InitialConfig),
     {ok, #{
-        state := #{poolname := ReturnedPoolName} = State,
+        state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} =
         emqx_resource:create_local(
-            PoolName,
+            ResourceID,
             ?CONNECTOR_RESOURCE_GROUP,
             ?CLICKHOUSE_RESOURCE_MOD,
             CheckedConfig,
@@ -115,49 +115,49 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         state := State,
         status := InitialStatus
     }} =
-        emqx_resource:get_instance(PoolName),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
+        emqx_resource:get_instance(ResourceID),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceID)),
     % % Perform query as further check that the resource is working as expected
     (fun() ->
-        erlang:display({pool_name, PoolName}),
-        QueryNoParamsResWrapper = emqx_resource:query(PoolName, test_query_no_params()),
+        erlang:display({pool_name, ResourceID}),
+        QueryNoParamsResWrapper = emqx_resource:query(ResourceID, test_query_no_params()),
         ?assertMatch({ok, _}, QueryNoParamsResWrapper),
         {_, QueryNoParamsRes} = QueryNoParamsResWrapper,
         ?assertMatch(<<"1">>, string:trim(QueryNoParamsRes))
     end)(),
-    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    ?assertEqual(ok, emqx_resource:stop(ResourceID)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{
         state := State,
         status := StoppedStatus
     }} =
-        emqx_resource:get_instance(PoolName),
+        emqx_resource:get_instance(ResourceID),
     ?assertEqual(stopped, StoppedStatus),
-    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(PoolName)),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceID)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
-    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
     % Can call stop/1 again on an already stopped instance
-    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    ?assertEqual(ok, emqx_resource:stop(ResourceID)),
     % Make sure it can be restarted and the healthchecks and queries work properly
-    ?assertEqual(ok, emqx_resource:restart(PoolName)),
+    ?assertEqual(ok, emqx_resource:restart(ResourceID)),
     % async restart, need to wait resource
     timer:sleep(500),
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
-        emqx_resource:get_instance(PoolName),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
+        emqx_resource:get_instance(ResourceID),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceID)),
     (fun() ->
         QueryNoParamsResWrapper =
-            emqx_resource:query(PoolName, test_query_no_params()),
+            emqx_resource:query(ResourceID, test_query_no_params()),
         ?assertMatch({ok, _}, QueryNoParamsResWrapper),
         {_, QueryNoParamsRes} = QueryNoParamsResWrapper,
         ?assertMatch(<<"1">>, string:trim(QueryNoParamsRes))
     end)(),
     % Stop and remove the resource in one go.
-    ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
-    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    ?assertEqual(ok, emqx_resource:remove_local(ResourceID)),
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
     % Should not even be able to get the resource data out of ets now unlike just stopping.
-    ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
+    ?assertEqual({error, not_found}, emqx_resource:get_instance(ResourceID)).
 
 % %%------------------------------------------------------------------------------
 % %% Helpers

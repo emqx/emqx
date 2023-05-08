@@ -47,13 +47,14 @@ init_per_testcase(Case, Config) when
     Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp
 ->
     catch emqx_config_handler:stop(),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
     {ok, _} = emqx_config_handler:start_link(),
     PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     PureListeners2 = PureListeners#{
         tcp => #{
             listener_test => #{
-                bind => {"127.0.0.1", 9999},
+                bind => {"127.0.0.1", Port},
                 max_connections => 4321,
                 limiter => #{}
             }
@@ -63,19 +64,20 @@ init_per_testcase(Case, Config) when
 
     ok = emqx_listeners:start(),
     [
-        {prev_listener_conf, PrevListeners}
+        {prev_listener_conf, PrevListeners},
+        {tcp_port, Port}
         | Config
     ];
 init_per_testcase(t_wss_conn, Config) ->
     catch emqx_config_handler:stop(),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
     {ok, _} = emqx_config_handler:start_link(),
-
     PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     PureListeners2 = PureListeners#{
         wss => #{
             listener_test => #{
-                bind => {{127, 0, 0, 1}, 9998},
+                bind => {{127, 0, 0, 1}, Port},
                 limiter => #{},
                 ssl_options => #{
                     cacertfile => ?CERTS_PATH("cacert.pem"),
@@ -89,7 +91,8 @@ init_per_testcase(t_wss_conn, Config) ->
 
     ok = emqx_listeners:start(),
     [
-        {prev_listener_conf, PrevListeners}
+        {prev_listener_conf, PrevListeners},
+        {wss_port, Port}
         | Config
     ];
 init_per_testcase(_, Config) ->
@@ -171,20 +174,30 @@ t_restart_listeners_with_hibernate_after_disabled(_Config) ->
     ok = emqx_listeners:stop(),
     emqx_config:put([listeners], OldLConf).
 
-t_max_conns_tcp(_) ->
+t_max_conns_tcp(Config) ->
     %% Note: Using a string representation for the bind address like
     %% "127.0.0.1" does not work
-    ?assertEqual(4321, emqx_listeners:max_conns('tcp:listener_test', {{127, 0, 0, 1}, 9999})).
+    ?assertEqual(
+        4321,
+        emqx_listeners:max_conns('tcp:listener_test', {{127, 0, 0, 1}, ?config(tcp_port, Config)})
+    ).
 
-t_current_conns_tcp(_) ->
-    ?assertEqual(0, emqx_listeners:current_conns('tcp:listener_test', {{127, 0, 0, 1}, 9999})).
+t_current_conns_tcp(Config) ->
+    ?assertEqual(
+        0,
+        emqx_listeners:current_conns('tcp:listener_test', {
+            {127, 0, 0, 1}, ?config(tcp_port, Config)
+        })
+    ).
 
-t_wss_conn(_) ->
-    {ok, Socket} = ssl:connect({127, 0, 0, 1}, 9998, [{verify, verify_none}], 1000),
+t_wss_conn(Config) ->
+    {ok, Socket} = ssl:connect(
+        {127, 0, 0, 1}, ?config(wss_port, Config), [{verify, verify_none}], 1000
+    ),
     ok = ssl:close(Socket).
 
 t_quic_conn(Config) ->
-    Port = 24568,
+    Port = emqx_common_test_helpers:select_free_port(quic),
     DataDir = ?config(data_dir, Config),
     SSLOpts = #{
         password => ?SERVER_KEY_PASSWORD,
@@ -207,7 +220,7 @@ t_quic_conn(Config) ->
     emqx_listeners:stop_listener(quic, ?FUNCTION_NAME, #{bind => Port}).
 
 t_ssl_password_cert(Config) ->
-    Port = 24568,
+    Port = emqx_common_test_helpers:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     SSLOptsPWD = #{
         password => ?SERVER_KEY_PASSWORD,

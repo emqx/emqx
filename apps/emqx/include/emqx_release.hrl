@@ -32,7 +32,7 @@
 %% `apps/emqx/src/bpapi/README.md'
 
 %% Community edition
--define(EMQX_RELEASE_CE, "5.0.22").
+-define(EMQX_RELEASE_CE, "5.0.24").
 
 %% Enterprise edition
 -define(EMQX_RELEASE_EE, "5.0.3-rc.1").

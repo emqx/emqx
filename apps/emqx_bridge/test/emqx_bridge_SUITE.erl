@@ -141,8 +141,7 @@ setup_fake_telemetry_data() ->
                         }
                 }
         },
-    Opts = #{raw_with_default => true},
-    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf, Opts),
+    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf),
 
     ok = snabbkaffe:start_trace(),
     Predicate = fun(#{?snk_kind := K}) -> K =:= emqx_bridge_loaded end,

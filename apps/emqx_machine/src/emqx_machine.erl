@@ -43,7 +43,7 @@ start() ->
     start_sysmon(),
     configure_shard_transports(),
     ekka:start(),
-    ok = print_otp_version_warning().
+    ok.
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().
@@ -60,17 +60,6 @@ set_backtrace_depth() ->
 %% @doc Return true if boot is complete.
 is_ready() ->
     emqx_machine_terminator:is_running().
-
--if(?OTP_RELEASE > 22).
-print_otp_version_warning() -> ok.
--else.
-print_otp_version_warning() ->
-    ?ULOG(
-        "WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
-        [?OTP_RELEASE]
-    ).
-% OTP_RELEASE > 22
--endif.
 
 start_sysmon() ->
     _ = application:load(system_monitor),

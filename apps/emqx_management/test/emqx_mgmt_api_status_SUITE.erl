@@ -38,7 +38,10 @@ all() ->
 get_status_tests() ->
     [
         t_status_ok,
-        t_status_not_ok
+        t_status_not_ok,
+        t_status_text_format,
+        t_status_json_format,
+        t_status_bad_format_qs
     ].
 
 groups() ->
@@ -87,8 +90,10 @@ do_request(Opts) ->
         headers := Headers,
         body := Body0
     } = Opts,
+    QS = maps:get(qs, Opts, ""),
     URL = ?HOST ++ filename:join(Path0),
-    {ok, #{host := Host, port := Port, path := Path}} = emqx_http_lib:uri_parse(URL),
+    {ok, #{host := Host, port := Port, path := Path1}} = emqx_http_lib:uri_parse(URL),
+    Path = Path1 ++ QS,
     %% we must not use `httpc' here, because it keeps retrying when it
     %% receives a 503 with `retry-after' header, and there's no option
     %% to stop that behavior...
@@ -163,5 +168,75 @@ t_status_not_ok(Config) ->
     ?assertMatch(
         #{<<"retry-after">> := <<"15">>},
         Headers
+    ),
+    ok.
+
+t_status_text_format(Config) ->
+    Path = ?config(get_status_path, Config),
+    #{
+        body := Resp,
+        status_code := StatusCode
+    } = do_request(#{
+        method => get,
+        path => Path,
+        qs => "?format=text",
+        headers => [],
+        body => no_body
+    }),
+    ?assertEqual(200, StatusCode),
+    ?assertMatch(
+        {match, _},
+        re:run(Resp, <<"emqx is running$">>)
+    ),
+    ok.
+
+t_status_json_format(Config) ->
+    Path = ?config(get_status_path, Config),
+    #{
+        body := Resp,
+        status_code := StatusCode
+    } = do_request(#{
+        method => get,
+        path => Path,
+        qs => "?format=json",
+        headers => [],
+        body => no_body
+    }),
+    ?assertEqual(200, StatusCode),
+    ?assertMatch(
+        #{<<"app_status">> := <<"running">>},
+        emqx_utils_json:decode(Resp)
+    ),
+    ok.
+
+t_status_bad_format_qs(Config) ->
+    lists:foreach(
+        fun(QS) ->
+            test_status_bad_format_qs(QS, Config)
+        end,
+        [
+            "?a=b",
+            "?format=",
+            "?format=x"
+        ]
+    ).
+
+%% when query-sting is invalid, fallback to text format
+test_status_bad_format_qs(QS, Config) ->
+    Path = ?config(get_status_path, Config),
+    #{
+        body := Resp,
+        status_code := StatusCode
+    } = do_request(#{
+        method => get,
+        path => Path,
+        qs => QS,
+        headers => [],
+        body => no_body
+    }),
+    ?assertEqual(200, StatusCode),
+    ?assertMatch(
+        {match, _},
+        re:run(Resp, <<"emqx is running$">>)
     ),
     ok.
