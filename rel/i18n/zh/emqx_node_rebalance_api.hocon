@@ -1,46 +1,46 @@
 emqx_node_rebalance_api {
 
 load_rebalance_status.desc:
-"""获取当前节点的rebalance状态"""
+"""获取当前节点的重平衡状态"""
 
 load_rebalance_status.label:
-"""获取rebalance状态"""
+"""获取重平衡状态"""
 
 load_rebalance_global_status.desc:
-"""获取集群中所有rebalance/evacuation进程的状态"""
+"""获取集群中所有重平衡/疏散任务的状态"""
 
 load_rebalance_global_status.label:
-"""获取全局rebalance状态"""
+"""获取全局重平衡状态"""
 
 load_rebalance_availability_check.desc:
-"""检查节点是否正在被evacuate或rebalance"""
+"""检查节点是否正在被执行重平衡或疏散"""
 
 load_rebalance_availability_check.label:
 """可用性检查"""
 
 load_rebalance_start.desc:
-"""启动rebalance进程"""
+"""启动重平衡任务"""
 
 load_rebalance_start.label:
-"""启动rebalance"""
+"""启动重平衡"""
 
 load_rebalance_stop.desc:
-"""停止rebalance进程"""
+"""停止重平衡任务"""
 
 load_rebalance_stop.label:
-"""停止rebalance"""
+"""停止重平衡"""
 
 load_rebalance_evacuation_start.desc:
-"""启动evacuation进程"""
+"""启动疏散任务"""
 
 load_rebalance_evacuation_start.label:
-"""启动evacuation"""
+"""启动疏散"""
 
 load_rebalance_evacuation_stop.desc:
-"""停止evacuation进程"""
+"""停止疏散任务"""
 
 load_rebalance_evacuation_stop.label:
-"""停止evacuation"""
+"""停止疏散"""
 
 param_node.desc:
 """节点名称"""
@@ -49,49 +49,49 @@ param_node.label:
 """节点名称"""
 
 wait_health_check.desc:
-"""启动rebalance进程前等待的时间，单位为秒"""
+"""启动重平衡任务前等待的时间，单位为秒"""
 
 wait_health_check.label:
 """等待健康检查"""
 
 conn_evict_rate.desc:
-"""逐出连接的速率，以每秒连接数表示"""
+"""每秒迁出连接数"""
 
 conn_evict_rate.label:
-"""连接驱逐率"""
+"""迁出速率"""
 
 sess_evict_rate.desc:
-"""逐出会话的速率，以每秒会话为单位"""
+"""每秒迁出会话数"""
 
 sess_evict_rate.label:
-"""会话驱逐率"""
+"""会话迁出速率"""
 
 abs_conn_threshold.desc:
-"""节点上的连接数与接收节点上的平均连接数之间的最大期望差值"""
+"""当前节点上的连接数与迁入节点上的平均连接数的差值（绝对值）上限，低于该差值时停止迁移连接。"""
 
 abs_conn_threshold.label:
-"""绝对连接阈值"""
+"""连接数差值"""
 
 rel_conn_threshold.desc:
-"""节点上的连接数与接收节点上的平均连接数之间的最大期望分数"""
+"""当前节点上的连接数与迁入节点上的平均连接数的比值上限，低于该比值时停止迁移连接。"""
 
 rel_conn_threshold.label:
-"""相对连接阈值"""
+"""连接数比值"""
 
 abs_sess_threshold.desc:
-"""节点上的会话数与接收节点上的平均会话数之间的最大期望差异"""
+"""当前节点上的会话数与迁入节点上的平均会话数之间的差值（绝对值）上限，低于该差值时停止迁移会话。"""
 
 abs_sess_threshold.label:
-"""绝对会话阈值"""
+"""会话数差值"""
 
 rel_sess_threshold.desc:
-"""节点上的会话数与接收节点上的平均会话数之间的最大期望分数"""
+"""当前节点上的会话数与迁入节点上的平均会话数的比值上限，低于该比值时停止迁移会话。"""
 
 rel_sess_threshold.label:
-"""相对会话阈值"""
+"""会话数比值"""
 
 wait_takeover.desc:
-"""开始会话疏散过程之前等待的时间，以秒为单位"""
+"""开始会话疏散任务之前的等待时间，以秒为单位"""
 
 wait_takeover.label:
 """等待接管"""
@@ -103,91 +103,91 @@ redirect_to.label:
 """重定向至"""
 
 migrate_to.desc:
-"""将会话迁移到的节点"""
+"""接受会话迁入的节点"""
 
 migrate_to.label:
-"""迁移到"""
+"""迁入节点"""
 
 rebalance_nodes.desc:
-"""参与rebalance的节点"""
+"""参与重平衡的节点"""
 
 rebalance_nodes.label:
 """重新平衡节点"""
 
 local_status_enabled.desc:
-"""节点是否正在撤离"""
+"""节点是否正在执行重平衡疏散任务"""
 
 local_status_enabled.label:
-"""当地避难状况"""
+"""运行状态"""
 
 local_status_process.desc:
-"""正在节点上执行的过程：疏散或重新平衡"""
+"""正在节点上执行的任务：'evacuation' 或 'rebalance'"""
 
 local_status_process.label:
-"""节点进程"""
+"""节点任务"""
 
 local_status_state.desc:
-"""正在节点上执行的进程的状态"""
+"""正在节点上执行的任务的状态"""
 
 local_status_state.label:
 """重新平衡/疏散当前状态"""
 
 local_status_coordinator_node.desc:
-"""协调再平衡过程的节点"""
+"""协调分配重平衡任务的节点"""
 
 local_status_coordinator_node.label:
 """协调节点"""
 
 local_status_connection_eviction_rate.desc:
-"""逐出连接的速率，以每秒连接数表示"""
+"""每秒迁出的连接数"""
 
 local_status_connection_eviction_rate.label:
-"""连接驱逐率"""
+"""连接迁出速率"""
 
 local_status_session_eviction_rate.desc:
-"""逐出会话的速率，以每秒会话为单位"""
+"""每秒迁出的会话数"""
 
 local_status_session_eviction_rate.label:
-"""会话驱逐率"""
+"""会话迁出速率"""
 
 local_status_connection_goal.desc:
-"""节点在重新平衡/疏散过程后应该拥有的连接数"""
+"""节点在重新平衡/疏散任务完成后预期拥有的连接数"""
 
 local_status_connection_goal.label:
-"""连接目标"""
+"""连接数目标"""
 
 local_status_session_goal.desc:
-"""疏散过程后节点应有的会话数"""
+"""疏散任务完成后节点预期的会话数"""
 
 local_status_session_goal.label:
-"""会话目标"""
+"""会话数目标"""
 
 local_status_disconnected_session_goal.desc:
-"""重新平衡过程后节点应具有的断开连接的会话数"""
+"""重新平衡任务完成后节点预期的无连接的会话数"""
 
 local_status_disconnected_session_goal.label:
-"""断开连接的会话目标"""
+"""预期无连接会话数"""
 
 local_status_session_recipients.desc:
-"""会话被疏散到的节点列表"""
+"""会话被迁入的节点列表"""
 
 local_status_session_recipients.label:
-"""会话收件人"""
+"""会话迁入节点"""
 
 local_status_recipients.desc:
-"""在重新平衡期间连接/会话被疏散到的节点列表"""
+"""在重新平衡期间接受连接/会话迁入的节点列表"""
 
 local_status_recipients.label:
-"""收件人"""
+"""接受迁入节点"""
 
 local_status_stats.desc:
-"""疏散/再平衡过程的统计"""
+"""疏散/重平衡的统计"""
 
 local_status_stats.label:
 """统计数据"""
 
 status_stats_initial_connected.desc:
-"""疏散/重新平衡过程之前节点上的连接数"""
+"""疏散/重新平衡任务开始之前节点上的连接数"""
 
 status_stats_initial_connected.label:
 """初始连接"""
@@ -199,7 +199,7 @@ status_stats_current_connected.label:
 """当前连接"""
 
 status_stats_initial_sessions.desc:
-"""疏散/重新平衡过程之前节点上的会话数"""
+"""疏散/重新平衡任务开始之前节点上的会话数"""
 
 status_stats_initial_sessions.label:
 """初始会话"""
@@ -211,52 +211,52 @@ status_stats_current_sessions.label:
 """当前会话"""
 
 status_stats_current_disconnected_sessions.desc:
-"""节点上当前断开连接的会话数"""
+"""节点上当前无连接的会话数"""
 
 status_stats_current_disconnected_sessions.label:
-"""当前断开连接的会话"""
+"""当前无连接会话"""
 
 coordinator_status_donors.desc:
-"""正在疏散连接/会话的节点列表"""
+"""正在迁出连接/会话的节点列表"""
 
 coordinator_status_donors.label:
-"""捐助者"""
+"""迁出节点"""
 
 coordinator_status_donor_conn_avg.desc:
-"""每个供体节点的平均连接数"""
+"""每个迁出节点的平均连接数"""
 
 coordinator_status_donor_conn_avg.label:
-"""捐助者连接平均值"""
+"""迁出节点连接平均值"""
 
 coordinator_status_donor_sess_avg.desc:
-"""每个供体节点的平均会话数"""
+"""每个迁出节点的平均会话数"""
 
 coordinator_status_donor_sess_avg.label:
-"""平均捐助会议"""
+"""迁出节点会话平均数"""
 
 coordinator_status_node.desc:
-"""协调疏散/再平衡过程的节点"""
+"""协调分配疏散/重平衡任务的节点"""
 
 coordinator_status_node.label:
 """协调节点"""
 
 evacuation_status_node.desc:
-"""正在撤离的节点"""
+"""正在迁出的节点"""
 
 evacuation_status_node.label:
 """疏散节点"""
 
 global_status_evacuations.desc:
-"""正在撤离的节点列表"""
+"""正在迁出的节点列表"""
 
 global_status_evacuations.label:
 """疏散"""
 
 global_status_rebalances.desc:
-"""协调再平衡的节点列表"""
+"""协调重平衡的节点列表"""
 
 global_status_rebalances.label:
-"""再平衡"""
+"""重平衡"""
 
 empty_response.desc:
 """响应为空"""
@@ -264,4 +264,3 @@ empty_response.desc:
 empty_response.label:
 """空响应"""
 }
-

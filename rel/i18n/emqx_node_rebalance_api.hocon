@@ -67,25 +67,25 @@ sess_evict_rate.label:
 """Session eviction rate"""
 
 abs_conn_threshold.desc:
-"""Maximum desired difference between the number of connections on the node and the average number of connections on the recipient nodes"""
+"""Maximum desired difference between the number of connections on the node and the average number of connections on the recipient nodes. Difference lower than this is the goal of the rebalance process."""
 
 abs_conn_threshold.label:
 """Absolute connection threshold"""
 
 rel_conn_threshold.desc:
-"""Maximum desired fraction between the number of connections on the node and the average number of connections on the recipient nodes"""
+"""Maximum desired fraction between the number of connections on the node and the average number of connections on the recipient nodes. Fraction lower than this is the goal of the rebalance process."""
 
 rel_conn_threshold.label:
 """Relative connection threshold"""
 
 abs_sess_threshold.desc:
-"""Maximum desired difference between the number of sessions on the node and the average number of sessions on the recipient nodes"""
+"""Maximum desired difference between the number of sessions on the node and the average number of sessions on the recipient nodes. Difference lower than this is the goal of the evacuation process."""
 
 abs_sess_threshold.label:
 """Absolute session threshold"""
 
 rel_sess_threshold.desc:
-"""Maximum desired fraction between the number of sessions on the node and the average number of sessions on the recipient nodes"""
+"""Maximum desired fraction between the number of sessions on the node and the average number of sessions on the recipient nodes. Fraction lower than this is the goal of the evacuation process"""
 
 rel_sess_threshold.label:
 """Relative session threshold"""
