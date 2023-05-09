@@ -13,16 +13,16 @@ event_payload.label:
 """Message Payload"""
 
 metrics_actions_failed_out_of_service.desc:
-"""How much times the rule failed to call actions due to the action is out of service. For example, a bridge is disabled or stopped."""
+"""How many times the rule has failed to call actions due to the action is out of service. For example, a bridge is disabled or stopped."""
 
 metrics_actions_failed_out_of_service.label:
 """Fail Action"""
 
 metrics_actions_failed_unknown.desc:
-"""How much times the rule failed to call actions due to to an unknown error."""
+"""The number of action failures that have occurred due to unanticipated reasons. For more information on these errors, please refer to the EMQX log file."""
 
 metrics_actions_failed_unknown.label:
-"""Fail Action"""
+"""Unknown Failures"""
 
 event_server.desc:
 """The IP address (or hostname) and port of the MQTT broker, in IP:Port format"""
@@ -31,7 +31,7 @@ event_server.label:
 """Server IP And Port"""
 
 metrics_actions_total.desc:
-"""How much times the actions are called by the rule. This value may several times of 'matched', depending on the number of the actions of the rule."""
+"""How many times the actions are called by the rule. This value may several times of 'matched', depending on the number of the actions of the rule."""
 
 metrics_actions_total.label:
 """Action Total"""
@@ -55,7 +55,7 @@ event_peername.label:
 """IP Address And Port"""
 
 metrics_sql_passed.desc:
-"""How much times the SQL is passed"""
+"""How many times the SQL is passed"""
 
 metrics_sql_passed.label:
 """SQL Passed"""
@@ -91,7 +91,7 @@ event_connected_at.label:
 """Connected Time"""
 
 metrics_sql_failed_exception.desc:
-"""How much times the SQL is failed due to exceptions. This may because of a crash when calling a SQL function, or trying to do arithmetic operation on undefined variables"""
+"""How many times the SQL is failed due to exceptions. This may because of a crash when calling a SQL function, or trying to do arithmetic operation on undefined variables"""
 
 metrics_sql_failed_exception.label:
 """SQL Exception"""
@@ -181,7 +181,7 @@ event_expiry_interval.label:
 """Expiry Interval"""
 
 metrics_sql_matched.desc:
-"""How much times the FROM clause of the SQL is matched."""
+"""How many times the FROM clause of the SQL is matched."""
 
 metrics_sql_matched.label:
 """Matched"""
@@ -193,13 +193,13 @@ event_clientid.label:
 """Client ID"""
 
 metrics_actions_success.desc:
-"""How much times the rule success to call the actions."""
+"""How many times the rule successided to call the actions."""
 
 metrics_actions_success.label:
 """Success Action"""
 
 metrics_actions_failed.desc:
-"""How much times the rule failed to call the actions."""
+"""How many times the rule failed to call the actions."""
 
 metrics_actions_failed.label:
 """Failed Action"""
@@ -241,13 +241,13 @@ event_authz_source.label:
 """Auth Source"""
 
 metrics_sql_failed_unknown.desc:
-"""How much times the SQL is failed due to an unknown error."""
+"""How many times the SQL is failed due to an unknown error."""
 
 metrics_sql_failed_unknown.label:
 """SQL Unknown Error"""
 
 metrics_sql_failed.desc:
-"""How much times the SQL is failed"""
+"""How many times the SQL statement has failed"""
 
 metrics_sql_failed.label:
 """SQL Failed"""
