@@ -324,7 +324,9 @@ list(_Options, Query = #{transfer := _Transfer}) ->
         #{items := Exports = [_ | _]} ->
             {ok, #{items => Exports}};
         #{items := [], errors := NodeErrors} ->
-            {error, NodeErrors}
+            {error, NodeErrors};
+        #{items := []} ->
+            {ok, #{items => []}}
     end;
 list(_Options, Query) ->
     Result = list(Query),

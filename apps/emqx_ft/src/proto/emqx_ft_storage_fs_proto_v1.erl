@@ -22,6 +22,7 @@
 
 -export([multilist/3]).
 -export([pread/5]).
+-export([list_assemblers/2]).
 
 -type offset() :: emqx_ft:offset().
 -type transfer() :: emqx_ft:transfer().
@@ -41,3 +42,8 @@ multilist(Nodes, Transfer, What) ->
     {ok, [filefrag()]} | {error, term()} | no_return().
 pread(Node, Transfer, Frag, Offset, Size) ->
     erpc:call(Node, emqx_ft_storage_fs_proxy, pread_local, [Transfer, Frag, Offset, Size]).
+
+-spec list_assemblers([node()], transfer()) ->
+    emqx_rpc:erpc_multicall([pid()]).
+list_assemblers(Nodes, Transfer) ->
+    erpc:multicall(Nodes, emqx_ft_storage_fs_proxy, lookup_local_assembler, [Transfer]).

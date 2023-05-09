@@ -44,7 +44,8 @@ groups() ->
 group_cluster() ->
     [
         t_switch_node,
-        t_unreliable_migrating_client
+        t_unreliable_migrating_client,
+        t_concurrent_fins
     ].
 
 init_per_suite(Config) ->
@@ -549,21 +550,11 @@ t_unreliable_migrating_client(Config) ->
 
     Exports = list_files(?config(clientid, Config)),
 
-    % NOTE
-    % The cluster had 2 assemblers running on two different nodes, because client sent `fin`
-    % twice. This is currently expected, files must be identical anyway.
     Node1Str = atom_to_list(Node1),
-    NodeSelfStr = atom_to_list(NodeSelf),
     % TODO: this testcase is specific to local fs storage backend
     ?assertMatch(
-        [#{"node" := Node1Str}, #{"node" := NodeSelfStr}],
-        lists:map(
-            fun(#{uri := URIString}) ->
-                #{query := QS} = uri_string:parse(URIString),
-                maps:from_list(uri_string:dissect_query(QS))
-            end,
-            lists:sort(Exports)
-        )
+        [#{"node" := Node1Str}],
+        fs_exported_file_attributes(Exports)
     ),
 
     [
@@ -571,12 +562,92 @@ t_unreliable_migrating_client(Config) ->
      || Export <- Exports
     ].
 
+t_concurrent_fins(Config) ->
+    NodeSelf = node(),
+    [Node1, Node2] = ?config(cluster_nodes, Config),
+
+    ClientId = ?config(clientid, Config),
+    FileId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Filename = "migratory-birds-in-southern-hemisphere-2013.pdf",
+    Filesize = 100,
+    Gen = emqx_ft_content_gen:new({{ClientId, FileId}, Filesize}, 16),
+    Payload = iolist_to_binary(emqx_ft_content_gen:consume(Gen, fun({Chunk, _, _}) -> Chunk end)),
+    Meta = meta(Filename, Payload),
+
+    %% Send filemeta and segments to Node1
+    Context0 = #{
+        clientid => ClientId,
+        fileid => FileId,
+        filesize => Filesize,
+        payload => Payload
+    },
+
+    Context1 = run_commands(
+        [
+            {fun connect_mqtt_client/2, [Node1]},
+            {fun send_filemeta/2, [Meta]},
+            {fun send_segment/3, [0, 100]},
+            {fun stop_mqtt_client/1, []}
+        ],
+        Context0
+    ),
+
+    %% Now send fins concurrently to the 3 nodes
+    Self = self(),
+    Nodes = [Node1, Node2, NodeSelf],
+    FinSenders = lists:map(
+        fun(Node) ->
+            %% takeovers and disconnects will happen due to concurrency
+            _ = erlang:process_flag(trap_exit, true),
+            _Context = run_commands(
+                [
+                    {fun connect_mqtt_client/2, [Node]},
+                    {fun send_finish/1, []}
+                ],
+                Context1
+            ),
+            Self ! {done, Node}
+        end,
+        Nodes
+    ),
+    ok = lists:foreach(
+        fun(F) ->
+            _Pid = spawn_link(F)
+        end,
+        FinSenders
+    ),
+    ok = lists:foreach(
+        fun(Node) ->
+            receive
+                {done, Node} -> ok
+            after 1000 ->
+                ct:fail("Node ~p did not send finish successfully", [Node])
+            end
+        end,
+        Nodes
+    ),
+
+    %% Only one node should have the file
+    Exports = list_files(?config(clientid, Config)),
+    ?assertMatch(
+        [#{"node" := _Node}],
+        fs_exported_file_attributes(Exports)
+    ).
+
+%%------------------------------------------------------------------------------
+%% Command helpers
+%%------------------------------------------------------------------------------
+
+%% Command runners
+
 run_commands(Commands, Context) ->
     lists:foldl(fun run_command/2, Context, Commands).
 
 run_command({Command, Args}, Context) ->
     ct:pal("COMMAND ~p ~p", [erlang:fun_info(Command, name), Args]),
     erlang:apply(Command, Args ++ [Context]).
+
+%% Commands
 
 connect_mqtt_client(Node, ContextIn) ->
     Context = #{clientid := ClientId} = disown_mqtt_client(ContextIn),
@@ -623,9 +694,18 @@ send_finish(Context = #{client := Client, fileid := FileId, filesize := Filesize
     ),
     Context.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Helpers
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+
+fs_exported_file_attributes(FSExports) ->
+    lists:map(
+        fun(#{uri := URIString}) ->
+            #{query := QS} = uri_string:parse(URIString),
+            maps:from_list(uri_string:dissect_query(QS))
+        end,
+        lists:sort(FSExports)
+    ).
 
 mk_init_topic(FileId) ->
     <<"$file/", FileId/binary, "/init">>.

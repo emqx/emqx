@@ -35,6 +35,7 @@
 -export([read_filemeta/2]).
 -export([list/3]).
 -export([pread/5]).
+-export([lookup_local_assembler/1]).
 -export([assemble/3]).
 
 -export([transfers/1]).
@@ -211,11 +212,15 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
     end.
 
 -spec assemble(storage(), transfer(), emqx_ft:bytes()) ->
-    {async, _Assembler :: pid()} | {error, _TODO}.
+    {async, _Assembler :: pid()} | ok | {error, _TODO}.
 assemble(Storage, Transfer, Size) ->
-    % TODO: ask cluster if the transfer is already assembled
-    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer, Size),
-    {async, Pid}.
+    LookupSources = [
+        fun() -> lookup_local_assembler(Transfer) end,
+        fun() -> lookup_remote_assembler(Transfer) end,
+        fun() -> check_if_already_exported(Storage, Transfer) end,
+        fun() -> ensure_local_assembler(Storage, Transfer, Size) end
+    ],
+    lookup_assembler(LookupSources).
 
 %%
 
@@ -251,6 +256,44 @@ stop(Storage) ->
     ok.
 
 %%
+
+lookup_assembler([LastSource]) ->
+    LastSource();
+lookup_assembler([Source | Sources]) ->
+    case Source() of
+        {error, not_found} -> lookup_assembler(Sources);
+        Result -> Result
+    end.
+
+check_if_already_exported(Storage, Transfer) ->
+    case files(Storage, #{transfer => Transfer}) of
+        {ok, #{items := [_ | _]}} -> ok;
+        _ -> {error, not_found}
+    end.
+
+lookup_local_assembler(Transfer) ->
+    case emqx_ft_assembler:where(Transfer) of
+        Pid when is_pid(Pid) -> {async, Pid};
+        _ -> {error, not_found}
+    end.
+
+lookup_remote_assembler(Transfer) ->
+    Nodes = emqx:running_nodes() -- [node()],
+    Assemblers = lists:flatmap(
+        fun
+            ({ok, {async, Pid}}) -> [Pid];
+            (_) -> []
+        end,
+        emqx_ft_storage_fs_proto_v1:list_assemblers(Nodes, Transfer)
+    ),
+    case Assemblers of
+        [Pid | _] -> {async, Pid};
+        _ -> {error, not_found}
+    end.
+
+ensure_local_assembler(Storage, Transfer, Size) ->
+    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer, Size),
+    {async, Pid}.
 
 -spec transfers(storage()) ->
     {ok, #{transfer() => transferinfo()}}.
