@@ -200,6 +200,9 @@ for dep in ${CT_DEPS}; do
         iotdb)
             FILES+=( '.ci/docker-compose-file/docker-compose-iotdb.yaml' )
             ;;
+        rabbitmq)
+            FILES+=( '.ci/docker-compose-file/docker-compose-rabbitmq.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

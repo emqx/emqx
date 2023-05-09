@@ -98,6 +98,7 @@ is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
 is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_sqlserver") -> false;
 is_community_umbrella_app("apps/emqx_oracle") -> false;
+is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -404,7 +405,7 @@ relx_apps(ReleaseType, Edition) ->
             {emqx_plugin_libs, load},
             {esasl, load},
             observer_cli,
-            {tools, load},
+            tools,
             {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
@@ -476,6 +477,7 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_sqlserver,
         emqx_oracle,
         emqx_bridge_oracle,
+        emqx_bridge_rabbitmq,
         emqx_ee_schema_registry
     ];
 relx_apps_per_edition(ce) ->

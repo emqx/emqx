@@ -42,7 +42,7 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
--type port_number() :: 1..65536.
+-type port_number() :: 1..65535.
 -type server_parse_option() :: #{
     default_port => port_number(),
     no_port => boolean(),
@@ -135,7 +135,8 @@
     cipher/0,
     comma_separated_atoms/0,
     url/0,
-    json_binary/0
+    json_binary/0,
+    port_number/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
