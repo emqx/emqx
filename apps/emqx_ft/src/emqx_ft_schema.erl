@@ -237,6 +237,10 @@ desc(s3_exporter) ->
     "S3 Exporter settings for the File transfer local storage backend";
 desc(local_storage_segments_gc) ->
     "Garbage collection settings for the File transfer local segments storage";
+desc(local_storage_exporter_backend) ->
+    "Exporter for the local file system storage backend";
+desc(storage_backend) ->
+    "Storage backend settings for file transfer";
 desc(_) ->
     undefined.
 
