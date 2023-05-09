@@ -74,7 +74,7 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
   We have selected popular MQTT client SDKs in various programming languages and provided code examples to help you quickly understand the use of MQTT clients.
 
-- [MQTT X](https://mqttx.app/)
+- [MQTTX](https://mqttx.app/)
 
   An elegant cross-platform MQTT 5.0 client tool that provides desktop, command line, and web to help you develop and debug MQTT services and applications faster.
 

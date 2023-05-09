@@ -28,7 +28,8 @@
     config_reset/3,
     configs/3,
     get_full_config/0,
-    global_zone_configs/3
+    global_zone_configs/3,
+    limiter/3
 ]).
 
 -define(PREFIX, "/configs/").
@@ -42,7 +43,6 @@
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
-    <<"limiter">>,
     <<"log">>,
     <<"persistent_session_store">>,
     <<"zones">>
@@ -57,7 +57,8 @@ paths() ->
     [
         "/configs",
         "/configs_reset/:rootname",
-        "/configs/global_zone"
+        "/configs/global_zone",
+        "/configs/limiter"
     ] ++
         lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
@@ -142,6 +143,28 @@ schema("/configs/global_zone") ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
+                403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+            }
+        }
+    };
+schema("/configs/limiter") ->
+    #{
+        'operationId' => limiter,
+        get => #{
+            tags => ?TAGS,
+            description => <<"Get the node-level limiter configs">>,
+            responses => #{
+                200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+            }
+        },
+        put => #{
+            tags => ?TAGS,
+            description => <<"Update the node-level limiter configs">>,
+            'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
+            responses => #{
+                200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
                 400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
                 403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
@@ -271,6 +294,22 @@ configs(get, Params, _Req) ->
         Res ->
             {200, Res}
     end.
+
+limiter(get, _Params, _Req) ->
+    {200, format_limiter_config(get_raw_config(limiter))};
+limiter(put, #{body := NewConf}, _Req) ->
+    case emqx_conf:update([limiter], NewConf, ?OPTS) of
+        {ok, #{raw_config := RawConf}} ->
+            {200, format_limiter_config(RawConf)};
+        {error, {permission_denied, Reason}} ->
+            {403, #{code => 'UPDATE_FAILED', message => Reason}};
+        {error, Reason} ->
+            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
+    end.
+
+format_limiter_config(RawConf) ->
+    Shorts = lists:map(fun erlang:atom_to_binary/1, emqx_limiter_schema:short_paths()),
+    maps:with(Shorts, RawConf).
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),

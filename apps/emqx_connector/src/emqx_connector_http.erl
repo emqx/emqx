@@ -473,7 +473,7 @@ preprocess_request(
         method => emqx_plugin_libs_rule:preproc_tmpl(to_bin(Method)),
         path => emqx_plugin_libs_rule:preproc_tmpl(Path),
         body => maybe_preproc_tmpl(body, Req),
-        headers => preproc_headers(Headers),
+        headers => wrap_auth_header(preproc_headers(Headers)),
         request_timeout => maps:get(request_timeout, Req, 30000),
         max_retries => maps:get(max_retries, Req, 2)
     }.
@@ -502,6 +502,36 @@ preproc_headers(Headers) when is_list(Headers) ->
         end,
         Headers
     ).
+
+wrap_auth_header(Headers) ->
+    lists:map(fun maybe_wrap_auth_header/1, Headers).
+
+maybe_wrap_auth_header({[{str, Key}] = StrKey, Val}) ->
+    {_, MaybeWrapped} = maybe_wrap_auth_header({Key, Val}),
+    {StrKey, MaybeWrapped};
+maybe_wrap_auth_header({Key, Val} = Header) when
+    is_binary(Key), (size(Key) =:= 19 orelse size(Key) =:= 13)
+->
+    %% We check the size of potential keys in the guard above and consider only
+    %% those that match the number of characters of either "Authorization" or
+    %% "Proxy-Authorization".
+    case try_bin_to_lower(Key) of
+        <<"authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        <<"proxy-authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        _Other ->
+            Header
+    end;
+maybe_wrap_auth_header(Header) ->
+    Header.
+
+try_bin_to_lower(Bin) ->
+    try iolist_to_binary(string:lowercase(Bin)) of
+        LowercaseBin -> LowercaseBin
+    catch
+        _:_ -> Bin
+    end.
 
 maybe_preproc_tmpl(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of
@@ -537,7 +567,7 @@ proc_headers(HeaderTks, Msg) ->
         fun({K, V}) ->
             {
                 emqx_plugin_libs_rule:proc_tmpl(K, Msg),
-                emqx_plugin_libs_rule:proc_tmpl(V, Msg)
+                emqx_plugin_libs_rule:proc_tmpl(emqx_secret:unwrap(V), Msg)
             }
         end,
         HeaderTks
@@ -610,7 +640,8 @@ reply_delegator(ReplyFunAndArgs, Result) ->
             Reason =:= econnrefused;
             Reason =:= timeout;
             Reason =:= normal;
-            Reason =:= {shutdown, normal}
+            Reason =:= {shutdown, normal};
+            Reason =:= {shutdown, closed}
         ->
             Result1 = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
@@ -628,21 +659,13 @@ is_sensitive_key([{str, StringKey}]) ->
 is_sensitive_key(Atom) when is_atom(Atom) ->
     is_sensitive_key(erlang:atom_to_binary(Atom));
 is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
-    try
-        %% This is wrapped in a try-catch since we don't know that Bin is a
-        %% valid string so string:lowercase/1 might throw an exception.
-        %%
-        %% We want to convert this to lowercase since the http header fields
-        %% are case insensitive, which means that a user of the Webhook bridge
-        %% can write this field name in many different ways.
-        LowercaseBin = iolist_to_binary(string:lowercase(Bin)),
-        case LowercaseBin of
-            <<"authorization">> -> true;
-            <<"proxy-authorization">> -> true;
-            _ -> false
-        end
-    catch
-        _:_ -> false
+    %% We want to convert this to lowercase since the http header fields
+    %% are case insensitive, which means that a user of the Webhook bridge
+    %% can write this field name in many different ways.
+    case try_bin_to_lower(Bin) of
+        <<"authorization">> -> true;
+        <<"proxy-authorization">> -> true;
+        _ -> false
     end;
 is_sensitive_key(_) ->
     false.

@@ -9,5 +9,3 @@ pgsql
 tdengine
 clickhouse
 dynamo
-rocketmq
-sqlserver

@@ -343,7 +343,7 @@ fields(cluster_etcd) ->
                 ?R_REF(emqx_schema, "ssl_client_opts"),
                 #{
                     desc => ?DESC(cluster_etcd_ssl),
-                    alias => [ssl],
+                    aliases => [ssl],
                     'readOnly' => true
                 }
             )}
@@ -1286,7 +1286,7 @@ cluster_options(dns, Conf) ->
         {type, conf_get("cluster.dns.record_type", Conf)}
     ];
 cluster_options(etcd, Conf) ->
-    Namespace = "cluster.etcd.ssl",
+    Namespace = "cluster.etcd.ssl_options",
     SslOpts = fun(C) ->
         Options = keys(Namespace, C),
         lists:map(fun(Key) -> {to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options)

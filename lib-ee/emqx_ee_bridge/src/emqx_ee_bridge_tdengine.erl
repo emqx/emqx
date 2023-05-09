@@ -48,7 +48,7 @@ values(_Method) ->
         database => <<"mqtt">>,
         pool_size => 8,
         username => <<"root">>,
-        password => <<"taosdata">>,
+        password => <<"******">>,
         sql => ?DEFAULT_SQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{

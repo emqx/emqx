@@ -10,9 +10,7 @@
         influxdb,
         tdengine,
         clickhouse,
-        erlcloud,
-        rocketmq,
-        odbc
+        erlcloud
     ]},
     {env, []},
     {modules, []},

@@ -203,6 +203,12 @@ for dep in ${CT_DEPS}; do
         oracle)
             FILES+=( '.ci/docker-compose-file/docker-compose-oracle.yaml' )
             ;;
+        iotdb)
+            FILES+=( '.ci/docker-compose-file/docker-compose-iotdb.yaml' )
+            ;;
+        rabbitmq)
+            FILES+=( '.ci/docker-compose-file/docker-compose-rabbitmq.yaml' )
+            ;;
         minio)
             FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )

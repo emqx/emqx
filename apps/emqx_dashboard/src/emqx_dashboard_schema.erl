@@ -102,9 +102,7 @@ fields("https") ->
 
 server_ssl_opts() ->
     Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
-    Opts1 = exclude_fields(["fail_if_no_peer_cert"], Opts0),
-    {value, {_, Meta}, Opts2} = lists:keytake("password", 1, Opts1),
-    [{"password", Meta#{importance => ?IMPORTANCE_HIDDEN}} | Opts2].
+    exclude_fields(["fail_if_no_peer_cert"], Opts0).
 
 exclude_fields([], Fields) ->
     Fields;

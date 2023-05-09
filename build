@@ -335,17 +335,22 @@ make_docker() {
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
     EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     if [[ "$PROFILE" = *-elixir ]]; then
-      PKG_VSN="$PKG_VSN-elixir"
+        PKG_VSN="$PKG_VSN-elixir"
     fi
     local default_tag="emqx/${PROFILE%%-elixir}:${PKG_VSN}"
     EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
-
+    ## extra_deps is a comma separated list of debian 11 package names
+    local extra_deps=''
+    if [[ "$PROFILE" = *enterprise* ]]; then
+        extra_deps='libsasl2-2'
+    fi
     echo '_build' >> ./.dockerignore
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
-       --build-arg EMQX_NAME="$PROFILE" \
+       --build-arg EMQX_NAME="${PROFILE}" \
+       --build-arg EXTRA_DEPS="${extra_deps}" \
        --tag "${EMQX_IMAGE_TAG}" \
        -f "${EMQX_DOCKERFILE}" .
     [[ "${DEBUG:-}" -eq 1 ]] || set +x

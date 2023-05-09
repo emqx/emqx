@@ -230,7 +230,7 @@ check_oom(Policy) ->
 check_oom(_Pid, #{enable := false}) ->
     ok;
 check_oom(Pid, #{
-    max_message_queue_len := MaxQLen,
+    max_mailbox_size := MaxQLen,
     max_heap_size := MaxHeapSize
 }) ->
     case process_info(Pid, [message_queue_len, total_heap_size]) of
@@ -581,6 +581,15 @@ is_sensitive_key(<<"password">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(secret_key) -> true;
+is_sensitive_key("secret_key") -> true;
+is_sensitive_key(<<"secret_key">>) -> true;
+is_sensitive_key(security_token) -> true;
+is_sensitive_key("security_token") -> true;
+is_sensitive_key(<<"security_token">>) -> true;
+is_sensitive_key(aws_secret_access_key) -> true;
+is_sensitive_key("aws_secret_access_key") -> true;
+is_sensitive_key(<<"aws_secret_access_key">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->

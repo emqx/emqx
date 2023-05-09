@@ -42,7 +42,7 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
--type port_number() :: 1..65536.
+-type port_number() :: 1..65535.
 -type server_parse_option() :: #{
     default_port => port_number(),
     no_port => boolean(),
@@ -135,7 +135,8 @@
     cipher/0,
     comma_separated_atoms/0,
     url/0,
-    json_binary/0
+    json_binary/0,
+    port_number/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -687,12 +688,13 @@ fields("force_shutdown") ->
                     desc => ?DESC(force_shutdown_enable)
                 }
             )},
-        {"max_message_queue_len",
+        {"max_mailbox_size",
             sc(
                 range(0, inf),
                 #{
                     default => 1000,
-                    desc => ?DESC(force_shutdown_max_message_queue_len)
+                    aliases => [max_message_queue_len],
+                    desc => ?DESC(force_shutdown_max_mailbox_size)
                 }
             )},
         {"max_heap_size",
@@ -2000,7 +2002,8 @@ base_listener(Bind) ->
                     listener_fields
                 ),
                 #{
-                    desc => ?DESC(base_listener_limiter)
+                    desc => ?DESC(base_listener_limiter),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"enable_authn",
@@ -2011,7 +2014,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ].
+    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
@@ -2191,7 +2194,7 @@ common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
-    AvailableVersions = default_tls_vsns(Collection),
+    DefaultVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -2253,6 +2256,7 @@ common_ssl_opts_schema(Defaults) ->
                     example => <<"">>,
                     format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password),
+                    importance => ?IMPORTANCE_LOW,
                     converter => fun password_converter/2
                 }
             )},
@@ -2260,10 +2264,10 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 hoconsc:array(typerefl:atom()),
                 #{
-                    default => AvailableVersions,
+                    default => DefaultVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
                     importance => ?IMPORTANCE_HIGH,
-                    validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
+                    validator => fun(Input) -> validate_tls_versions(Collection, Input) end
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
@@ -2449,10 +2453,14 @@ client_ssl_opts_schema(Defaults) ->
                 )}
         ].
 
-default_tls_vsns(dtls_all_available) ->
-    emqx_tls_lib:available_versions(dtls);
-default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:available_versions(tls).
+available_tls_vsns(dtls_all_available) -> emqx_tls_lib:available_versions(dtls);
+available_tls_vsns(tls_all_available) -> emqx_tls_lib:available_versions(tls).
+
+outdated_tls_vsn(dtls_all_available) -> [dtlsv1];
+outdated_tls_vsn(tls_all_available) -> ['tlsv1.1', tlsv1].
+
+default_tls_vsns(Key) ->
+    available_tls_vsns(Key) -- outdated_tls_vsn(Key).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
@@ -2761,7 +2769,8 @@ validate_ciphers(Ciphers) ->
         Bad -> {error, {bad_ciphers, Bad}}
     end.
 
-validate_tls_versions(AvailableVersions, Versions) ->
+validate_tls_versions(Collection, Versions) ->
+    AvailableVersions = available_tls_vsns(Collection),
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
         Vs -> {error, {unsupported_tls_versions, Vs}}

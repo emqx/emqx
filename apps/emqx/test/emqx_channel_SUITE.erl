@@ -31,7 +31,7 @@ force_gc_conf() ->
     #{bytes => 16777216, count => 16000, enable => true}.
 
 force_shutdown_conf() ->
-    #{enable => true, max_heap_size => 4194304, max_message_queue_len => 1000}.
+    #{enable => true, max_heap_size => 4194304, max_mailbox_size => 1000}.
 
 rpc_conf() ->
     #{
