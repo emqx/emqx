@@ -22,6 +22,7 @@
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
+-behaviour(emqx_db_backup).
 
 -export([
     namespace/0,
@@ -53,6 +54,8 @@
     format_user_info/1,
     group_match_spec/1
 ]).
+
+-export([backup_tables/0]).
 
 %% Internal exports (RPC)
 -export([
@@ -100,6 +103,12 @@ mnesia(boot) ->
         {attributes, record_info(fields, user_info)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]).
+
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+backup_tables() -> [?TAB].
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -357,6 +366,9 @@ check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algori
 
 add_user(UserGroup, UserID, Password, IsSuperuser, State) ->
     {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    write_user(UserGroup, UserID, StoredKey, ServerKey, Salt, IsSuperuser).
+
+write_user(UserGroup, UserID, StoredKey, ServerKey, Salt, IsSuperuser) ->
     UserInfo = #user_info{
         user_id = {UserGroup, UserID},
         stored_key = StoredKey,

@@ -14,13 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_bridge).
+
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([post_config_update/5]).
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
 
 -export([
     load_hook/0,
@@ -53,6 +59,11 @@
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
 
+%% Data backup
+-export([
+    import_config/1
+]).
+
 -define(EGRESS_DIR_BRIDGES(T),
     T == webhook;
     T == mysql;
@@ -80,8 +91,10 @@
     T == iotdb
 ).
 
+-define(ROOT_KEY, bridges).
+
 load() ->
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx:get_config([?ROOT_KEY], #{}),
     lists:foreach(
         fun({Type, NamedConf}) ->
             lists:foreach(
@@ -98,7 +111,7 @@ load() ->
 
 unload() ->
     unload_hook(),
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx:get_config([?ROOT_KEY], #{}),
     lists:foreach(
         fun({Type, NamedConf}) ->
             lists:foreach(
@@ -139,7 +152,7 @@ reload_hook(Bridges) ->
     ok = load_hook(Bridges).
 
 load_hook() ->
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx:get_config([?ROOT_KEY], #{}),
     load_hook(Bridges).
 
 load_hook(Bridges) ->
@@ -210,7 +223,7 @@ send_message(BridgeId, Message) ->
     send_message(BridgeType, BridgeName, ResId, Message).
 
 send_message(BridgeType, BridgeName, ResId, Message) ->
-    case emqx:get_config([bridges, BridgeType, BridgeName], not_found) of
+    case emqx:get_config([?ROOT_KEY, BridgeType, BridgeName], not_found) of
         not_found ->
             {error, bridge_not_found};
         #{enable := true} = Config ->
@@ -231,9 +244,14 @@ query_opts(Config) ->
     end.
 
 config_key_path() ->
-    [bridges].
+    [?ROOT_KEY].
 
-post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
+pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
+    {ok, RawConf};
+pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
+    {ok, convert_certs(NewConf)}.
+
+post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
     %% The config update will be failed if any task in `perform_bridge_changes` failed.
@@ -351,9 +369,73 @@ check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
             remove(BridgeType, BridgeName)
     end.
 
+%%----------------------------------------------------------------------------------------
+%% Data backup
+%%----------------------------------------------------------------------------------------
+
+import_config(RawConf) ->
+    RootKeyPath = config_key_path(),
+    BridgesConf = maps:get(<<"bridges">>, RawConf, #{}),
+    OldBridgesConf = emqx:get_raw_config(RootKeyPath, #{}),
+    MergedConf = merge_confs(OldBridgesConf, BridgesConf),
+    case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
+        {ok, #{raw_config := NewRawConf}} ->
+            {ok, #{root_key => ?ROOT_KEY, changed => changed_paths(OldBridgesConf, NewRawConf)}};
+        Error ->
+            {error, #{root_key => ?ROOT_KEY, reason => Error}}
+    end.
+
+merge_confs(OldConf, NewConf) ->
+    AllTypes = maps:keys(maps:merge(OldConf, NewConf)),
+    lists:foldr(
+        fun(Type, Acc) ->
+            NewBridges = maps:get(Type, NewConf, #{}),
+            OldBridges = maps:get(Type, OldConf, #{}),
+            Acc#{Type => maps:merge(OldBridges, NewBridges)}
+        end,
+        #{},
+        AllTypes
+    ).
+
+changed_paths(OldRawConf, NewRawConf) ->
+    maps:fold(
+        fun(Type, Bridges, ChangedAcc) ->
+            OldBridges = maps:get(Type, OldRawConf, #{}),
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(Bridges, OldBridges)),
+            [[?ROOT_KEY, Type, K] || K <- maps:keys(Changed)] ++ ChangedAcc
+        end,
+        [],
+        NewRawConf
+    ).
+
 %%========================================================================================
 %% Helper functions
 %%========================================================================================
+
+convert_certs(BridgesConf) ->
+    maps:map(
+        fun(Type, Bridges) ->
+            maps:map(
+                fun(Name, BridgeConf) ->
+                    Path = filename:join([?ROOT_KEY, Type, Name]),
+                    case emqx_connector_ssl:convert_certs(Path, BridgeConf) of
+                        {error, Reason} ->
+                            ?SLOG(error, #{
+                                msg => "bad_ssl_config",
+                                type => Type,
+                                name => Name,
+                                reason => Reason
+                            }),
+                            throw({bad_ssl_config, Reason});
+                        {ok, BridgeConf1} ->
+                            BridgeConf1
+                    end
+                end,
+                Bridges
+            )
+        end,
+        BridgesConf
+    ).
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).

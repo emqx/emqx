@@ -56,7 +56,8 @@
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
     safe_filename/1,
-    diff_lists/3
+    diff_lists/3,
+    merge_lists/3
 ]).
 
 -export([
@@ -818,6 +819,42 @@ diff_lists(New, Old, KeyFunc) when is_list(New) andalso is_list(Old) ->
         identical => lists:reverse(Identical),
         changed => lists:reverse(Changed)
     }.
+
+%% @doc Merges two lists preserving the original order of elements in both lists.
+%% KeyFunc must extract a unique key from each element.
+%% If two keys exist in both lists, the value in List1 is superseded by the value in List2, but
+%% the element position in the result list will equal its position in List1.
+%% Example:
+%%     emqx_utils:merge_append_lists(
+%%         [#{id => a, val => old}, #{id => b, val => old}],
+%%         [#{id => a, val => new}, #{id => c}, #{id => b, val => new}, #{id => d}],
+%%         fun(#{id := Id}) -> Id end).
+%%    [#{id => a,val => new},
+%%     #{id => b,val => new},
+%%     #{id => c},
+%%     #{id => d}]
+-spec merge_lists(list(T), list(T), KeyFunc) -> list(T) when
+    KeyFunc :: fun((T) -> any()),
+    T :: any().
+merge_lists(List1, List2, KeyFunc) ->
+    WithKeysList2 = lists:map(fun(E) -> {KeyFunc(E), E} end, List2),
+    WithKeysList1 = lists:map(
+        fun(E) ->
+            K = KeyFunc(E),
+            case lists:keyfind(K, 1, WithKeysList2) of
+                false -> {K, E};
+                WithKey1 -> WithKey1
+            end
+        end,
+        List1
+    ),
+    NewWithKeysList2 = lists:filter(
+        fun({K, _}) ->
+            not lists:keymember(K, 1, WithKeysList1)
+        end,
+        WithKeysList2
+    ),
+    [E || {_, E} <- WithKeysList1 ++ NewWithKeysList2].
 
 search(_ExpectValue, _KeyFunc, []) ->
     false;

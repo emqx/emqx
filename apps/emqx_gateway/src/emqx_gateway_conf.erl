@@ -18,6 +18,7 @@
 -module(emqx_gateway_conf).
 
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
 
 %% Load/Unload
 -export([
@@ -64,6 +65,11 @@
     post_config_update/5
 ]).
 
+%% Data backup
+-export([
+    import_config/1
+]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
 -define(AUTHN_BIN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
@@ -76,9 +82,9 @@
 -define(IS_SSL(T), (T == <<"ssl_options">> orelse T == <<"dtls_options">>)).
 -define(IGNORE_KEYS, [<<"listeners">>, ?AUTHN_BIN]).
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 %%  Load/Unload
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 -define(GATEWAY, [gateway]).
 
 -spec load() -> ok.
@@ -89,7 +95,7 @@ load() ->
 unload() ->
     emqx_conf:remove_handler(?GATEWAY).
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 %% APIs
 
 -spec load_gateway(atom_or_bin(), map()) -> map_or_err().
@@ -365,9 +371,26 @@ ret_listener_or_err(GwName, {LType, LName}, {ok, #{raw_config := GwConf}}) ->
 ret_listener_or_err(_, _, Err) ->
     Err.
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
+%% Data backup
+%%----------------------------------------------------------------------------------------
+
+import_config(RawConf) ->
+    GatewayConf = maps:get(<<"gateway">>, RawConf, #{}),
+    OldGatewayConf = emqx:get_raw_config([<<"gateway">>], #{}),
+    MergedConf = maps:merge(OldGatewayConf, GatewayConf),
+    case emqx_conf:update([gateway], MergedConf, #{override_to => cluster}) of
+        {ok, #{raw_config := NewRawConf}} ->
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewRawConf, OldGatewayConf)),
+            ChangedPaths = [[gateway, GwName] || GwName <- maps:keys(Changed)],
+            {ok, #{root_key => gateway, changed => ChangedPaths}};
+        Error ->
+            {error, #{root_key => gateway, reason => Error}}
+    end.
+
+%%----------------------------------------------------------------------------------------
 %% Config Handler
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 
 -spec pre_config_update(
     list(atom()),
@@ -793,9 +816,9 @@ post_config_update(?GATEWAY, _Req = #{}, NewConfig, OldConfig, _AppEnvs) ->
     ),
     ok.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
+%% Internal funcs
+%%----------------------------------------------------------------------------------------
 
 tune_gw_certs(Fun, GwName, Conf) ->
     apply_to_gateway_basic_confs(

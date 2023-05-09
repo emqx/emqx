@@ -23,6 +23,7 @@
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
+-behaviour(emqx_db_backup).
 
 -export([
     namespace/0,
@@ -66,6 +67,10 @@
     import_csv/3
 ]).
 
+-export([mnesia/1]).
+
+-export([backup_tables/0]).
+
 -type user_group() :: binary().
 -type user_id() :: binary().
 
@@ -75,8 +80,6 @@
     salt :: binary(),
     is_superuser :: boolean()
 }).
-
--export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -102,6 +105,11 @@ mnesia(boot) ->
         {attributes, record_info(fields, user_info)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]).
+
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+backup_tables() -> [?TAB].
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema

@@ -18,6 +18,7 @@
 -module(emqx_exhook_mgr).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_backup).
 
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -66,6 +67,11 @@
 
 -export([roots/0]).
 
+%% Data backup
+-export([
+    import_config/1
+]).
+
 %% Running servers
 -type state() :: #{servers := servers()}.
 
@@ -98,9 +104,9 @@
 
 -export_type([servers/0, server/0]).
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 %% APIs
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 
 -spec start_link() ->
     ignore
@@ -137,7 +143,7 @@ call(Req) ->
 init_ref_counter_table() ->
     _ = ets:new(?HOOKS_REF_COUNTER, [named_table, public]).
 
-%%=====================================================================
+%%========================================================================================
 %% Hocon schema
 roots() ->
     emqx_exhook_schema:server_config().
@@ -179,9 +185,30 @@ post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
     Result = call({update_config, UpdateReq, NewConf, OldConf}),
     {ok, Result}.
 
-%%--------------------------------------------------------------------
+%%========================================================================================
+
+%%----------------------------------------------------------------------------------------
+%% Data backup
+%%----------------------------------------------------------------------------------------
+
+import_config(#{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
+    OldServers = emqx:get_raw_config(?SERVERS, []),
+    KeyFun = fun(#{<<"name">> := Name}) -> Name end,
+    ExHook1 = ExHook#{<<"servers">> => emqx_utils:merge_lists(OldServers, Servers, KeyFun)},
+    case emqx_conf:update(?EXHOOK, ExHook1, #{override_to => cluster}) of
+        {ok, #{raw_config := #{<<"servers">> := NewRawServers}}} ->
+            Changed = maps:get(changed, emqx_utils:diff_lists(NewRawServers, OldServers, KeyFun)),
+            ChangedPaths = [?SERVERS ++ [Name] || {#{<<"name">> := Name}, _} <- Changed],
+            {ok, #{root_key => ?EXHOOK, changed => ChangedPaths}};
+        Error ->
+            {error, #{root_key => ?EXHOOK, reason => Error}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?EXHOOK, changed => []}}.
+
+%%----------------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 
 init([]) ->
     process_flag(trap_exit, true),
@@ -333,9 +360,9 @@ terminate(Reason, State = #{servers := Servers}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 %% Internal funcs
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 
 unload_exhooks() ->
     [
@@ -572,7 +599,7 @@ update_servers(Servers, State) ->
 set_disable(Server) ->
     Server#{status := disabled, timer := undefined}.
 
-%%--------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------
 %% Server state persistent
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),

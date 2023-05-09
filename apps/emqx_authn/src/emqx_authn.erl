@@ -16,12 +16,19 @@
 
 -module(emqx_authn).
 
+-behaviour(emqx_config_backup).
+
 -export([
     providers/0,
     check_config/1,
     check_config/2,
     %% for telemetry information
     get_enabled_authns/0
+]).
+
+%% Data backup
+-export([
+    import_config/1
 ]).
 
 -include("emqx_authn.hrl").
@@ -126,3 +133,32 @@ get_enabled_authns() ->
 
 tally_authenticators(#{id := AuthenticatorName}, Acc) ->
     maps:update_with(AuthenticatorName, fun(N) -> N + 1 end, 1, Acc).
+
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+-define(IMPORT_OPTS, #{override_to => cluster}).
+
+import_config(RawConf) ->
+    AuthnList = authn_list(maps:get(?CONF_NS_BINARY, RawConf, [])),
+    OldAuthnList = emqx:get_raw_config([?CONF_NS_BINARY], []),
+    MergedAuthnList = emqx_utils:merge_lists(
+        OldAuthnList, AuthnList, fun emqx_authentication:authenticator_id/1
+    ),
+    case emqx_conf:update([?CONF_NS_ATOM], MergedAuthnList, ?IMPORT_OPTS) of
+        {ok, #{raw_config := NewRawConf}} ->
+            {ok, #{root_key => ?CONF_NS_ATOM, changed => changed_paths(OldAuthnList, NewRawConf)}};
+        Error ->
+            {error, #{root_key => ?CONF_NS_ATOM, reason => Error}}
+    end.
+
+changed_paths(OldAuthnList, NewAuthnList) ->
+    KeyFun = fun emqx_authentication:authenticator_id/1,
+    Changed = maps:get(changed, emqx_utils:diff_lists(NewAuthnList, OldAuthnList, KeyFun)),
+    [[?CONF_NS_BINARY, emqx_authentication:authenticator_id(OldAuthn)] || {OldAuthn, _} <- Changed].
+
+authn_list(Authn) when is_list(Authn) ->
+    Authn;
+authn_list(Authn) when is_map(Authn) ->
+    [Authn].

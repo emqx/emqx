@@ -5,6 +5,7 @@
 
 -behaviour(gen_server).
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
 
 -include("emqx_ee_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -13,9 +14,7 @@
 %% API
 -export([
     start_link/0,
-
     get_serde/1,
-
     add_schema/2,
     get_schema/1,
     delete_schema/1,
@@ -33,6 +32,11 @@
 
 %% `emqx_config_handler' API
 -export([post_config_update/5]).
+
+%% Data backup
+-export([
+    import_config/1
+]).
 
 -type schema() :: #{
     type := serde_type(),
@@ -129,7 +133,50 @@ post_config_update(
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
-    end.
+    end;
+post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, OldConf, _AppEnvs) ->
+    OldSchemas = maps:get(schemas, OldConf, #{}),
+    #{
+        added := Added,
+        changed := Changed0,
+        removed := Removed
+    } = emqx_utils_maps:diff_maps(NewSchemas, OldSchemas),
+    Changed = maps:map(fun(_N, {_Old, New}) -> New end, Changed0),
+    RemovedNames = maps:keys(Removed),
+    case RemovedNames of
+        [] ->
+            ok;
+        _ ->
+            async_delete_serdes(RemovedNames)
+    end,
+    SchemasToBuild = maps:to_list(maps:merge(Changed, Added)),
+    case build_serdes(SchemasToBuild) of
+        ok ->
+            {ok, NewConf};
+        {error, Reason, SerdesToRollback} ->
+            lists:foreach(fun ensure_serde_absent/1, SerdesToRollback),
+            {error, Reason}
+    end;
+post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
+    {ok, NewConf}.
+
+%%-------------------------------------------------------------------------------------------------
+%% Data backup
+%%-------------------------------------------------------------------------------------------------
+
+import_config(#{<<"schema_registry">> := #{<<"schemas">> := Schemas} = SchemaRegConf}) ->
+    OldSchemas = emqx:get_raw_config([?CONF_KEY_ROOT, schemas], #{}),
+    SchemaRegConf1 = SchemaRegConf#{<<"schemas">> => maps:merge(OldSchemas, Schemas)},
+    case emqx_conf:update(?CONF_KEY_PATH, SchemaRegConf1, #{override_to => cluster}) of
+        {ok, #{raw_config := #{<<"schemas">> := NewRawSchemas}}} ->
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewRawSchemas, OldSchemas)),
+            ChangedPaths = [[?CONF_KEY_ROOT, schemas, Name] || Name <- maps:keys(Changed)],
+            {ok, #{root_key => ?CONF_KEY_ROOT, changed => ChangedPaths}};
+        Error ->
+            {error, #{root_key => ?CONF_KEY_ROOT, reason => Error}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?CONF_KEY_ROOT, changed => []}}.
 
 %%-------------------------------------------------------------------------------------------------
 %% `gen_server' API

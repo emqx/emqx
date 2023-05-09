@@ -16,6 +16,8 @@
 
 -module(emqx_auto_subscribe).
 
+-behaviour(emqx_config_backup).
+
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -behaviour(emqx_config_handler).
@@ -24,7 +26,6 @@
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
 
-%
 -export([load/0, unload/0]).
 
 -export([
@@ -39,6 +40,11 @@
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
+
+%% Data backup
+-export([
+    import_config/1
+]).
 
 load() ->
     ok = emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
@@ -73,8 +79,9 @@ post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
     Config = emqx_conf:get([auto_subscribe], #{}),
     update_hook(Config#{topics => NewTopics}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% hook
+%%------------------------------------------------------------------------------
 
 on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
     case erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]) of
@@ -87,17 +94,38 @@ on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
 on_client_connected(_, _, _) ->
     ok.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Telemetry
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec get_basic_usage_info() -> #{auto_subscribe_count => non_neg_integer()}.
 get_basic_usage_info() ->
     AutoSubscribe = emqx_conf:get([auto_subscribe, topics], []),
     #{auto_subscribe_count => length(AutoSubscribe)}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+import_config(#{<<"auto_subscribe">> := #{<<"topics">> := Topics}}) ->
+    ConfPath = [auto_subscribe, topics],
+    OldTopics = emqx:get_raw_config(ConfPath, []),
+    KeyFun = fun(#{<<"topic">> := T}) -> T end,
+    MergedTopics = emqx_utils:merge_lists(OldTopics, Topics, KeyFun),
+    case emqx_conf:update(ConfPath, MergedTopics, #{override_to => cluster}) of
+        {ok, #{raw_config := NewTopics}} ->
+            Changed = maps:get(changed, emqx_utils:diff_lists(NewTopics, OldTopics, KeyFun)),
+            Changed1 = [ConfPath ++ [T] || {#{<<"topic">> := T}, _} <- Changed],
+            {ok, #{root_key => auto_subscribe, changed => Changed1}};
+        Error ->
+            {error, #{root_key => auto_subscribe, reason => Error}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => auto_subscribe, changed => []}}.
+
+%%------------------------------------------------------------------------------
 %% internal
+%%------------------------------------------------------------------------------
 
 format(Rules) when is_list(Rules) ->
     [format(Rule) || Rule <- Rules];
