@@ -25,6 +25,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:load_config(emqx_dashboard_schema, <<"dashboard {}">>),
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     ok = change_i18n_lang(en),
     Config.
