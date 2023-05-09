@@ -14,9 +14,8 @@
     {mod, {emqx_node_rebalance_app, []}},
     {env, []},
     {modules, []},
-    {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
-        {"Homepage", "https://emqx.io/"},
+        {"Homepage", "https://www.emqx.com/"},
         {"Github", "https://github.com/emqx"}
     ]}
 ]}.

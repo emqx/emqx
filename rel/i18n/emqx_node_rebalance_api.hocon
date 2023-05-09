@@ -121,10 +121,10 @@ local_status_enabled.label:
 """Local evacuation status"""
 
 local_status_process.desc:
-"""The process that is being performed on the node: evacuation or rebalance"""
+"""The type of the task that is being performed on the node: 'evacuation' or 'rebalance'"""
 
 local_status_process.label:
-"""Node process"""
+"""Task Type"""
 
 local_status_state.desc:
 """The state of the process that is being performed on the node"""
