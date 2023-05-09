@@ -131,12 +131,8 @@ files(Query) ->
 
 -spec dispatch(atom(), list(term())) -> any().
 dispatch(Fun, Args) when is_atom(Fun) ->
-    case backend() of
-        {Type, Storage} ->
-            apply(mod(Type), Fun, [Storage | Args]);
-        _ ->
-            {error, disabled}
-    end.
+    {Type, Storage} = backend(),
+    apply(mod(Type), Fun, [Storage | Args]).
 
 %%
 
@@ -152,9 +148,7 @@ with_storage_type(Type, Fun, Args) ->
         {Type, Storage} when is_function(Fun) ->
             apply(Fun, [Storage | Args]);
         {_, _} = Backend ->
-            {error, {invalid_storage_backend, Backend}};
-        _ ->
-            {error, disabled}
+            {error, {invalid_storage_backend, Backend}}
     end.
 
 %%
