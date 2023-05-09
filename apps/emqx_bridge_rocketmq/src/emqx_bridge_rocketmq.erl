@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_rocketmq).
+-module(emqx_bridge_rocketmq).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -82,7 +82,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), required => false}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_ee_connector_rocketmq:fields(config) --
+        (emqx_bridge_rocketmq_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     [type_field(), name_field() | fields("config")];

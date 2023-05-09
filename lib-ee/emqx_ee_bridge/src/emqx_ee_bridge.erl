@@ -34,7 +34,7 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_tdengine, Method),
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
-        ref(emqx_ee_bridge_rocketmq, Method),
+        ref(emqx_bridge_rocketmq, Method),
         ref(emqx_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
         ref(emqx_bridge_pulsar, Method ++ "_producer"),
@@ -58,7 +58,7 @@ schema_modules() ->
         emqx_ee_bridge_tdengine,
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
-        emqx_ee_bridge_rocketmq,
+        emqx_bridge_rocketmq,
         emqx_bridge_sqlserver,
         emqx_bridge_opents,
         emqx_bridge_pulsar,
@@ -101,7 +101,7 @@ resource_type(matrix) -> emqx_connector_pgsql;
 resource_type(tdengine) -> emqx_ee_connector_tdengine;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
-resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
+resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
 resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
@@ -152,7 +152,7 @@ fields(bridges) ->
             )},
         {rocketmq,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_rocketmq, "config")),
+                hoconsc:map(name, ref(emqx_bridge_rocketmq, "config")),
                 #{
                     desc => <<"RocketMQ Bridge Config">>,
                     required => false

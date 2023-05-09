@@ -2,7 +2,7 @@
 % Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_rocketmq_SUITE).
+-module(emqx_bridge_rocketmq_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).

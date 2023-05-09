@@ -25,8 +25,8 @@ services:
       - ./rocketmq/conf/broker.conf:/etc/rocketmq/broker.conf
     environment:
         NAMESRV_ADDR: "rocketmq_namesrv:9876"
-        JAVA_OPTS: " -Duser.home=/opt"
-        JAVA_OPT_EXT: "-server -Xms1024m -Xmx1024m -Xmn1024m"
+        JAVA_OPTS: " -Duser.home=/opt -Drocketmq.broker.diskSpaceWarningLevelRatio=0.99"
+        JAVA_OPT_EXT: "-server -Xms512m -Xmx512m -Xmn512m"
     command: ./mqbroker -c /etc/rocketmq/broker.conf
     depends_on:
       - mqnamesrv
