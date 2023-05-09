@@ -83,7 +83,7 @@ log.file_handlers {
     }
     chars_limit = unlimited
     drop_mode_qlen = 3000
-    enable = false
+    enable = true
     file = \"log/my-emqx.log\"
     flush_qlen = 8000
     formatter = text

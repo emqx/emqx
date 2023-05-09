@@ -201,8 +201,6 @@ config(put, #{body := NewConf}, Req) ->
     case emqx_conf:update(Path, NewConf, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
-        {error, {permission_denied, Reason}} ->
-            {403, #{code => 'UPDATE_FAILED', message => Reason}};
         {error, Reason} ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
@@ -247,8 +245,6 @@ config_reset(post, _Params, Req) ->
     case emqx_conf:reset(Path, ?OPTS) of
         {ok, _} ->
             {200};
-        {error, {permission_denied, Reason}} ->
-            {403, #{code => 'REST_FAILED', message => Reason}};
         {error, no_default_value} ->
             {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
         {error, Reason} ->
