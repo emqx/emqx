@@ -47,7 +47,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF),
+    load_conf(),
     emqx_common_test_helpers:start_apps([?APP]),
     Config.
 
@@ -55,13 +55,15 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([?APP]).
 
 init_per_testcase(_TestCase, Config) ->
+    emqx_config:erase(limiter),
+    load_conf(),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
     Config.
 
 load_conf() ->
-    emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
+    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
 
 init_config() ->
     emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF).
@@ -313,8 +315,8 @@ t_capacity(_) ->
 %% Test Cases Global Level
 %%--------------------------------------------------------------------
 t_collaborative_alloc(_) ->
-    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
-        Cfg#{message_routing := MR#{rate := ?RATE("600/1s")}}
+    GlobalMod = fun(Cfg) ->
+        Cfg#{message_routing => #{rate => ?RATE("600/1s"), burst => 0}}
     end,
 
     Bucket1 = fun(#{client := Cli} = Bucket) ->
@@ -353,11 +355,11 @@ t_collaborative_alloc(_) ->
     ).
 
 t_burst(_) ->
-    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
+    GlobalMod = fun(Cfg) ->
         Cfg#{
-            message_routing := MR#{
-                rate := ?RATE("200/1s"),
-                burst := ?RATE("400/1s")
+            message_routing => #{
+                rate => ?RATE("200/1s"),
+                burst => ?RATE("400/1s")
             }
         }
     end,
@@ -653,16 +655,16 @@ t_not_exists_instance(_) ->
     ),
 
     ?assertEqual(
-        {error, invalid_bucket},
+        {ok, infinity},
         emqx_limiter_server:connect(?FUNCTION_NAME, not_exists, Cfg)
     ),
     ok.
 
 t_create_instance_with_node(_) ->
-    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
+    GlobalMod = fun(Cfg) ->
         Cfg#{
-            message_routing := MR#{rate := ?RATE("200/1s")},
-            messages := MR#{rate := ?RATE("200/1s")}
+            message_routing => #{rate => ?RATE("200/1s"), burst => 0},
+            messages => #{rate => ?RATE("200/1s"), burst => 0}
         }
     end,
 
@@ -738,6 +740,68 @@ t_esockd_htb_consume(_) ->
     C2R = emqx_esockd_htb_limiter:consume(50, Limiter),
     ?assertMatch({ok, _}, C2R),
     ok.
+
+%%--------------------------------------------------------------------
+%% Test Cases short paths
+%%--------------------------------------------------------------------
+t_node_short_paths(_) ->
+    CfgStr = <<"limiter {max_conn_rate = \"1000\", messages_rate = \"100\", bytes_rate = \"10\"}">>,
+    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, CfgStr),
+    Accessor = fun emqx_limiter_schema:get_node_opts/1,
+    ?assertMatch(#{rate := 100.0}, Accessor(connection)),
+    ?assertMatch(#{rate := 10.0}, Accessor(messages)),
+    ?assertMatch(#{rate := 1.0}, Accessor(bytes)),
+    ?assertMatch(#{rate := infinity}, Accessor(message_routing)),
+    ?assertEqual(undefined, emqx:get_config([limiter, connection], undefined)).
+
+t_compatibility_for_node_short_paths(_) ->
+    CfgStr =
+        <<"limiter {max_conn_rate = \"1000\", connection.rate = \"500\", bytes.rate = \"200\"}">>,
+    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, CfgStr),
+    Accessor = fun emqx_limiter_schema:get_node_opts/1,
+    ?assertMatch(#{rate := 100.0}, Accessor(connection)),
+    ?assertMatch(#{rate := 20.0}, Accessor(bytes)).
+
+t_listener_short_paths(_) ->
+    CfgStr = <<
+        ""
+        "listeners.tcp.default {max_conn_rate = \"1000\", messages_rate = \"100\", bytes_rate = \"10\"}"
+        ""
+    >>,
+    ok = emqx_common_test_helpers:load_config(emqx_schema, CfgStr),
+    ListenerOpt = emqx:get_config([listeners, tcp, default]),
+    ?assertMatch(
+        #{
+            client := #{
+                messages := #{rate := 10.0},
+                bytes := #{rate := 1.0}
+            },
+            connection := #{rate := 100.0}
+        },
+        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+    ).
+
+t_compatibility_for_listener_short_paths(_) ->
+    CfgStr = <<
+        "" "listeners.tcp.default {max_conn_rate = \"1000\", limiter.connection.rate = \"500\"}" ""
+    >>,
+    ok = emqx_common_test_helpers:load_config(emqx_schema, CfgStr),
+    ListenerOpt = emqx:get_config([listeners, tcp, default]),
+    ?assertMatch(
+        #{
+            connection := #{rate := 100.0}
+        },
+        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+    ).
+
+t_no_limiter_for_listener(_) ->
+    CfgStr = <<>>,
+    ok = emqx_common_test_helpers:load_config(emqx_schema, CfgStr),
+    ListenerOpt = emqx:get_config([listeners, tcp, default]),
+    ?assertEqual(
+        undefined,
+        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+    ).
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -1043,3 +1107,11 @@ make_create_test_data_with_infinity_node(FakeInstnace) ->
         %% client = C bucket = B C > B
         {MkA(1000, 100), IsRefLimiter(FakeInstnace)}
     ].
+
+parse_schema(ConfigString) ->
+    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
+    hocon_tconf:check_plain(
+        emqx_limiter_schema,
+        RawConf,
+        #{required => false, atom_key => false}
+    ).

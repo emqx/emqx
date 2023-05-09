@@ -32,9 +32,13 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
+    short_paths/0,
     calc_capacity/1,
     extract_with_type/2,
-    default_client_config/0
+    default_client_config/0,
+    short_paths_fields/1,
+    get_listener_opts/1,
+    get_node_opts/1
 ]).
 
 -define(KILOBYTE, 1024).
@@ -104,15 +108,17 @@ roots() ->
     ].
 
 fields(limiter) ->
-    [
-        {Type,
-            ?HOCON(?R_REF(node_opts), #{
-                desc => ?DESC(Type),
-                importance => ?IMPORTANCE_HIDDEN,
-                aliases => alias_of_type(Type)
-            })}
-     || Type <- types()
-    ] ++
+    short_paths_fields(?MODULE) ++
+        [
+            {Type,
+                ?HOCON(?R_REF(node_opts), #{
+                    desc => ?DESC(Type),
+                    importance => ?IMPORTANCE_HIDDEN,
+                    required => {false, recursively},
+                    aliases => alias_of_type(Type)
+                })}
+         || Type <- types()
+        ] ++
         [
             %% This is an undocumented feature, and it won't be support anymore
             {client,
@@ -203,6 +209,14 @@ fields(listener_client_fields) ->
 fields(Type) ->
     simple_bucket_field(Type).
 
+short_paths_fields(DesModule) ->
+    [
+        {Name,
+            ?HOCON(rate(), #{desc => ?DESC(DesModule, Name), required => false, example => Example})}
+     || {Name, Example} <-
+            lists:zip(short_paths(), [<<"1000/s">>, <<"1000/s">>, <<"100MB/s">>])
+    ].
+
 desc(limiter) ->
     "Settings for the rate limiter.";
 desc(node_opts) ->
@@ -236,6 +250,9 @@ get_bucket_cfg_path(Type, BucketName) ->
 types() ->
     [bytes, messages, connection, message_routing, internal].
 
+short_paths() ->
+    [max_conn_rate, messages_rate, bytes_rate].
+
 calc_capacity(#{rate := infinity}) ->
     infinity;
 calc_capacity(#{rate := Rate, burst := Burst}) ->
@@ -265,6 +282,31 @@ default_client_config() ->
         max_retry_time => timer:seconds(10),
         failure_strategy => force
     }.
+
+default_bucket_config() ->
+    #{
+        rate => infinity,
+        burst => 0
+    }.
+
+get_listener_opts(Conf) ->
+    Limiter = maps:get(limiter, Conf, undefined),
+    ShortPaths = maps:with(short_paths(), Conf),
+    get_listener_opts(Limiter, ShortPaths).
+
+get_node_opts(Type) ->
+    Opts = emqx:get_config([limiter, Type], default_bucket_config()),
+    case type_to_short_path_name(Type) of
+        undefined ->
+            Opts;
+        Name ->
+            case emqx:get_config([limiter, Name], undefined) of
+                undefined ->
+                    Opts;
+                Rate ->
+                    Opts#{rate := Rate}
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -476,3 +518,42 @@ merge_client_bucket(Type, _, {ok, BucketVal}) ->
     #{Type => BucketVal};
 merge_client_bucket(_, _, _) ->
     undefined.
+
+short_path_name_to_type(max_conn_rate) ->
+    connection;
+short_path_name_to_type(messages_rate) ->
+    messages;
+short_path_name_to_type(bytes_rate) ->
+    bytes.
+
+type_to_short_path_name(connection) ->
+    max_conn_rate;
+type_to_short_path_name(messages) ->
+    messages_rate;
+type_to_short_path_name(bytes) ->
+    bytes_rate;
+type_to_short_path_name(_) ->
+    undefined.
+
+get_listener_opts(Limiter, ShortPaths) when map_size(ShortPaths) =:= 0 ->
+    Limiter;
+get_listener_opts(undefined, ShortPaths) ->
+    convert_listener_short_paths(ShortPaths);
+get_listener_opts(Limiter, ShortPaths) ->
+    Shorts = convert_listener_short_paths(ShortPaths),
+    emqx_utils_maps:deep_merge(Limiter, Shorts).
+
+convert_listener_short_paths(ShortPaths) ->
+    DefBucket = default_bucket_config(),
+    DefClient = default_client_config(),
+    Fun = fun(Name, Rate, Acc) ->
+        Type = short_path_name_to_type(Name),
+        case Name of
+            max_conn_rate ->
+                Acc#{Type => DefBucket#{rate => Rate}};
+            _ ->
+                Client = maps:get(client, Acc, #{}),
+                Acc#{client => Client#{Type => DefClient#{rate => Rate}}}
+        end
+    end,
+    maps:fold(Fun, #{}, ShortPaths).
