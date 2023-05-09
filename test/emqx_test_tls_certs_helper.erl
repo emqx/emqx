@@ -246,4 +246,13 @@ generate_tls_certs(Config) ->
   os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate1.pem"),
                                           filename:join(DataDir, "root.pem"),
                                           filename:join(DataDir, "intermediate1-root-bundle.pem")
+                                         ])),
+  os:cmd(io_lib:format("cat ~p ~p ~p > ~p", [filename:join(DataDir, "root.pem"),
+                                             filename:join(DataDir, "intermediate2.pem"),
+                                             filename:join(DataDir, "intermediate1.pem"),
+                                             filename:join(DataDir, "all-CAcerts-bundle.pem")
+                                            ])),
+  os:cmd(io_lib:format("cat ~p ~p > ~p", [filename:join(DataDir, "intermediate2.pem"),
+                                          filename:join(DataDir, "intermediate1.pem"),
+                                          filename:join(DataDir, "two-intermediates-bundle.pem")
                                          ])).
