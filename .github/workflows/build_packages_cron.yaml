@@ -24,9 +24,6 @@ jobs:
         profile:
           - ['emqx', 'master']
           - ['emqx-enterprise', 'release-50']
-        branch:
-          - master
-          - release-50
         otp:
           - 24.3.4.2-3
         arch:
