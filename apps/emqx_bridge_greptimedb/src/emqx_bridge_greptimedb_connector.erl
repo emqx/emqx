@@ -1,0 +1,1 @@
+-module(emqx_bridge_greptimedb_connector).

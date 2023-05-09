@@ -89,7 +89,8 @@
     T == pulsar_producer;
     T == oracle;
     T == iotdb;
-    T == kinesis_producer
+    T == kinesis_producer;
+    T == greptimedb
 ).
 
 -define(ROOT_KEY, bridges).
