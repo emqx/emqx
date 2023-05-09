@@ -161,7 +161,12 @@ tr_file_handler({HandlerName, SubConf}) ->
     }}.
 
 logger_file_handlers(Conf) ->
-    maps:to_list(conf_get("log.file", Conf, #{})).
+    lists:filter(
+        fun({_Name, Handler}) ->
+            conf_get("enable", Handler, false)
+        end,
+        maps:to_list(conf_get("log.file", Conf, #{}))
+    ).
 
 conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
 conf_get(Key, Conf, Default) -> emqx_schema:conf_get(Key, Conf, Default).
