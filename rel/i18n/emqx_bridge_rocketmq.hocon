@@ -1,4 +1,4 @@
-emqx_ee_bridge_rocketmq {
+emqx_bridge_rocketmq {
 
 config_enable.desc:
 """Enable or disable this bridge"""

@@ -1,4 +1,4 @@
-emqx_ee_connector_rocketmq {
+emqx_bridge_rocket_connector {
 
 access_key.desc:
 """RocketMQ 服务器的 `accessKey`。"""

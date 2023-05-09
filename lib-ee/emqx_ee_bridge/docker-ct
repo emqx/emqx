@@ -9,4 +9,3 @@ pgsql
 tdengine
 clickhouse
 dynamo
-rocketmq
