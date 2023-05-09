@@ -1,4 +1,4 @@
-emqx_ee_bridge_clickhouse {
+emqx_bridge_clickhouse {
 
 batch_value_separator.desc:
 """默认为逗号 ','，适用于 VALUE 格式。您也可以使用其他分隔符， 请参考 [INSERT INTO 语句](https://clickhouse.com/docs/en/sql-reference/statements/insert-into)。"""

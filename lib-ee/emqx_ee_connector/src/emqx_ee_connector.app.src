@@ -6,8 +6,7 @@
         kernel,
         stdlib,
         ecpool,
-        hstreamdb_erl,
-        clickhouse
+        hstreamdb_erl
     ]},
     {env, []},
     {modules, []},
