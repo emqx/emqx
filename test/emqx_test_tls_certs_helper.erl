@@ -214,6 +214,8 @@ generate_tls_certs(Config) ->
   gen_host_cert("client1", "intermediate1", DataDir),
   gen_host_cert("server2", "intermediate2", DataDir),
   gen_host_cert("client2", "intermediate2", DataDir),
+
+  %% Build bundles below
   os:cmd(io_lib:format("cat ~p ~p ~p > ~p", [filename:join(DataDir, "client2.pem"),
                                              filename:join(DataDir, "intermediate2.pem"),
                                              filename:join(DataDir, "root.pem"),

@@ -191,26 +191,31 @@ opt_partial_chain(SslOpts) ->
         false ->
             SslOpts;
         V when V =:= cacert_from_cacertfile orelse V == true ->
-            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(SslOpts))
+            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts));
+        V when V =:= two_cacerts_from_cacertfile -> %% for certificate rotations
+            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(2, SslOpts))
     end.
 
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 
 %% @doc Helper, make TLS root_fun
-rootfun_trusted_ca_from_cacertfile(SslOpts) ->
+rootfun_trusted_ca_from_cacertfile(NumOfCerts, SslOpts) ->
     Cacertfile = proplists:get_value(cacertfile, SslOpts, undefined),
-    try do_rootfun_trusted_ca_from_cacertfile(Cacertfile)
+    try do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile)
     catch _Error:_Info:ST ->
             %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
             %% We are touching security sutffs, don't leak extra info..
             ?LOG(error, "Failed to look for trusted cacert from cacertfile. Stacktrace: ~p", [ST]),
             throw({error, ?FUNCTION_NAME})
     end.
-do_rootfun_trusted_ca_from_cacertfile(Cacertfile) ->
+do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile) ->
     {ok, PemBin} = file:read_file(Cacertfile),
-    %% The last one should be the top parent in the chain if it is a chain
-    {'Certificate', CADer, _} = lists:last(public_key:pem_decode(PemBin)),
-    emqx_const_v2:make_tls_root_fun(cacert_from_cacertfile, CADer).
+    %% The last one or two should be the top parent in the chain if it is a chain
+    Certs = public_key:pem_decode(PemBin),
+    Pos = length(Certs) - NumOfCerts + 1,
+    Trusted = [ CADer || {'Certificate', CADer, _} <-
+                             lists:sublist(public_key:pem_decode(PemBin), Pos, NumOfCerts)],
+    emqx_const_v2:make_tls_root_fun(cacert_from_cacertfile, Trusted).
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).

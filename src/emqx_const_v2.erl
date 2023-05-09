@@ -21,7 +21,25 @@
 -export([ make_tls_root_fun/2
         ]).
 
-make_tls_root_fun(cacert_from_cacertfile, CADer) ->
-    fun(_InputChain) ->
-            {trusted_ca, CADer}
-    end.
+%% @doc Build a root fun for verify TLS partial_chain.
+%% The `InputChain' is composed by OTP SSL with local cert store
+%% AND the cert (chain if any) from the client.
+%% @end
+make_tls_root_fun(cacert_from_cacertfile, [Trusted]) ->
+  %% Allow only one trusted ca cert, and just return the defined trusted CA cert,
+  fun(_InputChain) ->
+      %% Note, returing `trusted_ca` doesn't really mean it accepts the connection
+      %% OTP SSL app will do the path validation, signature validation subsequently.
+      {trusted_ca, Trusted}
+  end;
+make_tls_root_fun(cacert_from_cacertfile, [TrustedOne, TrustedTwo]) ->
+  %% Allow two trusted CA certs in case of CA cert renewal
+  %% This is a little expensive call as it compares the binaries.
+  fun(InputChain) ->
+      case lists:member(TrustedOne, InputChain) of
+        true ->
+          {trusted_ca, TrustedOne};
+        false ->
+          {trusted_ca, TrustedTwo}
+      end
+  end.
