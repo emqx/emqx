@@ -95,7 +95,7 @@ fields("config") ->
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts");
 fields("post") ->
-    fields("post", clickhouse);
+    fields("post", rabbitmq);
 fields("put") ->
     fields("config");
 fields("get") ->
