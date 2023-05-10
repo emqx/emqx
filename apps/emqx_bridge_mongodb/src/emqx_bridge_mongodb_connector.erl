@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_mongodb).
+-module(emqx_bridge_mongodb_connector).
 
 -behaviour(emqx_resource).
 
