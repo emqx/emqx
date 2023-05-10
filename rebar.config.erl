@@ -478,7 +478,9 @@ relx_apps_per_edition(ee) ->
         emqx_oracle,
         emqx_bridge_oracle,
         emqx_bridge_rabbitmq,
-        emqx_ee_schema_registry
+        emqx_ee_schema_registry,
+        emqx_eviction_agent,
+        emqx_node_rebalance
     ];
 relx_apps_per_edition(ce) ->
     [].

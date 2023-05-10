@@ -179,6 +179,7 @@ clean-all:
 	@rm -f rebar.lock
 	@rm -rf deps
 	@rm -rf _build
+	@rm -f emqx_dialyzer_*_plt
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)

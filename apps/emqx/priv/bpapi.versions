@@ -13,6 +13,7 @@
 {emqx_conf,2}.
 {emqx_dashboard,1}.
 {emqx_delayed,1}.
+{emqx_eviction_agent,1}.
 {emqx_exhook,1}.
 {emqx_gateway_api_listeners,1}.
 {emqx_gateway_cm,1}.
@@ -26,6 +27,10 @@
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
+{emqx_node_rebalance,1}.
+{emqx_node_rebalance_api,1}.
+{emqx_node_rebalance_evacuation,1}.
+{emqx_node_rebalance_status,1}.
 {emqx_persistent_session,1}.
 {emqx_plugin_libs,1}.
 {emqx_plugins,1}.
