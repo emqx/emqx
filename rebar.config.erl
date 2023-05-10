@@ -439,6 +439,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_prometheus,
             emqx_psk,
             emqx_slow_subs,
+            emqx_mongodb,
             emqx_plugins
         ] ++
         [quicer || is_quicer_supported()] ++

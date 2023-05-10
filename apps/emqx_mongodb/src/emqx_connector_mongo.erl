@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_mongo).
 
--include("emqx_connector.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").

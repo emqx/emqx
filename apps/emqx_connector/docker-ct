@@ -1,4 +1,3 @@
-mongo
 redis
 redis_cluster
 mysql

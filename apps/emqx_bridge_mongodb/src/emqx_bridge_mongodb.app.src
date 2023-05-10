@@ -8,7 +8,7 @@
                     emqx_resource,
                     emqx_bridge,
                     emqx_ee_bridge,
-                    mongodb]},
+                    emqx_mongodb]},
     {env, []},
     {modules, []},
     {links, []}

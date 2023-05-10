@@ -9,7 +9,8 @@
         stdlib,
         crypto,
         emqx_resource,
-        emqx_connector
+        emqx_connector,
+        emqx_mongodb
     ]},
     {env, []},
     {modules, []},
