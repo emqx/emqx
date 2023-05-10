@@ -5,8 +5,6 @@ SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-alpine3.15.1
 export EMQX_DEFAULT_RUNNER = alpine:3.15.1
-export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
-export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export DOCKERFILE := deploy/docker/Dockerfile
 export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
@@ -15,6 +13,17 @@ ifeq ($(OS),Windows_NT)
 else
 	FIND=find
 endif
+
+# `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
+# In make 4.4+, for backward-compatibility the value from the original environment is used.
+# so the shell script will be executed tons of times.
+ifeq ($(strip $(OTP_VSN)),)
+	export OTP_VSN := $(shell $(SCRIPTS)/get-otp-vsn.sh)
+endif
+ifeq ($(strip $(PKG_VSN)),)
+	export PKG_VSN := $(shell $(CURDIR)/pkg-vsn.sh)
+endif
+
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-edge
