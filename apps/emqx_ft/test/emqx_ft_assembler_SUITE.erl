@@ -246,16 +246,19 @@ exporter(Config) ->
     emqx_ft_storage_exporter:exporter(storage(Config)).
 
 storage(Config) ->
-    maps:get(
-        storage,
+    emqx_utils_maps:deep_get(
+        [storage, local],
         emqx_ft_schema:translate(#{
             <<"storage">> => #{
-                <<"type">> => <<"local">>,
-                <<"segments">> => #{
-                    <<"root">> => ?config(storage_root, Config)
-                },
-                <<"exporter">> => #{
-                    <<"root">> => ?config(exports_root, Config)
+                <<"local">> => #{
+                    <<"segments">> => #{
+                        <<"root">> => ?config(storage_root, Config)
+                    },
+                    <<"exporter">> => #{
+                        <<"local">> => #{
+                            <<"root">> => ?config(exports_root, Config)
+                        }
+                    }
                 }
             }
         })

@@ -18,11 +18,11 @@ store_segment_timeout.desc:
 """Timeout for storing a file segment.<br/>
 After reaching the timeout, message with the segment will be acked with an error"""
 
-storage.desc:
+storage_backend.desc:
 """Storage settings for file transfer."""
 
-local_type.desc:
-"""Use local file system to store uploaded fragments and temporary data."""
+local_storage.desc:
+"""Local file system backend to store uploaded fragments and temporary data."""
 
 local_storage_segments.desc:
 """Settings for local segments storage, which include uploaded transfer fragments and temporary data."""
@@ -30,15 +30,15 @@ local_storage_segments.desc:
 local_storage_segments_root.desc:
 """File system path to keep uploaded fragments and temporary data."""
 
-local_storage_exporter.desc:
+local_storage_exporter_backend.desc:
 """Exporter for the local file system storage backend.<br/>
 Exporter defines where and how fully transferred and assembled files are stored."""
 
-local_storage_exporter_type.desc:
-"""Exporter type for the exporter to the local file system"""
+local_storage_exporter.desc:
+"""Exporter to the local file system."""
 
-s3_exporter_type.desc:
-"""Exporter type for the exporter to S3"""
+s3_exporter.desc:
+"""Exporter to the S3 API compatible object storage."""
 
 local_storage_exporter_root.desc:
 """File system path to keep uploaded files."""

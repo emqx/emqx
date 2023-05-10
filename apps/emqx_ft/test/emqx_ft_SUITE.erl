@@ -58,16 +58,16 @@ end_per_suite(_Config) ->
 set_special_configs(Config) ->
     fun
         (emqx_ft) ->
-            Storage = emqx_ft_test_helpers:local_storage(Config),
+            % NOTE
+            % Inhibit local fs GC to simulate it isn't fast enough to collect
+            % complete transfers.
+            Storage = emqx_utils_maps:deep_merge(
+                emqx_ft_test_helpers:local_storage(Config),
+                #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => 0}}}}
+            ),
             emqx_ft_test_helpers:load_config(#{
-                % NOTE
-                % Inhibit local fs GC to simulate it isn't fast enough to collect
-                % complete transfers.
-                enable => true,
-                storage => emqx_utils_maps:deep_merge(
-                    Storage,
-                    #{segments => #{gc => #{interval => 0}}}
-                )
+                <<"enable">> => true,
+                <<"storage">> => Storage
             });
         (_) ->
             ok

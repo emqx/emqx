@@ -36,19 +36,19 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(TC, Config) ->
+    SegmentsRoot = emqx_ft_test_helpers:root(Config, node(), [TC, segments]),
+    ExportsRoot = emqx_ft_test_helpers:root(Config, node(), [TC, exports]),
     ok = emqx_common_test_helpers:start_app(
         emqx_ft,
         fun(emqx_ft) ->
             emqx_ft_test_helpers:load_config(#{
                 <<"enable">> => true,
                 <<"storage">> => #{
-                    <<"type">> => <<"local">>,
-                    <<"segments">> => #{
-                        <<"root">> => emqx_ft_test_helpers:root(Config, node(), [TC, segments])
-                    },
-                    <<"exporter">> => #{
-                        <<"type">> => <<"local">>,
-                        <<"root">> => emqx_ft_test_helpers:root(Config, node(), [TC, exports])
+                    <<"local">> => #{
+                        <<"segments">> => #{<<"root">> => SegmentsRoot},
+                        <<"exporter">> => #{
+                            <<"local">> => #{<<"root">> => ExportsRoot}
+                        }
                     }
                 }
             })
@@ -105,7 +105,7 @@ t_gc_triggers_manually(_Config) ->
     ).
 
 t_gc_complete_transfers(_Config) ->
-    Storage = emqx_ft_conf:storage(),
+    {local, Storage} = emqx_ft_storage:backend(),
     ok = set_gc_config(minimum_segments_ttl, 0),
     ok = set_gc_config(maximum_segments_ttl, 3),
     ok = set_gc_config(interval, 500),
@@ -198,7 +198,7 @@ t_gc_complete_transfers(_Config) ->
 t_gc_incomplete_transfers(_Config) ->
     ok = set_gc_config(minimum_segments_ttl, 0),
     ok = set_gc_config(maximum_segments_ttl, 4),
-    Storage = emqx_ft_conf:storage(),
+    {local, Storage} = emqx_ft_storage:backend(),
     Transfers = [
         {
             {<<"client43"/utf8>>, <<"file-🦕"/utf8>>},
@@ -269,7 +269,7 @@ t_gc_incomplete_transfers(_Config) ->
 t_gc_handling_errors(_Config) ->
     ok = set_gc_config(minimum_segments_ttl, 0),
     ok = set_gc_config(maximum_segments_ttl, 0),
-    Storage = emqx_ft_conf:storage(),
+    {local, Storage} = emqx_ft_storage:backend(),
     Transfer1 = {<<"client1">>, mk_file_id()},
     Transfer2 = {<<"client2">>, mk_file_id()},
     Filemeta = #{name => "oops.pdf"},
@@ -325,7 +325,7 @@ t_gc_handling_errors(_Config) ->
 %%
 
 set_gc_config(Name, Value) ->
-    emqx_config:put([file_transfer, storage, segments, gc, Name], Value).
+    emqx_config:put([file_transfer, storage, local, segments, gc, Name], Value).
 
 start_transfer(Storage, {Transfer, Meta, Gen}) ->
     ?assertEqual(

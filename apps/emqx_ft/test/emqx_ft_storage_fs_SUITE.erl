@@ -85,7 +85,7 @@ client_id(Config) ->
 
 storage(Config) ->
     RawConfig = #{<<"storage">> => emqx_ft_test_helpers:local_storage(Config)},
-    #{storage := Storage} = emqx_ft_schema:translate(RawConfig),
+    #{storage := #{local := Storage}} = emqx_ft_schema:translate(RawConfig),
     Storage.
 
 list_files(Config) ->

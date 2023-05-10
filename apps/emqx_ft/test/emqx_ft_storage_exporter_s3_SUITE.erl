@@ -111,7 +111,7 @@ t_upload_error(Config) ->
     Data = <<"data"/utf8>>,
 
     {ok, _} = emqx_conf:update(
-        [file_transfer, storage, exporter, bucket], <<"invalid-bucket">>, #{}
+        [file_transfer, storage, local, exporter, s3, bucket], <<"invalid-bucket">>, #{}
     ),
 
     ?assertEqual(

@@ -257,6 +257,9 @@ read_exportinfo(
     Transfer = dirnames_to_transfer(ClientId, FileId),
     Info = mk_exportinfo(Options, Filename, RelFilepath, Transfer, Fileinfo),
     [Info | Acc];
+read_exportinfo(_Options, {node, _Root = "", {error, enoent}, []}, Acc) ->
+    % NOTE: Root directory does not exist, this is not an error.
+    Acc;
 read_exportinfo(Options, Entry, Acc) ->
     ok = log_invalid_entry(Options, Entry),
     Acc.

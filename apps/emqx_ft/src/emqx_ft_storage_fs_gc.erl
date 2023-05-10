@@ -58,9 +58,9 @@ start_link(Storage) ->
 collect() ->
     gen_server:call(mk_server_ref(global), {collect, erlang:system_time()}, infinity).
 
--spec reset() -> ok.
+-spec reset() -> ok | {error, _}.
 reset() ->
-    reset(emqx_ft_conf:storage()).
+    emqx_ft_storage:with_storage_type(local, fun reset/1).
 
 -spec reset(emqx_ft_storage_fs:storage()) -> ok.
 reset(Storage) ->
@@ -139,7 +139,8 @@ maybe_report(#gcstats{} = _Stats, _Storage) ->
     ?tp(garbage_collection, #{stats => _Stats, storage => _Storage}).
 
 start_timer(St) ->
-    start_timer(gc_interval(emqx_ft_conf:storage()), St).
+    Interval = emqx_ft_storage:with_storage_type(local, fun gc_interval/1),
+    start_timer(Interval, St).
 
 start_timer(Interval, St = #st{next_gc_timer = undefined}) when ?IS_ENABLED(Interval) ->
     St#st{next_gc_timer = emqx_utils:start_timer(Interval, collect)};
