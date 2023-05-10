@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_matrix).
+-module(emqx_bridge_matrix).
 
 -export([
     conn_bridge_examples/1
@@ -22,7 +22,7 @@ conn_bridge_examples(Method) ->
         #{
             <<"matrix">> => #{
                 summary => <<"Matrix Bridge">>,
-                value => emqx_ee_bridge_pgsql:values(Method, matrix)
+                value => emqx_bridge_pgsql:values(Method, matrix)
             }
         }
     ].
@@ -34,9 +34,9 @@ namespace() -> "bridge_matrix".
 roots() -> [].
 
 fields("post") ->
-    emqx_ee_bridge_pgsql:fields("post", matrix);
+    emqx_bridge_pgsql:fields("post", matrix);
 fields(Method) ->
-    emqx_ee_bridge_pgsql:fields(Method).
+    emqx_bridge_pgsql:fields(Method).
 
 desc(_) ->
     undefined.
