@@ -1,0 +1,3 @@
+%% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
+{VSN, [{<<".*">>, []}], [{<<".*">>, []}]}.

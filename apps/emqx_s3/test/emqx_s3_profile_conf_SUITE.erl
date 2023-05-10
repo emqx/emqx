@@ -9,18 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--define(assertWaitEvent(Code, EventMatch, Timeout),
-    ?assertMatch(
-        {_, {ok, EventMatch}},
-        ?wait_async_action(
-            Code,
-            EventMatch,
-            Timeout
-        )
-    )
-).
+-include_lib("emqx/include/asserts.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

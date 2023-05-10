@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,32 +14,29 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% This file contains common macros for testing.
-%% It must not be used anywhere except in test suites.
+-define(CHANNEL_METRICS, [
+    recv_pkt,
+    recv_msg,
+    'recv_msg.qos0',
+    'recv_msg.qos1',
+    'recv_msg.qos2',
+    'recv_msg.dropped',
+    'recv_msg.dropped.await_pubrel_timeout',
+    send_pkt,
+    send_msg,
+    'send_msg.qos0',
+    'send_msg.qos1',
+    'send_msg.qos2',
+    'send_msg.dropped',
+    'send_msg.dropped.expired',
+    'send_msg.dropped.queue_full',
+    'send_msg.dropped.too_large'
+]).
 
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--define(assertWaitEvent(Code, EventMatch, Timeout),
-    ?assertMatch(
-        {_, {ok, EventMatch}},
-        ?wait_async_action(
-            Code,
-            EventMatch,
-            Timeout
-        )
-    )
-).
-
--define(assertInclude(Pattern, List),
-    ?assert(
-        lists:any(
-            fun(El) ->
-                case El of
-                    Pattern -> true;
-                    _ -> false
-                end
-            end,
-            List
-        )
-    )
-).
+-define(INFO_KEYS, [
+    conninfo,
+    conn_state,
+    clientinfo,
+    session,
+    will_msg
+]).

@@ -155,7 +155,9 @@ basic_reboot_apps() ->
             CE ++
                 [
                     emqx_s3,
-                    emqx_ft
+                    emqx_ft,
+                    emqx_eviction_agent,
+                    emqx_node_rebalance
                 ]
     end.
 
