@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_tdengine).
+-module(emqx_bridge_tdengine).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -81,7 +81,8 @@ fields("config") ->
                 binary(),
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
-    ] ++ emqx_resource_schema:fields("resource_opts") ++ emqx_ee_connector_tdengine:fields(config);
+    ] ++ emqx_resource_schema:fields("resource_opts") ++
+        emqx_bridge_tdengine_connector:fields(config);
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
