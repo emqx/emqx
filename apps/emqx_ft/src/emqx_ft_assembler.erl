@@ -78,6 +78,8 @@ handle_event(info, kickoff, idle, St) ->
     % We could wait for this message and handle it at the end of the assembling rather than at
     % the beginning, however it would make error handling much more messier.
     {next_state, list_local_fragments, St, ?internal([])};
+handle_event(info, kickoff, _, _St) ->
+    keep_state_and_data;
 handle_event(
     internal,
     _,

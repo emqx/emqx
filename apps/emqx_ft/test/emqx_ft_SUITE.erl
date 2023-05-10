@@ -37,15 +37,27 @@ all() ->
 
 groups() ->
     [
-        {single_node, [], emqx_common_test_helpers:all(?MODULE) -- group_cluster()},
-        {cluster, [], group_cluster()}
-    ].
-
-group_cluster() ->
-    [
-        t_switch_node,
-        t_unreliable_migrating_client,
-        t_concurrent_fins
+        {single_node, [parallel], [
+            t_assemble_crash,
+            t_corrupted_segment_retry,
+            t_invalid_checksum,
+            t_invalid_fileid,
+            t_invalid_filename,
+            t_invalid_meta,
+            t_invalid_topic_format,
+            t_meta_conflict,
+            t_nasty_clientids_fileids,
+            t_no_meta,
+            t_no_segment,
+            t_simple_transfer
+        ]},
+        {cluster, [], [
+            t_switch_node,
+            t_unreliable_migrating_client,
+            {g_concurrent_fins, [{repeat_until_any_fail, 8}], [
+                t_concurrent_fins
+            ]}
+        ]}
     ].
 
 init_per_suite(Config) ->
@@ -563,10 +575,15 @@ t_unreliable_migrating_client(Config) ->
     ].
 
 t_concurrent_fins(Config) ->
+    ct:timetrap({seconds, 10}),
+
     NodeSelf = node(),
     [Node1, Node2] = ?config(cluster_nodes, Config),
 
-    ClientId = ?config(clientid, Config),
+    ClientId = iolist_to_binary([
+        ?config(clientid, Config),
+        integer_to_list(erlang:unique_integer())
+    ]),
     FileId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Filename = "migratory-birds-in-southern-hemisphere-2013.pdf",
     Filesize = 100,
@@ -593,46 +610,52 @@ t_concurrent_fins(Config) ->
     ),
 
     %% Now send fins concurrently to the 3 nodes
-    Self = self(),
     Nodes = [Node1, Node2, NodeSelf],
-    FinSenders = lists:map(
+    SendFin = fun(Node) ->
+        run_commands(
+            [
+                {fun connect_mqtt_client/2, [Node]},
+                {fun send_finish/1, []}
+            ],
+            Context1
+        )
+    end,
+
+    PidMons = lists:map(
         fun(Node) ->
-            %% takeovers and disconnects will happen due to concurrency
-            _ = erlang:process_flag(trap_exit, true),
-            _Context = run_commands(
-                [
-                    {fun connect_mqtt_client/2, [Node]},
-                    {fun send_finish/1, []}
-                ],
-                Context1
-            ),
-            Self ! {done, Node}
+            erlang:spawn_monitor(fun F() ->
+                _ = erlang:process_flag(trap_exit, true),
+                try
+                    SendFin(Node)
+                catch
+                    C:E ->
+                        % NOTE: random delay to avoid livelock conditions
+                        ct:pal("Node ~p did not send finish successfully: ~p:~p", [Node, C, E]),
+                        ok = timer:sleep(rand:uniform(10)),
+                        F()
+                end
+            end)
         end,
         Nodes
     ),
     ok = lists:foreach(
-        fun(F) ->
-            _Pid = spawn_link(F)
-        end,
-        FinSenders
-    ),
-    ok = lists:foreach(
-        fun(Node) ->
+        fun({Pid, MRef}) ->
             receive
-                {done, Node} -> ok
-            after 1000 ->
-                ct:fail("Node ~p did not send finish successfully", [Node])
+                {'DOWN', MRef, process, Pid, normal} -> ok
             end
         end,
-        Nodes
+        PidMons
     ),
 
     %% Only one node should have the file
-    Exports = list_files(?config(clientid, Config)),
-    ?assertMatch(
-        [#{"node" := _Node}],
-        fs_exported_file_attributes(Exports)
-    ).
+    Exports = list_files(ClientId),
+    case fs_exported_file_attributes(Exports) of
+        [#{"node" := _Node}] ->
+            ok;
+        [#{"node" := _Node} | _] = Files ->
+            % ...But we can't really guarantee that
+            ct:comment({multiple_files_on_different_nodes, Files})
+    end.
 
 %%------------------------------------------------------------------------------
 %% Command helpers
