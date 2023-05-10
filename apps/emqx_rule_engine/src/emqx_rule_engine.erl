@@ -341,7 +341,10 @@ get_basic_usage_info() ->
 tally_referenced_bridges(BridgeIDs, Acc0) ->
     lists:foldl(
         fun(BridgeID, Acc) ->
-            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeID),
+            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(
+                BridgeID,
+                #{atom_name => false}
+            ),
             maps:update_with(
                 BridgeType,
                 fun(X) -> X + 1 end,

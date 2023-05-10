@@ -54,13 +54,14 @@
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", (BRIDGE_NAME)/binary, "' of type ",
+        <<"Bridge lookup failed: bridge named '", (bin(BRIDGE_NAME))/binary, "' of type ",
             (bin(BRIDGE_TYPE))/binary, " does not exist.">>
     )
 ).
 
+%% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge_resource:parse_bridge_id(Id) of
+    try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
