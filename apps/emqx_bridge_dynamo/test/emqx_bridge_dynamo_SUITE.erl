@@ -232,7 +232,7 @@ query_resource(Config, Request) ->
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
 
-%% create a table, use the lib-ee/emqx_ee_bridge/priv/dynamo/mqtt_msg.json as template
+%% create a table, use the apps/emqx_bridge_dynamo/priv/dynamo/mqtt_msg.json as template
 create_table(Config) ->
     directly_setup_dynamo(),
     delete_table(Config),
