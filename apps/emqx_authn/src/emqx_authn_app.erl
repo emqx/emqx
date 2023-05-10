@@ -23,7 +23,9 @@
 %% Application callbacks
 -export([
     start/2,
-    stop/1
+    stop/1,
+    chain_configs/0,
+    initialize/0
 ]).
 
 -include_lib("emqx/include/emqx_authentication.hrl").
@@ -54,6 +56,7 @@ stop(_State) ->
 
 initialize() ->
     ok = ?AUTHN:register_providers(emqx_authn:providers()),
+    io:format("init:~p~n", [chain_configs()]),
     lists:foreach(
         fun({ChainName, AuthConfig}) ->
             ?AUTHN:initialize_authentication(
@@ -72,7 +75,7 @@ chain_configs() ->
     [global_chain_config() | listener_chain_configs()].
 
 global_chain_config() ->
-    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
+    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM], [])}.
 
 listener_chain_configs() ->
     lists:map(
