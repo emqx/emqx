@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_tdengine).
+-module(emqx_bridge_tdengine_connector).
 
 -behaviour(emqx_resource).
 

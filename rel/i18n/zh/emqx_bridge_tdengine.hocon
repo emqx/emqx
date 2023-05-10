@@ -1,4 +1,4 @@
-emqx_ee_bridge_tdengine {
+emqx_bridge_tdengine {
 
 config_enable.desc:
 """启用/禁用桥接"""

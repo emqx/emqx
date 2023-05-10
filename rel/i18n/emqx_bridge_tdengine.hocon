@@ -1,4 +1,4 @@
-emqx_ee_bridge_tdengine {
+emqx_bridge_tdengine {
 
 config_enable.desc:
 """Enable or disable this bridge"""

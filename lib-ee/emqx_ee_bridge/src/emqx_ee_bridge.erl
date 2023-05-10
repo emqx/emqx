@@ -31,7 +31,7 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
         ref(emqx_ee_bridge_timescale, Method),
         ref(emqx_ee_bridge_matrix, Method),
-        ref(emqx_ee_bridge_tdengine, Method),
+        ref(emqx_bridge_tdengine, Method),
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
         ref(emqx_bridge_rocketmq, Method),
@@ -56,7 +56,7 @@ schema_modules() ->
         emqx_ee_bridge_pgsql,
         emqx_ee_bridge_timescale,
         emqx_ee_bridge_matrix,
-        emqx_ee_bridge_tdengine,
+        emqx_bridge_tdengine,
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
         emqx_bridge_rocketmq,
@@ -100,7 +100,7 @@ resource_type(redis_cluster) -> emqx_ee_connector_redis;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
-resource_type(tdengine) -> emqx_ee_connector_tdengine;
+resource_type(tdengine) -> emqx_bridge_tdengine_connector;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
 resource_type(dynamo) -> emqx_ee_connector_dynamo;
 resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
@@ -139,7 +139,7 @@ fields(bridges) ->
             )},
         {tdengine,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_tdengine, "config")),
+                hoconsc:map(name, ref(emqx_bridge_tdengine, "config")),
                 #{
                     desc => <<"TDengine Bridge Config">>,
                     required => false

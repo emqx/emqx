@@ -8,7 +8,6 @@
         ecpool,
         hstreamdb_erl,
         influxdb,
-        tdengine,
         clickhouse,
         erlcloud
     ]},
