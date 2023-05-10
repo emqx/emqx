@@ -22,7 +22,11 @@
         , default_ciphers/1
         , integral_ciphers/2
         , drop_tls13_for_old_otp/1
+        , inject_root_fun/1
+        , opt_partial_chain/1
         ]).
+
+-include("logger.hrl").
 
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
@@ -170,7 +174,48 @@ drop_tls13(SslOpts0) ->
         Ciphers -> replace(SslOpts1, ciphers, Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS)
     end.
 
+inject_root_fun(Options) ->
+    case proplists:get_value(ssl_options, Options) of
+        undefined ->
+            Options;
+        SslOpts ->
+            replace(Options, ssl_options, opt_partial_chain(SslOpts))
+    end.
+
+%% @doc enable TLS partial_chain validation if set.
+-spec opt_partial_chain(SslOpts :: proplists:proplist()) -> NewSslOpts :: proplists:proplist().
+opt_partial_chain(SslOpts) ->
+    case proplists:get_value(partial_chain, SslOpts, undefined) of
+        undefined ->
+            SslOpts;
+        false ->
+            SslOpts;
+        V when V =:= cacert_from_cacertfile orelse V == true ->
+            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts));
+        V when V =:= two_cacerts_from_cacertfile -> %% for certificate rotations
+            replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(2, SslOpts))
+    end.
+
 replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
+
+%% @doc Helper, make TLS root_fun
+rootfun_trusted_ca_from_cacertfile(NumOfCerts, SslOpts) ->
+    Cacertfile = proplists:get_value(cacertfile, SslOpts, undefined),
+    try do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile)
+    catch _Error:_Info:ST ->
+            %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
+            %% We are touching security sutffs, don't leak extra info..
+            ?LOG(error, "Failed to look for trusted cacert from cacertfile. Stacktrace: ~p", [ST]),
+            throw({error, ?FUNCTION_NAME})
+    end.
+do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile) ->
+    {ok, PemBin} = file:read_file(Cacertfile),
+    %% The last one or two should be the top parent in the chain if it is a chain
+    Certs = public_key:pem_decode(PemBin),
+    Pos = length(Certs) - NumOfCerts + 1,
+    Trusted = [ CADer || {'Certificate', CADer, _} <-
+                             lists:sublist(public_key:pem_decode(PemBin), Pos, NumOfCerts)],
+    emqx_const_v2:make_tls_root_fun(cacert_from_cacertfile, Trusted).
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
@@ -194,5 +239,5 @@ drop_tls13_no_versions_cipers_test() ->
 has_tlsv13_cipher(Ciphers) ->
     lists:any(fun(C) -> lists:member(C, Ciphers) end, ?TLSV13_EXCLUSIVE_CIPHERS).
 
--endif.
--endif.
+-endif. %% TEST
+-endif. %% OTP_RELEASE > 22
