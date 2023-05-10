@@ -22,7 +22,8 @@
 
 -export([
     list_local/2,
-    pread_local/4
+    pread_local/4,
+    lookup_local_assembler/1
 ]).
 
 list_local(Transfer, What) ->
@@ -30,3 +31,6 @@ list_local(Transfer, What) ->
 
 pread_local(Transfer, Frag, Offset, Size) ->
     emqx_ft_storage:with_storage_type(local, pread, [Transfer, Frag, Offset, Size]).
+
+lookup_local_assembler(Transfer) ->
+    emqx_ft_storage:with_storage_type(local, lookup_local_assembler, [Transfer]).

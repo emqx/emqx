@@ -24,6 +24,8 @@
 -export([handle_event/4]).
 -export([terminate/3]).
 
+-export([where/1]).
+
 -type stdata() :: #{
     storage := emqx_ft_storage_fs:storage(),
     transfer := emqx_ft:transfer(),
@@ -38,6 +40,9 @@
 
 start_link(Storage, Transfer, Size) ->
     gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer, Size}, []).
+
+where(Transfer) ->
+    gproc:where(?NAME(Transfer)).
 
 %%
 

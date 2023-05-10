@@ -268,8 +268,8 @@ on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
     with_responder(FinPacketKey, Callback, emqx_ft_conf:assemble_timeout(), fun() ->
         case assemble(Transfer, FinalSize) of
             %% Assembling completed, ack through the responder right away
-            % ok ->
-            %     emqx_ft_responder:ack(FinPacketKey, ok);
+            ok ->
+                emqx_ft_responder:ack(FinPacketKey, ok);
             %% Assembling started, packet will be acked by the responder
             {async, Pid} ->
                 ok = emqx_ft_responder:kickoff(FinPacketKey, Pid),
