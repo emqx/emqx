@@ -1,4 +1,4 @@
-emqx_connector_mongo {
+emqx_mongodb {
 
 auth_source.desc:
 """Database name associated with the user's credentials."""

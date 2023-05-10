@@ -13,7 +13,7 @@
 % %% limitations under the License.
 % %%--------------------------------------------------------------------
 
--module(emqx_connector_mongo_SUITE).
+-module(emqx_mongodb_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -24,7 +24,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(MONGO_HOST, "mongo").
--define(MONGO_RESOURCE_MOD, emqx_connector_mongo).
+-define(MONGO_RESOURCE_MOD, emqx_mongodb).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -60,7 +60,7 @@ end_per_testcase(_, _Config) ->
 
 t_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_mongo_SUITE">>,
+        <<"emqx_mongodb_SUITE">>,
         mongo_config()
     ).
 

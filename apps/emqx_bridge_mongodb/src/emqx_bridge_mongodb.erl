@@ -56,11 +56,11 @@ fields("creation_opts") ->
         }}
     ]);
 fields(mongodb_rs) ->
-    emqx_connector_mongo:fields(rs) ++ fields("config");
+    emqx_mongodb:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
-    emqx_connector_mongo:fields(sharded) ++ fields("config");
+    emqx_mongodb:fields(sharded) ++ fields("config");
 fields(mongodb_single) ->
-    emqx_connector_mongo:fields(single) ++ fields("config");
+    emqx_mongodb:fields(single) ++ fields("config");
 fields("post_rs") ->
     fields(mongodb_rs) ++ type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
