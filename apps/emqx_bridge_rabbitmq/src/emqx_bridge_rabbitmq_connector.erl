@@ -72,14 +72,7 @@ fields(config) ->
                     desc => ?DESC("username")
                 }
             )},
-        {password,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("password")
-                }
-            )},
+        {password, fun emqx_connector_schema_lib:password/1},
         {pool_size,
             hoconsc:mk(
                 typerefl:pos_integer(),
@@ -127,14 +120,6 @@ fields(config) ->
                 #{
                     default => <<"30s">>,
                     desc => ?DESC("heartbeat")
-                }
-            )},
-        {auto_reconnect,
-            hoconsc:mk(
-                emqx_schema:duration_ms(),
-                #{
-                    default => <<"2s">>,
-                    desc => ?DESC("auto_reconnect")
                 }
             )},
         %% Things related to sending messages to RabbitMQ

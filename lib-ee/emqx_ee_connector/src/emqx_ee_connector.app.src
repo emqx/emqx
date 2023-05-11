@@ -8,9 +8,7 @@
         ecpool,
         hstreamdb_erl,
         influxdb,
-        tdengine,
-        clickhouse,
-        erlcloud
+        clickhouse
     ]},
     {env, []},
     {modules, []},

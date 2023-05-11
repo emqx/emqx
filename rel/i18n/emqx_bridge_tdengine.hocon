@@ -1,4 +1,4 @@
-emqx_ee_bridge_pgsql {
+emqx_bridge_tdengine {
 
 config_enable.desc:
 """Enable or disable this bridge"""
@@ -7,10 +7,10 @@ config_enable.label:
 """Enable Or Disable Bridge"""
 
 desc_config.desc:
-"""Configuration for a PostgreSQL bridge."""
+"""Configuration for a TDengine bridge."""
 
 desc_config.label:
-"""PostgreSQL Bridge Configuration"""
+"""TDengine Bridge Configuration"""
 
 desc_name.desc:
 """Bridge name."""
@@ -25,7 +25,7 @@ desc_type.label:
 """Bridge Type"""
 
 local_topic.desc:
-"""The MQTT topic filter to be forwarded to PostgreSQL. All MQTT 'PUBLISH' messages with the topic
+"""The MQTT topic filter to be forwarded to TDengine. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.</br>
 NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic

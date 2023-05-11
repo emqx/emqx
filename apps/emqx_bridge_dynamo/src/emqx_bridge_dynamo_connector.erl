@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_dynamo).
+-module(emqx_bridge_dynamo_connector).
 
 -behaviour(emqx_resource).
 
@@ -131,7 +131,7 @@ on_batch_query(_InstanceId, Query, _State) ->
 
 on_get_status(_InstanceId, #{pool_name := Pool}) ->
     Health = emqx_resource_pool:health_check_workers(
-        Pool, {emqx_ee_connector_dynamo_client, is_connected, []}
+        Pool, {emqx_bridge_dynamo_connector_client, is_connected, []}
     ),
     status_result(Health).
 
@@ -154,7 +154,7 @@ do_query(
     ),
     Result = ecpool:pick_and_do(
         PoolName,
-        {emqx_ee_connector_dynamo_client, query, [Table, Query, Templates]},
+        {emqx_bridge_dynamo_connector_client, query, [Table, Query, Templates]},
         no_handover
     ),
 
@@ -181,7 +181,7 @@ do_query(
 
 connect(Opts) ->
     Options = proplists:get_value(config, Opts),
-    {ok, _Pid} = Result = emqx_ee_connector_dynamo_client:start_link(Options),
+    {ok, _Pid} = Result = emqx_bridge_dynamo_connector_client:start_link(Options),
     Result.
 
 parse_template(Config) ->

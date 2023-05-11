@@ -12,9 +12,11 @@
         emqx_bridge_cassandra,
         emqx_bridge_opents,
         emqx_bridge_pulsar,
+        emqx_bridge_dynamo,
         emqx_bridge_sqlserver,
         emqx_bridge_rocketmq,
-        emqx_bridge_rabbitmq
+        emqx_bridge_rabbitmq,
+        emqx_bridge_tdengine
     ]},
     {env, []},
     {modules, []},

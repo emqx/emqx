@@ -1,4 +1,4 @@
-emqx_ee_bridge_pgsql {
+emqx_bridge_tdengine {
 
 config_enable.desc:
 """启用/禁用桥接"""
@@ -7,10 +7,10 @@ config_enable.label:
 """启用/禁用桥接"""
 
 desc_config.desc:
-"""PostgreSQL 桥接配置"""
+"""TDengine 桥接配置"""
 
 desc_config.label:
-"""PostgreSQL 桥接配置"""
+"""TDengine 桥接配置"""
 
 desc_name.desc:
 """桥接名字"""
@@ -25,7 +25,7 @@ desc_type.label:
 """桥接类型"""
 
 local_topic.desc:
-"""发送到 'local_topic' 的消息都会转发到 PostgreSQL。 </br>
+"""发送到 'local_topic' 的消息都会转发到 TDengine。 </br>
 注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发。"""
 
 local_topic.label:

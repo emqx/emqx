@@ -19,7 +19,7 @@ api_schemas(Method) ->
         ref(emqx_bridge_kafka, Method ++ "_producer"),
         ref(emqx_bridge_cassandra, Method),
         ref(emqx_ee_bridge_mysql, Method),
-        ref(emqx_ee_bridge_pgsql, Method),
+        ref(emqx_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
@@ -29,11 +29,11 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_redis, Method ++ "_single"),
         ref(emqx_ee_bridge_redis, Method ++ "_sentinel"),
         ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
-        ref(emqx_ee_bridge_timescale, Method),
-        ref(emqx_ee_bridge_matrix, Method),
-        ref(emqx_ee_bridge_tdengine, Method),
+        ref(emqx_bridge_timescale, Method),
+        ref(emqx_bridge_matrix, Method),
+        ref(emqx_bridge_tdengine, Method),
         ref(emqx_ee_bridge_clickhouse, Method),
-        ref(emqx_ee_bridge_dynamo, Method),
+        ref(emqx_bridge_dynamo, Method),
         ref(emqx_bridge_rocketmq, Method),
         ref(emqx_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
@@ -53,12 +53,12 @@ schema_modules() ->
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
         emqx_ee_bridge_redis,
-        emqx_ee_bridge_pgsql,
-        emqx_ee_bridge_timescale,
-        emqx_ee_bridge_matrix,
-        emqx_ee_bridge_tdengine,
+        emqx_bridge_pgsql,
+        emqx_bridge_timescale,
+        emqx_bridge_matrix,
+        emqx_bridge_tdengine,
         emqx_ee_bridge_clickhouse,
-        emqx_ee_bridge_dynamo,
+        emqx_bridge_dynamo,
         emqx_bridge_rocketmq,
         emqx_bridge_sqlserver,
         emqx_bridge_opents,
@@ -100,9 +100,9 @@ resource_type(redis_cluster) -> emqx_ee_connector_redis;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
-resource_type(tdengine) -> emqx_ee_connector_tdengine;
+resource_type(tdengine) -> emqx_bridge_tdengine_connector;
 resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
-resource_type(dynamo) -> emqx_ee_connector_dynamo;
+resource_type(dynamo) -> emqx_bridge_dynamo_connector;
 resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
@@ -139,7 +139,7 @@ fields(bridges) ->
             )},
         {tdengine,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_tdengine, "config")),
+                hoconsc:map(name, ref(emqx_bridge_tdengine, "config")),
                 #{
                     desc => <<"TDengine Bridge Config">>,
                     required => false
@@ -147,7 +147,7 @@ fields(bridges) ->
             )},
         {dynamo,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_dynamo, "config")),
+                hoconsc:map(name, ref(emqx_bridge_dynamo, "config")),
                 #{
                     desc => <<"Dynamo Bridge Config">>,
                     required => false
@@ -280,7 +280,7 @@ pgsql_structs() ->
     [
         {Type,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
+                hoconsc:map(name, ref(emqx_bridge_pgsql, "config")),
                 #{
                     desc => <<Name/binary, " Bridge Config">>,
                     required => false

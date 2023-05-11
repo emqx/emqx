@@ -286,7 +286,8 @@ default_client_config() ->
 default_bucket_config() ->
     #{
         rate => infinity,
-        burst => 0
+        burst => 0,
+        initial => 0
     }.
 
 get_listener_opts(Conf) ->

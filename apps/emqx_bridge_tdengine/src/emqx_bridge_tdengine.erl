@@ -1,11 +1,10 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_dynamo).
+-module(emqx_bridge_tdengine).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -22,7 +21,10 @@
     desc/1
 ]).
 
--define(DEFAULT_TEMPLATE, <<>>).
+-define(DEFAULT_SQL, <<
+    "insert into t_mqtt_msg(ts, msgid, mqtt_topic, qos, payload, arrived) "
+    "values (${ts}, ${id}, ${topic}, ${qos}, ${payload}, ${timestamp})"
+>>).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -30,8 +32,8 @@
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"dynamo">> => #{
-                summary => <<"DynamoDB Bridge">>,
+            <<"tdengine">> => #{
+                summary => <<"TDengine Bridge">>,
                 value => values(Method)
             }
         }
@@ -40,14 +42,14 @@ conn_bridge_examples(Method) ->
 values(_Method) ->
     #{
         enable => true,
-        type => dynamo,
+        type => tdengine,
         name => <<"foo">>,
-        url => <<"http://127.0.0.1:8000">>,
-        table => <<"mqtt">>,
+        server => <<"127.0.0.1:6041">>,
+        database => <<"mqtt">>,
         pool_size => 8,
-        aws_access_key_id => <<"root">>,
-        aws_secret_access_key => <<"******">>,
-        template => ?DEFAULT_TEMPLATE,
+        username => <<"root">>,
+        password => <<"******">>,
+        sql => ?DEFAULT_SQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
             worker_pool_size => 8,
@@ -62,37 +64,25 @@ values(_Method) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge_dynamo".
+namespace() -> "bridge_tdengine".
 
 roots() -> [].
 
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {template,
+        {sql,
             mk(
                 binary(),
-                #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
         {local_topic,
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), default => undefined}
-            )},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
             )}
-    ] ++
-        (emqx_ee_connector_dynamo:fields(config) --
-            emqx_connector_schema_lib:prepare_statement_fields());
-fields("creation_opts") ->
-    emqx_resource_schema:fields("creation_opts");
+    ] ++ emqx_resource_schema:fields("resource_opts") ++
+        emqx_bridge_tdengine_connector:fields(config);
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
@@ -103,16 +93,14 @@ fields("get") ->
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for PostgreSQL using `", string:to_upper(Method), "` method."];
-desc("creation_opts" = Name) ->
-    emqx_resource_schema:desc(Name);
+    ["Configuration for TDengine using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
 
 type_field() ->
-    {type, mk(enum([dynamo]), #{required => true, desc => ?DESC("desc_type")})}.
+    {type, mk(enum([tdengine]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
