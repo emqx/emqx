@@ -129,7 +129,7 @@ assert_upgraded1(Map) ->
     ?assert(maps:is_key(<<"ssl">>, Map)).
 
 check(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf).
+    hocon_tconf:check_plain(emqx_bridge_schema, Conf, #{required => false}).
 
 %% erlfmt-ignore
 %% this is config generated from v5.0.11
