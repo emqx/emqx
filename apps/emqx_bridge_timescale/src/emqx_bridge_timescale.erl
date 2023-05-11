@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_timescale).
+-module(emqx_bridge_timescale).
 
 -export([
     conn_bridge_examples/1
@@ -22,7 +22,7 @@ conn_bridge_examples(Method) ->
         #{
             <<"timescale">> => #{
                 summary => <<"Timescale Bridge">>,
-                value => emqx_ee_bridge_pgsql:values(Method, timescale)
+                value => emqx_bridge_pgsql:values(Method, timescale)
             }
         }
     ].
@@ -34,9 +34,9 @@ namespace() -> "bridge_timescale".
 roots() -> [].
 
 fields("post") ->
-    emqx_ee_bridge_pgsql:fields("post", timescale);
+    emqx_bridge_pgsql:fields("post", timescale);
 fields(Method) ->
-    emqx_ee_bridge_pgsql:fields(Method).
+    emqx_bridge_pgsql:fields(Method).
 
 desc(_) ->
     undefined.

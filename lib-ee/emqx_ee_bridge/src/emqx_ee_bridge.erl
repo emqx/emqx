@@ -19,7 +19,7 @@ api_schemas(Method) ->
         ref(emqx_bridge_kafka, Method ++ "_producer"),
         ref(emqx_bridge_cassandra, Method),
         ref(emqx_ee_bridge_mysql, Method),
-        ref(emqx_ee_bridge_pgsql, Method),
+        ref(emqx_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
@@ -29,8 +29,8 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_redis, Method ++ "_single"),
         ref(emqx_ee_bridge_redis, Method ++ "_sentinel"),
         ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
-        ref(emqx_ee_bridge_timescale, Method),
-        ref(emqx_ee_bridge_matrix, Method),
+        ref(emqx_bridge_timescale, Method),
+        ref(emqx_bridge_matrix, Method),
         ref(emqx_bridge_tdengine, Method),
         ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_ee_bridge_dynamo, Method),
@@ -53,9 +53,9 @@ schema_modules() ->
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
         emqx_ee_bridge_redis,
-        emqx_ee_bridge_pgsql,
-        emqx_ee_bridge_timescale,
-        emqx_ee_bridge_matrix,
+        emqx_bridge_pgsql,
+        emqx_bridge_timescale,
+        emqx_bridge_matrix,
         emqx_bridge_tdengine,
         emqx_ee_bridge_clickhouse,
         emqx_ee_bridge_dynamo,
@@ -280,7 +280,7 @@ pgsql_structs() ->
     [
         {Type,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
+                hoconsc:map(name, ref(emqx_bridge_pgsql, "config")),
                 #{
                     desc => <<Name/binary, " Bridge Config">>,
                     required => false
