@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_dynamo).
+-module(emqx_bridge_dynamo).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -89,7 +89,7 @@ fields("config") ->
                 }
             )}
     ] ++
-        (emqx_ee_connector_dynamo:fields(config) --
+        (emqx_bridge_dynamo_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts");

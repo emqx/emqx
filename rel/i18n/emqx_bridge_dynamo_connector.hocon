@@ -1,4 +1,4 @@
-emqx_ee_connector_dynamo {
+emqx_bridge_dynamo_connector {
 
 aws_access_key_id.desc:
 """Access Key ID for connecting to DynamoDB."""

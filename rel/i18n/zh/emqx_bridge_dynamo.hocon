@@ -1,4 +1,4 @@
-emqx_ee_bridge_dynamo {
+emqx_bridge_dynamo {
 
 config_enable.desc:
 """启用/禁用桥接"""

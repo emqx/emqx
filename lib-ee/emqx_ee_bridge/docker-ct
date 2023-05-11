@@ -6,4 +6,3 @@ mysql
 redis
 redis_cluster
 clickhouse
-dynamo
