@@ -2200,7 +2200,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("cacertfile"),
+                    default => cert_file("cacert.pem"),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2209,7 +2209,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("certfile"),
+                    default => cert_file("cert.pem"),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2218,7 +2218,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("keyfile"),
+                    default => cert_file("key.pem"),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -3251,13 +3251,10 @@ default_listener(ws) ->
     };
 default_listener(SSLListener) ->
     %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
-    CertFile = fun(Name) ->
-        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
-    end,
     SslOptions = #{
-        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
-        <<"certfile">> => CertFile(<<"cert.pem">>),
-        <<"keyfile">> => CertFile(<<"key.pem">>)
+        <<"cacertfile">> => cert_file(<<"cacert.pem">>),
+        <<"certfile">> => cert_file(<<"cert.pem">>),
+        <<"keyfile">> => cert_file(<<"key.pem">>)
     },
     case SSLListener of
         ssl ->
@@ -3374,3 +3371,6 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
+
+cert_file(File) ->
+    iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
