@@ -120,7 +120,14 @@ t_crud_rule_api(_Config) ->
         )
     ),
 
-    %ct:pal("Show After Deleted: ~p", [NotFound]),
+    ?assertMatch(
+        {404, #{code := 'NOT_FOUND'}},
+        emqx_rule_engine_api:'/rules/:id'(
+            delete,
+            #{bindings => #{id => RuleId}}
+        )
+    ),
+
     ?assertMatch(
         {404, #{code := _, message := _Message}},
         emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}})
