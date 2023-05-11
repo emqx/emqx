@@ -2189,8 +2189,8 @@ filter(Opts) ->
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
--spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults) ->
+-spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults, Type) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2200,7 +2200,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cacert.pem"),
+                    default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2209,7 +2209,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cert.pem"),
+                    default => cert_file("cert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2218,7 +2218,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("key.pem"),
+                    default => cert_file("key.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -2305,7 +2305,7 @@ common_ssl_opts_schema(Defaults) ->
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
@@ -2431,7 +2431,7 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, client) ++
         [
             {"enable",
                 sc(
@@ -3252,9 +3252,9 @@ default_listener(ws) ->
 default_listener(SSLListener) ->
     %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
     SslOptions = #{
-        <<"cacertfile">> => cert_file(<<"cacert.pem">>),
-        <<"certfile">> => cert_file(<<"cert.pem">>),
-        <<"keyfile">> => cert_file(<<"key.pem">>)
+        <<"cacertfile">> => cert_file(<<"cacert.pem">>, server),
+        <<"certfile">> => cert_file(<<"cert.pem">>, server),
+        <<"keyfile">> => cert_file(<<"key.pem">>, server)
     },
     case SSLListener of
         ssl ->
@@ -3372,5 +3372,5 @@ ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
 
-cert_file(File) ->
-    iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
+cert_file(_File, client) -> undefined;
+cert_file(File, server) -> iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
