@@ -967,20 +967,11 @@ do_t_validations(_Config) ->
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
         emqx_utils_json:decode(ResRaw3, [return_maps]),
+    %% we can't remove certfile now, because it has default value.
     ?assertMatch(
-        #{
-            <<"mismatches">> :=
-                #{
-                    <<"listeners:ssl_not_required_bind">> :=
-                        #{
-                            <<"reason">> :=
-                                <<"Server certificate must be defined when using OCSP stapling">>
-                        }
-                }
-        },
-        emqx_utils_json:decode(MsgRaw3, [return_maps])
+        <<"{bad_ssl_config,#{file_read => enoent,pem_check => invalid_pem", _/binary>>,
+        MsgRaw3
     ),
-
     ok.
 
 t_unknown_error_fetching_ocsp_response(_Config) ->
