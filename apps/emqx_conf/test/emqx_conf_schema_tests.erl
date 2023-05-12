@@ -116,6 +116,87 @@ authn_validations_test() ->
     ),
     ok.
 
+%% erlfmt-ignore
+-define(LISTENERS,
+    """
+        listeners.ssl.default.bind = 9999
+        listeners.wss.default.bind = 9998
+        listeners.wss.default.ssl_options.cacertfile = \"mytest/certs/cacert.pem\"
+        listeners.wss.new.bind = 9997
+        listeners.wss.new.websocket.mqtt_path = \"/my-mqtt\"
+    """
+).
+
+listeners_test() ->
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+
+    Conf = <<BaseConf/binary, ?LISTENERS>>,
+    {ok, ConfMap0} = hocon:binary(Conf, #{format => richmap}),
+    {_, ConfMap} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap0, #{format => richmap}),
+    #{<<"listeners">> := Listeners} = hocon_util:richmap_to_map(ConfMap),
+    #{
+        <<"tcp">> := #{<<"default">> := Tcp},
+        <<"ws">> := #{<<"default">> := Ws},
+        <<"wss">> := #{<<"default">> := DefaultWss, <<"new">> := NewWss},
+        <<"ssl">> := #{<<"default">> := Ssl}
+    } = Listeners,
+    DefaultCacertFile = <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
+    DefaultCertFile = <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+    DefaultKeyFile = <<"${EMQX_ETC_DIR}/certs/key.pem">>,
+    ?assertMatch(
+        #{
+            <<"bind">> := {{0, 0, 0, 0}, 1883},
+            <<"enabled">> := true
+        },
+        Tcp
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := {{0, 0, 0, 0}, 8083},
+            <<"enabled">> := true,
+            <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"}
+        },
+        Ws
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := 9999,
+            <<"ssl_options">> := #{
+                <<"cacertfile">> := DefaultCacertFile,
+                <<"certfile">> := DefaultCertFile,
+                <<"keyfile">> := DefaultKeyFile
+            }
+        },
+        Ssl
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := 9998,
+            <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
+            <<"ssl_options">> :=
+                #{
+                    <<"cacertfile">> := <<"mytest/certs/cacert.pem">>,
+                    <<"certfile">> := DefaultCertFile,
+                    <<"keyfile">> := DefaultKeyFile
+                }
+        },
+        DefaultWss
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := 9997,
+            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
+            <<"ssl_options">> :=
+                #{
+                    <<"cacertfile">> := DefaultCacertFile,
+                    <<"certfile">> := DefaultCertFile,
+                    <<"keyfile">> := DefaultKeyFile
+                }
+        },
+        NewWss
+    ),
+    ok.
+
 doc_gen_test() ->
     %% the json file too large to encode.
     {
