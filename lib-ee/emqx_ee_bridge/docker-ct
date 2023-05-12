@@ -1,5 +1,4 @@
 toxiproxy
-influxdb
 mongo
 mongo_rs_sharded
 mysql

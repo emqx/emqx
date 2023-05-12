@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_influxdb).
+-module(emqx_bridge_influxdb).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
@@ -134,7 +134,7 @@ influxdb_bridge_common_fields() ->
         emqx_resource_schema:fields("resource_opts").
 
 connector_fields(Type) ->
-    emqx_ee_connector_influxdb:fields(Type).
+    emqx_bridge_influxdb_connector:fields(Type).
 
 type_name_fields(Type) ->
     [
@@ -147,9 +147,9 @@ desc("config") ->
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for InfluxDB using `", string:to_upper(Method), "` method."];
 desc(influxdb_api_v1) ->
-    ?DESC(emqx_ee_connector_influxdb, "influxdb_api_v1");
+    ?DESC(emqx_bridge_influxdb_connector, "influxdb_api_v1");
 desc(influxdb_api_v2) ->
-    ?DESC(emqx_ee_connector_influxdb, "influxdb_api_v2");
+    ?DESC(emqx_bridge_influxdb_connector, "influxdb_api_v2");
 desc(_) ->
     undefined.
 

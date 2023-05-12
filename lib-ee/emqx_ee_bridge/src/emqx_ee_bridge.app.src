@@ -16,7 +16,8 @@
         emqx_bridge_sqlserver,
         emqx_bridge_rocketmq,
         emqx_bridge_rabbitmq,
-        emqx_bridge_tdengine
+        emqx_bridge_tdengine,
+        emqx_bridge_influxdb
     ]},
     {env, []},
     {modules, []},

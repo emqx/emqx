@@ -1,4 +1,4 @@
-emqx_ee_connector_influxdb {
+emqx_bridge_influxdb_connector {
 
 bucket.desc:
 """InfluxDB bucket 名称。"""
