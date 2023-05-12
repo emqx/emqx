@@ -129,7 +129,7 @@ t_error(_Config) ->
                 }
             }
     },
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(get, Spec)),
     ?assertEqual(Error400, maps:get(<<"400">>, Response)),
@@ -375,7 +375,7 @@ t_complicated_type(_Config) ->
                 }
         }
     },
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(post, Spec)),
     ?assertEqual(Object, maps:get(<<"200">>, Response)),
@@ -665,7 +665,7 @@ schema("/fields/sub") ->
     to_schema(hoconsc:ref(sub_fields)).
 
 validate(Path, ExpectObject, ExpectRefs) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(post, Spec)),
     ?assertEqual(ExpectObject, maps:get(<<"200">>, Response)),

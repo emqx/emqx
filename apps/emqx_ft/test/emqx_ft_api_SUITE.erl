@@ -108,6 +108,11 @@ init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
 end_per_testcase(t_ft_disabled, _Config) ->
     emqx_config:put([file_transfer, enable], true);
+end_per_testcase(t_configure, Config) ->
+    {ok, 200, _} = request(put, uri(["file_transfer"]), #{
+        <<"enable">> => true,
+        <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
+    });
 end_per_testcase(_Case, _Config) ->
     ok.
 
@@ -310,6 +315,155 @@ t_ft_disabled(Config) ->
         )
     ).
 
+t_configure(Config) ->
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := true, <<"storage">> := #{}}},
+        request_json(get, uri(["file_transfer"]), Config)
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := false}},
+        request_json(put, uri(["file_transfer"]), #{<<"enable">> => false}, Config)
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := false}},
+        request_json(get, uri(["file_transfer"]), Config)
+    ),
+    ?assertMatch(
+        {ok, 200, #{}},
+        request_json(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
+            },
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"local">> => #{},
+                    <<"remote">> => #{}
+                }
+            },
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"local">> => #{
+                        <<"gc">> => #{<<"interval">> => -42}
+                    }
+                }
+            },
+            Config
+        )
+    ),
+    S3Exporter = #{
+        <<"host">> => <<"localhost">>,
+        <<"port">> => 9000,
+        <<"bucket">> => <<"emqx">>,
+        <<"transport_options">> => #{
+            <<"ssl">> => #{
+                <<"enable">> => true,
+                <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+            }
+        }
+    },
+    ?assertMatch(
+        {ok, 200, #{
+            <<"enable">> := true,
+            <<"storage">> := #{
+                <<"local">> := #{
+                    <<"exporter">> := #{
+                        <<"s3">> := #{
+                            <<"transport_options">> := #{
+                                <<"ssl">> := #{
+                                    <<"enable">> := true,
+                                    <<"certfile">> := <<"/", _CertFilepath/bytes>>,
+                                    <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }},
+        request_json(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"local">> => #{
+                        <<"exporter">> => #{
+                            <<"s3">> => S3Exporter
+                        }
+                    }
+                }
+            },
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request_json(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"local">> => #{
+                        <<"exporter">> => #{
+                            <<"s3">> => emqx_utils_maps:deep_put(
+                                [<<"transport_options">>, <<"ssl">>, <<"keyfile">>],
+                                S3Exporter,
+                                <<>>
+                            )
+                        }
+                    }
+                }
+            },
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 200, #{}},
+        request_json(
+            put,
+            uri(["file_transfer"]),
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{
+                    <<"local">> => #{
+                        <<"exporter">> => #{
+                            <<"s3">> => emqx_utils_maps:deep_put(
+                                [<<"transport_options">>, <<"ssl">>, <<"enable">>],
+                                S3Exporter,
+                                false
+                            )
+                        }
+                    }
+                }
+            },
+            Config
+        )
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -332,16 +486,25 @@ mk_file_name(N) ->
     "file." ++ integer_to_list(N).
 
 request(Method, Url, Config) ->
-    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    emqx_mgmt_api_test_util:request_api(Method, Url, [], auth_header(Config), [], Opts).
+    request(Method, Url, [], Config).
 
-request_json(Method, Url, Config) ->
-    case request(Method, Url, Config) of
+request(Method, Url, Body, Config) ->
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    request(Method, Url, Body, Opts, Config).
+
+request(Method, Url, Body, Opts, Config) ->
+    emqx_mgmt_api_test_util:request_api(Method, Url, Body, auth_header(Config), [], Opts).
+
+request_json(Method, Url, Body, Config) ->
+    case request(Method, Url, Body, [], Config) of
         {ok, Code, Body} ->
             {ok, Code, json(Body)};
         Otherwise ->
             Otherwise
     end.
+
+request_json(Method, Url, Config) ->
+    request_json(Method, Url, [], Config).
 
 json(Body) when is_binary(Body) ->
     emqx_utils_json:decode(Body, [return_maps]).
