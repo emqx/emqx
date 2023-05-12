@@ -99,24 +99,24 @@ t_log(_Config) ->
     {ok, Log} = get_config("log"),
     File = "log/emqx-test.log",
     %% update handler
-    Log1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
-    Log2 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
+    Log1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, true),
+    Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"to">>], Log1, File),
     {ok, #{}} = update_config(<<"log">>, Log2),
     {ok, Log3} = logger:get_handler_config(default),
     ?assertMatch(#{config := #{file := File}}, Log3),
-    ErrLog1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, 1),
+    ErrLog1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, 1),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog1)),
     ErrLog2 = emqx_utils_maps:deep_put(
-        [<<"file_handlers">>, <<"default">>, <<"enabfe">>], Log, true
+        [<<"file">>, <<"default">>, <<"enabfe">>], Log, true
     ),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog2)),
 
     %% add new handler
     File1 = "log/emqx-test1.log",
-    Handler = emqx_utils_maps:deep_get([<<"file_handlers">>, <<"default">>], Log2),
-    NewLog1 = emqx_utils_maps:deep_put([<<"file_handlers">>, <<"new">>], Log2, Handler),
+    Handler = emqx_utils_maps:deep_get([<<"file">>, <<"default">>], Log2),
+    NewLog1 = emqx_utils_maps:deep_put([<<"file">>, <<"new">>], Log2, Handler),
     NewLog2 = emqx_utils_maps:deep_put(
-        [<<"file_handlers">>, <<"new">>, <<"file">>], NewLog1, File1
+        [<<"file">>, <<"new">>, <<"to">>], NewLog1, File1
     ),
     {ok, #{}} = update_config(<<"log">>, NewLog2),
     {ok, Log4} = logger:get_handler_config(new),
@@ -124,7 +124,7 @@ t_log(_Config) ->
 
     %% disable new handler
     Disable = emqx_utils_maps:deep_put(
-        [<<"file_handlers">>, <<"new">>, <<"enable">>], NewLog2, false
+        [<<"file">>, <<"new">>, <<"enable">>], NewLog2, false
     ),
     {ok, #{}} = update_config(<<"log">>, Disable),
     ?assertEqual({error, {not_found, new}}, logger:get_handler_config(new)),

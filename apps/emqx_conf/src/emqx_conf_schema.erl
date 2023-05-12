@@ -687,11 +687,12 @@ fields("rpc") ->
                     desc => ?DESC(rpc_mode)
                 }
             )},
-        {"driver",
+        {"protocol",
             sc(
                 hoconsc:enum([tcp, ssl]),
                 #{
                     mapping => "gen_rpc.driver",
+                    aliases => [driver],
                     default => tcp,
                     desc => ?DESC(rpc_driver)
                 }
@@ -866,19 +867,22 @@ fields("rpc") ->
     ];
 fields("log") ->
     [
-        {"console_handler",
+        {"console",
+            sc(?R_REF("console_handler"), #{
+                aliases => [console_handler],
+                importance => ?IMPORTANCE_HIGH
+            })},
+        {"file",
             sc(
-                ?R_REF("console_handler"),
-                #{importance => ?IMPORTANCE_HIGH}
-            )},
-        {"file_handlers",
-            sc(
-                map(name, ?R_REF("log_file_handler")),
+                ?UNION([
+                    ?R_REF("log_file_handler"),
+                    ?MAP(handler_name, ?R_REF("log_file_handler"))
+                ]),
                 #{
                     desc => ?DESC("log_file_handlers"),
-                    %% because file_handlers is a map
-                    %% so there has to be a default value in order to populate the raw configs
-                    default => #{<<"default">> => #{<<"level">> => <<"warning">>}},
+                    converter => fun ensure_file_handlers/2,
+                    default => #{<<"level">> => <<"warning">>},
+                    aliases => [file_handlers],
                     importance => ?IMPORTANCE_HIGH
                 }
             )}
@@ -887,50 +891,40 @@ fields("console_handler") ->
     log_handler_common_confs(console);
 fields("log_file_handler") ->
     [
-        {"file",
+        {"to",
             sc(
                 file(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
                     default => <<"${EMQX_LOG_DIR}/emqx.log">>,
                     converter => fun emqx_schema:naive_env_interpolation/1,
-                    validator => fun validate_file_location/1
+                    validator => fun validate_file_location/1,
+                    aliases => [file],
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
-        {"rotation",
+        {"rotation_count",
             sc(
-                ?R_REF("log_rotation"),
-                #{}
+                range(1, 128),
+                #{
+                    aliases => [rotation],
+                    default => 10,
+                    converter => fun convert_rotation/2,
+                    desc => ?DESC("log_rotation_count"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )},
-        {"max_size",
+        {"rotation_size",
             sc(
                 hoconsc:union([infinity, emqx_schema:bytesize()]),
                 #{
                     default => <<"50MB">>,
                     desc => ?DESC("log_file_handler_max_size"),
+                    aliases => [max_size],
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ] ++ log_handler_common_confs(file);
-fields("log_rotation") ->
-    [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC("log_rotation_enable")
-                }
-            )},
-        {"count",
-            sc(
-                range(1, 2048),
-                #{
-                    default => 10,
-                    desc => ?DESC("log_rotation_count")
-                }
-            )}
-    ];
 fields("log_overload_kill") ->
     [
         {"enable",
@@ -1038,8 +1032,8 @@ translation("ekka") ->
     [{"cluster_discovery", fun tr_cluster_discovery/1}];
 translation("kernel") ->
     [
-        {"logger_level", fun tr_logger_level/1},
-        {"logger", fun tr_logger_handlers/1},
+        {"logger_level", fun emqx_config_logger:tr_level/1},
+        {"logger", fun emqx_config_logger:tr_handlers/1},
         {"error_logger", fun(_) -> silent end}
     ];
 translation("emqx") ->
@@ -1113,24 +1107,9 @@ tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(cluster_options(Strategy, Conf))}.
 
--spec tr_logger_level(hocon:config()) -> logger:level().
-tr_logger_level(Conf) ->
-    emqx_config_logger:tr_level(Conf).
-
-tr_logger_handlers(Conf) ->
-    emqx_config_logger:tr_handlers(Conf).
-
 log_handler_common_confs(Handler) ->
-    lists:map(
-        fun
-            ({_Name, #{importance := _}} = F) -> F;
-            ({Name, Sc}) -> {Name, Sc#{importance => ?IMPORTANCE_LOW}}
-        end,
-        do_log_handler_common_confs(Handler)
-    ).
-do_log_handler_common_confs(Handler) ->
     %% we rarely support dynamic defaults like this
-    %% for this one, we have build-time defualut the same as runtime default
+    %% for this one, we have build-time default the same as runtime default
     %% so it's less tricky
     EnableValues =
         case Handler of
@@ -1140,21 +1119,31 @@ do_log_handler_common_confs(Handler) ->
     EnvValue = os:getenv("EMQX_DEFAULT_LOG_HANDLER"),
     Enable = lists:member(EnvValue, EnableValues),
     [
+        {"level",
+            sc(
+                log_level(),
+                #{
+                    default => warning,
+                    desc => ?DESC("common_handler_level"),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
         {"enable",
             sc(
                 boolean(),
                 #{
                     default => Enable,
                     desc => ?DESC("common_handler_enable"),
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"level",
+        {"formatter",
             sc(
-                log_level(),
+                hoconsc:enum([text, json]),
                 #{
-                    default => warning,
-                    desc => ?DESC("common_handler_level")
+                    default => text,
+                    desc => ?DESC("common_handler_formatter"),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {"time_offset",
@@ -1173,16 +1162,7 @@ do_log_handler_common_confs(Handler) ->
                 #{
                     default => unlimited,
                     desc => ?DESC("common_handler_chars_limit"),
-                    importance => ?IMPORTANCE_LOW
-                }
-            )},
-        {"formatter",
-            sc(
-                hoconsc:enum([text, json]),
-                #{
-                    default => text,
-                    desc => ?DESC("common_handler_formatter"),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"single_line",
@@ -1191,7 +1171,7 @@ do_log_handler_common_confs(Handler) ->
                 #{
                     default => true,
                     desc => ?DESC("common_handler_single_line"),
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"sync_mode_qlen",
@@ -1199,7 +1179,8 @@ do_log_handler_common_confs(Handler) ->
                 non_neg_integer(),
                 #{
                     default => 100,
-                    desc => ?DESC("common_handler_sync_mode_qlen")
+                    desc => ?DESC("common_handler_sync_mode_qlen"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"drop_mode_qlen",
@@ -1207,7 +1188,8 @@ do_log_handler_common_confs(Handler) ->
                 pos_integer(),
                 #{
                     default => 3000,
-                    desc => ?DESC("common_handler_drop_mode_qlen")
+                    desc => ?DESC("common_handler_drop_mode_qlen"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"flush_qlen",
@@ -1215,17 +1197,19 @@ do_log_handler_common_confs(Handler) ->
                 pos_integer(),
                 #{
                     default => 8000,
-                    desc => ?DESC("common_handler_flush_qlen")
+                    desc => ?DESC("common_handler_flush_qlen"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"overload_kill", sc(?R_REF("log_overload_kill"), #{})},
-        {"burst_limit", sc(?R_REF("log_burst_limit"), #{})},
+        {"overload_kill", sc(?R_REF("log_overload_kill"), #{importance => ?IMPORTANCE_HIDDEN})},
+        {"burst_limit", sc(?R_REF("log_burst_limit"), #{importance => ?IMPORTANCE_HIDDEN})},
         {"supervisor_reports",
             sc(
                 hoconsc:enum([error, progress]),
                 #{
                     default => error,
-                    desc => ?DESC("common_handler_supervisor_reports")
+                    desc => ?DESC("common_handler_supervisor_reports"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"max_depth",
@@ -1233,7 +1217,8 @@ do_log_handler_common_confs(Handler) ->
                 hoconsc:union([unlimited, non_neg_integer()]),
                 #{
                     default => 100,
-                    desc => ?DESC("common_handler_max_depth")
+                    desc => ?DESC("common_handler_max_depth"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ].
@@ -1355,3 +1340,19 @@ validator_string_re(Val, RE, Error) ->
 
 node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
+
+ensure_file_handlers(Conf, _Opts) ->
+    FileFields = lists:flatmap(
+        fun({F, Schema}) ->
+            Alias = [atom_to_binary(A) || A <- maps:get(aliases, Schema, [])],
+            [list_to_binary(F) | Alias]
+        end,
+        fields("log_file_handler")
+    ),
+    HandlersWithoutName = maps:with(FileFields, Conf),
+    HandlersWithName = maps:without(FileFields, Conf),
+    emqx_utils_maps:deep_merge(#{<<"default">> => HandlersWithoutName}, HandlersWithName).
+
+convert_rotation(undefined, _Opts) -> undefined;
+convert_rotation(#{} = Rotation, _Opts) -> maps:get(<<"count">>, Rotation, 10);
+convert_rotation(Count, _Opts) when is_integer(Count) -> Count.

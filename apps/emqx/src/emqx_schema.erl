@@ -2289,6 +2289,17 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )},
+        {"log_level",
+            sc(
+                hoconsc:enum([
+                    emergency, alert, critical, error, warning, notice, info, debug, none, all
+                ]),
+                #{
+                    default => notice,
+                    desc => ?DESC(common_ssl_opts_schema_log_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
 
         {"hibernate_after",
             sc(
