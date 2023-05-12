@@ -72,7 +72,7 @@ chain_configs() ->
     [global_chain_config() | listener_chain_configs()].
 
 global_chain_config() ->
-    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
+    {?GLOBAL, emqx:get_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM], [])}.
 
 listener_chain_configs() ->
     lists:map(
@@ -83,9 +83,11 @@ listener_chain_configs() ->
     ).
 
 auth_config_path(ListenerID) ->
-    [<<"listeners">>] ++
-        binary:split(atom_to_binary(ListenerID), <<":">>) ++
-        [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY].
+    Names = [
+        binary_to_existing_atom(N, utf8)
+     || N <- binary:split(atom_to_binary(ListenerID), <<":">>)
+    ],
+    [listeners] ++ Names ++ [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM].
 
 provider_types() ->
     lists:map(fun({Type, _Module}) -> Type end, emqx_authn:providers()).
