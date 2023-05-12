@@ -61,7 +61,7 @@
 -type limiter_id() :: atom().
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
--type burst_rate() :: 0 | float().
+-type burst_rate() :: number().
 %% this is a compatible type for the deprecated field and type `capacity`.
 -type burst() :: burst_rate().
 %% the capacity of the token bucket
