@@ -268,9 +268,10 @@ on_query(InstId, {send_message, Msg}, State) ->
             } = process_request(Request, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 0,
+            ClientId = maps:get(clientid, Msg, undefined),
             on_query(
                 InstId,
-                {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
+                {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
                 State
             )
     end;
@@ -370,9 +371,10 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request(Request, Msg),
+            ClientId = maps:get(clientid, Msg, undefined),
             on_query_async(
                 InstId,
-                {undefined, Method, {Path, Headers, Body}, Timeout},
+                {ClientId, Method, {Path, Headers, Body}, Timeout},
                 ReplyFunAndArgs,
                 State
             )
