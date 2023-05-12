@@ -218,7 +218,7 @@ t_conn_fail_client_keyusage_incomplete(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is codeSigning,clientAuth
-    Options = [{ssl_options, [ {verify_peer_ext_key_usage, "codeSigning,clientAuth"}
+    Options = [{ssl_options, [ {verify_peer_ext_key_usage, "serverAuth,clientAuth,codeSigning,emailProtection,timeStamping,ocspSigning"}
                              | ?config(ssl_config, Config)
                              ]}],
     emqx_listeners:start_listener(ssl, Port, Options),

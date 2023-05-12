@@ -52,7 +52,7 @@ make_tls_verify_fun(verify_cert_extKeyUsage, KeyUsages) ->
 
 verify_fun_peer_extKeyUsage(_, {bad_cert, invalid_ext_key_usage}, UserState) ->
   %% !! Override OTP verify peer default
-  %% OTP SSL is unhappy with the ext_key_usage but we will check on ower own.
+  %% OTP SSL is unhappy with the ext_key_usage but we will check on our own.
   {unknown, UserState};
 verify_fun_peer_extKeyUsage(_, {bad_cert, _} = Reason, _UserState) ->
   %% OTP verify_peer default
@@ -97,9 +97,6 @@ do_verify_ext_key_usage(CertExtL, [Usage | T] = _Required) ->
 %% @doc Helper tls cert extension
 -spec ext_key_opts(string()) -> [OidString::string() | public_key:oid()];
                   (undefined) -> undefined.
-ext_key_opts(undefined) ->
-    %% disabled
-    undefined;
 ext_key_opts(Str) ->
     Usages = string:tokens(Str, ","),
     lists:map(fun("clientAuth") ->
