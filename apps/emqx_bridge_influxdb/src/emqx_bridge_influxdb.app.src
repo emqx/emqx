@@ -2,7 +2,7 @@
     {description, "EMQX Enterprise InfluxDB Bridge"},
     {vsn, "0.1.0"},
     {registered, []},
-    {applications, [kernel, stdlib]},
+    {applications, [kernel, stdlib, influxdb]},
     {env, []},
     {modules, []},
     {links, []}

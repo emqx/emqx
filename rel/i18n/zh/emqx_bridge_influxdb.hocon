@@ -1,4 +1,4 @@
-emqx_ee_bridge_influxdb {
+emqx_bridge_influxdb {
 
 config_enable.desc:
 """启用/禁用桥接。"""

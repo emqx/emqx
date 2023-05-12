@@ -2,16 +2,16 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_influxdb_SUITE).
+-module(emqx_bridge_influxdb_connector_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(INFLUXDB_RESOURCE_MOD, emqx_ee_connector_influxdb).
+-define(INFLUXDB_RESOURCE_MOD, emqx_bridge_influxdb_connector).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -65,7 +65,7 @@ t_lifecycle(Config) ->
     Host = ?config(influxdb_tcp_host, Config),
     Port = ?config(influxdb_tcp_port, Config),
     perform_lifecycle_check(
-        <<"emqx_ee_connector_influxdb_SUITE">>,
+        <<"emqx_bridge_influxdb_connector_SUITE">>,
         influxdb_config(Host, Port, false, <<"verify_none">>)
     ).
 
@@ -124,7 +124,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
 
 t_tls_verify_none(Config) ->
-    PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
+    PoolName = <<"emqx_bridge_influxdb_connector_SUITE">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
     InitialConfig = influxdb_config(Host, Port, true, <<"verify_none">>),
@@ -135,7 +135,7 @@ t_tls_verify_none(Config) ->
     ok.
 
 t_tls_verify_peer(Config) ->
-    PoolName = <<"emqx_ee_connector_influxdb_SUITE">>,
+    PoolName = <<"emqx_bridge_influxdb_connector_SUITE">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
     InitialConfig = influxdb_config(Host, Port, true, <<"verify_peer">>),

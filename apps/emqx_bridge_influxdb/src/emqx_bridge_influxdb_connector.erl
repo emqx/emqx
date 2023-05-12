@@ -1,9 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_connector_influxdb).
+-module(emqx_bridge_influxdb_connector).
 
--include("emqx_ee_connector.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
@@ -39,6 +38,8 @@
 -export([is_unrecoverable_error/1]).
 
 -type ts_precision() :: ns | us | ms | s.
+
+-define(INFLUXDB_DEFAULT_PORT, 8086).
 
 %% influxdb servers don't need parse
 -define(INFLUXDB_HOST_OPTIONS, #{
