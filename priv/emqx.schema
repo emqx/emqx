@@ -1652,7 +1652,7 @@ end}.
 
 {mapping, "listener.ssl.$name.verify_peer_ext_key_usage", "emqx.listeners", [
   {datatype, string},
-  {default, ""}
+  {default, undefined}
 ]}.
 
 {mapping, "listener.ssl.$name.fail_if_no_peer_cert", "emqx.listeners", [
