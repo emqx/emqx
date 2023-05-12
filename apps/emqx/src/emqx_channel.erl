@@ -2146,7 +2146,8 @@ publish_will_msg(
             ok;
         false ->
             NMsg = emqx_mountpoint:mount(MountPoint, Msg),
-            _ = emqx_broker:publish(NMsg),
+            NMsg2 = NMsg#message{timestamp = erlang:system_time(millisecond)},
+            _ = emqx_broker:publish(NMsg2),
             ok
     end.
 
