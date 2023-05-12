@@ -645,7 +645,7 @@ to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
 reply_delegator(Context, ReplyFunAndArgs, Result) ->
-    maybe_retry(Result, Context, ReplyFunAndArgs).
+    spawn(fun() -> maybe_retry(Result, Context, ReplyFunAndArgs) end).
 
 transform_result(Result) ->
     case Result of
