@@ -717,7 +717,7 @@ t_object_trans_error(_Config) ->
     ok.
 
 validate(Path, ExpectSpec, ExpectRefs) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     ?assertEqual(ExpectSpec, Spec),
     ?assertEqual(ExpectRefs, Refs),

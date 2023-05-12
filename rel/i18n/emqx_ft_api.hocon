@@ -6,6 +6,12 @@ file_list.desc:
 file_list_transfer.desc
 """List a file uploaded during specified transfer, identified by client id and file id."""
 
+file_transfer_get_config.desc:
+"""Show current File Transfer configuration."""
+
+file_transfer_update_config.desc:
+"""Replace File Transfer configuration."""
+
 }
 
 emqx_ft_storage_exporter_fs_api {

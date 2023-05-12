@@ -54,7 +54,8 @@
     safe_to_existing_atom/1,
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
-    safe_filename/1
+    safe_filename/1,
+    format/1
 ]).
 
 -export([
@@ -481,6 +482,9 @@ safe_to_existing_atom(Atom, _Encoding) when is_atom(Atom) ->
 safe_to_existing_atom(_Any, _Encoding) ->
     {error, invalid_type}.
 
+format(Term) ->
+    iolist_to_binary(io_lib:format("~0p", [Term])).
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -562,7 +566,7 @@ to_hr_error({not_authorized, _}) ->
 to_hr_error({malformed_username_or_password, _}) ->
     <<"Bad username or password">>;
 to_hr_error(Error) ->
-    iolist_to_binary(io_lib:format("~0p", [Error])).
+    format(Error).
 
 try_to_existing_atom(Convert, Data, Encoding) ->
     try Convert(Data, Encoding) of

@@ -85,6 +85,11 @@ init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
 end_per_testcase(t_ft_disabled, _Config) ->
     emqx_config:put([file_transfer, enable], true);
+end_per_testcase(t_configure, Config) ->
+    {ok, 200, _} = request(put, uri(["file_transfer"]), #{
+        <<"enable">> => true,
+        <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
+    });
 end_per_testcase(_Case, _Config) ->
     ok.
 
@@ -254,6 +259,125 @@ t_ft_disabled(_Config) ->
         )
     ).
 
+t_configure(Config) ->
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := true, <<"storage">> := #{}}},
+        request_json(get, uri(["file_transfer"]))
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := false}},
+        request_json(put, uri(["file_transfer"]), #{<<"enable">> => false})
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := false}},
+        request_json(get, uri(["file_transfer"]))
+    ),
+    ?assertMatch(
+        {ok, 200, #{}},
+        request_json(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => #{
+                <<"local">> => #{},
+                <<"remote">> => #{}
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => #{
+                <<"local">> => #{
+                    <<"gc">> => #{<<"interval">> => -42}
+                }
+            }
+        })
+    ),
+    S3Exporter = #{
+        <<"host">> => <<"localhost">>,
+        <<"port">> => 9000,
+        <<"bucket">> => <<"emqx">>,
+        <<"transport_options">> => #{
+            <<"ssl">> => #{
+                <<"enable">> => true,
+                <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+            }
+        }
+    },
+    ?assertMatch(
+        {ok, 200, #{
+            <<"enable">> := true,
+            <<"storage">> := #{
+                <<"local">> := #{
+                    <<"exporter">> := #{
+                        <<"s3">> := #{
+                            <<"transport_options">> := #{
+                                <<"ssl">> := #{
+                                    <<"enable">> := true,
+                                    <<"certfile">> := <<"/", _CertFilepath/bytes>>,
+                                    <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }},
+        request_json(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => #{
+                <<"local">> => #{
+                    <<"exporter">> => #{
+                        <<"s3">> => S3Exporter
+                    }
+                }
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        request_json(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => #{
+                <<"local">> => #{
+                    <<"exporter">> => #{
+                        <<"s3">> => emqx_utils_maps:deep_put(
+                            [<<"transport_options">>, <<"ssl">>, <<"keyfile">>],
+                            S3Exporter,
+                            <<>>
+                        )
+                    }
+                }
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{}},
+        request_json(put, uri(["file_transfer"]), #{
+            <<"enable">> => true,
+            <<"storage">> => #{
+                <<"local">> => #{
+                    <<"exporter">> => #{
+                        <<"s3">> => emqx_utils_maps:deep_put(
+                            [<<"transport_options">>, <<"ssl">>, <<"enable">>],
+                            S3Exporter,
+                            false
+                        )
+                    }
+                }
+            }
+        })
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -271,12 +395,18 @@ mk_file_name(N) ->
     "file." ++ integer_to_list(N).
 
 request(Method, Url) ->
-    emqx_mgmt_api_test_util:request(Method, Url, []).
+    request(Method, Url, []).
+
+request(Method, Url, Body) ->
+    emqx_mgmt_api_test_util:request(Method, Url, Body).
 
 request_json(Method, Url) ->
-    case emqx_mgmt_api_test_util:request(Method, Url, []) of
-        {ok, Code, Body} ->
-            {ok, Code, json(Body)};
+    request_json(Method, Url, []).
+
+request_json(Method, Url, Body) ->
+    case request(Method, Url, Body) of
+        {ok, Code, RespBody} ->
+            {ok, Code, json(RespBody)};
         Otherwise ->
             Otherwise
     end.
