@@ -48,9 +48,9 @@
 
 -export([files/2]).
 
--export([on_config_update/2]).
 -export([start/1]).
 -export([stop/1]).
+-export([update_config/2]).
 
 -export_type([storage/0]).
 -export_type([filefrag/1]).
@@ -229,10 +229,10 @@ files(Storage, Query) ->
 
 %%
 
-on_config_update(StorageOld, StorageNew) ->
+update_config(StorageOld, StorageNew) ->
     % NOTE: this will reset GC timer, frequent changes would postpone GC indefinitely
     ok = emqx_ft_storage_fs_gc:reset(StorageNew),
-    emqx_ft_storage_exporter:on_config_update(StorageOld, StorageNew).
+    emqx_ft_storage_exporter:update_config(StorageOld, StorageNew).
 
 start(Storage) ->
     ok = lists:foreach(
@@ -241,11 +241,11 @@ start(Storage) ->
         end,
         child_spec(Storage)
     ),
-    ok = emqx_ft_storage_exporter:on_config_update(undefined, Storage),
+    ok = emqx_ft_storage_exporter:update_config(undefined, Storage),
     ok.
 
 stop(Storage) ->
-    ok = emqx_ft_storage_exporter:on_config_update(Storage, undefined),
+    ok = emqx_ft_storage_exporter:update_config(Storage, undefined),
     ok = lists:foreach(
         fun(#{id := ChildId}) ->
             _ = supervisor:terminate_child(emqx_ft_sup, ChildId),

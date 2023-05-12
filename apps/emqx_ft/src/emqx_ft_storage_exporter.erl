@@ -31,7 +31,7 @@
 -export([list/2]).
 
 %% Lifecycle API
--export([on_config_update/2]).
+-export([update_config/2]).
 
 %% Internal API
 -export([exporter/1]).
@@ -81,7 +81,7 @@
 -callback stop(exporter_conf()) ->
     ok.
 
--callback update(exporter_conf(), exporter_conf()) ->
+-callback update_config(exporter_conf(), exporter_conf()) ->
     ok | {error, _Reason}.
 
 %%------------------------------------------------------------------------------
@@ -141,8 +141,8 @@ list(Storage, Query) ->
 
 %% Lifecycle
 
--spec on_config_update(storage(), storage()) -> ok | {error, term()}.
-on_config_update(StorageOld, StorageNew) ->
+-spec update_config(storage(), storage()) -> ok | {error, term()}.
+update_config(StorageOld, StorageNew) ->
     on_exporter_update(
         emqx_maybe:apply(fun exporter/1, StorageOld),
         emqx_maybe:apply(fun exporter/1, StorageNew)
@@ -151,7 +151,7 @@ on_config_update(StorageOld, StorageNew) ->
 on_exporter_update(Config, Config) ->
     ok;
 on_exporter_update({ExporterMod, ConfigOld}, {ExporterMod, ConfigNew}) ->
-    ExporterMod:update(ConfigOld, ConfigNew);
+    ExporterMod:update_config(ConfigOld, ConfigNew);
 on_exporter_update(ExporterOld, ExporterNew) ->
     _ = emqx_maybe:apply(fun stop/1, ExporterOld),
     _ = emqx_maybe:apply(fun start/1, ExporterNew),
