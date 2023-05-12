@@ -23,8 +23,6 @@
 -export([start_link/0]).
 
 -export([
-    get_mem_check_interval/0,
-    set_mem_check_interval/1,
     get_sysmem_high_watermark/0,
     set_sysmem_high_watermark/1,
     get_procmem_high_watermark/0,
@@ -46,6 +44,9 @@
     terminate/2,
     code_change/3
 ]).
+-ifdef(TEST).
+-export([is_sysmem_check_supported/0]).
+-endif.
 
 -include("emqx.hrl").
 
@@ -60,14 +61,6 @@ update(OS) ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
-get_mem_check_interval() ->
-    memsup:get_check_interval().
-
-set_mem_check_interval(Seconds) when Seconds < 60000 ->
-    memsup:set_check_interval(1);
-set_mem_check_interval(Seconds) ->
-    memsup:set_check_interval(Seconds div 60000).
 
 get_sysmem_high_watermark() ->
     gen_server:call(?OS_MON, ?FUNCTION_NAME, infinity).
@@ -103,11 +96,9 @@ init_os_monitor() ->
 init_os_monitor(OS) ->
     #{
         sysmem_high_watermark := SysHW,
-        procmem_high_watermark := PHW,
-        mem_check_interval := MCI
+        procmem_high_watermark := PHW
     } = OS,
     set_procmem_high_watermark(PHW),
-    set_mem_check_interval(MCI),
     ok = update_mem_alarm_status(SysHW),
     SysHW.
 
