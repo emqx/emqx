@@ -18,13 +18,16 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/2, prep_stop/1, stop/1]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_ft_sup:start_link(),
     ok = emqx_ft_conf:load(),
     {ok, Sup}.
 
-stop(_State) ->
+prep_stop(State) ->
     ok = emqx_ft_conf:unload(),
+    State.
+
+stop(_State) ->
     ok.
