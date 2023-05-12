@@ -42,7 +42,7 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
--type port_number() :: 1..65536.
+-type port_number() :: 1..65535.
 -type server_parse_option() :: #{
     default_port => port_number(),
     no_port => boolean(),
@@ -135,7 +135,8 @@
     cipher/0,
     comma_separated_atoms/0,
     url/0,
-    json_binary/0
+    json_binary/0,
+    port_number/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -2001,7 +2002,8 @@ base_listener(Bind) ->
                     listener_fields
                 ),
                 #{
-                    desc => ?DESC(base_listener_limiter)
+                    desc => ?DESC(base_listener_limiter),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"enable_authn",
@@ -2012,7 +2014,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ].
+    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
@@ -2187,8 +2189,8 @@ filter(Opts) ->
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
--spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults) ->
+-spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults, Type) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2198,7 +2200,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("cacertfile"),
+                    default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2207,7 +2209,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("certfile"),
+                    default => cert_file("cert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2216,7 +2218,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("keyfile"),
+                    default => cert_file("key.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -2314,7 +2316,7 @@ common_ssl_opts_schema(Defaults) ->
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
@@ -2440,7 +2442,7 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, client) ++
         [
             {"enable",
                 sc(
@@ -3260,13 +3262,10 @@ default_listener(ws) ->
     };
 default_listener(SSLListener) ->
     %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
-    CertFile = fun(Name) ->
-        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
-    end,
     SslOptions = #{
-        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
-        <<"certfile">> => CertFile(<<"cert.pem">>),
-        <<"keyfile">> => CertFile(<<"key.pem">>)
+        <<"cacertfile">> => cert_file(<<"cacert.pem">>, server),
+        <<"certfile">> => cert_file(<<"cert.pem">>, server),
+        <<"keyfile">> => cert_file(<<"key.pem">>, server)
     },
     case SSLListener of
         ssl ->
@@ -3383,3 +3382,6 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
+
+cert_file(_File, client) -> undefined;
+cert_file(File, server) -> iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).

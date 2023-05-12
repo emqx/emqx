@@ -583,7 +583,7 @@ config(Args0, More) ->
     ct:pal("Running tests with conf:\n~p", [Conf]),
     InstId = maps:get("instance_id", Args),
     <<"bridge:", BridgeId/binary>> = InstId,
-    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
     TypeBin = atom_to_binary(Type),
     hocon_tconf:check_plain(
         emqx_bridge_schema,
@@ -596,7 +596,7 @@ config(Args0, More) ->
 hocon_config(Args) ->
     InstId = maps:get("instance_id", Args),
     <<"bridge:", BridgeId/binary>> = InstId,
-    {_Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    {_Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
     AuthConf = maps:get("authentication", Args),
     AuthTemplate = iolist_to_binary(hocon_config_template_authentication(AuthConf)),
     AuthConfRendered = bbmustache:render(AuthTemplate, AuthConf),

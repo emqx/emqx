@@ -1033,6 +1033,27 @@ base_listener_limiter.desc:
 base_listener_limiter.label:
 """Type of the rate limit."""
 
+max_conn_rate.desc:
+"""Maximum connection rate.<br/>
+This is used to limit the connection rate for this listener,
+once the limit is reached, new connections will be deferred or refused"""
+max_conn_rate.label:
+"""Maximum Connection Rate"""
+
+messages_rate.desc:
+"""Messages publish rate.<br/>
+This is used to limit the inbound message numbers for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+messages_rate.label:
+"""Messages Publish Rate"""
+
+bytes_rate.desc:
+"""Data publish rate.<br/>
+This is used to limit the inbound bytes rate for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+bytes_rate.label:
+"""Data Publish Rate"""
+
 persistent_session_store_backend.desc:
 """Database management system used to store information about persistent sessions and messages.
 - `builtin`: Use the embedded database (mria)"""

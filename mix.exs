@@ -174,7 +174,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_sqlserver,
       :emqx_bridge_pulsar,
       :emqx_oracle,
-      :emqx_bridge_oracle
+      :emqx_bridge_oracle,
+      :emqx_bridge_rabbitmq
     ])
   end
 
@@ -189,7 +190,29 @@ defmodule EMQXUmbrella.MixProject do
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
-      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true}
+      {:erlcloud, github: "emqx/erlcloud", tag: "3.5.16-emqx-1", override: true},
+      # erlcloud's rebar.config requires rebar3 and does not support Mix,
+      # so it tries to fetch deps from git. We need to override this.
+      {:lhttpc, tag: "1.6.2", override: true},
+      {:eini, "1.2.9", override: true},
+      {:base16, "1.0.0", override: true},
+      # end of erlcloud's deps
+      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
+      # The following two are dependencies of rabbit_common. They are needed here to
+      # make mix not complain about conflicting versions
+      {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
+      {:credentials_obfuscation,
+       github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
+      {:rabbit_common,
+       github: "emqx/rabbitmq-server",
+       tag: "v3.11.13-emqx",
+       sparse: "deps/rabbit_common",
+       override: true},
+      {:amqp_client,
+       github: "emqx/rabbitmq-server",
+       tag: "v3.11.13-emqx",
+       sparse: "deps/amqp_client",
+       override: true}
     ]
   end
 
@@ -321,7 +344,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_plugin_libs: :load,
         esasl: :load,
         observer_cli: :permanent,
-        tools: :load,
+        tools: :permanent,
         covertool: :load,
         system_monitor: :load,
         emqx_utils: :load,
@@ -385,7 +408,10 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_sqlserver: :permanent,
           emqx_oracle: :permanent,
           emqx_bridge_oracle: :permanent,
-          emqx_ee_schema_registry: :permanent
+          emqx_bridge_rabbitmq: :permanent,
+          emqx_ee_schema_registry: :permanent,
+          emqx_eviction_agent: :permanent,
+          emqx_node_rebalance: :permanent
         ],
         else: []
       )

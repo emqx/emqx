@@ -131,11 +131,9 @@ delete_root(Type) ->
     delete_bucket(?ROOT_ID, Type).
 
 post_config_update([limiter], _Config, NewConf, _OldConf, _AppEnvs) ->
-    Types = lists:delete(client, maps:keys(NewConf)),
-    _ = [on_post_config_update(Type, NewConf) || Type <- Types],
-    ok;
-post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
-    on_post_config_update(Type, NewConf).
+    Conf = emqx_limiter_schema:convert_node_opts(NewConf),
+    _ = [on_post_config_update(Type, Cfg) || {Type, Cfg} <- maps:to_list(Conf)],
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -279,8 +277,7 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
-on_post_config_update(Type, NewConf) ->
-    Config = maps:get(Type, NewConf),
+on_post_config_update(Type, Config) ->
     case emqx_limiter_server:whereis(Type) of
         undefined ->
             start_server(Type, Config);

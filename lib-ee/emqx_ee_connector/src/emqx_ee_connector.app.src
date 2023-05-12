@@ -7,11 +7,7 @@
         stdlib,
         ecpool,
         hstreamdb_erl,
-        influxdb,
-        tdengine,
-        clickhouse,
-        erlcloud,
-        rocketmq
+        clickhouse
     ]},
     {env, []},
     {modules, []},

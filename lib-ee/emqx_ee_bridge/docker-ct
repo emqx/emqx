@@ -1,12 +1,7 @@
 toxiproxy
-influxdb
 mongo
 mongo_rs_sharded
 mysql
 redis
 redis_cluster
-pgsql
-tdengine
 clickhouse
-dynamo
-rocketmq

@@ -228,6 +228,7 @@ schema("/listeners/:listener_id/authentication") ->
         'operationId' => listener_authenticators,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_get),
             parameters => [param_listener_id()],
             responses => #{
@@ -239,6 +240,7 @@ schema("/listeners/:listener_id/authentication") ->
         },
         post => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_post),
             parameters => [param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -260,6 +262,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         'operationId' => listener_authenticator,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -272,6 +275,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_put),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -287,6 +291,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_delete),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -300,6 +305,7 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
         'operationId' => listener_authenticator_status,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_status_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -330,6 +336,7 @@ schema("/listeners/:listener_id/authentication/:id/position/:position") ->
         'operationId' => listener_authenticator_position,
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_position_put),
             parameters => [param_listener_id(), param_auth_id(), param_position()],
             responses => #{
@@ -393,6 +400,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         'operationId' => listener_authenticator_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_post),
             parameters => [param_auth_id(), param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -410,6 +418,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         },
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_get),
             parameters => [
                 param_listener_id(),
@@ -479,6 +488,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         'operationId' => listener_authenticator_user,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_get),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
@@ -491,6 +501,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_put),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -508,6 +519,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_delete),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
