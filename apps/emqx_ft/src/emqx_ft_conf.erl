@@ -34,7 +34,9 @@
 %% Load/Unload
 -export([
     load/0,
-    unload/0
+    unload/0,
+    get/0,
+    update/1
 ]).
 
 %% callbacks for emqx_config_handler
@@ -42,6 +44,8 @@
     pre_config_update/3,
     post_config_update/5
 ]).
+
+-type update_request() :: emqx_config:config().
 
 -type milliseconds() :: non_neg_integer().
 -type seconds() :: non_neg_integer().
@@ -95,49 +99,96 @@ load() ->
 
 -spec unload() -> ok.
 unload() ->
-    ok = stop(),
-    emqx_conf:remove_handler([file_transfer]).
+    ok = emqx_conf:remove_handler([file_transfer]),
+    maybe_stop().
+
+-spec get() -> emqx_config:config().
+get() ->
+    emqx_config:get([file_transfer]).
+
+-spec update(emqx_config:config()) -> {ok, emqx_config:update_result()} | {error, term()}.
+update(Config) ->
+    emqx_conf:update([file_transfer], Config, #{override_to => cluster}).
 
 %%--------------------------------------------------------------------
 %% emqx_config_handler callbacks
 %%--------------------------------------------------------------------
 
--spec pre_config_update(list(atom()), emqx_config:update_request(), emqx_config:raw_config()) ->
+-spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
     {ok, emqx_config:update_request()} | {error, term()}.
-pre_config_update(_, Req, _Config) ->
-    {ok, Req}.
+pre_config_update([file_transfer | _], NewConfig, OldConfig) ->
+    propagate_config_update(
+        fun emqx_ft_storage_exporter_s3:pre_config_update/3,
+        [<<"storage">>, <<"local">>, <<"exporter">>, <<"s3">>],
+        NewConfig,
+        OldConfig
+    ).
 
 -spec post_config_update(
     list(atom()),
-    emqx_config:update_request(),
+    update_request(),
     emqx_config:config(),
     emqx_config:config(),
     emqx_config:app_envs()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 post_config_update([file_transfer | _], _Req, NewConfig, OldConfig, _AppEnvs) ->
-    on_config_update(OldConfig, NewConfig).
+    PropResult = propagate_config_update(
+        fun emqx_ft_storage_exporter_s3:post_config_update/3,
+        [storage, local, exporter, s3],
+        NewConfig,
+        OldConfig
+    ),
+    case PropResult of
+        ok ->
+            on_config_update(OldConfig, NewConfig);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+propagate_config_update(Fun, ConfKey, NewConfig, OldConfig) ->
+    NewSubConf = emqx_utils_maps:deep_get(ConfKey, NewConfig, undefined),
+    OldSubConf = emqx_utils_maps:deep_get(ConfKey, OldConfig, undefined),
+    case Fun(ConfKey, NewSubConf, OldSubConf) of
+        ok ->
+            ok;
+        {ok, undefined} ->
+            {ok, NewConfig};
+        {ok, NewSubConfUpdate} ->
+            {ok, emqx_utils_maps:deep_put(ConfKey, NewConfig, NewSubConfUpdate)};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 on_config_update(#{enable := false}, #{enable := false}) ->
     ok;
 on_config_update(#{enable := true, storage := OldStorage}, #{enable := false}) ->
-    ok = emqx_ft_storage:on_config_update(OldStorage, undefined),
-    ok = emqx_ft:unhook();
+    ok = stop(OldStorage);
 on_config_update(#{enable := false}, #{enable := true, storage := NewStorage}) ->
-    ok = emqx_ft_storage:on_config_update(undefined, NewStorage),
-    ok = emqx_ft:hook();
+    ok = start(NewStorage);
 on_config_update(#{enable := true, storage := OldStorage}, #{enable := true, storage := NewStorage}) ->
-    ok = emqx_ft_storage:on_config_update(OldStorage, NewStorage).
+    ok = emqx_ft_storage:update_config(OldStorage, NewStorage).
 
 maybe_start() ->
     case emqx_config:get([file_transfer]) of
         #{enable := true, storage := Storage} ->
-            ok = emqx_ft_storage:on_config_update(undefined, Storage),
-            ok = emqx_ft:hook();
+            start(Storage);
         _ ->
             ok
     end.
 
-stop() ->
+maybe_stop() ->
+    case emqx_config:get([file_transfer]) of
+        #{enable := true, storage := Storage} ->
+            stop(Storage);
+        _ ->
+            ok
+    end.
+
+start(Storage) ->
+    ok = emqx_ft_storage:update_config(undefined, Storage),
+    ok = emqx_ft:hook().
+
+stop(Storage) ->
     ok = emqx_ft:unhook(),
-    ok = emqx_ft_storage:on_config_update(storage(), undefined).
+    ok = emqx_ft_storage:update_config(Storage, undefined).

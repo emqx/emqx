@@ -53,16 +53,13 @@ end_per_testcase(_Case, Config) ->
 t_update_config(_Config) ->
     ?assertMatch(
         {error, #{kind := validation_error}},
-        emqx_conf:update(
-            [file_transfer],
-            #{<<"storage">> => #{<<"unknown">> => #{<<"foo">> => 42}}},
-            #{}
+        emqx_ft_conf:update(
+            #{<<"storage">> => #{<<"unknown">> => #{<<"foo">> => 42}}}
         )
     ),
     ?assertMatch(
         {ok, _},
-        emqx_conf:update(
-            [file_transfer],
+        emqx_ft_conf:update(
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -81,8 +78,7 @@ t_update_config(_Config) ->
                         }
                     }
                 }
-            },
-            #{}
+            }
         )
     ),
     ?assertEqual(
@@ -101,13 +97,8 @@ t_update_config(_Config) ->
 t_disable_restore_config(Config) ->
     ?assertMatch(
         {ok, _},
-        emqx_conf:update(
-            [file_transfer],
-            #{
-                <<"enable">> => true,
-                <<"storage">> => #{<<"local">> => #{}}
-            },
-            #{}
+        emqx_ft_conf:update(
+            #{<<"enable">> => true, <<"storage">> => #{<<"local">> => #{}}}
         )
     ),
     ?assertEqual(
@@ -119,11 +110,7 @@ t_disable_restore_config(Config) ->
     % Verify that clearing storage settings reverts config to defaults
     ?assertMatch(
         {ok, _},
-        emqx_conf:update(
-            [file_transfer],
-            #{<<"enable">> => false, <<"storage">> => undefined},
-            #{}
-        )
+        emqx_ft_conf:update(#{<<"enable">> => false, <<"storage">> => undefined})
     ),
     ?assertEqual(
         false,
@@ -155,8 +142,7 @@ t_disable_restore_config(Config) ->
     Root = emqx_ft_test_helpers:root(Config, node(), [segments]),
     ?assertMatch(
         {ok, _},
-        emqx_conf:update(
-            [file_transfer],
+        emqx_ft_conf:update(
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -167,8 +153,7 @@ t_disable_restore_config(Config) ->
                         }
                     }
                 }
-            },
-            #{}
+            }
         )
     ),
     % Verify that GC is getting triggered eventually
@@ -192,11 +177,7 @@ t_disable_restore_config(Config) ->
 t_switch_exporter(_Config) ->
     ?assertMatch(
         {ok, _},
-        emqx_conf:update(
-            [file_transfer],
-            #{<<"enable">> => true},
-            #{}
-        )
+        emqx_ft_conf:update(#{<<"enable">> => true})
     ),
     ?assertMatch(
         #{local := #{exporter := #{local := _}}},
@@ -248,5 +229,96 @@ t_switch_exporter(_Config) ->
     % Verify that transfers work
     ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>).
 
+t_persist_ssl_certfiles(Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_ft_conf:update(mk_storage(true))
+    ),
+    ?assertEqual(
+        [],
+        list_ssl_certfiles(Config)
+    ),
+    S3Config = #{
+        <<"bucket">> => <<"emqx">>,
+        <<"host">> => <<"https://localhost">>,
+        <<"port">> => 9000
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, {bad_ssl_config, #{}}}},
+        emqx_ft_conf:update(
+            mk_storage(true, #{
+                <<"s3">> => S3Config#{
+                    <<"transport_options">> => #{
+                        <<"ssl">> => #{
+                            <<"certfile">> => <<"cert.pem">>,
+                            <<"keyfile">> => <<"key.pem">>
+                        }
+                    }
+                }
+            })
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_ft_conf:update(
+            mk_storage(false, #{
+                <<"s3">> => S3Config#{
+                    <<"transport_options">> => #{
+                        <<"ssl">> => #{
+                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                            <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+                        }
+                    }
+                }
+            })
+        )
+    ),
+    ?assertMatch(
+        #{
+            local := #{
+                exporter := #{
+                    s3 := #{
+                        transport_options := #{
+                            ssl := #{
+                                certfile := <<"/", _CertFilepath/binary>>,
+                                keyfile := <<"/", _KeyFilepath/binary>>
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        emqx_ft_conf:storage()
+    ),
+    ?assertMatch(
+        [_Certfile, _Keyfile],
+        list_ssl_certfiles(Config)
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_ft_conf:update(mk_storage(true))
+    ),
+    ?assertEqual(
+        [],
+        list_ssl_certfiles(Config)
+    ).
+
+mk_storage(Enabled) ->
+    mk_storage(Enabled, #{<<"local">> => #{}}).
+
+mk_storage(Enabled, Exporter) ->
+    #{
+        <<"enable">> => Enabled,
+        <<"storage">> => #{
+            <<"local">> => #{
+                <<"exporter">> => Exporter
+            }
+        }
+    }.
+
 gen_clientid() ->
     emqx_base62:encode(emqx_guid:gen()).
+
+list_ssl_certfiles(_Config) ->
+    CertDir = emqx:mutable_certs_dir(),
+    filelib:fold_files(CertDir, ".*", true, fun(Filepath, Acc) -> [Filepath | Acc] end, []).

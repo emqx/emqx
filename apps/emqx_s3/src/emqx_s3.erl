@@ -14,6 +14,11 @@
     with_client/2
 ]).
 
+-export([
+    pre_config_update/3,
+    post_config_update/3
+]).
+
 -export_type([
     profile_id/0,
     profile_config/0,
@@ -94,3 +99,35 @@ with_client(ProfileId, Fun) when is_function(Fun, 1) andalso ?IS_PROFILE_ID(Prof
         {error, _} = Error ->
             Error
     end.
+
+%%
+
+-spec pre_config_update(
+    profile_id(), maybe(emqx_config:raw_config()), maybe(emqx_config:raw_config())
+) ->
+    {ok, maybe(profile_config())} | {error, term()}.
+pre_config_update(ProfileId, NewConfig = #{<<"transport_options">> := TransportOpts}, _OldConfig) ->
+    case emqx_connector_ssl:convert_certs(mk_certs_dir(ProfileId), TransportOpts) of
+        {ok, TransportOptsConv} ->
+            {ok, NewConfig#{<<"transport_options">> := TransportOptsConv}};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+pre_config_update(_ProfileId, NewConfig, _OldConfig) ->
+    {ok, NewConfig}.
+
+-spec post_config_update(
+    profile_id(),
+    maybe(emqx_config:config()),
+    maybe(emqx_config:config())
+) ->
+    ok.
+post_config_update(ProfileId, NewConfig, OldConfig) ->
+    emqx_connector_ssl:try_clear_certs(
+        mk_certs_dir(ProfileId),
+        maps:get(transport_options, emqx_maybe:define(NewConfig, #{}), undefined),
+        maps:get(transport_options, emqx_maybe:define(OldConfig, #{}), undefined)
+    ).
+
+mk_certs_dir(ProfileId) ->
+    filename:join([s3, profiles, ProfileId]).

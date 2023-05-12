@@ -16,6 +16,8 @@
 
 -module(emqx_ft_storage).
 
+-include_lib("emqx/include/types.hrl").
+
 -export(
     [
         store_filemeta/2,
@@ -29,7 +31,7 @@
         with_storage_type/3,
 
         backend/0,
-        on_config_update/2
+        update_config/2
     ]
 ).
 
@@ -94,10 +96,10 @@
 -callback files(storage(), query(Cursor)) ->
     {ok, page(file_info(), Cursor)} | {error, term()}.
 
--callback start(emqx_config:config()) -> any().
--callback stop(emqx_config:config()) -> any().
+-callback start(storage()) -> any().
+-callback stop(storage()) -> any().
 
--callback on_config_update(_OldConfig :: emqx_config:config(), _NewConfig :: emqx_config:config()) ->
+-callback update_config(_OldConfig :: maybe(storage()), _NewConfig :: maybe(storage())) ->
     any().
 
 %%--------------------------------------------------------------------
@@ -157,9 +159,9 @@ with_storage_type(Type, Fun, Args) ->
 backend() ->
     backend(emqx_ft_conf:storage()).
 
--spec on_config_update(_Old :: emqx_maybe:t(config()), _New :: emqx_maybe:t(config())) ->
+-spec update_config(_Old :: emqx_maybe:t(config()), _New :: emqx_maybe:t(config())) ->
     ok.
-on_config_update(ConfigOld, ConfigNew) ->
+update_config(ConfigOld, ConfigNew) ->
     on_backend_update(
         emqx_maybe:apply(fun backend/1, ConfigOld),
         emqx_maybe:apply(fun backend/1, ConfigNew)
@@ -168,13 +170,13 @@ on_config_update(ConfigOld, ConfigNew) ->
 on_backend_update({Type, _} = Backend, {Type, _} = Backend) ->
     ok;
 on_backend_update({Type, StorageOld}, {Type, StorageNew}) ->
-    ok = (mod(Type)):on_config_update(StorageOld, StorageNew);
+    ok = (mod(Type)):update_config(StorageOld, StorageNew);
 on_backend_update(BackendOld, BackendNew) when
     (BackendOld =:= undefined orelse is_tuple(BackendOld)) andalso
         (BackendNew =:= undefined orelse is_tuple(BackendNew))
 ->
-    _ = emqx_maybe:apply(fun on_storage_stop/1, BackendOld),
-    _ = emqx_maybe:apply(fun on_storage_start/1, BackendNew),
+    _ = emqx_maybe:apply(fun stop_backend/1, BackendOld),
+    _ = emqx_maybe:apply(fun start_backend/1, BackendNew),
     ok.
 
 %%--------------------------------------------------------------------
@@ -185,10 +187,10 @@ on_backend_update(BackendOld, BackendNew) when
 backend(Config) ->
     emqx_ft_schema:backend(Config).
 
-on_storage_start({Type, Storage}) ->
+start_backend({Type, Storage}) ->
     (mod(Type)):start(Storage).
 
-on_storage_stop({Type, Storage}) ->
+stop_backend({Type, Storage}) ->
     (mod(Type)):stop(Storage).
 
 mod(local) ->
