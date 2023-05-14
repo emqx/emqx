@@ -687,7 +687,7 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
     ).
 
 is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx:get_config([bridges, BridgeType, BridgeName]) of
+    try emqx:get_config([bridges, BridgeType, binary_to_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, false)
     catch

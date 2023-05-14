@@ -158,7 +158,18 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec strategy(emqx_topic:group()) -> strategy().
 strategy(Group) ->
-    case emqx:get_config([broker, shared_subscription_group, Group, strategy], undefined) of
+    case
+        emqx:get_config(
+            [
+                broker,
+                shared_subscription_group,
+                %%binary_to_existing_atom(Group, utf8),
+                binary_to_atom(Group),
+                strategy
+            ],
+            undefined
+        )
+    of
         undefined -> emqx:get_config([broker, shared_subscription_strategy]);
         Strategy -> Strategy
     end.

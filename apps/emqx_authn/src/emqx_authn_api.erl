@@ -794,8 +794,8 @@ find_authenticator_config(AuthenticatorID, ConfKeyPath) ->
 with_listener(ListenerID, Fun) ->
     case find_listener(ListenerID) of
         {ok, {BType, BName}} ->
-            Type = binary_to_existing_atom(BType),
-            Name = binary_to_existing_atom(BName),
+            Type = binary_to_existing_atom(BType, utf8),
+            Name = binary_to_existing_atom(BName, utf8),
             ChainName = binary_to_atom(ListenerID),
             Fun(Type, Name, ChainName);
         {error, Reason} ->
@@ -805,7 +805,11 @@ with_listener(ListenerID, Fun) ->
 find_listener(ListenerID) ->
     case binary:split(ListenerID, <<":">>) of
         [BType, BName] ->
-            case emqx_config:find([listeners, BType, BName]) of
+            case
+                emqx_config:find([
+                    listeners, binary_to_existing_atom(BType), binary_to_existing_atom(BName)
+                ])
+            of
                 {ok, _} ->
                     {ok, {BType, BName}};
                 {not_found, _, _} ->
