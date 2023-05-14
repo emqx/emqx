@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ start_link() ->
 %%================================================================================
 
 init([]) ->
-    Children = [zone_sup()],
+    Children = [shard_sup()],
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,
@@ -54,9 +54,9 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
-zone_sup() ->
+shard_sup() ->
     #{
-        id => local_store_zone_sup,
+        id => local_store_shard_sup,
         start => {emqx_replay_local_store_sup, start_link, []},
         restart => permanent,
         type => supervisor,

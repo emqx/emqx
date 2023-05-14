@@ -21,7 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(ZONE, zone(?FUNCTION_NAME)).
+-define(SHARD, shard(?FUNCTION_NAME)).
 
 -define(DEFAULT_CONFIG,
     {emqx_replay_message_storage, #{
@@ -44,8 +44,8 @@
 
 %% Smoke test for opening and reopening the database
 t_open(_Config) ->
-    ok = emqx_replay_local_store_sup:stop_zone(?ZONE),
-    {ok, _} = emqx_replay_local_store_sup:start_zone(?ZONE).
+    ok = emqx_replay_local_store_sup:stop_shard(?SHARD),
+    {ok, _} = emqx_replay_local_store_sup:start_shard(?SHARD).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -53,7 +53,7 @@ t_store(_Config) ->
     PublishedAt = 1000,
     Topic = [<<"foo">>, <<"bar">>],
     Payload = <<"message">>,
-    ?assertMatch(ok, emqx_replay_local_store:store(?ZONE, MessageID, PublishedAt, Topic, Payload)).
+    ?assertMatch(ok, emqx_replay_local_store:store(?SHARD, MessageID, PublishedAt, Topic, Payload)).
 
 %% Smoke test for iteration through a concrete topic
 t_iterate(_Config) ->
@@ -62,7 +62,7 @@ t_iterate(_Config) ->
     Timestamps = lists:seq(1, 10),
     [
         emqx_replay_local_store:store(
-            ?ZONE,
+            ?SHARD,
             emqx_guid:gen(),
             PublishedAt,
             Topic,
@@ -73,7 +73,7 @@ t_iterate(_Config) ->
     %% Iterate through individual topics:
     [
         begin
-            {ok, It} = emqx_replay_local_store:make_iterator(?ZONE, {Topic, 0}),
+            {ok, It} = emqx_replay_local_store:make_iterator(?SHARD, {Topic, 0}),
             Values = iterate(It),
             ?assertEqual(lists:map(fun integer_to_binary/1, Timestamps), Values)
         end
@@ -87,50 +87,50 @@ t_iterate_wildcard(_Config) ->
     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
     Timestamps = lists:seq(1, 10),
     _ = [
-        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+        store(?SHARD, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 10 + 1)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 10 + 1)])
     ),
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- lists:seq(5, 10)]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "#", 5)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 5)])
     ),
     ?assertEqual(
         lists:sort([
             {Topic, PublishedAt}
          || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/#", 0)])
     ),
     ?assertEqual(
         lists:sort([{"foo/bar", PublishedAt} || PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/+", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/+", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/+/bar", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/+/bar", 0)])
     ),
     ?assertEqual(
         lists:sort([
             {Topic, PublishedAt}
          || Topic <- ["foo/bar", "foo/bar/baz", "a/bar"], PublishedAt <- Timestamps
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "+/bar/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "+/bar/#", 0)])
     ),
     ?assertEqual(
         lists:sort([{Topic, PublishedAt} || Topic <- ["a", "a/bar"], PublishedAt <- Timestamps]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "a/#", 0)])
     ),
     ?assertEqual(
         [],
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/+/+", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "a/+/+", 0)])
     ),
     ok.
 
@@ -139,40 +139,40 @@ t_iterate_long_tail_wildcard(_Config) ->
     TopicFilter = "b/c/d/e/+/+",
     Timestamps = lists:seq(1, 100),
     _ = [
-        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+        store(?SHARD, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
      || PublishedAt <- Timestamps
     ],
     ?assertEqual(
         lists:sort([{"b/c/d/e/f/g", PublishedAt} || PublishedAt <- lists:seq(50, 100)]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, TopicFilter, 50)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, TopicFilter, 50)])
     ).
 
 t_create_gen(_Config) ->
-    {ok, 1} = emqx_replay_local_store:create_generation(?ZONE, 5, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_replay_local_store:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),
     ?assertEqual(
         {error, nonmonotonic},
-        emqx_replay_local_store:create_generation(?ZONE, 1, ?DEFAULT_CONFIG)
+        emqx_replay_local_store:create_generation(?SHARD, 1, ?DEFAULT_CONFIG)
     ),
     ?assertEqual(
         {error, nonmonotonic},
-        emqx_replay_local_store:create_generation(?ZONE, 5, ?DEFAULT_CONFIG)
+        emqx_replay_local_store:create_generation(?SHARD, 5, ?DEFAULT_CONFIG)
     ),
-    {ok, 2} = emqx_replay_local_store:create_generation(?ZONE, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_replay_local_store:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz"],
     Timestamps = lists:seq(1, 100),
     [
-        ?assertEqual(ok, store(?ZONE, PublishedAt, Topic, <<>>))
+        ?assertEqual(ok, store(?SHARD, PublishedAt, Topic, <<>>))
      || Topic <- Topics, PublishedAt <- Timestamps
     ].
 
 t_iterate_multigen(_Config) ->
-    {ok, 1} = emqx_replay_local_store:create_generation(?ZONE, 10, ?COMPACT_CONFIG),
-    {ok, 2} = emqx_replay_local_store:create_generation(?ZONE, 50, ?DEFAULT_CONFIG),
-    {ok, 3} = emqx_replay_local_store:create_generation(?ZONE, 1000, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_replay_local_store:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_replay_local_store:create_generation(?SHARD, 50, ?DEFAULT_CONFIG),
+    {ok, 3} = emqx_replay_local_store:create_generation(?SHARD, 1000, ?DEFAULT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
     Timestamps = lists:seq(1, 100),
     _ = [
-        store(?ZONE, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
+        store(?SHARD, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ?assertEqual(
@@ -180,38 +180,38 @@ t_iterate_multigen(_Config) ->
             {Topic, PublishedAt}
          || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "foo/#", 0)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/#", 0)])
     ),
     ?assertEqual(
         lists:sort([
             {Topic, PublishedAt}
          || Topic <- ["a", "a/bar"], PublishedAt <- lists:seq(60, 100)
         ]),
-        lists:sort([binary_to_term(Payload) || Payload <- iterate(?ZONE, "a/#", 60)])
+        lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "a/#", 60)])
     ).
 
 t_iterate_multigen_preserve_restore(_Config) ->
     ReplayID = atom_to_binary(?FUNCTION_NAME),
-    {ok, 1} = emqx_replay_local_store:create_generation(?ZONE, 10, ?COMPACT_CONFIG),
-    {ok, 2} = emqx_replay_local_store:create_generation(?ZONE, 50, ?DEFAULT_CONFIG),
-    {ok, 3} = emqx_replay_local_store:create_generation(?ZONE, 100, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_replay_local_store:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_replay_local_store:create_generation(?SHARD, 50, ?DEFAULT_CONFIG),
+    {ok, 3} = emqx_replay_local_store:create_generation(?SHARD, 100, ?DEFAULT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz", "a/bar"],
     Timestamps = lists:seq(1, 100),
     TopicFilter = "foo/#",
     TopicsMatching = ["foo/bar", "foo/bar/baz"],
     _ = [
-        store(?ZONE, TS, Topic, term_to_binary({Topic, TS}))
+        store(?SHARD, TS, Topic, term_to_binary({Topic, TS}))
      || Topic <- Topics, TS <- Timestamps
     ],
-    It0 = iterator(?ZONE, TopicFilter, 0),
+    It0 = iterator(?SHARD, TopicFilter, 0),
     {It1, Res10} = iterate(It0, 10),
     % preserve mid-generation
     ok = emqx_replay_local_store:preserve_iterator(It1, ReplayID),
-    {ok, It2} = emqx_replay_local_store:restore_iterator(?ZONE, ReplayID),
+    {ok, It2} = emqx_replay_local_store:restore_iterator(?SHARD, ReplayID),
     {It3, Res100} = iterate(It2, 88),
     % preserve on the generation boundary
     ok = emqx_replay_local_store:preserve_iterator(It3, ReplayID),
-    {ok, It4} = emqx_replay_local_store:restore_iterator(?ZONE, ReplayID),
+    {ok, It4} = emqx_replay_local_store:restore_iterator(?SHARD, ReplayID),
     {It5, Res200} = iterate(It4, 1000),
     ?assertEqual(none, It5),
     ?assertEqual(
@@ -220,16 +220,16 @@ t_iterate_multigen_preserve_restore(_Config) ->
     ),
     ?assertEqual(
         ok,
-        emqx_replay_local_store:discard_iterator(?ZONE, ReplayID)
+        emqx_replay_local_store:discard_iterator(?SHARD, ReplayID)
     ),
     ?assertEqual(
         {error, not_found},
-        emqx_replay_local_store:restore_iterator(?ZONE, ReplayID)
+        emqx_replay_local_store:restore_iterator(?SHARD, ReplayID)
     ).
 
-store(Zone, PublishedAt, Topic, Payload) ->
+store(Shard, PublishedAt, Topic, Payload) ->
     ID = emqx_guid:gen(),
-    emqx_replay_local_store:store(Zone, ID, PublishedAt, parse_topic(Topic), Payload).
+    emqx_replay_local_store:store(Shard, ID, PublishedAt, parse_topic(Topic), Payload).
 
 iterate(DB, TopicFilter, StartTime) ->
     iterate(iterator(DB, TopicFilter, StartTime)).
@@ -274,15 +274,15 @@ end_per_suite(_Config) ->
     ok = application:stop(emqx_replay).
 
 init_per_testcase(TC, Config) ->
-    ok = set_zone_config(zone(TC), ?DEFAULT_CONFIG),
-    {ok, _} = emqx_replay_local_store_sup:start_zone(zone(TC)),
+    ok = set_shard_config(shard(TC), ?DEFAULT_CONFIG),
+    {ok, _} = emqx_replay_local_store_sup:start_shard(shard(TC)),
     Config.
 
 end_per_testcase(TC, _Config) ->
-    ok = emqx_replay_local_store_sup:stop_zone(zone(TC)).
+    ok = emqx_replay_local_store_sup:stop_shard(shard(TC)).
 
-zone(TC) ->
-    list_to_atom(lists:concat([?MODULE, "_", TC])).
+shard(TC) ->
+    list_to_binary(lists:concat([?MODULE, "_", TC])).
 
-set_zone_config(Zone, Config) ->
-    ok = application:set_env(emqx_replay, zone_config, #{Zone => Config}).
+set_shard_config(Shard, Config) ->
+    ok = application:set_env(emqx_replay, shard_config, #{Shard => Config}).

@@ -18,7 +18,7 @@
 %% API:
 -export([]).
 
--export_type([topic/0, time/0]).
+-export_type([topic/0, time/0, shard/0]).
 -export_type([replay_id/0, replay/0]).
 
 %%================================================================================
@@ -27,6 +27,8 @@
 
 %% parsed
 -type topic() :: list(binary()).
+
+-type shard() :: binary().
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
