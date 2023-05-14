@@ -18,7 +18,7 @@
 -behavior(supervisor).
 
 %% API:
--export([start_link/0, start_zone/1, stop_zone/1]).
+-export([start_link/0, start_shard/1, stop_shard/1]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -37,14 +37,14 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
--spec start_zone(emqx_types:zone()) -> supervisor:startchild_ret().
-start_zone(Zone) ->
-    supervisor:start_child(?SUP, zone_child_spec(Zone)).
+-spec start_shard(emqx_replay:shard()) -> supervisor:startchild_ret().
+start_shard(Shard) ->
+    supervisor:start_child(?SUP, shard_child_spec(Shard)).
 
--spec stop_zone(emqx_types:zone()) -> ok | {error, _}.
-stop_zone(Zone) ->
-    ok = supervisor:terminate_child(?SUP, Zone),
-    ok = supervisor:delete_child(?SUP, Zone).
+-spec stop_shard(emqx_replay:shard()) -> ok | {error, _}.
+stop_shard(Shard) ->
+    ok = supervisor:terminate_child(?SUP, Shard),
+    ok = supervisor:delete_child(?SUP, Shard).
 
 %%================================================================================
 %% behavior callbacks
@@ -63,11 +63,11 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
--spec zone_child_spec(emqx_types:zone()) -> supervisor:child_spec().
-zone_child_spec(Zone) ->
+-spec shard_child_spec(emqx_replay:shard()) -> supervisor:child_spec().
+shard_child_spec(Shard) ->
     #{
-        id => Zone,
-        start => {emqx_replay_local_store, start_link, [Zone]},
+        id => Shard,
+        start => {emqx_replay_local_store, start_link, [Shard]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

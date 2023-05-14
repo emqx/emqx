@@ -182,7 +182,7 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
-    zone :: emqx_types:zone(),
+    shard :: emqx_replay:shard(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
@@ -244,17 +244,17 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
-    emqx_types:zone(),
+    emqx_replay:shard(),
     rocksdb:db_handle(),
     emqx_replay_local_store:gen_id(),
     emqx_replay_local_store:cf_refs(),
     schema()
 ) ->
     db().
-open(Zone, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+open(Shard, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
     {value, {_, CFHandle}} = lists:keysearch(data_cf(GenId), 1, CFs),
     #db{
-        zone = Zone,
+        shard = Shard,
         handle = DBHandle,
         cf = CFHandle,
         keymapper = Keymapper
@@ -292,7 +292,7 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
 -spec make_iterator(db(), emqx_replay:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(DB, Replay) ->
-    Options = emqx_replay_conf:zone_iteration_options(DB#db.zone),
+    Options = emqx_replay_conf:shard_iteration_options(DB#db.shard),
     make_iterator(DB, Replay, Options).
 
 -spec make_iterator(db(), emqx_replay:replay(), iteration_options()) ->
