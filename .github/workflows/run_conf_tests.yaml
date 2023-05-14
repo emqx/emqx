@@ -42,3 +42,12 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           ./scripts/conf-test/run.sh
+      - name: print_erlang_log
+        if: failure()
+        run: |
+          cat source/_build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: logs-${{ matrix.profile }}
+          path: source/_build/${{ matrix.profile }}/rel/emqx/logs
