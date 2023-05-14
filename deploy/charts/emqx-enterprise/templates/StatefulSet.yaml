@@ -32,6 +32,9 @@ spec:
   {{- end }}
   updateStrategy:
     type: RollingUpdate
+  {{- if .Values.minReadySeconds }}
+  minReadySeconds: {{ .Values.minReadySeconds }}
+  {{- end }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:

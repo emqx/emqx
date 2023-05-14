@@ -35,6 +35,9 @@ serviceAccount:
 ## Forces the recreation of pods during helm upgrades. This can be useful to update configuration values even if the container image did not change.
 recreatePods: false
 
+## Sets the minReadySeconds parameter on the stateful set. This can be used to add delay between restart / updates between the single pods.
+minReadySeconds:
+
 clusterDomain: cluster.local
 
 podAnnotations: {}
