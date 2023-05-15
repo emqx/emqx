@@ -3,12 +3,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_replay_local_store_sup).
 
--behavior(supervisor).
+-behaviour(supervisor).
 
 %% API:
 -export([start_link/0, start_shard/1, stop_shard/1]).
 
-%% behavior callbacks:
+%% behaviour callbacks:
 -export([init/1]).
 
 %%================================================================================
@@ -35,7 +35,7 @@ stop_shard(Shard) ->
     ok = supervisor:delete_child(?SUP, Shard).
 
 %%================================================================================
-%% behavior callbacks
+%% behaviour callbacks
 %%================================================================================
 
 init([]) ->
