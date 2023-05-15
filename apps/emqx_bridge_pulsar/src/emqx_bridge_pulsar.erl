@@ -140,7 +140,7 @@ fields(producer_resource_opts) ->
     lists:filtermap(
         fun
             ({health_check_interval = Field, MetaFn}) ->
-                {true, {Field, override_default(MetaFn, 1_000)}};
+                {true, {Field, override_default(MetaFn, <<"1s">>)}};
             ({Field, _Meta}) ->
                 lists:member(Field, SupportedOpts)
         end,
