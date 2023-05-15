@@ -173,7 +173,7 @@ stats(#state{
         end,
     ConnStats = emqx_pd:get_counters(?CONN_STATS),
     ChanStats = ChannMod:stats(Channel),
-    ProcStats = emqx_misc:proc_stats(),
+    ProcStats = emqx_utils:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 call(Pid, Req) ->
@@ -297,7 +297,7 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
     StatsTimer = emqx_gateway_utils:stats_timer(Options),
     IdleTimeout = emqx_gateway_utils:idle_timeout(Options),
     OomPolicy = emqx_gateway_utils:oom_policy(Options),
-    IdleTimer = emqx_misc:start_timer(IdleTimeout, idle_timeout),
+    IdleTimer = emqx_utils:start_timer(IdleTimeout, idle_timeout),
     #state{
         socket = WrappedSock,
         peername = Peername,
@@ -327,7 +327,7 @@ run_loop(
     }
 ) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    _ = emqx_misc:tune_heap_size(OomPolicy),
+    _ = emqx_utils:tune_heap_size(OomPolicy),
     case activate_socket(State) of
         {ok, NState} ->
             hibernate(Parent, NState);
@@ -383,14 +383,14 @@ wakeup_from_hib(Parent, State) ->
 %% Ensure/cancel stats timer
 
 ensure_stats_timer(Timeout, State = #state{stats_timer = undefined}) ->
-    State#state{stats_timer = emqx_misc:start_timer(Timeout, emit_stats)};
+    State#state{stats_timer = emqx_utils:start_timer(Timeout, emit_stats)};
 ensure_stats_timer(_Timeout, State) ->
     State.
 
 cancel_stats_timer(State = #state{stats_timer = TRef}) when
     is_reference(TRef)
 ->
-    ok = emqx_misc:cancel_timer(TRef),
+    ok = emqx_utils:cancel_timer(TRef),
     State#state{stats_timer = undefined};
 cancel_stats_timer(State) ->
     State.
@@ -471,7 +471,7 @@ handle_msg(
     State = #state{idle_timer = IdleTimer}
 ) ->
     IdleTimer /= undefined andalso
-        emqx_misc:cancel_timer(IdleTimer),
+        emqx_utils:cancel_timer(IdleTimer),
     NState = State#state{idle_timer = undefined},
     handle_incoming(Packet, NState);
 handle_msg({outgoing, Data}, State) ->
@@ -501,7 +501,7 @@ handle_msg(
     Deliver = {deliver, _Topic, _Msg},
     State = #state{active_n = ActiveN}
 ) ->
-    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 %% Something sent
 %% TODO: Who will deliver this message?
@@ -904,7 +904,7 @@ handle_info(Info, State) ->
 %%                 msg => "reach_rate_limit",
 %%                 pause => Time
 %%             }),
-%%             TRef = emqx_misc:start_timer(Time, limit_timeout),
+%%             TRef = emqx_utils:start_timer(Time, limit_timeout),
 %%             State#state{
 %%                 sockstate = blocked,
 %%                 limiter = Limiter1,
@@ -928,7 +928,7 @@ run_gc(Stats, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
-    case ?ENABLED(OomPolicy) andalso emqx_misc:check_oom(OomPolicy) of
+    case ?ENABLED(OomPolicy) andalso emqx_utils:check_oom(OomPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             erlang:exit({shutdown, Reason});

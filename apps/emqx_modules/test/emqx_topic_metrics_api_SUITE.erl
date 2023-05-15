@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -40,13 +40,9 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_modules, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_modules]
     ),
 
     %% When many tests run in an obscure order, it may occur that
@@ -59,13 +55,8 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_dashboard, emqx_modules]),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_modules]),
     application:stop(gen_rpc),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
     ok.
 
 %%------------------------------------------------------------------------------
@@ -80,7 +71,7 @@ t_mqtt_topic_metrics_collection(_) ->
 
     ?assertEqual(
         [],
-        jsx:decode(Result0)
+        emqx_utils_json:decode(Result0)
     ),
 
     {ok, 200, _} = request(
@@ -101,7 +92,7 @@ t_mqtt_topic_metrics_collection(_) ->
                 <<"metrics">> := #{}
             }
         ],
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -156,7 +147,7 @@ t_mqtt_topic_metrics(_) ->
         uri(["mqtt", "topic_metrics"])
     ),
 
-    ?assertMatch([_], jsx:decode(Result0)),
+    ?assertMatch([_], emqx_utils_json:decode(Result0)),
 
     {ok, 200, Result1} = request(
         get,
@@ -168,7 +159,7 @@ t_mqtt_topic_metrics(_) ->
             <<"topic">> := <<"topic/1/2">>,
             <<"metrics">> := #{}
         },
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -294,7 +285,7 @@ t_node_aggregation(_) ->
             <<"topic">> := <<"topic/1/2">>,
             <<"metrics">> := #{<<"messages.dropped.count">> := 3}
         },
-        jsx:decode(Result)
+        emqx_utils_json:decode(Result)
     ),
 
     meck:unload(emqx_topic_metrics_proto_v1).
@@ -315,6 +306,3 @@ t_badrpc(_) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
-
-request(Method, Url) ->
-    request(Method, Url, []).

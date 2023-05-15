@@ -71,24 +71,15 @@
 %%--------------------------------------------------------------------
 
 create_router_tab(disc) ->
-    ok = mria:create_table(?ROUTE_DISC_TAB, [
-        {type, bag},
-        {rlog_shard, ?ROUTE_SHARD},
-        {storage, disc_copies},
-        {record_name, route},
-        {attributes, record_info(fields, route)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]);
+    create_table(?ROUTE_DISC_TAB, disc_copies);
 create_router_tab(ram) ->
-    ok = mria:create_table(?ROUTE_RAM_TAB, [
+    create_table(?ROUTE_RAM_TAB, ram_copies).
+
+create_table(Tab, Storage) ->
+    ok = mria:create_table(Tab, [
         {type, bag},
         {rlog_shard, ?ROUTE_SHARD},
-        {storage, ram_copies},
+        {storage, Storage},
         {record_name, route},
         {attributes, record_info(fields, route)},
         {storage_properties, [
@@ -104,7 +95,7 @@ create_router_tab(ram) ->
 %%--------------------------------------------------------------------
 
 create_init_tab() ->
-    emqx_tables:new(?SESSION_INIT_TAB, [
+    emqx_utils_ets:new(?SESSION_INIT_TAB, [
         public,
         {read_concurrency, true},
         {write_concurrency, true}
@@ -113,7 +104,7 @@ create_init_tab() ->
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
     gen_server:start_link(
-        {local, emqx_misc:proc_name(?MODULE, Id)},
+        {local, emqx_utils:proc_name(?MODULE, Id)},
         ?MODULE,
         [Pool, Id],
         [{hibernate_after, 1000}]
@@ -191,7 +182,7 @@ pending(SessionID, MarkerIDs) ->
     call(pick(SessionID), {pending, SessionID, MarkerIDs}).
 
 buffer(SessionID, STopic, Msg) ->
-    case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
+    case emqx_utils_ets:lookup_value(?SESSION_INIT_TAB, SessionID) of
         undefined -> ok;
         Worker -> emqx_session_router_worker:buffer(Worker, STopic, Msg)
     end.
@@ -203,7 +194,7 @@ resume_begin(From, SessionID) when is_pid(From), is_binary(SessionID) ->
 -spec resume_end(pid(), binary()) ->
     {'ok', [emqx_types:message()]} | {'error', term()}.
 resume_end(From, SessionID) when is_pid(From), is_binary(SessionID) ->
-    case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
+    case emqx_utils_ets:lookup_value(?SESSION_INIT_TAB, SessionID) of
         undefined ->
             ?tp(ps_session_not_found, #{sid => SessionID}),
             {error, not_found};
@@ -258,7 +249,7 @@ handle_cast({delete_routes, SessionID, Subscriptions}, State) ->
     ok = lists:foreach(Fun, maps:to_list(Subscriptions)),
     {noreply, State};
 handle_cast({resume_end, SessionID, Pid}, State) ->
-    case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
+    case emqx_utils_ets:lookup_value(?SESSION_INIT_TAB, SessionID) of
         undefined -> skip;
         P when P =:= Pid -> ets:delete(?SESSION_INIT_TAB, SessionID);
         P when is_pid(P) -> skip
@@ -292,7 +283,7 @@ init_resume_worker(RemotePid, SessionID, #{pmon := Pmon} = State) ->
             error;
         {ok, Pid} ->
             Pmon1 = emqx_pmon:monitor(Pid, Pmon),
-            case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
+            case emqx_utils_ets:lookup_value(?SESSION_INIT_TAB, SessionID) of
                 undefined ->
                     {ok, Pid, State#{pmon => Pmon1}};
                 {_, OldPid} ->

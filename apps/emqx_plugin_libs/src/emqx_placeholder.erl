@@ -30,6 +30,7 @@
     proc_sql/2,
     proc_sql_param_str/2,
     proc_cql_param_str/2,
+    proc_param_str/3,
     preproc_tmpl_deep/1,
     preproc_tmpl_deep/2,
     proc_tmpl_deep/2,
@@ -38,6 +39,14 @@
     bin/1,
     sql_data/1
 ]).
+
+-export([
+    quote_sql/1,
+    quote_cql/1,
+    quote_mysql/1
+]).
+
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
 
@@ -60,7 +69,7 @@
 
 -type preproc_sql_opts() :: #{
     placeholders => list(binary()),
-    replace_with => '?' | '$n',
+    replace_with => '?' | '$n' | ':n',
     strip_double_quote => boolean()
 }.
 
@@ -80,6 +89,8 @@
     | [deep_template()]
     | {tmpl, tmpl_token()}
     | {value, term()}.
+
+-dialyzer({no_improper_lists, [quote_mysql/1, escape_mysql/4, escape_prepend/4]}).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -138,7 +149,7 @@ proc_cmd(Tokens, Data, Opts) ->
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
--spec preproc_sql(binary(), '?' | '$n' | preproc_sql_opts()) ->
+-spec preproc_sql(binary(), '?' | '$n' | ':n' | preproc_sql_opts()) ->
     {prepare_statement_key(), tmpl_token()}.
 preproc_sql(Sql, ReplaceWith) when is_atom(ReplaceWith) ->
     preproc_sql(Sql, #{replace_with => ReplaceWith});
@@ -160,11 +171,21 @@ proc_sql(Tokens, Data) ->
 
 -spec proc_sql_param_str(tmpl_token(), map()) -> binary().
 proc_sql_param_str(Tokens, Data) ->
+    % NOTE
+    % This is a bit misleading: currently, escaping logic in `quote_sql/1` likely
+    % won't work with pgsql since it does not support C-style escapes by default.
+    % https://www.postgresql.org/docs/14/sql-syntax-lexical.html#SQL-SYNTAX-CONSTANTS
     proc_param_str(Tokens, Data, fun quote_sql/1).
 
 -spec proc_cql_param_str(tmpl_token(), map()) -> binary().
 proc_cql_param_str(Tokens, Data) ->
     proc_param_str(Tokens, Data, fun quote_cql/1).
+
+-spec proc_param_str(tmpl_token(), map(), fun((_Value) -> iodata())) -> binary().
+proc_param_str(Tokens, Data, Quote) ->
+    iolist_to_binary(
+        proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})
+    ).
 
 -spec preproc_tmpl_deep(term()) -> deep_template().
 preproc_tmpl_deep(Data) ->
@@ -219,23 +240,34 @@ sql_data(Bin) when is_binary(Bin) -> Bin;
 sql_data(Num) when is_number(Num) -> Num;
 sql_data(Bool) when is_boolean(Bool) -> Bool;
 sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
+sql_data(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 
 -spec bin(term()) -> binary().
 bin(Val) -> emqx_plugin_libs_rule:bin(Val).
+
+-spec quote_sql(_Value) -> iolist().
+quote_sql(Str) ->
+    quote_escape(Str, fun escape_sql/1).
+
+-spec quote_cql(_Value) -> iolist().
+quote_cql(Str) ->
+    quote_escape(Str, fun escape_cql/1).
+
+-spec quote_mysql(_Value) -> iolist().
+quote_mysql(Str) when is_binary(Str) ->
+    try
+        escape_mysql(Str)
+    catch
+        throw:invalid_utf8 ->
+            [<<"0x">> | binary:encode_hex(Str)]
+    end;
+quote_mysql(Str) ->
+    quote_escape(Str, fun escape_mysql/1).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-proc_param_str(Tokens, Data, Quote) ->
-    iolist_to_binary(
-        proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})
-    ).
-
-%% backward compatibility for hot upgrading from =< e4.2.1
-get_phld_var(Fun, Data) when is_function(Fun) ->
-    Fun(Data);
 get_phld_var(Phld, Data) ->
     emqx_rule_maps:nested_get(Phld, Data).
 
@@ -284,13 +316,17 @@ preproc_tmpl_deep_map_key(Key, _) ->
 replace_with(Tmpl, RE, '?') ->
     re:replace(Tmpl, RE, "?", [{return, binary}, global]);
 replace_with(Tmpl, RE, '$n') ->
+    replace_with(Tmpl, RE, <<"$">>);
+replace_with(Tmpl, RE, ':n') ->
+    replace_with(Tmpl, RE, <<":">>);
+replace_with(Tmpl, RE, String) when is_binary(String) ->
     Parts = re:split(Tmpl, RE, [{return, binary}, trim, group]),
     {Res, _} =
         lists:foldl(
             fun
                 ([Tkn, _Phld], {Acc, Seq}) ->
                     Seq1 = erlang:integer_to_binary(Seq),
-                    {<<Acc/binary, Tkn/binary, "$", Seq1/binary>>, Seq + 1};
+                    {<<Acc/binary, Tkn/binary, String/binary, Seq1/binary>>, Seq + 1};
                 ([Tkn], {Acc, Seq}) ->
                     {<<Acc/binary, Tkn/binary>>, Seq}
             end,
@@ -299,8 +335,12 @@ replace_with(Tmpl, RE, '$n') ->
         ),
     Res.
 
+parse_nested(<<".", R/binary>>) ->
+    %% ignore the root .
+    parse_nested(R);
 parse_nested(Attr) ->
     case string:split(Attr, <<".">>, all) of
+        [<<>>] -> {var, ?PH_VAR_THIS};
         [Attr] -> {var, Attr};
         Nested -> {path, [{key, P} || P <- Nested]}
     end.
@@ -310,21 +350,56 @@ unwrap(<<"\"${", Val/binary>>, _StripDoubleQuote = true) ->
 unwrap(<<"${", Val/binary>>, _StripDoubleQuote) ->
     binary:part(Val, {0, byte_size(Val) - 1}).
 
-quote_sql(Str) ->
-    quote(Str, <<"\\\\'">>).
-
-quote_cql(Str) ->
-    quote(Str, <<"''">>).
-
-quote(Str, ReplaceWith) when
-    is_list(Str);
-    is_binary(Str);
-    is_atom(Str);
-    is_map(Str)
-->
-    [$', escape_apo(bin(Str), ReplaceWith), $'];
-quote(Val, _) ->
+-spec quote_escape(_Value, fun((binary()) -> iodata())) -> iodata().
+quote_escape(Str, EscapeFun) when is_binary(Str) ->
+    EscapeFun(Str);
+quote_escape(Str, EscapeFun) when is_list(Str) ->
+    case unicode:characters_to_binary(Str) of
+        Bin when is_binary(Bin) ->
+            EscapeFun(Bin);
+        Otherwise ->
+            error(Otherwise)
+    end;
+quote_escape(Str, EscapeFun) when is_atom(Str) orelse is_map(Str) ->
+    EscapeFun(bin(Str));
+quote_escape(Val, _EscapeFun) ->
     bin(Val).
 
-escape_apo(Str, ReplaceWith) ->
-    re:replace(Str, <<"'">>, ReplaceWith, [{return, binary}, global]).
+-spec escape_sql(binary()) -> iolist().
+escape_sql(S) ->
+    ES = binary:replace(S, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]),
+    [$', ES, $'].
+
+-spec escape_cql(binary()) -> iolist().
+escape_cql(S) ->
+    ES = binary:replace(S, <<"'">>, <<"'">>, [global, {insert_replaced, 1}]),
+    [$', ES, $'].
+
+-spec escape_mysql(binary()) -> iolist().
+escape_mysql(S0) ->
+    % https://dev.mysql.com/doc/refman/8.0/en/string-literals.html
+    [$', escape_mysql(S0, 0, 0, S0), $'].
+
+%% NOTE
+%% This thing looks more complicated than needed because it's optimized for as few
+%% intermediate memory (re)allocations as possible.
+escape_mysql(<<$', Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"\\'">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
+escape_mysql(<<$\\, Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"\\\\">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
+escape_mysql(<<0, Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"\\0">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
+escape_mysql(<<_/utf8, Rest/binary>> = S, I, Run, Src) ->
+    CWidth = byte_size(S) - byte_size(Rest),
+    escape_mysql(Rest, I, Run + CWidth, Src);
+escape_mysql(<<>>, 0, _, Src) ->
+    Src;
+escape_mysql(<<>>, I, Run, Src) ->
+    binary:part(Src, I, Run);
+escape_mysql(_, _I, _Run, _Src) ->
+    throw(invalid_utf8).
+
+escape_prepend(_RunI, 0, _Src, Tail) ->
+    Tail;
+escape_prepend(I, Run, Src, Tail) ->
+    [binary:part(Src, I, Run) | Tail].

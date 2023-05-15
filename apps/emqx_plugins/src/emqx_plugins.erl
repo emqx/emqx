@@ -16,8 +16,13 @@
 
 -module(emqx_plugins).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include("emqx_plugins.hrl").
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     ensure_installed/1,
@@ -42,7 +47,8 @@
 
 -export([
     get_config/2,
-    put_config/2
+    put_config/2,
+    get_tar/1
 ]).
 
 %% internal
@@ -55,10 +61,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
-
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
--include("emqx_plugins.hrl").
 
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
@@ -87,14 +89,15 @@ ensure_installed(NameVsn) ->
 
 do_ensure_installed(NameVsn) ->
     TarGz = pkg_file(NameVsn),
-    case erl_tar:extract(TarGz, [{cwd, install_dir()}, compressed]) of
-        ok ->
+    case erl_tar:extract(TarGz, [compressed, memory]) of
+        {ok, TarContent} ->
+            ok = write_tar_file_content(install_dir(), TarContent),
             case read_plugin(NameVsn, #{}) of
                 {ok, _} ->
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
-                    _ = ensure_uninstalled(NameVsn),
+                    ok = delete_tar_file_content(install_dir(), TarContent),
                     {error, Reason}
             end;
         {error, {_, enoent}} ->
@@ -111,8 +114,95 @@ do_ensure_installed(NameVsn) ->
             }}
     end.
 
-%% @doc Ensure files and directories for the given plugin are delete.
-%% If a plugin is running, or enabled, error is returned.
+-spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
+get_tar(NameVsn) ->
+    TarGz = pkg_file(NameVsn),
+    case file:read_file(TarGz) of
+        {ok, Content} ->
+            {ok, Content};
+        {error, _} ->
+            case maybe_create_tar(NameVsn, TarGz, install_dir()) of
+                ok ->
+                    file:read_file(TarGz);
+                Err ->
+                    Err
+            end
+    end.
+
+maybe_create_tar(NameVsn, TarGzName, InstallDir) when is_binary(InstallDir) ->
+    maybe_create_tar(NameVsn, TarGzName, binary_to_list(InstallDir));
+maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
+    case filelib:wildcard(filename:join(dir(NameVsn), "**")) of
+        [_ | _] = PluginFiles ->
+            InstallDir1 = string:trim(InstallDir, trailing, "/") ++ "/",
+            PluginFiles1 = [{string:prefix(F, InstallDir1), F} || F <- PluginFiles],
+            erl_tar:create(TarGzName, PluginFiles1, [compressed]);
+        _ ->
+            {error, plugin_not_found}
+    end.
+
+write_tar_file_content(BaseDir, TarContent) ->
+    lists:foreach(
+        fun({Name, Bin}) ->
+            Filename = filename:join(BaseDir, Name),
+            ok = filelib:ensure_dir(Filename),
+            ok = file:write_file(Filename, Bin)
+        end,
+        TarContent
+    ).
+
+delete_tar_file_content(BaseDir, TarContent) ->
+    lists:foreach(
+        fun({Name, _}) ->
+            Filename = filename:join(BaseDir, Name),
+            case filelib:is_file(Filename) of
+                true ->
+                    TopDirOrFile = top_dir(BaseDir, Filename),
+                    ok = file:del_dir_r(TopDirOrFile);
+                false ->
+                    %% probably already deleted
+                    ok
+            end
+        end,
+        TarContent
+    ).
+
+top_dir(BaseDir0, DirOrFile) ->
+    BaseDir = normalize_dir(BaseDir0),
+    case filename:dirname(DirOrFile) of
+        RockBottom when RockBottom =:= "/" orelse RockBottom =:= "." ->
+            throw({out_of_bounds, DirOrFile});
+        BaseDir ->
+            DirOrFile;
+        Parent ->
+            top_dir(BaseDir, Parent)
+    end.
+
+normalize_dir(Dir) ->
+    %% Get rid of possible trailing slash
+    filename:join([Dir, ""]).
+
+-ifdef(TEST).
+normalize_dir_test_() ->
+    [
+        ?_assertEqual("foo", normalize_dir("foo")),
+        ?_assertEqual("foo", normalize_dir("foo/")),
+        ?_assertEqual("/foo", normalize_dir("/foo")),
+        ?_assertEqual("/foo", normalize_dir("/foo/"))
+    ].
+
+top_dir_test_() ->
+    [
+        ?_assertEqual("base/foo", top_dir("base", filename:join(["base", "foo", "bar"]))),
+        ?_assertEqual("/base/foo", top_dir("/base", filename:join(["/", "base", "foo", "bar"]))),
+        ?_assertEqual("/base/foo", top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))),
+        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
+        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
+    ].
+-endif.
+
+%% @doc Ensure files and directories for the given plugin are being deleted.
+%% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
     case read_plugin(NameVsn, #{}) of
@@ -331,6 +421,7 @@ do_ensure_started(NameVsn) ->
     tryit(
         "start_plugins",
         fun() ->
+            ok = ensure_exists_and_installed(NameVsn),
             Plugin = do_read_plugin(NameVsn),
             ok = load_code_start_apps(NameVsn, Plugin)
         end
@@ -383,6 +474,53 @@ do_read_plugin({file, InfoFile}, Options) ->
     end;
 do_read_plugin(NameVsn, Options) ->
     do_read_plugin({file, info_file(NameVsn)}, Options).
+
+ensure_exists_and_installed(NameVsn) ->
+    case filelib:is_dir(dir(NameVsn)) of
+        true ->
+            ok;
+        false ->
+            %% Do we have the package, but it's not extracted yet?
+            case get_tar(NameVsn) of
+                {ok, TarContent} ->
+                    ok = file:write_file(pkg_file(NameVsn), TarContent),
+                    ok = do_ensure_installed(NameVsn);
+                _ ->
+                    %% If not, try to get it from the cluster.
+                    do_get_from_cluster(NameVsn)
+            end
+    end.
+
+do_get_from_cluster(NameVsn) ->
+    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    case get_from_any_node(Nodes, NameVsn, []) of
+        {ok, TarContent} ->
+            ok = file:write_file(pkg_file(NameVsn), TarContent),
+            ok = do_ensure_installed(NameVsn);
+        {error, NodeErrors} when Nodes =/= [] ->
+            ?SLOG(error, #{
+                msg => "failed_to_copy_plugin_from_other_nodes",
+                name_vsn => NameVsn,
+                node_errors => NodeErrors
+            }),
+            {error, plugin_not_found};
+        {error, _} ->
+            ?SLOG(error, #{
+                msg => "no_nodes_to_copy_plugin_from",
+                name_vsn => NameVsn
+            }),
+            {error, plugin_not_found}
+    end.
+
+get_from_any_node([], _NameVsn, Errors) ->
+    {error, Errors};
+get_from_any_node([Node | T], NameVsn, Errors) ->
+    case emqx_plugins_proto_v1:get_tar(Node, NameVsn, infinity) of
+        {ok, _} = Res ->
+            Res;
+        Err ->
+            get_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+    end.
 
 plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
     case file:read_file(readme_file(NameVsn)) of

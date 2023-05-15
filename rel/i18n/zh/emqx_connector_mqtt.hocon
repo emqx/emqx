@@ -1,0 +1,21 @@
+emqx_connector_mqtt {
+
+name.desc:
+"""连接器名称，人类可读的连接器描述。"""
+
+name.label:
+"""连接器名称"""
+
+num_of_bridges.desc:
+"""当前使用此连接器的网桥数量。"""
+
+num_of_bridges.label:
+"""网桥数量"""
+
+type.desc:
+"""连接器类型。"""
+
+type.label:
+"""连接器类型"""
+
+}

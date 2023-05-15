@@ -1,0 +1,27 @@
+emqx_lwm2m_api {
+
+dataType.desc:
+"""数据类型"""
+
+lookup_resource.desc:
+"""查看指定资源状态"""
+
+name.desc:
+"""资源名称"""
+
+observe_resource.desc:
+"""Observe/Un-Observe 指定资源"""
+
+operations.desc:
+"""资源可用操作列表"""
+
+path.desc:
+"""资源路径"""
+
+read_resource.desc:
+"""发送读指令到某资源"""
+
+write_resource.desc:
+"""发送写指令到某资源"""
+
+}

@@ -10,11 +10,11 @@ on:
 
 jobs:
   build_emqx_for_jmeter_tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - name: download jmeter
@@ -44,7 +44,7 @@ jobs:
         path: ./emqx.tar
 
   advanced_feat:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -57,7 +57,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -92,7 +92,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
-        ref: broker-autotest-v2
+        ref: broker-autotest-v5
         path: scripts
     - uses: actions/setup-java@v3
       with:
@@ -126,7 +126,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -136,7 +136,7 @@ jobs:
         path: ./jmeter_logs
 
   pgsql_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -153,7 +153,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -191,7 +191,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
-        ref: broker-autotest-v2
+        ref: broker-autotest-v5
         path: scripts
     - uses: actions/setup-java@v3
       with:
@@ -235,7 +235,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.pgsql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -245,7 +245,7 @@ jobs:
         path: ./jmeter_logs
 
   mysql_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -259,7 +259,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -297,7 +297,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
-        ref: broker-autotest-v2
+        ref: broker-autotest-v5
         path: scripts
     - uses: actions/setup-java@v3
       with:
@@ -341,7 +341,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -351,7 +351,7 @@ jobs:
         path: ./jmeter_logs
 
   JWT_authn:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -361,7 +361,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -396,7 +396,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
-        ref: broker-autotest-v2
+        ref: broker-autotest-v5
         path: scripts
     - name: run jwks_server
       timeout-minutes: 10
@@ -439,7 +439,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -449,7 +449,7 @@ jobs:
         path: ./jmeter_logs
 
   built_in_database_authn_authz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
@@ -460,7 +460,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -496,7 +496,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
-        ref: broker-autotest-v2
+        ref: broker-autotest-v5
         path: scripts
     - uses: actions/setup-java@v3
       with:
@@ -531,7 +531,7 @@ jobs:
     - name: check logs
       run: |
         if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
-          echo "check logs filed"
+          echo "check logs failed"
           exit 1
         fi
     - uses: actions/upload-artifact@v3
@@ -541,7 +541,7 @@ jobs:
         path: ./jmeter_logs
 
   delete-artifact:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
     steps:
     - uses: geekyeggo/delete-artifact@v2

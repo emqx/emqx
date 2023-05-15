@@ -18,12 +18,13 @@
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     init_load/1,
     init_load/2,
-    init_load/3,
     read_override_conf/1,
+    has_deprecated_file/0,
     delete_override_conf_files/0,
     check_config/2,
     fill_defaults/1,
@@ -32,8 +33,9 @@
     save_configs/5,
     save_to_app_env/1,
     save_to_config_map/2,
-    save_to_override_conf/2
+    save_to_override_conf/3
 ]).
+-export([merge_envs/2]).
 
 -export([
     get_root/1,
@@ -86,6 +88,10 @@
     remove_handlers/0
 ]).
 
+-ifdef(TEST).
+-export([erase_all/0]).
+-endif.
+
 -include("logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -95,6 +101,8 @@
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
+
+-define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 
 -export_type([
     update_request/0,
@@ -137,50 +145,48 @@
 -type app_envs() :: [proplists:property()].
 
 %% @doc For the given path, get root value enclosed in a single-key map.
--spec get_root(emqx_map_lib:config_key_path()) -> map().
+-spec get_root(emqx_utils_maps:config_key_path()) -> map().
 get_root([RootName | _]) ->
     #{RootName => do_get(?CONF, [RootName], #{})}.
 
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
-    #{bin(RootName) => do_get_raw([RootName], #{})}.
+    #{bin(RootName) => get_raw([RootName], #{})}.
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
--spec get(emqx_map_lib:config_key_path()) -> term().
+-spec get(emqx_utils_maps:config_key_path()) -> term().
 get(KeyPath) -> do_get(?CONF, KeyPath).
 
--spec get(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get(emqx_utils_maps:config_key_path(), term()) -> term().
 get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 
--spec find(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find(emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find([]) ->
-    Ref = make_ref(),
-    case do_get(?CONF, [], Ref) of
-        Ref -> {not_found, []};
+    case do_get(?CONF, [], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find(KeyPath) ->
     atom_conf_path(
         KeyPath,
-        fun(AtomKeyPath) -> emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)) end,
+        fun(AtomKeyPath) -> emqx_utils_maps:deep_find(AtomKeyPath, get_root(KeyPath)) end,
         {return, {not_found, KeyPath}}
     ).
 
--spec find_raw(emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find_raw(emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_raw([]) ->
-    Ref = make_ref(),
-    case do_get_raw([], Ref) of
-        Ref -> {not_found, []};
+    case do_get_raw([], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
 find_raw(KeyPath) ->
-    emqx_map_lib:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
+    emqx_utils_maps:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
 
--spec get_zone_conf(atom(), emqx_map_lib:config_key_path()) -> term().
+-spec get_zone_conf(atom(), emqx_utils_maps:config_key_path()) -> term().
 get_zone_conf(Zone, KeyPath) ->
     case find(?ZONE_CONF_PATH(Zone, KeyPath)) of
         %% not found in zones, try to find the global config
@@ -190,7 +196,7 @@ get_zone_conf(Zone, KeyPath) ->
             Value
     end.
 
--spec get_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_zone_conf(atom(), emqx_utils_maps:config_key_path(), term()) -> term().
 get_zone_conf(Zone, KeyPath, Default) ->
     case find(?ZONE_CONF_PATH(Zone, KeyPath)) of
         %% not found in zones, try to find the global config
@@ -200,24 +206,24 @@ get_zone_conf(Zone, KeyPath, Default) ->
             Value
     end.
 
--spec put_zone_conf(atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_zone_conf(atom(), emqx_utils_maps:config_key_path(), term()) -> ok.
 put_zone_conf(Zone, KeyPath, Conf) ->
     ?MODULE:put(?ZONE_CONF_PATH(Zone, KeyPath), Conf).
 
--spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) -> term().
+-spec get_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path()) -> term().
 get_listener_conf(Type, Listener, KeyPath) ->
     ?MODULE:get(?LISTENER_CONF_PATH(Type, Listener, KeyPath)).
 
--spec get_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path(), term()) -> term().
 get_listener_conf(Type, Listener, KeyPath, Default) ->
     ?MODULE:get(?LISTENER_CONF_PATH(Type, Listener, KeyPath), Default).
 
--spec put_listener_conf(atom(), atom(), emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path(), term()) -> ok.
 put_listener_conf(Type, Listener, KeyPath, Conf) ->
     ?MODULE:put(?LISTENER_CONF_PATH(Type, Listener, KeyPath), Conf).
 
--spec find_listener_conf(atom(), atom(), emqx_map_lib:config_key_path()) ->
-    {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
+-spec find_listener_conf(atom(), atom(), emqx_utils_maps:config_key_path()) ->
+    {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find_listener_conf(Type, Listener, KeyPath) ->
     find(?LISTENER_CONF_PATH(Type, Listener, KeyPath)).
 
@@ -225,31 +231,31 @@ find_listener_conf(Type, Listener, KeyPath) ->
 put(Config) ->
     maps:fold(
         fun(RootName, RootValue, _) ->
-            ?MODULE:put([RootName], RootValue)
+            ?MODULE:put([atom(RootName)], RootValue)
         end,
         ok,
         Config
     ).
 
 erase(RootName) ->
-    persistent_term:erase(?PERSIS_KEY(?CONF, bin(RootName))),
+    persistent_term:erase(?PERSIS_KEY(?CONF, atom(RootName))),
     persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))),
     ok.
 
--spec put(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put(emqx_utils_maps:config_key_path(), term()) -> ok.
 put(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_put(Path, Map, Value)
+        emqx_utils_maps:deep_put(Path, Map, Value)
     end,
     do_put(?CONF, Putter, KeyPath, Config).
 
 %% Puts value into configuration even if path doesn't exist
 %% For paths of non-existing atoms use force_put(KeyPath, Config, unsafe)
--spec force_put(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec force_put(emqx_utils_maps:config_key_path(), term()) -> ok.
 force_put(KeyPath, Config) ->
     force_put(KeyPath, Config, safe).
 
--spec force_put(emqx_map_lib:config_key_path(), term(), safe | unsafe) -> ok.
+-spec force_put(emqx_utils_maps:config_key_path(), term(), safe | unsafe) -> ok.
 force_put(KeyPath0, Config, Safety) ->
     KeyPath =
         case Safety of
@@ -257,19 +263,19 @@ force_put(KeyPath0, Config, Safety) ->
             unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
         end,
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_force_put(Path, Map, Value)
+        emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,
     do_put(?CONF, Putter, KeyPath, Config).
 
--spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
+-spec get_default_value(emqx_utils_maps:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
     BinKeyPath = [bin(Key) || Key <- KeyPath],
     case find_raw([RootName]) of
         {ok, RawConf} ->
-            RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
+            RawConf1 = emqx_utils_maps:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
             try fill_defaults(get_schema_mod(RootName), RawConf1, #{}) of
                 FullConf ->
-                    case emqx_map_lib:deep_find(BinKeyPath, FullConf) of
+                    case emqx_utils_maps:deep_find(BinKeyPath, FullConf) of
                         {not_found, _, _} -> {error, no_default_value};
                         {ok, Val} -> {ok, Val}
                     end
@@ -280,10 +286,12 @@ get_default_value([RootName | _] = KeyPath) ->
             {error, {rootname_not_found, RootName}}
     end.
 
--spec get_raw(emqx_map_lib:config_key_path()) -> term().
+-spec get_raw(emqx_utils_maps:config_key_path()) -> term().
+get_raw([Root | T]) when is_atom(Root) -> get_raw([bin(Root) | T]);
 get_raw(KeyPath) -> do_get_raw(KeyPath).
 
--spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
+-spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
+get_raw([Root | T], Default) when is_atom(Root) -> get_raw([bin(Root) | T], Default);
 get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
 
 -spec put_raw(map()) -> ok.
@@ -296,10 +304,10 @@ put_raw(Config) ->
         hocon_maps:ensure_plain(Config)
     ).
 
--spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
+-spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
-        emqx_map_lib:deep_force_put(Path, Map, Value)
+        emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,
     do_put(?RAW_CONF, Putter, KeyPath, Config).
 
@@ -308,90 +316,116 @@ put_raw(KeyPath, Config) ->
 %%============================================================================
 init_load(SchemaMod) ->
     ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles, #{raw_with_default => true}).
-
-init_load(SchemaMod, Opts) when is_map(Opts) ->
-    ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles, Opts);
-init_load(SchemaMod, ConfFiles) ->
-    init_load(SchemaMod, ConfFiles, #{raw_with_default => false}).
+    init_load(SchemaMod, ConfFiles).
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files ordered
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
-init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
-    init_load(SchemaMod, parse_hocon(Conf), Opts);
-init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
+init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% Merge environment variable overrides on top
+    HasDeprecatedFile = has_deprecated_file(),
+    RawConf0 = load_config_files(HasDeprecatedFile, Conf),
+    warning_deprecated_root_key(RawConf0),
+    RawConf1 =
+        case HasDeprecatedFile of
+            true ->
+                overlay_v0(SchemaMod, RawConf0);
+            false ->
+                overlay_v1(SchemaMod, RawConf0)
+        end,
+    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf1),
+    %% check configs against the schema
+    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
+    save_to_app_env(AppEnvs),
+    ok = save_to_config_map(CheckedConf, RawConf).
+
+%% Merge environment variable overrides on top, then merge with overrides.
+overlay_v0(SchemaMod, RawConf) when is_map(RawConf) ->
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
+    Overrides = read_override_confs(),
+    hocon:deep_merge(RawConfWithEnvs, Overrides).
+
+%% Merge environment variable overrides on top.
+overlay_v1(SchemaMod, RawConf) when is_map(RawConf) ->
+    merge_envs(SchemaMod, RawConf).
+
+%% @doc Read merged cluster + local overrides.
+read_override_confs() ->
     ClusterOverrides = read_override_conf(#{override_to => cluster}),
     LocalOverrides = read_override_conf(#{override_to => local}),
-    Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
-    RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
-    RootNames = get_root_names(),
-    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
-    %% check configs against the schema
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
-    ok = save_to_config_map(CheckedConf, RawConfAll).
+    hocon:deep_merge(ClusterOverrides, LocalOverrides).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
-raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
-    Fun = fun(Name, Acc) ->
-        case maps:is_key(Name, RawConf) of
-            true ->
-                Acc;
-            false ->
-                case lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)) of
-                    false ->
-                        Acc;
-                    {_, {_, Schema}} ->
-                        Acc#{Name => schema_default(Schema)}
-                end
-        end
-    end,
-    RawDefault = lists:foldl(Fun, #{}, RootNames),
-    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{}));
-raw_conf_with_default(_SchemaMod, _RootNames, RawConf, _Opts) ->
-    RawConf.
+fill_defaults_for_all_roots(SchemaMod, RawConf0) ->
+    RootSchemas = hocon_schema:roots(SchemaMod),
+    %% the roots which are missing from the loaded configs
+    MissingRoots = lists:filtermap(
+        fun({BinName, Sc}) ->
+            case maps:is_key(BinName, RawConf0) orelse is_already_loaded(BinName) of
+                true -> false;
+                false -> {true, Sc}
+            end
+        end,
+        RootSchemas
+    ),
+    RawConf = lists:foldl(
+        fun({RootName, Schema}, Acc) ->
+            Acc#{bin(RootName) => seed_default(Schema)}
+        end,
+        RawConf0,
+        MissingRoots
+    ),
+    fill_defaults(RawConf).
 
-schema_default(Schema) ->
-    case hocon_schema:field_schema(Schema, type) of
-        ?ARRAY(_) ->
-            [];
-        ?LAZY(?ARRAY(_)) ->
-            [];
-        ?LAZY(?UNION(Unions)) ->
-            case [A || ?ARRAY(A) <- Unions] of
-                [_ | _] -> [];
-                _ -> #{}
-            end;
-        _ ->
-            #{}
+%% So far, this can only return true when testing.
+%% e.g. when testing an app, we need to load its config first
+%% then start emqx_conf application which will load the
+%% possibly empty config again (then filled with defaults).
+is_already_loaded(Name) ->
+    ?MODULE:get_raw([Name], #{}) =/= #{}.
+
+%% if a root is not found in the raw conf, fill it with default values.
+seed_default(Schema) ->
+    case hocon_schema:field_schema(Schema, default) of
+        undefined ->
+            %% so far all roots without a default value are objects
+            #{};
+        Value ->
+            Value
     end.
 
-parse_hocon(Conf) ->
+load_config_files(HasDeprecatedFile, Conf) ->
     IncDirs = include_dirs(),
-    case do_parse_hocon(Conf, IncDirs) of
+    case do_parse_hocon(HasDeprecatedFile, Conf, IncDirs) of
         {ok, HoconMap} ->
             HoconMap;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_load_hocon_conf",
+                msg => "failed_to_load_config_file",
                 reason => Reason,
                 pwd => file:get_cwd(),
                 include_dirs => IncDirs,
                 config_file => Conf
             }),
-            error(failed_to_load_hocon_conf)
+            error(failed_to_load_config_file)
     end.
 
-do_parse_hocon(Conf, IncDirs) ->
+do_parse_hocon(true, Conf, IncDirs) ->
     Opts = #{format => map, include_dirs => IncDirs},
     case is_binary(Conf) of
         true -> hocon:binary(Conf, Opts);
         false -> hocon:files(Conf, Opts)
+    end;
+do_parse_hocon(false, Conf, IncDirs) ->
+    Opts = #{format => map, include_dirs => IncDirs},
+    case is_binary(Conf) of
+        %% only use in test
+        true ->
+            hocon:binary(Conf, Opts);
+        false ->
+            ClusterFile = cluster_hocon_file(),
+            hocon:files([ClusterFile | Conf], Opts)
     end.
 
 include_dirs() ->
@@ -401,9 +435,7 @@ merge_envs(SchemaMod, RawConf) ->
     Opts = #{
         required => false,
         format => map,
-        apply_override_envs => true,
-        remove_env_meta => true,
-        check_lazy => true
+        apply_override_envs => true
     },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
@@ -416,38 +448,20 @@ check_config(SchemaMod, RawConf, Opts0) ->
     try
         do_check_config(SchemaMod, RawConf, Opts0)
     catch
-        throw:{Schema, Errors} ->
-            compact_errors(Schema, Errors)
+        throw:Errors:Stacktrace ->
+            {error, Reason} = emqx_hocon:compact_errors(Errors, Stacktrace),
+            erlang:raise(throw, Reason, Stacktrace)
     end.
-
-%% HOCON tries to be very informative about all the detailed errors
-%% it's maybe too much when reporting to the user
--spec compact_errors(any(), any()) -> no_return().
-compact_errors(Schema, [Error0 | More]) when is_map(Error0) ->
-    Error1 = Error0#{discarded_errors_count => length(More)},
-    Error =
-        case is_atom(Schema) of
-            true ->
-                Error1#{schema_module => Schema};
-            false ->
-                Error1
-        end,
-    throw(Error);
-compact_errors(Schema, Errors) ->
-    %% unexpected, we need the stacktrace reported, hence error
-    error({Schema, Errors}).
 
 do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
-        format => map,
-        %% Don't check lazy types, such as authenticate
-        check_lazy => false
+        format => map
     },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
-    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.
+    {AppEnvs, emqx_utils_maps:unsafe_atom_key_map(CheckedConf)}.
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -483,10 +497,12 @@ fill_defaults(SchemaMod, RawConf, Opts0) ->
 %% Delete override config files.
 -spec delete_override_conf_files() -> ok.
 delete_override_conf_files() ->
-    F1 = override_conf_file(#{override_to => local}),
-    F2 = override_conf_file(#{override_to => cluster}),
+    F1 = deprecated_conf_file(#{override_to => local}),
+    F2 = deprecated_conf_file(#{override_to => cluster}),
+    F3 = cluster_hocon_file(),
     ok = ensure_file_deleted(F1),
-    ok = ensure_file_deleted(F2).
+    ok = ensure_file_deleted(F2),
+    ok = ensure_file_deleted(F3).
 
 ensure_file_deleted(F) ->
     case file:delete(F) of
@@ -497,18 +513,32 @@ ensure_file_deleted(F) ->
 
 -spec read_override_conf(map()) -> raw_config().
 read_override_conf(#{} = Opts) ->
-    File = override_conf_file(Opts),
+    File =
+        case has_deprecated_file() of
+            true -> deprecated_conf_file(Opts);
+            false -> cluster_hocon_file()
+        end,
     load_hocon_file(File, map).
 
-override_conf_file(Opts) when is_map(Opts) ->
+%% @doc Return `true' if this node is upgraded from older version which used cluster-override.conf for
+%% cluster-wide config persistence.
+has_deprecated_file() ->
+    DeprecatedFile = deprecated_conf_file(#{override_to => cluster}),
+    filelib:is_regular(DeprecatedFile).
+
+deprecated_conf_file(Opts) when is_map(Opts) ->
     Key =
         case maps:get(override_to, Opts, cluster) of
             local -> local_override_conf_file;
             cluster -> cluster_override_conf_file
         end,
     application:get_env(emqx, Key, undefined);
-override_conf_file(Which) when is_atom(Which) ->
+deprecated_conf_file(Which) when is_atom(Which) ->
     application:get_env(emqx, Which, undefined).
+
+%% The newer version cluster-wide config persistence file.
+cluster_hocon_file() ->
+    application:get_env(emqx, cluster_hocon_file, undefined).
 
 -spec save_schema_mod_and_names(module()) -> ok.
 save_schema_mod_and_names(SchemaMod) ->
@@ -522,6 +552,13 @@ save_schema_mod_and_names(SchemaMod) ->
         names => lists:usort(OldNames ++ RootNames)
     }).
 
+-ifdef(TEST).
+erase_all() ->
+    Names = get_root_names(),
+    lists:foreach(fun erase/1, Names),
+    persistent_term:erase(?PERSIS_SCHEMA_MODS).
+-endif.
+
 -spec get_schema_mod() -> #{binary() => atom()}.
 get_schema_mod() ->
     maps:get(mods, persistent_term:get(?PERSIS_SCHEMA_MODS, #{mods => #{}})).
@@ -534,35 +571,38 @@ get_schema_mod(RootName) ->
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
 
--spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) -> ok.
-save_configs(_AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
-    %% We first try to save to override.conf, because saving to files is more error prone
+-spec save_configs(
+    app_envs(), config(), raw_config(), raw_config(), update_opts()
+) -> ok.
+
+save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
+    %% We first try to save to files, because saving to files is more error prone
     %% than saving into memory.
-    ok = save_to_override_conf(OverrideConf, Opts),
-    %% We may need also support hot config update for the apps that use application envs.
-    %% If that is the case uncomment the following line to update the configs to app env
-    %save_to_app_env(_AppEnvs),
+    HasDeprecatedFile = has_deprecated_file(),
+    ok = save_to_override_conf(HasDeprecatedFile, OverrideConf, Opts),
+    save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
+%% we ignore kernel app env,
+%% because the old app env will be used in emqx_config_logger:post_config_update/5
+-define(IGNORE_APPS, [kernel]).
+
 -spec save_to_app_env([tuple()]) -> ok.
-save_to_app_env(AppEnvs) ->
-    lists:foreach(
-        fun({AppName, Envs}) ->
-            [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
-        end,
-        AppEnvs
-    ).
+save_to_app_env(AppEnvs0) ->
+    AppEnvs = lists:filter(fun({App, _}) -> not lists:member(App, ?IGNORE_APPS) end, AppEnvs0),
+    application:set_env(AppEnvs).
 
 -spec save_to_config_map(config(), raw_config()) -> ok.
 save_to_config_map(Conf, RawConf) ->
     ?MODULE:put(Conf),
     ?MODULE:put_raw(RawConf).
 
--spec save_to_override_conf(raw_config(), update_opts()) -> ok | {error, term()}.
-save_to_override_conf(undefined, _) ->
+-spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
+save_to_override_conf(_, undefined, _) ->
     ok;
-save_to_override_conf(RawConf, Opts) ->
-    case override_conf_file(Opts) of
+%% TODO: Remove deprecated override conf file when 5.1
+save_to_override_conf(true, RawConf, Opts) ->
+    case deprecated_conf_file(Opts) of
         undefined ->
             ok;
         FileName ->
@@ -573,6 +613,24 @@ save_to_override_conf(RawConf, Opts) ->
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "failed_to_write_override_file",
+                        filename => FileName,
+                        reason => Reason
+                    }),
+                    {error, Reason}
+            end
+    end;
+save_to_override_conf(false, RawConf, _Opts) ->
+    case cluster_hocon_file() of
+        undefined ->
+            ok;
+        FileName ->
+            ok = filelib:ensure_dir(FileName),
+            case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_save_conf_file",
                         filename => FileName,
                         reason => Reason
                     }),
@@ -594,8 +652,16 @@ load_hocon_file(FileName, LoadType) ->
     case filelib:is_regular(FileName) of
         true ->
             Opts = #{include_dirs => include_dirs(), format => LoadType},
-            {ok, Raw0} = hocon:load(FileName, Opts),
-            Raw0;
+            case hocon:load(FileName, Opts) of
+                {ok, Raw0} ->
+                    Raw0;
+                {error, Reason} ->
+                    throw(#{
+                        msg => failed_to_load_conf,
+                        reason => Reason,
+                        file => FileName
+                    })
+            end;
         false ->
             #{}
     end.
@@ -607,11 +673,9 @@ do_get_raw(Path, Default) ->
     do_get(?RAW_CONF, Path, Default).
 
 do_get(Type, KeyPath) ->
-    Ref = make_ref(),
-    Res = do_get(Type, KeyPath, Ref),
-    case Res =:= Ref of
-        true -> error({config_not_found, KeyPath});
-        false -> Res
+    case do_get(Type, KeyPath, ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC -> error({config_not_found, KeyPath});
+        Res -> Res
     end.
 
 do_get(Type, [], Default) ->
@@ -630,9 +694,9 @@ do_get(Type, [], Default) ->
         false -> AllConf
     end;
 do_get(Type, [RootName], Default) ->
-    persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), Default);
+    persistent_term:get(?PERSIS_KEY(Type, RootName), Default);
 do_get(Type, [RootName | KeyPath], Default) ->
-    RootV = persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), #{}),
+    RootV = persistent_term:get(?PERSIS_KEY(Type, RootName), #{}),
     do_deep_get(Type, KeyPath, RootV, Default).
 
 do_put(Type, Putter, [], DeepValue) ->
@@ -646,16 +710,16 @@ do_put(Type, Putter, [], DeepValue) ->
 do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
-    persistent_term:put(?PERSIS_KEY(Type, bin(RootName)), NewValue).
+    persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
 
 do_deep_get(?CONF, KeyPath, Map, Default) ->
     atom_conf_path(
         KeyPath,
-        fun(AtomKeyPath) -> emqx_map_lib:deep_get(AtomKeyPath, Map, Default) end,
+        fun(AtomKeyPath) -> emqx_utils_maps:deep_get(AtomKeyPath, Map, Default) end,
         {return, Default}
     );
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
-    emqx_map_lib:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
+    emqx_utils_maps:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
 
 do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
     atom_conf_path(
@@ -687,6 +751,22 @@ atom(Atom) when is_atom(Atom) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+warning_deprecated_root_key(RawConf) ->
+    case maps:keys(RawConf) -- get_root_names() of
+        [] ->
+            ok;
+        Keys ->
+            Unknowns = string:join([binary_to_list(K) || K <- Keys], ","),
+            ?tp(unknown_config_keys, #{unknown_config_keys => Unknowns}),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "config_key_not_recognized",
+                    unknown_config_keys => Unknowns
+                }
+            )
+    end.
 
 conf_key(?CONF, RootName) ->
     atom(RootName);

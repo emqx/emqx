@@ -7,13 +7,12 @@ none :=
 space := $(none) $(none)
 ## RPM does not allow '-' in version number and release string, replace with '_'
 RPM_VSN := $(subst -,_,$(PKG_VSN))
-RPM_REL := otp$(subst -,_,$(OTP_VSN))
 
 EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 
 TAR_PKG_DIR ?= _build/$(EMQX_BUILD)/rel/emqx
 TAR_PKG     := $(EMQX_REL)/$(TAR_PKG_DIR)/emqx-$(PKG_VSN).tar.gz
-SOURCE_PKG  := emqx-$(RPM_VSN)-$(RPM_REL).$(shell uname -m)
+SOURCE_PKG  := emqx-$(RPM_VSN).$(shell uname -m)
 TARGET_PKG  := $(EMQX_NAME)-$(shell $(EMQX_REL)/pkg-vsn.sh $(EMQX_NAME) --long)
 
 # Not $(PWD) as it does not work for make -C
@@ -33,7 +32,6 @@ all: | $(BUILT)
 		--define "_topdir $(TOPDIR)" \
 		--define "_version $(RPM_VSN)" \
 		--define "_reldir $(SRCDIR)" \
-		--define "_release $(RPM_REL)" \
 		--define "_post_addition $(POST_ADDITION)" \
 		--define "_preun_addition $(PREUN_ADDITION)" \
 		--define "_sharedstatedir /var/lib" \

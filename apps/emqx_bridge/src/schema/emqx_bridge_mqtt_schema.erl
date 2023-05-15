@@ -51,7 +51,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("config").
+    emqx_bridge_schema:status_fields() ++ fields("config").
 
 desc("config") ->
     ?DESC("config");

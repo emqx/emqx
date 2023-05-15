@@ -144,7 +144,7 @@ handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
     %% ignore
     {noreply, State};
 handle_info({mnesia_table_event, Event}, State) ->
-    ?SLOG(error, #{msg => "unexpected_mnesia_table_event", event => Event}),
+    ?SLOG(debug, #{msg => "unexpected_mnesia_table_event", event => Event}),
     {noreply, State};
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans(
@@ -167,9 +167,15 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok = ekka:unmonitor(membership),
-    emqx_stats:cancel_update(route_stats),
-    mnesia:unsubscribe({table, ?ROUTING_NODE, simple}).
+    try
+        ok = ekka:unmonitor(membership),
+        emqx_stats:cancel_update(route_stats),
+        mnesia:unsubscribe({table, ?ROUTING_NODE, simple})
+    catch
+        exit:{noproc, {gen_server, call, [mria_membership, _]}} ->
+            ?SLOG(warning, #{msg => "mria_membership_down"}),
+            ok
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

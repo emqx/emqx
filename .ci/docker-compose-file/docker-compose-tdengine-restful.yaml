@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  tdengine_server:
+    container_name: tdengine
+    image: tdengine/tdengine:${TDENGINE_TAG}
+    restart: always
+    ports:
+      - "6041:6041"
+    networks:
+      - emqx_bridge

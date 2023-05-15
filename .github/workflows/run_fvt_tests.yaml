@@ -7,16 +7,17 @@ concurrency:
 on:
   push:
     branches:
-      - '**'
+      - master
+      - 'ci/**'
     tags:
       - v*
   pull_request:
 
 jobs:
   prepare:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-alpine3.15.1
+    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-debian11
 
     steps:
       - uses: actions/checkout@v3
@@ -33,7 +34,7 @@ jobs:
           path: source.zip
 
   docker_test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: prepare
 
     strategy:
@@ -47,17 +48,17 @@ jobs:
           - mnesia
           - rlog
         os:
-          - ["alpine3.15.1", "alpine:3.15.1"]
+          - ["debian11", "debian:11-slim"]
         builder:
-          - 5.0-26
+          - 5.0-34
         otp:
-          - 24.3.4.2-1
+          - 24.3.4.2-3
         elixir:
           - 1.13.4
         arch:
           - amd64
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/download-artifact@v3
@@ -107,7 +108,7 @@ jobs:
         docker exec node1.emqx.io node_dump
 
   helm_test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: prepare
 
     strategy:
@@ -122,9 +123,9 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         builder:
-        - 5.0-26
+        - 5.0-34
         otp:
-        - 24.3.4.2-1
+        - 24.3.4.2-3
         elixir:
         - 1.13.4
         arch:
@@ -132,7 +133,7 @@ jobs:
       # - emqx-enterprise # TODO test enterprise
 
     steps:
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: 24.3.4.6
     - uses: actions/download-artifact@v3
@@ -166,8 +167,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \
@@ -184,8 +185,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \
@@ -201,12 +202,25 @@ jobs:
           echo "waiting emqx started";
           sleep 10;
         done
+    - name: Get Token
+      timeout-minutes: 1
+      run: |
+        kubectl port-forward service/${{ matrix.profile }} 18083:18083 > /dev/null &
+
+        while
+          [ "$(curl --silent -X 'GET' 'http://127.0.0.1:18083/api/v5/status' | tail -n1)" != "emqx is running" ]
+        do
+          echo "waiting emqx"
+          sleep 1
+        done
+
+        echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
+
     - name: Check cluster
       timeout-minutes: 10
       run: |
-        kubectl port-forward service/${{ matrix.profile }} 18083:18083 > /dev/null &
         while
-          [ "$(curl --silent --basic -u admin:public -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')" != "3" ];
+          [ "$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')" != "3" ];
         do
           echo "waiting ${{ matrix.profile }} cluster scale"
           sleep 1

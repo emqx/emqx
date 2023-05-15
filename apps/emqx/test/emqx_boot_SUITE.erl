@@ -24,19 +24,23 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_is_enabled(_) ->
-    ok = application:set_env(emqx, boot_modules, all),
-    ?assert(emqx_boot:is_enabled(router)),
-    ?assert(emqx_boot:is_enabled(broker)),
-    ?assert(emqx_boot:is_enabled(listeners)),
-    ok = application:set_env(emqx, boot_modules, [router]),
-    ?assert(emqx_boot:is_enabled(router)),
-    ?assertNot(emqx_boot:is_enabled(broker)),
-    ?assertNot(emqx_boot:is_enabled(listeners)),
-    ok = application:set_env(emqx, boot_modules, [router, broker]),
-    ?assert(emqx_boot:is_enabled(router)),
-    ?assert(emqx_boot:is_enabled(broker)),
-    ?assertNot(emqx_boot:is_enabled(listeners)),
-    ok = application:set_env(emqx, boot_modules, [router, broker, listeners]),
-    ?assert(emqx_boot:is_enabled(router)),
-    ?assert(emqx_boot:is_enabled(broker)),
-    ?assert(emqx_boot:is_enabled(listeners)).
+    try
+        ok = application:set_env(emqx, boot_modules, all),
+        ?assert(emqx_boot:is_enabled(router)),
+        ?assert(emqx_boot:is_enabled(broker)),
+        ?assert(emqx_boot:is_enabled(listeners)),
+        ok = application:set_env(emqx, boot_modules, [router]),
+        ?assert(emqx_boot:is_enabled(router)),
+        ?assertNot(emqx_boot:is_enabled(broker)),
+        ?assertNot(emqx_boot:is_enabled(listeners)),
+        ok = application:set_env(emqx, boot_modules, [router, broker]),
+        ?assert(emqx_boot:is_enabled(router)),
+        ?assert(emqx_boot:is_enabled(broker)),
+        ?assertNot(emqx_boot:is_enabled(listeners)),
+        ok = application:set_env(emqx, boot_modules, [router, broker, listeners]),
+        ?assert(emqx_boot:is_enabled(router)),
+        ?assert(emqx_boot:is_enabled(broker)),
+        ?assert(emqx_boot:is_enabled(listeners))
+    after
+        application:set_env(emqx, boot_modules, all)
+    end.

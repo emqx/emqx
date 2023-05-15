@@ -47,7 +47,7 @@
     namespace/0
 ]).
 
--export([check_ssl_opts/2, validate_method/1]).
+-export([check_ssl_opts/2, validate_method/1, join_paths/2]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -87,7 +87,7 @@ fields(config) ->
             sc(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     desc => ?DESC("connect_timeout")
                 }
             )},
@@ -209,7 +209,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_http_connector",
         connector => InstId,
-        config => Config
+        config => redact(Config)
     }),
     {Transport, TransportOpts} =
         case Scheme of
@@ -219,7 +219,7 @@ on_start(
                 SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, Config)),
                 {tls, SSLOpts}
         end,
-    NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
+    NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
         {port, Port},
@@ -231,16 +231,16 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     State = #{
-        pool_name => PoolName,
+        pool_name => InstId,
+        pool_type => PoolType,
         host => Host,
         port => Port,
         connect_timeout => ConnectTimeout,
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
-    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+    case ehttpc_sup:start_pool(InstId, PoolOpts) of
         {ok, _} -> {ok, State};
         {error, {already_started, _}} -> {ok, State};
         {error, Reason} -> {error, Reason}
@@ -264,9 +264,10 @@ on_query(InstId, {send_message, Msg}, State) ->
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout,
-                max_retries := Retry
+                request_timeout := Timeout
             } = process_request(Request, Msg),
+            %% bridge buffer worker has retry, do not let ehttpc retry
+            Retry = 0,
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -274,33 +275,50 @@ on_query(InstId, {send_message, Msg}, State) ->
             )
     end;
 on_query(InstId, {Method, Request}, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, 5000, _Retry = 2}, State);
 on_query(InstId, {Method, Request, Timeout}, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
+    %% TODO: Get retry from State
+    on_query(InstId, {undefined, Method, Request, Timeout, _Retry = 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
-    #{pool_name := PoolName, base_path := BasePath} = State
+    #{base_path := BasePath} = State
 ) ->
     ?TRACE(
         "QUERY",
         "http_connector_received",
-        #{request => Request, connector => InstId, state => State}
+        #{
+            request => redact(Request),
+            connector => InstId,
+            state => redact(State)
+        }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
+    Worker = resolve_pool_worker(State, KeyOrNum),
     case
         ehttpc:request(
-            case KeyOrNum of
-                undefined -> PoolName;
-                _ -> {PoolName, KeyOrNum}
-            end,
+            Worker,
             Method,
             NRequest,
             Timeout,
             Retry
         )
     of
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+        {error, Reason} when
+            Reason =:= econnrefused;
+            Reason =:= timeout;
+            Reason =:= {shutdown, normal};
+            Reason =:= {shutdown, closed}
+        ->
+            ?SLOG(warning, #{
+                msg => "http_connector_do_request_failed",
+                reason => Reason,
+                connector => InstId
+            }),
+            {error, {recoverable_error, Reason}};
+        {error, {closed, _Message} = Reason} ->
+            %% _Message = "The connection was lost."
             ?SLOG(warning, #{
                 msg => "http_connector_do_request_failed",
                 reason => Reason,
@@ -310,7 +328,7 @@ on_query(
         {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
-                request => NRequest,
+                request => redact(NRequest),
                 reason => Reason,
                 connector => InstId
             }),
@@ -322,15 +340,17 @@ on_query(
         {ok, StatusCode, Headers} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
-                request => NRequest,
+                note => "the body will be redacted due to security reasons",
+                request => redact_request(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
             {error, #{status_code => StatusCode, headers => Headers}};
         {ok, StatusCode, Headers, Body} ->
             ?SLOG(error, #{
-                msg => "http connector do request, received error response",
-                request => NRequest,
+                msg => "http connector do request, received error response.",
+                note => "the body will be redacted due to security reasons",
+                request => redact_request(NRequest),
                 connector => InstId,
                 status_code => StatusCode
             }),
@@ -361,37 +381,44 @@ on_query_async(
     InstId,
     {KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{pool_name := PoolName, base_path := BasePath} = State
+    #{base_path := BasePath} = State
 ) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
         "QUERY_ASYNC",
         "http_connector_received",
-        #{request => Request, connector => InstId, state => State}
+        #{
+            request => redact(Request),
+            connector => InstId,
+            state => redact(State)
+        }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    Worker =
-        case KeyOrNum of
-            undefined -> ehttpc_pool:pick_worker(PoolName);
-            _ -> ehttpc_pool:pick_worker(PoolName, KeyOrNum)
-        end,
     ok = ehttpc:request_async(
         Worker,
         Method,
         NRequest,
         Timeout,
         {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
-    ).
+    ),
+    {ok, Worker}.
+
+resolve_pool_worker(State, undefined) ->
+    resolve_pool_worker(State, self());
+resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
+    case maps:get(pool_type, State, random) of
+        random ->
+            ehttpc_pool:pick_worker(PoolName);
+        hash ->
+            ehttpc_pool:pick_worker(PoolName, Key)
+    end.
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
-        true ->
-            connected;
-        false ->
-            ?SLOG(error, #{
-                msg => "http_connector_get_status_failed",
-                state => State
-            }),
-            disconnected
+        ok ->
+            {connected, State};
+        {error, Reason} ->
+            {disconnected, State, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->
@@ -400,24 +427,32 @@ do_get_status(PoolName, Timeout) ->
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
-                    true;
-                {error, Reason} ->
+                    ok;
+                {error, Reason} = Error ->
                     ?SLOG(error, #{
-                        msg => "ehttpc_health_check_failed",
-                        reason => Reason,
+                        msg => "http_connector_get_status_failed",
+                        reason => redact(Reason),
                         worker => Worker
                     }),
-                    false
+                    Error
             end
         end,
-    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
-        [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
-        [] ->
-            false
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
+        % we crash in case of non-empty lists since we don't know what to do in that case
+        [_ | _] = Results ->
+            case [E || {error, _} = E <- Results] of
+                [] ->
+                    ok;
+                Errors ->
+                    hd(Errors)
+            end
     catch
         exit:timeout ->
-            false
+            ?SLOG(error, #{
+                msg => "http_connector_pmap_failed",
+                reason => timeout
+            }),
+            {error, timeout}
     end.
 
 %%--------------------------------------------------------------------
@@ -431,15 +466,14 @@ preprocess_request(
     #{
         method := Method,
         path := Path,
-        body := Body,
         headers := Headers
     } = Req
 ) ->
     #{
-        method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method)),
+        method => emqx_plugin_libs_rule:preproc_tmpl(to_bin(Method)),
         path => emqx_plugin_libs_rule:preproc_tmpl(Path),
-        body => emqx_plugin_libs_rule:preproc_tmpl(Body),
-        headers => preproc_headers(Headers),
+        body => maybe_preproc_tmpl(body, Req),
+        headers => wrap_auth_header(preproc_headers(Headers)),
         request_timeout => maps:get(request_timeout, Req, 30000),
         max_retries => maps:get(max_retries, Req, 2)
     }.
@@ -449,8 +483,8 @@ preproc_headers(Headers) when is_map(Headers) ->
         fun(K, V, Acc) ->
             [
                 {
-                    emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-                    emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
+                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
                 }
                 | Acc
             ]
@@ -462,12 +496,48 @@ preproc_headers(Headers) when is_list(Headers) ->
     lists:map(
         fun({K, V}) ->
             {
-                emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-                emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+                emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
+                emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
             }
         end,
         Headers
     ).
+
+wrap_auth_header(Headers) ->
+    lists:map(fun maybe_wrap_auth_header/1, Headers).
+
+maybe_wrap_auth_header({[{str, Key}] = StrKey, Val}) ->
+    {_, MaybeWrapped} = maybe_wrap_auth_header({Key, Val}),
+    {StrKey, MaybeWrapped};
+maybe_wrap_auth_header({Key, Val} = Header) when
+    is_binary(Key), (size(Key) =:= 19 orelse size(Key) =:= 13)
+->
+    %% We check the size of potential keys in the guard above and consider only
+    %% those that match the number of characters of either "Authorization" or
+    %% "Proxy-Authorization".
+    case try_bin_to_lower(Key) of
+        <<"authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        <<"proxy-authorization">> ->
+            {Key, emqx_secret:wrap(Val)};
+        _Other ->
+            Header
+    end;
+maybe_wrap_auth_header(Header) ->
+    Header.
+
+try_bin_to_lower(Bin) ->
+    try iolist_to_binary(string:lowercase(Bin)) of
+        LowercaseBin -> LowercaseBin
+    catch
+        _:_ -> Bin
+    end.
+
+maybe_preproc_tmpl(Key, Conf) ->
+    case maps:get(Key, Conf, undefined) of
+        undefined -> undefined;
+        Val -> emqx_plugin_libs_rule:preproc_tmpl(Val)
+    end.
 
 process_request(
     #{
@@ -487,8 +557,8 @@ process_request(
         request_timeout => ReqTimeout
     }.
 
-process_request_body([], Msg) ->
-    emqx_json:encode(Msg);
+process_request_body(undefined, Msg) ->
+    emqx_utils_json:encode(Msg);
 process_request_body(BodyTks, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 
@@ -497,7 +567,7 @@ proc_headers(HeaderTks, Msg) ->
         fun({K, V}) ->
             {
                 emqx_plugin_libs_rule:proc_tmpl(K, Msg),
-                emqx_plugin_libs_rule:proc_tmpl(V, Msg)
+                emqx_plugin_libs_rule:proc_tmpl(emqx_secret:unwrap(V), Msg)
             }
         end,
         HeaderTks
@@ -525,22 +595,138 @@ formalize_request(Method, BasePath, {Path, Headers, _Body}) when
 ->
     formalize_request(Method, BasePath, {Path, Headers});
 formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
-    {filename:join(BasePath, Path), Headers, Body};
+    {join_paths(BasePath, Path), Headers, Body};
 formalize_request(_Method, BasePath, {Path, Headers}) ->
-    {filename:join(BasePath, Path), Headers}.
+    {join_paths(BasePath, Path), Headers}.
 
-bin(Bin) when is_binary(Bin) ->
+%% By default, we cannot treat HTTP paths as "file" or "resource" paths,
+%% because an HTTP server may handle paths like
+%% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
+%%
+%% So we try to avoid unneccessary path normalization.
+%%
+%% See also: `join_paths_test_/0`
+join_paths(Path1, Path2) ->
+    do_join_paths(lists:reverse(to_list(Path1)), to_list(Path2)).
+
+%% "abc/" + "/cde"
+do_join_paths([$/ | Path1], [$/ | Path2]) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc/" + "cde"
+do_join_paths([$/ | Path1], Path2) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc" + "/cde"
+do_join_paths(Path1, [$/ | Path2]) ->
+    lists:reverse(Path1) ++ [$/ | Path2];
+%% "abc" + "cde"
+do_join_paths(Path1, Path2) ->
+    lists:reverse(Path1) ++ [$/ | Path2].
+
+to_list(List) when is_list(List) -> List;
+to_list(Bin) when is_binary(Bin) -> binary_to_list(Bin).
+
+to_bin(Bin) when is_binary(Bin) ->
     Bin;
-bin(Str) when is_list(Str) ->
+to_bin(Str) when is_list(Str) ->
     list_to_binary(Str);
-bin(Atom) when is_atom(Atom) ->
+to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
 reply_delegator(ReplyFunAndArgs, Result) ->
     case Result of
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+        %% The normal reason happens when the HTTP connection times out before
+        %% the request has been fully processed
+        {error, Reason} when
+            Reason =:= econnrefused;
+            Reason =:= timeout;
+            Reason =:= normal;
+            Reason =:= {shutdown, normal};
+            Reason =:= {shutdown, closed}
+        ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        {error, {closed, _Message} = Reason} ->
+            %% _Message = "The connection was lost."
             Result1 = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
         _ ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
     end.
+
+%% The HOCON schema system may generate sensitive keys with this format
+is_sensitive_key([{str, StringKey}]) ->
+    is_sensitive_key(StringKey);
+is_sensitive_key(Atom) when is_atom(Atom) ->
+    is_sensitive_key(erlang:atom_to_binary(Atom));
+is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
+    %% We want to convert this to lowercase since the http header fields
+    %% are case insensitive, which means that a user of the Webhook bridge
+    %% can write this field name in many different ways.
+    case try_bin_to_lower(Bin) of
+        <<"authorization">> -> true;
+        <<"proxy-authorization">> -> true;
+        _ -> false
+    end;
+is_sensitive_key(_) ->
+    false.
+
+%% Function that will do a deep traversal of Data and remove sensitive
+%% information (i.e., passwords)
+redact(Data) ->
+    emqx_utils:redact(Data, fun is_sensitive_key/1).
+
+%% because the body may contain some sensitive data
+%% and at the same time the redact function will not scan the binary data
+%% and we also can't know the body format and where the sensitive data will be
+%% so the easy way to keep data security is redacted the whole body
+redact_request({Path, Headers}) ->
+    {Path, redact(Headers)};
+redact_request({Path, Headers, _Body}) ->
+    {Path, redact(Headers), <<"******">>}.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+redact_test_() ->
+    TestData1 = [
+        {<<"content-type">>, <<"application/json">>},
+        {<<"Authorization">>, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}
+    ],
+
+    TestData2 = #{
+        headers =>
+            [
+                {[{str, <<"content-type">>}], [{str, <<"application/json">>}]},
+                {[{str, <<"Authorization">>}], [{str, <<"Basic YWxhZGRpbjpvcGVuc2VzYW1l">>}]}
+            ]
+    },
+    [
+        ?_assert(is_sensitive_key(<<"Authorization">>)),
+        ?_assert(is_sensitive_key(<<"AuthoriZation">>)),
+        ?_assert(is_sensitive_key('AuthoriZation')),
+        ?_assert(is_sensitive_key(<<"PrOxy-authoRizaTion">>)),
+        ?_assert(is_sensitive_key('PrOxy-authoRizaTion')),
+        ?_assertNot(is_sensitive_key(<<"Something">>)),
+        ?_assertNot(is_sensitive_key(89)),
+        ?_assertNotEqual(TestData1, redact(TestData1)),
+        ?_assertNotEqual(TestData2, redact(TestData2))
+    ].
+
+join_paths_test_() ->
+    [
+        ?_assertEqual("abc/cde", join_paths("abc", "cde")),
+        ?_assertEqual("abc/cde", join_paths("abc", "/cde")),
+        ?_assertEqual("abc/cde", join_paths("abc/", "cde")),
+        ?_assertEqual("abc/cde", join_paths("abc/", "/cde")),
+
+        ?_assertEqual("/", join_paths("", "")),
+        ?_assertEqual("/cde", join_paths("", "cde")),
+        ?_assertEqual("/cde", join_paths("", "/cde")),
+        ?_assertEqual("/cde", join_paths("/", "cde")),
+        ?_assertEqual("/cde", join_paths("/", "/cde")),
+
+        ?_assertEqual("//cde/", join_paths("/", "//cde/")),
+        ?_assertEqual("abc///cde/", join_paths("abc//", "//cde/"))
+    ].
+
+-endif.

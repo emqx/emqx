@@ -31,9 +31,10 @@
 
 -export([
     load/0,
+    unload/0,
     lookup/1,
     lookup/2,
-    lookup/3,
+    get_metrics/2,
     create/3,
     disable_enable/3,
     remove/2,
@@ -54,9 +55,25 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
+    %% TODO: rename this to `kafka_producer' after alias support is
+    %% added to hocon; keeping this as just `kafka' for backwards
+    %% compatibility.
+    T == kafka;
     T == redis_single;
     T == redis_sentinel;
-    T == redis_cluster
+    T == redis_cluster;
+    T == clickhouse;
+    T == pgsql;
+    T == timescale;
+    T == matrix;
+    T == tdengine;
+    T == dynamo;
+    T == rocketmq;
+    T == cassandra;
+    T == sqlserver;
+    T == pulsar_producer;
+    T == oracle;
+    T == iotdb
 ).
 
 load() ->
@@ -65,9 +82,24 @@ load() ->
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    %% fetch opts for `emqx_resource_worker`
+                    %% fetch opts for `emqx_resource_buffer_worker`
                     ResOpts = emqx_resource:fetch_creation_opts(Conf),
                     safe_load_bridge(Type, Name, Conf, ResOpts)
+                end,
+                maps:to_list(NamedConf)
+            )
+        end,
+        maps:to_list(Bridges)
+    ).
+
+unload() ->
+    unload_hook(),
+    Bridges = emqx:get_config([bridges], #{}),
+    lists:foreach(
+        fun({Type, NamedConf}) ->
+            lists:foreach(
+                fun({Name, _Conf}) ->
+                    _ = emqx_bridge_resource:stop(Type, Name)
                 end,
                 maps:to_list(NamedConf)
             )
@@ -115,11 +147,11 @@ load_hook(Bridges) ->
         maps:to_list(Bridges)
     ).
 
-do_load_hook(Type, #{local_topic := _}) when ?EGRESS_DIR_BRIDGES(Type) ->
+do_load_hook(Type, #{local_topic := LocalTopic}) when
+    ?EGRESS_DIR_BRIDGES(Type) andalso is_binary(LocalTopic)
+->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
 do_load_hook(mqtt, #{egress := #{local := #{topic := _}}}) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-do_load_hook(kafka, #{producer := #{mqtt := #{topic := _}}}) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
 do_load_hook(_Type, _Conf) ->
     ok.
@@ -170,10 +202,21 @@ send_message(BridgeId, Message) ->
     case emqx:get_config([bridges, BridgeType, BridgeName], not_found) of
         not_found ->
             {error, {bridge_not_found, BridgeId}};
-        #{enable := true} ->
-            emqx_resource:query(ResId, {send_message, Message});
+        #{enable := true} = Config ->
+            QueryOpts = query_opts(Config),
+            emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
             {error, {bridge_stopped, BridgeId}}
+    end.
+
+query_opts(Config) ->
+    case emqx_utils_maps:deep_get([resource_opts, request_timeout], Config, false) of
+        Timeout when is_integer(Timeout) ->
+            %% request_timeout is configured
+            #{timeout => Timeout};
+        _ ->
+            %% emqx_resource has a default value (15s)
+            #{}
     end.
 
 config_key_path() ->
@@ -190,24 +233,25 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     ]),
     ok = unload_hook(),
     ok = load_hook(NewConf),
+    ?tp(bridge_post_config_update_done, #{}),
     Result.
 
 list() ->
-    lists:foldl(
-        fun({Type, NameAndConf}, Bridges) ->
-            lists:foldl(
-                fun({Name, RawConf}, Acc) ->
+    maps:fold(
+        fun(Type, NameAndConf, Bridges) ->
+            maps:fold(
+                fun(Name, RawConf, Acc) ->
                     case lookup(Type, Name, RawConf) of
                         {error, not_found} -> Acc;
                         {ok, Res} -> [Res | Acc]
                     end
                 end,
                 Bridges,
-                maps:to_list(NameAndConf)
+                NameAndConf
             )
         end,
         [],
-        maps:to_list(emqx:get_raw_config([bridges], #{}))
+        emqx:get_raw_config([bridges], #{})
     ).
 
 lookup(Id) ->
@@ -231,8 +275,13 @@ lookup(Type, Name, RawConf) ->
             }}
     end.
 
+get_metrics(Type, Name) ->
+    emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name)).
+
 maybe_upgrade(mqtt, Config) ->
-    emqx_bridge_mqtt_config:maybe_upgrade(Config);
+    emqx_bridge_compatible_config:maybe_upgrade(Config);
+maybe_upgrade(webhook, Config) ->
+    emqx_bridge_compatible_config:webhook_maybe_upgrade(Config);
 maybe_upgrade(_Other, Config) ->
     Config.
 
@@ -250,7 +299,7 @@ create(BridgeType, BridgeName, RawConf) ->
         brige_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => RawConf
+        bridge_raw_config => emqx_utils:redact(RawConf)
     }),
     emqx_conf:update(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
@@ -321,7 +370,7 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
     perform_bridge_changes(Tasks, Result).
 
 diff_confs(NewConfs, OldConfs) ->
-    emqx_map_lib:diff_maps(
+    emqx_utils_maps:diff_maps(
         flatten_confs(NewConfs),
         flatten_confs(OldConfs)
     ).
@@ -363,14 +412,17 @@ get_matched_egress_bridges(Topic) ->
 
 get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
-get_matched_bridge_id(BType, #{local_topic := Filter}, Topic, BName, Acc) when
-    ?EGRESS_DIR_BRIDGES(BType)
-->
-    do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc);
+get_matched_bridge_id(BType, Conf, Topic, BName, Acc) when ?EGRESS_DIR_BRIDGES(BType) ->
+    case maps:get(local_topic, Conf, undefined) of
+        undefined ->
+            Acc;
+        Filter ->
+            do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc)
+    end;
 get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
     do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
-get_matched_bridge_id(kafka, #{producer := #{mqtt := #{topic := Filter}}}, Topic, BName, Acc) ->
-    do_get_matched_bridge_id(Topic, Filter, kafka, BName, Acc).
+get_matched_bridge_id(_BType, _Conf, _Topic, _BName, Acc) ->
+    Acc.
 
 do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of

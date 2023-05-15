@@ -64,7 +64,7 @@ fields(single) ->
         {redis_type, #{
             type => single,
             default => single,
-            required => true,
+            required => false,
             desc => ?DESC("single")
         }}
     ] ++
@@ -76,7 +76,7 @@ fields(cluster) ->
         {redis_type, #{
             type => cluster,
             default => cluster,
-            required => true,
+            required => false,
             desc => ?DESC("cluster")
         }}
     ] ++
@@ -88,7 +88,7 @@ fields(sentinel) ->
         {redis_type, #{
             type => sentinel,
             default => sentinel,
-            required => true,
+            required => false,
             desc => ?DESC("sentinel")
         }},
         {sentinel, #{
@@ -117,14 +117,13 @@ on_start(
     #{
         redis_type := Type,
         pool_size := PoolSize,
-        auto_reconnect := AutoReconn,
         ssl := SSL
     } = Config
 ) ->
     ?SLOG(info, #{
         msg => "starting_redis_connector",
         connector => InstId,
-        config => Config
+        config => emqx_utils:redact(Config)
     }),
     ConfKey =
         case Type of
@@ -132,7 +131,13 @@ on_start(
             _ -> servers
         end,
     Servers0 = maps:get(ConfKey, Config),
-    Servers = [{servers, emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)}],
+    Servers1 = lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)
+    ),
+    Servers = [{servers, Servers1}],
     Database =
         case Type of
             cluster -> [];
@@ -142,7 +147,7 @@ on_start(
         [
             {pool_size, PoolSize},
             {password, maps:get(password, Config, "")},
-            {auto_reconnect, reconn_interval(AutoReconn)}
+            {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
         ] ++ Database ++ Servers,
     Options =
         case maps:get(enable, SSL) of
@@ -154,11 +159,10 @@ on_start(
             false ->
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    State = #{poolname => PoolName, type => Type, auto_reconnect => AutoReconn},
+    State = #{pool_name => InstId, type => Type},
     case Type of
         cluster ->
-            case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
+            case eredis_cluster:start_pool(InstId, Opts ++ [{options, Options}]) of
                 {ok, _} ->
                     {ok, State};
                 {ok, _, _} ->
@@ -167,22 +171,20 @@ on_start(
                     {error, Reason}
             end;
         _ ->
-            case
-                emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
-            of
+            case emqx_resource_pool:start(InstId, ?MODULE, Opts ++ [{options, Options}]) of
                 ok -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end
     end.
 
-on_stop(InstId, #{poolname := PoolName, type := Type}) ->
+on_stop(InstId, #{pool_name := PoolName, type := Type}) ->
     ?SLOG(info, #{
         msg => "stopping_redis_connector",
         connector => InstId
     }),
     case Type of
         cluster -> eredis_cluster:stop_pool(PoolName);
-        _ -> emqx_plugin_libs_pool:stop_pool(PoolName)
+        _ -> emqx_resource_pool:stop(PoolName)
     end.
 
 on_query(InstId, {cmd, _} = Query, State) ->
@@ -190,7 +192,7 @@ on_query(InstId, {cmd, _} = Query, State) ->
 on_query(InstId, {cmds, _} = Query, State) ->
     do_query(InstId, Query, State).
 
-do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
+do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
     ?TRACE(
         "QUERY",
         "redis_connector_received",
@@ -208,39 +210,37 @@ do_query(InstId, Query, #{poolname := PoolName, type := Type} = State) ->
                 connector => InstId,
                 query => Query,
                 reason => Reason
-            });
+            }),
+            case is_unrecoverable_error(Reason) of
+                true ->
+                    {error, {unrecoverable_error, Reason}};
+                false ->
+                    Result
+            end;
         _ ->
-            ok
-    end,
-    Result.
+            Result
+    end.
 
-extract_eredis_cluster_workers(PoolName) ->
-    lists:flatten([
-        gen_server:call(PoolPid, get_all_workers)
-     || PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)
-    ]).
+is_unrecoverable_error(Results) when is_list(Results) ->
+    lists:any(fun is_unrecoverable_error/1, Results);
+is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
+    true;
+is_unrecoverable_error({error, invalid_cluster_command}) ->
+    true;
+is_unrecoverable_error(_) ->
+    false.
 
-eredis_cluster_workers_exist_and_are_connected(Workers) ->
-    length(Workers) > 0 andalso
-        lists:all(
-            fun({_, Pid, _, _}) ->
-                eredis_cluster_pool_worker:is_connected(Pid) =:= true
-            end,
-            Workers
-        ).
-
-on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect := AutoReconn}) ->
+on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
-            Workers = extract_eredis_cluster_workers(PoolName),
-            Health = eredis_cluster_workers_exist_and_are_connected(Workers),
-            status_result(Health, AutoReconn);
+            Health = eredis_cluster:ping_all(PoolName),
+            status_result(Health);
         false ->
             disconnected
     end;
-on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn}) ->
-    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
-    status_result(Health, AutoReconn).
+on_get_status(_InstId, #{pool_name := PoolName}) ->
+    Health = emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1),
+    status_result(Health).
 
 do_get_status(Conn) ->
     case eredis:q(Conn, ["PING"]) of
@@ -248,19 +248,17 @@ do_get_status(Conn) ->
         _ -> false
     end.
 
-status_result(_Status = true, _AutoReconn) -> connected;
-status_result(_Status = false, _AutoReconn = true) -> connecting;
-status_result(_Status = false, _AutoReconn = false) -> disconnected.
-
-reconn_interval(true) -> 15;
-reconn_interval(false) -> false.
+status_result(_Status = true) -> connected;
+status_result(_Status = false) -> connecting.
 
 do_cmd(PoolName, cluster, {cmd, Command}) ->
     eredis_cluster:q(PoolName, Command);
 do_cmd(Conn, _Type, {cmd, Command}) ->
     eredis:q(Conn, Command);
 do_cmd(PoolName, cluster, {cmds, Commands}) ->
-    wrap_qp_result(eredis_cluster:qp(PoolName, Commands));
+    % TODO
+    % Cluster mode is currently incompatible with batching.
+    wrap_qp_result([eredis_cluster:q(PoolName, Command) || Command <- Commands]);
 do_cmd(Conn, _Type, {cmds, Commands}) ->
     wrap_qp_result(eredis:qp(Conn, Commands)).
 
@@ -290,7 +288,6 @@ redis_fields() ->
         {database, #{
             type => integer(),
             default => 0,
-            required => true,
             desc => ?DESC("database")
         }},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}

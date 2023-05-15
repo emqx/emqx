@@ -1,0 +1,26 @@
+---
+
+name: Keep master green
+
+on:
+  schedule:
+    # run hourly
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  rerun-failed-jobs:
+    runs-on: ubuntu-22.04
+    if: github.repository_owner == 'emqx'
+    permissions:
+      checks: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: run script
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/rerun-failed-checks.py

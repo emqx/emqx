@@ -18,6 +18,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(hocon_schema).
 
@@ -72,12 +73,7 @@ fields("server_configs") ->
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
-        {reconnect_interval,
-            mk_duration(
-                "Reconnect interval. Delay for the MQTT bridge to retry establishing the connection "
-                "in case of transportation failure.",
-                #{default => "15s"}
-            )},
+        {reconnect_interval, mk(string(), #{deprecated => {since, "v5.0.16"}})},
         {proto_ver,
             mk(
                 hoconsc:enum([v3, v4, v5]),
@@ -107,7 +103,8 @@ fields("server_configs") ->
                 #{
                     format => <<"password">>,
                     sensitive => true,
-                    desc => ?DESC("password")
+                    desc => ?DESC("password"),
+                    converter => fun emqx_schema:password_converter/2
                 }
             )},
         {clean_start,
@@ -118,12 +115,12 @@ fields("server_configs") ->
                     desc => ?DESC("clean_start")
                 }
             )},
-        {keepalive, mk_duration("MQTT Keepalive.", #{default => "300s"})},
+        {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"300s">>})},
         {retry_interval,
             mk_duration(
                 "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
                 "messages in case of ACK not received.",
-                #{default => "15s"}
+                #{default => <<"15s">>}
             )},
         {max_inflight,
             mk(
@@ -145,8 +142,7 @@ fields("ingress") ->
             mk(
                 ref(?MODULE, "ingress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local"),
-                    is_required => false
+                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")
                 }
             )}
     ];
@@ -163,7 +159,7 @@ fields("ingress_remote") ->
             )},
         {qos,
             mk(
-                qos(),
+                emqx_schema:qos(),
                 #{
                     default => 1,
                     desc => ?DESC("ingress_remote_qos")
@@ -297,4 +293,5 @@ qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
 
 parse_server(Str) ->
-    emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS).
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),
+    {Host, Port}.

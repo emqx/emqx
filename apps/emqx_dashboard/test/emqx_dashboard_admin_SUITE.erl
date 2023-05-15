@@ -19,39 +19,25 @@
 -compile(export_all).
 
 -include("emqx_dashboard.hrl").
--include_lib("emqx/include/http_api.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:load(emqx_dashboard),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
-
-end_per_suite(Config) ->
-    end_suite(),
-    Config.
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 end_per_testcase(_, _Config) ->
     All = emqx_dashboard_admin:all_users(),
     [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All].
 
-end_suite() ->
-    application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
-
 t_check_user(_) ->
     Username = <<"admin1">>,
-    Password = <<"public">>,
+    Password = <<"public_1">>,
     BadUsername = <<"admin_bad">>,
     BadPassword = <<"public_bad">>,
     EmptyUsername = <<>>,
@@ -108,7 +94,7 @@ t_lookup_user(_) ->
 
 t_all_users(_) ->
     Username = <<"admin_all">>,
-    Password = <<"public">>,
+    Password = <<"public_2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, <<"desc">>),
     All = emqx_dashboard_admin:all_users(),
     ?assert(erlang:length(All) >= 1),
@@ -153,6 +139,7 @@ t_change_password(_) ->
     Description = <<"change_description">>,
 
     NewPassword = <<"new_password">>,
+    NewBadPassword = <<"public">>,
 
     BadChangeUser = <<"change_user_bad">>,
 
@@ -163,14 +150,17 @@ t_change_password(_) ->
     {error, <<"password_error">>} =
         emqx_dashboard_admin:change_password(User, OldPassword, NewPassword),
 
+    {error, <<"The range of password length is 8~64">>} =
+        emqx_dashboard_admin:change_password(User, NewPassword, NewBadPassword),
+
     {error, <<"username_not_found">>} =
         emqx_dashboard_admin:change_password(BadChangeUser, OldPassword, NewPassword),
     ok.
 
 t_clean_token(_) ->
     Username = <<"admin_token">>,
-    Password = <<"public">>,
-    NewPassword = <<"public1">>,
+    Password = <<"public_www1">>,
+    NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, <<"desc">>),
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     ok = emqx_dashboard_admin:verify_token(Token),

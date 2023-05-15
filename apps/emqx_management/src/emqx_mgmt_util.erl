@@ -302,7 +302,7 @@ page_params() ->
             name => limit,
             in => query,
             description => <<"Page size">>,
-            schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
+            schema => #{type => integer, default => emqx_mgmt:default_row_limit()}
         }
     ].
 

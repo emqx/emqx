@@ -229,9 +229,9 @@ server_conf_schema() ->
             name => "default",
             enable => true,
             url => <<"http://127.0.0.1:8081">>,
-            request_timeout => "5s",
+            request_timeout => <<"5s">>,
             failed_action => deny,
-            auto_reconnect => "60s",
+            auto_reconnect => <<"60s">>,
             pool_size => 8,
             ssl => SSL
         }
@@ -471,14 +471,14 @@ fill_server_hooks_info([], _Name, _Default, MetricsL) ->
 -spec call_cluster(fun(([node()]) -> emqx_rpc:erpc_multicall(A))) ->
     [{node(), A | {error, _Err}}].
 call_cluster(Fun) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     Ret = Fun(Nodes),
     lists:zip(Nodes, lists:map(fun emqx_rpc:unwrap_erpc/1, Ret)).
 
 %%--------------------------------------------------------------------
 %% Internal Funcs
 %%--------------------------------------------------------------------
-err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
+err_msg(Msg) -> emqx_utils:readable_error_msg(Msg).
 
 get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),

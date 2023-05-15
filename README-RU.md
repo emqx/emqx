@@ -1,7 +1,7 @@
 # Брокер EMQX
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
-[![Build Status](https://img.shields.io/travis/emqx/emqx?label=Build)](https://travis-ci.org/emqx/emqx)
+[![Build Status](https://github.com/emqx/emqx/actions/workflows/run_test_cases.yaml/badge.svg)](https://github.com/emqx/emqx/actions/workflows/run_test_cases.yaml)
 [![Coverage Status](https://img.shields.io/coveralls/github/emqx/emqx/master?label=Coverage)](https://coveralls.io/github/emqx/emqx?branch=master)
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx?label=Docker%20Pulls)](https://hub.docker.com/r/emqx/emqx)
 [![Slack](https://img.shields.io/badge/Slack-EMQ-39AE85?logo=slack)](https://slack-invite.emqx.io/)
@@ -9,7 +9,6 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[English](./README.md) | [简体中文](./README-CN.md) | русский
 
 *EMQX* — это самый масштабируемый и популярный высокопроизводительный MQTT брокер с полностью открытым кодом для интернета вещей, межмашинного взаимодействия и мобильных приложений. EMQX может поддерживать более чем 100 миллионов одновременных соединенией на одном кластере с задержкой в 1 миллисекунду, а также принимать и обрабабывать миллионы MQTT сообщений в секунду.
 
@@ -72,7 +71,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
   Мы выбрали популярные SDK клиентов MQTT на различных языках программирования и предоставили примеры кода, которые помогут вам быстро понять, как использовать клиенты MQTT.
 
-- [MQTT X](https://mqttx.app/)
+- [MQTTX](https://mqttx.app/)
 
   Элегантный кроссплатформенный клиент MQTT 5.0, в виде десктопного приложения, приложения для командной строки и веб-приложения, чтобы помочь вам быстрее разрабатывать и отлаживать службы и приложения MQTT.
 

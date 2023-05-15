@@ -29,24 +29,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:load(emqx_dashboard),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
-
-end_per_suite(Config) ->
-    end_suite(),
-    Config.
-
-end_suite() ->
-    application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_all_code(_) ->
     HrlDef = ?ERROR_CODES,
@@ -70,7 +57,7 @@ t_look_up_code(_) ->
 
 t_description_code(_) ->
     {error, not_found} = emqx_dashboard_error_code:description('_____NOT_EXIST_NAME'),
-    {ok, <<"Request parameters are not legal">>} =
+    {ok, <<"Request parameters are invalid">>} =
         emqx_dashboard_error_code:description('BAD_REQUEST'),
     ok.
 
@@ -92,7 +79,7 @@ t_api_code(_) ->
     Url = ?SERVER ++ "/error_codes/BAD_REQUEST",
     {ok, #{
         <<"code">> := <<"BAD_REQUEST">>,
-        <<"description">> := <<"Request parameters are not legal">>
+        <<"description">> := <<"Request parameters are invalid">>
     }} = request(Url),
     ok.
 
@@ -113,7 +100,7 @@ request(Url) ->
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
             Code >= 200 andalso Code =< 299
         ->
-            {ok, emqx_json:decode(Return, [return_maps])};
+            {ok, emqx_utils_json:decode(Return, [return_maps])};
         {ok, {Reason, _, _}} ->
             {error, Reason}
     end.

@@ -1,0 +1,21 @@
+emqx_bridge_mqtt_schema {
+
+config.desc:
+"""The config for MQTT Bridges."""
+
+config.label:
+"""Config"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The bridge type."""
+
+desc_type.label:
+"""Bridge Type"""
+
+}

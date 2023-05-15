@@ -1,0 +1,26 @@
+emqx_exproto_schema {
+
+exproto.desc:
+"""ExProto 网关"""
+
+exproto_grpc_handler_address.desc:
+"""对端 gRPC 服务器地址。"""
+
+exproto_grpc_handler_ssl.desc:
+"""gRPC 客户端的 SSL 配置。"""
+
+exproto_grpc_server_bind.desc:
+"""服务监听地址和端口。"""
+
+exproto_grpc_server_ssl.desc:
+"""服务 SSL 配置。"""
+
+exproto_handler.desc:
+"""配置 ExProto 网关需要请求的 <code>ConnectionHandler</code> 服务地址。
+该服务用于给 ExProto 提供客户端的 Socket 事件处理、字节解码、订阅消息接收等功能。"""
+
+exproto_server.desc:
+"""配置 ExProto 网关需要启动的 <code>ConnectionAdapter</code> 服务。
+该服务用于提供客户端的认证、发布、订阅和数据下行等功能。"""
+
+}

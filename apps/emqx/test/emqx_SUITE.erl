@@ -26,6 +26,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
 
@@ -146,6 +147,14 @@ t_run_hook(_) ->
     ),
     ?assertEqual(3, emqx:run_fold_hook(foldl_filter2_hook, [arg], 1)),
     ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)).
+
+t_cluster_nodes(_) ->
+    Expected = [node()],
+    ?assertEqual(Expected, emqx:running_nodes()),
+    ?assertEqual(Expected, emqx:cluster_nodes(running)),
+    ?assertEqual(Expected, emqx:cluster_nodes(all)),
+    ?assertEqual(Expected, emqx:cluster_nodes(cores)),
+    ?assertEqual([], emqx:cluster_nodes(stopped)).
 
 %%--------------------------------------------------------------------
 %% Hook fun

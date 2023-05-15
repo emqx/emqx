@@ -165,7 +165,7 @@ strategy(Group) ->
 
 -spec ack_enabled() -> boolean().
 ack_enabled() ->
-    emqx:get_config([broker, shared_dispatch_ack_enabled]).
+    emqx:get_config([broker, shared_dispatch_ack_enabled], false).
 
 do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
@@ -181,7 +181,7 @@ do_dispatch(SubPid, _Group, Topic, Msg, retry) ->
 do_dispatch(SubPid, Group, Topic, Msg, fresh) ->
     case ack_enabled() of
         true ->
-            %% FIXME: replace with `emqx_shared_sub_proto:dispatch_with_ack' in 5.2
+            %% TODO: delete this clase after 5.1.0
             do_dispatch_with_ack(SubPid, Group, Topic, Msg);
         false ->
             send(SubPid, Topic, {deliver, Topic, Msg})
@@ -399,9 +399,11 @@ init([]) ->
     ok = mria:wait_for_tables([?TAB]),
     {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
     {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun ?MODULE:init_monitors/0),
-    ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
-    ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
-    ok = emqx_tables:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [public, set, {write_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SHARED_SUBS, [protected, bag]),
+    ok = emqx_utils_ets:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
+        public, set, {write_concurrency, true}
+    ]),
     {ok, update_stats(#state{pmon = PMon})}.
 
 init_monitors() ->

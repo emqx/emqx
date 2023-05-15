@@ -25,6 +25,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -32,6 +33,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -42,29 +44,33 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-mongodb".
+namespace() -> "authn".
 
+tags() ->
+    [<<"Authentication">>].
+
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(standalone) ->
+fields(mongo_single) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
-fields('replica-set') ->
+fields(mongo_rs) ->
     common_fields() ++ emqx_connector_mongo:fields(rs);
-fields('sharded-cluster') ->
+fields(mongo_sharded) ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
-desc(standalone) ->
-    ?DESC(standalone);
-desc('replica-set') ->
+desc(mongo_single) ->
+    ?DESC(single);
+desc(mongo_rs) ->
     ?DESC('replica-set');
-desc('sharded-cluster') ->
+desc(mongo_sharded) ->
     ?DESC('sharded-cluster');
 desc(_) ->
     undefined.
@@ -121,9 +127,9 @@ is_superuser_field(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, standalone),
-        hoconsc:ref(?MODULE, 'replica-set'),
-        hoconsc:ref(?MODULE, 'sharded-cluster')
+        hoconsc:ref(?MODULE, mongo_single),
+        hoconsc:ref(?MODULE, mongo_rs),
+        hoconsc:ref(?MODULE, mongo_sharded)
     ].
 
 create(_AuthenticatorID, Config) ->
@@ -163,7 +169,7 @@ authenticate(
     } = State
 ) ->
     Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
-    case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
+    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
         {ok, undefined} ->
             ignore;
         {error, Reason} ->
@@ -242,3 +248,20 @@ is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser});
 is_superuser(_, _) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => false}).
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, Value}) ->
+    refs(Value).
+
+refs(#{<<"mongo_type">> := <<"single">>}) ->
+    [hoconsc:ref(?MODULE, mongo_single)];
+refs(#{<<"mongo_type">> := <<"rs">>}) ->
+    [hoconsc:ref(?MODULE, mongo_rs)];
+refs(#{<<"mongo_type">> := <<"sharded">>}) ->
+    [hoconsc:ref(?MODULE, mongo_sharded)];
+refs(_) ->
+    throw(#{
+        field_name => mongo_type,
+        expected => "single | rs | sharded"
+    }).

@@ -26,36 +26,27 @@
     <<"max_delayed_messages">> => <<"0">>
 }).
 
--import(emqx_dashboard_api_test_helpers, [request/2, request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_modules, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_modules]
     ),
     emqx_delayed:load(),
     Config.
 
 end_per_suite(Config) ->
     ok = emqx_delayed:unload(),
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_dashboard, emqx_modules]),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_modules]),
     Config.
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(),
     Config.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
-    ok.
 
 %%------------------------------------------------------------------------------
 %% Test Cases
@@ -235,8 +226,8 @@ t_large_payload(_) ->
 %%--------------------------------------------------------------------
 
 decode_json(Data) ->
-    BinJson = emqx_json:decode(Data, [return_maps]),
-    emqx_map_lib:unsafe_atom_key_map(BinJson).
+    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 clear_all_record() ->
     ets:delete_all_objects(emqx_delayed).

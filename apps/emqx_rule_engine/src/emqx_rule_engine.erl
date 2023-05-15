@@ -115,7 +115,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
-        emqx_map_lib:diff_maps(NewRules, OldRules),
+        emqx_utils_maps:diff_maps(NewRules, OldRules),
     maps_foreach(
         fun({Id, {_Old, New}}) ->
             {ok, _} = update_rule(New#{id => bin(Id)})
@@ -213,11 +213,12 @@ get_rules_with_same_event(Topic) ->
     ].
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
-get_rule_ids_by_action(ActionName) when is_binary(ActionName) ->
+get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
     [
         Id
-     || #{actions := Acts, id := Id} <- get_rules(),
-        lists:any(fun(A) -> A =:= ActionName end, Acts)
+     || #{actions := Acts, id := Id, from := Froms} <- get_rules(),
+        forwards_to_bridge(Acts, BridgeId) orelse
+            references_ingress_bridge(Froms, BridgeId)
     ];
 get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
     {Mod, Fun} =
@@ -268,7 +269,7 @@ load_hooks_for_rule(#{from := Topics}) ->
 maybe_add_metrics_for_rule(Id) ->
     case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
         true ->
-            ok;
+            ok = reset_metrics_for_rule(Id);
         false ->
             ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
     end.
@@ -317,9 +318,9 @@ get_basic_usage_info() ->
         NumRules = length(EnabledRules),
         ReferencedBridges =
             lists:foldl(
-                fun(#{actions := Actions, from := From}, Acc) ->
-                    BridgeIDs0 = [BridgeID || <<"$bridges/", BridgeID/binary>> <- From],
-                    BridgeIDs1 = lists:filter(fun is_binary/1, Actions),
+                fun(#{actions := Actions, from := Froms}, Acc) ->
+                    BridgeIDs0 = get_referenced_hookpoints(Froms),
+                    BridgeIDs1 = get_egress_bridges(Actions),
                     tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
                 end,
                 #{},
@@ -340,7 +341,10 @@ get_basic_usage_info() ->
 tally_referenced_bridges(BridgeIDs, Acc0) ->
     lists:foldl(
         fun(BridgeID, Acc) ->
-            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeID),
+            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(
+                BridgeID,
+                #{atom_name => false}
+            ),
             maps:update_with(
                 BridgeType,
                 fun(X) -> X + 1 end,
@@ -478,3 +482,28 @@ contains_actions(Actions, Mod0, Func0) ->
         end,
         Actions
     ).
+
+forwards_to_bridge(Actions, BridgeId) ->
+    lists:any(fun(A) -> A =:= BridgeId end, Actions).
+
+references_ingress_bridge(Froms, BridgeId) ->
+    lists:member(
+        BridgeId,
+        [
+            RefBridgeId
+         || From <- Froms,
+            {ok, RefBridgeId} <-
+                [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
+        ]
+    ).
+
+get_referenced_hookpoints(Froms) ->
+    [
+        BridgeID
+     || From <- Froms,
+        {ok, BridgeID} <-
+            [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
+    ].
+
+get_egress_bridges(Actions) ->
+    lists:filter(fun is_binary/1, Actions).

@@ -1,0 +1,207 @@
+emqx_gateway_api_clients {
+
+disconnected_at.desc:
+"""客户端连接断开时间"""
+
+heap_size.desc:
+"""进程堆内存大小，单位：字节"""
+
+send_oct.desc:
+"""已发送字节数"""
+
+get_client.desc:
+"""获取客户端信息"""
+
+param_gte_created_at.desc:
+"""匹配会话创建时间大于等于指定值的客户端"""
+
+param_conn_state.desc:
+"""匹配客户端连接状态"""
+
+send_pkt.desc:
+"""已发送应用层协议控制报文数"""
+
+clean_start.desc:
+"""标识客户端是否以 clean_start 的标志连接到网关"""
+
+inflight_cnt.desc:
+"""客户端当前飞行窗口大小"""
+
+delete_subscription.desc:
+"""为某客户端删除某订阅关系"""
+
+param_lte_connected_at.desc:
+"""匹配连接创建时间小于等于指定值的客户端"""
+
+node.desc:
+"""客户端连接到的节点名称"""
+
+awaiting_rel_cnt.desc:
+"""客户端当前等待 PUBREL 确认的 PUBREC 消息的条数"""
+
+rap.desc:
+"""Retain as Published 选项，枚举：0，1"""
+
+inflight_max.desc:
+"""客户端允许的飞行窗口最大值"""
+
+param_username.desc:
+"""匹配客户端 Username"""
+
+param_like_endpoint_name.desc:
+"""子串匹配 LwM2M 客户端 Endpoint Name"""
+
+created_at.desc:
+"""会话创建时间"""
+
+sub_props.desc:
+"""订阅属性"""
+
+list_clients.desc:
+"""获取指定网关的客户端列表"""
+
+subscriptions_cnt.desc:
+"""客户端已订阅主题数"""
+
+mailbox_len.desc:
+"""进程邮箱大小"""
+
+send_cnt.desc:
+"""已发送 Socket 报文次数"""
+
+rh.desc:
+"""Retain Handling 选项，枚举：0，1，2"""
+
+connected.desc:
+"""标识客户端是否已连接到网关"""
+
+qos.desc:
+"""QoS 等级，枚举：0，1，2"""
+
+ip_address.desc:
+"""客户端 IP 地址"""
+
+param_gte_connected_at.desc:
+"""匹配连接创建时间大于等于指定值的客户端"""
+
+awaiting_rel_max.desc:
+"""客户端允许的最大 PUBREC 等待队列长度"""
+
+param_like_username.desc:
+"""子串匹配 客户端 Username"""
+
+nl.desc:
+"""No Local 选项，枚举：0，1"""
+
+param_like_clientid.desc:
+"""子串匹配客户端 ID"""
+
+param_lte_created_at.desc:
+"""匹配会话创建时间小于等于指定值的客户端"""
+
+topic.desc:
+"""主题过滤器或主题名称"""
+
+proto_ver.desc:
+"""客户端使用的协议版本"""
+
+mountpoint.desc:
+"""主题固定前缀"""
+
+proto_name.desc:
+"""客户端使用的协议名称"""
+
+param_lte_lifetime.desc:
+"""匹配心跳时间小于等于指定值的 LwM2M 客户端"""
+
+port.desc:
+"""客户端端口"""
+
+connected_at.desc:
+"""客户端连接时间"""
+
+expiry_interval.desc:
+"""会话超期时间，单位：秒"""
+
+username.desc:
+"""客户端连接的用户名"""
+
+param_clean_start.desc:
+"""匹配客户端 `clean_start` 标记"""
+
+recv_msg.desc:
+"""已接收上行的消息条数"""
+
+list_subscriptions.desc:
+"""获取某客户端的主题订阅列表"""
+
+recv_oct.desc:
+"""已接收的字节数"""
+
+keepalive.desc:
+"""Keepalive 时间，单位：秒"""
+
+param_clientid.desc:
+"""匹配客户端 ID"""
+
+subscriptions_max.desc:
+"""客户端允许订阅的最大主题数"""
+
+param_ip_address.desc:
+"""匹配客户端 IP 地址"""
+
+mqueue_max.desc:
+"""客户端允许的最大消息队列长度"""
+
+mqueue_dropped.desc:
+"""由于消息队列过程，客户端消息队列丢弃消息条数"""
+
+subid.desc:
+"""订阅ID，仅用于 Stomp 网关。用于创建订阅关系时指定订阅 ID。取值范围 1-65535。"""
+
+clientid.desc:
+"""客户端 ID"""
+
+kick_client.desc:
+"""踢出指定客户端"""
+
+is_bridge.desc:
+"""标识客户端是否通过 is_bridge 标志连接"""
+
+lifetime.desc:
+"""LwM2M 客户端心跳周期"""
+
+send_msg.desc:
+"""已发送下行消息数条数"""
+
+add_subscription.desc:
+"""为某客户端新增订阅关系"""
+
+param_endpoint_name.desc:
+"""匹配 LwM2M 客户端 Endpoint Name"""
+
+param_node.desc:
+"""匹配客户端的节点名称"""
+
+recv_cnt.desc:
+"""已接收 Socket 报文次数"""
+
+recv_pkt.desc:
+"""已接收应用层协议控制报文数"""
+
+endpoint_name.desc:
+"""LwM2M 客户端 Endpoint Name"""
+
+param_proto_ver.desc:
+"""匹配客户端协议版本"""
+
+reductions.desc:
+"""进程已消耗 Reduction 数"""
+
+param_gte_lifetime.desc:
+"""匹配心跳时间大于等于指定值的 LwM2M 客户端"""
+
+mqueue_len.desc:
+"""客户端当前消息队列长度"""
+
+}

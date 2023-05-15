@@ -1,0 +1,82 @@
+emqx_mgmt_api_publish {
+
+error_message.desc:
+"""Describes the failure reason in detail."""
+
+message_id.desc:
+"""A globally unique message ID for correlation/tracing."""
+
+message_properties.desc:
+"""The Properties of the PUBLISH message."""
+
+msg_content_type.desc:
+"""The Content Type MUST be a UTF-8 Encoded String."""
+
+msg_correlation_data.desc:
+"""Identifier of the Correlation Data. The Server MUST send the Correlation Data unaltered to all subscribers receiving the Application Message."""
+
+msg_message_expiry_interval.desc:
+"""Identifier of the Message Expiry Interval. If the Message Expiry Interval has passed and the Server has not managed to start onward delivery to a matching subscriber, then it MUST delete the copy of the message for that subscriber."""
+
+msg_payload_format_indicator.desc:
+"""0 (0x00) Byte Indicates that the Payload is unspecified bytes, which is equivalent to not sending a Payload Format Indicator.
+1 (0x01) Byte Indicates that the Payload is UTF-8 Encoded Character Data. The UTF-8 data in the Payload MUST be well-formed UTF-8 as defined by the Unicode specification and restated in RFC 3629."""
+
+msg_response_topic.desc:
+"""Identifier of the Response Topic.The Response Topic MUST be a UTF-8 Encoded, It MUST NOT contain wildcard characters."""
+
+msg_user_properties.desc:
+"""The User-Property key-value pairs. Note: in case there are duplicated keys, only the last one will be used."""
+
+payload.desc:
+"""The MQTT message payload."""
+
+payload_encoding.desc:
+"""MQTT Payload Encoding, <code>base64</code> or <code>plain</code>. When set to <code>base64</code>, the message is decoded before it is published."""
+
+publish_api.desc:
+"""Possible HTTP status response codes are:<br/>
+<code>200</code>: The message is delivered to at least one subscriber;<br/>
+<code>202</code>: No matched subscribers;<br/>
+<code>400</code>: Message is invalid. for example bad topic name, or QoS is out of range;<br/>
+<code>503</code>: Failed to deliver the message to subscriber(s)"""
+
+publish_api.label:
+"""Publish a message"""
+
+publish_bulk_api.desc:
+"""Possible HTTP response status code are:<br/>
+200: All messages are delivered to at least one subscriber;<br/>
+202: At least one message was not delivered to any subscriber;<br/>
+400: At least one message is invalid. For example bad topic name, or QoS is out of range;<br/>
+503: Failed to deliver at least one of the messages;<br/>
+
+In case there is at lest one invalid message in the batch, the HTTP response body
+is the same as for <code>/publish</code> API.<br/>
+Otherwise the HTTP response body is an array of JSON objects indicating the publish
+result of each individual message in the batch."""
+
+publish_bulk_api.label:
+"""Publish a batch of messages"""
+
+qos.desc:
+"""MQTT message QoS"""
+
+reason_code.desc:
+"""The MQTT reason code, as the same ones used in PUBACK packet.<br/>
+Currently supported codes are:<br/>
+
+16(0x10): No matching subscribers;<br/>
+131(0x81): Error happened when dispatching the message. e.g. during EMQX restart;<br/>
+144(0x90): Topic name invalid;<br/>
+151(0x97): Publish rate limited, or message size exceeded limit. The global size limit can be configured with <code>mqtt.max_packet_size</code><br/>
+NOTE: The message size is estimated with the received topic and payload size, meaning the actual size of serialized bytes (when sent to MQTT subscriber)
+might be slightly over the limit."""
+
+retain.desc:
+"""A boolean field to indicate if this message should be retained."""
+
+topic_name.desc:
+"""Topic Name"""
+
+}

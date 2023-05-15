@@ -28,6 +28,7 @@
     parse_sql/2,
     render_deep/2,
     render_str/2,
+    render_urlencoded_str/2,
     render_sql_params/2,
     is_superuser/1,
     bin/1,
@@ -129,6 +130,13 @@ render_str(Template, Credential) ->
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
+render_urlencoded_str(Template, Credential) ->
+    emqx_placeholder:proc_tmpl(
+        Template,
+        mapping_credential(Credential),
+        #{return => full_binary, var_trans => fun urlencode_var/2}
+    ).
+
 render_sql_params(ParamList, Credential) ->
     emqx_placeholder:proc_tmpl(
         ParamList,
@@ -216,6 +224,11 @@ without_password(Credential, [Name | Rest]) ->
         false ->
             without_password(Credential, Rest)
     end.
+
+urlencode_var({var, _} = Var, Value) ->
+    emqx_http_lib:uri_encode(handle_var(Var, Value));
+urlencode_var(Var, Value) ->
+    handle_var(Var, Value).
 
 handle_var({var, _Name}, undefined) ->
     <<>>;

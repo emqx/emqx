@@ -65,7 +65,6 @@
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
-    {<<"proto_name">>, binary},
     {<<"proto_ver">>, integer},
     {<<"like_clientid">>, binary},
     {<<"like_username">>, binary},
@@ -77,9 +76,10 @@
 
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
--define(CLIENT_ID_NOT_FOUND,
-    <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"Client id not found\"}">>
-).
+-define(CLIENTID_NOT_FOUND, #{
+    code => 'CLIENTID_NOT_FOUND',
+    message => <<"Client ID not found">>
+}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -144,14 +144,6 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         description => <<"Whether the client uses a new session">>
-                    })},
-                {proto_name,
-                    hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
-                        in => query,
-                        required => false,
-                        description =>
-                            <<"Client protocol name, ",
-                                "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>
                     })},
                 {proto_ver,
                     hoconsc:mk(binary(), #{
@@ -228,7 +220,7 @@ schema("/clients/:clientid") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         },
@@ -241,7 +233,7 @@ schema("/clients/:clientid") ->
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -256,7 +248,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         },
@@ -265,9 +257,9 @@ schema("/clients/:clientid/authorization/cache") ->
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
-                204 => <<"Kick out client successfully">>,
+                204 => <<"Clean client authz cache successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -284,7 +276,7 @@ schema("/clients/:clientid/subscriptions") ->
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -300,7 +292,7 @@ schema("/clients/:clientid/subscribe") ->
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -316,7 +308,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -332,7 +324,7 @@ schema("/clients/:clientid/unsubscribe") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -348,7 +340,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -364,7 +356,7 @@ schema("/clients/:clientid/keepalive") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
             }
         }
@@ -558,8 +550,8 @@ fields(keepalive) ->
     ];
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
+        {topic, hoconsc:mk(binary(), #{required => true, desc => <<"Topic">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
         {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
         {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
         {rh, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain Handling">>})}
@@ -606,6 +598,8 @@ unsubscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfo
 
 subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
     case emqx_mgmt:list_client_subscriptions(ClientID) of
+        {error, not_found} ->
+            {404, ?CLIENTID_NOT_FOUND};
         [] ->
             {200, []};
         {Node, Subs} ->
@@ -630,7 +624,7 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
         {ok, Interval} ->
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
                 ok -> lookup(#{clientid => ClientID});
-                {error, not_found} -> {404, ?CLIENT_ID_NOT_FOUND};
+                {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
             end
     end.
@@ -650,7 +644,7 @@ list_clients(QString) ->
                     fun ?MODULE:format_channel_info/2
                 );
             Node0 ->
-                case emqx_misc:safe_to_existing_atom(Node0) of
+                case emqx_utils:safe_to_existing_atom(Node0) of
                     {ok, Node1} ->
                         QStringWithoutNode = maps:without([<<"node">>], QString),
                         emqx_mgmt_api:node_query(
@@ -678,15 +672,15 @@ list_clients(QString) ->
 lookup(#{clientid := ClientID}) ->
     case emqx_mgmt:lookup_client({clientid, ClientID}, ?FORMAT_FUN) of
         [] ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         ClientInfo ->
             {200, hd(ClientInfo)}
     end.
 
 kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+    case emqx_mgmt:kickout_client(ClientID) of
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         _ ->
             {204}
     end.
@@ -694,7 +688,7 @@ kickout(#{clientid := ClientID}) ->
 get_authz_cache(#{clientid := ClientID}) ->
     case emqx_mgmt:list_authz_cache(ClientID) of
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
@@ -708,7 +702,7 @@ clean_authz_cache(#{clientid := ClientID}) ->
         ok ->
             {204};
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
@@ -718,7 +712,7 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
     case do_subscribe(ClientID, Topic, Opts) of
         {error, channel_not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
@@ -727,21 +721,24 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    case lookup(#{clientid => ClientID}) of
-        {200, _} ->
+    %% We use emqx_channel instead of emqx_channel_info (used by the emqx_mgmt:lookup_client/2),
+    %% as the emqx_channel_info table will only be populated after the hook `client.connected`
+    %% has returned. So if one want to subscribe topics in this hook, it will fail.
+    case ets:lookup(emqx_channel, ClientID) of
+        [] ->
+            {404, ?CLIENTID_NOT_FOUND};
+        _ ->
             ArgList = [
                 [ClientID, Topic, maps:with([qos, nl, rap, rh], Sub)]
              || #{topic := Topic} = Sub <- Topics
             ],
-            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
+            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)}
     end.
 
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->
     case do_unsubscribe(ClientID, Topic) of
         {error, channel_not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND};
         {unsubscribe, [{Topic, #{}}]} ->
             {204}
     end.
@@ -751,8 +748,8 @@ unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
         {200, _} ->
             _ = emqx_mgmt:unsubscribe_batch(ClientID, Topics),
             {204};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
+        {404, NotFound} ->
+            {404, NotFound}
     end.
 
 %%--------------------------------------------------------------------
@@ -830,8 +827,6 @@ ms(ip_address, X) ->
     #{conninfo => #{peername => {X, '_'}}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
 ms(proto_ver, X) ->
     #{conninfo => #{proto_ver => X}};
 ms(connected_at, X) ->
@@ -865,8 +860,8 @@ format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
 
 format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     Node = maps:get(node, ClientInfo0, WhichNode),
-    ClientInfo1 = emqx_map_lib:deep_remove([conninfo, clientid], ClientInfo0),
-    ClientInfo2 = emqx_map_lib:deep_remove([conninfo, username], ClientInfo1),
+    ClientInfo1 = emqx_utils_maps:deep_remove([conninfo, clientid], ClientInfo0),
+    ClientInfo2 = emqx_utils_maps:deep_remove([conninfo, username], ClientInfo1),
     StatsMap = maps:without(
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
@@ -879,7 +874,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
-    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap5 = convert_expiry_interval_unit(ClientInfoMap4),
+    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap5),
 
     RemoveList =
         [
@@ -949,6 +945,9 @@ peername_dispart({Addr, Port}) ->
     %% PortBinary = integer_to_binary(Port),
     {AddrBinary, Port}.
 
+convert_expiry_interval_unit(ClientInfoMap = #{expiry_interval := Interval}) ->
+    ClientInfoMap#{expiry_interval := Interval div 1000}.
+
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{
         access => PubSub,
@@ -959,4 +958,4 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
 
 to_topic_info(Data) ->
     M = maps:with([<<"topic">>, <<"qos">>, <<"nl">>, <<"rap">>, <<"rh">>], Data),
-    emqx_map_lib:safe_atom_key_map(M).
+    emqx_utils_maps:safe_atom_key_map(M).

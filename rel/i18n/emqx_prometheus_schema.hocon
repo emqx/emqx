@@ -1,0 +1,47 @@
+emqx_prometheus_schema {
+
+enable.desc:
+"""Turn Prometheus data pushing on or off"""
+
+headers.desc:
+"""A list of HTTP Headers when pushing to Push Gateway.<br/>
+For example, <code> { Authorization = "some-authz-tokens"}</code>"""
+
+interval.desc:
+"""Data reporting interval"""
+
+job_name.desc:
+"""Job Name that is pushed to the Push Gateway. Available variables:<br/>
+- ${name}: Name of EMQX node.<br/>
+- ${host}: Host name of EMQX node.<br/>
+For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code> variable takes value <code>emqx</code> and the <code>host</code> variable takes value <code>127.0.0.1</code>.<br/>
+Default value is: <code>${name}/instance/${name}~${host}</code>"""
+
+mnesia_collector.desc:
+"""Enable or disable Mnesia collector, collects Mnesia metrics mainly using mnesia:system_info/1 ."""
+
+prometheus.desc:
+"""Settings for reporting metrics to Prometheus"""
+
+prometheus.label:
+"""Prometheus"""
+
+push_gateway_server.desc:
+"""URL of Prometheus server"""
+
+vm_dist_collector.desc:
+"""Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
+
+vm_memory_collector.desc:
+"""Enable or disable VM memory collector, collects information about memory dynamically allocated by the Erlang emulator using erlang:memory/0 , also provides basic (D)ETS statistics ."""
+
+vm_msacc_collector.desc:
+"""Enable or disable VM msacc collector, collects microstate accounting metrics using erlang:statistics(microstate_accounting) ."""
+
+vm_statistics_collector.desc:
+"""Enable or disable VM statistics collector, collects Erlang VM metrics using erlang:statistics/1 ."""
+
+vm_system_info_collector.desc:
+"""Enable or disable VM system info collector, collects Erlang VM metrics using erlang:system_info/1 ."""
+
+}

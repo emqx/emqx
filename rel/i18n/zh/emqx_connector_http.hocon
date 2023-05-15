@@ -1,0 +1,77 @@
+emqx_connector_http {
+
+base_url.desc:
+"""base URL 只包含host和port。<br/>
+发送HTTP请求时，真实的URL是由base URL 和 path parameter连接而成。<br/>
+示例：`http://localhost:9901/`"""
+
+base_url.label:
+"""Base Url"""
+
+body.desc:
+"""HTTP请求报文主体。"""
+
+body.label:
+"""HTTP请求报文主体"""
+
+connect_timeout.desc:
+"""连接HTTP服务器的超时时间。"""
+
+connect_timeout.label:
+"""连接超时"""
+
+enable_pipelining.desc:
+"""正整数，设置最大可发送的异步 HTTP 请求数量。当设置为 1 时，表示每次发送完成 HTTP 请求后都需要等待服务器返回，再继续发送下一个请求。"""
+
+enable_pipelining.label:
+"""HTTP 管道"""
+
+headers.desc:
+"""HTTP 头字段列表。"""
+
+headers.label:
+"""HTTP 头字段列表"""
+
+max_retries.desc:
+"""请求出错时的最大重试次数。"""
+
+max_retries.label:
+"""最大重试次数"""
+
+method.desc:
+"""HTTP 请求方法。"""
+
+method.label:
+"""HTTP 请求方法"""
+
+path.desc:
+"""HTTP请求路径。"""
+
+path.label:
+"""HTTP请求路径"""
+
+pool_size.desc:
+"""连接池大小。"""
+
+pool_size.label:
+"""连接池大小"""
+
+pool_type.desc:
+"""连接池的类型，可用类型有`random`, `hash`。"""
+
+pool_type.label:
+"""连接池类型"""
+
+request.desc:
+"""设置 HTTP 请求的参数。"""
+
+request.label:
+"""HTTP 请求"""
+
+request_timeout.desc:
+"""HTTP 请求超时。"""
+
+request_timeout.label:
+"""HTTP 请求超时"""
+
+}

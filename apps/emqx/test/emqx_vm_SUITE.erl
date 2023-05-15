@@ -24,7 +24,24 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_load(_Config) ->
-    ?assertMatch([{load1, _}, {load5, _}, {load15, _}], emqx_vm:loads()).
+    lists:foreach(
+        fun({Avg, LoadKey, Int}) ->
+            emqx_common_test_helpers:with_mock(
+                cpu_sup,
+                Avg,
+                fun() -> Int end,
+                fun() ->
+                    Load = proplists:get_value(LoadKey, emqx_vm:loads()),
+                    ?assertEqual(Int / 256, Load)
+                end
+            )
+        end,
+        [{avg1, load1, 0}, {avg5, load5, 128}, {avg15, load15, 256}]
+    ),
+    ?assertMatch(
+        [{load1, _}, {load5, _}, {load15, _}],
+        emqx_vm:loads()
+    ).
 
 t_systeminfo(_Config) ->
     ?assertEqual(
@@ -32,12 +49,6 @@ t_systeminfo(_Config) ->
         [Key || {Key, _} <- emqx_vm:get_system_info()]
     ),
     ?assertEqual(undefined, emqx_vm:get_system_info(undefined)).
-
-t_mem_info(_Config) ->
-    application:ensure_all_started(os_mon),
-    MemInfo = emqx_vm:mem_info(),
-    [{total_memory, _}, {used_memory, _}] = MemInfo,
-    application:stop(os_mon).
 
 t_process_info(_Config) ->
     ProcessInfo = emqx_vm:get_process_info(),

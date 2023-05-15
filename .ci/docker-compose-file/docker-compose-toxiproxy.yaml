@@ -6,15 +6,28 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.5.0
     restart: always
     networks:
-      - emqx_bridge
+      emqx_bridge:
+        aliases:
+          - toxiproxy
+          - toxiproxy.emqx.net
     volumes:
       - "./toxiproxy.json:/config/toxiproxy.json"
     ports:
       - 8474:8474
       - 8086:8086
       - 8087:8087
+      - 11433:1433
       - 13306:3306
       - 13307:3307
+      - 15432:5432
+      - 15433:5433
+      - 16041:6041
+      - 18000:8000
+      - 19876:9876
+      - 19042:9042
+      - 19142:9142
+      - 14242:4242
+      - 28080:18080
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

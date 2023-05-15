@@ -20,5 +20,4 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 ./scripts/get-dashboard.sh "$dashboard_version"
 ./scripts/merge-config.escript
-./scripts/merge-i18n.escript
 ./scripts/update-bom.sh "$PROFILE_STR" ./rel

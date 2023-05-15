@@ -29,5 +29,107 @@
     "listen": "0.0.0.0:6379",
     "upstream": "redis:6379",
     "enabled": true
+  },
+  {
+    "name": "pgsql_tcp",
+    "listen": "0.0.0.0:5432",
+    "upstream": "pgsql:5432",
+    "enabled": true
+  },
+  {
+    "name": "pgsql_tls",
+    "listen": "0.0.0.0:5433",
+    "upstream": "pgsql-tls:5432",
+    "enabled": true
+  },
+  {
+    "name": "tdengine_restful",
+    "listen": "0.0.0.0:6041",
+    "upstream": "tdengine:6041",
+    "enabled": true
+  },
+  {
+    "name": "dynamo",
+    "listen": "0.0.0.0:8000",
+    "upstream": "dynamo:8000",
+    "enabled": true
+  },
+  {
+    "name": "kafka_plain",
+    "listen": "0.0.0.0:9292",
+    "upstream": "kafka-1.emqx.net:9292",
+    "enabled": true
+  },
+  {
+    "name": "kafka_sasl_plain",
+    "listen": "0.0.0.0:9293",
+    "upstream": "kafka-1.emqx.net:9293",
+    "enabled": true
+  },
+  {
+    "name": "kafka_ssl",
+    "listen": "0.0.0.0:9294",
+    "upstream": "kafka-1.emqx.net:9294",
+    "enabled": true
+  },
+  {
+    "name": "kafka_sasl_ssl",
+    "listen": "0.0.0.0:9295",
+    "upstream": "kafka-1.emqx.net:9295",
+    "enabled": true
+  },
+  {
+    "name": "rocketmq",
+    "listen": "0.0.0.0:9876",
+    "upstream": "rocketmq_namesrv:9876",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tcp",
+    "listen": "0.0.0.0:9042",
+    "upstream": "cassandra:9042",
+    "enabled": true
+  },
+  {
+    "name": "cassa_tls",
+    "listen": "0.0.0.0:9142",
+    "upstream": "cassandra:9142",
+    "enabled": true
+  },
+  {
+    "name": "sqlserver",
+    "listen": "0.0.0.0:1433",
+    "upstream": "sqlserver:1433",
+    "enabled": true
+  },
+  {
+    "name": "opents",
+    "listen": "0.0.0.0:4242",
+    "upstream": "opents:4242",
+    "enabled": true
+  },
+  {
+    "name": "pulsar_plain",
+    "listen": "0.0.0.0:6652",
+    "upstream": "pulsar:6652",
+    "enabled": true
+  },
+  {
+    "name": "pulsar_tls",
+    "listen": "0.0.0.0:6653",
+    "upstream": "pulsar:6653",
+    "enabled": true
+  },
+  {
+    "name": "oracle",
+    "listen": "0.0.0.0:1521",
+    "upstream": "oracle:1521",
+    "enabled": true
+  },
+  {
+    "name": "iotdb",
+    "listen": "0.0.0.0:18080",
+    "upstream": "iotdb:18080",
+    "enabled": true
   }
 ]

@@ -24,6 +24,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TOPICS, [
     <<"TopicA">>,
@@ -42,6 +43,8 @@
     <<"+/+">>,
     <<"TopicA/#">>
 ]).
+
+-define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
 
 all() ->
     [
@@ -64,7 +67,8 @@ groups() ->
             %% t_keepalive,
             %% t_redelivery_on_reconnect,
             %% subscribe_failure_test,
-            t_dollar_topics
+            t_dollar_topics,
+            t_sub_non_utf8_topic
         ]},
         {mqttv5, [non_parallel_tests], [t_basic_with_props_v5]},
         {others, [non_parallel_tests], [
@@ -85,6 +89,12 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
+init_per_testcase(_Case, Config) ->
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
+
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
 %%--------------------------------------------------------------------
@@ -101,16 +111,35 @@ t_basic_v4(_Config) ->
 
 t_cm(_) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
-    ClientId = <<"myclient">>,
+    ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
-    ct:sleep(500),
-    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId),
+    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
     emqtt:subscribe(C, <<"mytopic">>, 0),
-    ct:sleep(1200),
-    Stats = emqx_cm:get_chan_stats(ClientId),
-    ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats)),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
+    ?WAIT(
+        begin
+            Stats = emqx_cm:get_chan_stats(ClientId),
+            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
+        end,
+        2
+    ),
+    ok.
+
+t_idle_timeout_infinity(_) ->
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], infinity),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
+    emqtt:subscribe(C, <<"mytopic">>, 0),
+    ?WAIT(
+        begin
+            Stats = emqx_cm:get_chan_stats(ClientId),
+            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
+        end,
+        2
+    ),
+    ok.
 
 t_cm_registry(_) ->
     Children = supervisor:which_children(emqx_cm_sup),
@@ -269,6 +298,36 @@ t_dollar_topics(_) ->
     ok = emqtt:disconnect(C),
     ct:pal("$ topics test succeeded").
 
+t_sub_non_utf8_topic(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ConnPacket = emqx_frame:serialize(#mqtt_packet{
+        header = #mqtt_packet_header{type = 1},
+        variable = #mqtt_packet_connect{
+            clientid = <<"abcdefg">>
+        }
+    }),
+    ok = gen_tcp:send(Socket, ConnPacket),
+    receive
+        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
+    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
+    end,
+    SubHeader = <<130, 18, 25, 178>>,
+    SubTopicLen = <<0, 13>>,
+    %% this is not a valid utf8 topic
+    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
+    SubQoS = <<1>>,
+    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
+    ok = gen_tcp:send(Socket, SubPacket),
+    receive
+        {tcp_closed, _} -> ok
+    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    timer:sleep(1000),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
+    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
+    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5
 %%--------------------------------------------------------------------
@@ -362,4 +421,10 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
+    %% verify that the peercert won't be stored in the conninfo
+    [ChannPid] = emqx_cm:lookup_channels(CN),
+    SysState = sys:get_state(ChannPid),
+    ChannelRecord = lists:keyfind(channel, 1, tuple_to_list(SysState)),
+    ConnInfo = lists:nth(2, tuple_to_list(ChannelRecord)),
+    ?assertMatch(#{peercert := undefined}, ConnInfo),
     emqtt:disconnect(Client).

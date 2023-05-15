@@ -31,7 +31,8 @@
 
 namespace() -> exhook.
 
-roots() -> [exhook].
+roots() ->
+    [{exhook, ?HOCON(?R_REF(exhook), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(exhook) ->
     [
@@ -63,7 +64,7 @@ fields(server) ->
             })},
         {request_timeout,
             ?HOCON(emqx_schema:duration(), #{
-                default => "5s",
+                default => <<"5s">>,
                 desc => ?DESC(request_timeout)
             })},
         {failed_action, failed_action()},
@@ -74,7 +75,7 @@ fields(server) ->
             })},
         {auto_reconnect,
             ?HOCON(hoconsc:union([false, emqx_schema:duration()]), #{
-                default => "60s",
+                default => <<"60s">>,
                 desc => ?DESC(auto_reconnect)
             })},
         {pool_size,

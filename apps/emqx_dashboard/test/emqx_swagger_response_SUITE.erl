@@ -32,17 +32,8 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:load(emqx_dashboard),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
 
 end_per_suite(Config) ->
     end_suite(),
@@ -50,7 +41,7 @@ end_per_suite(Config) ->
 
 end_suite() ->
     application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_simple_binary(_config) ->
     Path = "/simple/bin",
@@ -67,7 +58,7 @@ t_object(_config) ->
                 <<"application/json">> =>
                     #{
                         <<"schema">> => #{
-                            required => [<<"timeout">>, <<"per_page">>],
+                            required => [<<"per_page">>, <<"timeout">>],
                             <<"properties">> => [
                                 {<<"per_page">>, #{
                                     description => <<"good per page desc">>,
@@ -286,11 +277,8 @@ t_bad_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{
-            mfa := {?MODULE, schema, ["/ref/none"]},
-            reason := function_clause
-        }},
+    ?assertError(
+        {failed_to_generate_swagger_spec, ?MODULE, Path},
         validate(Path, #{}, [])
     ),
     ok.
@@ -689,7 +677,7 @@ to_schema(Object) ->
 
 fields(good_ref) ->
     [
-        {'webhook-host', mk(emqx_schema:ip_port(), #{default => "127.0.0.1:80"})},
+        {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
         {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];

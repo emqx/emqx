@@ -1,0 +1,15 @@
+emqx_stomp_schema {
+
+stom_frame_max_body_length.desc:
+"""允许的 Stomp 报文 Body 的最大字节数"""
+
+stom_frame_max_headers.desc:
+"""允许的 Header 最大数量"""
+
+stomp.desc:
+"""Stomp 网关配置。当前实现支持 v1.2/1.1/1.0 协议版本"""
+
+stomp_frame_max_headers_length.desc:
+"""允许的 Header 字符串的最大长度"""
+
+}

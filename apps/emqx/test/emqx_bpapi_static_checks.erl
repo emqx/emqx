@@ -47,7 +47,9 @@
 -type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
 %% Applications and modules we wish to ignore in the analysis:
--define(IGNORED_APPS, "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria").
+-define(IGNORED_APPS,
+    "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria, amqp_client, rabbit_common"
+).
 -define(IGNORED_MODULES, "emqx_rpc").
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
@@ -65,7 +67,7 @@
     % Reason: legacy code. A fun and a QC query are
     % passed in the args, it's futile to try to statically
     % check it
-    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/3"
+    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2"
 ).
 
 -define(XREF, myxref).

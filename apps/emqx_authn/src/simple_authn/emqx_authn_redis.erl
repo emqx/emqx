@@ -25,6 +25,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -32,6 +33,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -42,29 +44,33 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-redis".
+namespace() -> "authn".
 
+tags() ->
+    [<<"Authentication">>].
+
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields(standalone) ->
+fields(redis_single) ->
     common_fields() ++ emqx_connector_redis:fields(single);
-fields(cluster) ->
+fields(redis_cluster) ->
     common_fields() ++ emqx_connector_redis:fields(cluster);
-fields(sentinel) ->
+fields(redis_sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
-desc(standalone) ->
-    ?DESC(standalone);
-desc(cluster) ->
+desc(redis_single) ->
+    ?DESC(single);
+desc(redis_cluster) ->
     ?DESC(cluster);
-desc(sentinel) ->
+desc(redis_sentinel) ->
     ?DESC(sentinel);
 desc(_) ->
     "".
@@ -88,10 +94,27 @@ cmd(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, standalone),
-        hoconsc:ref(?MODULE, cluster),
-        hoconsc:ref(?MODULE, sentinel)
+        hoconsc:ref(?MODULE, redis_single),
+        hoconsc:ref(?MODULE, redis_cluster),
+        hoconsc:ref(?MODULE, redis_sentinel)
     ].
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, Value}) ->
+    refs(Value).
+
+refs(#{<<"redis_type">> := <<"single">>}) ->
+    [hoconsc:ref(?MODULE, redis_single)];
+refs(#{<<"redis_type">> := <<"cluster">>}) ->
+    [hoconsc:ref(?MODULE, redis_cluster)];
+refs(#{<<"redis_type">> := <<"sentinel">>}) ->
+    [hoconsc:ref(?MODULE, redis_sentinel)];
+refs(_) ->
+    throw(#{
+        field_name => redis_type,
+        expected => "single | cluster | sentinel"
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -135,7 +158,7 @@ authenticate(
 ) ->
     NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
-    case emqx_resource:query(ResourceId, {cmd, Command}) of
+    case emqx_resource:simple_sync_query(ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
         {ok, Values} ->

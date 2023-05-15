@@ -79,8 +79,7 @@
     query/2,
     query/3,
     %% query the instance without batching and queuing messages.
-    simple_sync_query/2,
-    simple_async_query/3
+    simple_sync_query/2
 ]).
 
 %% Direct calls to the callback module
@@ -104,6 +103,7 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    get_metrics/1,
     fetch_creation_opts/1,
     %% return all the instances of the same resource type
     list_instances_by_type/1,
@@ -111,7 +111,12 @@
     list_group_instances/1
 ]).
 
--export([inc_received/1, apply_reply_fun/2]).
+-export([apply_reply_fun/2]).
+
+-export_type([
+    resource_id/0,
+    resource_data/0
+]).
 
 -optional_callbacks([
     on_query/3,
@@ -128,6 +133,9 @@
 
 %% when calling emqx_resource:stop/1
 -callback on_stop(resource_id(), resource_state()) -> term().
+
+%% when calling emqx_resource:get_callback_mode/1
+-callback callback_mode() -> callback_mode().
 
 %% when calling emqx_resource:query/3
 -callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
@@ -256,19 +264,21 @@ reset_metrics(ResId) ->
 query(ResId, Request) ->
     query(ResId, Request, #{}).
 
--spec query(resource_id(), Request :: term(), emqx_resource_worker:query_opts()) ->
+-spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    case emqx_resource_manager:ets_lookup(ResId) of
+    case emqx_resource_manager:lookup_cached(ResId) of
         {ok, _Group, #{query_mode := QM, mod := Module}} ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
                 {true, _} ->
-                    emqx_resource_worker:simple_sync_query(ResId, Request);
+                    %% only Kafka producer so far
+                    Opts1 = Opts#{is_buffer_supported => true},
+                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
                 {false, sync} ->
-                    emqx_resource_worker:sync_query(ResId, Request, Opts);
+                    emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
                 {false, async} ->
-                    emqx_resource_worker:async_query(ResId, Request, Opts)
+                    emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
             end;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
@@ -276,11 +286,7 @@ query(ResId, Request, Opts) ->
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
 simple_sync_query(ResId, Request) ->
-    emqx_resource_worker:simple_sync_query(ResId, Request).
-
--spec simple_async_query(resource_id(), Request :: term(), reply_fun()) -> Result :: term().
-simple_async_query(ResId, Request, ReplyFun) ->
-    emqx_resource_worker:simple_async_query(ResId, Request, ReplyFun).
+    emqx_resource_buffer_worker:simple_sync_query(ResId, Request).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->
@@ -312,7 +318,12 @@ set_resource_status_connecting(ResId) ->
 -spec get_instance(resource_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
-    emqx_resource_manager:lookup(ResId).
+    emqx_resource_manager:lookup_cached(ResId).
+
+-spec get_metrics(resource_id()) ->
+    emqx_metrics_worker:metrics().
+get_metrics(ResId) ->
+    emqx_resource_manager:get_metrics(ResId).
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
@@ -322,9 +333,12 @@ fetch_creation_opts(Opts) ->
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
--spec list_instances_verbose() -> [resource_data()].
+-spec list_instances_verbose() -> [_ResourceDataWithMetrics :: map()].
 list_instances_verbose() ->
-    emqx_resource_manager:list_all().
+    [
+        Res#{metrics => get_metrics(ResId)}
+     || #{id := ResId} = Res <- emqx_resource_manager:list_all()
+    ].
 
 -spec list_instances_by_type(module()) -> [resource_id()].
 list_instances_by_type(ResourceType) ->
@@ -354,22 +368,29 @@ is_buffer_supported(Module) ->
             false
     end.
 
--spec call_start(manager_id(), module(), resource_config()) ->
+-spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
-call_start(MgrId, Mod, Config) ->
-    ?SAFE_CALL(Mod:on_start(MgrId, Config)).
+call_start(ResId, Mod, Config) ->
+    try
+        Mod:on_start(ResId, Config)
+    catch
+        throw:Error ->
+            {error, Error};
+        Kind:Error:Stacktrace ->
+            {error, #{exception => Kind, reason => Error, stacktrace => Stacktrace}}
+    end.
 
--spec call_health_check(manager_id(), module(), resource_state()) ->
+-spec call_health_check(resource_id(), module(), resource_state()) ->
     resource_status()
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}
     | {error, term()}.
-call_health_check(MgrId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_get_status(MgrId, ResourceState)).
+call_health_check(ResId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
 
--spec call_stop(manager_id(), module(), resource_state()) -> term().
-call_stop(MgrId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_stop(MgrId, ResourceState)).
+-spec call_stop(resource_id(), module(), resource_state()) -> term().
+call_stop(ResId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_stop(ResId, ResourceState)).
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
@@ -466,9 +487,6 @@ apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
 
 %% =================================================================================
-
-inc_received(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, 'received').
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].

@@ -1,0 +1,117 @@
+emqx_gateway_schema {
+
+dtls_listener_acceptors.desc:
+"""Size of the acceptor pool."""
+
+dtls_listener_dtls_opts.desc:
+"""DTLS socket options"""
+
+gateway_common_authentication.desc:
+"""Default authentication configs for all the gateway listeners. For per-listener overrides see <code>authentication</code>
+ in listener configs"""
+
+gateway_common_clientinfo_override.desc:
+"""ClientInfo override."""
+
+gateway_common_clientinfo_override_clientid.desc:
+"""Template for overriding clientid."""
+
+gateway_common_clientinfo_override_password.desc:
+"""Template for overriding password."""
+
+gateway_common_clientinfo_override_username.desc:
+"""Template for overriding username."""
+
+gateway_common_enable.desc:
+"""Whether to enable this gateway"""
+
+gateway_common_enable_stats.desc:
+"""Whether to enable client process statistic"""
+
+gateway_common_idle_timeout.desc:
+"""The idle time of the client connection process. It has two purposes:
+  1. A newly created client process that does not receive any client requests after that time will be closed directly.
+  2. A running client process that does not receive any client requests after this time will go into hibernation to save resources."""
+
+gateway_common_listener_access_rules.desc:
+"""The access control rules for this listener.
+See: https://github.com/emqtt/esockd#allowdeny"""
+
+gateway_common_listener_bind.desc:
+"""The IP address and port that the listener will bind."""
+
+gateway_common_listener_enable.desc:
+"""Enable the listener."""
+
+gateway_common_listener_enable_authn.desc:
+"""Set <code>true</code> (default) to enable client authentication on this listener. 
+When set to <code>false</code> clients will be allowed to connect without authentication."""
+
+gateway_common_listener_max_conn_rate.desc:
+"""Maximum connections per second."""
+
+gateway_common_listener_max_connections.desc:
+"""Maximum number of concurrent connections."""
+
+gateway_mountpoint.desc:
+"""When publishing or subscribing, prefix all topics with a mountpoint string.
+The prefixed string will be removed from the topic name when the message is delivered to the subscriber.
+The mountpoint is a way that users can use to implement isolation of message routing between different listeners.
+For example if a client A subscribes to `t` with `listeners.tcp.\<name>.mountpoint` set to `some_tenant`,
+then the client actually subscribes to the topic `some_tenant/t`.
+Similarly, if another client B (connected to the same listener as the client A) sends a message to topic `t`,
+the message is routed to all the clients subscribed `some_tenant/t`,
+so client A will receive the message, with topic name `t`. Set to `""` to disable the feature.
+Variables in mountpoint string:<br/>
+  - <code>${clientid}</code>: clientid<br/>
+  - <code>${username}</code>: username"""
+
+listener_name_to_settings_map.desc:
+"""A map from listener names to listener settings."""
+
+ssl_listener_options.desc:
+"""SSL Socket options."""
+
+tcp_listener_acceptors.desc:
+"""Size of the acceptor pool."""
+
+tcp_listener_proxy_protocol.desc:
+"""Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.
+See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"""
+
+tcp_listener_proxy_protocol_timeout.desc:
+"""Timeout for proxy protocol.
+EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."""
+
+tcp_listener_tcp_opts.desc:
+"""Setting the TCP socket options."""
+
+tcp_listeners.desc:
+"""Settings for the TCP listeners."""
+
+tcp_udp_listeners.desc:
+"""Settings for the listeners."""
+
+udp_listener_active_n.desc:
+"""Specify the {active, N} option for the socket.
+See: https://erlang.org/doc/man/inet.html#setopts-2"""
+
+udp_listener_buffer.desc:
+"""Size of the user-space buffer for the socket."""
+
+udp_listener_recbuf.desc:
+"""Size of the kernel-space receive buffer for the socket."""
+
+udp_listener_reuseaddr.desc:
+"""Allow local reuse of port numbers."""
+
+udp_listener_sndbuf.desc:
+"""Size of the kernel-space send buffer for the socket."""
+
+udp_listener_udp_opts.desc:
+"""Settings for the UDP sockets."""
+
+udp_listeners.desc:
+"""Settings for the UDP listeners."""
+
+}

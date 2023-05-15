@@ -1,0 +1,27 @@
+emqx_coap_api {
+
+content_type.desc:
+"""Payload type"""
+
+message_id.desc:
+"""Message ID"""
+
+method.desc:
+"""Request method type"""
+
+payload.desc:
+"""The content of the payload"""
+
+response_code.desc:
+"""Response code"""
+
+send_coap_request.desc:
+"""Send a CoAP request message to the client"""
+
+timeout.desc:
+"""Timespan for response"""
+
+token.desc:
+"""Message token, can be empty"""
+
+}

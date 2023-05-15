@@ -57,22 +57,27 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec check_pass(hash_params(), password_hash(), password()) -> boolean().
-check_pass({pbkdf2, MacFun, Salt, Iterations, DKLength}, PasswordHash, Password) ->
+-spec check_pass(hash_params(), password_hash(), password() | undefined) -> boolean().
+check_pass(_Algo, _Hash, undefined) ->
+    false;
+check_pass(Algo, Hash, Password) ->
+    do_check_pass(Algo, Hash, Password).
+
+do_check_pass({pbkdf2, MacFun, Salt, Iterations, DKLength}, PasswordHash, Password) ->
     case pbkdf2(MacFun, Password, Salt, Iterations, DKLength) of
         {ok, HashPasswd} ->
             compare_secure(hex(HashPasswd), PasswordHash);
         {error, _Reason} ->
             false
     end;
-check_pass({bcrypt, Salt}, PasswordHash, Password) ->
+do_check_pass({bcrypt, Salt}, PasswordHash, Password) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPasswd} ->
             compare_secure(list_to_binary(HashPasswd), PasswordHash);
         {error, _Reason} ->
             false
     end;
-check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Password) ->
+do_check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Password) ->
     Hash = hash(HashParams, Password),
     compare_secure(Hash, PasswordHash).
 

@@ -127,7 +127,7 @@ ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
     State#{timer => erlang:send_after(CheckInterval, self(), update_resources)}.
 
 remote_connection_count() ->
-    Nodes = mria_mnesia:running_nodes() -- [node()],
+    Nodes = mria:running_nodes() -- [node()],
     Results = emqx_license_proto_v2:remote_connection_counts(Nodes),
     Counts = [Count || {ok, Count} <- Results],
     lists:sum(Counts).

@@ -1,0 +1,26 @@
+emqx_bridge_opents {
+
+    config_enable.desc:
+        """Enable or disable this bridge"""
+
+    config_enable.label:
+        "Enable Or Disable Bridge"
+
+    desc_config.desc:
+        """Configuration for an OpenTSDB bridge."""
+
+    desc_config.label:
+        "OpenTSDB Bridge Configuration"
+
+    desc_type.desc:
+        """The Bridge Type"""
+
+    desc_type.label:
+        "Bridge Type"
+
+    desc_name.desc:
+        """Bridge name."""
+
+    desc_name.label:
+        "Bridge Name"
+}

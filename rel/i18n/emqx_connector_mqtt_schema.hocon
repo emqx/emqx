@@ -1,0 +1,178 @@
+emqx_connector_mqtt_schema {
+
+bridge_mode.desc:
+"""If enable bridge mode.
+NOTE: This setting is only for MQTT protocol version older than 5.0, and the remote MQTT
+broker MUST support this feature.
+If bridge_mode is set to true, the bridge will indicate to the remote broker that it is a bridge not an ordinary client.
+This means that loop detection will be more effective and that retained messages will be propagated correctly."""
+
+bridge_mode.label:
+"""Bridge Mode"""
+
+clean_start.desc:
+"""Whether to start a clean session when reconnecting a remote broker for ingress bridge"""
+
+clean_start.label:
+"""Clean Session"""
+
+clientid_prefix.desc:
+"""Optional prefix to prepend to the clientid used by egress bridges."""
+
+clientid_prefix.label:
+"""Clientid Prefix"""
+
+egress_desc.desc:
+"""The egress config defines how this bridge forwards messages from the local broker to the remote broker.<br/>
+Template with variables is allowed in 'remote.topic', 'local.qos', 'local.retain', 'local.payload'.<br/>
+NOTE: if this bridge is used as the action of a rule, and also 'local.topic'
+is configured, then both the data got from the rule and the MQTT messages that matches
+'local.topic' will be forwarded."""
+
+egress_desc.label:
+"""Egress Configs"""
+
+egress_local.desc:
+"""The configs about receiving messages from local broker."""
+
+egress_local.label:
+"""Local Configs"""
+
+egress_local_topic.desc:
+"""The local topic to be forwarded to the remote broker"""
+
+egress_local_topic.label:
+"""Local Topic"""
+
+egress_remote.desc:
+"""The configs about sending message to the remote broker."""
+
+egress_remote.label:
+"""Remote Configs"""
+
+egress_remote_qos.desc:
+"""The QoS of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
+
+egress_remote_qos.label:
+"""Remote QoS"""
+
+egress_remote_topic.desc:
+"""Forward to which topic of the remote broker.<br/>
+Template with variables is allowed."""
+
+egress_remote_topic.label:
+"""Remote Topic"""
+
+ingress_desc.desc:
+"""The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
+        send them to the local broker.<br/>
+        Template with variables is allowed in 'remote.qos', 'local.topic', 'local.qos', 'local.retain', 'local.payload'.<br/>
+        NOTE: if this bridge is used as the input of a rule, and also 'local.topic' is
+        configured, then messages got from the remote broker will be sent to both the 'local.topic' and
+        the rule."""
+
+ingress_desc.label:
+"""Ingress Configs"""
+
+ingress_local.desc:
+"""The configs about sending message to the local broker."""
+
+ingress_local.label:
+"""Local Configs"""
+
+ingress_local_qos.desc:
+"""The QoS of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
+
+ingress_local_qos.label:
+"""Local QoS"""
+
+ingress_local_topic.desc:
+"""Send messages to which topic of the local broker.<br/>
+Template with variables is allowed."""
+
+ingress_local_topic.label:
+"""Local Topic"""
+
+ingress_remote.desc:
+"""The configs about subscribing to the remote broker."""
+
+ingress_remote.label:
+"""Remote Configs"""
+
+ingress_remote_qos.desc:
+"""The QoS level to be used when subscribing to the remote broker"""
+
+ingress_remote_qos.label:
+"""Remote QoS"""
+
+ingress_remote_topic.desc:
+"""Receive messages from which topic of the remote broker"""
+
+ingress_remote_topic.label:
+"""Remote Topic"""
+
+max_inflight.desc:
+"""Max inflight (sent, but un-acked) messages of the MQTT protocol"""
+
+max_inflight.label:
+"""Max Inflight Message"""
+
+mode.desc:
+"""The mode of the MQTT Bridge.<br/>
+- cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br/>
+In 'cluster_shareload' mode, the incoming load from the remote broker is shared by
+using shared subscription.<br/>
+Note that the 'clientid' is suffixed by the node name, this is to avoid
+clientid conflicts between different nodes. And we can only use shared subscription
+topic filters for <code>remote.topic</code> of ingress connections."""
+
+mode.label:
+"""MQTT Bridge Mode"""
+
+password.desc:
+"""The password of the MQTT protocol"""
+
+password.label:
+"""Password"""
+
+payload.desc:
+"""The payload of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
+
+payload.label:
+"""Payload"""
+
+proto_ver.desc:
+"""The MQTT protocol version"""
+
+proto_ver.label:
+"""Protocol Version"""
+
+retain.desc:
+"""The 'retain' flag of the MQTT message to be sent.<br/>
+Template with variables is allowed."""
+
+retain.label:
+"""Retain Flag"""
+
+server.desc:
+"""The host and port of the remote MQTT broker"""
+
+server.label:
+"""Broker IP And Port"""
+
+server_configs.desc:
+"""Configs related to the server."""
+
+server_configs.label:
+"""Server Configs"""
+
+username.desc:
+"""The username of the MQTT protocol"""
+
+username.label:
+"""Username"""
+
+}

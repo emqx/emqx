@@ -27,6 +27,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -44,11 +45,16 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-mysql".
+namespace() -> "authn".
 
-roots() -> [?CONF_NS].
+tags() ->
+    [<<"Authentication">>].
 
-fields(?CONF_NS) ->
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, mysql))}].
+
+fields(mysql) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(mysql)},
@@ -58,8 +64,8 @@ fields(?CONF_NS) ->
     ] ++ emqx_authn_schema:common_fields() ++
         proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(mysql) ->
+    ?DESC(mysql);
 desc(_) ->
     undefined.
 
@@ -70,7 +76,7 @@ query(_) -> undefined.
 
 query_timeout(type) -> emqx_schema:duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
-query_timeout(default) -> "5s";
+query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
@@ -78,7 +84,7 @@ query_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, mysql)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -114,7 +120,9 @@ authenticate(
     }
 ) ->
     Params = emqx_authn_utils:render_sql_params(TmplToken, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}) of
+    case
+        emqx_resource:simple_sync_query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout})
+    of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->

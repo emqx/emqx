@@ -1,0 +1,184 @@
+emqx_rule_engine_schema {
+
+console_function.desc:
+"""将输出打印到控制台"""
+
+console_function.label:
+"""控制台函数"""
+
+desc_builtin_action_console.desc:
+"""配置打印到控制台"""
+
+desc_builtin_action_console.label:
+"""配置打印到控制台"""
+
+desc_builtin_action_republish.desc:
+"""配置重新发布。"""
+
+desc_builtin_action_republish.label:
+"""配置重新发布"""
+
+desc_republish_args.desc:
+"""内置 'republish' 动作的参数。
+可以在参数中使用变量。
+变量是规则中选择的字段。 例如规则 SQL 定义如下：
+<code>
+    SELECT clientid, qos, payload FROM "t/1"
+</code>
+然后有 3 个变量可用：<code>clientid</code>、<code>qos</code> 和 <code>payload</code>。 如果我们将参数设置为：
+<code>
+    {
+        topic = "t/${clientid}"
+        qos = "${qos}"
+        payload = "msg: ${payload}"
+    }
+</code>
+当收到一条消息 payload = `hello`, qos = 1, clientid = `Steve` 时，将重新发布一条新的 MQTT 消息到主题 `t/Steve`
+消息内容为 payload = `msg: hello`, and `qos = 1"""
+
+desc_republish_args.label:
+"""重新发布参数"""
+
+desc_rule_engine.desc:
+"""配置 EMQX 规则引擎。"""
+
+desc_rule_engine.label:
+"""配置规则引擎"""
+
+desc_rules.desc:
+"""配置规则"""
+
+desc_rules.label:
+"""配置规则"""
+
+desc_user_provided_function.desc:
+"""配置用户函数"""
+
+desc_user_provided_function.label:
+"""配置用户函数"""
+
+republish_args_payload.desc:
+"""要重新发布的消息的有效负载。允许使用带有变量的模板，请参阅“republish_args”的描述。
+默认为 ${payload}。 如果从所选结果中未找到变量 ${payload}，则使用字符串 "undefined"。"""
+
+republish_args_payload.label:
+"""消息负载"""
+
+republish_args_qos.desc:
+"""要重新发布的消息的 qos。允许使用带有变量的模板，请参阅“republish_args”的描述。
+默认为 ${qos}。 如果从规则的选择结果中没有找到变量 ${qos}，则使用 0。"""
+
+republish_args_qos.label:
+"""消息 QoS 等级"""
+
+republish_args_retain.desc:
+"""要重新发布的消息的“保留”标志。允许使用带有变量的模板，请参阅“republish_args”的描述。
+默认为 ${retain}。 如果从所选结果中未找到变量 ${retain}，则使用 false。"""
+
+republish_args_retain.label:
+"""保留消息标志"""
+
+republish_args_topic.desc:
+"""重新发布消息的目标主题。
+允许使用带有变量的模板，请参阅“republish_args”的描述。"""
+
+republish_args_topic.label:
+"""目标主题"""
+
+republish_args_user_properties.desc:
+"""指定使用哪个变量来填充 MQTT 消息的 User-Property 列表。这个变量的值必须是一个 map 类型。
+可以设置成 <code>${pub_props.'User-Property'}</code> 或者
+使用 <code>SELECT *,pub_props.'User-Property' as user_properties</code> 来把源 MQTT 消息
+的 User-Property 列表用于填充。
+也可以使用 <code>map_put</code> 函数来添加新的 User-Property，
+<code>map_put('my-prop-name', 'my-prop-value', user_properties) as user_properties</code>
+注意：MQTT 协议允许一个消息中出现多次同一个 property 名，但是 EMQX 的规则引擎不允许。"""
+
+republish_function.desc:
+"""将消息重新发布为新的 MQTT 消息"""
+
+republish_function.label:
+"""重新发布函数"""
+
+rule_engine_ignore_sys_message.desc:
+"""当设置为“true”（默认）时，规则引擎将忽略发布到 $SYS 主题的消息。"""
+
+rule_engine_ignore_sys_message.label:
+"""忽略系统消息"""
+
+rule_engine_jq_function_default_timeout.desc:
+"""规则引擎内建函数 `jq` 默认时间限制"""
+
+rule_engine_jq_function_default_timeout.label:
+"""规则引擎 jq 函数时间限制"""
+
+rule_engine_jq_implementation_module.desc:
+"""jq 规则引擎功能的实现模块。可用的两个选项是 jq_nif 和 jq_port。jq_nif 使用 Erlang NIF 库访问 jq 库，而 jq_port 使用基于 Erlang Port 的实现。jq_nif 方式（默认选项）是这两个选项中最快的实现，但 jq_port 方式更安全，因为这种情况下 jq 程序不会在 Erlang VM 进程中执行。"""
+
+rule_engine_jq_implementation_module.label:
+"""JQ 实现模块"""
+
+rule_engine_rules.desc:
+"""规则"""
+
+rule_engine_rules.label:
+"""规则"""
+
+rules_actions.desc:
+"""规则的动作列表。
+动作可以是指向 EMQX bridge 的引用，也可以是一个指向函数的对象。
+我们支持一些内置函数，如“republish”和“console”，我们还支持用户提供的函数，它的格式为：“{module}:{function}”。
+列表中的动作按顺序执行。这意味着如果其中一个动作执行缓慢，则以下所有动作都不会被执行直到它返回。
+如果其中一个动作崩溃，在它之后的所有动作仍然会被按照原始顺序执行。
+如果运行动作时出现任何错误，则会出现错误消息，并且相应的计数器会增加。"""
+
+rules_actions.label:
+"""动作列表"""
+
+rules_description.desc:
+"""规则的描述"""
+
+rules_description.label:
+"""规则描述"""
+
+rules_enable.desc:
+"""启用或禁用规则引擎"""
+
+rules_enable.label:
+"""启用或禁用规则引擎"""
+
+rules_metadata.desc:
+"""规则的元数据，不要手动修改"""
+
+rules_metadata.label:
+"""规则的元数据"""
+
+rules_name.desc:
+"""规则名字"""
+
+rules_name.label:
+"""规则名字"""
+
+rules_sql.desc:
+"""用于处理消息的 SQL 。
+示例：<code>SELECT * FROM "test/topic" WHERE payload.x = 1</code>"""
+
+rules_sql.label:
+"""规则 SQL"""
+
+user_provided_function_args.desc:
+"""用户提供的参数将作为函数 module:function/3 的第三个参数，
+请检查源文件：<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> 中的示例函数 <code>console</code> 和<code>republish</code> 。"""
+
+user_provided_function_args.label:
+"""用户提供函数的参数"""
+
+user_provided_function_function.desc:
+"""用户提供的函数。 格式应为：'{module}:{function}'。
+其中 {module} 是 Erlang 回调模块， {function} 是 Erlang 函数。
+要编写自己的函数，请检查源文件：<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> 中的示例函数 <code>console</code> 和<code>republish</code> 。"""
+
+user_provided_function_function.label:
+"""用户提供的函数"""
+
+}

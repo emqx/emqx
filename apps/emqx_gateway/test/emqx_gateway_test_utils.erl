@@ -101,13 +101,17 @@ assert_fields_exist(Ks, Map) ->
         end,
         Ks
     ).
+load_all_gateway_apps() ->
+    application:load(emqx_gateway_stomp),
+    application:load(emqx_gateway_mqttsn),
+    application:load(emqx_gateway_coap),
+    application:load(emqx_gateway_lwm2m),
+    application:load(emqx_gateway_exproto).
 
 %%--------------------------------------------------------------------
 %% http
 
 -define(http_api_host, "http://127.0.0.1:18083/api/v5").
--define(default_user, "admin").
--define(default_pass, "public").
 
 request(delete = Mth, Path) ->
     do_request(Mth, req(Path, []));
@@ -155,8 +159,8 @@ do_request(Mth, Req) ->
                     <<>> ->
                         #{};
                     _ ->
-                        emqx_map_lib:unsafe_atom_key_map(
-                            emqx_json:decode(Resp, [return_maps])
+                        emqx_utils_maps:unsafe_atom_key_map(
+                            emqx_utils_json:decode(Resp, [return_maps])
                         )
                 end,
             {Code, NResp};
@@ -168,7 +172,7 @@ req(Path, Qs) ->
     {url(Path, Qs), auth([])}.
 
 req(Path, Qs, Body) ->
-    {url(Path, Qs), auth([]), "application/json", emqx_json:encode(Body)}.
+    {url(Path, Qs), auth([]), "application/json", emqx_utils_json:encode(Body)}.
 
 url(Path, []) ->
     lists:concat([?http_api_host, Path]);
@@ -176,5 +180,4 @@ url(Path, Qs) ->
     lists:concat([?http_api_host, Path, "?", binary_to_list(cow_qs:qs(Qs))]).
 
 auth(Headers) ->
-    Token = base64:encode(?default_user ++ ":" ++ ?default_pass),
-    [{"Authorization", "Basic " ++ binary_to_list(Token)}] ++ Headers.
+    [emqx_mgmt_api_test_util:auth_header_() | Headers].

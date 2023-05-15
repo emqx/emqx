@@ -3,7 +3,7 @@ version: '3.9'
 services:
   erlang:
     container_name: erlang
-    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-ubuntu20.04}
+    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-24.3.4.2-3-ubuntu20.04}
     env_file:
       - conf.env
     environment:
@@ -16,14 +16,18 @@ services:
       GITHUB_REF: ${GITHUB_REF}
     networks:
       - emqx_bridge
+    ports:
+      - 28083:18083
+      - 2883:1883
     volumes:
       - ../..:/emqx
-      - emqx-shared-secret:/var/lib/secret
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
+      # - ./odbc/odbcinst.ini:/etc/odbcinst.ini
     working_dir: /emqx
     tty: true
-    user: "${UID_GID}"
+    user: "${DOCKER_USER:-root}"
 
 networks:
   emqx_bridge:
@@ -37,6 +41,3 @@ networks:
           gateway: 172.100.239.1
         - subnet: 2001:3200:3200::/64
           gateway: 2001:3200:3200::1
-
-volumes:   # add this section
-  emqx-shared-secret:    # does not need anything underneath this

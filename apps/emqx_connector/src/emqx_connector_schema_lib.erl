@@ -101,9 +101,11 @@ password(desc) -> ?DESC("password");
 password(required) -> false;
 password(format) -> <<"password">>;
 password(sensitive) -> true;
+password(converter) -> fun emqx_schema:password_converter/2;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
+auto_reconnect(deprecated) -> {since, "v5.0.15"};
 auto_reconnect(_) -> undefined.

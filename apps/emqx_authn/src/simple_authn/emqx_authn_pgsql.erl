@@ -26,6 +26,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -48,11 +49,16 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-postgresql".
+namespace() -> "authn".
 
-roots() -> [?CONF_NS].
+tags() ->
+    [<<"Authentication">>].
 
-fields(?CONF_NS) ->
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, postgresql))}].
+
+fields(postgresql) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(postgresql)},
@@ -62,8 +68,8 @@ fields(?CONF_NS) ->
         emqx_authn_schema:common_fields() ++
         proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config)).
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(postgresql) ->
+    ?DESC(postgresql);
 desc(_) ->
     undefined.
 
@@ -77,7 +83,7 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, postgresql)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -116,7 +122,7 @@ authenticate(
     }
 ) ->
     Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
+    case emqx_resource:simple_sync_query(ResourceId, {prepared_query, ResourceId, Params}) of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->

@@ -1,0 +1,6 @@
+emqx_authz_api_cache {
+
+authorization_cache_delete.desc:
+"""清除集群中所有授权数据缓存。"""
+
+}

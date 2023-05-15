@@ -71,14 +71,13 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
 to_remote_msg(MapMsg, #{
     remote := #{
         topic := TopicToken,
-        payload := PayloadToken,
         qos := QoSToken,
         retain := RetainToken
-    },
+    } = Remote,
     mountpoint := Mountpoint
 }) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
-    Payload = process_payload(PayloadToken, MapMsg),
+    Payload = process_payload(Remote, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
     PubProps = maps:get(pub_props, MapMsg, #{}),
@@ -86,7 +85,7 @@ to_remote_msg(MapMsg, #{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = emqx_misc:pub_props_to_packet(PubProps),
+        props = emqx_utils:pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
@@ -100,30 +99,32 @@ to_broker_msg(
     #{
         local := #{
             topic := TopicToken,
-            payload := PayloadToken,
             qos := QoSToken,
             retain := RetainToken
-        },
+        } = Local,
         mountpoint := Mountpoint
     },
     Props
 ) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
-    Payload = process_payload(PayloadToken, MapMsg),
+    Payload = process_payload(Local, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
     PubProps = maps:get(pub_props, MapMsg, #{}),
     set_headers(
-        Props#{properties => emqx_misc:pub_props_to_packet(PubProps)},
+        Props#{properties => emqx_utils:pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)
         )
     ).
 
-process_payload([], Msg) ->
-    emqx_json:encode(Msg);
-process_payload(Tks, Msg) ->
+process_payload(From, MapMsg) ->
+    do_process_payload(maps:get(payload, From, undefined), MapMsg).
+
+do_process_payload(undefined, Msg) ->
+    emqx_utils_json:encode(Msg);
+do_process_payload(Tks, Msg) ->
     replace_vars_in_str(Tks, Msg).
 
 %% Replace a string contains vars to another string in which the placeholders are replace by the

@@ -49,36 +49,6 @@ end_per_testcase(_Case, Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
--define(CONF(Conf), #{?CONF_NS_BINARY => Conf}).
-
-t_check_schema(_Config) ->
-    ConfigOk = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"user_id_type">> => <<"username">>,
-        <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"bcrypt">>,
-            <<"salt_rounds">> => <<"6">>
-        }
-    },
-
-    hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
-
-    ConfigNotOk = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"user_id_type">> => <<"username">>,
-        <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"md6">>
-        }
-    },
-
-    ?assertException(
-        throw,
-        {emqx_authn_mnesia, _},
-        hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))
-    ).
-
 t_create(_) ->
     Config0 = config(),
 
@@ -197,7 +167,7 @@ t_list_users(_) ->
             #{is_superuser := false, user_id := _},
             #{is_superuser := false, user_id := _}
         ],
-        meta := #{page := 1, limit := 2, count := 3}
+        meta := #{page := 1, limit := 2, count := 3, hasnext := true}
     } = emqx_authn_mnesia:list_users(
         #{<<"page">> => 1, <<"limit">> => 2},
         State
@@ -205,7 +175,7 @@ t_list_users(_) ->
 
     #{
         data := [#{is_superuser := false, user_id := _}],
-        meta := #{page := 2, limit := 2, count := 3}
+        meta := #{page := 2, limit := 2, count := 3, hasnext := false}
     } = emqx_authn_mnesia:list_users(
         #{<<"page">> => 2, <<"limit">> => 2},
         State
@@ -213,7 +183,7 @@ t_list_users(_) ->
 
     #{
         data := [#{is_superuser := false, user_id := <<"u3">>}],
-        meta := #{page := 1, limit := 20, count := 0}
+        meta := #{page := 1, limit := 20, hasnext := false}
     } = emqx_authn_mnesia:list_users(
         #{
             <<"page">> => 1,

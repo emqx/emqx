@@ -21,10 +21,10 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
--behaviour(emqx_authentication).
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -32,6 +32,7 @@
 
 -export([
     refs/0,
+    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
@@ -42,33 +43,57 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-jwt".
+namespace() -> "authn".
 
+tags() ->
+    [<<"Authentication">>].
+
+%% used for config check when the schema module is resolved
 roots() ->
     [
         {?CONF_NS,
             hoconsc:mk(
-                hoconsc:union(refs()),
+                hoconsc:union(fun ?MODULE:union_member_selector/1),
                 #{}
             )}
     ].
 
-fields('hmac-based') ->
+fields(jwt_hmac) ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ?DESC(use_jwks)})},
+        %% for hmac, it's the 'algorithm' field which selects this type
+        %% use_jwks field can be ignored (kept for backward compatibility)
+        {use_jwks,
+            sc(
+                hoconsc:enum([false]),
+                #{
+                    required => false,
+                    desc => ?DESC(use_jwks),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {algorithm,
             sc(hoconsc:enum(['hmac-based']), #{required => true, desc => ?DESC(algorithm)})},
         {secret, fun secret/1},
         {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
-fields('public-key') ->
+fields(jwt_public_key) ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ?DESC(use_jwks)})},
+        %% for public-key, it's the 'algorithm' field which selects this type
+        %% use_jwks field can be ignored (kept for backward compatibility)
+        {use_jwks,
+            sc(
+                hoconsc:enum([false]),
+                #{
+                    required => false,
+                    desc => ?DESC(use_jwks),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {algorithm,
             sc(hoconsc:enum(['public-key']), #{required => true, desc => ?DESC(algorithm)})},
         {public_key, fun public_key/1}
     ] ++ common_fields();
-fields('jwks') ->
+fields(jwt_jwks) ->
     [
         {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ?DESC(use_jwks)})},
         {endpoint, fun endpoint/1},
@@ -81,17 +106,13 @@ fields('jwks') ->
         }}
     ] ++ common_fields().
 
-desc('hmac-based') ->
-    ?DESC('hmac-based');
-desc('public-key') ->
-    ?DESC('public-key');
-desc('jwks') ->
-    ?DESC('jwks');
-desc(ssl_disable) ->
-    ?DESC(ssl_disable);
-desc(ssl_enable) ->
-    ?DESC(ssl_enable);
-desc(_) ->
+desc(jwt_hmac) ->
+    ?DESC(jwt_hmac);
+desc(jwt_public_key) ->
+    ?DESC(jwt_public_key);
+desc(jwt_jwks) ->
+    ?DESC(jwt_jwks);
+desc(undefined) ->
     undefined.
 
 common_fields() ->
@@ -160,10 +181,35 @@ from(_) -> undefined.
 
 refs() ->
     [
-        hoconsc:ref(?MODULE, 'hmac-based'),
-        hoconsc:ref(?MODULE, 'public-key'),
-        hoconsc:ref(?MODULE, 'jwks')
+        hoconsc:ref(?MODULE, jwt_hmac),
+        hoconsc:ref(?MODULE, jwt_public_key),
+        hoconsc:ref(?MODULE, jwt_jwks)
     ].
+
+union_member_selector(all_union_members) ->
+    refs();
+union_member_selector({value, V}) ->
+    UseJWKS = maps:get(<<"use_jwks">>, V, undefined),
+    select_ref(boolean(UseJWKS), V).
+
+%% this field is technically a boolean type,
+%% but union member selection is done before type casting (by typrefl),
+%% so we have to allow strings too
+boolean(<<"true">>) -> true;
+boolean(<<"false">>) -> false;
+boolean(Other) -> Other.
+
+select_ref(true, _) ->
+    [hoconsc:ref(?MODULE, 'jwt_jwks')];
+select_ref(false, #{<<"public_key">> := _}) ->
+    [hoconsc:ref(?MODULE, jwt_public_key)];
+select_ref(false, _) ->
+    [hoconsc:ref(?MODULE, jwt_hmac)];
+select_ref(_, _) ->
+    throw(#{
+        field_name => use_jwks,
+        expected => "true | false"
+    }).
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -183,7 +229,7 @@ update(
     #{use_jwks := true} = Config,
     #{jwk_resource := ResourceId} = State
 ) ->
-    case emqx_resource:query(ResourceId, {update, connector_opts(Config)}) of
+    case emqx_resource:simple_sync_query(ResourceId, {update, connector_opts(Config)}) of
         ok ->
             case maps:get(verify_claims, Config, undefined) of
                 undefined ->
@@ -225,7 +271,7 @@ authenticate(
         from := From
     }
 ) ->
-    case emqx_resource:query(ResourceId, get_jwks) of
+    case emqx_resource:simple_sync_query(ResourceId, get_jwks) of
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "get_jwks_failed", #{
                 resource => ResourceId,
@@ -382,7 +428,7 @@ do_verify(_JWT, [], _VerifyClaims) ->
 do_verify(JWT, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWT) of
         {true, Payload, _JWT} ->
-            Claims0 = emqx_json:decode(Payload, [return_maps]),
+            Claims0 = emqx_utils_json:decode(Payload, [return_maps]),
             Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->

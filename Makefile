@@ -2,12 +2,8 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-26:1.13.4-24.3.4.2-1-debian11
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-debian11
 export EMQX_DEFAULT_RUNNER = debian:11-slim
-export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
-export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.1.4
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.9
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -15,6 +11,22 @@ ifeq ($(OS),Windows_NT)
 	FIND=/usr/bin/find
 else
 	FIND=find
+endif
+
+# Dashbord version
+# from https://github.com/emqx/emqx-dashboard5
+export EMQX_DASHBOARD_VERSION ?= v1.2.4-1
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.6
+
+# `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
+# In make 4.4+, for backward-compatibility the value from the original environment is used.
+# so the shell script will be executed tons of times.
+# https://github.com/emqx/emqx/pull/10627
+ifeq ($(strip $(OTP_VSN)),)
+	export OTP_VSN := $(shell $(SCRIPTS)/get-otp-vsn.sh)
+endif
+ifeq ($(strip $(ELIXIR_VSN)),)
+	export ELIXIR_VSN := $(shell $(SCRIPTS)/get-elixir-vsn.sh)
 endif
 
 PROFILE ?= emqx
@@ -73,24 +85,36 @@ proper: $(REBAR)
 test-compile: $(REBAR) merge-config
 	$(REBAR) as test compile
 
+.PHONY: $(REL_PROFILES:%=%-compile)
+$(REL_PROFILES:%=%-compile): $(REBAR) merge-config
+	$(REBAR) as $(@:%-compile=%) compile
+
 .PHONY: ct
 ct: $(REBAR) merge-config
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
+## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do dialyzer, xref, ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+	@$(REBAR) as check do xref, dialyzer
+	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
+	./scripts/check-i18n-style.sh
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct: $(REBAR)
-	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
-		--name $(CT_NODE_NAME) \
-		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
-		--suite $(shell $(SCRIPTS)/find-suites.sh $1)
+$1-ct: $(REBAR) merge-config
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+ifneq ($(SUITES),)
+		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+			--readable=$(CT_READABLE) \
+			--name $(CT_NODE_NAME) \
+			--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
+			--suite $(SUITES)
+else
+		@echo 'No suites found for $1'
+endif
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
@@ -103,7 +127,7 @@ endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
 .PHONY: ct-suite
-ct-suite: $(REBAR)
+ct-suite: $(REBAR) merge-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
@@ -130,6 +154,11 @@ COMMON_DEPS := $(REBAR)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(BUILD) $(@) rel
 
+.PHONY: compile $(PROFILES:%=compile-%)
+compile: $(PROFILES:%=compile-%)
+$(PROFILES:%=compile-%):
+	@$(BUILD) $(@:compile-%=%) apps
+
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
 ## 2. it's slow
@@ -148,7 +177,9 @@ $(PROFILES:%=clean-%):
 .PHONY: clean-all
 clean-all:
 	@rm -f rebar.lock
+	@rm -rf deps
 	@rm -rf _build
+	@rm -f emqx_dialyzer_*_plt
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
@@ -212,11 +243,15 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: $(PROFILE) quickrun
+run: compile-$(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
-	./_build/$(PROFILE)/rel/emqx/bin/emqx console
+	./dev -p $(PROFILE)
+
+## Take the currently set PROFILE
+docker:
+	@$(BUILD) $(PROFILE) docker
 
 ## docker target is to create docker instructions
 .PHONY: $(REL_PROFILES:%=%-docker) $(REL_PROFILES:%=%-elixir-docker)
@@ -230,7 +265,6 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 .PHONY:
 merge-config:
 	@$(SCRIPTS)/merge-config.escript
-	@$(SCRIPTS)/merge-i18n.escript
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)

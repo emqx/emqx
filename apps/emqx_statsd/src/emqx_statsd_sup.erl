@@ -25,6 +25,7 @@
 -export([
     start_link/0,
     ensure_child_started/1,
+    ensure_child_started/2,
     ensure_child_stopped/1
 ]).
 
@@ -45,7 +46,11 @@ start_link() ->
 
 -spec ensure_child_started(atom()) -> ok.
 ensure_child_started(Mod) when is_atom(Mod) ->
-    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, []))).
+    ensure_child_started(Mod, emqx_conf:get([statsd], #{})).
+
+-spec ensure_child_started(atom(), map()) -> ok.
+ensure_child_started(Mod, Conf) when is_atom(Mod) ->
+    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, [Conf]))).
 
 %% @doc Stop the child worker process.
 -spec ensure_child_stopped(any()) -> ok.
@@ -61,9 +66,9 @@ ensure_child_stopped(ChildId) ->
 
 init([]) ->
     Children =
-        case emqx_conf:get([statsd, enable], false) of
-            true -> [?CHILD(emqx_statsd, [])];
-            false -> []
+        case emqx_conf:get([statsd], #{}) of
+            #{enable := true} = Conf -> [?CHILD(emqx_statsd, [Conf])];
+            _ -> []
         end,
     {ok, {{one_for_one, 100, 3600}, Children}}.
 

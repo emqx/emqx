@@ -516,13 +516,13 @@ init_seeds() ->
     ).
 
 q(Sql) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?MYSQL_RESOURCE,
         {sql, Sql}
     ).
 
 q(Sql, Params) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?MYSQL_RESOURCE,
         {sql, Sql, Params}
     ).

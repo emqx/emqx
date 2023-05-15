@@ -1,0 +1,63 @@
+emqx_retainer_api {
+
+config_content.desc:
+"""The config content"""
+
+config_not_found.desc:
+"""Config not found."""
+
+delete_matching_api.desc:
+"""Delete matching messages."""
+
+from_clientid.desc:
+"""The clientid of publisher."""
+
+from_username.desc:
+"""The username of publisher."""
+
+get_config_api.desc:
+"""View config"""
+
+list_retained_api.desc:
+"""List retained messages."""
+
+lookup_api.desc:
+"""Lookup a message by a topic without wildcards."""
+
+message_detail.desc:
+"""Details of the message."""
+
+message_not_exist.desc:
+"""Viewed message doesn't exist."""
+
+msgid.desc:
+"""Message ID."""
+
+payload.desc:
+"""Payload."""
+
+publish_at.desc:
+"""Message publish time, RFC 3339 format."""
+
+qos.desc:
+"""QoS."""
+
+retained_list.desc:
+"""Retained messages list."""
+
+topic.desc:
+"""Topic."""
+
+unsupported_backend.desc:
+"""Unsupported backend."""
+
+update_config_failed.desc:
+"""Update config failed"""
+
+update_config_success.desc:
+"""Update configs successfully."""
+
+update_retainer_api.desc:
+"""Update retainer config."""
+
+}

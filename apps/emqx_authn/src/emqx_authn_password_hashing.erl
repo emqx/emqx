@@ -64,7 +64,7 @@
 ]).
 
 namespace() -> "authn-hash".
-roots() -> [pbkdf2, bcrypt, bcrypt_rw, other_algorithms].
+roots() -> [pbkdf2, bcrypt, bcrypt_rw, simple].
 
 fields(bcrypt_rw) ->
     fields(bcrypt) ++
@@ -96,7 +96,7 @@ fields(pbkdf2) ->
             )},
         {dk_length, fun dk_length/1}
     ];
-fields(other_algorithms) ->
+fields(simple) ->
     [
         {name,
             sc(
@@ -112,8 +112,8 @@ desc(bcrypt) ->
     "Settings for bcrypt password hashing algorithm.";
 desc(pbkdf2) ->
     "Settings for PBKDF2 password hashing algorithm.";
-desc(other_algorithms) ->
-    "Settings for other password hashing algorithms.";
+desc(simple) ->
+    "Settings for simple algorithms.";
 desc(_) ->
     undefined.
 
@@ -231,17 +231,31 @@ check_password(#{name := Other, salt_position := SaltPosition}, Salt, PasswordHa
 %%------------------------------------------------------------------------------
 
 rw_refs() ->
-    [
+    All = [
         hoconsc:ref(?MODULE, bcrypt_rw),
         hoconsc:ref(?MODULE, pbkdf2),
-        hoconsc:ref(?MODULE, other_algorithms)
-    ].
+        hoconsc:ref(?MODULE, simple)
+    ],
+    fun
+        (all_union_members) -> All;
+        ({value, #{<<"name">> := <<"bcrypt">>}}) -> [hoconsc:ref(?MODULE, bcrypt_rw)];
+        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [hoconsc:ref(?MODULE, pbkdf2)];
+        ({value, #{<<"name">> := _}}) -> [hoconsc:ref(?MODULE, simple)];
+        ({value, _}) -> throw(#{reason => "algorithm_name_missing"})
+    end.
 
 ro_refs() ->
-    [
+    All = [
         hoconsc:ref(?MODULE, bcrypt),
         hoconsc:ref(?MODULE, pbkdf2),
-        hoconsc:ref(?MODULE, other_algorithms)
-    ].
+        hoconsc:ref(?MODULE, simple)
+    ],
+    fun
+        (all_union_members) -> All;
+        ({value, #{<<"name">> := <<"bcrypt">>}}) -> [hoconsc:ref(?MODULE, bcrypt)];
+        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [hoconsc:ref(?MODULE, pbkdf2)];
+        ({value, #{<<"name">> := _}}) -> [hoconsc:ref(?MODULE, simple)];
+        ({value, _}) -> throw(#{reason => "algorithm_name_missing"})
+    end.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

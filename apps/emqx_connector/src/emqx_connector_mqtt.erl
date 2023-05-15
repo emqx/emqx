@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_mqtt).
 
+-include("emqx_connector.hrl").
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -42,6 +44,8 @@
     on_query_async/4,
     on_get_status/2
 ]).
+
+-export([on_async_result/2]).
 
 -behaviour(hocon_schema).
 
@@ -103,16 +107,15 @@ init([]) ->
     {ok, {SupFlag, []}}.
 
 bridge_spec(Config) ->
+    {Name, NConfig} = maps:take(name, Config),
     #{
-        id => maps:get(name, Config),
-        start => {emqx_connector_mqtt_worker, start_link, [Config]},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker,
-        modules => [emqx_connector_mqtt_worker]
+        id => Name,
+        start => {emqx_connector_mqtt_worker, start_link, [Name, NConfig]},
+        restart => temporary,
+        shutdown => 5000
     }.
 
--spec bridges() -> [{node(), map()}].
+-spec bridges() -> [{_Name, _Status}].
 bridges() ->
     [
         {Name, emqx_connector_mqtt_worker:status(Name)}
@@ -136,24 +139,23 @@ drop_bridge(Name) ->
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
 on_message_received(Msg, HookPoint, ResId) ->
-    emqx_resource:inc_received(ResId),
+    emqx_resource_metrics:received_inc(ResId),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
 callback_mode() -> async_if_possible.
 
-on_start(InstId, Conf) ->
-    InstanceId = binary_to_atom(InstId, utf8),
+on_start(InstanceId, Conf) ->
     ?SLOG(info, #{
         msg => "starting_mqtt_connector",
         connector => InstanceId,
-        config => Conf
+        config => emqx_utils:redact(Conf)
     }),
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
-        clientid => clientid(InstId, Conf),
-        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), Conf, InstId),
+        clientid => clientid(InstanceId, Conf),
+        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), Conf, InstanceId),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
     case ?MODULE:create_bridge(BridgeConf) of
@@ -187,42 +189,71 @@ on_stop(_InstId, #{name := InstanceId}) ->
 
 on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg).
-
-on_query_async(
-    _InstId,
-    {send_message, Msg},
-    {ReplyFun, Args},
-    #{name := InstanceId}
-) ->
-    ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplyFun, Args}).
-
-on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
-    AutoReconn = maps:get(auto_reconnect, Conf, true),
-    case emqx_connector_mqtt_worker:status(InstanceId) of
-        connected -> connected;
-        _ when AutoReconn == true -> connecting;
-        _ when AutoReconn == false -> disconnected
+    case emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            classify_error(Reason)
     end.
 
+on_query_async(_InstId, {send_message, Msg}, CallbackIn, #{name := InstanceId}) ->
+    ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
+    Callback = {fun on_async_result/2, [CallbackIn]},
+    case emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, Callback) of
+        ok ->
+            ok;
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, Reason} ->
+            classify_error(Reason)
+    end.
+
+on_async_result(Callback, ok) ->
+    apply_callback_function(Callback, ok);
+on_async_result(Callback, {ok, _} = Ok) ->
+    apply_callback_function(Callback, Ok);
+on_async_result(Callback, {error, Reason}) ->
+    apply_callback_function(Callback, classify_error(Reason)).
+
+apply_callback_function(F, Result) when is_function(F) ->
+    erlang:apply(F, [Result]);
+apply_callback_function({F, A}, Result) when is_function(F), is_list(A) ->
+    erlang:apply(F, A ++ [Result]);
+apply_callback_function({M, F, A}, Result) when is_atom(M), is_atom(F), is_list(A) ->
+    erlang:apply(M, F, A ++ [Result]).
+
+on_get_status(_InstId, #{name := InstanceId}) ->
+    emqx_connector_mqtt_worker:status(InstanceId).
+
+classify_error(disconnected = Reason) ->
+    {error, {recoverable_error, Reason}};
+classify_error({disconnected, _RC, _} = Reason) ->
+    {error, {recoverable_error, Reason}};
+classify_error({shutdown, _} = Reason) ->
+    {error, {recoverable_error, Reason}};
+classify_error(shutdown = Reason) ->
+    {error, {recoverable_error, Reason}};
+classify_error(Reason) ->
+    {error, {unrecoverable_error, Reason}}.
+
 ensure_mqtt_worker_started(InstanceId, BridgeConf) ->
-    case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
-        ok -> {ok, #{name => InstanceId, bridge_conf => BridgeConf}};
-        {error, Reason} -> {error, Reason}
+    case emqx_connector_mqtt_worker:connect(InstanceId) of
+        {ok, Properties} ->
+            {ok, #{name => InstanceId, config => BridgeConf, props => Properties}};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 make_sub_confs(EmptyMap, _Conf, _) when map_size(EmptyMap) == 0 ->
     undefined;
 make_sub_confs(undefined, _Conf, _) ->
     undefined;
-make_sub_confs(SubRemoteConf, Conf, InstId) ->
-    ResId = emqx_resource_manager:manager_id_to_resource_id(InstId),
+make_sub_confs(SubRemoteConf, Conf, ResourceId) ->
     case maps:find(hookpoint, Conf) of
         error ->
             error({no_hookpoint_provided, Conf});
         {ok, HookPoint} ->
-            MFA = {?MODULE, on_message_received, [HookPoint, ResId]},
+            MFA = {?MODULE, on_message_received, [HookPoint, ResourceId]},
             SubRemoteConf#{on_message_received => MFA}
     end.
 
@@ -236,7 +267,6 @@ make_forward_confs(FrowardConf) ->
 basic_config(
     #{
         server := Server,
-        reconnect_interval := ReconnIntv,
         proto_ver := ProtoVer,
         bridge_mode := BridgeMode,
         clean_start := CleanStart,
@@ -252,7 +282,6 @@ basic_config(
         %% 30s
         connect_timeout => 30,
         auto_reconnect => true,
-        reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
         %% Opening bridge_mode will form a non-standard mqtt connection message.
         %% A load balancing server (such as haproxy) is often set up before the emqx broker server.
@@ -260,13 +289,12 @@ basic_config(
         %% non-standard mqtt connection packets will be filtered out by LB.
         %% So let's disable bridge_mode.
         bridge_mode => BridgeMode,
-        clean_start => CleanStart,
         keepalive => ms_to_s(KeepAlive),
+        clean_start => CleanStart,
         retry_interval => RetryIntv,
         max_inflight => MaxInflight,
         ssl => EnableSsl,
-        ssl_opts => maps:to_list(maps:remove(enable, Ssl)),
-        if_record_metrics => true
+        ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     },
     maybe_put_fields([username, password], Conf, BasicConf).
 

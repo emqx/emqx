@@ -20,8 +20,8 @@ esac
 
 {
   echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_"
-  echo "EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s"
-  echo "EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10"
+  echo "EMQX_MQTT__RETRY_INTERVAL=2s"
+  echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
   echo "EMQX_AUTHORIZATION__SOURCES=[]"
   echo "EMQX_AUTHORIZATION__NO_MATCH=allow"
 } >> .ci/docker-compose-file/conf.cluster.env
@@ -29,7 +29,7 @@ esac
 is_node_up() {
   local node="$1"
   docker exec -i "$node" \
-         bash -c "emqx eval-erl \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
+         bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
 }
 
 is_node_listening() {

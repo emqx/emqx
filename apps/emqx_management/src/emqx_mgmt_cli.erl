@@ -213,7 +213,7 @@ subscriptions(["show", ClientId]) ->
         [] ->
             emqx_ctl:print("Not Found.~n");
         [{_, Pid}] ->
-            case ets:match_object(emqx_suboption, {{Pid, '_'}, '_'}) of
+            case ets:match_object(emqx_suboption, {{'_', Pid}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
                 Suboption -> [print({emqx_suboption, Sub}) || Sub <- Suboption]
             end
@@ -315,7 +315,7 @@ vm([]) ->
 vm(["all"]) ->
     [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
 vm(["load"]) ->
-    [emqx_ctl:print("cpu/~-20s: ~ts~n", [L, V]) || {L, V} <- emqx_vm:loads()];
+    [emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) || {L, V} <- emqx_vm:loads()];
 vm(["memory"]) ->
     [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
 vm(["process"]) ->
@@ -356,7 +356,7 @@ mnesia(_) ->
 %% @doc Logger Command
 
 log(["set-level", Level]) ->
-    case emqx_misc:safe_to_existing_atom(Level) of
+    case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             case emqx_logger:set_log_level(Level1) of
                 ok -> emqx_ctl:print("~ts~n", [Level]);
@@ -369,7 +369,7 @@ log(["primary-level"]) ->
     Level = emqx_logger:get_primary_log_level(),
     emqx_ctl:print("~ts~n", [Level]);
 log(["primary-level", Level]) ->
-    case emqx_misc:safe_to_existing_atom(Level) of
+    case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             _ = emqx_logger:set_primary_log_level(Level1),
             ok;
@@ -392,7 +392,7 @@ log(["handlers", "list"]) ->
     ],
     ok;
 log(["handlers", "start", HandlerId]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
             case emqx_logger:start_log_handler(HandlerId1) of
                 ok ->
@@ -406,7 +406,7 @@ log(["handlers", "start", HandlerId]) ->
             emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "stop", HandlerId]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
             case emqx_logger:stop_log_handler(HandlerId1) of
                 ok ->
@@ -420,9 +420,9 @@ log(["handlers", "stop", HandlerId]) ->
             emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "set-level", HandlerId, Level]) ->
-    case emqx_misc:safe_to_existing_atom(HandlerId) of
+    case emqx_utils:safe_to_existing_atom(HandlerId) of
         {ok, HandlerId1} ->
-            case emqx_misc:safe_to_existing_atom(Level) of
+            case emqx_utils:safe_to_existing_atom(Level) of
                 {ok, Level1} ->
                     case emqx_logger:set_log_handler_level(HandlerId1, Level1) of
                         ok ->
@@ -615,20 +615,25 @@ listeners([]) ->
                     {error, _} -> [];
                     MC -> [{max_conns, MC}]
                 end,
+            ShutdownCount =
+                case emqx_listeners:shutdown_count(ID, Bind) of
+                    {error, _} -> [];
+                    SC -> [{shutdown_count, SC}]
+                end,
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
-                ] ++ CurrentConns ++ MaxConn,
+                ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [ID]),
             lists:foreach(fun indent_print/1, Info)
         end,
         emqx_listeners:list()
     );
 listeners(["stop", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:stop_listener(ListenerId1) of
                 ok ->
@@ -640,7 +645,7 @@ listeners(["stop", ListenerId]) ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["start", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:start_listener(ListenerId1) of
                 ok ->
@@ -652,7 +657,7 @@ listeners(["start", ListenerId]) ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["restart", ListenerId]) ->
-    case emqx_misc:safe_to_existing_atom(ListenerId) of
+    case emqx_utils:safe_to_existing_atom(ListenerId) of
         {ok, ListenerId1} ->
             case emqx_listeners:restart_listener(ListenerId1) of
                 ok ->
@@ -829,7 +834,7 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
+print({emqx_suboption, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
     SubId = maps:get(subid, Options),
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),

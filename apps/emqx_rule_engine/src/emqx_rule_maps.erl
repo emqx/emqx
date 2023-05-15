@@ -26,9 +26,13 @@
     unsafe_atom_key_map/1
 ]).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
 nested_get(Key, Data) ->
     nested_get(Key, Data, undefined).
 
+nested_get({var, ?PH_VAR_THIS}, Data, _Default) ->
+    Data;
 nested_get({var, Key}, Data, Default) ->
     general_map_get({key, Key}, Data, Data, Default);
 nested_get({path, Path}, Data, Default) when is_list(Path) ->
@@ -82,7 +86,7 @@ general_map_put(Key, Val, Map, OrgData) ->
     ).
 
 general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
-    try emqx_json:decode(Data, [return_maps]) of
+    try emqx_utils_json:decode(Data, [return_maps]) of
         Json -> general_find(KeyOrIndex, Json, OrgData, Handler)
     catch
         _:_ -> Handler(not_found)

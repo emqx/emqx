@@ -44,7 +44,7 @@
     user/2,
     client/2,
     all/2,
-    purge/2
+    rules/2
 ]).
 
 %% query funs
@@ -70,19 +70,19 @@ api_spec() ->
 
 paths() ->
     [
-        "/authorization/sources/built_in_database/username",
-        "/authorization/sources/built_in_database/clientid",
-        "/authorization/sources/built_in_database/username/:username",
-        "/authorization/sources/built_in_database/clientid/:clientid",
-        "/authorization/sources/built_in_database/all",
-        "/authorization/sources/built_in_database/purge-all"
+        "/authorization/sources/built_in_database/rules/users",
+        "/authorization/sources/built_in_database/rules/clients",
+        "/authorization/sources/built_in_database/rules/users/:username",
+        "/authorization/sources/built_in_database/rules/clients/:clientid",
+        "/authorization/sources/built_in_database/rules/all",
+        "/authorization/sources/built_in_database/rules"
     ].
 
 %%--------------------------------------------------------------------
 %% Schema for each URI
 %%--------------------------------------------------------------------
 
-schema("/authorization/sources/built_in_database/username") ->
+schema("/authorization/sources/built_in_database/rules/users") ->
     #{
         'operationId' => users,
         get =>
@@ -128,7 +128,7 @@ schema("/authorization/sources/built_in_database/username") ->
                     }
             }
     };
-schema("/authorization/sources/built_in_database/clientid") ->
+schema("/authorization/sources/built_in_database/rules/clients") ->
     #{
         'operationId' => clients,
         get =>
@@ -174,7 +174,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
                     }
             }
     };
-schema("/authorization/sources/built_in_database/username/:username") ->
+schema("/authorization/sources/built_in_database/rules/users/:username") ->
     #{
         'operationId' => user,
         get =>
@@ -227,7 +227,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
                     }
             }
     };
-schema("/authorization/sources/built_in_database/clientid/:clientid") ->
+schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
     #{
         'operationId' => client,
         get =>
@@ -280,20 +280,20 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
                     }
             }
     };
-schema("/authorization/sources/built_in_database/all") ->
+schema("/authorization/sources/built_in_database/rules/all") ->
     #{
         'operationId' => all,
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => ?DESC(rules_for_all_get),
+                description => ?DESC(rules_all_get),
                 responses =>
                     #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             },
         post =>
             #{
                 tags => [<<"authorization">>],
-                description => ?DESC(rules_for_all_post),
+                description => ?DESC(rules_all_post),
                 'requestBody' =>
                     swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
                 responses =>
@@ -303,15 +303,24 @@ schema("/authorization/sources/built_in_database/all") ->
                             [?BAD_REQUEST], <<"Bad rule schema">>
                         )
                     }
-            }
-    };
-schema("/authorization/sources/built_in_database/purge-all") ->
-    #{
-        'operationId' => purge,
+            },
         delete =>
             #{
                 tags => [<<"authorization">>],
-                description => ?DESC(purge_all_delete),
+                description => ?DESC(rules_all_delete),
+                responses =>
+                    #{
+                        204 => <<"Deleted">>
+                    }
+            }
+    };
+schema("/authorization/sources/built_in_database/rules") ->
+    #{
+        'operationId' => rules,
+        delete =>
+            #{
+                tags => [<<"authorization">>],
+                description => ?DESC(rules_delete),
                 responses =>
                     #{
                         204 => <<"Deleted">>,
@@ -555,9 +564,12 @@ all(get, _) ->
     end;
 all(post, #{body := #{<<"rules">> := Rules}}) ->
     emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
+    {204};
+all(delete, _) ->
+    emqx_authz_mnesia:store_rules(all, []),
     {204}.
 
-purge(delete, _) ->
+rules(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
         [#{<<"enable">> := false}] ->
             ok = emqx_authz_mnesia:purge_rules(),

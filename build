@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 
 # This script helps to build release artifacts.
-# arg1: profile, e.g. emqx | emqx-pkg
+# arg1: profile, e.g. emqx | emqx-enterprise
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
-if [[ -n "$DEBUG" ]]; then
-    set -x
-fi
 set -euo pipefail
 
-DEBUG="${DEBUG:-0}"
-if [ "$DEBUG" -eq 1 ]; then
-    set -x
-fi
+[ "${DEBUG:-0}" -eq 1 ] && set -x
 
 PROFILE_ARG="$1"
 ARTIFACT="$2"
@@ -98,7 +92,7 @@ log() {
 }
 
 make_docs() {
-    local libs_dir1 libs_dir2 libs_dir3
+    local libs_dir1 libs_dir2 libs_dir3 docdir
     libs_dir1="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
     if [ -d "_build/default/lib/" ]; then
         libs_dir2="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
@@ -118,35 +112,39 @@ make_docs() {
             SCHEMA_MODULE='emqx_conf_schema'
             ;;
     esac
+    docdir="_build/docgen/$PROFILE"
+    mkdir -p "$docdir"
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
-        "Dir = filename:join([apps, emqx_dashboard, priv, www, static]), \
-         I18nFile = filename:join([apps, emqx_dashboard, priv, 'i18n.conf']), \
-         ok = emqx_conf:dump_schema(Dir, $SCHEMA_MODULE, I18nFile), \
+        "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
 }
 
 assert_no_compile_time_only_deps() {
-    if [ "$("$FIND" "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
-        echo "gpb should not be included in the release"
-        exit 1
-    fi
+    :
+}
+
+just_compile() {
+    ./scripts/pre-compile.sh "$PROFILE"
+    # make_elixir_rel always create rebar.lock
+    # delete it to make git clone + checkout work because we use shallow close for rebar deps
+    rm -f rebar.lock
+    # compile all beams
+    ./rebar3 as "$PROFILE" compile
+    make_docs
 }
 
 make_rel() {
-    ./scripts/pre-compile.sh "$PROFILE"
-    # compile all beams
-    ./rebar3 as "$PROFILE" compile
-    # generate docs (require beam compiled), generated to etc and priv dirs
-    make_docs
+    local release_or_tar="${1}"
+    just_compile
     # now assemble the release tar
-    ./rebar3 as "$PROFILE" tar
+    ./rebar3 as "$PROFILE" "$release_or_tar"
     assert_no_compile_time_only_deps
 }
 
 make_elixir_rel() {
   ./scripts/pre-compile.sh "$PROFILE"
-  export_release_vars "$PROFILE"
+  export_elixir_release_vars "$PROFILE"
   # for some reason, this has to be run outside "do"...
   mix local.rebar --if-missing --force
   # shellcheck disable=SC1010
@@ -226,7 +224,7 @@ make_tgz() {
     else
       # build the src_tarball again to ensure relup is included
       # elixir does not have relup yet.
-      make_rel
+      make_rel tar
 
       local relpath="_build/${PROFILE}/rel/emqx"
       full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
@@ -234,6 +232,9 @@ make_tgz() {
 
     case "$SYSTEM" in
         macos*)
+            target_name="${PROFILE}-${full_vsn}.zip"
+            ;;
+        windows*)
             target_name="${PROFILE}-${full_vsn}.zip"
             ;;
         *)
@@ -301,6 +302,13 @@ make_tgz() {
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
             ;;
+        windows*)
+            pushd "${tard}" >/dev/null
+            7z a "${target_name}" ./emqx/* >/dev/null
+            popd >/dev/null
+            mv "${tard}/${target_name}" "${target}"
+            sha256sum "${target}" | head -c 64 > "${target}.sha256"
+            ;;
         *)
             ## create tar after change dir
             ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
@@ -315,28 +323,37 @@ make_tgz() {
     log "Archive sha256sum: $(cat "${target}.sha256")"
 }
 
+trap docker_cleanup EXIT
+
+docker_cleanup() {
+    rm -f ./.dockerignore >/dev/null
+}
+
 ## This function builds the default docker image based on debian 11
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
-    if [ -z "${EMQX_DOCKERFILE:-}" ]; then
-        if [[ "$EMQX_BUILDER" =~ "alpine" ]]; then
-            EMQX_DOCKERFILE='deploy/docker/Dockerfile.alpine'
-        else
-            EMQX_DOCKERFILE='deploy/docker/Dockerfile'
-        fi
-    fi
+    EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     if [[ "$PROFILE" = *-elixir ]]; then
-      PKG_VSN="$PKG_VSN-elixir"
+        PKG_VSN="$PKG_VSN-elixir"
     fi
-
+    local default_tag="emqx/${PROFILE%%-elixir}:${PKG_VSN}"
+    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
+    ## extra_deps is a comma separated list of debian 11 package names
+    local extra_deps=''
+    if [[ "$PROFILE" = *enterprise* ]]; then
+        extra_deps='libsasl2-2'
+    fi
+    echo '_build' >> ./.dockerignore
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
-       --build-arg EMQX_NAME="$PROFILE" \
-       --tag "emqx/${PROFILE%%-elixir}:${PKG_VSN}" \
+       --build-arg EMQX_NAME="${PROFILE}" \
+       --build-arg EXTRA_DEPS="${extra_deps}" \
+       --tag "${EMQX_IMAGE_TAG}" \
        -f "${EMQX_DOCKERFILE}" .
+    [[ "${DEBUG:-}" -eq 1 ]] || set +x
 }
 
 function join {
@@ -347,7 +364,7 @@ function join {
 
 # used to control the Elixir Mix Release output
 # see docstring in `mix.exs`
-export_release_vars() {
+export_elixir_release_vars() {
   local profile="$1"
   case "$profile" in
     emqx|emqx-enterprise)
@@ -361,37 +378,19 @@ export_release_vars() {
       exit 1
   esac
   export MIX_ENV="$profile"
-
-  local erl_opts=()
-
-  case "$(is_enterprise "$profile")" in
-    'yes')
-      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ee}" )
-      ;;
-    'no')
-      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ce}" )
-      ;;
-  esac
-
-  # At this time, Mix provides no easy way to pass `erl_opts' to
-  # dependencies.  The workaround is to set this variable before
-  # compiling the project, so that `emqx_release.erl' picks up
-  # `emqx_vsn' as if it was compiled by rebar3.
-  erl_opts+=( "{compile_info,[{emqx_vsn,\"${PKG_VSN}\"}]}" )
-  erl_opts+=( "{d,snk_kind,msg}" )
-
-  ERL_COMPILER_OPTIONS="[$(join , "${erl_opts[@]}")]"
-  export ERL_COMPILER_OPTIONS
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
+    apps)
+        just_compile
+        ;;
     doc|docs)
         make_docs
         ;;
     rel)
-        make_rel
+        make_rel release
         ;;
     relup)
         make_relup
@@ -410,7 +409,7 @@ case "$ARTIFACT" in
         if [ "${IS_ELIXIR:-}" = 'yes' ]; then
             make_elixir_rel
         else
-            make_rel
+            make_rel tar
         fi
         env EMQX_REL="$(pwd)" \
             EMQX_BUILD="${PROFILE}" \

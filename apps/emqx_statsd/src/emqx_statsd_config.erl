@@ -45,9 +45,9 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(?STATSD),
     ok.
 
-post_config_update(?STATSD, _Req, #{enable := true}, _Old, _AppEnvs) ->
+post_config_update(?STATSD, _Req, #{enable := true} = New, _Old, _AppEnvs) ->
     emqx_statsd_sup:ensure_child_stopped(?APP),
-    emqx_statsd_sup:ensure_child_started(?APP);
+    emqx_statsd_sup:ensure_child_started(?APP, New);
 post_config_update(?STATSD, _Req, #{enable := false}, _Old, _AppEnvs) ->
     emqx_statsd_sup:ensure_child_stopped(?APP);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->

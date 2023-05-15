@@ -105,18 +105,12 @@ t_update_with_invalid_config(_Config) ->
     AuthConfig = raw_pgsql_auth_config(),
     BadConfig = maps:without([<<"server">>], AuthConfig),
     ?assertMatch(
-        {error,
-            {bad_authenticator_config, #{
-                reason :=
-                    {emqx_authn_pgsql, [
-                        #{
-                            kind := validation_error,
-                            path := "authentication.server",
-                            reason := required_field,
-                            value := undefined
-                        }
-                    ]}
-            }}},
+        {error, #{
+            kind := validation_error,
+            matched_type := "authn:postgresql",
+            path := "authentication.1.server",
+            reason := required_field
+        }},
         emqx:update_config(
             ?PATH,
             {create_authenticator, ?GLOBAL, BadConfig}
@@ -594,13 +588,13 @@ create_user(Values) ->
     ok.
 
 q(Sql) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql}
     ).
 
 q(Sql, Params) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql, Params}
     ).

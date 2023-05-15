@@ -20,7 +20,6 @@
     providers/0,
     check_config/1,
     check_config/2,
-    check_configs/1,
     %% for telemetry information
     get_enabled_authns/0
 ]).
@@ -38,16 +37,6 @@ providers() ->
         {jwt, emqx_authn_jwt},
         {{scram, built_in_database}, emqx_enhanced_authn_scram_mnesia}
     ].
-
-check_configs(CM) when is_map(CM) ->
-    check_configs([CM]);
-check_configs(CL) ->
-    check_configs(CL, 1).
-
-check_configs([], _Nth) ->
-    [];
-check_configs([Config | Configs], Nth) ->
-    [check_config(Config, #{id_for_log => Nth}) | check_configs(Configs, Nth + 1)].
 
 check_config(Config) ->
     check_config(Config, #{}).
@@ -67,20 +56,31 @@ do_check_config(#{<<"mechanism">> := Mec0} = Config, Opts) ->
         end,
     case lists:keyfind(Key, 1, providers()) of
         false ->
-            throw(#{error => unknown_authn_provider, which => Key});
+            Reason =
+                case Key of
+                    {M, B} ->
+                        #{mechanism => M, backend => B};
+                    M ->
+                        #{mechanism => M}
+                end,
+            throw(Reason#{error => unknown_authn_provider});
         {_, ProviderModule} ->
-            hocon_tconf:check_plain(
-                ProviderModule,
-                #{?CONF_NS_BINARY => Config},
-                Opts#{atom_key => true}
-            )
+            do_check_config_maybe_throw(ProviderModule, Config, Opts)
     end;
-do_check_config(Config, Opts) when is_map(Config) ->
+do_check_config(Config, _Opts) when is_map(Config) ->
     throw(#{
         error => invalid_config,
-        which => maps:get(id_for_log, Opts, unknown),
         reason => "mechanism_field_required"
     }).
+
+do_check_config_maybe_throw(ProviderModule, Config0, Opts) ->
+    Config = #{?CONF_NS_BINARY => Config0},
+    case emqx_hocon:check(ProviderModule, Config, Opts#{atom_key => true}) of
+        {ok, Checked} ->
+            Checked;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 %% The atoms have to be loaded already,
 %% which might be an issue for plugins which are loaded after node boot

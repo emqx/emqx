@@ -51,8 +51,7 @@
 
 -export([
     add_default_user/0,
-    default_username/0,
-    add_bootstrap_users/0
+    default_username/0
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
@@ -85,21 +84,6 @@ mnesia(boot) ->
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
 
--spec add_bootstrap_users() -> ok | {error, _}.
-add_bootstrap_users() ->
-    case emqx:get_config([dashboard, bootstrap_users_file], undefined) of
-        undefined ->
-            ok;
-        File ->
-            case mnesia:table_info(?ADMIN, size) of
-                0 ->
-                    ?SLOG(debug, #{msg => "Add dashboard bootstrap users", file => File}),
-                    add_bootstrap_users(File);
-                _ ->
-                    ok
-            end
-    end.
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -108,21 +92,79 @@ add_bootstrap_users() ->
 add_user(Username, Password, Desc) when
     is_binary(Username), is_binary(Password)
 ->
-    case legal_username(Username) of
-        true ->
-            return(
-                mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc])
-            );
-        false ->
+    case {legal_username(Username), legal_password(Password)} of
+        {ok, ok} -> do_add_user(Username, Password, Desc);
+        {{error, Reason}, _} -> {error, Reason};
+        {_, {error, Reason}} -> {error, Reason}
+    end.
+
+do_add_user(Username, Password, Desc) ->
+    Res = mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc]),
+    return(Res).
+
+%% 0-9 or A-Z or a-z or $_
+legal_username(<<>>) ->
+    {error, <<"Username cannot be empty">>};
+legal_username(UserName) ->
+    case re:run(UserName, "^[_a-zA-Z0-9]*$", [{capture, none}]) of
+        nomatch ->
             {error, <<
                 "Bad Username."
                 " Only upper and lower case letters, numbers and underscores are supported"
-            >>}
+            >>};
+        match ->
+            ok
     end.
 
-%% 0 - 9 or A -Z or a - z or $_
-legal_username(<<>>) -> false;
-legal_username(UserName) -> nomatch /= re:run(UserName, "^[_a-zA-Z0-9]*$").
+-define(LOW_LETTER_CHARS, "abcdefghijklmnopqrstuvwxyz").
+-define(UPPER_LETTER_CHARS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ").
+-define(LETTER, ?LOW_LETTER_CHARS ++ ?UPPER_LETTER_CHARS).
+-define(NUMBER, "0123456789").
+-define(SPECIAL_CHARS, "!@#$%^&*()_+-=[]{}\"|;':,./<>?`~ ").
+-define(INVALID_PASSWORD_MSG, <<
+    "Bad password. "
+    "At least two different kind of characters from groups of letters, numbers, and special characters. "
+    "For example, if password is composed from letters, it must contain at least one number or a special character."
+>>).
+-define(BAD_PASSWORD_LEN, <<"The range of password length is 8~64">>).
+
+legal_password(Password) when is_binary(Password) ->
+    legal_password(binary_to_list(Password));
+legal_password(Password) when is_list(Password) ->
+    legal_password(Password, erlang:length(Password)).
+
+legal_password(Password, Len) when Len >= 8 andalso Len =< 64 ->
+    case is_mixed_password(Password) of
+        true -> ascii_character_validate(Password);
+        false -> {error, ?INVALID_PASSWORD_MSG}
+    end;
+legal_password(_Password, _Len) ->
+    {error, ?BAD_PASSWORD_LEN}.
+
+%% The password must contain at least two different kind of characters
+%% from groups of letters, numbers, and special characters.
+is_mixed_password(Password) -> is_mixed_password(Password, [?NUMBER, ?LETTER, ?SPECIAL_CHARS], 0).
+
+is_mixed_password(_Password, _Chars, 2) ->
+    true;
+is_mixed_password(_Password, [], _Count) ->
+    false;
+is_mixed_password(Password, [Chars | Rest], Count) ->
+    NewCount =
+        case contain(Password, Chars) of
+            true -> Count + 1;
+            false -> Count
+        end,
+    is_mixed_password(Password, Rest, NewCount).
+
+%% regex-non-ascii-character, such as Chinese, Japanese, Korean, etc.
+ascii_character_validate(Password) ->
+    case re:run(Password, "[^\\x00-\\x7F]+", [unicode, {capture, none}]) of
+        match -> {error, <<"Only ascii characters are allowed in the password">>};
+        nomatch -> ok
+    end.
+
+contain(Xs, Spec) -> lists:any(fun(X) -> lists:member(X, Spec) end, Xs).
 
 %% black-magic: force overwrite a user
 force_add_user(Username, Password, Desc) ->
@@ -204,7 +246,10 @@ change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
     end.
 
 change_password(Username, Password) when is_binary(Username), is_binary(Password) ->
-    change_password_hash(Username, hash(Password)).
+    case legal_password(Password) of
+        ok -> change_password_hash(Username, hash(Password));
+        Error -> Error
+    end.
 
 change_password_hash(Username, PasswordHash) ->
     ChangePWD =
@@ -308,47 +353,45 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
     {ok, empty};
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
-        [] -> add_user(Username, Password, <<"administrator">>);
+        [] -> do_add_user(Username, Password, <<"administrator">>);
         _ -> {ok, default_user_exists}
     end.
 
-add_bootstrap_users(File) ->
-    case file:open(File, [read]) of
-        {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
-            try
-                load_bootstrap_user(Dev, MP)
-            catch
-                Type:Reason ->
-                    {error, {Type, Reason}}
-            after
-                file:close(Dev)
-            end;
-        {error, Reason} = Error ->
-            ?SLOG(error, #{
-                msg => "failed to open the dashboard bootstrap users file",
-                file => File,
-                reason => Reason
-            }),
-            Error
-    end.
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 
-load_bootstrap_user(Dev, MP) ->
-    case file:read_line(Dev) of
-        {ok, Line} ->
-            case re:run(Line, MP, [global, {capture, all_but_first, binary}]) of
-                {match, [[Username, Password]]} ->
-                    case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
-                        {ok, _} ->
-                            load_bootstrap_user(Dev, MP);
-                        Error ->
-                            Error
-                    end;
-                _ ->
-                    load_bootstrap_user(Dev, MP)
-            end;
-        eof ->
-            ok;
-        Error ->
-            Error
-    end.
+legal_password_test() ->
+    ?assertEqual({error, ?BAD_PASSWORD_LEN}, legal_password(<<"123">>)),
+    MaxPassword = iolist_to_binary([lists:duplicate(63, "x"), "1"]),
+    ?assertEqual(ok, legal_password(MaxPassword)),
+    TooLongPassword = lists:duplicate(65, "y"),
+    ?assertEqual({error, ?BAD_PASSWORD_LEN}, legal_password(TooLongPassword)),
+
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, legal_password(<<"12345678">>)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, legal_password(?LETTER)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, legal_password(?NUMBER)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, legal_password(?SPECIAL_CHARS)),
+    ?assertEqual({error, ?INVALID_PASSWORD_MSG}, legal_password(<<"映映映映无天在请"/utf8>>)),
+    ?assertEqual(
+        {error, <<"Only ascii characters are allowed in the password">>},
+        legal_password(<<"️test_for_non_ascii1中"/utf8>>)
+    ),
+    ?assertEqual(
+        {error, <<"Only ascii characters are allowed in the password">>},
+        legal_password(<<"云☁️test_for_unicode"/utf8>>)
+    ),
+
+    ?assertEqual(ok, legal_password(?LOW_LETTER_CHARS ++ ?NUMBER)),
+    ?assertEqual(ok, legal_password(?UPPER_LETTER_CHARS ++ ?NUMBER)),
+    ?assertEqual(ok, legal_password(?LOW_LETTER_CHARS ++ ?SPECIAL_CHARS)),
+    ?assertEqual(ok, legal_password(?UPPER_LETTER_CHARS ++ ?SPECIAL_CHARS)),
+    ?assertEqual(ok, legal_password(?SPECIAL_CHARS ++ ?NUMBER)),
+
+    ?assertEqual(ok, legal_password(<<"abckldiekflkdf12">>)),
+    ?assertEqual(ok, legal_password(<<"abckldiekflkdf w">>)),
+    ?assertEqual(ok, legal_password(<<"# abckldiekflkdf w">>)),
+    ?assertEqual(ok, legal_password(<<"# 12344858">>)),
+    ?assertEqual(ok, legal_password(<<"# %12344858">>)),
+    ok.
+
+-endif.

@@ -1,0 +1,21 @@
+emqx_bridge_mqtt_schema {
+
+config.desc:
+"""MQTT Bridge 的配置。"""
+
+config.label:
+"""配置"""
+
+desc_name.desc:
+"""Bridge 名字，Bridge 的可读描述"""
+
+desc_name.label:
+"""Bridge 名字"""
+
+desc_type.desc:
+"""Bridge 的类型"""
+
+desc_type.label:
+"""Bridge 类型"""
+
+}

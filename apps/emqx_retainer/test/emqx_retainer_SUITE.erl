@@ -687,11 +687,19 @@ t_deliver_when_banned(_) ->
     }),
 
     timer:sleep(100),
-    snabbkaffe:start_trace(),
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
-    timer:sleep(500),
 
-    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:start_trace(),
+    {ok, SubRef} =
+        snabbkaffe:subscribe(
+            ?match_event(#{?snk_kind := ignore_retained_message_deliver}),
+            _NEvents = 3,
+            _Timeout = 10000,
+            0
+        ),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
+
+    {ok, Trace} = snabbkaffe:receive_events(SubRef),
     ?assertEqual(3, length(?of_kind(ignore_retained_message_deliver, Trace))),
     snabbkaffe:stop(),
     emqx_banned:delete(Who),
@@ -750,23 +758,22 @@ with_conf(ConfMod, Case) ->
     end.
 
 make_limiter_cfg(Rate) ->
-    Infinity = emqx_limiter_schema:infinity_value(),
     Client = #{
         rate => Rate,
         initial => 0,
-        capacity => Infinity,
+        burst => 0,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+    #{client => Client, rate => Rate, initial => 0, burst => 0}.
 
 make_limiter_json(Rate) ->
     Client = #{
         <<"rate">> => Rate,
         <<"initial">> => 0,
-        <<"capacity">> => <<"infinity">>,
+        <<"burst">> => <<"0">>,
         <<"low_watermark">> => 0,
         <<"divisible">> => <<"false">>,
         <<"max_retry_time">> => <<"5s">>,
@@ -776,5 +783,5 @@ make_limiter_json(Rate) ->
         <<"client">> => Client,
         <<"rate">> => <<"infinity">>,
         <<"initial">> => 0,
-        <<"capacity">> => <<"infinity">>
+        <<"burst">> => <<"0">>
     }.

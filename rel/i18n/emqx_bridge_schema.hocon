@@ -1,0 +1,158 @@
+emqx_bridge_schema {
+
+bridges_mqtt.desc:
+"""MQTT bridges to/from another MQTT broker"""
+
+bridges_mqtt.label:
+"""MQTT Bridge"""
+
+bridges_webhook.desc:
+"""WebHook to an HTTP server."""
+
+bridges_webhook.label:
+"""WebHook"""
+
+desc_bridges.desc:
+"""Configuration for MQTT bridges."""
+
+desc_bridges.label:
+"""MQTT Bridge Configuration"""
+
+desc_enable.desc:
+"""Enable or disable this bridge"""
+
+desc_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_metrics.desc:
+"""Bridge metrics."""
+
+desc_metrics.label:
+"""Bridge Metrics"""
+
+desc_node_metrics.desc:
+"""Node metrics."""
+
+desc_node_metrics.label:
+"""Node Metrics"""
+
+desc_node_name.desc:
+"""The node name."""
+
+desc_node_name.label:
+"""Node Name"""
+
+desc_node_status.desc:
+"""Node status."""
+
+desc_node_status.label:
+"""Node Status"""
+
+desc_status.desc:
+"""The status of the bridge<br/>
+- <code>connecting</code>: the initial state before any health probes were made.<br/>
+- <code>connected</code>: when the bridge passes the health probes.<br/>
+- <code>disconnected</code>: when the bridge can not pass health probes.<br/>
+- <code>stopped</code>: when the bridge resource is requested to be stopped.<br/>
+- <code>inconsistent</code>: When not all the nodes are at the same status."""
+
+desc_status.label:
+"""Bridge Status"""
+
+desc_status_reason.desc:
+"""This is the reason given in case a bridge is failing to connect."""
+
+desc_status_reason.label:
+"""Failure reason"""
+
+metric_dropped.desc:
+"""Count of messages dropped."""
+
+metric_dropped.label:
+"""Dropped"""
+
+metric_dropped_other.desc:
+"""Count of messages dropped due to other reasons."""
+
+metric_dropped_other.label:
+"""Dropped Other"""
+
+metric_dropped_queue_full.desc:
+"""Count of messages dropped due to the queue is full."""
+
+metric_dropped_queue_full.label:
+"""Dropped Queue Full"""
+
+metric_dropped_resource_not_found.desc:
+"""Count of messages dropped due to the resource is not found."""
+
+metric_dropped_resource_not_found.label:
+"""Dropped Resource NotFound"""
+
+metric_dropped_resource_stopped.desc:
+"""Count of messages dropped due to the resource is stopped."""
+
+metric_dropped_resource_stopped.label:
+"""Dropped Resource Stopped"""
+
+metric_inflight.desc:
+"""Count of messages that were sent asynchronously but ACKs are not yet received."""
+
+metric_inflight.label:
+"""Sent Inflight"""
+
+metric_matched.desc:
+"""Count of this bridge is matched and queried."""
+
+metric_matched.label:
+"""Matched"""
+
+metric_queuing.desc:
+"""Count of messages that are currently queuing."""
+
+metric_queuing.label:
+"""Queued"""
+
+metric_rate.desc:
+"""The rate of matched, times/second"""
+
+metric_rate.label:
+"""Rate"""
+
+metric_rate_last5m.desc:
+"""The average rate of matched in the last 5 minutes, times/second"""
+
+metric_rate_last5m.label:
+"""Last 5 Minutes Rate"""
+
+metric_rate_max.desc:
+"""The max rate of matched, times/second"""
+
+metric_rate_max.label:
+"""Max Rate Of Matched"""
+
+metric_received.desc:
+"""Count of messages that is received from the remote system."""
+
+metric_received.label:
+"""Received"""
+
+metric_retried.desc:
+"""Times of retried."""
+
+metric_retried.label:
+"""Retried"""
+
+metric_sent_failed.desc:
+"""Count of messages that sent failed."""
+
+metric_sent_failed.label:
+"""Sent Failed"""
+
+metric_sent_success.desc:
+"""Count of messages that sent successfully."""
+
+metric_sent_success.label:
+"""Sent Success"""
+
+}

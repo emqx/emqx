@@ -33,7 +33,7 @@ admins(["status"]) ->
     status();
 admins(["skip"]) ->
     status(),
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     lists:foreach(fun emqx_cluster_rpc:skip_failed_commit/1, Nodes),
     status();
 admins(["skip", Node0]) ->
@@ -46,13 +46,13 @@ admins(["tnxid", TnxId0]) ->
     emqx_ctl:print("~p~n", [emqx_cluster_rpc:query(TnxId)]);
 admins(["fast_forward"]) ->
     status(),
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     TnxId = emqx_cluster_rpc:latest_tnx_id(),
     lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TnxId) end, Nodes),
     status();
 admins(["fast_forward", ToTnxId]) ->
     status(),
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     TnxId = list_to_integer(ToTnxId),
     lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TnxId) end, Nodes),
     status();

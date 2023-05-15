@@ -18,7 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1, multipart_formdata_request/3]).
+-import(emqx_dashboard_api_test_helpers, [multipart_formdata_request/3]).
+-import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -28,7 +29,7 @@
 -define(assertAuthenticatorsMatch(Guard, Path),
     (fun() ->
         {ok, 200, Response} = request(get, uri(Path)),
-        ?assertMatch(Guard, jiffy:decode(Response, [return_maps]))
+        ?assertMatch(Guard, emqx_utils_json:decode(Response, [return_maps]))
     end)()
 ).
 
@@ -65,9 +66,8 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     emqx_config:erase(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY),
     _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_authn, emqx_dashboard],
-        fun set_special_configs/1
+    ok = emqx_mgmt_api_test_util:init_suite(
+        [emqx_conf, emqx_authn]
     ),
 
     ?AUTHN:delete_chain(?GLOBAL),
@@ -76,12 +76,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authn]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_authn]),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -239,7 +234,7 @@ test_authenticator(PathPrefix) ->
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http", "status"])
     ),
-    {ok, RList} = emqx_json:safe_decode(Res),
+    {ok, RList} = emqx_utils_json:safe_decode(Res),
     Snd = fun({_, Val}) -> Val end,
     LookupVal = fun LookupV(List, RestJson) ->
         case List of
@@ -358,7 +353,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 0,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData0, [return_maps]);
+            } = emqx_utils_json:decode(PageData0, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
@@ -366,7 +361,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 0,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData0, [return_maps])
+            } = emqx_utils_json:decode(PageData0, [return_maps])
     end,
 
     InvalidUsers = [
@@ -389,7 +384,7 @@ test_authenticator_users(PathPrefix) ->
     lists:foreach(
         fun(User) ->
             {ok, 201, UserData} = request(post, UsersUri, User),
-            CreatedUser = jiffy:decode(UserData, [return_maps]),
+            CreatedUser = emqx_utils_json:decode(UserData, [return_maps]),
             ?assertMatch(#{<<"user_id">> := _}, CreatedUser)
         end,
         ValidUsers
@@ -416,7 +411,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 1,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData01, [return_maps]);
+            } = emqx_utils_json:decode(PageData01, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
@@ -424,7 +419,7 @@ test_authenticator_users(PathPrefix) ->
                     <<"success">> := 1,
                     <<"nomatch">> := 1
                 }
-            } = jiffy:decode(PageData01, [return_maps])
+            } = emqx_utils_json:decode(PageData01, [return_maps])
     end,
 
     {ok, 200, Page1Data} = request(get, UsersUri ++ "?page=1&limit=2"),
@@ -438,7 +433,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"count">> := 3
             }
     } =
-        jiffy:decode(Page1Data, [return_maps]),
+        emqx_utils_json:decode(Page1Data, [return_maps]),
 
     {ok, 200, Page2Data} = request(get, UsersUri ++ "?page=2&limit=2"),
 
@@ -450,7 +445,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 2,
                 <<"count">> := 3
             }
-    } = jiffy:decode(Page2Data, [return_maps]),
+    } = emqx_utils_json:decode(Page2Data, [return_maps]),
 
     ?assertEqual(2, length(Page1Users)),
     ?assertEqual(1, length(Page2Users)),
@@ -470,7 +465,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 3,
                 <<"count">> := 1
             }
-    } = jiffy:decode(Super1Data, [return_maps]),
+    } = emqx_utils_json:decode(Super1Data, [return_maps]),
 
     ?assertEqual(
         [<<"u2">>],
@@ -487,7 +482,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"limit">> := 3,
                 <<"count">> := 2
             }
-    } = jiffy:decode(Super2Data, [return_maps]),
+    } = emqx_utils_json:decode(Super2Data, [return_maps]),
 
     ?assertEqual(
         [<<"u1">>, <<"u3">>],
@@ -514,7 +509,7 @@ test_authenticator_user(PathPrefix) ->
 
     {ok, 200, UserData} = request(get, UsersUri ++ "/u1"),
 
-    FetchedUser = jiffy:decode(UserData, [return_maps]),
+    FetchedUser = emqx_utils_json:decode(UserData, [return_maps]),
     ?assertMatch(#{<<"user_id">> := <<"u1">>}, FetchedUser),
     ?assertNotMatch(#{<<"password">> := _}, FetchedUser),
 

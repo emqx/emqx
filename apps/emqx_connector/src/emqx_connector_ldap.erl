@@ -59,16 +59,25 @@ on_start(
         bind_password := BindPassword,
         timeout := Timeout,
         pool_size := PoolSize,
-        auto_reconnect := AutoReconn,
         ssl := SSL
     } = Config
 ) ->
     ?SLOG(info, #{
         msg => "starting_ldap_connector",
         connector => InstId,
-        config => Config
+        config => emqx_utils:redact(Config)
     }),
-    Servers = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
+    Servers1 = emqx_schema:parse_servers(Servers0, ?LDAP_HOST_OPTIONS),
+    Servers =
+        lists:map(
+            fun
+                (#{hostname := Host, port := Port0}) ->
+                    {Host, Port0};
+                (#{hostname := Host}) ->
+                    Host
+            end,
+            Servers1
+        ),
     SslOpts =
         case maps:get(enable, SSL) of
             true ->
@@ -86,22 +95,21 @@ on_start(
         {bind_password, BindPassword},
         {timeout, Timeout},
         {pool_size, PoolSize},
-        {auto_reconnect, reconn_interval(AutoReconn)}
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
     ],
-    PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts) of
-        ok -> {ok, #{poolname => PoolName, auto_reconnect => AutoReconn}};
+    case emqx_resource_pool:start(InstId, ?MODULE, Opts ++ SslOpts) of
+        ok -> {ok, #{pool_name => InstId}};
         {error, Reason} -> {error, Reason}
     end.
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{pool_name := PoolName}) ->
     ?SLOG(info, #{
         msg => "stopping_ldap_connector",
         connector => InstId
     }),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    emqx_resource_pool:stop(PoolName).
 
-on_query(InstId, {search, Base, Filter, Attributes}, #{poolname := PoolName} = State) ->
+on_query(InstId, {search, Base, Filter, Attributes}, #{pool_name := PoolName} = State) ->
     Request = {Base, Filter, Attributes},
     ?TRACE(
         "QUERY",
@@ -128,9 +136,6 @@ on_query(InstId, {search, Base, Filter, Attributes}, #{poolname := PoolName} = S
     Result.
 
 on_get_status(_InstId, _State) -> connected.
-
-reconn_interval(true) -> 15;
-reconn_interval(false) -> false.
 
 search(Conn, Base, Filter, Attributes) ->
     eldap2:search(Conn, [

@@ -19,7 +19,6 @@
 -compile(export_all).
 
 -import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
--import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -32,7 +31,6 @@
 
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
 -define(TYPE_MQTT, <<"mqtt">>).
--define(NAME_MQTT, <<"my_mqtt_bridge">>).
 -define(BRIDGE_NAME_INGRESS, <<"ingress_mqtt_bridge">>).
 -define(BRIDGE_NAME_EGRESS, <<"egress_mqtt_bridge">>).
 
@@ -53,7 +51,7 @@
 -define(INGRESS_CONF, #{
     <<"remote">> => #{
         <<"topic">> => <<?INGRESS_REMOTE_TOPIC, "/#">>,
-        <<"qos">> => 2
+        <<"qos">> => 1
     },
     <<"local">> => #{
         <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
@@ -74,6 +72,47 @@
         <<"retain">> => <<"${retain}">>
     }
 }).
+
+-define(INGRESS_CONF_NO_PAYLOAD_TEMPLATE, #{
+    <<"remote">> => #{
+        <<"topic">> => <<?INGRESS_REMOTE_TOPIC, "/#">>,
+        <<"qos">> => 1
+    },
+    <<"local">> => #{
+        <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
+        <<"qos">> => <<"${qos}">>,
+        <<"retain">> => <<"${retain}">>
+    }
+}).
+
+-define(EGRESS_CONF_NO_PAYLOAD_TEMPLATE, #{
+    <<"local">> => #{
+        <<"topic">> => <<?EGRESS_LOCAL_TOPIC, "/#">>
+    },
+    <<"remote">> => #{
+        <<"topic">> => <<?EGRESS_REMOTE_TOPIC, "/${topic}">>,
+        <<"qos">> => <<"${qos}">>,
+        <<"retain">> => <<"${retain}">>
+    }
+}).
+
+-define(assertMetrics(Pat, BridgeID),
+    ?assertMetrics(Pat, true, BridgeID)
+).
+-define(assertMetrics(Pat, Guard, BridgeID),
+    ?assertMatch(
+        #{
+            <<"metrics">> := Pat,
+            <<"node_metrics">> := [
+                #{
+                    <<"node">> := _,
+                    <<"metrics">> := Pat
+                }
+            ]
+        } when Guard,
+        request_bridge_metrics(BridgeID)
+    )
+).
 
 inspect(Selected, _Envs, _Args) ->
     persistent_term:put(?MODULE, #{inspect => Selected}).
@@ -122,10 +161,12 @@ set_special_configs(_) ->
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    ok = snabbkaffe:start_trace(),
     Config.
+
 end_per_testcase(_, _Config) ->
     clear_resources(),
-    emqx_common_test_helpers:call_janitor(),
+    snabbkaffe:stop(),
     ok.
 
 clear_resources() ->
@@ -151,7 +192,7 @@ t_mqtt_conn_bridge_ingress(_) ->
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?SERVER_CONF(User1)#{
+        ServerConf = ?SERVER_CONF(User1)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_INGRESS,
             <<"ingress">> => ?INGRESS_CONF
@@ -160,8 +201,21 @@ t_mqtt_conn_bridge_ingress(_) ->
     #{
         <<"type">> := ?TYPE_MQTT,
         <<"name">> := ?BRIDGE_NAME_INGRESS
-    } = jsx:decode(Bridge),
+    } = emqx_utils_json:decode(Bridge),
+
     BridgeIDIngress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
+
+    %% try to create the bridge again
+    ?assertMatch(
+        {ok, 400, _},
+        request(post, uri(["bridges"]), ServerConf)
+    ),
+
+    %% try to reconfigure the bridge
+    ?assertMatch(
+        {ok, 200, _},
+        request(put, uri(["bridges", BridgeIDIngress]), ServerConf)
+    ),
 
     %% we now test if the bridge works as expected
     RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
@@ -173,34 +227,98 @@ t_mqtt_conn_bridge_ingress(_) ->
     %% the remote broker is also the local one.
     emqx:publish(emqx_message:make(RemoteTopic, Payload)),
     %% we should receive a message on the local broker, with specified topic
-    ?assert(
-        receive
-            {deliver, LocalTopic, #message{payload = Payload}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload, LocalTopic]),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ),
+    assert_mqtt_msg_received(LocalTopic, Payload),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    ?assertMetrics(
+        #{<<"matched">> := 0, <<"received">> := 1},
+        BridgeIDIngress
+    ),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    ok.
+
+t_mqtt_egress_bridge_ignores_clean_start(_) ->
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<"user1">>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"egress">> => ?EGRESS_CONF,
+            <<"clean_start">> => false
+        }
+    ),
+
+    {ok, _, #{state := #{name := WorkerName}}} =
+        emqx_resource:get_instance(emqx_bridge_resource:resource_id(BridgeID)),
     ?assertMatch(
-        #{
-            <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
-            <<"node_metrics">> :=
-                [
-                    #{
-                        <<"node">> := _,
-                        <<"metrics">> :=
-                            #{<<"matched">> := 0, <<"received">> := 1}
-                    }
-                ]
-        },
-        jsx:decode(BridgeStr)
+        #{clean_start := true},
+        maps:from_list(emqx_connector_mqtt_worker:info(WorkerName))
+    ),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+
+    ok.
+
+t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<"user1">>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"ingress">> => emqx_utils_maps:deep_merge(
+                ?INGRESS_CONF,
+                #{<<"remote">> => #{<<"qos">> => 2}}
+            )
+        }
+    ),
+
+    RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
+    LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
+    Payload = <<"whatqos">>,
+    emqx:subscribe(LocalTopic),
+    emqx:publish(emqx_message:make(undefined, _QoS = 2, RemoteTopic, Payload)),
+
+    %% we should receive a message on the local broker, with specified topic
+    Msg = assert_mqtt_msg_received(LocalTopic, Payload),
+    ?assertMatch(#message{qos = 1}, Msg),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+
+    ok.
+
+t_mqtt_conn_bridge_ingress_no_payload_template(_) ->
+    User1 = <<"user1">>,
+    BridgeIDIngress = create_bridge(
+        ?SERVER_CONF(User1)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => ?BRIDGE_NAME_INGRESS,
+            <<"ingress">> => ?INGRESS_CONF_NO_PAYLOAD_TEMPLATE
+        }
+    ),
+
+    %% we now test if the bridge works as expected
+    RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
+    LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(LocalTopic),
+    timer:sleep(100),
+    %% PUBLISH a message to the 'remote' broker, as we have only one broker,
+    %% the remote broker is also the local one.
+    emqx:publish(emqx_message:make(RemoteTopic, Payload)),
+    %% we should receive a message on the local broker, with specified topic
+    Msg = assert_mqtt_msg_received(LocalTopic),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Msg#message.payload)),
+
+    %% verify the metrics of the bridge
+    ?assertMetrics(
+        #{<<"matched">> := 0, <<"received">> := 1},
+        BridgeIDIngress
     ),
 
     %% delete the bridge
@@ -212,63 +330,41 @@ t_mqtt_conn_bridge_ingress(_) ->
 t_mqtt_conn_bridge_egress(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
-
-    {ok, 201, Bridge} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDEgress = create_bridge(
         ?SERVER_CONF(User1)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF
         }
     ),
-    #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_EGRESS
-    } = jsx:decode(Bridge),
-    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
     Payload = <<"hello">>,
     emqx:subscribe(RemoteTopic),
-    timer:sleep(100),
-    %% PUBLISH a message to the 'local' broker, as we have only one broker,
-    %% the remote broker is also the local one.
-    emqx:publish(emqx_message:make(LocalTopic, Payload)),
 
-    %% we should receive a message on the "remote" broker, with specified topic
-    ?assert(
-        receive
-            {deliver, RemoteTopic, #message{payload = Payload, from = From}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
-                Size = byte_size(ResourceID),
-                ?assertMatch(<<ResourceID:Size/binary, _/binary>>, From),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
+    ?wait_async_action(
+        %% PUBLISH a message to the 'local' broker, as we have only one broker,
+        %% the remote broker is also the local one.
+        emqx:publish(emqx_message:make(LocalTopic, Payload)),
+        #{?snk_kind := buffer_worker_flush_ack}
     ),
 
+    %% we should receive a message on the "remote" broker, with specified topic
+    Msg = assert_mqtt_msg_received(RemoteTopic, Payload),
+    Size = byte_size(ResourceID),
+    ?assertMatch(<<ResourceID:Size/binary, _/binary>>, Msg#message.from),
+
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(
-        #{
-            <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
-            <<"node_metrics">> :=
-                [
-                    #{
-                        <<"node">> := _,
-                        <<"metrics">> :=
-                            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0}
-                    }
-                ]
-        },
-        jsx:decode(BridgeStr)
+    ?retry(
+        _Interval = 200,
+        _Attempts = 5,
+        ?assertMetrics(
+            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
+            BridgeIDEgress
+        )
     ),
 
     %% delete the bridge
@@ -276,11 +372,57 @@ t_mqtt_conn_bridge_egress(_) ->
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
 
+t_mqtt_conn_bridge_egress_no_payload_template(_) ->
+    %% then we add a mqtt connector, using POST
+    User1 = <<"user1">>,
+
+    BridgeIDEgress = create_bridge(
+        ?SERVER_CONF(User1)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => ?BRIDGE_NAME_EGRESS,
+            <<"egress">> => ?EGRESS_CONF_NO_PAYLOAD_TEMPLATE
+        }
+    ),
+    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
+
+    %% we now test if the bridge works as expected
+    LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
+    RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(RemoteTopic),
+
+    ?wait_async_action(
+        %% PUBLISH a message to the 'local' broker, as we have only one broker,
+        %% the remote broker is also the local one.
+        emqx:publish(emqx_message:make(LocalTopic, Payload)),
+        #{?snk_kind := buffer_worker_flush_ack}
+    ),
+
+    %% we should receive a message on the "remote" broker, with specified topic
+    Msg = assert_mqtt_msg_received(RemoteTopic),
+    %% the MapMsg is all fields outputed by Rule-Engine. it's a binary coded json here.
+    ?assertMatch(<<ResourceID:(byte_size(ResourceID))/binary, _/binary>>, Msg#message.from),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Msg#message.payload)),
+
+    %% verify the metrics of the bridge
+    ?retry(
+        _Interval = 200,
+        _Attempts = 5,
+        ?assertMetrics(
+            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
+            BridgeIDEgress
+        )
+    ),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    ok.
+
 t_egress_custom_clientid_prefix(_Config) ->
     User1 = <<"user1">>,
-    {ok, 201, Bridge} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDEgress = create_bridge(
         ?SERVER_CONF(User1)#{
             <<"clientid_prefix">> => <<"my-custom-prefix">>,
             <<"type">> => ?TYPE_MQTT,
@@ -288,11 +430,6 @@ t_egress_custom_clientid_prefix(_Config) ->
             <<"egress">> => ?EGRESS_CONF
         }
     ),
-    #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_EGRESS
-    } = jsx:decode(Bridge),
-    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
@@ -301,60 +438,36 @@ t_egress_custom_clientid_prefix(_Config) ->
     timer:sleep(100),
     emqx:publish(emqx_message:make(LocalTopic, Payload)),
 
-    receive
-        {deliver, RemoteTopic, #message{from = From}} ->
-            Size = byte_size(ResourceID),
-            ?assertMatch(<<"my-custom-prefix:", _ResouceID:Size/binary, _/binary>>, From),
-            ok
-    after 1000 ->
-        ct:fail("should have published message")
-    end,
+    Msg = assert_mqtt_msg_received(RemoteTopic, Payload),
+    Size = byte_size(ResourceID),
+    ?assertMatch(<<"my-custom-prefix:", _ResouceID:Size/binary, _/binary>>, Msg#message.from),
 
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     ok.
 
 t_mqtt_conn_bridge_ingress_and_egress(_) ->
     User1 = <<"user1">>,
-    %% create an MQTT bridge, using POST
-    {ok, 201, Bridge} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDIngress = create_bridge(
         ?SERVER_CONF(User1)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_INGRESS,
             <<"ingress">> => ?INGRESS_CONF
         }
     ),
-
-    #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_INGRESS
-    } = jsx:decode(Bridge),
-    BridgeIDIngress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
-    {ok, 201, Bridge2} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDEgress = create_bridge(
         ?SERVER_CONF(User1)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF
         }
     ),
-    #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_EGRESS
-    } = jsx:decode(Bridge2),
 
-    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
     Payload = <<"hello">>,
     emqx:subscribe(RemoteTopic),
 
-    {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
     #{
         <<"metrics">> := #{
             <<"matched">> := CntMatched1, <<"success">> := CntSuccess1, <<"failed">> := 0
@@ -371,29 +484,20 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
                         }
                 }
             ]
-    } = jsx:decode(BridgeStr1),
-    timer:sleep(100),
-    %% PUBLISH a message to the 'local' broker, as we have only one broker,
-    %% the remote broker is also the local one.
-    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+    } = request_bridge_metrics(BridgeIDEgress),
+
+    ?wait_async_action(
+        %% PUBLISH a message to the 'local' broker, as we have only one broker,
+        %% the remote broker is also the local one.
+        emqx:publish(emqx_message:make(LocalTopic, Payload)),
+        #{?snk_kind := buffer_worker_flush_ack}
+    ),
 
     %% we should receive a message on the "remote" broker, with specified topic
-    ?assert(
-        receive
-            {deliver, RemoteTopic, #message{payload = Payload}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ),
+    assert_mqtt_msg_received(RemoteTopic, Payload),
 
     %% verify the metrics of the bridge
     timer:sleep(1000),
-    {ok, 200, BridgeStr2} = request(get, uri(["bridges", BridgeIDEgress]), []),
     #{
         <<"metrics">> := #{
             <<"matched">> := CntMatched2, <<"success">> := CntSuccess2, <<"failed">> := 0
@@ -410,7 +514,7 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
                         }
                 }
             ]
-    } = jsx:decode(BridgeStr2),
+    } = request_bridge_metrics(BridgeIDEgress),
     ?assertEqual(CntMatched2, CntMatched1 + 1),
     ?assertEqual(CntSuccess2, CntSuccess1 + 1),
     ?assertEqual(NodeCntMatched2, NodeCntMatched1 + 1),
@@ -423,16 +527,13 @@ t_mqtt_conn_bridge_ingress_and_egress(_) ->
     ok.
 
 t_ingress_mqtt_bridge_with_rules(_) ->
-    {ok, 201, _} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDIngress = create_bridge(
         ?SERVER_CONF(<<"user1">>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_INGRESS,
             <<"ingress">> => ?INGRESS_CONF
         }
     ),
-    BridgeIDIngress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
 
     {ok, 201, Rule} = request(
         post,
@@ -444,7 +545,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
             <<"sql">> => <<"SELECT * from \"$bridges/", BridgeIDIngress/binary, "\"">>
         }
     ),
-    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule),
 
     %% we now test if the bridge works as expected
 
@@ -457,22 +558,11 @@ t_ingress_mqtt_bridge_with_rules(_) ->
     %% the remote broker is also the local one.
     emqx:publish(emqx_message:make(RemoteTopic, Payload)),
     %% we should receive a message on the local broker, with specified topic
-    ?assert(
-        receive
-            {deliver, LocalTopic, #message{payload = Payload}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload, LocalTopic]),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ),
+    assert_mqtt_msg_received(LocalTopic, Payload),
     %% and also the rule should be matched, with matched + 1:
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
     {ok, 200, Metrics} = request(get, uri(["rules", RuleId, "metrics"]), []),
-    ?assertMatch(#{<<"id">> := RuleId}, jsx:decode(Rule1)),
+    ?assertMatch(#{<<"id">> := RuleId}, emqx_utils_json:decode(Rule1)),
     ?assertMatch(
         #{
             <<"metrics">> := #{
@@ -491,7 +581,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
                 <<"actions.failed.unknown">> := 0
             }
         },
-        jsx:decode(Metrics)
+        emqx_utils_json:decode(Metrics)
     ),
 
     %% we also check if the actions of the rule is triggered
@@ -513,37 +603,22 @@ t_ingress_mqtt_bridge_with_rules(_) ->
     ),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
-    ?assertMatch(
-        #{
-            <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
-            <<"node_metrics">> :=
-                [
-                    #{
-                        <<"node">> := _,
-                        <<"metrics">> :=
-                            #{<<"matched">> := 0, <<"received">> := 1}
-                    }
-                ]
-        },
-        jsx:decode(BridgeStr)
+    ?assertMetrics(
+        #{<<"matched">> := 0, <<"received">> := 1},
+        BridgeIDIngress
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []).
 
 t_egress_mqtt_bridge_with_rules(_) ->
-    {ok, 201, Bridge} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDEgress = create_bridge(
         ?SERVER_CONF(<<"user1">>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF
         }
     ),
-    #{<<"type">> := ?TYPE_MQTT, <<"name">> := ?BRIDGE_NAME_EGRESS} = jsx:decode(Bridge),
-    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
 
     {ok, 201, Rule} = request(
         post,
@@ -555,7 +630,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
             <<"sql">> => <<"SELECT * from \"t/1\"">>
         }
     ),
-    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule),
 
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
@@ -567,18 +642,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
     %% the remote broker is also the local one.
     emqx:publish(emqx_message:make(LocalTopic, Payload)),
     %% we should receive a message on the "remote" broker, with specified topic
-    ?assert(
-        receive
-            {deliver, RemoteTopic, #message{payload = Payload}} ->
-                ct:pal("remote broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ),
+    assert_mqtt_msg_received(RemoteTopic, Payload),
     emqx:unsubscribe(RemoteTopic),
 
     %% PUBLISH a message to the rule.
@@ -589,7 +653,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
     timer:sleep(100),
     emqx:publish(emqx_message:make(RuleTopic, Payload2)),
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
-    ?assertMatch(#{<<"id">> := RuleId, <<"name">> := _}, jsx:decode(Rule1)),
+    ?assertMatch(#{<<"id">> := RuleId, <<"name">> := _}, emqx_utils_json:decode(Rule1)),
     {ok, 200, Metrics} = request(get, uri(["rules", RuleId, "metrics"]), []),
     ?assertMatch(
         #{
@@ -609,39 +673,16 @@ t_egress_mqtt_bridge_with_rules(_) ->
                 <<"actions.failed.unknown">> := 0
             }
         },
-        jsx:decode(Metrics)
+        emqx_utils_json:decode(Metrics)
     ),
 
     %% we should receive a message on the "remote" broker, with specified topic
-    ?assert(
-        receive
-            {deliver, RemoteTopic2, #message{payload = Payload2}} ->
-                ct:pal("remote broker got message: ~p on topic ~p", [Payload2, RemoteTopic2]),
-                true;
-            Msg ->
-                ct:pal("Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ),
+    assert_mqtt_msg_received(RemoteTopic2, Payload2),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(
-        #{
-            <<"metrics">> := #{<<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0},
-            <<"node_metrics">> :=
-                [
-                    #{
-                        <<"node">> := _,
-                        <<"metrics">> := #{
-                            <<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0
-                        }
-                    }
-                ]
-        },
-        jsx:decode(BridgeStr)
+    ?assertMetrics(
+        #{<<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0},
+        BridgeIDEgress
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
@@ -650,81 +691,58 @@ t_egress_mqtt_bridge_with_rules(_) ->
 t_mqtt_conn_bridge_egress_reconnect(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
-
-    {ok, 201, Bridge} = request(
-        post,
-        uri(["bridges"]),
+    BridgeIDEgress = create_bridge(
         ?SERVER_CONF(User1)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF,
-            %% to make it reconnect quickly
-            <<"reconnect_interval">> => <<"1s">>,
             <<"resource_opts">> => #{
                 <<"worker_pool_size">> => 2,
-                <<"enable_queue">> => true,
                 <<"query_mode">> => <<"sync">>,
+                %% using a long time so we can test recovery
+                <<"request_timeout">> => <<"15s">>,
                 %% to make it check the healthy quickly
-                <<"health_check_interval">> => <<"0.5s">>
+                <<"health_check_interval">> => <<"0.5s">>,
+                %% to make it reconnect quickly
+                <<"auto_restart_interval">> => <<"1s">>
             }
         }
     ),
-    #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_EGRESS
-    } = jsx:decode(Bridge),
-    BridgeIDEgress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
-    on_exit(fun() ->
-        %% delete the bridge
-        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
-        {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-        ok
-    end),
+
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
     Payload0 = <<"hello">>,
     emqx:subscribe(RemoteTopic),
-    timer:sleep(100),
-    %% PUBLISH a message to the 'local' broker, as we have only one broker,
-    %% the remote broker is also the local one.
-    emqx:publish(emqx_message:make(LocalTopic, Payload0)),
+
+    ?wait_async_action(
+        %% PUBLISH a message to the 'local' broker, as we have only one broker,
+        %% the remote broker is also the local one.
+        emqx:publish(emqx_message:make(LocalTopic, Payload0)),
+        #{?snk_kind := buffer_worker_flush_ack}
+    ),
 
     %% we should receive a message on the "remote" broker, with specified topic
     assert_mqtt_msg_received(RemoteTopic, Payload0),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(
-        #{
-            <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
-            <<"node_metrics">> :=
-                [
-                    #{
-                        <<"node">> := _,
-                        <<"metrics">> :=
-                            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0}
-                    }
-                ]
-        },
-        jsx:decode(BridgeStr)
+    ?assertMetrics(
+        #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
+        BridgeIDEgress
     ),
 
     %% stop the listener 1883 to make the bridge disconnected
     ok = emqx_listeners:stop_listener('tcp:default'),
     ct:sleep(1500),
 
-    %% PUBLISH 2 messages to the 'local' broker, the message should
-    ok = snabbkaffe:start_trace(),
+    %% PUBLISH 2 messages to the 'local' broker, the messages should
+    %% be enqueued and the resource will block
     {ok, SRef} =
         snabbkaffe:subscribe(
             fun
-                (
-                    #{
-                        ?snk_kind := call_query_enter,
-                        query := {query, _From, {send_message, #{}}, _Sent}
-                    }
-                ) ->
+                (#{?snk_kind := buffer_worker_retry_inflight_failed}) ->
+                    true;
+                (#{?snk_kind := buffer_worker_flush_nack}) ->
                     true;
                 (_) ->
                     false
@@ -734,66 +752,176 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         ),
     Payload1 = <<"hello2">>,
     Payload2 = <<"hello3">>,
-    emqx:publish(emqx_message:make(LocalTopic, Payload1)),
-    emqx:publish(emqx_message:make(LocalTopic, Payload2)),
+    %% We need to do it in other processes because it'll block due to
+    %% the long timeout
+    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload1)) end),
+    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload2)) end),
     {ok, _} = snabbkaffe:receive_events(SRef),
-    ok = snabbkaffe:stop(),
 
     %% verify the metrics of the bridge, the message should be queued
-    {ok, 200, BridgeStr1} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    Decoded1 = jsx:decode(BridgeStr1),
     ?assertMatch(
-        Status when (Status == <<"connected">> orelse Status == <<"connecting">>),
-        maps:get(<<"status">>, Decoded1)
+        #{<<"status">> := Status} when
+            Status == <<"connecting">> orelse Status == <<"disconnected">>,
+        request_bridge(BridgeIDEgress)
     ),
     %% matched >= 3 because of possible retries.
-    ?assertMatch(
+    ?assertMetrics(
         #{
             <<"matched">> := Matched,
             <<"success">> := 1,
             <<"failed">> := 0,
-            <<"queuing">> := 2
-        } when Matched >= 3,
-        maps:get(<<"metrics">>, Decoded1)
+            <<"queuing">> := Queuing,
+            <<"inflight">> := Inflight
+        },
+        Matched >= 3 andalso Inflight + Queuing == 2,
+        BridgeIDEgress
     ),
 
     %% start the listener 1883 to make the bridge reconnected
     ok = emqx_listeners:start_listener('tcp:default'),
     timer:sleep(1500),
     %% verify the metrics of the bridge, the 2 queued messages should have been sent
-    {ok, 200, BridgeStr2} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    ?assertMatch(#{<<"status">> := <<"connected">>}, request_bridge(BridgeIDEgress)),
     %% matched >= 3 because of possible retries.
-    ?assertMatch(
+    ?assertMetrics(
         #{
-            <<"status">> := <<"connected">>,
-            <<"metrics">> := #{
-                <<"matched">> := Matched,
-                <<"success">> := 3,
-                <<"failed">> := 0,
-                <<"queuing">> := 0,
-                <<"retried">> := _
-            }
-        } when Matched >= 3,
-        jsx:decode(BridgeStr2)
+            <<"matched">> := Matched,
+            <<"success">> := 3,
+            <<"failed">> := 0,
+            <<"queuing">> := 0,
+            <<"retried">> := _
+        },
+        Matched >= 3,
+        BridgeIDEgress
     ),
     %% also verify the 2 messages have been sent to the remote broker
     assert_mqtt_msg_received(RemoteTopic, Payload1),
     assert_mqtt_msg_received(RemoteTopic, Payload2),
     ok.
 
+t_mqtt_conn_bridge_egress_async_reconnect(_) ->
+    User1 = <<"user1">>,
+    BridgeIDEgress = create_bridge(
+        ?SERVER_CONF(User1)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => ?BRIDGE_NAME_EGRESS,
+            <<"egress">> => ?EGRESS_CONF,
+            <<"resource_opts">> => #{
+                <<"worker_pool_size">> => 2,
+                <<"query_mode">> => <<"async">>,
+                %% using a long time so we can test recovery
+                <<"request_timeout">> => <<"15s">>,
+                %% to make it check the healthy quickly
+                <<"health_check_interval">> => <<"0.5s">>,
+                %% to make it reconnect quickly
+                <<"auto_restart_interval">> => <<"1s">>
+            }
+        }
+    ),
+
+    Self = self(),
+    LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
+    RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
+    emqx:subscribe(RemoteTopic),
+
+    Publisher = start_publisher(LocalTopic, 200, Self),
+    ct:sleep(1000),
+
+    %% stop the listener 1883 to make the bridge disconnected
+    ok = emqx_listeners:stop_listener('tcp:default'),
+    ct:sleep(1500),
+    ?assertMatch(
+        #{<<"status">> := Status} when
+            Status == <<"connecting">> orelse Status == <<"disconnected">>,
+        request_bridge(BridgeIDEgress)
+    ),
+
+    %% start the listener 1883 to make the bridge reconnected
+    ok = emqx_listeners:start_listener('tcp:default'),
+    timer:sleep(1500),
+    ?assertMatch(
+        #{<<"status">> := <<"connected">>},
+        request_bridge(BridgeIDEgress)
+    ),
+
+    N = stop_publisher(Publisher),
+
+    %% all those messages should eventually be delivered
+    [
+        assert_mqtt_msg_received(RemoteTopic, Payload)
+     || I <- lists:seq(1, N),
+        Payload <- [integer_to_binary(I)]
+    ],
+
+    ok.
+
+start_publisher(Topic, Interval, CtrlPid) ->
+    spawn_link(fun() -> publisher(Topic, 1, Interval, CtrlPid) end).
+
+stop_publisher(Pid) ->
+    _ = Pid ! {self(), stop},
+    receive
+        {Pid, N} -> N
+    after 1_000 -> ct:fail("publisher ~p did not stop", [Pid])
+    end.
+
+publisher(Topic, N, Delay, CtrlPid) ->
+    _ = emqx:publish(emqx_message:make(Topic, integer_to_binary(N))),
+    receive
+        {CtrlPid, stop} ->
+            CtrlPid ! {self(), N}
+    after Delay ->
+        publisher(Topic, N + 1, Delay, CtrlPid)
+    end.
+
+%%
+
+assert_mqtt_msg_received(Topic) ->
+    assert_mqtt_msg_received(Topic, '_', 200).
+
 assert_mqtt_msg_received(Topic, Payload) ->
-    ?assert(
-        receive
-            {deliver, Topic, #message{payload = Payload}} ->
-                ct:pal("Got mqtt message: ~p on topic ~p", [Payload, Topic]),
-                true;
-            Msg ->
-                ct:pal("Unexpected Msg: ~p", [Msg]),
-                false
-        after 100 ->
-            false
-        end
-    ).
+    assert_mqtt_msg_received(Topic, Payload, 200).
+
+assert_mqtt_msg_received(Topic, Payload, Timeout) ->
+    receive
+        {deliver, Topic, Msg = #message{}} when Payload == '_' ->
+            ct:pal("received mqtt ~p on topic ~p", [Msg, Topic]),
+            Msg;
+        {deliver, Topic, Msg = #message{payload = Payload}} ->
+            ct:pal("received mqtt ~p on topic ~p", [Msg, Topic]),
+            Msg
+    after Timeout ->
+        {messages, Messages} = process_info(self(), messages),
+        ct:fail("timeout waiting ~p ms for ~p on topic '~s', messages = ~0p", [
+            Timeout,
+            Payload,
+            Topic,
+            Messages
+        ])
+    end.
+
+create_bridge(Config = #{<<"type">> := Type, <<"name">> := Name}) ->
+    {ok, 201, Bridge} = request(
+        post,
+        uri(["bridges"]),
+        Config
+    ),
+    ?assertMatch(
+        #{
+            <<"type">> := Type,
+            <<"name">> := Name
+        },
+        emqx_utils_json:decode(Bridge)
+    ),
+    emqx_bridge_resource:bridge_id(Type, Name).
+
+request_bridge(BridgeID) ->
+    {ok, 200, Bridge} = request(get, uri(["bridges", BridgeID]), []),
+    emqx_utils_json:decode(Bridge).
+
+request_bridge_metrics(BridgeID) ->
+    {ok, 200, BridgeMetrics} = request(get, uri(["bridges", BridgeID, "metrics"]), []),
+    emqx_utils_json:decode(BridgeMetrics).
 
 request(Method, Url, Body) ->
     request(<<"connector_admin">>, Method, Url, Body).

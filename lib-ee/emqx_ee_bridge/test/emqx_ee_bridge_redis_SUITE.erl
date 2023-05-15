@@ -16,13 +16,17 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+-define(KEYSHARDS, 3).
+-define(KEYPREFIX, "MSGS").
+
 -define(REDIS_TOXYPROXY_CONNECT_CONFIG, #{
-    <<"server">> => <<"toxiproxy:6379">>
+    <<"server">> => <<"toxiproxy:6379">>,
+    <<"redis_type">> => <<"single">>
 }).
 
 -define(COMMON_REDIS_OPTS, #{
     <<"password">> => <<"public">>,
-    <<"command_template">> => [<<"RPUSH">>, <<"MSGS">>, <<"${payload}">>],
+    <<"command_template">> => [<<"RPUSH">>, <<?KEYPREFIX, "/${topic}">>, <<"${payload}">>],
     <<"local_topic">> => <<"local_topic/#">>
 }).
 
@@ -31,7 +35,22 @@
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, "8474").
 
-all() -> [{group, redis_types}, {group, rest}].
+-define(WAIT(PATTERN, EXPRESSION, TIMEOUT),
+    wait(
+        fun() ->
+            case EXPRESSION of
+                PATTERN ->
+                    ok;
+                Other ->
+                    ct:pal("ignored wait result: ~p", [Other]),
+                    error
+            end
+        end,
+        TIMEOUT
+    )
+).
+
+all() -> [{group, transports}, {group, rest}].
 
 groups() ->
     ResourceSpecificTCs = [t_create_delete_bridge],
@@ -45,14 +64,17 @@ groups() ->
         {group, batch_on},
         {group, batch_off}
     ],
+    QueryModeGroups = [{group, async}, {group, sync}],
     [
         {rest, TCs},
-        {redis_types, [
+        {transports, [
             {group, tcp},
             {group, tls}
         ]},
-        {tcp, TypeGroups},
-        {tls, TypeGroups},
+        {tcp, QueryModeGroups},
+        {tls, QueryModeGroups},
+        {async, TypeGroups},
+        {sync, TypeGroups},
         {redis_single, BatchGroups},
         {redis_sentinel, BatchGroups},
         {redis_cluster, BatchGroups},
@@ -60,10 +82,14 @@ groups() ->
         {batch_off, ResourceSpecificTCs}
     ].
 
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(Group, Config) when
     Group =:= redis_single; Group =:= redis_sentinel; Group =:= redis_cluster
 ->
-    [{redis_type, Group} | Config];
+    [{connector_type, Group} | Config];
 init_per_group(Group, Config) when
     Group =:= tcp; Group =:= tls
 ->
@@ -79,6 +105,12 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    wait_for_ci_redis(redis_checks(), Config).
+
+wait_for_ci_redis(0, _Config) ->
+    throw(no_redis);
+wait_for_ci_redis(Checks, Config) ->
+    timer:sleep(1000),
     TestHosts = all_test_hosts(),
     case emqx_common_test_helpers:is_all_tcp_servers_available(TestHosts) of
         true ->
@@ -96,7 +128,15 @@ init_per_suite(Config) ->
                 | Config
             ];
         false ->
-            {skip, no_redis}
+            wait_for_ci_redis(Checks - 1, Config)
+    end.
+
+redis_checks() ->
+    case os:getenv("IS_CI") of
+        "yes" ->
+            10;
+        _ ->
+            1
     end.
 
 end_per_suite(_Config) ->
@@ -107,15 +147,18 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
+    ok = delete_all_rules(),
     ok = delete_all_bridges(),
-    case ?config(redis_type, Config) of
-        undefined ->
+    case {?config(connector_type, Config), ?config(batch_mode, Config)} of
+        {undefined, _} ->
             Config;
-        RedisType ->
+        {redis_cluster, batch_on} ->
+            {skip, "Batching is not supported by 'redis_cluster' bridge type"};
+        {RedisType, BatchMode} ->
             Transport = ?config(transport, Config),
-            BatchMode = ?config(batch_mode, Config),
+            QueryMode = ?config(query_mode, Config),
             #{RedisType := #{Transport := RedisConnConfig}} = redis_connect_configs(),
-            #{BatchMode := ResourceConfig} = resource_configs(),
+            #{BatchMode := ResourceConfig} = resource_configs(#{query_mode => QueryMode}),
             IsBatch = (BatchMode =:= batch_on),
             BridgeConfig0 = maps:merge(RedisConnConfig, ?COMMON_REDIS_OPTS),
             BridgeConfig1 = BridgeConfig0#{<<"resource_opts">> => ResourceConfig},
@@ -131,7 +174,7 @@ end_per_testcase(_Testcase, Config) ->
 
 t_create_delete_bridge(Config) ->
     Name = <<"mybridge">>,
-    Type = ?config(redis_type, Config),
+    Type = ?config(connector_type, Config),
     BridgeConfig = ?config(bridge_config, Config),
     IsBatch = ?config(is_batch, Config),
     ?assertMatch(
@@ -141,9 +184,10 @@ t_create_delete_bridge(Config) ->
 
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
 
-    ?assertEqual(
+    ?WAIT(
         {ok, connected},
-        emqx_resource:health_check(ResourceId)
+        emqx_resource:health_check(ResourceId),
+        5
     ),
 
     RedisType = atom_to_binary(Type),
@@ -174,8 +218,7 @@ t_check_values(_Config) ->
     lists:foreach(
         fun(Method) ->
             lists:foreach(
-                fun({RedisType, #{value := Value0}}) ->
-                    Value = maps:without(maps:keys(?METRICS_EXAMPLE), Value0),
+                fun({RedisType, #{value := Value}}) ->
                     MethodBin = atom_to_binary(Method),
                     Type = string:slice(RedisType, length("redis_")),
                     RefName = binary_to_list(<<MethodBin/binary, "_", Type/binary>>),
@@ -209,29 +252,35 @@ t_check_replay(Config) ->
     ),
 
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-    Health = emqx_resource:health_check(ResourceId),
 
-    ?assertEqual(
+    ?WAIT(
         {ok, connected},
-        Health
+        emqx_resource:health_check(ResourceId),
+        5
     ),
 
     ?check_trace(
-        begin
-            ?wait_async_action(
-                with_down_failure(Config, ProxyName, fun() ->
-                    ct:sleep(100),
-                    lists:foreach(
-                        fun(_) ->
-                            _ = publish_message(Topic, <<"test_payload">>)
-                        end,
-                        lists:seq(1, ?BATCH_SIZE)
+        ?wait_async_action(
+            with_down_failure(Config, ProxyName, fun() ->
+                {_, {ok, _}} =
+                    ?wait_async_action(
+                        lists:foreach(
+                            fun(_) ->
+                                _ = publish_message(Topic, <<"test_payload">>)
+                            end,
+                            lists:seq(1, ?BATCH_SIZE)
+                        ),
+                        #{
+                            ?snk_kind := redis_ee_connector_send_done,
+                            batch := true,
+                            result := {error, _}
+                        },
+                        10_000
                     )
-                end),
-                #{?snk_kind := redis_ee_connector_send_done, batch := true, result := {ok, _}},
-                10000
-            )
-        end,
+            end),
+            #{?snk_kind := redis_ee_connector_send_done, batch := true, result := {ok, _}},
+            10_000
+        ),
         fun(Trace) ->
             ?assert(
                 ?strict_causality(
@@ -260,7 +309,7 @@ t_permanent_error(_Config) ->
             ?wait_async_action(
                 publish_message(Topic, Payload),
                 #{?snk_kind := redis_ee_connector_send_done},
-                10000
+                10_000
             )
         end,
         fun(Trace) ->
@@ -301,7 +350,7 @@ with_down_failure(Config, Name, F) ->
     ProxyHost = ?config(proxy_host, Config),
     emqx_common_test_helpers:with_failure(down, Name, ProxyHost, ProxyPort, F).
 
-check_resource_queries(ResourceId, Topic, IsBatch) ->
+check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
     RandomPayload = rand:bytes(20),
     N =
         case IsBatch of
@@ -309,20 +358,18 @@ check_resource_queries(ResourceId, Topic, IsBatch) ->
             false -> 1
         end,
     ?check_trace(
-        begin
-            ?wait_async_action(
-                lists:foreach(
-                    fun(_) ->
-                        _ = publish_message(Topic, RandomPayload)
-                    end,
-                    lists:seq(1, N)
-                ),
-                #{?snk_kind := redis_ee_connector_send_done, batch := IsBatch},
-                1000
-            )
-        end,
+        ?wait_async_action(
+            lists:foreach(
+                fun(I) ->
+                    _ = publish_message(format_topic(BaseTopic, I), RandomPayload)
+                end,
+                lists:seq(1, N)
+            ),
+            #{?snk_kind := redis_ee_connector_send_done, batch := IsBatch},
+            5000
+        ),
         fun(Trace) ->
-            AddedMsgCount = length(added_msgs(ResourceId, RandomPayload)),
+            AddedMsgCount = length(added_msgs(ResourceId, BaseTopic, RandomPayload)),
             case IsBatch of
                 true ->
                     ?assertMatch(
@@ -340,11 +387,23 @@ check_resource_queries(ResourceId, Topic, IsBatch) ->
         end
     ).
 
-added_msgs(ResourceId, Payload) ->
-    {ok, Results} = emqx_resource:simple_sync_query(
-        ResourceId, {cmd, [<<"LRANGE">>, <<"MSGS">>, <<"0">>, <<"-1">>]}
-    ),
-    [El || El <- Results, El =:= Payload].
+added_msgs(ResourceId, BaseTopic, Payload) ->
+    lists:flatmap(
+        fun(K) ->
+            {ok, Results} = emqx_resource:simple_sync_query(
+                ResourceId,
+                {cmd, [<<"LRANGE">>, K, <<"0">>, <<"-1">>]}
+            ),
+            [El || El <- Results, El =:= Payload]
+        end,
+        [format_redis_key(BaseTopic, S) || S <- lists:seq(0, ?KEYSHARDS - 1)]
+    ).
+
+format_topic(Base, I) ->
+    iolist_to_binary(io_lib:format("~s/~2..0B", [Base, I rem ?KEYSHARDS])).
+
+format_redis_key(Base, I) ->
+    iolist_to_binary([?KEYPREFIX, "/", format_topic(Base, I)]).
 
 conf_schema(StructName) ->
     #{
@@ -354,6 +413,14 @@ conf_schema(StructName) ->
         namespace => undefined,
         roots => [{root, hoconsc:ref(emqx_ee_bridge_redis, StructName)}]
     }.
+
+delete_all_rules() ->
+    lists:foreach(
+        fun(#{id := RuleId}) ->
+            emqx_rule_engine:delete_rule(RuleId)
+        end,
+        emqx_rule_engine:get_rules()
+    ).
 
 delete_all_bridges() ->
     lists:foreach(
@@ -382,9 +449,14 @@ all_test_hosts() ->
     ).
 
 parse_servers(Servers) ->
-    emqx_schema:parse_servers(Servers, #{
-        default_port => 6379
-    }).
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers, #{
+            default_port => 6379
+        })
+    ).
 
 redis_connect_ssl_opts(Type) ->
     maps:merge(
@@ -409,31 +481,38 @@ redis_connect_configs() ->
     #{
         redis_single => #{
             tcp => #{
-                <<"server">> => <<"redis:6379">>
+                <<"server">> => <<"redis:6379">>,
+                <<"redis_type">> => <<"single">>
             },
             tls => #{
                 <<"server">> => <<"redis-tls:6380">>,
-                <<"ssl">> => redis_connect_ssl_opts(redis_single)
+                <<"ssl">> => redis_connect_ssl_opts(redis_single),
+                <<"redis_type">> => <<"single">>
             }
         },
         redis_sentinel => #{
             tcp => #{
                 <<"servers">> => <<"redis-sentinel:26379">>,
+                <<"redis_type">> => <<"sentinel">>,
                 <<"sentinel">> => <<"mymaster">>
             },
             tls => #{
                 <<"servers">> => <<"redis-sentinel-tls:26380">>,
+                <<"redis_type">> => <<"sentinel">>,
                 <<"sentinel">> => <<"mymaster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_sentinel)
             }
         },
         redis_cluster => #{
             tcp => #{
-                <<"servers">> => <<"redis-cluster:7000,redis-cluster:7001,redis-cluster:7002">>
+                <<"servers">> =>
+                    <<"redis-cluster-1:6379,redis-cluster-2:6379,redis-cluster-3:6379">>,
+                <<"redis_type">> => <<"cluster">>
             },
             tls => #{
                 <<"servers">> =>
-                    <<"redis-cluster-tls:8000,redis-cluster-tls:8001,redis-cluster-tls:8002">>,
+                    <<"redis-cluster-tls-1:6389,redis-cluster-tls-2:6389,redis-cluster-tls-3:6389">>,
+                <<"redis_type">> => <<"cluster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_cluster)
             }
         }
@@ -442,12 +521,11 @@ redis_connect_configs() ->
 toxiproxy_redis_bridge_config() ->
     Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
         <<"resource_opts">> => #{
-            <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
+            <<"query_mode">> => <<"sync">>,
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
-            <<"health_check_interval">> => <<"1s">>
+            <<"health_check_interval">> => <<"1s">>,
+            <<"start_timeout">> => <<"15s">>
         }
     },
     maps:merge(Conf0, ?COMMON_REDIS_OPTS).
@@ -457,26 +535,26 @@ invalid_command_bridge_config() ->
     Conf1 = maps:merge(Conf0, ?COMMON_REDIS_OPTS),
     Conf1#{
         <<"resource_opts">> => #{
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>,
-            <<"worker_pool_size">> => <<"1">>
+            <<"query_mode">> => <<"sync">>,
+            <<"worker_pool_size">> => <<"1">>,
+            <<"start_timeout">> => <<"15s">>
         },
         <<"command_template">> => [<<"BAD">>, <<"COMMAND">>, <<"${payload}">>]
     }.
 
-resource_configs() ->
+resource_configs(#{query_mode := QueryMode}) ->
     #{
         batch_off => #{
-            <<"query_mode">> => <<"sync">>,
-            <<"enable_batch">> => <<"false">>,
-            <<"enable_queue">> => <<"false">>
+            <<"query_mode">> => atom_to_binary(QueryMode),
+            <<"start_timeout">> => <<"15s">>
         },
         batch_on => #{
-            <<"query_mode">> => <<"async">>,
-            <<"enable_batch">> => <<"true">>,
-            <<"enable_queue">> => <<"true">>,
+            <<"query_mode">> => atom_to_binary(QueryMode),
             <<"worker_pool_size">> => <<"1">>,
-            <<"batch_size">> => integer_to_binary(?BATCH_SIZE)
+            <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
+            <<"start_timeout">> => <<"15s">>,
+            <<"batch_time">> => <<"4s">>,
+            <<"request_timeout">> => <<"30s">>
         }
     }.
 
@@ -485,3 +563,14 @@ publish_message(Topic, Payload) ->
     {ok, _} = emqtt:connect(Client),
     ok = emqtt:publish(Client, Topic, Payload),
     ok = emqtt:stop(Client).
+
+wait(_F, 0) ->
+    error(timeout);
+wait(F, Attempt) ->
+    case F() of
+        ok ->
+            ok;
+        _ ->
+            timer:sleep(1000),
+            wait(F, Attempt - 1)
+    end.

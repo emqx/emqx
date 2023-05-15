@@ -1,0 +1,81 @@
+emqx_mgmt_api_publish {
+
+error_message.desc:
+"""失败的详细原因。"""
+
+message_id.desc:
+"""全局唯一的一个消息 ID，方便用于关联和追踪。"""
+
+message_properties.desc:
+"""PUBLISH 消息里的 Property 字段。"""
+
+msg_content_type.desc:
+"""内容类型标识符，以 UTF-8 格式编码的字符串，用来描述应用消息的内容，服务端必须把收到的应用消息中的内容类型原封不动的发送给所有的订阅者。"""
+
+msg_correlation_data.desc:
+"""对比数据标识符，服务端在收到应用消息时必须原封不动的把对比数据发送给所有的订阅者。对比数据只对请求消息(Request Message)的发送端和响应消息(Response Message)的接收端有意义。"""
+
+msg_message_expiry_interval.desc:
+"""消息过期间隔标识符，以秒为单位。当消失已经过期时，如果服务端还没有开始向匹配的订阅者投递该消息，则服务端会删除该订阅者的消息副本。如果不设置，则消息永远不会过期"""
+
+msg_payload_format_indicator.desc:
+"""载荷格式指示标识符，0 表示载荷是未指定格式的数据，相当于没有发送载荷格式指示；1 表示载荷是 UTF-8 编码的字符数据，载荷中的 UTF-8 数据必须是按照 Unicode 的规范和 RFC 3629 的标准要求进行编码的。"""
+
+msg_response_topic.desc:
+"""响应主题标识符， UTF-8 编码的字符串，用作响应消息的主题名。响应主题不能包含通配符，也不能包含多个主题，否则将造成协议错误。当存在响应主题时，消息将被视作请求报文。服务端在收到应用消息时必须将响应主题原封不动的发送给所有的订阅者。"""
+
+msg_user_properties.desc:
+"""指定 MQTT 消息的 User Property 键值对。注意，如果出现重复的键，只有最后一个会保留。"""
+
+payload.desc:
+"""MQTT 消息体。"""
+
+payload_encoding.desc:
+"""MQTT 消息体的编码方式，可以是 <code>base64</code> 或 <code>plain</code>。当设置为 <code>base64</code> 时，消息在发布前会先被解码。"""
+
+publish_api.desc:
+"""发布一个消息。<br/>
+可能的 HTTP 状态码如下：<br/>
+200: 消息被成功发送到至少一个订阅。<br/>
+202: 没有匹配到任何订阅。<br/>
+400: 消息编码错误，如非法主题，或 QoS 超出范围等。<br/>
+503: 服务重启等过程中导致转发失败。"""
+
+publish_api.label:
+"""发布一条信息"""
+
+publish_bulk_api.desc:
+"""批量发布一组消息。<br/>
+可能的 HTTP 状态码如下：<br/>
+200: 所有的消息都被成功发送到至少一个订阅。<br/>
+202: 至少有一个消息没有匹配到任何订阅。<br/>
+400: 至少有一个消息编码错误，如非法主题，或 QoS 超出范围等。<br/>
+503: 至少有一个小因为服务重启的原因导致转发失败。<br/>
+
+请求的 Body 或者 Body 中包含的某个消息无法通过 API 规范的类型检查时，HTTP 响应的消息与发布单个消息的 API
+ <code>/publish</code> 是一样的。
+如果所有的消息都是合法的，那么 HTTP 返回的内容是一个 JSON 数组，每个元素代表了该消息转发的状态。"""
+
+publish_bulk_api.label:
+"""发布一批信息"""
+
+qos.desc:
+"""MQTT 消息的 QoS"""
+
+reason_code.desc:
+"""MQTT 消息发布的错误码，这些错误码也是 MQTT 规范中 PUBACK 消息可能携带的错误码。<br/>
+当前支持如下错误码：<br/>
+
+16(0x10)：没能匹配到任何订阅；<br/>
+131(0x81)：消息转发时发生错误，例如 EMQX 服务重启；<br/>
+144(0x90)：主题名称非法；<br/>
+151(0x97)：受到了速率限制，或者消息尺寸过大。全局消息大小限制可以通过配置项 <code>mqtt.max_packet_size</code> 来进行修改。<br/>
+注意：消息尺寸的是通过主题和消息体的字节数进行估算的。具体发布时所占用的字节数可能会稍大于这个估算的值。"""
+
+retain.desc:
+"""布尔型字段，用于表示该消息是否保留消息。"""
+
+topic_name.desc:
+"""主题名称"""
+
+}

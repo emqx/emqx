@@ -1,7 +1,7 @@
 # EMQX
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
-[![Build Status](https://img.shields.io/travis/emqx/emqx?label=Build)](https://travis-ci.org/emqx/emqx)
+[![Build Status](https://github.com/emqx/emqx/actions/workflows/run_test_cases.yaml/badge.svg)](https://github.com/emqx/emqx/actions/workflows/run_test_cases.yaml)
 [![Coverage Status](https://img.shields.io/coveralls/github/emqx/emqx/master?label=Coverage)](https://coveralls.io/github/emqx/emqx?branch=master)
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx?label=Docker%20Pulls)](https://hub.docker.com/r/emqx/emqx)
 [![Slack](https://img.shields.io/badge/Slack-EMQ-39AE85?logo=slack)](https://slack-invite.emqx.io/)
@@ -9,9 +9,6 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-
-
-English | [简体中文](./README-CN.md) | [русский](./README-RU.md)
 
 EMQX is the world's most scalable open-source MQTT broker with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
 
@@ -25,7 +22,7 @@ For more information, please visit [EMQX homepage](https://www.emqx.io/).
 
 ## Get Started
 
-#### EMQX Cloud
+#### Run EMQX in the Cloud
 
 The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://www.emqx.com/en/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud-intl.emqx.com/console/deployments/0?oper=new), no credit card required.
 
@@ -62,6 +59,7 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 ## Get Involved
 
 - Follow [@EMQTech on Twitter](https://twitter.com/EMQTech).
+- Join our [Slack](https://slack-invite.emqx.io/).
 - If you have a specific question, check out our [discussion forums](https://github.com/emqx/emqx/discussions).
 - For general discussions, join us on the [official Discord](https://discord.gg/xYGf3fQnES) team.
 - Keep updated on [EMQX YouTube](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q) by subscribing.
@@ -76,7 +74,7 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
   We have selected popular MQTT client SDKs in various programming languages and provided code examples to help you quickly understand the use of MQTT clients.
 
-- [MQTT X](https://mqttx.app/)
+- [MQTTX](https://mqttx.app/)
 
   An elegant cross-platform MQTT 5.0 client tool that provides desktop, command line, and web to help you develop and debug MQTT services and applications faster.
 

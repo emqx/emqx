@@ -79,7 +79,7 @@ authorize(
     RenderedFilter = emqx_authz_utils:render_deep(FilterTemplate, Client),
     Result =
         try
-            emqx_resource:query(ResourceID, {find, Collection, RenderedFilter, #{}})
+            emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}})
         catch
             error:Error -> {error, Error}
         end,

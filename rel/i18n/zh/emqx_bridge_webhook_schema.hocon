@@ -1,0 +1,87 @@
+emqx_bridge_webhook_schema {
+
+config_body.desc:
+"""HTTP 请求的正文。<br/>
+如果没有设置该字段，请求正文将是包含所有可用字段的 JSON object。<br/>
+如果该 webhook 是由于收到 MQTT 消息触发的，'所有可用字段' 将是 MQTT 消息的
+上下文信息；如果该 webhook 是由于规则触发的，'所有可用字段' 则为触发事件的上下文信息。<br/>
+允许使用带有变量的模板。"""
+
+config_body.label:
+"""HTTP 请求正文"""
+
+config_direction.desc:
+"""已废弃，Bridge 的方向，必须是 egress"""
+
+config_direction.label:
+"""Bridge 方向"""
+
+config_enable.desc:
+"""启用/禁用 Bridge"""
+
+config_enable.label:
+"""启用/禁用 Bridge"""
+
+config_headers.desc:
+"""HTTP 请求的标头。<br/>
+允许使用带有变量的模板。"""
+
+config_headers.label:
+"""HTTP 请求标头"""
+
+config_local_topic.desc:
+"""发送到 'local_topic' 的消息都会转发到 HTTP 服务器。 <br/>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 HTTP 服务器。"""
+
+config_local_topic.label:
+"""本地 Topic"""
+
+config_max_retries.desc:
+"""HTTP 请求失败最大重试次数"""
+
+config_max_retries.label:
+"""HTTP 请求重试次数"""
+
+config_method.desc:
+"""HTTP 请求的方法。 所有可用的方法包括：post、put、get、delete。<br/>
+允许使用带有变量的模板。"""
+
+config_method.label:
+"""HTTP 请求方法"""
+
+config_request_timeout.desc:
+"""HTTP 请求超时"""
+
+config_request_timeout.label:
+"""HTTP 请求超时"""
+
+config_url.desc:
+"""HTTP Bridge 的 URL。<br/>
+路径中允许使用带变量的模板，但是 host， port 不允许使用变量模板。<br/>
+例如，<code> http://localhost:9901/${topic} </code> 是允许的，
+但是<code> http://${host}:9901/message </code>
+或 <code> http://localhost:${port}/message </code>
+不允许。"""
+
+config_url.label:
+"""HTTP Bridge"""
+
+desc_config.desc:
+"""HTTP Bridge 配置"""
+
+desc_config.label:
+"""HTTP Bridge 配置"""
+
+desc_name.desc:
+"""Bridge 名字，Bridge 的可读描述"""
+
+desc_name.label:
+"""Bridge 名字"""
+
+desc_type.desc:
+"""Bridge 类型"""
+
+desc_type.label:
+"""Bridge 类型"""
+
+}

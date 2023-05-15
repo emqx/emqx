@@ -175,7 +175,7 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         flags = Flags,
         headers = #{
             republish_by => RuleId,
-            properties => emqx_misc:pub_props_to_packet(PubProps)
+            properties => emqx_utils:pub_props_to_packet(PubProps)
         },
         topic = Topic,
         payload = Payload,
@@ -213,7 +213,7 @@ replace_simple_var(Val, _Data, _Default) ->
     Val.
 
 format_msg([], Selected) ->
-    emqx_json:encode(Selected);
+    emqx_utils_json:encode(Selected);
 format_msg(Tokens, Selected) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
 

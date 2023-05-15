@@ -39,7 +39,7 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     emqx_conf:remove_handler(?LEAF_NODE_HDLR_PATH),
     emqx_conf:remove_handler(?TOP_LELVE_HDLR_PATH),
-    ok = emqx_bridge:unload_hook(),
+    ok = emqx_bridge:unload(),
     ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).

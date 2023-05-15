@@ -32,7 +32,8 @@
 
 -export([
     check_subscribe/2,
-    unsubscribe/2
+    unsubscribe/2,
+    clear/0
 ]).
 
 %% Internal exports (RPC)
@@ -77,7 +78,7 @@ on_add_module() ->
     mnesia(boot).
 
 on_delete_module() ->
-    mria:clear_table(?EXCLUSIVE_SHARD).
+    clear().
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -100,6 +101,9 @@ unsubscribe(Topic, #{is_exclusive := true}) ->
     ok;
 unsubscribe(_Topic, _SubOpts) ->
     ok.
+
+clear() ->
+    mria:clear_table(?TAB).
 
 %%--------------------------------------------------------------------
 %% Internal functions

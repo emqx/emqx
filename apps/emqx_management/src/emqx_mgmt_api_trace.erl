@@ -20,6 +20,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     api_spec/0,
@@ -46,9 +47,11 @@
     get_trace_size/0
 ]).
 
+-define(MAX_SINT32, 2147483647).
+
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
--define(BAD_REQUEST(C, M), {400, #{code => C, message => ?TO_BIN(M)}}).
+-define(SERVICE_UNAVAILABLE(C, M), {503, #{code => C, message => ?TO_BIN(M)}}).
 -define(TAGS, [<<"Trace">>]).
 
 namespace() -> "trace".
@@ -91,7 +94,8 @@ schema("/trace") ->
                 409 => emqx_dashboard_swagger:error_codes(
                     [
                         'ALREADY_EXISTS',
-                        'DUPLICATE_CONDITION'
+                        'DUPLICATE_CONDITION',
+                        'BAD_TYPE'
                     ],
                     <<"trace already exists">>
                 )
@@ -147,8 +151,9 @@ schema("/trace/:name/download") ->
                                 #{schema => #{type => "string", format => "binary"}}
                         }
                     },
-                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Node Not Found">>),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
+                )
             }
         }
     };
@@ -183,8 +188,15 @@ schema("/trace/:name/log") ->
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
                         {meta, fields(bytes) ++ fields(position)}
                     ],
-                400 => emqx_dashboard_swagger:error_codes(['NODE_ERROR'], <<"Trace Log Failed">>),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], <<"Bad input parameter">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], <<"Requested chunk size too big">>
+                )
             }
         }
     }.
@@ -254,6 +266,19 @@ fields(trace) ->
                     example => running
                 }
             )},
+        {payload_encode,
+            hoconsc:mk(hoconsc:enum([hex, text, hidden]), #{
+                desc =>
+                    ""
+                    "Determine the format of the payload format in the trace file.<br/>\n"
+                    "`text`: Text-based protocol or plain text protocol.\n"
+                    " It is recommended when payload is JSON encoded.<br/>\n"
+                    "`hex`: Binary hexadecimal encode."
+                    "It is recommended when payload is a custom binary protocol.<br/>\n"
+                    "`hidden`: payload is obfuscated as `******`"
+                    "",
+                default => text
+            })},
         {start_at,
             hoconsc:mk(
                 emqx_datetime:epoch_second(),
@@ -312,12 +337,16 @@ fields(bytes) ->
     [
         {bytes,
             hoconsc:mk(
-                integer(),
+                %% This seems to be the minimum max value we may encounter
+                %% across different OS
+                range(0, ?MAX_SINT32),
                 #{
-                    desc => "Maximum number of bytes to store in request",
+                    desc => "Maximum number of bytes to send in response",
                     in => query,
                     required => false,
-                    default => 1000
+                    default => 1000,
+                    minimum => 0,
+                    maximum => ?MAX_SINT32
                 }
             )}
     ];
@@ -361,7 +390,7 @@ trace(get, _Params) ->
                 fun(#{start_at := A}, #{start_at := B}) -> A > B end,
                 emqx_trace:format(List0)
             ),
-            Nodes = mria_mnesia:running_nodes(),
+            Nodes = emqx:running_nodes(),
             TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
@@ -406,6 +435,11 @@ trace(post, #{body := Param}) ->
                 code => 'DUPLICATE_CONDITION',
                 message => ?TO_BIN([Name, " Duplication Condition"])
             }};
+        {error, {bad_type, _}} ->
+            {409, #{
+                code => 'BAD_TYPE',
+                message => <<"Rolling upgrade in progress, create failed">>
+            }};
         {error, Reason} ->
             {400, #{
                 code => 'INVALID_PARAMS',
@@ -430,7 +464,7 @@ format_trace(Trace0) ->
     LogSize = lists:foldl(
         fun(Node, Acc) -> Acc#{Node => 0} end,
         #{},
-        mria_mnesia:running_nodes()
+        emqx:running_nodes()
     ),
     Trace2 = maps:without([enable, filter], Trace1),
     Trace2#{
@@ -461,16 +495,31 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
             case parse_node(Query, undefined) of
                 {ok, Node} ->
                     TraceFiles = collect_trace_file(Node, TraceLog),
-                    ZipDir = emqx_trace:zip_dir(),
+                    %% We generate a session ID so that we name files
+                    %% with unique names. Then we won't cause
+                    %% overwrites for concurrent requests.
+                    SessionId = emqx_utils:gen_id(),
+                    ZipDir = filename:join([emqx_trace:zip_dir(), SessionId]),
+                    ok = file:make_dir(ZipDir),
+                    %% Write files to ZipDir and create an in-memory zip file
                     Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-                    FileName = binary_to_list(Name) ++ ".zip",
-                    ZipFileName = filename:join([ZipDir, FileName]),
-                    {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
-                    %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
-                    %% TODO use file replace file_binary.(delete file after send is not ready now).
-                    {ok, Binary} = file:read_file(ZipFile),
-                    ZipName = filename:basename(ZipFile),
-                    _ = file:delete(ZipFile),
+                    ZipName = binary_to_list(Name) ++ ".zip",
+                    Binary =
+                        try
+                            {ok, {ZipName, Bin}} = zip:zip(ZipName, Zips, [memory, {cwd, ZipDir}]),
+                            Bin
+                        after
+                            %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
+                            %% TODO use file replace file_binary.(delete file after send is not ready now).
+                            ok = file:del_dir_r(ZipDir)
+                        end,
+                    ?tp(trace_api_download_trace_log, #{
+                        files => Zips,
+                        name => Name,
+                        session_id => SessionId,
+                        zip_dir => ZipDir,
+                        zip_name => ZipName
+                    }),
                     Headers = #{
                         <<"content-type">> => <<"application/x-zip">>,
                         <<"content-disposition">> => iolist_to_binary(
@@ -479,7 +528,7 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     },
                     {200, Headers, {file_binary, ZipName, Binary}};
                 {error, not_found} ->
-                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+                    ?NOT_FOUND(<<"Node">>)
             end;
         {error, not_found} ->
             ?NOT_FOUND(Name)
@@ -511,13 +560,13 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     ).
 
 collect_trace_file(undefined, TraceLog) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = emqx:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog));
 collect_trace_file(Node, TraceLog) ->
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file([Node], TraceLog)).
 
 collect_trace_file_detail(TraceLog) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = emqx:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file_detail(Nodes, TraceLog)).
 
 wrap_rpc({GoodRes, BadNodes}) ->
@@ -563,11 +612,19 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                     {200, #{meta => Meta, items => <<"">>}};
                 {error, not_found} ->
                     ?NOT_FOUND(Name);
+                {error, enomem} ->
+                    ?SLOG(warning, #{
+                        code => not_enough_mem,
+                        msg => "Requested chunk size too big",
+                        bytes => Bytes,
+                        name => Name
+                    }),
+                    ?SERVICE_UNAVAILABLE('SERVICE_UNAVAILABLE', <<"Requested chunk size too big">>);
                 {badrpc, nodedown} ->
-                    ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+                    ?NOT_FOUND(<<"Node">>)
             end;
         {error, not_found} ->
-            ?BAD_REQUEST('NODE_ERROR', <<"Node not found">>)
+            ?NOT_FOUND(<<"Node">>)
     end.
 
 -spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
@@ -639,7 +696,7 @@ parse_node(Query, Default) ->
                 {ok, Default};
             {ok, NodeBin} ->
                 Node = binary_to_existing_atom(NodeBin),
-                true = lists:member(Node, mria_mnesia:running_nodes()),
+                true = lists:member(Node, emqx:running_nodes()),
                 {ok, Node}
         end
     catch

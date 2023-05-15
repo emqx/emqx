@@ -108,7 +108,7 @@ authz_http_common_fields() ->
                 })},
             {request_timeout,
                 mk_duration("Request timeout", #{
-                    required => false, default => "30s", desc => ?DESC(request_timeout)
+                    required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
                 })}
         ] ++
         maps:to_list(

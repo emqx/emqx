@@ -153,7 +153,7 @@ ssl_opts_gc_after_handshake_test_rancher_listener_test() ->
             #{
                 kind := validation_error,
                 reason := unknown_fields,
-                unknown := <<"gc_after_handshake">>
+                unknown := "gc_after_handshake"
             }
         ]},
         validate(Sc, #{<<"gc_after_handshake">> => true})
@@ -219,112 +219,124 @@ parse_server_test_() ->
         ?T(
             "single server, binary, no port",
             ?assertEqual(
-                [{"localhost", DefaultPort}],
+                [#{hostname => "localhost", port => DefaultPort}],
                 Parse(<<"localhost">>)
             )
         ),
         ?T(
             "single server, string, no port",
             ?assertEqual(
-                [{"localhost", DefaultPort}],
+                [#{hostname => "localhost", port => DefaultPort}],
                 Parse("localhost")
             )
         ),
         ?T(
             "single server, list(string), no port",
             ?assertEqual(
-                [{"localhost", DefaultPort}],
+                [#{hostname => "localhost", port => DefaultPort}],
                 Parse(["localhost"])
             )
         ),
         ?T(
             "single server, list(binary), no port",
             ?assertEqual(
-                [{"localhost", DefaultPort}],
+                [#{hostname => "localhost", port => DefaultPort}],
                 Parse([<<"localhost">>])
             )
         ),
         ?T(
             "single server, binary, with port",
             ?assertEqual(
-                [{"localhost", 9999}],
+                [#{hostname => "localhost", port => 9999}],
                 Parse(<<"localhost:9999">>)
             )
         ),
         ?T(
             "single server, list(string), with port",
             ?assertEqual(
-                [{"localhost", 9999}],
+                [#{hostname => "localhost", port => 9999}],
                 Parse(["localhost:9999"])
             )
         ),
         ?T(
             "single server, string, with port",
             ?assertEqual(
-                [{"localhost", 9999}],
+                [#{hostname => "localhost", port => 9999}],
                 Parse("localhost:9999")
             )
         ),
         ?T(
             "single server, list(binary), with port",
             ?assertEqual(
-                [{"localhost", 9999}],
+                [#{hostname => "localhost", port => 9999}],
                 Parse([<<"localhost:9999">>])
             )
         ),
         ?T(
             "multiple servers, string, no port",
             ?assertEqual(
-                [{"host1", DefaultPort}, {"host2", DefaultPort}],
+                [
+                    #{hostname => "host1", port => DefaultPort},
+                    #{hostname => "host2", port => DefaultPort}
+                ],
                 Parse("host1, host2")
             )
         ),
         ?T(
             "multiple servers, binary, no port",
             ?assertEqual(
-                [{"host1", DefaultPort}, {"host2", DefaultPort}],
+                [
+                    #{hostname => "host1", port => DefaultPort},
+                    #{hostname => "host2", port => DefaultPort}
+                ],
                 Parse(<<"host1, host2,,,">>)
             )
         ),
         ?T(
             "multiple servers, list(string), no port",
             ?assertEqual(
-                [{"host1", DefaultPort}, {"host2", DefaultPort}],
+                [
+                    #{hostname => "host1", port => DefaultPort},
+                    #{hostname => "host2", port => DefaultPort}
+                ],
                 Parse(["host1", "host2"])
             )
         ),
         ?T(
             "multiple servers, list(binary), no port",
             ?assertEqual(
-                [{"host1", DefaultPort}, {"host2", DefaultPort}],
+                [
+                    #{hostname => "host1", port => DefaultPort},
+                    #{hostname => "host2", port => DefaultPort}
+                ],
                 Parse([<<"host1">>, <<"host2">>])
             )
         ),
         ?T(
             "multiple servers, string, with port",
             ?assertEqual(
-                [{"host1", 1234}, {"host2", 2345}],
+                [#{hostname => "host1", port => 1234}, #{hostname => "host2", port => 2345}],
                 Parse("host1:1234, host2:2345")
             )
         ),
         ?T(
             "multiple servers, binary, with port",
             ?assertEqual(
-                [{"host1", 1234}, {"host2", 2345}],
+                [#{hostname => "host1", port => 1234}, #{hostname => "host2", port => 2345}],
                 Parse(<<"host1:1234, host2:2345, ">>)
             )
         ),
         ?T(
             "multiple servers, list(string), with port",
             ?assertEqual(
-                [{"host1", 1234}, {"host2", 2345}],
+                [#{hostname => "host1", port => 1234}, #{hostname => "host2", port => 2345}],
                 Parse([" host1:1234 ", "host2:2345"])
             )
         ),
         ?T(
             "multiple servers, list(binary), with port",
             ?assertEqual(
-                [{"host1", 1234}, {"host2", 2345}],
+                [#{hostname => "host1", port => 1234}, #{hostname => "host2", port => 2345}],
                 Parse([<<"host1:1234">>, <<"host2:2345">>])
             )
         ),
@@ -350,9 +362,9 @@ parse_server_test_() ->
             )
         ),
         ?T(
-            "multiple servers wihtout port, mixed list(binary|string)",
+            "multiple servers without port, mixed list(binary|string)",
             ?assertEqual(
-                ["host1", "host2"],
+                [#{hostname => "host1"}, #{hostname => "host2"}],
                 Parse2([<<"host1">>, "host2"], #{no_port => true})
             )
         ),
@@ -394,14 +406,18 @@ parse_server_test_() ->
         ?T(
             "single server map",
             ?assertEqual(
-                [{"host1.domain", 1234}],
+                [#{hostname => "host1.domain", port => 1234}],
                 HoconParse("host1.domain:1234")
             )
         ),
         ?T(
             "multiple servers map",
             ?assertEqual(
-                [{"host1.domain", 1234}, {"host2.domain", 2345}, {"host3.domain", 3456}],
+                [
+                    #{hostname => "host1.domain", port => 1234},
+                    #{hostname => "host2.domain", port => 2345},
+                    #{hostname => "host3.domain", port => 3456}
+                ],
                 HoconParse("host1.domain:1234,host2.domain:2345,host3.domain:3456")
             )
         ),
@@ -447,6 +463,171 @@ parse_server_test_() ->
                 "bad_schema",
                 emqx_schema:parse_server("whatever", #{default_port => 10, no_port => true})
             )
+        ),
+        ?T(
+            "scheme, hostname and port",
+            ?assertEqual(
+                #{scheme => "pulsar+ssl", hostname => "host", port => 6651},
+                emqx_schema:parse_server(
+                    "pulsar+ssl://host:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, default port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host", port => 6650},
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, no port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host"},
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "scheme and hostname, missing port",
+            ?assertThrow(
+                "missing_port_number",
+                emqx_schema:parse_server(
+                    "pulsar://host",
+                    #{
+                        no_port => false,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, no default port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host"},
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        default_scheme => "pulsar",
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, default port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host", port => 6650},
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "just hostname, expecting missing scheme",
+            ?assertThrow(
+                "missing_scheme",
+                emqx_schema:parse_server(
+                    "host",
+                    #{
+                        no_port => true,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, defined port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host", port => 6651},
+                emqx_schema:parse_server(
+                    "host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "inconsistent scheme opts",
+            ?assertError(
+                "bad_schema",
+                emqx_schema:parse_server(
+                    "pulsar+ssl://host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "something",
+                        supported_schemes => ["not", "supported"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "hostname, default scheme, defined port",
+            ?assertEqual(
+                #{scheme => "pulsar", hostname => "host", port => 6651},
+                emqx_schema:parse_server(
+                    "host:6651",
+                    #{
+                        default_port => 6650,
+                        default_scheme => "pulsar",
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "unsupported scheme",
+            ?assertThrow(
+                "unsupported_scheme",
+                emqx_schema:parse_server(
+                    "pulsar+quic://host:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "multiple hostnames with schemes (1)",
+            ?assertEqual(
+                [
+                    #{scheme => "pulsar", hostname => "host", port => 6649},
+                    #{scheme => "pulsar+ssl", hostname => "other.host", port => 6651},
+                    #{scheme => "pulsar", hostname => "yet.another", port => 6650}
+                ],
+                emqx_schema:parse_servers(
+                    "pulsar://host:6649, pulsar+ssl://other.host:6651,pulsar://yet.another",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
         )
     ].
 
@@ -455,13 +636,139 @@ servers_validator_test() ->
     NotRequired = emqx_schema:servers_validator(#{}, false),
     ?assertThrow("cannot_be_empty", Required("")),
     ?assertThrow("cannot_be_empty", Required(<<>>)),
+    ?assertThrow("cannot_be_empty", NotRequired("")),
+    ?assertThrow("cannot_be_empty", NotRequired(<<>>)),
     ?assertThrow("cannot_be_empty", Required(undefined)),
-    ?assertEqual(ok, NotRequired("")),
-    ?assertEqual(ok, NotRequired(<<>>)),
     ?assertEqual(ok, NotRequired(undefined)),
+    ?assertEqual(ok, NotRequired("undefined")),
     ok.
 
 converter_invalid_input_test() ->
     ?assertEqual(undefined, emqx_schema:convert_servers(undefined)),
     %% 'foo: bar' is a valid HOCON value, but 'bar' is not a port number
     ?assertThrow("bad_host_port", emqx_schema:convert_servers(#{foo => bar})).
+
+password_converter_test() ->
+    ?assertEqual(undefined, emqx_schema:password_converter(undefined, #{})),
+    ?assertEqual(<<"123">>, emqx_schema:password_converter(123, #{})),
+    ?assertEqual(<<"123">>, emqx_schema:password_converter(<<"123">>, #{})),
+    ?assertThrow("must_quote", emqx_schema:password_converter(foobar, #{})),
+    ok.
+
+url_type_test_() ->
+    [
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server/">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://192.168.0.1/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://192.168.0.1">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), "http://some.server/")
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"http://some.server:9090/">>},
+            typerefl:from_string(emqx_schema:url(), <<"http://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"https://some.server:9090/">>},
+            typerefl:from_string(emqx_schema:url(), <<"https://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {ok, <<"https://some.server:9090/path?q=uery">>},
+            typerefl:from_string(emqx_schema:url(), <<"https://some.server:9090/path?q=uery">>)
+        ),
+        ?_assertEqual(
+            {error, {unsupported_scheme, <<"postgres">>}},
+            typerefl:from_string(emqx_schema:url(), <<"postgres://some.server:9090">>)
+        ),
+        ?_assertEqual(
+            {error, empty_host_not_allowed},
+            typerefl:from_string(emqx_schema:url(), <<"">>)
+        )
+    ].
+
+env_test_() ->
+    Do = fun emqx_schema:naive_env_interpolation/1,
+    [
+        {"undefined", fun() -> ?assertEqual(undefined, Do(undefined)) end},
+        {"full env abs path",
+            with_env_fn(
+                "MY_FILE",
+                "/path/to/my/file",
+                fun() -> ?assertEqual("/path/to/my/file", Do("$MY_FILE")) end
+            )},
+        {"full env relative path",
+            with_env_fn(
+                "MY_FILE",
+                "path/to/my/file",
+                fun() -> ?assertEqual("path/to/my/file", Do("${MY_FILE}")) end
+            )},
+        %% we can not test windows style file join though
+        {"windows style",
+            with_env_fn(
+                "MY_FILE",
+                "path\\to\\my\\file",
+                fun() -> ?assertEqual("path\\to\\my\\file", Do("$MY_FILE")) end
+            )},
+        {"dir no {}",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"$MY_DIR/foobar">>)) end
+            )},
+        {"dir with {}",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}/foobar">>)) end
+            )},
+        %% a trailing / should not cause the sub path to become absolute
+        {"env dir with trailing /",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir//",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}/foobar">>)) end
+            )},
+        {"string dir with doulbe /",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir/",
+                fun() -> ?assertEqual("/mydir/foobar", Do(<<"${MY_DIR}//foobar">>)) end
+            )},
+        {"env not found",
+            with_env_fn(
+                "MY_DIR",
+                "/mydir/",
+                fun() -> ?assertEqual("${MY_DIR2}//foobar", Do(<<"${MY_DIR2}//foobar">>)) end
+            )}
+    ].
+
+with_env_fn(Name, Value, F) ->
+    fun() ->
+        with_envs(F, [{Name, Value}])
+    end.
+
+with_envs(Fun, Envs) ->
+    with_envs(Fun, [], Envs).
+
+with_envs(Fun, Args, [{_Name, _Value} | _] = Envs) ->
+    set_envs(Envs),
+    try
+        apply(Fun, Args)
+    after
+        unset_envs(Envs)
+    end.
+
+set_envs([{_Name, _Value} | _] = Envs) ->
+    lists:map(fun({Name, Value}) -> os:putenv(Name, Value) end, Envs).
+
+unset_envs([{_Name, _Value} | _] = Envs) ->
+    lists:map(fun({Name, _}) -> os:unsetenv(Name) end, Envs).

@@ -40,8 +40,9 @@ fields("dashboard") ->
             ?HOCON(
                 emqx_schema:duration_s(),
                 #{
-                    default => "10s",
+                    default => <<"10s">>,
                     desc => ?DESC(sample_interval),
+                    importance => ?IMPORTANCE_HIDDEN,
                     validator => fun validate_sample_interval/1
                 }
             )},
@@ -49,14 +50,23 @@ fields("dashboard") ->
             ?HOCON(
                 emqx_schema:duration(),
                 #{
-                    default => "60m",
+                    default => <<"60m">>,
                     desc => ?DESC(token_expired_time)
                 }
             )},
         {cors, fun cors/1},
         {i18n_lang, fun i18n_lang/1},
         {bootstrap_users_file,
-            ?HOCON(binary(), #{desc => ?DESC(bootstrap_users_file), required => false})}
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bootstrap_users_file),
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => <<>>
+                    %% deprecated => {since, "5.1.0"}
+                }
+            )}
     ];
 fields("listeners") ->
     [
@@ -87,12 +97,12 @@ fields("https") ->
     [
         enable(false),
         bind(18084)
-        | common_listener_fields() ++
-            exclude_fields(
-                ["fail_if_no_peer_cert"],
-                emqx_schema:server_ssl_opts_schema(#{}, true)
-            )
+        | common_listener_fields() ++ server_ssl_opts()
     ].
+
+server_ssl_opts() ->
+    Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
+    exclude_fields(["fail_if_no_peer_cert"], Opts0).
 
 exclude_fields([], Fields) ->
     Fields;
@@ -109,7 +119,7 @@ common_listener_fields() ->
             ?HOCON(
                 integer(),
                 #{
-                    default => 4,
+                    default => erlang:system_info(schedulers_online),
                     desc => ?DESC(num_acceptors)
                 }
             )},
@@ -133,7 +143,7 @@ common_listener_fields() ->
             ?HOCON(
                 emqx_schema:duration(),
                 #{
-                    default => "5s",
+                    default => <<"10s">>,
                     desc => ?DESC(send_timeout)
                 }
             )},
@@ -151,6 +161,14 @@ common_listener_fields() ->
                 #{
                     default => false,
                     desc => ?DESC(ipv6_v6only)
+                }
+            )},
+        {"proxy_header",
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(proxy_header),
+                    default => false
                 }
             )}
     ].
@@ -190,18 +208,21 @@ desc(_) ->
     undefined.
 
 default_username(type) -> binary();
-default_username(default) -> "admin";
+default_username(default) -> <<"admin">>;
 default_username(required) -> true;
 default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
+default_username(importance) -> ?IMPORTANCE_HIDDEN;
 default_username(_) -> undefined.
 
 default_password(type) -> binary();
-default_password(default) -> "public";
+default_password(default) -> <<"public">>;
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;
+default_password(converter) -> fun emqx_schema:password_converter/2;
 default_password(desc) -> ?DESC(default_password);
+default_password(importance) -> ?IMPORTANCE_HIDDEN;
 default_password(_) -> undefined.
 
 cors(type) -> boolean();
@@ -210,10 +231,13 @@ cors(required) -> false;
 cors(desc) -> ?DESC(cors);
 cors(_) -> undefined.
 
+%% TODO: change it to string type
+%% It will be up to the dashboard package which languagues to support
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
 i18n_lang(desc) -> ?DESC(i18n_lang);
+i18n_lang(importance) -> ?IMPORTANCE_HIDDEN;
 i18n_lang(_) -> undefined.
 
 validate_sample_interval(Second) ->

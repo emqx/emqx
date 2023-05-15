@@ -310,8 +310,8 @@ t_update(Cfg) ->
     ?assertMatch([], emqx_exhook_mgr:running()).
 
 decode_json(Data) ->
-    BinJosn = emqx_json:decode(Data, [return_maps]),
-    emqx_map_lib:unsafe_atom_key_map(BinJosn).
+    BinJosn = emqx_utils_json:decode(Data, [return_maps]),
+    emqx_utils_maps:unsafe_atom_key_map(BinJosn).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
@@ -332,7 +332,7 @@ request_api(Method, Url, QueryParams, Auth, Body) ->
             "" -> Url;
             _ -> Url ++ "?" ++ QueryParams
         end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
+    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_utils_json:encode(Body)}).
 
 do_request_api(Method, Request) ->
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
@@ -347,13 +347,7 @@ do_request_api(Method, Request) ->
     end.
 
 auth_header_() ->
-    AppId = <<"admin">>,
-    AppSecret = <<"public">>,
-    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
-    {"Authorization", "Basic " ++ Encoded}.
+    emqx_mgmt_api_test_util:auth_header_().
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).

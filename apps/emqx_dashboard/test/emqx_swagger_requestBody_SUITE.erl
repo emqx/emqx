@@ -33,7 +33,6 @@ init_per_suite(Config) ->
     mria:start(),
     application:load(emqx_dashboard),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -61,7 +60,7 @@ t_object(_Config) ->
                             #{
                                 <<"schema">> =>
                                     #{
-                                        required => [<<"timeout">>, <<"per_page">>],
+                                        required => [<<"per_page">>, <<"timeout">>],
                                         <<"properties">> => [
                                             {<<"per_page">>, #{
                                                 description => <<"good per page desc">>,
@@ -93,6 +92,30 @@ t_object(_Config) ->
     Refs = [{?MODULE, good_ref}],
     validate("/object", Spec, Refs),
     ok.
+
+t_deprecated(_Config) ->
+    ?assertMatch(
+        [
+            #{
+                <<"emqx_swagger_requestBody_SUITE.deprecated_ref">> :=
+                    #{
+                        <<"properties">> :=
+                            [
+                                {<<"tag1">>, #{
+                                    deprecated := true
+                                }},
+                                {<<"tag2">>, #{
+                                    deprecated := true
+                                }},
+                                {<<"tag3">>, #{
+                                    deprecated := false
+                                }}
+                            ]
+                    }
+            }
+        ],
+        emqx_dashboard_swagger:components([{?MODULE, deprecated_ref}], #{})
+    ).
 
 t_nest_object(_Config) ->
     GoodRef = <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>,
@@ -284,8 +307,8 @@ t_nest_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{mfa := {?MODULE, schema, [Path]}}},
+    ?assertError(
+        {failed_to_generate_swagger_spec, ?MODULE, Path},
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
     ),
     ok.
@@ -790,7 +813,7 @@ to_schema(Body) ->
 
 fields(good_ref) ->
     [
-        {'webhook-host', mk(emqx_schema:ip_port(), #{default => "127.0.0.1:80"})},
+        {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
         {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];
@@ -812,7 +835,13 @@ fields(sub_fields) ->
             {init_file, fun init_file/1}
         ],
         desc => <<"test sub fields">>
-    }.
+    };
+fields(deprecated_ref) ->
+    [
+        {tag1, mk(binary(), #{desc => <<"tag1">>, deprecated => {since, "4.3.0"}})},
+        {tag2, mk(binary(), #{desc => <<"tag2">>, deprecated => true})},
+        {tag3, mk(binary(), #{desc => <<"tag3">>, deprecated => false})}
+    ].
 
 enable(type) -> boolean();
 enable(desc) -> <<"Whether to enable tls psk support">>;

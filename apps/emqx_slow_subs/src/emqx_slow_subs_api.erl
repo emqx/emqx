@@ -147,5 +147,5 @@ settings(put, #{body := Body}) ->
     end.
 
 rpc_call(Fun) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     Fun(Nodes).

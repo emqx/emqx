@@ -14,8 +14,10 @@ export PROFILE
 
 case $PROFILE in
     "emqx-enterprise")
-        DIR='emqx-ee'
-        EDITION='enterprise'
+        #S3DIR='emqx-ee'
+        #EDITION='enterprise'
+        echo "No relup for now"
+        exit 0
         ;;
     "emqx")
         echo "No relup for opensource edition"
@@ -51,7 +53,7 @@ mkdir -p _upgrade_base
 pushd _upgrade_base >/dev/null
 for tag in ${BASE_VERSIONS}; do
     filename="$PROFILE-$(fullvsn "${tag#[e|v]}").tar.gz"
-    url="https://packages.emqx.io/$DIR/$tag/$filename"
+    url="https://packages.emqx.io/$S3DIR/$tag/$filename"
     echo "downloading ${filename} ..."
     ## if the file does not exist (not downloaded yet)
     ## and there is such a package to downlaod

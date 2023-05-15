@@ -541,7 +541,7 @@ init([]) ->
     CRef = counters:new(?MAX_SIZE, [write_concurrency]),
     ok = persistent_term:put(?MODULE, CRef),
     % Create index mapping table
-    ok = emqx_tables:new(?TAB, [{keypos, 2}, {read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [{keypos, 2}, {read_concurrency, true}]),
     Metrics = lists:append([
         ?BYTES_METRICS,
         ?PACKET_METRICS,

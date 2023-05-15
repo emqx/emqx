@@ -32,8 +32,8 @@ fields("root") ->
             )},
         {default_username, fun default_username/1},
         {default_password, fun default_password/1},
-        {sample_interval, mk(emqx_schema:duration_s(), #{default => "10s"})},
-        {token_expired_time, mk(emqx_schema:duration(), #{default => "30m"})}
+        {sample_interval, mk(emqx_schema:duration_s(), #{default => <<"10s">>})},
+        {token_expired_time, mk(emqx_schema:duration(), #{default => <<"30m">>})}
     ];
 fields("ref1") ->
     [
@@ -52,7 +52,7 @@ fields("ref3") ->
     ].
 
 default_username(type) -> string();
-default_username(default) -> "admin";
+default_username(default) -> <<"admin">>;
 default_username(required) -> true;
 default_username(_) -> undefined.
 

@@ -1,0 +1,12 @@
+emqx_rewrite_api {
+
+list_topic_rewrite_api.desc:
+"""List all rewrite rules"""
+
+update_topic_rewrite_api.desc:
+"""Update all rewrite rules"""
+
+update_topic_rewrite_api_response413.desc:
+"""Rules count exceed max limit"""
+
+}

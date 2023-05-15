@@ -321,7 +321,7 @@ operate_topic_metrics(delete, #{bindings := #{topic := Topic}}) ->
 %%--------------------------------------------------------------------
 
 cluster_accumulation_metrics() ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case emqx_topic_metrics_proto_v1:metrics(Nodes) of
         {SuccResList, []} ->
             {ok, accumulate_nodes_metrics(SuccResList)};
@@ -330,7 +330,7 @@ cluster_accumulation_metrics() ->
     end.
 
 cluster_accumulation_metrics(Topic) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case emqx_topic_metrics_proto_v1:metrics(Nodes, Topic) of
         {SuccResList, []} ->
             case
@@ -422,12 +422,12 @@ do_accumulation_metrics(MetricsIn, {MetricsAcc, _}) ->
     ).
 
 reset() ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     _ = emqx_topic_metrics_proto_v1:reset(Nodes),
     ok.
 
 reset(Topic) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
         {SuccResList, []} ->
             case

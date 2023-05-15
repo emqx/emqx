@@ -1,0 +1,15 @@
+emqx_license_http_api {
+
+desc_license_info_api.desc:
+"""获取许可证信息"""
+
+desc_license_info_api.label:
+"""许可证信息"""
+
+desc_license_key_api.desc:
+"""更新一个许可证密钥"""
+
+desc_license_key_api.label:
+"""更新许可证"""
+
+}

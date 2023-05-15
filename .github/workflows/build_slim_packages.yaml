@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - release-50
   pull_request:
     # GitHub pull_request action is by default triggered when
     # opened reopened or synchronize,
@@ -29,13 +30,14 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - ["emqx", "24.3.4.2-1", "el7"]
-        - ["emqx", "25.1.2-2", "ubuntu20.04"]
-        - ["emqx-enterprise", "24.3.4.2-1", "ubuntu20.04"]
+          - ["emqx", "24.3.4.2-3", "el7", "erlang"]
+          - ["emqx", "25.1.2-3", "ubuntu22.04", "elixir"]
+          - ["emqx-enterprise", "24.3.4.2-3", "amzn2", "erlang"]
+          - ["emqx-enterprise", "25.1.2-3", "ubuntu20.04", "erlang"]
         builder:
-        - 5.0-26
+          - 5.0-34
         elixir:
-        - 1.13.4
+          - '1.13.4'
 
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
@@ -52,22 +54,22 @@ jobs:
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: build and test tgz package
+      if: matrix.profile[3] == 'erlang'
       run: |
         make ${EMQX_NAME}-tgz
         ./scripts/pkg-tests.sh ${EMQX_NAME}-tgz
-    - name: run static checks
-      if: contains(matrix.os, 'ubuntu')
-      run: |
-        make static_checks
     - name: build and test deb/rpm packages
+      if: matrix.profile[3] == 'erlang'
       run: |
         make ${EMQX_NAME}-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
     - name: build and test tgz package (Elixir)
+      if: matrix.profile[3] == 'elixir'
       run: |
         make ${EMQX_NAME}-elixir-tgz
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-tgz
     - name: build and test deb/rpm packages (Elixir)
+      if: matrix.profile[3] == 'elixir'
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
@@ -80,7 +82,7 @@ jobs:
         name: "${{ matrix.profile[0] }}_schema_dump"
         path: |
           scripts/spellcheck
-          _build/${{ matrix.profile[0] }}/lib/emqx_dashboard/priv/www/static/schema.json
+          _build/docgen/${{ matrix.profile[0] }}/schema-en.json
 
   windows:
     runs-on: windows-2019
@@ -94,7 +96,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1.12.0
-    - uses: emqx/setup-beam@v1.16.1-emqx
+    - uses: erlef/setup-beam@v1.15.2
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
@@ -130,7 +132,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.3.4.2-1
+        - 24.3.4.2-3
         os:
         - macos-11
         - macos-12-arm64
@@ -156,6 +158,59 @@ jobs:
         name: ${{ matrix.os }}
         path: _packages/**/*
 
+  docker:
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - ["emqx", "5.0.16"]
+          - ["emqx-enterprise", "5.0.1"]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: prepare
+      run: |
+        EMQX_NAME=${{ matrix.profile[0] }}
+        PKG_VSN=${PKG_VSN:-$(./pkg-vsn.sh $EMQX_NAME)}
+        EMQX_IMAGE_TAG=emqx/$EMQX_NAME:test
+        EMQX_IMAGE_OLD_VERSION_TAG=emqx/$EMQX_NAME:${{ matrix.profile[1] }}
+        echo "EMQX_NAME=$EMQX_NAME" >> $GITHUB_ENV
+        echo "PKG_VSN=$PKG_VSN" >> $GITHUB_ENV
+        echo "EMQX_IMAGE_TAG=$EMQX_IMAGE_TAG" >> $GITHUB_ENV
+        echo "EMQX_IMAGE_OLD_VERSION_TAG=$EMQX_IMAGE_OLD_VERSION_TAG" >> $GITHUB_ENV
+    - uses: docker/setup-buildx-action@v2
+    - name: build and export to Docker
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./deploy/docker/Dockerfile
+        load: true
+        tags: ${{ env.EMQX_IMAGE_TAG }}
+        build-args: |
+          EMQX_NAME=${{ env.EMQX_NAME }}
+    - name: test docker image
+      run: |
+        CID=$(docker run -d --rm -P $EMQX_IMAGE_TAG)
+        HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+        ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+        docker stop $CID
+    - name: test two nodes cluster with proto_dist=inet_tls in docker
+      run: |
+        ./scripts/test/start-two-nodes-in-docker.sh -P $EMQX_IMAGE_TAG $EMQX_IMAGE_OLD_VERSION_TAG
+        HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' haproxy)
+        ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+        # cleanup
+        ./scripts/test/start-two-nodes-in-docker.sh -c
+    - name: export docker image
+      run: |
+        docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-$PKG_VSN.tar.gz
+    - uses: actions/upload-artifact@v3
+      with:
+        name: "${{ matrix.profile[0] }}-docker"
+        path: "${{ env.EMQX_NAME }}-${{ env.PKG_VSN }}.tar.gz"
+
   spellcheck:
     needs: linux
     strategy:
@@ -172,4 +227,4 @@ jobs:
         path: /tmp/
     - name: Run spellcheck
       run: |
-        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema-en.json

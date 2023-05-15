@@ -31,6 +31,12 @@
 ]).
 
 -export([
+    find_root/1,
+    insert_root/2,
+    delete_root/1
+]).
+
+-export([
     start_server/1,
     start_server/2,
     restart_server/1,
@@ -62,6 +68,7 @@
 
 -define(UID(Id, Type), {Id, Type}).
 -define(TAB, emqx_limiter_counters).
+-define(ROOT_ID, root).
 
 %%--------------------------------------------------------------------
 %%  API
@@ -104,15 +111,29 @@ insert_bucket(Id, Type, Bucket) ->
     ).
 
 -spec delete_bucket(limiter_id(), limiter_type()) -> true.
-delete_bucket(Type, Id) ->
+delete_bucket(Id, Type) ->
     ets:delete(?TAB, ?UID(Id, Type)).
 
+-spec find_root(limiter_type()) ->
+    {ok, bucket_ref()} | undefined.
+find_root(Type) ->
+    find_bucket(?ROOT_ID, Type).
+
+-spec insert_root(
+    limiter_type(),
+    bucket_ref()
+) -> boolean().
+insert_root(Type, Bucket) ->
+    insert_bucket(?ROOT_ID, Type, Bucket).
+
+-spec delete_root(limiter_type()) -> true.
+delete_root(Type) ->
+    delete_bucket(?ROOT_ID, Type).
+
 post_config_update([limiter], _Config, NewConf, _OldConf, _AppEnvs) ->
-    Types = lists:delete(client, maps:keys(NewConf)),
-    _ = [on_post_config_update(Type, NewConf) || Type <- Types],
-    ok;
-post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
-    on_post_config_update(Type, NewConf).
+    Conf = emqx_limiter_schema:convert_node_opts(NewConf),
+    _ = [on_post_config_update(Type, Cfg) || {Type, Cfg} <- maps:to_list(Conf)],
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -256,8 +277,7 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
-on_post_config_update(Type, NewConf) ->
-    Config = maps:get(Type, NewConf),
+on_post_config_update(Type, Config) ->
     case emqx_limiter_server:whereis(Type) of
         undefined ->
             start_server(Type, Config);

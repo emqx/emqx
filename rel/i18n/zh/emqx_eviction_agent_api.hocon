@@ -1,0 +1,9 @@
+emqx_eviction_agent_api {
+
+node_eviction_status_get.desc:
+"""获取节点驱逐状态"""
+
+node_eviction_status_get.label:
+"""节点驱逐状态"""
+
+}

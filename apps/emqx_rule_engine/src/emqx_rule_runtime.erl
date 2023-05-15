@@ -495,7 +495,7 @@ cache_payload(DecodedP) ->
 
 safe_decode_and_cache(MaybeJson) ->
     try
-        cache_payload(emqx_json:decode(MaybeJson, [return_maps]))
+        cache_payload(emqx_utils_json:decode(MaybeJson, [return_maps]))
     catch
         _:_ -> error({decode_json_failed, MaybeJson})
     end.
@@ -508,12 +508,12 @@ nested_put(Alias, Val, Columns0) ->
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
-inc_action_metrics(ok, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
 inc_action_metrics({error, {recoverable_error, _}}, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
+inc_action_metrics({error, {unrecoverable_error, _}}, RuleId) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed');
 inc_action_metrics(R, RuleId) ->
     case is_ok_result(R) of
         false ->
@@ -525,7 +525,9 @@ inc_action_metrics(R, RuleId) ->
 
 is_ok_result(ok) ->
     true;
+is_ok_result({async_return, R}) ->
+    is_ok_result(R);
 is_ok_result(R) when is_tuple(R) ->
     ok == erlang:element(1, R);
-is_ok_result(ok) ->
+is_ok_result(_) ->
     false.

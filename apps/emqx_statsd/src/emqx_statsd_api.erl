@@ -49,6 +49,7 @@ schema("/statsd") ->
         'operationId' => statsd,
         get =>
             #{
+                deprecated => true,
                 description => ?DESC(get_statsd_config_api),
                 tags => ?API_TAG_STATSD,
                 responses =>
@@ -56,6 +57,7 @@ schema("/statsd") ->
             },
         put =>
             #{
+                deprecated => true,
                 description => ?DESC(update_statsd_config_api),
                 tags => ?API_TAG_STATSD,
                 'requestBody' => statsd_config_schema(),
@@ -77,9 +79,9 @@ statsd_config_schema() ->
 statsd_example() ->
     #{
         enable => true,
-        flush_time_interval => "30s",
-        sample_time_interval => "30s",
-        server => "127.0.0.1:8125",
+        flush_time_interval => <<"30s">>,
+        sample_time_interval => <<"30s">>,
+        server => <<"127.0.0.1:8125">>,
         tags => #{}
     }.
 

@@ -38,7 +38,7 @@
 ]).
 
 %% Interface
--export([start_link/0]).
+-export([start_link/1]).
 
 %% Internal Exports
 -export([
@@ -53,9 +53,9 @@
 -define(SAMPLE_TIMEOUT, sample_timeout).
 
 %% Remove after 5.1.x
-start() -> check_multicall_result(emqx_statsd_proto_v1:start(mria_mnesia:running_nodes())).
-stop() -> check_multicall_result(emqx_statsd_proto_v1:stop(mria_mnesia:running_nodes())).
-restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria_mnesia:running_nodes())).
+start() -> check_multicall_result(emqx_statsd_proto_v1:start(mria:running_nodes())).
+stop() -> check_multicall_result(emqx_statsd_proto_v1:stop(mria:running_nodes())).
+restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria:running_nodes())).
 
 do_start() ->
     emqx_statsd_sup:ensure_child_started(?APP).
@@ -68,25 +68,26 @@ do_restart() ->
     ok = do_start(),
     ok.
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(Conf) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
 
-init([]) ->
+init(Conf) ->
     process_flag(trap_exit, true),
     #{
         tags := TagsRaw,
         server := Server,
         sample_time_interval := SampleTimeInterval,
         flush_time_interval := FlushTimeInterval
-    } = emqx_conf:get([statsd]),
-    {Host, Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
+    } = Conf,
+    FlushTimeInterval1 = flush_interval(FlushTimeInterval, SampleTimeInterval),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
     Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
     Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
     {ok, Pid} = estatsd:start_link(Opts),
     {ok,
         ensure_timer(#{
             sample_time_interval => SampleTimeInterval,
-            flush_time_interval => FlushTimeInterval,
+            flush_time_interval => FlushTimeInterval1,
             estatsd_pid => Pid
         })}.
 
@@ -105,7 +106,7 @@ handle_info(
         timer := Ref
     }
 ) ->
-    Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_vm_data(),
+    Metrics = emqx_metrics:all() ++ emqx_stats:getstats() ++ emqx_mgmt:vm_stats(),
     SampleRate = SampleTimeInterval / FlushTimeInterval,
     StatsdMetrics = [
         {gauge, Name, Value, SampleRate, []}
@@ -129,22 +130,21 @@ terminate(_Reason, #{estatsd_pid := Pid}) ->
 %% Internal function
 %%------------------------------------------------------------------------------
 
-emqx_vm_data() ->
-    Idle =
-        case cpu_sup:util([detailed]) of
-            %% Not support for Windows
-            {_, 0, 0, _} -> 0;
-            {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
-        end,
-    RunQueue = erlang:statistics(run_queue),
-    [
-        {run_queue, RunQueue},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle}
-    ] ++ emqx_vm:mem_info().
+flush_interval(FlushInterval, SampleInterval) when FlushInterval >= SampleInterval ->
+    FlushInterval;
+flush_interval(_FlushInterval, SampleInterval) ->
+    ?SLOG(
+        warning,
+        #{
+            msg =>
+                "Configured flush_time_interval is lower than sample_time_interval, "
+                "setting: flush_time_interval = sample_time_interval."
+        }
+    ),
+    SampleInterval.
 
 ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
-    State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
+    State#{timer => emqx_utils:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
 
 check_multicall_result({Results, []}) ->
     case

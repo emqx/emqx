@@ -1,0 +1,72 @@
+emqx_delayed_api {
+
+bad_msgid_format.desc:
+"""消息 ID 格式错误"""
+
+count.desc:
+"""延迟消息总数"""
+
+delayed_interval.desc:
+"""延迟时间(秒)"""
+
+delayed_remaining.desc:
+"""剩余时间(秒)"""
+
+delete_api.desc:
+"""删除延迟消息"""
+
+expected_at.desc:
+"""期望的发送时间, RFC 3339 格式"""
+
+from_clientid.desc:
+"""消息的 ClientID"""
+
+from_username.desc:
+"""消息的 Username"""
+
+get_message_api.desc:
+"""查看延迟消息"""
+
+illegality_limit.desc:
+"""数量上限不合法"""
+
+list_api.desc:
+"""查看延迟消息列表"""
+
+msgid.desc:
+"""延迟消息 ID"""
+
+msgid_not_found.desc:
+"""未找到对应消息"""
+
+node.desc:
+"""消息的来源节点"""
+
+payload.desc:
+"""消息内容, base64 格式。如果消息的大小超过 2048 字节，则消息内容会被设置为 'PAYLOAD_TO_LARGE'"""
+
+publish_at.desc:
+"""客户端发送时间, RFC 3339 格式"""
+
+qos.desc:
+"""QoS"""
+
+topic.desc:
+"""主题"""
+
+update_api.desc:
+"""开启或者关闭功能，或者设置延迟消息数量上限"""
+
+update_success.desc:
+"""开启或者关闭功能操作成功"""
+
+view_limit.desc:
+"""每页数量"""
+
+view_page.desc:
+"""查看的页数"""
+
+view_status_api.desc:
+"""查看慢订阅状态"""
+
+}

@@ -4,41 +4,13 @@ on: [pull_request]
 
 jobs:
   run_gitlint:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v3
-      - name: Install gitlint
-        run: |
-          sudo apt-get update
-          sudo apt install gitlint
-      - name: Set auth header
-        if: endsWith(github.repository, 'enterprise')
-        run: |
-          echo 'AUTH_HEADER<<EOF' >> $GITHUB_ENV
-          echo "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" >> $GITHUB_ENV
-          echo 'EOF' >> $GITHUB_ENV
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Run gitlint
         shell: bash
         run: |
-          pr_number=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
-          messages="$(curl --silent --show-error \
-                      --header "${{ env.AUTH_HEADER }}" \
-                      --header "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/commits")"
-          len=$(echo $messages | jq length)
-          result=true
-          for i in $( seq 0 $(($len - 1)) ); do
-            message=$(echo $messages | jq -r .[$i].commit.message)
-            echo "commit message: $message"
-            status=0
-            echo $message | gitlint -C ./.github/workflows/.gitlint || status=$?
-            if [ $status -ne 0 ]; then
-              result=false
-            fi
-          done
-          if ! ${result} ; then
-            echo "Some of the commit messages are not structured as The Conventional Commits specification. Please check CONTRIBUTING.md for our process on PR."
-            exit 1
-          fi
-          echo "success"
+          set -ex
+          docker run --ulimit nofile=1024 -v $(pwd):/repo -w /repo ghcr.io/emqx/gitlint --commits ${{ github.event.pull_request.base.sha }}..$GITHUB_SHA --config .github/workflows/.gitlint

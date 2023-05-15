@@ -41,25 +41,26 @@ fields("retainer") ->
             sc(
                 emqx_schema:duration_ms(),
                 msg_expiry_interval,
-                "0s"
+                <<"0s">>
             )},
         {msg_clear_interval,
             sc(
                 emqx_schema:duration_ms(),
                 msg_clear_interval,
-                "0s"
+                <<"0s">>
             )},
         {flow_control,
             sc(
                 ?R_REF(flow_control),
                 flow_control,
-                #{}
+                #{},
+                ?IMPORTANCE_HIDDEN
             )},
         {max_payload_size,
             sc(
                 emqx_schema:bytesize(),
                 max_payload_size,
-                "1MB"
+                <<"1MB">>
             )},
         {stop_publish_clear_msg,
             sc(
@@ -125,7 +126,9 @@ desc(_) ->
 %%    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
-    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
+    sc(Type, DescId, Default, ?DEFAULT_IMPORTANCE).
+sc(Type, DescId, Default, Importance) ->
+    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId), importance => Importance}).
 
 backend_config() ->
     hoconsc:mk(hoconsc:ref(?MODULE, mnesia_config), #{desc => ?DESC(backend)}).

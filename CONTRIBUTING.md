@@ -55,7 +55,7 @@ Must be one of the following:
 - **chore**: Updating grunt tasks etc; no production code change
 - **perf**: A code change that improves performance
 - **test**: Adding missing tests, refactoring tests; no production code change
-- **build**: Changes that affect the CI/CD pipeline or build system or external dependencies (example scopes: travis, jenkins, makefile)
+- **build**: Changes that affect the CI/CD pipeline or build system or external dependencies (example scopes: jenkins, makefile)
 - **ci**: Changes provided by DevOps for CI purposes.
 - **revert**: Reverts a previous commit.
 

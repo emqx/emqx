@@ -19,18 +19,25 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(ROUTE_TAB, emqx_route).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    Slave = emqx_common_test_helpers:start_slave(some_node, []),
+    [{slave, Slave} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
+    Slave = ?config(slave, Config),
+    emqx_common_test_helpers:stop_slave(Slave),
+    mria:clear_table(?ROUTE_TAB),
     emqx_mgmt_api_test_util:end_suite().
 
-t_nodes_api(_) ->
+t_nodes_api(Config) ->
     Node = atom_to_binary(node(), utf8),
     Topic = <<"test_topic">>,
     {ok, Client} = emqtt:start_link(#{
@@ -42,10 +49,10 @@ t_nodes_api(_) ->
     %% list all
     Path = emqx_mgmt_api_test_util:api_path(["topics"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
-    RoutesData = emqx_json:decode(Response, [return_maps]),
+    RoutesData = emqx_utils_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, RoutesData),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
-    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta)),
+    ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
     ?assertEqual(1, maps:get(<<"count">>, Meta)),
     Data = maps:get(<<"data">>, RoutesData),
     Route = erlang:hd(Data),
@@ -61,7 +68,7 @@ t_nodes_api(_) ->
     ]),
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     {ok, MatchResponse} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
-    MatchData = emqx_json:decode(MatchResponse, [return_maps]),
+    MatchData = emqx_utils_json:decode(MatchResponse, [return_maps]),
     ?assertMatch(
         #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
         maps:get(<<"meta">>, MatchData)
@@ -72,8 +79,17 @@ t_nodes_api(_) ->
     ),
 
     %% get topics/:topic
+    %% We add another route here to ensure that the response handles
+    %% multiple routes for a single topic
+    Slave = ?config(slave, Config),
+    ok = emqx_router:add_route(Topic, Slave),
     RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
-    RouteData = emqx_json:decode(RouteResponse, [return_maps]),
-    ?assertEqual(Topic, maps:get(<<"topic">>, RouteData)),
-    ?assertEqual(Node, maps:get(<<"node">>, RouteData)).
+    ok = emqx_router:delete_route(Topic, Slave),
+
+    [
+        #{<<"topic">> := Topic, <<"node">> := Node1},
+        #{<<"topic">> := Topic, <<"node">> := Node2}
+    ] = emqx_utils_json:decode(RouteResponse, [return_maps]),
+
+    ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])).

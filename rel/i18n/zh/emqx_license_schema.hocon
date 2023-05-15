@@ -1,0 +1,29 @@
+emqx_license_schema {
+
+connection_high_watermark_field.desc:
+"""高水位线，连接数超过这个水位线时，系统会触发许可证连接配额使用告警"""
+
+connection_high_watermark_field.label:
+"""连接高水位"""
+
+connection_low_watermark_field.desc:
+"""低水位限制，低于此水位线时系统会清除连接配额使用告警"""
+
+connection_low_watermark_field.label:
+"""连接低水位线"""
+
+key_field.desc:
+"""许可证字符串"""
+
+key_field.label:
+"""许可证字符串"""
+
+license_root.desc:
+"""EMQX企业许可证。
+EMQX 自带一个默认的试用许可证，默认试用许可允许最多接入 100 个连接，签发时间是 2023年1月9日，有效期是 5 年（1825 天）。若需要在生产环境部署，
+请访问 https://www.emqx.com/apply-licenses/emqx 来申请。"""
+
+license_root.label:
+"""许可证"""
+
+}

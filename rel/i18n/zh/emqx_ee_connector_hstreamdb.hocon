@@ -1,0 +1,45 @@
+emqx_ee_connector_hstreamdb {
+
+config.desc:
+"""HStreamDB 连接配置。"""
+
+config.label:
+"""连接配置"""
+
+name.desc:
+"""连接器名称，人类可读的连接器描述。"""
+
+name.label:
+"""连接器名称"""
+
+ordering_key.desc:
+"""HStreamDB 分区键"""
+
+ordering_key.label:
+"""HStreamDB 分区键"""
+
+pool_size.desc:
+"""HStreamDB 连接池大小"""
+
+pool_size.label:
+"""HStreamDB 连接池大小"""
+
+stream_name.desc:
+"""HStreamDB 流名称"""
+
+stream_name.label:
+"""HStreamDB 流名称"""
+
+type.desc:
+"""连接器类型。"""
+
+type.label:
+"""连接器类型"""
+
+url.desc:
+"""HStreamDB 服务器 URL"""
+
+url.label:
+"""HStreamDB 服务器 URL"""
+
+}

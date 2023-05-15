@@ -57,7 +57,7 @@ end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_resource:remove_local(?PGSQL_RESOURCE),
     ok = stop_apps([emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authz]).
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
@@ -326,13 +326,13 @@ raw_pgsql_authz_config() ->
     }.
 
 q(Sql) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql}
     ).
 
 insert(Sql, Params) ->
-    {ok, _} = emqx_resource:query(
+    {ok, _} = emqx_resource:simple_sync_query(
         ?PGSQL_RESOURCE,
         {query, Sql, Params}
     ),

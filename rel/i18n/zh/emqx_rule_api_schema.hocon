@@ -1,0 +1,381 @@
+emqx_rule_api_schema {
+
+event_action.desc:
+"""订阅或发布"""
+
+event_action.label:
+"""订阅或发布"""
+
+event_payload.desc:
+"""消息负载"""
+
+event_payload.label:
+"""消息负载"""
+
+metrics_actions_failed_out_of_service.desc:
+"""由于输出停止服务而导致规则调用输出失败的次数。 例如，桥接被禁用或停止。"""
+
+metrics_actions_failed_out_of_service.label:
+"""调用输出失败次数"""
+
+metrics_actions_failed_unknown.desc:
+"""由于未知错误，规则调用输出失败的次数。"""
+
+metrics_actions_failed_unknown.label:
+"""调用输出失败次数"""
+
+event_server.desc:
+"""MQTT broker的 IP 地址（或主机名）和端口，采用 IP:Port 格式"""
+
+event_server.label:
+"""服务器 IP 地址和端口"""
+
+metrics_actions_total.desc:
+"""规则调用输出的次数。 该值可能是“sql.matched”的几倍，具体取决于规则输出的数量。"""
+
+metrics_actions_total.label:
+"""调用输出次数"""
+
+event_ctx_disconnected_da.desc:
+"""客户端断开连接的时刻"""
+
+event_ctx_disconnected_da.label:
+"""客户端断开连接时刻"""
+
+event_topic.desc:
+"""消息主题"""
+
+event_topic.label:
+"""消息主题"""
+
+event_peername.desc:
+"""对等客户端的 IP 地址和端口"""
+
+event_peername.label:
+"""IP 地址和端口"""
+
+metrics_sql_passed.desc:
+"""SQL 通过的次数"""
+
+metrics_sql_passed.label:
+"""SQL 通过"""
+
+test_context.desc:
+"""测试事件的上下文"""
+
+test_context.label:
+"""事件上下文"""
+
+node_node.desc:
+"""节点名字"""
+
+node_node.label:
+"""节点名字"""
+
+event_from_clientid.desc:
+"""事件来源客户端的 ID"""
+
+event_from_clientid.label:
+"""客户端 ID"""
+
+event_keepalive.desc:
+"""保持连接"""
+
+event_keepalive.label:
+"""保持连接"""
+
+event_connected_at.desc:
+"""客户端连接完成时的时刻"""
+
+event_connected_at.label:
+"""连接完成时的时刻"""
+
+metrics_sql_failed_exception.desc:
+"""SQL 由于执行异常而失败的次数。 这可能是因为调用 SQL 函数时崩溃，或者试图对未定义的变量进行算术运算"""
+
+metrics_sql_failed_exception.label:
+"""SQL 执行异常"""
+
+event_from_username.desc:
+"""事件来源客户端的用户名"""
+
+event_from_username.label:
+"""用户名"""
+
+event_ctx_connack_reason_code.desc:
+"""错误码"""
+
+event_ctx_connack_reason_code.label:
+"""错误码"""
+
+rs_description.desc:
+"""描述"""
+
+rs_description.label:
+"""描述"""
+
+rule_id.desc:
+"""规则的 ID"""
+
+rule_id.label:
+"""规则 ID"""
+
+rs_event.desc:
+"""事件主题"""
+
+rs_event.label:
+"""事件主题"""
+
+root_rule_engine.desc:
+"""规则引擎配置。该 API 可用于查看和修改规则引擎相关的一些设置。但不可用于规则，如需查看或修改规则，请调用 '/rules' API 进行操作。"""
+
+root_rule_engine.label:
+"""规则引擎配置"""
+
+event_sockname.desc:
+"""本地监听的 IP 地址和端口"""
+
+event_sockname.label:
+"""IP 地址和端口"""
+
+event_qos.desc:
+"""消息的 QoS"""
+
+event_qos.label:
+"""消息 QoS"""
+
+event_mountpoint.desc:
+"""挂载点"""
+
+event_mountpoint.label:
+"""挂载点"""
+
+rs_title.desc:
+"""标题"""
+
+rs_title.label:
+"""标题"""
+
+ri_metrics.desc:
+"""规则的计数器"""
+
+ri_metrics.label:
+"""规则计数器"""
+
+event_retain.desc:
+"""是否是保留消息"""
+
+event_retain.label:
+"""保留消息"""
+
+event_event_type.desc:
+"""事件类型"""
+
+event_event_type.label:
+"""事件类型"""
+
+event_expiry_interval.desc:
+"""到期间隔"""
+
+event_expiry_interval.label:
+"""到期间隔"""
+
+metrics_sql_matched.desc:
+"""SQL 的 FROM 子句匹配的次数。"""
+
+metrics_sql_matched.label:
+"""命中数"""
+
+event_clientid.desc:
+"""客户端 ID"""
+
+event_clientid.label:
+"""客户端 ID"""
+
+metrics_actions_success.desc:
+"""规则成功调用输出的次数。"""
+
+metrics_actions_success.label:
+"""成功调用输出次数"""
+
+metrics_actions_failed.desc:
+"""规则调用输出失败的次数。"""
+
+metrics_actions_failed.label:
+"""调用输出失败次数"""
+
+metrics_sql_matched_rate.desc:
+"""命中速率，次/秒"""
+
+metrics_sql_matched_rate.label:
+"""Matched Rate"""
+
+event_proto_ver.desc:
+"""协议版本"""
+
+event_proto_ver.label:
+"""协议版本"""
+
+event_publish_received_at.desc:
+"""消息被接受的时间"""
+
+event_publish_received_at.label:
+"""消息被接受的时间"""
+
+metrics_sql_matched_rate_last5m.desc:
+"""5分钟平均命中速率，次/秒"""
+
+metrics_sql_matched_rate_last5m.label:
+"""平均命中速率"""
+
+event_is_bridge.desc:
+"""是否桥接"""
+
+event_is_bridge.label:
+"""是否桥接"""
+
+event_authz_source.desc:
+"""缓存，插件或者默认值"""
+
+event_authz_source.label:
+"""认证源"""
+
+metrics_sql_failed_unknown.desc:
+"""由于未知错误导致 SQL 失败的次数。"""
+
+metrics_sql_failed_unknown.label:
+"""SQL 未知错误"""
+
+metrics_sql_failed.desc:
+"""SQL 失败的次数"""
+
+metrics_sql_failed.label:
+"""SQL 失败"""
+
+event_ctx_dropped.desc:
+"""消息被丢弃的原因"""
+
+event_ctx_dropped.label:
+"""丢弃原因"""
+
+root_rule_test.desc:
+"""用于规则测试的 Schema"""
+
+root_rule_test.label:
+"""用于规则测试的 Schema"""
+
+rs_test_columns.desc:
+"""测试列"""
+
+rs_test_columns.label:
+"""测试列"""
+
+event_peerhost.desc:
+"""对等客户端的 IP 地址"""
+
+event_peerhost.label:
+"""对等客户端的 IP"""
+
+event_proto_name.desc:
+"""协议名称"""
+
+event_proto_name.label:
+"""协议名称"""
+
+root_rule_events.desc:
+"""用于事件的 Schema"""
+
+root_rule_events.label:
+"""用于规则事件的 Schema"""
+
+rs_sql_example.desc:
+"""SQL 例子"""
+
+rs_sql_example.label:
+"""SQL 例子"""
+
+metrics_sql_matched_rate_max.desc:
+"""最大命中速率，次/秒"""
+
+metrics_sql_matched_rate_max.label:
+"""最大命中速率"""
+
+event_clean_start.desc:
+"""清除会话"""
+
+event_clean_start.label:
+"""清除会话"""
+
+ri_created_at.desc:
+"""规则创建时间"""
+
+ri_created_at.label:
+"""规则创建时间"""
+
+event_dup.desc:
+"""MQTT 消息的 DUP 标志"""
+
+event_dup.label:
+"""DUP 标志"""
+
+ri_from.desc:
+"""规则指定的主题"""
+
+ri_from.label:
+"""规则指定的主题"""
+
+ri_node_metrics.desc:
+"""每个节点的规则计数器"""
+
+ri_node_metrics.label:
+"""每个节点规则计数器"""
+
+root_rule_creation.desc:
+"""用于创建规则的 Schema"""
+
+root_rule_creation.label:
+"""用于创建规则的 Schema"""
+
+event_result.desc:
+"""允许或禁止"""
+
+event_result.label:
+"""认证结果"""
+
+event_id.desc:
+"""消息 ID"""
+
+event_id.label:
+"""消息 ID"""
+
+event_username.desc:
+"""用户名"""
+
+event_username.label:
+"""用户名"""
+
+root_rule_info.desc:
+"""用于规则信息的 Schema"""
+
+root_rule_info.label:
+"""用于规则信息的 Schema"""
+
+rs_columns.desc:
+"""列"""
+
+rs_columns.label:
+"""列"""
+
+test_sql.desc:
+"""测试的 SQL"""
+
+test_sql.label:
+"""测试 SQL"""
+
+event_ctx_disconnected_reason.desc:
+"""断开连接的原因"""
+
+event_ctx_disconnected_reason.label:
+"""断开连接原因"""
+
+}

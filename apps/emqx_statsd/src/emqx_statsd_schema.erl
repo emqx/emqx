@@ -32,7 +32,8 @@
 
 namespace() -> "statsd".
 
-roots() -> ["statsd"].
+roots() ->
+    [{"statsd", hoconsc:mk(hoconsc:ref(?MODULE, "statsd"), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields("statsd") ->
     [
@@ -61,12 +62,12 @@ server() ->
     emqx_schema:servers_sc(Meta, ?SERVER_PARSE_OPTS).
 
 sample_interval(type) -> emqx_schema:duration_ms();
-sample_interval(default) -> "30s";
+sample_interval(default) -> <<"30s">>;
 sample_interval(desc) -> ?DESC(?FUNCTION_NAME);
 sample_interval(_) -> undefined.
 
 flush_interval(type) -> emqx_schema:duration_ms();
-flush_interval(default) -> "30s";
+flush_interval(default) -> <<"30s">>;
 flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
 

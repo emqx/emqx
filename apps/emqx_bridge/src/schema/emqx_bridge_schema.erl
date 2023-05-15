@@ -17,10 +17,11 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, desc/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
 -export([
     get_response/0,
@@ -30,7 +31,8 @@
 
 -export([
     common_bridge_fields/0,
-    metrics_status_fields/0
+    status_fields/0,
+    metrics_fields/0
 ]).
 
 %%======================================================================================
@@ -55,8 +57,8 @@ api_schema(Method) ->
     EE = ee_api_schemas(Method),
     hoconsc:union(Broker ++ EE).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 ee_api_schemas(Method) ->
-    %% must ensure the app is loaded before checking if fn is defined.
     ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, api_schemas, 1) of
         true -> emqx_ee_bridge:api_schemas(Method);
@@ -64,12 +66,30 @@ ee_api_schemas(Method) ->
     end.
 
 ee_fields_bridges() ->
-    %% must ensure the app is loaded before checking if fn is defined.
     ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, fields, 1) of
         true -> emqx_ee_bridge:fields(bridges);
         false -> []
     end.
+
+%% must ensure the app is loaded before checking if fn is defined.
+ensure_loaded(App, Mod) ->
+    try
+        _ = application:load(App),
+        _ = Mod:module_info(),
+        ok
+    catch
+        _:_ ->
+            ok
+    end.
+
+-else.
+
+ee_api_schemas(_) -> [].
+
+ee_fields_bridges() -> [].
+
+-endif.
 
 common_bridge_fields() ->
     [
@@ -83,19 +103,29 @@ common_bridge_fields() ->
             )}
     ].
 
-metrics_status_fields() ->
+status_fields() ->
+    [
+        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("desc_node_status")}
+            )}
+    ].
+
+metrics_fields() ->
     [
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("desc_metrics")})},
         {"node_metrics",
             mk(
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("desc_node_metrics")}
-            )},
-        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
-        {"node_status",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => ?DESC("desc_node_status")}
             )}
     ].
 
@@ -104,7 +134,10 @@ metrics_status_fields() ->
 
 namespace() -> "bridge".
 
-roots() -> [bridges].
+tags() ->
+    [<<"Bridge">>].
+
+roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(bridges) ->
     [
@@ -113,7 +146,8 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
                 #{
                     desc => ?DESC("bridges_webhook"),
-                    required => false
+                    required => false,
+                    converter => fun webhook_bridge_converter/2
                 }
             )},
         {mqtt,
@@ -122,18 +156,19 @@ fields(bridges) ->
                 #{
                     desc => ?DESC("bridges_mqtt"),
                     required => false,
-                    converter => fun emqx_bridge_mqtt_config:upgrade_pre_ee/1
+                    converter => fun(X, _HoconOpts) ->
+                        emqx_bridge_compatible_config:upgrade_pre_ee(
+                            X, fun emqx_bridge_compatible_config:maybe_upgrade/1
+                        )
+                    end
                 }
             )}
     ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
-        {"batching", mk(integer(), #{desc => ?DESC("metric_batching")})},
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
         {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
         {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},
-        {"dropped.queue_not_enabled",
-            mk(integer(), #{desc => ?DESC("metric_dropped_queue_not_enabled")})},
         {"dropped.resource_not_found",
             mk(integer(), #{desc => ?DESC("metric_dropped_resource_not_found")})},
         {"dropped.resource_stopped",
@@ -142,7 +177,7 @@ fields("metrics") ->
         {"queuing", mk(integer(), #{desc => ?DESC("metric_queuing")})},
         {"retried", mk(integer(), #{desc => ?DESC("metric_retried")})},
         {"failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
-        {"inflight", mk(integer(), #{desc => ?DESC("metric_sent_inflight")})},
+        {"inflight", mk(integer(), #{desc => ?DESC("metric_inflight")})},
         {"success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},
         {"rate", mk(float(), #{desc => ?DESC("metric_rate")})},
         {"rate_max", mk(float(), #{desc => ?DESC("metric_rate_max")})},
@@ -161,7 +196,13 @@ fields("node_metrics") ->
 fields("node_status") ->
     [
         node_name(),
-        {"status", mk(status(), #{})}
+        {"status", mk(status(), #{})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })}
     ].
 
 desc(bridges) ->
@@ -176,21 +217,57 @@ desc(_) ->
     undefined.
 
 status() ->
-    hoconsc:enum([connected, disconnected, connecting]).
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
-%%=================================================================================================
-%% Internal fns
-%%=================================================================================================
-
-ensure_loaded(App, Mod) ->
-    try
-        _ = application:load(App),
-        _ = Mod:module_info(),
-        ok
-    catch
-        _:_ ->
-            ok
+webhook_bridge_converter(Conf0, _HoconOpts) ->
+    Conf1 = emqx_bridge_compatible_config:upgrade_pre_ee(
+        Conf0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+    ),
+    case Conf1 of
+        undefined ->
+            undefined;
+        _ ->
+            maps:map(
+                fun(_Name, Conf) ->
+                    do_convert_webhook_config(Conf)
+                end,
+                Conf1
+            )
     end.
+
+do_convert_webhook_config(
+    #{<<"request_timeout">> := ReqT, <<"resource_opts">> := #{<<"request_timeout">> := ReqT}} = Conf
+) ->
+    %% ok: same values
+    Conf;
+do_convert_webhook_config(
+    #{
+        <<"request_timeout">> := ReqTRootRaw,
+        <<"resource_opts">> := #{<<"request_timeout">> := ReqTResourceRaw}
+    } = Conf0
+) ->
+    %% different values; we set them to the same, if they are valid
+    %% durations
+    MReqTRoot = emqx_schema:to_duration_ms(ReqTRootRaw),
+    MReqTResource = emqx_schema:to_duration_ms(ReqTResourceRaw),
+    case {MReqTRoot, MReqTResource} of
+        {{ok, ReqTRoot}, {ok, ReqTResource}} ->
+            {_Parsed, ReqTRaw} = max({ReqTRoot, ReqTRootRaw}, {ReqTResource, ReqTResourceRaw}),
+            Conf1 = emqx_utils_maps:deep_merge(
+                Conf0,
+                #{
+                    <<"request_timeout">> => ReqTRaw,
+                    <<"resource_opts">> => #{<<"request_timeout">> => ReqTRaw}
+                }
+            ),
+            Conf1;
+        _ ->
+            %% invalid values; let the type checker complain about
+            %% that.
+            Conf0
+    end;
+do_convert_webhook_config(Conf) ->
+    Conf.

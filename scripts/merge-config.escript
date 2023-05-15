@@ -30,33 +30,35 @@ main(_) ->
     case IsEnterprise of
         true ->
             EnterpriseCfgs = get_all_cfgs("lib-ee"),
-            EnterpriseConf = merge("", EnterpriseCfgs),
+            EnterpriseConf = merge(<<"">>, EnterpriseCfgs),
             ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf);
         false ->
             ok
-    end.
+    end,
+    merge_desc_files_per_lang("en"),
+    %% TODO: remove this when we have zh translation moved to dashboard package
+    merge_desc_files_per_lang("zh").
 
 is_enterprise() ->
     Profile = os:getenv("PROFILE", "emqx"),
     nomatch =/= string:find(Profile, "enterprise").
 
 merge(BaseConf, Cfgs) ->
-    lists:foldl(
-        fun(CfgFile, Acc) ->
-            case filelib:is_regular(CfgFile) of
-                true ->
-                    {ok, Bin1} = file:read_file(CfgFile),
-                    case string:trim(Bin1, both) of
-                        <<>> -> Acc;
-                        Bin2 -> [Acc, io_lib:nl(), io_lib:nl(), Bin2]
-                    end;
-                false ->
-                    Acc
-            end
-        end,
-        BaseConf,
-        Cfgs
-    ).
+    Confs = [BaseConf | lists:map(fun read_conf/1, Cfgs)],
+    infix(lists:filter(fun(I) -> iolist_size(I) > 0 end, Confs), [io_lib:nl(), io_lib:nl()]).
+
+read_conf(CfgFile) ->
+    case filelib:is_regular(CfgFile) of
+        true ->
+            {ok, Bin1} = file:read_file(CfgFile),
+            string:trim(Bin1, both);
+        false ->
+            <<>>
+    end.
+
+infix([], _With) -> [];
+infix([One], _With) -> [One];
+infix([H | T], With) -> [H, With, infix(T, With)].
 
 get_all_cfgs(Root) ->
     Apps0 = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],
@@ -97,3 +99,48 @@ try_enter_child(Dir, Files, Cfgs) ->
         true ->
             get_all_cfgs(filename:join([Dir, "src"]), Cfgs)
     end.
+
+%% Desc files merge is for now done locally in emqx.git repo for all languages.
+%% When zh and other languages are moved to a separate repo,
+%% we will only merge the en files.
+%% The file for other languages will be merged in the other repo,
+%% the built as a part of the dashboard package,
+%% finally got pulled at build time as a part of the dashboard package.
+merge_desc_files_per_lang(Lang) ->
+    BaseConf = <<"">>,
+    Cfgs0 = get_all_desc_files(Lang),
+    Conf = do_merge_desc_files_per_lang(BaseConf, Cfgs0),
+    OutputFile = case Lang of
+        "en" ->
+            %% en desc will always be in the priv dir of emqx_dashboard
+             "apps/emqx_dashboard/priv/desc.en.hocon";
+        "zh" ->
+            %% so far we inject zh desc as if it's extracted from dashboard package
+            %% TODO: remove this when we have zh translation moved to dashboard package
+            "apps/emqx_dashboard/priv/www/static/desc.zh.hocon"
+    end,
+    ok = filelib:ensure_dir(OutputFile),
+    ok = file:write_file(OutputFile, Conf).
+
+do_merge_desc_files_per_lang(BaseConf, Cfgs) ->
+    lists:foldl(
+      fun(CfgFile, Acc) ->
+              case filelib:is_regular(CfgFile) of
+                  true ->
+                      {ok, Bin1} = file:read_file(CfgFile),
+                      [Acc, io_lib:nl(), Bin1];
+                  false -> Acc
+              end
+      end, BaseConf, Cfgs).
+
+get_all_desc_files(Lang) ->
+    Dir =
+        case Lang of
+            "en" ->
+                 filename:join(["rel", "i18n"]);
+            "zh" ->
+                %% TODO: remove this when we have zh translation moved to dashboard package
+                 filename:join(["rel", "i18n", "zh"])
+        end,
+    Files = filelib:wildcard("*.hocon", Dir),
+    lists:map(fun(Name) -> filename:join([Dir, Name]) end, Files).

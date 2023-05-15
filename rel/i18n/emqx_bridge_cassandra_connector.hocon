@@ -1,0 +1,17 @@
+emqx_bridge_cassandra_connector {
+
+keyspace.desc:
+"""Keyspace name to connect to."""
+
+keyspace.label:
+"""Keyspace"""
+
+servers.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port][,Host2:Port]`.<br/>
+The Cassandra default port 9042 is used if `[:Port]` is not specified."""
+
+servers.label:
+"""Servers"""
+
+}

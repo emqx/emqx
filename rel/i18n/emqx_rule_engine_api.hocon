@@ -1,0 +1,93 @@
+emqx_rule_engine_api {
+
+api1.desc:
+"""List all rules"""
+
+api1.label:
+"""List All Rules"""
+
+api10.desc:
+"""Update rule engine configuration."""
+
+api10.label:
+"""Update configuration"""
+
+api1_enable.desc:
+"""Filter enable/disable rules"""
+
+api1_from.desc:
+"""Filter rules by from(topic), exact match"""
+
+api1_like_description.desc:
+"""Filter rules by description, Substring matching"""
+
+api1_like_from.desc:
+"""Filter rules by from(topic), Substring matching"""
+
+api1_like_id.desc:
+"""Filter rules by id, Substring matching"""
+
+api1_match_from.desc:
+"""Filter rules by from(topic), Mqtt topic matching"""
+
+api1_resp.desc:
+"""List of rules"""
+
+api1_resp.label:
+"""List Rules"""
+
+api2.desc:
+"""Create a new rule using given Id"""
+
+api2.label:
+"""Create Rule By ID"""
+
+api3.desc:
+"""List all events can be used in rules"""
+
+api3.label:
+"""List All Events Can Be Used In Rule"""
+
+api4.desc:
+"""Get a rule by given Id"""
+
+api4.label:
+"""Get Rule"""
+
+api4_1.desc:
+"""Get a rule's metrics by given Id"""
+
+api4_1.label:
+"""Get Metric"""
+
+api5.desc:
+"""Update a rule by given Id to all nodes in the cluster"""
+
+api5.label:
+"""Update Cluster Rule"""
+
+api6.desc:
+"""Delete a rule by given Id from all nodes in the cluster"""
+
+api6.label:
+"""Delete Cluster Rule"""
+
+api7.desc:
+"""Reset a rule metrics"""
+
+api7.label:
+"""Reset Rule Metrics"""
+
+api8.desc:
+"""Test a rule"""
+
+api8.label:
+"""Test Rule"""
+
+api9.desc:
+"""Get rule engine configuration."""
+
+api9.label:
+"""Get configuration"""
+
+}

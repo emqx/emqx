@@ -46,7 +46,7 @@ end_per_testcase(_, _Config) ->
     ok.
 
 t_get_metrics(_) ->
-    Metrics = [a, b, c],
+    Metrics = [a, b, c, {slide, d}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
@@ -73,6 +73,8 @@ t_get_metrics(_) ->
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 10),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 30),
     ct:sleep(1500),
     ?LET(
         #{
@@ -89,6 +91,9 @@ t_get_metrics(_) ->
                 a := 1,
                 b := 1,
                 c := 2
+            } = Counters,
+            slides := #{
+                d := #{n_samples := 2, last5m := 20, current := _}
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id),
@@ -100,7 +105,8 @@ t_get_metrics(_) ->
             ?assert(MaxB > 0),
             ?assert(MaxC > 0),
             ?assert(Inflight == 12),
-            ?assert(Queuing == 9)
+            ?assert(Queuing == 9),
+            ?assertNot(maps:is_key(d, Counters))
         }
     ),
     ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
@@ -117,6 +123,7 @@ t_clear_metrics(_Config) ->
                 c := #{current := 0.0, max := 0.0, last5m := 0.0}
             },
             gauges := #{},
+            slides := #{},
             counters := #{
                 a := 0,
                 b := 0,
@@ -138,14 +145,15 @@ t_clear_metrics(_Config) ->
         #{
             counters => #{},
             gauges => #{},
-            rate => #{current => 0.0, last5m => 0.0, max => 0.0}
+            rate => #{current => 0.0, last5m => 0.0, max => 0.0},
+            slides => #{}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
     ok.
 
 t_reset_metrics(_) ->
-    Metrics = [a, b, c],
+    Metrics = [a, b, c, {slide, d}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
@@ -161,6 +169,9 @@ t_reset_metrics(_) ->
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            slides := #{
+                d := #{n_samples := 0, last5m := 0, current := 0}
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -172,7 +183,12 @@ t_reset_metrics(_) ->
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 100),
+    ok = emqx_metrics_worker:observe(?NAME, Id, d, 200),
     ct:sleep(1500),
+    ?assertMatch(
+        #{d := #{n_samples := 2}}, emqx_metrics_worker:get_slide(?NAME, <<"testid">>)
+    ),
     ok = emqx_metrics_worker:reset_metrics(?NAME, Id),
     ?LET(
         #{
@@ -186,6 +202,9 @@ t_reset_metrics(_) ->
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            slides := #{
+                d := #{n_samples := 0, last5m := 0, current := 0}
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id),
@@ -202,7 +221,7 @@ t_reset_metrics(_) ->
     ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
 t_get_metrics_2(_) ->
-    Metrics = [a, b, c],
+    Metrics = [a, b, c, {slide, d}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(
         ?NAME,

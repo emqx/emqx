@@ -1,0 +1,9 @@
+emqx_eviction_agent_api {
+
+node_eviction_status_get.desc:
+"""Get the node eviction status"""
+
+node_eviction_status_get.label:
+"""Node Eviction Status"""
+
+}

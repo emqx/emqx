@@ -1,0 +1,203 @@
+emqx_rule_engine_schema {
+
+console_function.desc:
+"""Print the actions to the console"""
+
+console_function.label:
+"""Console Function"""
+
+desc_builtin_action_console.desc:
+"""Configuration for a built-in action."""
+
+desc_builtin_action_console.label:
+"""Action Console Configuration"""
+
+desc_builtin_action_republish.desc:
+"""Configuration for a built-in action."""
+
+desc_builtin_action_republish.label:
+"""Republish Configuration"""
+
+desc_republish_args.desc:
+"""The arguments of the built-in 'republish' action.One can use variables in the args.
+The variables are selected by the rule. For example, if the rule SQL is defined as following:
+<code>
+    SELECT clientid, qos, payload FROM "t/1"
+</code>
+Then there are 3 variables available: <code>clientid</code>, <code>qos</code> and
+<code>payload</code>. And if we've set the args to:
+<code>
+    {
+        topic = "t/${clientid}"
+        qos = "${qos}"
+        payload = "msg: ${payload}"
+    }
+</code>
+When the rule is triggered by an MQTT message with payload = `hello`, qos = 1,
+clientid = `Steve`, the rule will republish a new MQTT message to topic `t/Steve`,
+payload = `msg: hello`, and `qos = 1`."""
+
+desc_republish_args.label:
+"""Republish Args"""
+
+desc_rule_engine.desc:
+"""Configuration for the EMQX Rule Engine."""
+
+desc_rule_engine.label:
+"""Rule Engine Configuration"""
+
+desc_rules.desc:
+"""Configuration for a rule."""
+
+desc_rules.label:
+"""Rule Configuration"""
+
+desc_user_provided_function.desc:
+"""Configuration for a built-in action."""
+
+desc_user_provided_function.label:
+"""User Provid Function Configuration"""
+
+republish_args_payload.desc:
+"""The payload of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${payload}. If variable ${payload} is not found from the selected result
+of the rule, then the string "undefined" is used."""
+
+republish_args_payload.label:
+"""Message Payload"""
+
+republish_args_qos.desc:
+"""The qos of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
+0 is used."""
+
+republish_args_qos.label:
+"""Message QoS"""
+
+republish_args_retain.desc:
+"""The 'retain' flag of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.
+Defaults to ${retain}. If variable ${retain} is not found from the selected result
+of the rule, false is used."""
+
+republish_args_retain.label:
+"""Retain Flag"""
+
+republish_args_topic.desc:
+"""The target topic of message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'."""
+
+republish_args_topic.label:
+"""Target Topic"""
+
+republish_args_user_properties.desc:
+"""From which variable should the MQTT message's User-Property pairs be taken from.
+The value must be a map.
+You may configure it to <code>${pub_props.'User-Property'}</code> or
+use <code>SELECT *,pub_props.'User-Property' as user_properties</code>
+to forward the original user properties to the republished message.
+You may also call <code>map_put</code> function like
+<code>map_put('my-prop-name', 'my-prop-value', user_properties) as user_properties</code>
+to inject user properties.
+NOTE: MQTT spec allows duplicated user property names, but EMQX Rule-Engine does not."""
+
+republish_function.desc:
+"""Republish the message as a new MQTT message"""
+
+republish_function.label:
+"""Republish Function"""
+
+rule_engine_ignore_sys_message.desc:
+"""When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."""
+
+rule_engine_ignore_sys_message.label:
+"""Ignore Sys Message"""
+
+rule_engine_jq_function_default_timeout.desc:
+"""Default timeout for the `jq` rule engine function"""
+
+rule_engine_jq_function_default_timeout.label:
+"""Rule engine jq function default timeout"""
+
+rule_engine_jq_implementation_module.desc:
+"""The implementation module for the jq rule engine function. The two options are jq_nif and jq_port. With the jq_nif option an Erlang NIF library is used while with the jq_port option an implementation based on Erlang port programs is used. The jq_nif option (the default option) is the fastest implementation of the two but jq_port is safer as the jq programs will not execute in the same process as the Erlang VM."""
+
+rule_engine_jq_implementation_module.label:
+"""JQ Implementation Module"""
+
+rule_engine_rules.desc:
+"""The rules"""
+
+rule_engine_rules.label:
+"""Rules"""
+
+rules_actions.desc:
+"""A list of actions of the rule.
+An action can be a string that refers to the channel ID of an EMQX bridge, or an object
+that refers to a function.
+There a some built-in functions like "republish" and "console", and we also support user
+provided functions in the format: "{module}:{function}".
+The actions in the list are executed sequentially.
+This means that if one of the action is executing slowly, all the following actions will not
+be executed until it returns.
+If one of the action crashed, all other actions come after it will still be executed, in the
+original order.
+If there's any error when running an action, there will be an error message, and the 'failure'
+counter of the function action or the bridge channel will increase."""
+
+rules_actions.label:
+"""Rule Action List"""
+
+rules_description.desc:
+"""The description of the rule"""
+
+rules_description.label:
+"""Rule Description"""
+
+rules_enable.desc:
+"""Enable or disable the rule"""
+
+rules_enable.label:
+"""Enable Or Disable Rule"""
+
+rules_metadata.desc:
+"""Rule metadata, do not change manually"""
+
+rules_metadata.label:
+"""Rule metadata"""
+
+rules_name.desc:
+"""The name of the rule"""
+
+rules_name.label:
+"""Rule Name"""
+
+rules_sql.desc:
+"""SQL query to transform the messages.
+Example: <code>SELECT * FROM "test/topic" WHERE payload.x = 1</code>"""
+
+rules_sql.label:
+"""Rule SQL"""
+
+user_provided_function_args.desc:
+"""The args will be passed as the 3rd argument to module:function/3,
+checkout the function <code>console</code> and <code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
+
+user_provided_function_args.label:
+"""User Provided Function Args"""
+
+user_provided_function_function.desc:
+"""The user provided function. Should be in the format: '{module}:{function}'.
+Where {module} is the Erlang callback module and {function} is the Erlang function.
+
+To write your own function, checkout the function <code>console</code> and
+<code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_actions.erl</code> as an example."""
+
+user_provided_function_function.label:
+"""User Provided Function"""
+
+}

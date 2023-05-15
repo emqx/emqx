@@ -67,7 +67,8 @@
     out/1,
     stats/1,
     dropped/1,
-    to_list/1
+    to_list/1,
+    filter/2
 ]).
 
 -define(NO_PRIORITY_TABLE, disabled).
@@ -157,6 +158,19 @@ max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 -spec to_list(mqueue()) -> list().
 to_list(MQ) ->
     to_list(MQ, []).
+
+-spec filter(fun((any()) -> boolean()), mqueue()) -> mqueue().
+filter(_Pred, #mqueue{len = 0} = MQ) ->
+    MQ;
+filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
+    Q2 = ?PQUEUE:filter(Pred, Q),
+    case ?PQUEUE:len(Q2) of
+        Len ->
+            MQ;
+        Len2 ->
+            Diff = Len - Len2,
+            MQ#mqueue{q = Q2, len = Len2, dropped = Droppend + Diff}
+    end.
 
 to_list(MQ, Acc) ->
     case out(MQ) of

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ee_bridge_mysql_SUITE).
@@ -28,6 +28,9 @@
 -define(MYSQL_DATABASE, "mqtt").
 -define(MYSQL_USERNAME, "root").
 -define(MYSQL_PASSWORD, "public").
+-define(MYSQL_POOL_SIZE, 4).
+
+-define(WORKER_POOL_SIZE, 4).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -42,15 +45,16 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     NonBatchCases = [t_write_timeout, t_uninitialized_prepared_statement],
+    BatchingGroups = [
+        {group, with_batch},
+        {group, without_batch}
+    ],
+    QueryModeGroups = [{group, async}, {group, sync}],
     [
-        {tcp, [
-            {group, with_batch},
-            {group, without_batch}
-        ]},
-        {tls, [
-            {group, with_batch},
-            {group, without_batch}
-        ]},
+        {tcp, QueryModeGroups},
+        {tls, QueryModeGroups},
+        {async, BatchingGroups},
+        {sync, BatchingGroups},
         {with_batch, TCs -- NonBatchCases},
         {without_batch, TCs}
     ].
@@ -62,7 +66,6 @@ init_per_group(tcp, Config) ->
         {mysql_host, MysqlHost},
         {mysql_port, MysqlPort},
         {enable_tls, false},
-        {query_mode, sync},
         {proxy_name, "mysql_tcp"}
         | Config
     ];
@@ -73,15 +76,18 @@ init_per_group(tls, Config) ->
         {mysql_host, MysqlHost},
         {mysql_port, MysqlPort},
         {enable_tls, true},
-        {query_mode, sync},
         {proxy_name, "mysql_tls"}
         | Config
     ];
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true} | Config0],
+    Config = [{batch_size, 100} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false} | Config0],
+    Config = [{batch_size, 1} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -96,6 +102,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Config.
 
 end_per_suite(_Config) ->
@@ -106,6 +113,7 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -157,7 +165,7 @@ mysql_config(BridgeType, Config) ->
     MysqlPort = integer_to_list(?config(mysql_port, Config)),
     Server = ?config(mysql_host, Config) ++ ":" ++ MysqlPort,
     Name = atom_to_binary(?MODULE),
-    EnableBatch = ?config(enable_batch, Config),
+    BatchSize = ?config(batch_size, Config),
     QueryMode = ?config(query_mode, Config),
     TlsEnabled = ?config(enable_tls, Config),
     ConfigString =
@@ -168,10 +176,13 @@ mysql_config(BridgeType, Config) ->
             "  database = ~p\n"
             "  username = ~p\n"
             "  password = ~p\n"
+            "  pool_size = ~b\n"
             "  sql = ~p\n"
             "  resource_opts = {\n"
-            "    enable_batch = ~p\n"
+            "    request_timeout = 500ms\n"
+            "    batch_size = ~b\n"
             "    query_mode = ~s\n"
+            "    worker_pool_size = ~b\n"
             "  }\n"
             "  ssl = {\n"
             "    enable = ~w\n"
@@ -184,9 +195,11 @@ mysql_config(BridgeType, Config) ->
                 ?MYSQL_DATABASE,
                 ?MYSQL_USERNAME,
                 ?MYSQL_PASSWORD,
+                ?MYSQL_POOL_SIZE,
                 ?SQL_BRIDGE,
-                EnableBatch,
+                BatchSize,
                 QueryMode,
+                ?WORKER_POOL_SIZE,
                 TlsEnabled
             ]
         ),
@@ -213,7 +226,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -227,13 +240,32 @@ query_resource(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request).
+    emqx_resource:query(ResourceID, Request, #{timeout => 500}).
+
+query_resource_async(Config, Request) ->
+    Name = ?config(mysql_name, Config),
+    BridgeType = ?config(mysql_bridge_type, Config),
+    Ref = alias([reply]),
+    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    Return = emqx_resource:query(ResourceID, Request, #{
+        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    }),
+    {Return, Ref}.
+
+receive_result(Ref, Timeout) ->
+    receive
+        {result, Ref, Result} ->
+            {ok, Result}
+    after Timeout ->
+        timeout
+    end.
 
 unprepare(Config, Key) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    {ok, _, #{state := #{poolname := PoolName}}} = emqx_resource:get_instance(ResourceID),
+    {ok, _, #{state := #{pool_name := PoolName}}} = emqx_resource:get_instance(ResourceID),
     [
         begin
             {ok, Conn} = ecpool_worker:client(Worker),
@@ -264,27 +296,26 @@ connect_direct_mysql(Config) ->
     {ok, Pid} = mysql:start_link(Opts ++ SslOpts),
     Pid.
 
+query_direct_mysql(Config, Query) ->
+    Pid = connect_direct_mysql(Config),
+    try
+        mysql:query(Pid, Query)
+    after
+        mysql:stop(Pid)
+    end.
+
 % These funs connect and then stop the mysql connection
 connect_and_create_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_CREATE_TABLE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_CREATE_TABLE).
 
 connect_and_drop_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_DROP_TABLE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_DROP_TABLE).
 
 connect_and_clear_table(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    ok = mysql:query(DirectPid, ?SQL_DELETE),
-    mysql:stop(DirectPid).
+    query_direct_mysql(Config, ?SQL_DELETE).
 
 connect_and_get_payload(Config) ->
-    DirectPid = connect_direct_mysql(Config),
-    Result = mysql:query(DirectPid, ?SQL_SELECT),
-    mysql:stop(DirectPid),
-    Result.
+    query_direct_mysql(Config, ?SQL_SELECT).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -397,20 +428,47 @@ t_write_failure(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
+    QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     ?check_trace(
-        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            send_message(Config, SentData)
-        end),
-        fun
-            ({error, {resource_error, _}}, _Trace) ->
-                ok;
-            ({error, {recoverable_error, disconnected}}, _Trace) ->
-                ok;
-            (_, _Trace) ->
-                ?assert(false)
+        begin
+            %% for some unknown reason, `?wait_async_action' and `subscribe'
+            %% hang and timeout if called inside `with_failure', but the event
+            %% happens and is emitted after the test pid dies!?
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := buffer_worker_flush_nack}),
+                2_000
+            ),
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                case QueryMode of
+                    sync ->
+                        ?assertMatch(
+                            {error, {resource_error, #{reason := timeout}}},
+                            send_message(Config, SentData)
+                        );
+                    async ->
+                        send_message(Config, SentData)
+                end,
+                ?assertMatch({ok, [#{result := {error, _}}]}, snabbkaffe:receive_events(SRef)),
+                ok
+            end),
+            ok
+        end,
+        fun(Trace0) ->
+            ct:pal("trace: ~p", [Trace0]),
+            Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
+            ?assertMatch([#{result := {error, _}} | _], Trace),
+            [#{result := {error, Error}} | _] = Trace,
+            case Error of
+                {resource_error, _} ->
+                    ok;
+                {recoverable_error, disconnected} ->
+                    ok;
+                _ ->
+                    ct:fail("unexpected error: ~p", [Error])
+            end
         end
     ),
     ok.
@@ -421,44 +479,91 @@ t_write_timeout(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
+    QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
-    Timeout = 10,
+    Timeout = 1000,
+    %% for some unknown reason, `?wait_async_action' and `subscribe'
+    %% hang and timeout if called inside `with_failure', but the event
+    %% happens and is emitted after the test pid dies!?
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := buffer_worker_flush_nack}),
+        2 * Timeout
+    ),
     emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {error, {resource_error, _}},
-            query_resource(Config, {send_message, SentData, [], Timeout})
-        )
+        case QueryMode of
+            sync ->
+                ?assertMatch(
+                    {error, {resource_error, #{reason := timeout}}},
+                    query_resource(Config, {send_message, SentData, [], Timeout})
+                );
+            async ->
+                query_resource(Config, {send_message, SentData, [], Timeout}),
+                ok
+        end,
+        ok
     end),
+    ?assertMatch({ok, [#{result := {error, _}}]}, snabbkaffe:receive_events(SRef)),
     ok.
 
 t_simple_sql_query(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
     Request = {sql, <<"SELECT count(1) AS T">>},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, batch_select_not_implemented}, Result);
+    Result =
+        case QueryMode of
+            sync ->
+                query_resource(Config, Request);
+            async ->
+                {_, Ref} = query_resource_async(Config, Request),
+                {ok, Res} = receive_result(Ref, 2_000),
+                Res
+        end,
+    case IsBatch of
+        true -> ?assertEqual({error, {unrecoverable_error, batch_select_not_implemented}}, Result);
         false -> ?assertEqual({ok, [<<"T">>], [[1]]}, Result)
     end,
     ok.
 
 t_missing_data(Config) ->
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
-    Result = send_message(Config, #{}),
-    case ?config(enable_batch, Config) of
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := buffer_worker_flush_ack}),
+        2_000
+    ),
+    send_message(Config, #{}),
+    {ok, [Event]} = snabbkaffe:receive_events(SRef),
+    case IsBatch of
         true ->
             ?assertMatch(
-                {error, {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}, Result
+                #{
+                    result :=
+                        {error,
+                            {unrecoverable_error,
+                                {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}}
+                },
+                Event
             );
         false ->
-            ?assertMatch({error, {1048, _, <<"Column 'arrived' cannot be null">>}}, Result)
+            ?assertMatch(
+                #{
+                    result :=
+                        {error,
+                            {unrecoverable_error, {1048, _, <<"Column 'arrived' cannot be null">>}}}
+                },
+                Event
+            )
     end,
     ok.
 
@@ -468,12 +573,73 @@ t_bad_sql_parameter(Config) ->
         create_bridge(Config)
     ),
     Request = {sql, <<"">>, [bad_parameter]},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, invalid_request}, Result);
-        false -> ?assertEqual({error, {invalid_params, [bad_parameter]}}, Result)
+    {_, {ok, Event}} =
+        ?wait_async_action(
+            query_resource(Config, Request),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
+        true ->
+            ?assertMatch(#{result := {error, {unrecoverable_error, invalid_request}}}, Event);
+        false ->
+            ?assertMatch(
+                #{result := {error, {unrecoverable_error, {invalid_params, [bad_parameter]}}}},
+                Event
+            )
     end,
     ok.
+
+t_nasty_sql_string(Config) ->
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    Payload = list_to_binary(lists:seq(0, 255)),
+    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+    {Result, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, Message),
+            #{?snk_kind := mysql_connector_query_return},
+            1_000
+        ),
+    ?assertEqual(ok, Result),
+    ?assertMatch(
+        {ok, [<<"payload">>], [[Payload]]},
+        connect_and_get_payload(Config)
+    ).
+
+t_workload_fits_prepared_statement_limit(Config) ->
+    N = 50,
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    Results = lists:append(
+        emqx_utils:pmap(
+            fun(_) ->
+                [
+                    begin
+                        Payload = integer_to_binary(erlang:unique_integer()),
+                        Timestamp = erlang:system_time(millisecond),
+                        send_message(Config, #{payload => Payload, timestamp => Timestamp})
+                    end
+                 || _ <- lists:seq(1, N)
+                ]
+            end,
+            lists:seq(1, ?WORKER_POOL_SIZE * ?MYSQL_POOL_SIZE),
+            _Timeout = 10_000
+        )
+    ),
+    ?assertEqual(
+        [],
+        [R || R <- Results, R /= ok]
+    ),
+    {ok, _, [[_Var, Count]]} =
+        query_direct_mysql(Config, "SHOW GLOBAL STATUS LIKE 'Prepared_stmt_count'"),
+    ?assertEqual(
+        ?MYSQL_POOL_SIZE,
+        binary_to_integer(Count)
+    ).
 
 t_unprepared_statement_query(Config) ->
     ?assertMatch(
@@ -481,10 +647,22 @@ t_unprepared_statement_query(Config) ->
         create_bridge(Config)
     ),
     Request = {prepared_query, unprepared_query, []},
-    Result = query_resource(Config, Request),
-    case ?config(enable_batch, Config) of
-        true -> ?assertEqual({error, invalid_request}, Result);
-        false -> ?assertEqual({error, prepared_statement_invalid}, Result)
+    {_, {ok, Event}} =
+        ?wait_async_action(
+            query_resource(Config, Request),
+            #{?snk_kind := buffer_worker_flush_ack},
+            2_000
+        ),
+    BatchSize = ?config(batch_size, Config),
+    IsBatch = BatchSize > 1,
+    case IsBatch of
+        true ->
+            ?assertMatch(#{result := {error, {unrecoverable_error, invalid_request}}}, Event);
+        false ->
+            ?assertMatch(
+                #{result := {error, {unrecoverable_error, prepared_statement_invalid}}},
+                Event
+            )
     end,
     ok.
 
@@ -500,7 +678,13 @@ t_uninitialized_prepared_statement(Config) ->
     unprepare(Config, send_message),
     ?check_trace(
         begin
-            ?assertEqual(ok, send_message(Config, SentData)),
+            {Res, {ok, _}} =
+                ?wait_async_action(
+                    send_message(Config, SentData),
+                    #{?snk_kind := mysql_connector_query_return},
+                    2_000
+                ),
+            ?assertEqual(ok, Res),
             ok
         end,
         fun(Trace) ->

@@ -1,14 +1,59 @@
 version: '3.9'
-
 services:
-  redis_cluster_tls:
-    container_name: redis-cluster-tls
+
+  redis-cluster-tls-1: &redis-node
+    container_name: redis-cluster-tls-1
     image: redis:${REDIS_TAG}
     volumes:
-      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt
-      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/redis.crt
-      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/redis.key
-      - ./redis/:/data/conf
-    command: bash -c "/bin/bash /data/conf/redis.sh --node cluster --tls-enabled && tail -f /var/log/redis-server.log"
+    - ./redis/cluster-tls:/usr/local/etc/redis
+    - ../../apps/emqx/etc/certs:/etc/certs
+    command: redis-server /usr/local/etc/redis/redis.conf
     networks:
       - emqx_bridge
+
+  redis-cluster-tls-2:
+    <<: *redis-node
+    container_name: redis-cluster-tls-2
+
+  redis-cluster-tls-3:
+    <<: *redis-node
+    container_name: redis-cluster-tls-3
+
+  redis-cluster-tls-4:
+    <<: *redis-node
+    container_name: redis-cluster-tls-4
+
+  redis-cluster-tls-5:
+    <<: *redis-node
+    container_name: redis-cluster-tls-5
+
+  redis-cluster-tls-6:
+    <<: *redis-node
+    container_name: redis-cluster-tls-6
+
+  redis-cluster-tls-create:
+    <<: *redis-node
+    container_name: redis-cluster-tls-create
+    command: >
+      redis-cli
+        --cluster create
+          redis-cluster-tls-1:6389
+          redis-cluster-tls-2:6389
+          redis-cluster-tls-3:6389
+          redis-cluster-tls-4:6389
+          redis-cluster-tls-5:6389
+          redis-cluster-tls-6:6389
+        --cluster-replicas 1
+        --cluster-yes
+        --pass "public"
+        --no-auth-warning
+        --tls
+        --insecure
+    depends_on:
+      - redis-cluster-tls-1
+      - redis-cluster-tls-2
+      - redis-cluster-tls-3
+      - redis-cluster-tls-4
+      - redis-cluster-tls-5
+      - redis-cluster-tls-6
+

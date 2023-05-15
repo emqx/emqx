@@ -15,10 +15,8 @@
 %%--------------------------------------------------------------------
 
 %% HTTP API Auth
--define(WRONG_USERNAME_OR_PWD, 'WRONG_USERNAME_OR_PWD').
--define(WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
-    'WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET'
-).
+-define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
+-define(BAD_API_KEY_OR_SECRET, 'BAD_API_KEY_OR_SECRET').
 
 %% Bad Request
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -57,18 +55,18 @@
 
 %% All codes
 -define(ERROR_CODES, [
-    {'WRONG_USERNAME_OR_PWD', <<"Wrong username or pwd">>},
-    {'WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET', <<"Wrong username & pwd or key & secret">>},
-    {'BAD_REQUEST', <<"Request parameters are not legal">>},
+    {?BAD_USERNAME_OR_PWD, <<"Bad username or password">>},
+    {?BAD_API_KEY_OR_SECRET, <<"Bad API key or secret">>},
+    {'BAD_REQUEST', <<"Request parameters are invalid">>},
     {'NOT_MATCH', <<"Conditions are not matched">>},
     {'ALREADY_EXISTS', <<"Resource already existed">>},
-    {'BAD_CONFIG_SCHEMA', <<"Configuration data is not legal">>},
+    {'BAD_CONFIG_SCHEMA', <<"Configuration data is invalid">>},
     {'BAD_LISTENER_ID', <<"Bad listener ID">>},
     {'BAD_NODE_NAME', <<"Bad Node Name">>},
     {'BAD_RPC', <<"RPC Failed. Check the cluster status and the requested node status">>},
     {'BAD_TOPIC', <<"Topic syntax error, Topic needs to comply with the MQTT protocol standard">>},
     {'EXCEED_LIMIT', <<"Create resources that exceed the maximum limit or minimum limit">>},
-    {'INVALID_PARAMETER', <<"Request parameters is not legal and exceeds the boundary value">>},
+    {'INVALID_PARAMETER', <<"Request parameters is invalid and exceeds the boundary value">>},
     {'CONFLICT', <<"Conflicting request resources">>},
     {'NO_DEFAULT_VALUE', <<"Request parameters do not use default values">>},
     {'DEPENDENCY_EXISTS', <<"Resource is dependent by another resource">>},

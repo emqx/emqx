@@ -15,7 +15,6 @@ authz:{
               pool_size: 1
               username: root
               password: public
-              auto_reconnect: true
               ssl: {
                 enable: true
                 cacertfile:  "etc/certs/cacert.pem"
@@ -33,7 +32,6 @@ authz:{
               pool_size: 1
               username: root
               password: public
-              auto_reconnect: true
               ssl: {enable: false}
            }
            sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = ${peerhost} or username = ${username} or username = '$all' or clientid = ${clientid}"
@@ -45,7 +43,6 @@ authz:{
               database: 0
               pool_size: 1
               password: public
-              auto_reconnect: true
               ssl: {enable: false}
            }
            cmd: "HGETALL mqtt_authz:${username}"

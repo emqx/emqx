@@ -27,6 +27,8 @@
 -define(REDIS_SINGLE_PORT, 6379).
 -define(REDIS_SENTINEL_HOST, "redis-sentinel").
 -define(REDIS_SENTINEL_PORT, 26379).
+-define(REDIS_CLUSTER_HOST, "redis-cluster-1").
+-define(REDIS_CLUSTER_PORT, 6379).
 -define(REDIS_RESOURCE_MOD, emqx_connector_redis).
 
 all() ->
@@ -36,22 +38,16 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_all_tcp_servers_available(
-            [
-                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
-                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
-            ]
-        )
-    of
-        true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            Config;
-        false ->
-            {skip, no_redis}
-    end.
+    Checks =
+        case os:getenv("IS_CI") of
+            "yes" -> 10;
+            _ -> 1
+        end,
+    ok = wait_for_redis(Checks),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    Config.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_resource]),
@@ -63,9 +59,27 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-% %%------------------------------------------------------------------------------
-% %% Testcases
-% %%------------------------------------------------------------------------------
+wait_for_redis(0) ->
+    throw(timeout);
+wait_for_redis(Checks) ->
+    case
+        emqx_common_test_helpers:is_all_tcp_servers_available(
+            [
+                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
+                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
+            ]
+        )
+    of
+        true ->
+            ok;
+        false ->
+            timer:sleep(1000),
+            wait_for_redis(Checks - 1)
+    end.
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 t_single_lifecycle(_Config) ->
     perform_lifecycle_check(
@@ -88,14 +102,14 @@ t_sentinel_lifecycle(_Config) ->
         [<<"PING">>]
     ).
 
-perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
+perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?REDIS_RESOURCE_MOD, InitialConfig),
     {ok, #{
-        state := #{poolname := ReturnedPoolName} = State,
+        state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
-        PoolName,
+        ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?REDIS_RESOURCE_MOD,
         CheckedConfig,
@@ -107,45 +121,49 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
         state := State,
         status := InitialStatus
     }} =
-        emqx_resource:get_instance(PoolName),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
+        emqx_resource:get_instance(ResourceId),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
     % Perform query as further check that the resource is working as expected
-    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
+    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId, {cmd, RedisCommand})),
     ?assertEqual(
         {ok, [{ok, <<"PONG">>}, {ok, <<"PONG">>}]},
-        emqx_resource:query(PoolName, {cmds, [RedisCommand, RedisCommand]})
+        emqx_resource:query(ResourceId, {cmds, [RedisCommand, RedisCommand]})
     ),
     ?assertMatch(
-        {error, [{ok, <<"PONG">>}, {error, _}]},
-        emqx_resource:query(PoolName, {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]})
+        {error, {unrecoverable_error, [{ok, <<"PONG">>}, {error, _}]}},
+        emqx_resource:query(
+            ResourceId,
+            {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]},
+            #{timeout => 500}
+        )
     ),
-    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{
         state := State,
         status := StoppedStatus
     }} =
-        emqx_resource:get_instance(PoolName),
+        emqx_resource:get_instance(ResourceId),
     ?assertEqual(stopped, StoppedStatus),
-    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(PoolName)),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
-    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
     % Can call stop/1 again on an already stopped instance
-    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Make sure it can be restarted and the healthchecks and queries work properly
-    ?assertEqual(ok, emqx_resource:restart(PoolName)),
+    ?assertEqual(ok, emqx_resource:restart(ResourceId)),
     % async restart, need to wait resource
     timer:sleep(500),
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
-        emqx_resource:get_instance(PoolName),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
-    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
+        emqx_resource:get_instance(ResourceId),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId, {cmd, RedisCommand})),
     % Stop and remove the resource in one go.
-    ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
-    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    ?assertEqual(ok, emqx_resource:remove_local(ResourceId)),
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
     % Should not even be able to get the resource data out of ets now unlike just stopping.
-    ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
+    ?assertEqual({error, not_found}, emqx_resource:get_instance(ResourceId)).
 
 % %%------------------------------------------------------------------------------
 % %% Helpers
@@ -187,8 +205,8 @@ redis_config_base(Type, ServerKey) ->
             MaybeSentinel = "",
             MaybeDatabase = "    database = 1\n";
         "cluster" ->
-            Host = ?REDIS_SINGLE_HOST,
-            Port = ?REDIS_SINGLE_PORT,
+            Host = ?REDIS_CLUSTER_HOST,
+            Port = ?REDIS_CLUSTER_PORT,
             MaybeSentinel = "",
             MaybeDatabase = ""
     end,

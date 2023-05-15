@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 -type resource_type() :: module().
 -type resource_id() :: binary().
--type manager_id() :: binary().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
@@ -29,7 +28,11 @@
 -type query_opts() :: #{
     %% The key used for picking a resource worker
     pick_key => term(),
-    async_reply_fun => reply_fun()
+    timeout => timeout(),
+    expire_at => infinity | integer(),
+    async_reply_fun => reply_fun(),
+    simple_query => boolean(),
+    is_buffer_supported => boolean()
 }.
 -type resource_data() :: #{
     id := resource_id(),
@@ -37,9 +40,9 @@
     callback_mode := callback_mode(),
     query_mode := query_mode(),
     config := resource_config(),
+    error := term(),
     state := resource_state(),
-    status := resource_status(),
-    metrics := emqx_metrics_worker:metrics()
+    status := resource_status()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
@@ -64,14 +67,12 @@
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
     auto_restart_interval => pos_integer(),
-    enable_batch => boolean(),
     batch_size => pos_integer(),
     batch_time => pos_integer(),
-    enable_queue => boolean(),
-    max_queue_bytes => pos_integer(),
+    max_buffer_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
-    async_inflight_window => pos_integer()
+    inflight_window => pos_integer()
 }.
 -type query_result() ::
     ok
@@ -83,18 +84,17 @@
 
 -define(WORKER_POOL_SIZE, 16).
 
--define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
--define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
+-define(DEFAULT_BUFFER_BYTES, 256 * 1024 * 1024).
+-define(DEFAULT_BUFFER_BYTES_RAW, <<"256MB">>).
 
--define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024).
--define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
+-define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(15)).
 
 %% count
--define(DEFAULT_BATCH_SIZE, 100).
+-define(DEFAULT_BATCH_SIZE, 1).
 
 %% milliseconds
--define(DEFAULT_BATCH_TIME, 20).
--define(DEFAULT_BATCH_TIME_RAW, <<"20ms">>).
+-define(DEFAULT_BATCH_TIME, 0).
+-define(DEFAULT_BATCH_TIME_RAW, <<"0ms">>).
 
 %% count
 -define(DEFAULT_INFLIGHT, 100).
@@ -104,8 +104,16 @@
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 
 %% milliseconds
+-define(START_TIMEOUT, 5000).
+-define(START_TIMEOUT_RAW, <<"5s">>).
+
+%% boolean
+-define(START_AFTER_CREATED, true).
+-define(START_AFTER_CREATED_RAW, <<"true">>).
+
+%% milliseconds
 -define(AUTO_RESTART_INTERVAL, 60000).
 -define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
 
--define(TEST_ID_PREFIX, "_test_:").
+-define(TEST_ID_PREFIX, "_probe_:").
 -define(RES_METRICS, resource_metrics).

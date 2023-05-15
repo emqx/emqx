@@ -670,6 +670,42 @@ t_invalid_clientid(_) ->
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 1, 0, 0>>)
     ).
 
+%% for regression: `password` must be `undefined`
+t_undefined_password(_) ->
+    Payload = <<16, 19, 0, 4, 77, 81, 84, 84, 4, 130, 0, 60, 0, 2, 97, 49, 0, 3, 97, 97, 97>>,
+    {ok, Packet, <<>>, {none, _}} = emqx_frame:parse(Payload),
+    Password = undefined,
+    ?assertEqual(
+        #mqtt_packet{
+            header = #mqtt_packet_header{
+                type = 1,
+                dup = false,
+                qos = 0,
+                retain = false
+            },
+            variable = #mqtt_packet_connect{
+                proto_name = <<"MQTT">>,
+                proto_ver = 4,
+                is_bridge = false,
+                clean_start = true,
+                will_flag = false,
+                will_qos = 0,
+                will_retain = false,
+                keepalive = 60,
+                properties = #{},
+                clientid = <<"a1">>,
+                will_props = #{},
+                will_topic = undefined,
+                will_payload = undefined,
+                username = <<"aaa">>,
+                password = Password
+            },
+            payload = undefined
+        },
+        Packet
+    ),
+    ok.
+
 parse_serialize(Packet) ->
     parse_serialize(Packet, #{strict_mode => true}).
 

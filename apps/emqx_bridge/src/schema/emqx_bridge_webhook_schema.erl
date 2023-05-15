@@ -38,7 +38,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("post");
+    emqx_bridge_schema:status_fields() ++ fields("post");
 fields("creation_opts") ->
     lists:filter(
         fun({K, _V}) ->
@@ -81,6 +81,15 @@ request_config() ->
                     desc => ?DESC("config_url")
                 }
             )},
+        {direction,
+            mk(
+                egress,
+                #{
+                    desc => ?DESC("config_direction"),
+                    required => {false, recursively},
+                    deprecated => {since, "5.0.12"}
+                }
+            )},
         {local_topic,
             mk(
                 binary(),
@@ -115,7 +124,7 @@ request_config() ->
             mk(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("config_body")
                 }
             )},

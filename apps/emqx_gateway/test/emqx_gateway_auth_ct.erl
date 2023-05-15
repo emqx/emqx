@@ -153,7 +153,7 @@ on_start_auth(authn_http) ->
     Handler = fun(Req0, State) ->
         ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
         Headers = #{<<"content-type">> => <<"application/json">>},
-        Response = jiffy:encode(#{result => allow, is_superuser => false}),
+        Response = emqx_utils_json:encode(#{result => allow, is_superuser => false}),
         case cowboy_req:match_qs([username, password], Req0) of
             #{
                 username := <<"admin">>,

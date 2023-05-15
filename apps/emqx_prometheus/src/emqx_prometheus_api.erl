@@ -121,12 +121,8 @@ prometheus_config_example() ->
         enable => true,
         interval => "15s",
         push_gateway_server => <<"http://127.0.0.1:9091">>,
-        vm_dist_collector => enabled,
-        mnesia_collector => enabled,
-        vm_statistics_collector => enabled,
-        vm_system_info_collector => enabled,
-        vm_memory_collector => enabled,
-        vm_msacc_collector => enabled
+        headers => #{'header-name' => 'header-value'},
+        job_name => <<"${name}/instance/${name}~${host}">>
     }.
 
 prometheus_data_schema() ->

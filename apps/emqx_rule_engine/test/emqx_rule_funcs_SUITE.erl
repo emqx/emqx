@@ -28,7 +28,7 @@
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
-    ConfigConf = <<"rule_engine {jq_function_default_timeout {}}">>,
+    ConfigConf = <<"rule_engine {jq_function_default_timeout=10s}">>,
     ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ConfigConf),
     Config.
 
@@ -686,25 +686,10 @@ t_jq(_) ->
                 %% Got timeout as expected
                 got_timeout
         end,
-    ConfigRootKey = emqx_rule_engine_schema:namespace(),
-    DefaultTimeOut = emqx_config:get([
-        ConfigRootKey,
-        jq_function_default_timeout
-    ]),
-    case DefaultTimeOut =< 15000 of
-        true ->
-            got_timeout =
-                try
-                    apply_func(jq, [TOProgram, <<"-2">>])
-                catch
-                    throw:{jq_exception, {timeout, _}} ->
-                        %% Got timeout as expected
-                        got_timeout
-                end;
-        false ->
-            %% Skip test as we don't want it to take to long time to run
-            ok
-    end.
+    ?assertThrow(
+        {jq_exception, {timeout, _}},
+        apply_func(jq, [TOProgram, <<"-2">>])
+    ).
 
 ascii_string() -> list(range(0, 127)).
 
@@ -973,7 +958,7 @@ prop_format_date_fun() ->
     Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%y---%H:%M:%S%Z">>],
     ?FORALL(
         S,
-        erlang:system_time(second),
+        range(0, 4000000000),
         S ==
             apply_func(
                 date_to_unix_ts,
@@ -989,7 +974,7 @@ prop_format_date_fun() ->
     Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%y---%H:%M:%S%Z">>],
     ?FORALL(
         S,
-        erlang:system_time(millisecond),
+        range(0, 4000000000),
         S ==
             apply_func(
                 date_to_unix_ts,
@@ -1005,7 +990,7 @@ prop_format_date_fun() ->
     Args = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
     ?FORALL(
         S,
-        erlang:system_time(second),
+        range(0, 4000000000),
         S ==
             apply_func(
                 date_to_unix_ts,
@@ -1014,6 +999,24 @@ prop_format_date_fun() ->
                         apply_func(
                             format_date,
                             Args ++ [S]
+                        )
+                    ]
+            )
+    ),
+    %% When no offset is specified, the offset should be taken from the formatted time string
+    ArgsNoOffset = [<<"second">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ArgsOffset = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ?FORALL(
+        S,
+        range(0, 4000000000),
+        S ==
+            apply_func(
+                date_to_unix_ts,
+                ArgsNoOffset ++
+                    [
+                        apply_func(
+                            format_date,
+                            ArgsOffset ++ [S]
                         )
                     ]
             )

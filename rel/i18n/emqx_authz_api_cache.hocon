@@ -1,0 +1,6 @@
+emqx_authz_api_cache {
+
+authorization_cache_delete.desc:
+"""Clean all authorization cache in the cluster."""
+
+}

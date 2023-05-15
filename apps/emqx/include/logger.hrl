@@ -48,9 +48,9 @@
 -define(TRACE(Level, Tag, Msg, Meta), begin
     case persistent_term:get(?TRACE_FILTER, []) of
         [] -> ok;
-        %% We can't bind filter list to a variablebecause we pollute the calling scope with it.
+        %% We can't bind filter list to a variable because we pollute the calling scope with it.
         %% We also don't want to wrap the macro body in a fun
-        %% beacause this adds overhead to the happy path.
+        %% because this adds overhead to the happy path.
         %% So evaluate `persistent_term:get` twice.
         _ -> emqx_trace:log(persistent_term:get(?TRACE_FILTER, []), Msg, (Meta)#{trace_tag => Tag})
     end,

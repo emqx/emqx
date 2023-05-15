@@ -1,0 +1,47 @@
+emqx_prometheus_schema {
+
+enable.desc:
+"""开启或关闭 Prometheus 数据推送"""
+
+headers.desc:
+"""推送到 Push Gateway 的 HTTP Headers 列表。<br/>
+例如，<code> { Authorization = "some-authz-tokens"}</code>"""
+
+interval.desc:
+"""数据推送间隔"""
+
+job_name.desc:
+"""推送到 Push Gateway 的 Job 名称。可用变量为：<br/>
+- ${name}: EMQX 节点的名称。
+- ${host}: EMQX 节点主机名。
+例如，当 EMQX 节点名为 <code>emqx@127.0.0.1</code> 则 name 变量的值为 <code>emqx</code>，host 变量的值为 <code>127.0.0.1</code>。<br/>
+默认值为: <code>${name}/instance/${name}~${host}</code>"""
+
+mnesia_collector.desc:
+"""开启或关闭 Mnesia 采集器, 使用 mnesia:system_info/1 收集 Mnesia 相关指标"""
+
+prometheus.desc:
+"""Prometheus 监控数据推送"""
+
+prometheus.label:
+"""Prometheus"""
+
+push_gateway_server.desc:
+"""Prometheus 服务器地址"""
+
+vm_dist_collector.desc:
+"""开启或关闭 VM 分布采集器，收集 Erlang 分布机制中涉及的套接字和进程的信息。"""
+
+vm_memory_collector.desc:
+"""开启或关闭 VM 内存采集器, 使用 erlang:memory/0 收集 Erlang 虚拟机动态分配的内存信息，同时提供基本的 (D)ETS 统计信息"""
+
+vm_msacc_collector.desc:
+"""开启或关闭 VM msacc 采集器, 使用 erlang:statistics(microstate_accounting) 收集微状态计数指标"""
+
+vm_statistics_collector.desc:
+"""开启或关闭 VM 统计采集器, 使用 erlang:statistics/1 收集 Erlang VM 相关指标"""
+
+vm_system_info_collector.desc:
+"""开启或关闭 VM 系统信息采集器, 使用 erlang:system_info/1 收集 Erlang VM 相关指标"""
+
+}

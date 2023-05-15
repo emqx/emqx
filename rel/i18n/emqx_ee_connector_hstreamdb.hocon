@@ -1,0 +1,45 @@
+emqx_ee_connector_hstreamdb {
+
+config.desc:
+"""HStreamDB connection config"""
+
+config.label:
+"""Connection config"""
+
+name.desc:
+"""Connector name, used as a human-readable description of the connector."""
+
+name.label:
+"""Connector Name"""
+
+ordering_key.desc:
+"""HStreamDB Ordering Key"""
+
+ordering_key.label:
+"""HStreamDB Ordering Key"""
+
+pool_size.desc:
+"""HStreamDB Pool Size"""
+
+pool_size.label:
+"""HStreamDB Pool Size"""
+
+stream_name.desc:
+"""HStreamDB Stream Name"""
+
+stream_name.label:
+"""HStreamDB Stream Name"""
+
+type.desc:
+"""The Connector Type."""
+
+type.label:
+"""Connector Type"""
+
+url.desc:
+"""HStreamDB Server URL"""
+
+url.label:
+"""HStreamDB Server URL"""
+
+}

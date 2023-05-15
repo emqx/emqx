@@ -21,16 +21,16 @@
 ).
 
 -define(METRICS(
-    Batched,
     Dropped,
     DroppedOther,
+    DroppedExpired,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
     Queued,
     Retried,
+    LateReply,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -40,16 +40,16 @@
     Rcvd
 ),
     #{
-        'batching' => Batched,
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
+        'dropped.expired' => DroppedExpired,
         'dropped.queue_full' => DroppedQueueFull,
-        'dropped.queue_not_enabled' => DroppedQueueNotEnabled,
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
         'queuing' => Queued,
         'retried' => Retried,
+        'late_reply' => LateReply,
         'failed' => SentFailed,
         'inflight' => SentInflight,
         'success' => SentSucc,
@@ -61,16 +61,16 @@
 ).
 
 -define(metrics(
-    Batched,
     Dropped,
     DroppedOther,
+    DroppedExpired,
     DroppedQueueFull,
-    DroppedQueueNotEnabled,
     DroppedResourceNotFound,
     DroppedResourceStopped,
     Matched,
     Queued,
     Retried,
+    LateReply,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -80,16 +80,16 @@
     Rcvd
 ),
     #{
-        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
+        'dropped.expired' := DroppedExpired,
         'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
         'queuing' := Queued,
         'retried' := Retried,
+        'late_reply' := LateReply,
         'failed' := SentFailed,
         'inflight' := SentInflight,
         'success' := SentSucc,
@@ -99,13 +99,3 @@
         received := Rcvd
     }
 ).
-
--define(METRICS_EXAMPLE, #{
-    metrics => ?EMPTY_METRICS,
-    node_metrics => [
-        #{
-            node => node(),
-            metrics => ?EMPTY_METRICS
-        }
-    ]
-}).

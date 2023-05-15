@@ -180,7 +180,7 @@ schema("/gateways") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_gateway),
-                summary => <<"List All Gateways">>,
+                summary => <<"List all gateways">>,
                 parameters => params_gateway_status_in_qs(),
                 responses =>
                     #{
@@ -201,7 +201,7 @@ schema("/gateways/:name") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_gateway),
-                summary => <<"Get the Gateway">>,
+                summary => <<"Get gateway">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     #{
@@ -395,7 +395,7 @@ fields(Gw) when
     Gw == exproto
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
-        convert_listener_struct(emqx_gateway_schema:fields(Gw));
+        convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -405,7 +405,7 @@ fields(Gw) when
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
-    remove_listener_and_authn(emqx_gateway_schema:fields(Gw1));
+    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1));
 fields(Listener) when
     Listener == tcp_listener;
     Listener == ssl_listener;
@@ -608,7 +608,7 @@ examples_gateway_confs() ->
     #{
         stomp_gateway =>
             #{
-                summary => <<"A simple STOMP gateway configs">>,
+                summary => <<"A simple STOMP gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -636,7 +636,7 @@ examples_gateway_confs() ->
             },
         mqttsn_gateway =>
             #{
-                summary => <<"A simple MQTT-SN gateway configs">>,
+                summary => <<"A simple MQTT-SN gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -672,7 +672,7 @@ examples_gateway_confs() ->
             },
         coap_gateway =>
             #{
-                summary => <<"A simple CoAP gateway configs">>,
+                summary => <<"A simple CoAP gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -699,7 +699,7 @@ examples_gateway_confs() ->
             },
         lwm2m_gateway =>
             #{
-                summary => <<"A simple LwM2M gateway configs">>,
+                summary => <<"A simple LwM2M gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -735,7 +735,7 @@ examples_gateway_confs() ->
             },
         exproto_gateway =>
             #{
-                summary => <<"A simple ExProto gateway configs">>,
+                summary => <<"A simple ExProto gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -765,7 +765,7 @@ examples_update_gateway_confs() ->
     #{
         stomp_gateway =>
             #{
-                summary => <<"A simple STOMP gateway configs">>,
+                summary => <<"A simple STOMP gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -782,7 +782,7 @@ examples_update_gateway_confs() ->
             },
         mqttsn_gateway =>
             #{
-                summary => <<"A simple MQTT-SN gateway configs">>,
+                summary => <<"A simple MQTT-SN gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -803,7 +803,7 @@ examples_update_gateway_confs() ->
             },
         coap_gateway =>
             #{
-                summary => <<"A simple CoAP gateway configs">>,
+                summary => <<"A simple CoAP gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -819,7 +819,7 @@ examples_update_gateway_confs() ->
             },
         lwm2m_gateway =>
             #{
-                summary => <<"A simple LwM2M gateway configs">>,
+                summary => <<"A simple LwM2M gateway config">>,
                 value =>
                     #{
                         enable => true,
@@ -844,7 +844,7 @@ examples_update_gateway_confs() ->
             },
         exproto_gateway =>
             #{
-                summary => <<"A simple ExProto gateway configs">>,
+                summary => <<"A simple ExProto gateway config">>,
                 value =>
                     #{
                         enable => true,

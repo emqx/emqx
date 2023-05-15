@@ -33,12 +33,17 @@ options:
     Without this option, the script executes 'git merge' command
     with '--ff-only' option which conveniently pulls remote
     updates if there is any, and fails when fast-forward is not possible
+
+  --dryrun:
+    Do not perform merge. Run the checks, fetch from remote,
+    and show what's going to happen.
 EOF
 }
 
 logerr() {
     echo "$(tput setaf 1)ERROR: $1$(tput sgr0)"
 }
+
 logwarn() {
     echo "$(tput setaf 3)WARNING: $1$(tput sgr0)"
 }
@@ -48,6 +53,7 @@ logmsg() {
 }
 
 INTERACTIVE='no'
+DRYRUN='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -62,6 +68,10 @@ while [ "$#" -gt 0 ]; do
             shift
             BASE_BRANCH="$1"
             shift
+            ;;
+        --dryrun)
+            shift
+            DRYRUN='yes'
             ;;
         *)
             logerr "Unknown option $1"
@@ -151,6 +161,10 @@ upstream_branches() {
 }
 
 for remote_ref in $(upstream_branches "$BASE_BRANCH"); do
-    logmsg "Merging $remote_ref"
-    git merge $MERGE_OPTS "$remote_ref"
+    if [ "$DRYRUN" = 'yes' ]; then
+        logmsg "Merge with this command: git merge $MERGE_OPTS $remote_ref"
+    else
+        logmsg "Merging $remote_ref"
+        git merge $MERGE_OPTS "$remote_ref"
+    fi
 done

@@ -95,7 +95,7 @@ sample_license_info_response() ->
     }.
 
 error_msg(Code, Msg) ->
-    #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
+    #{code => Code, message => emqx_utils:readable_error_msg(Msg)}.
 
 %% read license info
 '/license'(get, _Params) ->

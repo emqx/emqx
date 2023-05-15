@@ -26,6 +26,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -95,6 +96,7 @@
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTH_SHARD},
+        {type, ordered_set},
         {storage, disc_copies},
         {record_name, user_info},
         {attributes, record_info(fields, user_info)},
@@ -105,11 +107,16 @@ mnesia(boot) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-builtin_db".
+namespace() -> "authn".
 
-roots() -> [?CONF_NS].
+tags() ->
+    [<<"Authentication">>].
 
-fields(?CONF_NS) ->
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, builtin_db))}].
+
+fields(builtin_db) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(built_in_database)},
@@ -117,8 +124,8 @@ fields(?CONF_NS) ->
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
     ] ++ emqx_authn_schema:common_fields().
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(builtin_db) ->
+    ?DESC(builtin_db);
 desc(_) ->
     undefined.
 
@@ -133,7 +140,7 @@ user_id_type(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, builtin_db)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -327,7 +334,7 @@ run_fuzzy_filter(
 
 %% Example: data/user-credentials.json
 import_users_from_json(Bin, #{user_group := UserGroup}) ->
-    case emqx_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
         {ok, List} ->
             trans(fun ?MODULE:import/2, [UserGroup, List]);
         {error, Reason} ->

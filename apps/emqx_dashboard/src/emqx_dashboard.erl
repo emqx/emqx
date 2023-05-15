@@ -16,22 +16,13 @@
 
 -module(emqx_dashboard).
 
--define(APP, ?MODULE).
-
 -export([
     start_listeners/0,
     start_listeners/1,
     stop_listeners/1,
     stop_listeners/0,
-    list_listeners/0
-]).
-
--export([
-    init_i18n/2,
-    init_i18n/0,
-    get_i18n/0,
-    i18n_file/0,
-    clear_i18n/0
+    list_listeners/0,
+    wait_for_listeners/0
 ]).
 
 %% Authorization
@@ -65,8 +56,12 @@ start_listeners(Listeners) ->
         components => #{
             schemas => #{},
             'securitySchemes' => #{
-                'basicAuth' => #{type => http, scheme => basic},
-                'bearerAuth' => #{type => http, scheme => bearer}
+                'basicAuth' => #{
+                    type => http,
+                    scheme => basic,
+                    description =>
+                        <<"Authorize with [API Keys](https://www.emqx.io/docs/en/v5.0/admin/api.html#api-keys)">>
+                }
             }
         }
     },
@@ -86,30 +81,34 @@ start_listeners(Listeners) ->
         dispatch => Dispatch,
         middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
     },
-    Res =
+    {OkListeners, ErrListeners} =
         lists:foldl(
-            fun({Name, Protocol, Bind, RanchOptions}, Acc) ->
-                Minirest = BaseMinirest#{protocol => Protocol},
+            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
+                Minirest = BaseMinirest#{protocol => Protocol, protocol_options => ProtoOpts},
                 case minirest:start(Name, RanchOptions, Minirest) of
                     {ok, _} ->
                         ?ULOG("Listener ~ts on ~ts started.~n", [
                             Name, emqx_listeners:format_bind(Bind)
                         ]),
-                        Acc;
+                        {[Name | OkAcc], ErrAcc};
                     {error, _Reason} ->
                         %% Don't record the reason because minirest already does(too much logs noise).
-                        [Name | Acc]
+                        {OkAcc, [Name | ErrAcc]}
                 end
             end,
-            [],
+            {[], []},
             listeners(Listeners)
         ),
-    case Res of
-        [] -> ok;
-        _ -> {error, Res}
+    case ErrListeners of
+        [] ->
+            optvar:set(emqx_dashboard_listeners_ready, OkListeners),
+            ok;
+        _ ->
+            {error, ErrListeners}
     end.
 
 stop_listeners(Listeners) ->
+    optvar:unset(emqx_dashboard_listeners_ready),
     [
         begin
             case minirest:stop(Name) of
@@ -121,25 +120,12 @@ stop_listeners(Listeners) ->
                     ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
             end
         end
-     || {Name, _, Port, _} <- listeners(Listeners)
+     || {Name, _, Port, _, _} <- listeners(Listeners)
     ],
     ok.
 
-get_i18n() ->
-    application:get_env(emqx_dashboard, i18n).
-
-init_i18n(File, Lang) ->
-    Cache = hocon_schema:new_desc_cache(File),
-    application:set_env(emqx_dashboard, i18n, #{lang => atom_to_binary(Lang), cache => Cache}).
-
-clear_i18n() ->
-    case application:get_env(emqx_dashboard, i18n) of
-        {ok, #{cache := Cache}} ->
-            hocon_schema:delete_desc_cache(Cache),
-            application:unset_env(emqx_dashboard, i18n);
-        undefined ->
-            ok
-    end.
+wait_for_listeners() ->
+    optvar:read(emqx_dashboard_listeners_ready).
 
 %%--------------------------------------------------------------------
 %% internal
@@ -160,7 +146,13 @@ listeners(Listeners) ->
             maps:get(enable, Conf) andalso
                 begin
                     {Conf1, Bind} = ip_port(Conf),
-                    {true, {listener_name(Protocol), Protocol, Bind, ranch_opts(Conf1)}}
+                    {true, {
+                        listener_name(Protocol),
+                        Protocol,
+                        Bind,
+                        ranch_opts(Conf1),
+                        proto_opts(Conf1)
+                    }}
                 end
         end,
         maps:to_list(Listeners)
@@ -175,11 +167,6 @@ ip_port(error, Opts) -> {Opts#{port => 18083}, 18083};
 ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
 ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
 
-init_i18n() ->
-    File = i18n_file(),
-    Lang = emqx_conf:get([dashboard, i18n_lang], en),
-    init_i18n(File, Lang).
-
 ranch_opts(Options) ->
     Keys = [
         handshake_timeout,
@@ -193,7 +180,7 @@ ranch_opts(Options) ->
     SocketOpts = maps:fold(
         fun filter_false/3,
         [],
-        maps:without([enable, inet6, ipv6_v6only | Keys], Options)
+        maps:without([enable, inet6, ipv6_v6only, proxy_header | Keys], Options)
     ),
     InetOpts =
         case Options of
@@ -206,6 +193,9 @@ ranch_opts(Options) ->
         end,
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
+proto_opts(Options) ->
+    maps:with([proxy_header], Options).
+
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
 
@@ -215,28 +205,7 @@ listener_name(Protocol) ->
 authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(Username, Password) of
-                ok ->
-                    ok;
-                {error, <<"username_not_found">>} ->
-                    Path = cowboy_req:path(Req),
-                    case emqx_mgmt_auth:authorize(Path, Username, Password) of
-                        ok ->
-                            ok;
-                        {error, <<"not_allowed">>} ->
-                            return_unauthorized(
-                                ?WRONG_USERNAME_OR_PWD,
-                                <<"Check username/password">>
-                            );
-                        {error, _} ->
-                            return_unauthorized(
-                                ?WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
-                                <<"Check username/password or api_key/api_secret">>
-                            )
-                    end;
-                {error, _} ->
-                    return_unauthorized(?WRONG_USERNAME_OR_PWD, <<"Check username/password">>)
-            end;
+            api_key_authorize(Req, Username, Password);
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
@@ -261,11 +230,22 @@ return_unauthorized(Code, Message) ->
         },
         #{code => Code, message => Message}}.
 
-i18n_file() ->
-    case application:get_env(emqx_dashboard, i18n_file) of
-        undefined -> filename:join([code:priv_dir(emqx_dashboard), "i18n.conf"]);
-        {ok, File} -> File
-    end.
-
 listeners() ->
-    emqx_conf:get([dashboard, listeners], []).
+    emqx_conf:get([dashboard, listeners], #{}).
+
+api_key_authorize(Req, Key, Secret) ->
+    Path = cowboy_req:path(Req),
+    case emqx_mgmt_auth:authorize(Path, Key, Secret) of
+        ok ->
+            ok;
+        {error, <<"not_allowed">>} ->
+            return_unauthorized(
+                ?BAD_API_KEY_OR_SECRET,
+                <<"Not allowed, Check api_key/api_secret">>
+            );
+        {error, _} ->
+            return_unauthorized(
+                ?BAD_API_KEY_OR_SECRET,
+                <<"Check api_key/api_secret">>
+            )
+    end.

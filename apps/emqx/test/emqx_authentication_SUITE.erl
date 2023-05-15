@@ -53,48 +53,8 @@
 ).
 
 %%------------------------------------------------------------------------------
-%% Hocon Schema
-%%------------------------------------------------------------------------------
-
-roots() ->
-    [
-        {config, #{
-            type => hoconsc:union([
-                hoconsc:ref(?MODULE, type1),
-                hoconsc:ref(?MODULE, type2)
-            ])
-        }}
-    ].
-
-fields(type1) ->
-    [
-        {mechanism, {enum, [password_based]}},
-        {backend, {enum, [built_in_database]}},
-        {enable, fun enable/1}
-    ];
-fields(type2) ->
-    [
-        {mechanism, {enum, [password_based]}},
-        {backend, {enum, [mysql]}},
-        {enable, fun enable/1}
-    ].
-
-enable(type) -> boolean();
-enable(default) -> true;
-enable(_) -> undefined.
-
-%%------------------------------------------------------------------------------
 %% Callbacks
 %%------------------------------------------------------------------------------
-
-check_config(C) ->
-    #{config := R} =
-        hocon_tconf:check_plain(
-            ?MODULE,
-            #{<<"config">> => C},
-            #{atom_key => true}
-        ),
-    R.
 
 create(_AuthenticatorID, _Config) ->
     {ok, #{mark => 1}}.
@@ -105,6 +65,10 @@ update(_Config, _State) ->
 authenticate(#{username := <<"good">>}, _State) ->
     {ok, #{is_superuser => true}};
 authenticate(#{username := <<"ignore">>}, _State) ->
+    ignore;
+authenticate(#{username := <<"emqx_authn_ignore_for_hook_good">>}, _State) ->
+    ignore;
+authenticate(#{username := <<"emqx_authn_ignore_for_hook_bad">>}, _State) ->
     ignore;
 authenticate(#{username := _}, _State) ->
     {error, bad_username_or_password}.
@@ -117,6 +81,10 @@ hook_authenticate(#{username := <<"hook_user_finally_good">>}, _AuthResult) ->
     {stop, {ok, ?NOT_SUPERUSER}};
 hook_authenticate(#{username := <<"hook_user_finally_bad">>}, _AuthResult) ->
     {stop, {error, invalid_username}};
+hook_authenticate(#{username := <<"emqx_authn_ignore_for_hook_good">>}, _AuthResult) ->
+    {ok, {ok, ?NOT_SUPERUSER}};
+hook_authenticate(#{username := <<"emqx_authn_ignore_for_hook_bad">>}, _AuthResult) ->
+    {stop, {error, invalid_username}};
 hook_authenticate(_ClientId, AuthResult) ->
     {ok, AuthResult}.
 
@@ -127,12 +95,17 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    LogLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_log_level(debug),
     application:set_env(ekka, strict_mode, true),
+    emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    Config.
+    [{log_level, LogLevel} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
     emqx_common_test_helpers:stop_apps([]),
+    LogLevel = ?config(log_level),
+    emqx_logger:set_log_level(LogLevel),
     ok.
 
 init_per_testcase(Case, Config) ->
@@ -191,7 +164,7 @@ t_authenticator(Config) when is_list(Config) ->
     % Create an authenticator when the provider does not exist
 
     ?assertEqual(
-        {error, no_available_provider},
+        {error, {no_available_provider_for, {password_based, built_in_database}}},
         ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)
     ),
 
@@ -326,14 +299,14 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
     AuthenticatorConfig1 = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"built_in_database">>,
-        <<"enable">> => true
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
     },
     AuthenticatorConfig2 = #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"mysql">>,
-        <<"enable">> => true
+        mechanism => password_based,
+        backend => mysql,
+        enable => true
     },
     ID1 = <<"password_based:built_in_database">>,
     ID2 = <<"password_based:mysql">>,
@@ -594,12 +567,17 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
     ?assertAuthFailureForUser(bad),
     ?assertAuthFailureForUser(ignore),
 
-    %% lower-priority hook can overrride auth result,
-    %% because emqx_authentication permits/denies with {ok, ...}
-    ?assertAuthSuccessForUser(hook_user_good),
-    ?assertAuthFailureForUser(hook_user_bad),
-    ?assertAuthSuccessForUser(hook_user_finally_good),
+    %% lower-priority hook can overrride emqx_authentication result
+    %% for ignored users
+    ?assertAuthSuccessForUser(emqx_authn_ignore_for_hook_good),
+    ?assertAuthFailureForUser(emqx_authn_ignore_for_hook_bad),
+
+    %% lower-priority hook cannot overrride
+    %% successful/unsuccessful emqx_authentication result
+    ?assertAuthFailureForUser(hook_user_finally_good),
     ?assertAuthFailureForUser(hook_user_finally_bad),
+    ?assertAuthFailureForUser(hook_user_good),
+    ?assertAuthFailureForUser(hook_user_bad),
 
     ok = unhook();
 t_combine_authn_and_callback({'end', Config}) ->

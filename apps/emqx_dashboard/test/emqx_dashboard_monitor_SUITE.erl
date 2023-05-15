@@ -19,9 +19,9 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-import(emqx_dashboard_SUITE, [auth_header_/0]).
+
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include("emqx_dashboard.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
@@ -31,19 +31,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    emqx_common_test_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite([]),
     Config.
 
-end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]),
-    Config.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([]).
 
 t_monitor_samplers_all(_Config) ->
     timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
@@ -111,9 +103,9 @@ t_monitor_reset(_) ->
     ok.
 
 t_monitor_api_error(_) ->
-    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+    {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
         request(["monitor", "nodes", 'emqx@127.0.0.2']),
-    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+    {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
         request(["monitor_current", "nodes", 'emqx@127.0.0.2']),
     {error, {400, #{<<"code">> := <<"BAD_REQUEST">>}}} =
         request(["monitor"], "latest=0"),
@@ -145,17 +137,13 @@ do_request_api(Method, Request) ->
             Code >= 200 andalso Code =< 299
         ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {ok, emqx_json:decode(Return, [return_maps])};
+            {ok, emqx_utils_json:decode(Return, [return_maps])};
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {error, {Code, emqx_json:decode(Return, [return_maps])}};
+            {error, {Code, emqx_utils_json:decode(Return, [return_maps])}};
         {error, Reason} ->
             {error, Reason}
     end.
-
-auth_header_() ->
-    Basic = binary_to_list(base64:encode(<<"admin:public">>)),
-    {"Authorization", "Basic " ++ Basic}.
 
 restart_monitor() ->
     OldMonitor = erlang:whereis(emqx_dashboard_monitor),

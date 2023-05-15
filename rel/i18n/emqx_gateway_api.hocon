@@ -1,0 +1,73 @@
+emqx_gateway_api {
+
+delete_gateway.desc:
+"""Unload the specified gateway"""
+
+enable_gateway.desc:
+"""Enable a gateway by confs."""
+
+gateway_created_at.desc:
+"""The Gateway created datetime"""
+
+gateway_current_connections.desc:
+"""The Gateway current connected connections/clients"""
+
+gateway_enable_in_path.desc:
+"""Whether to enable this gateway"""
+
+gateway_listener_id.desc:
+"""Listener ID"""
+
+gateway_listener_name.desc:
+"""Listener Name"""
+
+gateway_listener_running.desc:
+"""Listener Running status"""
+
+gateway_listener_type.desc:
+"""Listener Type"""
+
+gateway_listeners.desc:
+"""The Gateway listeners overview"""
+
+gateway_max_connections.desc:
+"""The Gateway allowed maximum connections/clients"""
+
+gateway_name.desc:
+"""Gateway Name"""
+
+gateway_name_in_qs.desc:
+"""Gateway Name.<br/>
+It's enum with `stomp`, `mqttsn`, `coap`, `lwm2m`, `exproto`"""
+
+gateway_node_status.desc:
+"""The status of the gateway on each node in the cluster"""
+
+gateway_started_at.desc:
+"""The Gateway started datetime"""
+
+gateway_status.desc:
+"""Gateway status"""
+
+gateway_status_in_qs.desc:
+"""Filter gateways by status.<br/>
+It is enum with `running`, `stopped`, `unloaded`"""
+
+gateway_stopped_at.desc:
+"""The Gateway stopped datetime"""
+
+get_gateway.desc:
+"""Get the gateway configurations"""
+
+list_gateway.desc:
+"""This API returns an overview info for the specified or all gateways.
+including current running status, number of connections, listener status, etc."""
+
+node.desc:
+"""Node Name"""
+
+update_gateway.desc:
+"""Update the gateway basic configurations and running status.<br/>
+Note: The Authentication and Listener configurations should be updated by other special APIs."""
+
+}

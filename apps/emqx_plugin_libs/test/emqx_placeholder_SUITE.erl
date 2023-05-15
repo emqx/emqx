@@ -105,19 +105,27 @@ t_preproc_sql3(_) ->
         emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
     ).
 
-t_preproc_sql4(_) ->
+t_preproc_mysql1(_) ->
     %% with apostrophes
     %% https://github.com/emqx/emqx/issues/4135
     Selected = #{
         a => <<"1''2">>,
         b => 1,
         c => 1.0,
-        d => #{d1 => <<"someone's phone">>}
+        d => #{d1 => <<"someone's phone">>},
+        e => <<$\\, 0, "💩"/utf8>>,
+        f => <<"non-utf8", 16#DCC900:24>>,
+        g => "utf8's cool 🐸"
     },
-    ParamsTokens = emqx_placeholder:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
+    ParamsTokens = emqx_placeholder:preproc_tmpl(
+        <<"a:${a},b:${b},c:${c},d:${d},e:${e},f:${f},g:${g}">>
+    ),
     ?assertEqual(
-        <<"a:'1\\'\\'2',b:1,c:1.0,d:'{\"d1\":\"someone\\'s phone\"}'">>,
-        emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
+        <<
+            "a:'1\\'\\'2',b:1,c:1.0,d:'{\"d1\":\"someone\\'s phone\"}',"
+            "e:'\\\\\\0💩',f:0x6E6F6E2D75746638DCC900,g:'utf8\\'s cool 🐸'"/utf8
+        >>,
+        emqx_placeholder:proc_param_str(ParamsTokens, Selected, fun emqx_placeholder:quote_mysql/1)
     ).
 
 t_preproc_sql5(_) ->

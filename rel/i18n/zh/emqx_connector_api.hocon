@@ -1,0 +1,46 @@
+emqx_connector_api {
+
+conn_get.desc:
+"""列出所有连接器"""
+
+conn_get.label:
+"""列出所有连接器"""
+
+conn_id_delete.desc:
+"""通过 ID 删除一个连接器"""
+
+conn_id_delete.label:
+"""删除连接器"""
+
+conn_id_get.desc:
+"""通过 ID 获取连接器"""
+
+conn_id_get.label:
+"""获取连接器"""
+
+conn_id_put.desc:
+"""通过 ID 更新一个连接器"""
+
+conn_id_put.label:
+"""更新连接器"""
+
+conn_post.desc:
+"""创建一个新的连接器"""
+
+conn_post.label:
+"""创建连接器"""
+
+conn_test_post.desc:
+"""通过给定的 ID 测试创建一个新的连接器 <br/>
+ID 的格式必须为“{type}:{name}”"""
+
+conn_test_post.label:
+"""创建测试连接器"""
+
+id.desc:
+"""连接器 ID， 格式必须为 {type}:{name}"""
+
+id.label:
+"""连接器 ID"""
+
+}

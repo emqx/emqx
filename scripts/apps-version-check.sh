@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*')
-echo "Compare base: $latest_release"
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+# match any official release tag 'e*' and 'v*'
+latest_release="$(env PREV_TAG_MATCH_PATTERN='*' ./scripts/find-prev-rel-tag.sh)"
+echo "Version check compare base: $latest_release"
 
 bad_app_count=0
 
@@ -32,7 +36,7 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
-        changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
+        changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
                              -- ":(exclude)"$app_path/src/*.appup.src"" \
@@ -50,6 +54,10 @@ for app in ${APPS}; do
         if  [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
             [ "${old_app_version_semver[1]}" = "${now_app_version_semver[1]}" ] && \
             [ "$(( old_app_version_semver[2] + 1 ))" = "${now_app_version_semver[2]}" ]; then
+            true
+        elif [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
+             [ "$(( old_app_version_semver[1] + 1 ))" = "${now_app_version_semver[1]}" ] && \
+             [ "${now_app_version_semver[2]}" = "0" ]; then
             true
         else
             echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"

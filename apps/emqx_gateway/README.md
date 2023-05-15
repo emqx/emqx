@@ -1,332 +1,83 @@
-# emqx_gateway
+# Gateway
 
-EMQX Gateway
+EMQX Gateway is an application framework that manages all gateways within EMQX.
 
-## Concept
+It provides a set of standards to define how to implement a certain type of
+protocol access on EMQX. For example:
 
-    EMQX Gateway Management
-     - Gateway-Registry (or Gateway Type)
-        - *Load
-        - *UnLoad
-        - *List
+- Frame parsing
+- Access authentication
+- Publish and subscribe
+- Configuration & Schema
+- HTTP/CLI management interfaces
 
-     - Gateway
-        - *Create
-        - *Delete
-        - *Update
-            - *Stop-And-Start
-            - *Hot-Upgrade
-        - *Satrt/Enable
-        - *Stop/Disable
-     - Listener
+The emqx_gateway application depends on `emqx`, `emqx_authn`, `emqx_authz`, `emqx_ctl` that
+provide the foundation for protocol access.
 
-## ROADMAP
+More introduction: [Extended Protocol Gateway](https://www.emqx.io/docs/en/v5.0/gateway/gateway.html)
 
-Gateway v0.1: "Basic Functionals"
-    - Management support
-    - Conn/Frame/Protocol Template
-    - Support Stomp/MQTT-SN/CoAP/LwM2M/ExProto
+## Usage
 
-Gateway v0.2: "Integration & Friendly Management"
-    - Hooks & Metrics & Statistic
-    - HTTP APIs
-    - Management in the cluster
-    - Integrate with AuthN
-    - Integrate with `emqx_config`
-    - Improve hocon config
-    - Mountpoint & ClientInfo's Metadata
-    - The Concept Review
+This application is just a Framework, we provide some standard implementations,
+such as [Stomp](../emqx_stomp/README.md), [MQTT-SN](../emqx_mqttsn/README.md),
+[CoAP](../emqx_coap/README.md) and [LwM2M](../emqx_lwm2m/README.md) gateway.
 
-Gateway v0.3: "Fault tolerance and high availability"
-    - A common session modoule for message delivery policy
-    - The restart mechanism for gateway-instance
-    - Consistency of cluster state
-    - Configuration hot update
+These applications are all packaged by default in the EMQX distribution. If you
+need to start a certain gateway, you only need to enable it via
+Dashboard, HTTP API or emqx.conf file.
 
-Gateway v1.0: "Best practices for each type of protocol"
-    - CoAP
-    - Stomp
-    - MQTT-SN
-    - LwM2M
-
-### Compatible with EMQX
-
-> Why we need to compatible
-
-1. Authentication
-2. Hooks/Event system
-3. Messages Mode & Rule Engine
-4. Cluster registration
-5. Metrics & Statistic
-
-> How to do it
-
->
-
-### User Interface
-
-#### Configurations
-
+For instance, enable the Stomp gateway in emqx.conf:
 ```hocon
-gateway {
+gateway.stomp {
 
-  ## ... some confs for top scope
-  ..
-  ## End.
+  mountpoint = "stomp/"
 
-  ## Gateway Instances
-
-  lwm2m[.name] {
-
-    ## variable support
-    mountpoint: lwm2m/%e/
-
-    lifetime_min: 1s
-    lifetime_max: 86400s
-    #qmode_time_window: 22
-    #auto_observe: off
-
-    #update_msg_publish_condition: contains_object_list
-
-    xml_dir: {{ platform_etc_dir }}/lwm2m_xml
-
-    clientinfo_override: {
-        username: ${register.opts.uname}
-        password: ${register.opts.passwd}
-        clientid: ${epn}
-    }
-
-    #authenticator: allow_anonymous
-    authenticator: [
-      {
-        type: auth-http
-        method: post
-        //?? how to generate clientinfo ??
-        params: $client.credential
-      }
-    ]
-
-    translator: {
-      downlink: "dn/#"
-      uplink: {
-        notify: "up/notify"
-        response: "up/resp"
-        register: "up/resp"
-        update: "up/reps"
-      }
-    }
-
-    %% ?? listener.$type.name ??
-    listener.udp[.name] {
-      listen_on: 0.0.0.0:5683
-      max_connections: 1024000
-      max_conn_rate: 1000
-      ## ?? udp keepalive in socket level ???
-      #keepalive:
-      ## ?? udp proxy-protocol in socket level ???
-      #proxy_protocol: on
-      #proxy_timeout: 30s
-      recbuf: 2KB
-      sndbuf: 2KB
-      buffer: 2KB
-      tune_buffer: off
-      #access: allow all
-      read_packets: 20
-    }
-
-    listener.dtls[.name] {
-      listen_on: 0.0.0.0:5684
-        ...
-    }
-  }
-
-  ## The CoAP Gateway
-  coap[.name] {
-
-    #enable_stats: on
-
-    authenticator: [
-      ...
-    ]
-
-    listener.udp[.name] {
-      ...
-    }
-
-    listener.dtls[.name] {
-      ...
-    }
-}
-
-  ## The Stomp Gateway
-  stomp[.name] {
-
-    allow_anonymous: true
-
-    default_user.login: guest
-    default_user.passcode: guest
-
-    frame.max_headers: 10
-    frame.max_header_length: 1024
-    frame.max_body_length: 8192
-
-    listener.tcp[.name] {
-        ...
-    }
-
-    listener.ssl[.name] {
-        ...
-    }
-  }
-
-  exproto[.name] {
-
-    proto_name: DL-648
-
-    authenticators: [...]
-
-    adapter: {
-      type: grpc
-      options: {
-        listen_on: 9100
-      }
-    }
-
-    handler: {
-      type: grpc
-        options: {
-          url: <http://127.0.0.1:9001>
-        }
-    }
-
-    listener.tcp[.name] {
-        ...
-    }
-  }
-
-  ## ============================ Enterpise gateways
-
-  ## The JT/T 808 Gateway
-  jtt808[.name] {
-
-    idle_timeout: 30s
-    enable_stats: on
-    max_packet_size: 8192
-
-    clientinfo_override: {
-      clientid: $phone
-      username: xxx
-      password: xxx
-    }
-
-    authenticator: [
-      {
-        type: auth-http
-        method: post
-        params: $clientinfo.credential
-        }
-    ]
-
-    translator: {
-      subscribe: [jt808/%c/dn]
-      publish: [jt808/%c/up]
-    }
-
-    listener.tcp[.name] {
-        ...
-    }
-
-    listener.ssl[.name] {
-        ...
-    }
-  }
-
-  gbt32960[.name] {
-
-    frame.max_length: 8192
-    retx_interval: 8s
-    retx_max_times: 3
-    message_queue_len: 10
-
-    authenticators: [...]
-
-    translator: {
-      ## upstream
-      login: gbt32960/${vin}/upstream/vlogin
-      logout: gbt32960/${vin}/upstream/vlogout
-      informing: gbt32960/${vin}/upstream/info
-      reinforming: gbt32960/${vin}/upstream/reinfo
-      ## downstream
-      downstream: gbt32960/${vin}/dnstream
-      response: gbt32960/${vin}/upstream/response
-    }
-
-    listener.tcp[.name] {
-        ...
-    }
-
-    listener.ssl[.name] {
-        ...
-    }
-  }
-
-  privtcp[.name] {
-
-    max_packet_size: 65535
-    idle_timeout: 15s
-
-    enable_stats: on
-
-    force_gc_policy: 1000|1MB
-    force_shutdown_policy: 8000|800MB
-
-    translator: {
-        up_topic: tcp/%c/up
-        dn_topic: tcp/%c/dn
-    }
-
-    listener.tcp[.name]: {
-        ...
-    }
+  listeners.tcp.default {
+    bind = 61613
+    acceptors = 16
+    max_connections = 1024000
+    max_conn_rate = 1000
   }
 }
 ```
 
-#### CLI
+## How to develop your Gateway application
 
-##### Gateway
+There are three ways to develop a Gateway application to accept your private protocol
+clients.
 
-```bash
-## List all started gateway and gateway-instance
-emqx_ctl gateway list
-emqx_ctl gateway lookup <GatewayId>
-emqx_ctl gateway stop   <GatewayId>
-emqx_ctl gateway start  <GatewayId>
+### Raw Erlang Application
 
-emqx_ctl gateway-registry re-searching
-emqx_ctl gateway-registry list
+This approach is the same as in EMQX 4.x. You need to implement an Erlang application,
+which is packaged in EMQX as a Plugin or as a source code dependency.
+In this approach, you do not need to respect any specifications of emqx_gateway,
+and you can freely implement the features you need.
 
-emqx_ctl gateway-clients list <Type>
-emqx_ctl gateway-clients show <Type> <ClientId>
-emqx_ctl gateway-clients kick <Type> <ClientId>
 
-## Banned ??
-emqx_ctl gateway-banned
+### Respect emqx_gateway framework
 
-## Metrics
-emqx_ctl gateway-metrics [<GatewayId>]
-```
+Similar to the first approach, you still need to implement an application using Erlang
+and package it into EMQX.
+The only difference is that you need to follow the standard behaviors(callbacks) provided
+by emqx_gateway.
 
-#### Management by HTTP-API/Dashboard/
+This is the approach we recommend. In this approach, your implementation can be managed
+by the emqx_gateway framework, even if it may require you to understand more details about it.
 
-#### How to integrate a protocol to your platform
 
-### Develop your protocol gateway
+### Use ExProto Gateway (Non-Erlang developers)
 
-There are 3 way to create your protocol gateway for EMQX 5.0:
+If you want to implement your gateway using other programming languages such as
+Java, Python, Go, etc.
 
-1. Use Erlang to create a new emqx plugin to handle all of protocol packets (same as v5.0 before)
+You need to implement a gRPC service in the other programming language to parse
+your device protocol and integrate it with EMQX.
 
-2. Based on the emqx-gateway-impl-bhvr and emqx-gateway
 
-3. Use the gRPC Gateway
+## Contributing
+
+Please see our [contributing.md](../../CONTRIBUTING.md).
+
+## License
+
+See [LICENSE](../../APL.txt)

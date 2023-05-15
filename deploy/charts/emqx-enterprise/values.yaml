@@ -16,6 +16,15 @@ image:
   # pullSecrets:
   # - myRegistryKeySecretName
 
+serviceAccount:
+  # Specifies whether a service account should be created
+  # If set false, means you need create service account by yourself
+  create: true
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+  # Annotations to add to the service account
+  annotations: {}
 
 # The name of a secret in the same kubernetes namespace which contains values to
 # be added to the environment (must be manually created)
@@ -25,6 +34,8 @@ image:
 
 ## Forces the recreation of pods during helm upgrades. This can be useful to update configuration values even if the container image did not change.
 recreatePods: false
+
+clusterDomain: cluster.local
 
 podAnnotations: {}
 
@@ -50,6 +61,17 @@ resources: {}
   # requests:
   #   cpu: 500m
   #   memory: 512Mi
+
+extraVolumeMounts: []
+## Additional volumeMounts to the default backend container.
+#  - name: my-owner-acl
+#    mountPath: /opt/emqx/etc/acl.conf
+#    subPath: acl.conf
+
+extraVolumes: []
+## Additional volumes to the default backend pod.
+#  - name: my-owner-acl
+#    secret:  fake-acl-conf
 
 # Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
 initContainers: {}
@@ -91,7 +113,7 @@ initContainers: {}
   #       sysctl -w net.netfilter.nf_conntrack_max=1000000
   #       sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
 
-## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
+## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx-enterprise)
 emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
   EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
@@ -178,6 +200,20 @@ ingress:
     hosts:
     - dashboard.emqx.local
     tls: []
+  ## ingress for MQTT
+  mqtt:
+    enabled: false
+    # ingressClassName: haproxy
+    annotations: {}
+      # kubernetes.io/ingress.class: haproxy
+      # kubernetes.io/tls-acme: "true"
+      # haproxy-ingress.github.io/tcp-service-port: "8883"
+      # haproxy-ingress.github.io/proxy-protocol: "v2"
+    path: /
+    pathType: ImplementationSpecific
+    hosts:
+    - mqtt.emqx.local
+    tls: []
 
 podSecurityContext:
   enabled: true
@@ -200,7 +236,14 @@ ssl:
   enabled: false
   useExisting: false
   existingName: emqx-tls
-  dnsnames: {}
+  dnsnames: []
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer
+
+## Setting PodDisruptionBudget.
+## ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb
+##
+pdb:
+  enabled: false
+  maxUnavailable: 1

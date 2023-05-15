@@ -25,7 +25,9 @@
     roots/0,
     fields/1,
     desc/1,
-    translation/1
+    translation/1,
+    convert_headers/1,
+    validate_push_gateway_server/1
 ]).
 
 namespace() -> "prometheus".
@@ -38,8 +40,9 @@ fields("prometheus") ->
             ?HOCON(
                 string(),
                 #{
-                    default => "http://127.0.0.1:9091",
+                    default => <<"http://127.0.0.1:9091">>,
                     required => true,
+                    validator => fun ?MODULE:validate_push_gateway_server/1,
                     desc => ?DESC(push_gateway_server)
                 }
             )},
@@ -47,11 +50,31 @@ fields("prometheus") ->
             ?HOCON(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "15s",
+                    default => <<"15s">>,
                     required => true,
                     desc => ?DESC(interval)
                 }
             )},
+        {headers,
+            ?HOCON(
+                list({string(), string()}),
+                #{
+                    default => #{},
+                    required => false,
+                    converter => fun ?MODULE:convert_headers/1,
+                    desc => ?DESC(headers)
+                }
+            )},
+        {job_name,
+            ?HOCON(
+                binary(),
+                #{
+                    default => <<"${name}/instance/${name}~${host}">>,
+                    required => true,
+                    desc => ?DESC(job_name)
+                }
+            )},
+
         {enable,
             ?HOCON(
                 boolean(),
@@ -67,7 +90,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_dist_collector)
                 }
             )},
@@ -77,7 +100,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(mnesia_collector)
                 }
             )},
@@ -87,7 +110,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_statistics_collector)
                 }
             )},
@@ -97,7 +120,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_system_info_collector)
                 }
             )},
@@ -107,7 +130,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_memory_collector)
                 }
             )},
@@ -117,7 +140,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(vm_msacc_collector)
                 }
             )}
@@ -125,6 +148,23 @@ fields("prometheus") ->
 
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
+
+convert_headers(Headers) when is_map(Headers) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            [{binary_to_list(K), binary_to_list(V)} | Acc]
+        end,
+        [],
+        Headers
+    );
+convert_headers(Headers) when is_list(Headers) ->
+    Headers.
+
+validate_push_gateway_server(Url) ->
+    case uri_string:parse(Url) of
+        #{scheme := S} when S =:= "https" orelse S =:= "http" -> ok;
+        _ -> {error, "Invalid url"}
+    end.
 
 %% for CI test, CI don't load the whole emqx_conf_schema.
 translation(Name) ->

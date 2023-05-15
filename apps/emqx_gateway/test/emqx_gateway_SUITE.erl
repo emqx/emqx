@@ -33,6 +33,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway]),
     Conf.
@@ -67,11 +68,11 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_registered_gateway(_) ->
     [
-        {coap, #{cbkmod := emqx_coap_impl}},
-        {exproto, #{cbkmod := emqx_exproto_impl}},
-        {lwm2m, #{cbkmod := emqx_lwm2m_impl}},
-        {mqttsn, #{cbkmod := emqx_sn_impl}},
-        {stomp, #{cbkmod := emqx_stomp_impl}}
+        {coap, #{cbkmod := emqx_gateway_coap}},
+        {exproto, #{cbkmod := emqx_gateway_exproto}},
+        {lwm2m, #{cbkmod := emqx_gateway_lwm2m}},
+        {mqttsn, #{cbkmod := emqx_gateway_mqttsn}},
+        {stomp, #{cbkmod := emqx_gateway_stomp}}
     ] = emqx_gateway:registered_gateway().
 
 t_load_unload_list_lookup(_) ->
@@ -187,7 +188,14 @@ read_lwm2m_conf(DataDir) ->
     Conf.
 
 setup_fake_usage_data(Lwm2mDataDir) ->
-    XmlDir = emqx_common_test_helpers:deps_path(emqx_gateway, "src/lwm2m/lwm2m_xml"),
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_gateway_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
     Lwm2mConf = read_lwm2m_conf(Lwm2mDataDir),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, Lwm2mConf),
     emqx_config:put([gateway, lwm2m, xml_dir], XmlDir),

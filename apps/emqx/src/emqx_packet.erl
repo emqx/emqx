@@ -16,6 +16,8 @@
 
 -module(emqx_packet).
 
+-elvis([{elvis_style, no_spec_with_records, disable}]).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
@@ -475,9 +477,13 @@ format(Packet) -> format(Packet, emqx_trace_handler:payload_encode()).
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
     HeaderIO = format_header(Header),
     case format_variable(Variable, Payload, PayloadEncode) of
-        "" -> HeaderIO;
-        VarIO -> [HeaderIO, ",", VarIO]
-    end.
+        "" -> [HeaderIO, ")"];
+        VarIO -> [HeaderIO, ", ", VarIO, ")"]
+    end;
+%% receive a frame error packet, such as {frame_error,frame_too_large} or
+%% {frame_error,#{expected => <<"'MQTT' or 'MQIsdp'">>,hint => invalid_proto_name,received => <<"bad_name">>}}
+format(FrameError, _PayloadEncode) ->
+    lists:flatten(io_lib:format("~tp", [FrameError])).
 
 format_header(#mqtt_packet_header{
     type = Type,
@@ -485,14 +491,14 @@ format_header(#mqtt_packet_header{
     qos = QoS,
     retain = Retain
 }) ->
-    io_lib:format("~ts(Q~p, R~p, D~p)", [type_name(Type), QoS, i(Retain), i(Dup)]).
+    io_lib:format("~ts(Q~p, R~p, D~p", [type_name(Type), QoS, i(Retain), i(Dup)]).
 
 format_variable(undefined, _, _) ->
     "";
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ", ", format_payload(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{
@@ -599,7 +605,8 @@ format_variable(#mqtt_packet_auth{reason_code = ReasonCode}, _) ->
 format_variable(PacketId, _) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]).
 
-format_password(undefined) -> "undefined";
+format_password(undefined) -> "";
+format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
 format_payload(Payload, text) -> ["Payload=", io_lib:format("~ts", [Payload])];

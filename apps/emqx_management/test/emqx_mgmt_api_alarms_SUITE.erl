@@ -40,6 +40,9 @@ t_alarms_api(_) ->
     get_alarms(1, true),
     get_alarms(1, false).
 
+t_alarm_cpu(_) ->
+    ok.
+
 t_delete_alarms_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["alarms"]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Path),
@@ -53,11 +56,11 @@ get_alarms(AssertCount, Activated) ->
     Qs = "activated=" ++ Activated,
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, Qs, Headers),
-    Data = emqx_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, Data),
     Page = maps:get(<<"page">>, Meta),
     Limit = maps:get(<<"limit">>, Meta),
     Count = maps:get(<<"count">>, Meta),
     ?assertEqual(Page, 1),
-    ?assertEqual(Limit, emqx_mgmt:max_row_limit()),
+    ?assertEqual(Limit, emqx_mgmt:default_row_limit()),
     ?assert(Count >= AssertCount).

@@ -1,0 +1,10 @@
+{application, emqx_gateway_coap, [
+    {description, "CoAP Gateway"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib, emqx, emqx_gateway]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

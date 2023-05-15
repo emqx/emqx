@@ -26,6 +26,14 @@
 
 %% API
 -export([lock/0, unlock/0]).
+-export([t/1, t2/1, t/2, t2/2, t/3, t2/3]).
 
 lock() -> emqx_restricted_shell:lock().
 unlock() -> emqx_restricted_shell:unlock().
+
+t(M) -> recon_trace:calls({M, '_', return_trace}, 300).
+t2(M) -> recon_trace:calls({M, '_', return_trace}, 300, [{args, arity}]).
+t(M, F) -> recon_trace:calls({M, F, return_trace}, 300).
+t2(M, F) -> recon_trace:calls({M, F, return_trace}, 300, [{args, arity}]).
+t(M, F, A) -> recon_trace:calls({M, F, A}, 300).
+t2(M, F, A) -> recon_trace:calls({M, F, A}, 300, [{args, arity}]).

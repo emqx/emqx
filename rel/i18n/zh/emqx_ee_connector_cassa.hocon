@@ -1,0 +1,17 @@
+emqx_ee_connector_cassa {
+
+keyspace.desc:
+"""要连接到的 Keyspace 名称。"""
+
+keyspace.label:
+"""Keyspace"""
+
+servers.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+主机名具有以下形式：`Host[:Port][,Host2:Port]`。<br/>
+如果未指定 `[:Port]`，则使用 Cassandra 默认端口 9042。"""
+
+servers.label:
+"""Servers"""
+
+}

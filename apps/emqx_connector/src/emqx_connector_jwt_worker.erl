@@ -120,7 +120,7 @@ init(#{private_key := PrivateKeyPEM} = Config) ->
 
 handle_continue({make_key, PrivateKeyPEM}, State0) ->
     ?tp(connector_jwt_worker_make_key, #{state => State0}),
-    case jose_jwk:from_pem(PrivateKeyPEM) of
+    try jose_jwk:from_pem(PrivateKeyPEM) of
         JWK = #jose_jwk{} ->
             State = State0#{jwk := JWK},
             {noreply, State, {continue, create_token}};
@@ -134,6 +134,17 @@ handle_continue({make_key, PrivateKeyPEM}, State0) ->
         Error0 ->
             Error = {invalid_private_key, Error0},
             ?tp(connector_jwt_worker_startup_error, #{error => Error}),
+            {stop, {shutdown, {error, Error}}, State0}
+    catch
+        Kind:Error ->
+            ?tp(
+                error,
+                connector_jwt_worker_startup_error,
+                #{
+                    kind => Kind,
+                    error => Error
+                }
+            ),
             {stop, {shutdown, {error, Error}}, State0}
     end;
 handle_continue(create_token, State0) ->

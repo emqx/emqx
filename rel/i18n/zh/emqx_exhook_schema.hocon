@@ -1,0 +1,43 @@
+emqx_exhook_schema {
+
+auto_reconnect.desc:
+"""自动重连到 gRPC 服务器的设置。
+当 gRPC 服务器不可用时，Exhook 将会按照这里设置的间隔时间进行重连，并重新初始化注册的钩子"""
+
+enable.desc:
+"""开启这个 Exhook 服务器"""
+
+failed_action.desc:
+"""当 gRPC 请求失败后的操作"""
+
+keepalive.desc:
+"""当没有其他数据交换时，是否向连接的对端套接字定期的发送探测包。如果另一端没有响应，则认为连接断开，并向控制进程发送错误消息"""
+
+name.desc:
+"""ExHook 服务器名称"""
+
+nodelay.desc:
+"""如果为 true，则为套接字设置 TCP_NODELAY 选项，这意味着会立即发送数据包"""
+
+pool_size.desc:
+"""gRPC 客户端进程池大小"""
+
+recbuf.desc:
+"""套接字的最小接收缓冲区大小"""
+
+request_timeout.desc:
+"""gRPC 服务器请求超时时间"""
+
+servers.desc:
+"""ExHook 服务器列表"""
+
+sndbuf.desc:
+"""套接字的最小发送缓冲区大小"""
+
+socket_options.desc:
+"""连接套接字设置"""
+
+url.desc:
+"""gRPC 服务器地址"""
+
+}

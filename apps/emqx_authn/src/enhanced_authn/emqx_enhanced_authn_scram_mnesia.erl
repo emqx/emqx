@@ -25,6 +25,7 @@
 
 -export([
     namespace/0,
+    tags/0,
     roots/0,
     fields/1,
     desc/1
@@ -93,6 +94,7 @@
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTH_SHARD},
+        {type, ordered_set},
         {storage, disc_copies},
         {record_name, user_info},
         {attributes, record_info(fields, user_info)},
@@ -103,11 +105,16 @@ mnesia(boot) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-scram-builtin_db".
+namespace() -> "authn".
 
-roots() -> [?CONF_NS].
+tags() ->
+    [<<"Authentication">>].
 
-fields(?CONF_NS) ->
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, scram))}].
+
+fields(scram) ->
     [
         {mechanism, emqx_authn_schema:mechanism(scram)},
         {backend, emqx_authn_schema:backend(built_in_database)},
@@ -115,7 +122,7 @@ fields(?CONF_NS) ->
         {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
 
-desc(?CONF_NS) ->
+desc(scram) ->
     "Settings for Salted Challenge Response Authentication Mechanism\n"
     "(SCRAM) authentication.";
 desc(_) ->
@@ -136,7 +143,7 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, scram)].
 
 create(
     AuthenticatorID,
@@ -163,7 +170,7 @@ authenticate(
     },
     State
 ) ->
-    case ensure_auth_method(AuthMethod, State) of
+    case ensure_auth_method(AuthMethod, AuthData, State) of
         true ->
             case AuthCache of
                 #{next_step := client_final} ->
@@ -299,11 +306,13 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-ensure_auth_method(<<"SCRAM-SHA-256">>, #{algorithm := sha256}) ->
+ensure_auth_method(_AuthMethod, undefined, _State) ->
+    false;
+ensure_auth_method(<<"SCRAM-SHA-256">>, _AuthData, #{algorithm := sha256}) ->
     true;
-ensure_auth_method(<<"SCRAM-SHA-512">>, #{algorithm := sha512}) ->
+ensure_auth_method(<<"SCRAM-SHA-512">>, _AuthData, #{algorithm := sha512}) ->
     true;
-ensure_auth_method(_, _) ->
+ensure_auth_method(_AuthMethod, _AuthData, _State) ->
     false.
 
 check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = State) ->

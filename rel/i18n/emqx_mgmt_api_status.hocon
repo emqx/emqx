@@ -1,0 +1,40 @@
+emqx_mgmt_api_status {
+
+get_status_api.desc:
+"""Serves as a health check for the node.
+Returns response to describe the status of the node and the application.
+
+This endpoint requires no authentication.
+
+Returns status code 200 if the EMQX application is up and running, 503 otherwise.
+This API was introduced in v5.0.10.
+The GET `/status` endpoint (without the `/api/...` prefix) is also an alias to this endpoint and works in the same way.
+This alias has been available since v5.0.0.
+
+Starting from v5.0.25 or e5.0.4, you can also use 'format' parameter to get JSON format information."""
+
+get_status_api.label:
+"""Service health check"""
+
+get_status_response200.desc:
+"""If 'format' parameter is 'json', then it returns a JSON like below:<br/>
+{
+  "rel_vsn": "v5.0.23",
+  "node_name": "emqx@127.0.0.1",
+  "broker_status": "started",
+  "app_status": "running"
+}
+<br/>
+Otherwise it returns free text strings as below:<br/>
+Node emqx@127.0.0.1 is started
+emqx is running"""
+
+get_status_response503.desc:
+"""When EMQX application is temporary not running or being restarted, it may return 'emqx is not_running'.
+If the 'format' parameter is provided 'json', then the 'app_status' field in the JSON object will be 'not_running'."""
+
+get_status_api_format.desc:
+"""Specify the response format, 'text' (default) to return the HTTP body in free text,
+or 'json' to return the HTTP body with a JSON object."""
+
+}

@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- if .Values.service.annotations }}
   annotations:
-{{ toYaml .Values.service.annotations | indent 4 }}
+    {{- toYaml .Values.service.annotations | nindent 4 }}
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
@@ -38,7 +38,7 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
+    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
   - name: internalmqtt
     port: {{ .Values.service.internalmqtt | default 11883 }}
     protocol: TCP
@@ -114,14 +114,14 @@ metadata:
 spec:
   type: ClusterIP
   sessionAffinity: None
-  clusterIP: None
+  clusterIP: {{ .Values.service.clusterIP | default "None" }}
   publishNotReadyAddresses: true
   ports:
   - name: mqtt
     port: {{ .Values.service.mqtt | default 1883 }}
     protocol: TCP
     targetPort: mqtt
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT) }}
+    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
   - name: internalmqtt
     port: {{ .Values.service.internalmqtt | default 11883 }}
     protocol: TCP

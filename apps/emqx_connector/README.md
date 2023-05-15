@@ -14,7 +14,7 @@ An MySQL connector can be used as following:
 ```
 (emqx@127.0.0.1)5> emqx_resource:list_instances_verbose().
 [#{config =>
-       #{auto_reconnect => true,cacertfile => [],certfile => [],
+       #{cacertfile => [],certfile => [],
          database => "mqtt",keyfile => [],password => "public",
          pool_size => 1,
          server => {{127,0,0,1},3306},

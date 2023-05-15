@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/authz/[...]").
@@ -51,7 +52,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = stop_apps([emqx_resource, cowboy]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authz]).
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
@@ -64,7 +65,14 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_authz_http_test_server:stop().
+    try
+        ok = emqx_authz_http_test_server:stop()
+    catch
+        exit:noproc ->
+            ok
+    end,
+    snabbkaffe:stop(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -148,7 +156,39 @@ t_response_handling(_Config) ->
     ?assertEqual(
         deny,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
-    ).
+    ),
+
+    %% the server cannot be reached; should skip to the next
+    %% authorizer in the chain.
+    ok = emqx_authz_http_test_server:stop(),
+
+    ?check_trace(
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        ?snk_kind := authz_http_request_failure,
+                        error := {recoverable_error, econnrefused}
+                    }
+                ],
+                ?of_kind(authz_http_request_failure, Trace)
+            ),
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := authz_http_request_failure},
+                    #{?snk_kind := authz_non_superuser, result := nomatch},
+                    Trace
+                )
+            ),
+            ok
+        end
+    ),
+
+    ok.
 
 t_query_params(_Config) ->
     ok = setup_handler_and_config(
@@ -159,7 +199,7 @@ t_query_params(_Config) ->
                 peerhost := <<"127.0.0.1">>,
                 proto_name := <<"MQTT">>,
                 mountpoint := <<"MOUNTPOINT">>,
-                topic := <<"t">>,
+                topic := <<"t/1">>,
                 action := <<"publish">>
             } = cowboy_req:match_qs(
                 [
@@ -201,7 +241,7 @@ t_query_params(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, publish, <<"t/1">>)
     ).
 
 t_path(_Config) ->
@@ -209,13 +249,13 @@ t_path(_Config) ->
         fun(Req0, State) ->
             ?assertEqual(
                 <<
-                    "/authz/users/"
+                    "/authz/use%20rs/"
                     "user%20name/"
                     "client%20id/"
                     "127.0.0.1/"
                     "MQTT/"
                     "MOUNTPOINT/"
-                    "t/1/"
+                    "t%2F1/"
                     "publish"
                 >>,
                 cowboy_req:path(Req0)
@@ -224,7 +264,7 @@ t_path(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/users/"
+                "http://127.0.0.1:33333/authz/use%20rs/"
                 "${username}/"
                 "${clientid}/"
                 "${peerhost}/"
@@ -271,7 +311,7 @@ t_json_body(_Config) ->
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>
                 },
-                jiffy:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -326,7 +366,7 @@ t_placeholder_and_body(_Config) ->
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
-                jiffy:decode(PostVars, [return_maps])
+                emqx_utils_json:decode(PostVars, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -378,7 +418,7 @@ t_no_value_for_placeholder(_Config) ->
                 #{
                     <<"mountpoint">> := <<"[]">>
                 },
-                jiffy:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody, [return_maps])
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,

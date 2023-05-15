@@ -17,6 +17,7 @@ timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.keytab ]; do sleep 1;
 echo "+++++++ Wait until SSL certs are generated ++++++++"
 
 timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.truststore.jks ]; do sleep 1; done'
+keytool -list -v -keystore /var/lib/secret/kafka.keystore.jks -storepass password
 
 sleep 3
 

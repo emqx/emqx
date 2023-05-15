@@ -33,15 +33,33 @@
     "tags {\"t1\" = \"good\", test = 100}\n"
     "}\n"
 >>).
+-define(BAD_CONF, <<
+    "\n"
+    "statsd {\n"
+    "enable = true\n"
+    "flush_time_interval = 4s\n"
+    "sample_time_interval = 4s\n"
+    "server = \"\"\n"
+    "tags {\"t1\" = \"good\", test = 100}\n"
+    "}\n"
+>>).
+
+-define(DEFAULT_CONF, <<
+    "\n"
+    "statsd {\n"
+    "enable = true\n"
+    "flush_time_interval = 4s\n"
+    "sample_time_interval = 4s\n"
+    "tags {\"t1\" = \"good\", test = 100}\n"
+    "}\n"
+>>).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_dashboard, emqx_statsd],
         fun set_special_configs/1
     ),
-    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF),
     Config.
 
 end_per_suite(_Config) ->
@@ -54,6 +72,29 @@ set_special_configs(_) ->
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
+
+t_server_validator(_) ->
+    Server0 = emqx_conf:get_raw([statsd, server]),
+    ?assertThrow(
+        #{
+            kind := validation_error,
+            path := "statsd.server",
+            reason := "cannot_be_empty",
+            value := ""
+        },
+        emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BAD_CONF)
+    ),
+    %% default
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?DEFAULT_CONF),
+    DefaultServer = default_server(),
+    ?assertEqual(DefaultServer, emqx_conf:get_raw([statsd, server])),
+    DefaultServerStr = binary_to_list(DefaultServer),
+    ?assertEqual(DefaultServerStr, emqx_conf:get([statsd, server])),
+    %% recover
+    ok = emqx_common_test_helpers:load_config(emqx_statsd_schema, ?BASE_CONF),
+    Server2 = emqx_conf:get_raw([statsd, server]),
+    ?assertMatch(Server0, Server2),
+    ok.
 
 t_statsd(_) ->
     {ok, Socket} = gen_udp:open(8126, [{active, true}]),
@@ -113,12 +154,51 @@ t_kill_exit(_) ->
     ?assertNotEqual(Estatsd, Estatsd1),
     ok.
 
+t_config_update(_) ->
+    OldRawConf = emqx_conf:get_raw([statsd]),
+    {ok, _} = emqx_statsd_config:update(OldRawConf#{<<"enable">> => true}),
+    CommonKeys = [flush_time_interval, sample_time_interval],
+    OldConf = emqx_conf:get([statsd]),
+    OldStatsDState = sys:get_state(emqx_statsd),
+    OldPid = erlang:whereis(emqx_statsd),
+    ?assertEqual(maps:with(CommonKeys, OldConf), maps:with(CommonKeys, OldStatsDState)),
+    NewRawConfExpect = OldRawConf#{
+        <<"flush_time_interval">> := <<"42s">>,
+        <<"sample_time_interval">> := <<"42s">>
+    },
+    try
+        {ok, _} = emqx_statsd_config:update(NewRawConfExpect),
+        NewRawConf = emqx_conf:get_raw([statsd]),
+        NewConf = emqx_conf:get([statsd]),
+        NewStatsDState = sys:get_state(emqx_statsd),
+        NewPid = erlang:whereis(emqx_statsd),
+        ?assertNotEqual(OldRawConf, NewRawConf),
+        ?assertEqual(NewRawConfExpect, NewRawConf),
+        ?assertEqual(maps:with(CommonKeys, NewConf), maps:with(CommonKeys, NewStatsDState)),
+        ?assertNotEqual(OldPid, NewPid)
+    after
+        {ok, _} = emqx_statsd_config:update(OldRawConf)
+    end,
+    %% bad server url
+    BadRawConf = OldRawConf#{<<"server">> := <<"">>},
+    {error, #{
+        kind := validation_error,
+        path := "statsd.server",
+        reason := "cannot_be_empty",
+        value := ""
+    }} = emqx_statsd_config:update(BadRawConf),
+    ok.
+
 request(Method) -> request(Method, []).
 
 request(Method, Body) ->
     case request(Method, uri(["statsd"]), Body) of
         {ok, 200, Res} ->
-            {ok, emqx_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
         {ok, _Status, _} ->
             error
     end.
+
+default_server() ->
+    {server, Schema} = lists:keyfind(server, 1, emqx_statsd_schema:fields("statsd")),
+    hocon_schema:field_schema(Schema, default).

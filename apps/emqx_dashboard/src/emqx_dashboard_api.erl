@@ -18,7 +18,6 @@
 
 -behaviour(minirest_api).
 
--include("emqx_dashboard.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -47,7 +46,7 @@
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
--define(WRONG_USERNAME_OR_PWD, 'WRONG_USERNAME_OR_PWD').
+-define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(WRONG_TOKEN_OR_USERNAME, 'WRONG_TOKEN_OR_USERNAME').
 -define(USER_NOT_FOUND, 'USER_NOT_FOUND').
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
@@ -74,7 +73,7 @@ schema("/login") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(login_api),
-            summary => <<"Dashboard Auth">>,
+            summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password]),
             responses => #{
                 200 => fields([token, version, license]),
@@ -164,7 +163,7 @@ schema("/users/:username/change_pwd") ->
     }.
 
 response_schema(401) ->
-    emqx_dashboard_swagger:error_codes([?WRONG_USERNAME_OR_PWD], ?DESC(login_failed401));
+    emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
 response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
@@ -223,7 +222,7 @@ login(post, #{body := Params}) ->
             }};
         {error, R} ->
             ?SLOG(info, #{msg => "Dashboard login failed", username => Username, reason => R}),
-            {401, ?WRONG_USERNAME_OR_PWD, <<"Auth failed">>}
+            {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
     end.
 
 logout(_, #{
@@ -325,7 +324,7 @@ is_self_auth_token(Username, Token) ->
     end.
 
 change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
-    LogMeta = #{msg => "Dashboard change password", username => Username},
+    LogMeta = #{msg => "Dashboard change password", username => binary_to_list(Username)},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case ?EMPTY(OldPwd) orelse ?EMPTY(NewPwd) of

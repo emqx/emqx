@@ -27,6 +27,8 @@
     "prometheus {\n"
     "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
     "  interval = \"1s\"\n"
+    "  headers = { Authorization = \"some-authz-tokens\"}\n"
+    "  job_name = \"${name}~${host}\"\n"
     "  enable = true\n"
     "  vm_dist_collector = enabled\n"
     "  mnesia_collector = enabled\n"
@@ -84,6 +86,25 @@ t_start_stop(_) ->
 t_collector_no_crash_test(_) ->
     prometheus_text_format:format(),
     ok.
+
+t_assert_push(_) ->
+    meck:new(httpc, [passthrough]),
+    Self = self(),
+    AssertPush = fun(Method, Req = {Url, Headers, ContentType, _Data}, HttpOpts, Opts) ->
+        ?assertEqual(post, Method),
+        ?assertMatch("http://127.0.0.1:9091/metrics/job/test~127.0.0.1", Url),
+        ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
+        ?assertEqual("text/plain", ContentType),
+        Self ! pass,
+        meck:passthrough([Method, Req, HttpOpts, Opts])
+    end,
+    meck:expect(httpc, request, AssertPush),
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(emqx_prometheus)),
+    receive
+        pass -> ok
+    after 2000 ->
+        ct:fail(assert_push_request_failed)
+    end.
 
 t_only_for_coverage(_) ->
     ?assertEqual("5.0.0", emqx_prometheus_proto_v1:introduced_in()),

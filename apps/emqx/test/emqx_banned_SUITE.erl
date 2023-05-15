@@ -141,3 +141,89 @@ t_kick(_) ->
     snabbkaffe:stop(),
     emqx_banned:delete(Who),
     ?assertEqual(1, length(?of_kind(kick_session_due_to_banned, Trace))).
+
+t_session_taken(_) ->
+    erlang:process_flag(trap_exit, true),
+    Topic = <<"t/banned">>,
+    ClientId2 = <<"t_session_taken">>,
+    MsgNum = 3,
+    Connect = fun() ->
+        {ok, C} = emqtt:start_link([
+            {clientid, <<"client1">>},
+            {proto_ver, v5},
+            {clean_start, false},
+            {properties, #{'Session-Expiry-Interval' => 120}}
+        ]),
+        case emqtt:connect(C) of
+            {ok, _} ->
+                ok;
+            {error, econnrefused} ->
+                throw(mqtt_listener_not_ready)
+        end,
+        {ok, _, [0]} = emqtt:subscribe(C, Topic, []),
+        C
+    end,
+
+    Publish = fun() ->
+        lists:foreach(
+            fun(_) ->
+                Msg = emqx_message:make(ClientId2, Topic, <<"payload">>),
+                emqx_broker:safe_publish(Msg)
+            end,
+            lists:seq(1, MsgNum)
+        )
+    end,
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            try
+                C = Connect(),
+                emqtt:disconnect(C),
+                true
+            catch
+                throw:mqtt_listener_not_ready ->
+                    false
+            end
+        end,
+        15_000
+    ),
+    Publish(),
+
+    C2 = Connect(),
+    ?assertEqual(MsgNum, length(receive_messages(MsgNum + 1))),
+    ok = emqtt:disconnect(C2),
+
+    Publish(),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    C3 = Connect(),
+    ?assertEqual(0, length(receive_messages(MsgNum + 1))),
+    emqx_banned:delete(Who),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C3, Topic),
+    ok = emqtt:disconnect(C3).
+
+receive_messages(Count) ->
+    receive_messages(Count, []).
+receive_messages(0, Msgs) ->
+    Msgs;
+receive_messages(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            ct:log("Msg: ~p ~n", [Msg]),
+            receive_messages(Count - 1, [Msg | Msgs]);
+        Other ->
+            ct:log("Other Msg: ~p~n", [Other]),
+            receive_messages(Count, Msgs)
+    after 1200 ->
+        Msgs
+    end.

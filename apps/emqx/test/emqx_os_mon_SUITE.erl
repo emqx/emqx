@@ -25,32 +25,44 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps(
-        [],
-        fun
-            (emqx) ->
-                application:set_env(emqx, os_mon, [
-                    {cpu_check_interval, 1},
-                    {cpu_high_watermark, 5},
-                    {cpu_low_watermark, 80},
-                    {procmem_high_watermark, 5}
-                ]);
-            (_) ->
-                ok
-        end
-    ),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
-t_api(_) ->
-    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30000)),
-    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122000)),
-    ?assertEqual(120000, emqx_os_mon:get_mem_check_interval()),
+init_per_testcase(t_cpu_check_alarm, Config) ->
+    SysMon = emqx_config:get([sysmon, os], #{}),
+    emqx_config:put([sysmon, os], SysMon#{
+        cpu_high_watermark => 0.9,
+        cpu_low_watermark => 0,
+        %% 200ms
+        cpu_check_interval => 200
+    }),
+    ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
+    {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
+    Config;
+init_per_testcase(t_sys_mem_check_alarm, Config) ->
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true ->
+            SysMon = emqx_config:get([sysmon, os], #{}),
+            emqx_config:put([sysmon, os], SysMon#{
+                sysmem_high_watermark => 0.51,
+                %% 200ms
+                mem_check_interval => 200
+            }),
+            ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
+            {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
+            Config;
+        false ->
+            Config
+    end;
+init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
+    Config.
 
+t_api(_) ->
     ?assertEqual(0.7, emqx_os_mon:get_sysmem_high_watermark()),
     ?assertEqual(ok, emqx_os_mon:set_sysmem_high_watermark(0.8)),
     ?assertEqual(0.8, emqx_os_mon:get_sysmem_high_watermark()),
@@ -67,3 +79,123 @@ t_api(_) ->
     emqx_os_mon ! ignored,
     gen_server:stop(emqx_os_mon),
     ok.
+
+t_sys_mem_check_disable(Config) ->
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true -> do_sys_mem_check_disable(Config);
+        false -> skip
+    end.
+
+do_sys_mem_check_disable(_Config) ->
+    MemRef0 = maps:get(mem_time_ref, sys:get_state(emqx_os_mon)),
+    ?assertEqual(true, is_reference(MemRef0), MemRef0),
+    emqx_config:put([sysmon, os, mem_check_interval], 1000),
+    emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    MemRef1 = maps:get(mem_time_ref, sys:get_state(emqx_os_mon)),
+    ?assertEqual(true, is_reference(MemRef1), {MemRef0, MemRef1}),
+    ?assertNotEqual(MemRef0, MemRef1),
+    emqx_config:put([sysmon, os, mem_check_interval], disabled),
+    emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    ?assertEqual(undefined, maps:get(mem_time_ref, sys:get_state(emqx_os_mon))),
+    ok.
+
+t_sys_mem_check_alarm(Config) ->
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true -> do_sys_mem_check_alarm(Config);
+        false -> skip
+    end.
+
+do_sys_mem_check_alarm(_Config) ->
+    emqx_config:put([sysmon, os, mem_check_interval], 200),
+    emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    Mem = 0.52345,
+    Usage = floor(Mem * 10000) / 100,
+    emqx_common_test_helpers:with_mock(
+        load_ctl,
+        get_memory_usage,
+        fun() -> Mem end,
+        fun() ->
+            timer:sleep(500),
+            Alarms = emqx_alarm:get_alarms(activated),
+            ?assert(
+                emqx_vm_mon_SUITE:is_existing(
+                    high_system_memory_usage, emqx_alarm:get_alarms(activated)
+                ),
+                #{
+                    load_ctl_memory => load_ctl:get_memory_usage(),
+                    config => emqx_config:get([sysmon, os]),
+                    process => sys:get_state(emqx_os_mon),
+                    alarms => Alarms
+                }
+            ),
+            [
+                #{
+                    activate_at := _,
+                    activated := true,
+                    deactivate_at := infinity,
+                    details := #{high_watermark := 51.0, usage := RealUsage},
+                    message := Msg,
+                    name := high_system_memory_usage
+                }
+            ] =
+                lists:filter(
+                    fun
+                        (#{name := high_system_memory_usage}) -> true;
+                        (_) -> false
+                    end,
+                    Alarms
+                ),
+            ?assert(RealUsage >= Usage, {RealUsage, Usage}),
+            ?assert(is_binary(Msg)),
+            emqx_config:put([sysmon, os, sysmem_high_watermark], 0.99999),
+            ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
+            {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
+            timer:sleep(600),
+            Activated = emqx_alarm:get_alarms(activated),
+            ?assertNot(
+                emqx_vm_mon_SUITE:is_existing(high_system_memory_usage, Activated),
+                #{activated => Activated, process_state => sys:get_state(emqx_os_mon)}
+            )
+        end
+    ).
+
+t_cpu_check_alarm(_) ->
+    CpuUtil = 90.12345,
+    Usage = floor(CpuUtil * 100) / 100,
+    emqx_common_test_helpers:with_mock(
+        cpu_sup,
+        util,
+        fun() -> CpuUtil end,
+        fun() ->
+            timer:sleep(500),
+            Alarms = emqx_alarm:get_alarms(activated),
+            ?assert(
+                emqx_vm_mon_SUITE:is_existing(high_cpu_usage, emqx_alarm:get_alarms(activated))
+            ),
+            [
+                #{
+                    activate_at := _,
+                    activated := true,
+                    deactivate_at := infinity,
+                    details := #{high_watermark := 90.0, low_watermark := 0, usage := RealUsage},
+                    message := Msg,
+                    name := high_cpu_usage
+                }
+            ] =
+                lists:filter(
+                    fun
+                        (#{name := high_cpu_usage}) -> true;
+                        (_) -> false
+                    end,
+                    Alarms
+                ),
+            ?assert(RealUsage >= Usage, {RealUsage, Usage}),
+            ?assert(is_binary(Msg)),
+            emqx_config:put([sysmon, os, cpu_high_watermark], 1),
+            emqx_config:put([sysmon, os, cpu_low_watermark], 0.96),
+            timer:sleep(500),
+            ?assertNot(
+                emqx_vm_mon_SUITE:is_existing(high_cpu_usage, emqx_alarm:get_alarms(activated))
+            )
+        end
+    ).

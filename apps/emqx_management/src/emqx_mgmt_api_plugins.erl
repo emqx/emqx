@@ -17,7 +17,6 @@
 
 -behaviour(minirest_api).
 
--include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 %%-include_lib("emqx_plugins/include/emqx_plugins.hrl").
@@ -49,6 +48,9 @@
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
 -define(TAGS, [<<"Plugins">>]).
+%% Plugin NameVsn must follow the pattern <app_name>-<vsn>,
+%% app_name must be a snake_case (no '-' allowed).
+-define(VSN_WILDCARD, "-*.tar.gz").
 
 namespace() -> "plugins".
 
@@ -69,10 +71,10 @@ schema("/plugins") ->
     #{
         'operationId' => list_plugins,
         get => #{
+            summary => <<"List all installed plugins">>,
             description =>
-                "List all install plugins.<br/>"
                 "Plugins are launched in top-down order.<br/>"
-                "Using `POST /plugins/{name}/move` to change the boot order.",
+                "Use `POST /plugins/{name}/move` to change the boot order.",
             tags => ?TAGS,
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
@@ -83,8 +85,9 @@ schema("/plugins/install") ->
     #{
         'operationId' => upload_install,
         post => #{
+            summary => <<"Install a new plugin">>,
             description =>
-                "Install a plugin(plugin-vsn.tar.gz)."
+                "Upload a plugin tarball (plugin-vsn.tar.gz)."
                 "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
                 "to develop plugin.",
             tags => ?TAGS,
@@ -113,7 +116,8 @@ schema("/plugins/:name") ->
     #{
         'operationId' => plugin,
         get => #{
-            description => "Describe a plugin according `release.json` and `README.md`.",
+            summary => <<"Get a plugin description">>,
+            description => "Describs plugin according to its `release.json` and `README.md`.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -122,7 +126,8 @@ schema("/plugins/:name") ->
             }
         },
         delete => #{
-            description => "Uninstall a plugin package.",
+            summary => <<"Delete a plugin">>,
+            description => "Uninstalls a previously uploaded plugin package.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -135,6 +140,7 @@ schema("/plugins/:name/:action") ->
     #{
         'operationId' => update_plugin,
         put => #{
+            summary => <<"Trigger action on an installed plugin">>,
             description =>
                 "start/stop a installed plugin.<br/>"
                 "- **start**: start the plugin.<br/>"
@@ -154,6 +160,7 @@ schema("/plugins/:name/move") ->
     #{
         'operationId' => update_boot_order,
         post => #{
+            summary => <<"Move plugin within plugin hiearchy">>,
             description => "Setting the boot order of plugins.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -324,14 +331,13 @@ get_plugins() ->
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
-    %% TODO what happens when a new node join in?
-    %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
-    case emqx_plugins:describe(string:trim(FileName, trailing, ".tar.gz")) of
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    case emqx_plugins:describe(NameVsn) of
         {error, #{error := "bad_info_file", return := {enoent, _}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
-                    case filelib:wildcard(AppDir ++ "*.tar.gz") of
+                    case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
                         [] ->
                             do_install_package(FileName, Bin);
                         OtherVsn ->
@@ -346,6 +352,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
                             }}
                     end;
                 {error, Reason} ->
+                    emqx_plugins:delete_package(NameVsn),
                     {400, #{
                         code => 'BAD_PLUGIN_INFO',
                         message => iolist_to_binary([Reason, ":", FileName])
@@ -367,9 +374,24 @@ upload_install(post, #{}) ->
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
     {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
-    %% TODO: handle non-OKs
-    [] = lists:filter(fun(R) -> R =/= ok end, Res),
-    {200}.
+    case lists:filter(fun(R) -> R =/= ok end, Res) of
+        [] ->
+            {200};
+        Filtered ->
+            %% crash if we have unexpected errors or results
+            [] = lists:filter(
+                fun
+                    ({error, {failed, _}}) -> true;
+                    ({error, _}) -> false
+                end,
+                Filtered
+            ),
+            {error, #{error := Reason}} = hd(Filtered),
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => iolist_to_binary([Reason, ":", FileName])
+            }}
+    end.
 
 plugin(get, #{bindings := #{name := Name}}) ->
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
@@ -406,9 +428,18 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
     File = filename:join(emqx_plugins:install_dir(), FileName),
+    ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    emqx_plugins:ensure_installed(PackageName).
+    case emqx_plugins:ensure_installed(PackageName) of
+        {error, #{return := not_found}} = NotFound ->
+            NotFound;
+        {error, _Reason} = Error ->
+            _ = file:delete(File),
+            Error;
+        Result ->
+            Result
+    end.
 
 %% For RPC plugin get
 describe_package(Name) ->
@@ -432,8 +463,8 @@ delete_package(Name) ->
 
 %% for RPC plugin update
 ensure_action(Name, start) ->
-    _ = emqx_plugins:ensure_enabled(Name),
     _ = emqx_plugins:ensure_started(Name),
+    _ = emqx_plugins:ensure_enabled(Name),
     ok;
 ensure_action(Name, stop) ->
     _ = emqx_plugins:ensure_stopped(Name),

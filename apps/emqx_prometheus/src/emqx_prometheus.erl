@@ -98,8 +98,13 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
-    #{interval := Interval, push_gateway_server := Server} = opts(),
-    PushRes = push_to_push_gateway(Server),
+    #{
+        interval := Interval,
+        headers := Headers,
+        job_name := JobName,
+        push_gateway_server := Server
+    } = opts(),
+    PushRes = push_to_push_gateway(Server, Headers, JobName),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
     %% Data is too big, hibernate for saving memory and stop system monitor warning.
@@ -107,18 +112,27 @@ handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Uri) ->
+push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
-    Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/", Name, "~", Ip]),
+    JobName1 = emqx_placeholder:preproc_tmpl(JobName),
+    JobName2 = binary_to_list(
+        emqx_placeholder:proc_tmpl(
+            JobName1,
+            #{<<"name">> => Name, <<"host">> => Ip}
+        )
+    ),
+
+    Url = lists:concat([Uri, "/metrics/job/", JobName2]),
     Data = prometheus_text_format:format(),
-    case httpc:request(post, {Url, [], "text/plain", Data}, ?HTTP_OPTIONS, []) of
-        {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, _Body}} ->
+    case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
+        {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
         Error ->
             ?SLOG(error, #{
                 msg => "post_to_push_gateway_failed",
                 error => Error,
-                url => Url
+                url => Url,
+                headers => Headers
             }),
             failed
     end.
@@ -130,7 +144,7 @@ terminate(_Reason, _State) ->
     ok.
 
 ensure_timer(Interval) ->
-    emqx_misc:start_timer(Interval, ?TIMER_MSG).
+    emqx_utils:start_timer(Interval, ?TIMER_MSG).
 
 %%--------------------------------------------------------------------
 %% prometheus callbacks
@@ -205,6 +219,10 @@ emqx_collect(emqx_connections_count, Stats) ->
     gauge_metric(?C('connections.count', Stats));
 emqx_collect(emqx_connections_max, Stats) ->
     gauge_metric(?C('connections.max', Stats));
+emqx_collect(emqx_live_connections_count, Stats) ->
+    gauge_metric(?C('live_connections.count', Stats));
+emqx_collect(emqx_live_connections_max, Stats) ->
+    gauge_metric(?C('live_connections.max', Stats));
 %% sessions
 emqx_collect(emqx_sessions_count, Stats) ->
     gauge_metric(?C('sessions.count', Stats));
@@ -446,6 +464,8 @@ emqx_stats() ->
     [
         emqx_connections_count,
         emqx_connections_max,
+        emqx_live_connections_count,
+        emqx_live_connections_max,
         emqx_sessions_count,
         emqx_sessions_max,
         emqx_topics_count,
@@ -570,20 +590,7 @@ emqx_vm() ->
     ].
 
 emqx_vm_data() ->
-    Idle =
-        case cpu_sup:util([detailed]) of
-            %% Not support for Windows
-            {_, 0, 0, _} -> 0;
-            {_Num, _Use, IdleList, _} -> ?C(idle, IdleList)
-        end,
-    RunQueue = erlang:statistics(run_queue),
-    [
-        {run_queue, RunQueue},
-        %% XXX: Plan removed at v5.0
-        {process_total_messages, 0},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle}
-    ] ++ emqx_vm:mem_info().
+    emqx_mgmt:vm_stats().
 
 emqx_cluster() ->
     [
@@ -592,7 +599,8 @@ emqx_cluster() ->
     ].
 
 emqx_cluster_data() ->
-    #{running_nodes := Running, stopped_nodes := Stopped} = mria_mnesia:cluster_info(),
+    Running = emqx:cluster_nodes(running),
+    Stopped = emqx:cluster_nodes(stopped),
     [
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}

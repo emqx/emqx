@@ -103,3 +103,13 @@ t_custom_shard_transports(_Config) ->
     emqx_machine:start(),
     ?assertEqual(distr, mria_config:shard_transport(Shard)),
     ok.
+
+t_node_status(_Config) ->
+    JSON = emqx_machine:node_status(),
+    ?assertMatch(
+        #{
+            <<"backend">> := _,
+            <<"role">> := <<"core">>
+        },
+        jsx:decode(JSON)
+    ).

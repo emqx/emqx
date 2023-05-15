@@ -1,0 +1,45 @@
+emqx_gateway_api_authn {
+
+add_authn.desc:
+"""Enables the authenticator for client authentication for the specified gateway. <br/>
+When the authenticator is not configured or turned off, all client connections are assumed to be allowed. <br/>
+Note: Only one authenticator is allowed to be enabled at a time in the gateway, rather than allowing multiple authenticators to be configured to form an authentication chain as in MQTT."""
+
+add_user.desc:
+"""Add user for the authenticator (only supports built_in_database)."""
+
+delete_authn.desc:
+"""Delete the authenticator of the specified gateway."""
+
+delete_user.desc:
+"""Delete the user for the gateway authenticator (only supports built_in_database)"""
+
+get_authn.desc:
+"""Gets the configuration of the specified gateway authenticator.<br/>
+Returns 404 when gateway or authentication is not enabled."""
+
+get_user.desc:
+"""Get user info from the gateway authenticator (only supports built_in_database)"""
+
+import_users.desc:
+"""Import users into the gateway authenticator (only supports built_in_database)"""
+
+is_superuser.desc:
+"""Is superuser"""
+
+like_user_id.desc:
+"""Fuzzy search using user ID (username or clientid), only supports search by substring."""
+
+list_users.desc:
+"""Get the users for the authenticator (only supported by <code>built_in_database</code>)."""
+
+update_authn.desc:
+"""Update the configuration of the specified gateway authenticator, or disable the authenticator."""
+
+update_user.desc:
+"""Update the user info for the gateway authenticator (only supports built_in_database)"""
+
+user_id.desc:
+"""User ID"""
+
+}

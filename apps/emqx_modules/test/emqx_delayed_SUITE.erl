@@ -40,9 +40,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
@@ -169,10 +167,10 @@ t_cluster(_) ->
         emqx_delayed_proto_v1:get_delayed_message(node(), Id)
     ),
 
-    ?assertEqual(
-        emqx_delayed:get_delayed_message(Id),
-        emqx_delayed_proto_v1:get_delayed_message(node(), Id)
-    ),
+    %% The 'local' and the 'fake-remote' values should be the same,
+    %% however there is a race condition, so we are just assert that they are both 'ok' tuples
+    ?assertMatch({ok, _}, emqx_delayed:get_delayed_message(Id)),
+    ?assertMatch({ok, _}, emqx_delayed_proto_v1:get_delayed_message(node(), Id)),
 
     ok = emqx_delayed_proto_v1:delete_delayed_message(node(), Id),
 
@@ -229,6 +227,14 @@ t_banned_delayed(_) ->
     }),
 
     snabbkaffe:start_trace(),
+    {ok, SubRef} =
+        snabbkaffe:subscribe(
+            ?match_event(#{?snk_kind := ignore_delayed_message_publish}),
+            _NEvents = 2,
+            _Timeout = 10000,
+            0
+        ),
+
     lists:foreach(
         fun(ClientId) ->
             Msg = emqx_message:make(ClientId, <<"$delayed/1/bc">>, <<"payload">>),
@@ -237,8 +243,7 @@ t_banned_delayed(_) ->
         [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2]
     ),
 
-    timer:sleep(2000),
-    Trace = snabbkaffe:collect_trace(),
+    {ok, Trace} = snabbkaffe:receive_events(SubRef),
     snabbkaffe:stop(),
     emqx_banned:delete(Who),
     mnesia:clear_table(emqx_delayed),

@@ -1,6 +1,7 @@
 ACL
 AES
 APIs
+Avro
 BPAPI
 BSON
 Backplane
@@ -12,6 +13,7 @@ CMD
 CN
 CONNACK
 CoAP
+CRLs
 Cygwin
 DES
 DN
@@ -30,6 +32,7 @@ GCM
 HMAC
 HOCON
 HTTPS
+IoTDB
 JSON
 JWK
 JWKs
@@ -41,6 +44,7 @@ Makefile
 MitM
 Multicast
 NIF
+OCSP
 OTP
 PEM
 PINGREQ
@@ -160,6 +164,7 @@ jenkins
 jq
 kb
 keepalive
+keyfile
 libcoap
 lifecycle
 localhost
@@ -231,6 +236,7 @@ sysmem
 sysmon
 tcp
 ticktime
+timeseries
 tlog
 tls
 tlsv
@@ -265,3 +271,9 @@ GSSAPI
 keytab
 jq
 nif
+TDengine
+clickhouse
+FormatType
+RocketMQ
+Keyspace
+OpenTSDB

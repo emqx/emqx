@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  oracle_server:
+    container_name: oracle
+    image: oracleinanutshell/oracle-xe-11g:1.0.0
+    restart: always
+    environment:
+      ORACLE_DISABLE_ASYNCH_IO: true
+    networks:
+      - emqx_bridge

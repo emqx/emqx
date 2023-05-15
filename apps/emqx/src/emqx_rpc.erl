@@ -27,6 +27,8 @@
     cast/5,
     multicall/4,
     multicall/5,
+    multicall_on_running/5,
+    on_running/3,
 
     unwrap_erpc/1
 ]).
@@ -90,6 +92,17 @@ multicall(Nodes, Mod, Fun, Args) ->
 -spec multicall(term(), [node()], module(), atom(), list()) -> multicall_result().
 multicall(Key, Nodes, Mod, Fun, Args) ->
     gen_rpc:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args).
+
+-spec multicall_on_running([node()], module(), atom(), list(), timeout()) -> [term() | {error, _}].
+multicall_on_running(Nodes, Mod, Fun, Args, Timeout) ->
+    unwrap_erpc(erpc:multicall(Nodes, emqx_rpc, on_running, [Mod, Fun, Args], Timeout)).
+
+-spec on_running(module(), atom(), list()) -> term().
+on_running(Mod, Fun, Args) ->
+    case emqx:is_running() of
+        true -> apply(Mod, Fun, Args);
+        false -> error(emqx_down)
+    end.
 
 -spec cast(node(), module(), atom(), list()) -> cast_result().
 cast(Node, Mod, Fun, Args) ->

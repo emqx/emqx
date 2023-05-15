@@ -1,0 +1,9 @@
+{application, emqx_bridge_dynamo, [
+    {description, "EMQX Enterprise Dynamo Bridge"},
+    {vsn, "0.1.1"},
+    {registered, []},
+    {applications, [kernel, stdlib, erlcloud]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

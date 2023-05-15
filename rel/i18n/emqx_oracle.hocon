@@ -1,0 +1,15 @@
+emqx_oracle {
+
+  server {
+    desc = "The IPv4 or IPv6 address or the hostname to connect to.<br/>"
+           "A host entry has the following form: `Host[:Port]`.<br/>"
+           "The Oracle Database default port 1521 is used if `[:Port]` is not specified."
+    label = "Server Host"
+  }
+
+  sid {
+    desc = "Sid for Oracle Database."
+    label = "Oracle Database Sid"
+  }
+
+}

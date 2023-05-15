@@ -23,13 +23,13 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(t_alarms, Config) ->
+init_per_testcase(t_too_many_processes_alarm, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     emqx_config:put([sysmon, vm], #{
         process_high_watermark => 0,
         process_low_watermark => 0,
-        %% 1s
+        %% 100ms
         process_check_interval => 100
     }),
     ok = supervisor:terminate_child(emqx_sys_sup, emqx_vm_mon),
@@ -43,9 +43,29 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
-t_alarms(_) ->
+t_too_many_processes_alarm(_) ->
     timer:sleep(500),
+    Alarms = emqx_alarm:get_alarms(activated),
     ?assert(is_existing(too_many_processes, emqx_alarm:get_alarms(activated))),
+    ?assertMatch(
+        [
+            #{
+                activate_at := _,
+                activated := true,
+                deactivate_at := infinity,
+                details := #{high_watermark := 0, low_watermark := 0, usage := "0%"},
+                message := <<"0% process usage">>,
+                name := too_many_processes
+            }
+        ],
+        lists:filter(
+            fun
+                (#{name := too_many_processes}) -> true;
+                (_) -> false
+            end,
+            Alarms
+        )
+    ),
     emqx_config:put([sysmon, vm, process_high_watermark], 70),
     emqx_config:put([sysmon, vm, process_low_watermark], 60),
     timer:sleep(500),

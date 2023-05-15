@@ -5,7 +5,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -37,8 +36,9 @@ roots() ->
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
-        {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})}
-    ];
+        {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
+        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
+    ] ++ emqx_resource_schema:fields("resource_opts");
 fields(mongodb_rs) ->
     emqx_connector_mongo:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
@@ -46,11 +46,11 @@ fields(mongodb_sharded) ->
 fields(mongodb_single) ->
     emqx_connector_mongo:fields(single) ++ fields("config");
 fields("post_rs") ->
-    fields(mongodb_rs);
+    fields(mongodb_rs) ++ type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
-    fields(mongodb_sharded);
+    fields(mongodb_sharded) ++ type_and_name_fields(mongodb_sharded);
 fields("post_single") ->
-    fields(mongodb_single);
+    fields(mongodb_single) ++ type_and_name_fields(mongodb_single);
 fields("put_rs") ->
     fields(mongodb_rs);
 fields("put_sharded") ->
@@ -58,11 +58,17 @@ fields("put_sharded") ->
 fields("put_single") ->
     fields(mongodb_single);
 fields("get_rs") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_rs);
+    emqx_bridge_schema:status_fields() ++
+        fields(mongodb_rs) ++
+        type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_sharded);
+    emqx_bridge_schema:status_fields() ++
+        fields(mongodb_sharded) ++
+        type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields(mongodb_single).
+    emqx_bridge_schema:status_fields() ++
+        fields(mongodb_single) ++
+        type_and_name_fields(mongodb_single).
 
 conn_bridge_examples(Method) ->
     [
@@ -88,6 +94,8 @@ conn_bridge_examples(Method) ->
 
 desc("config") ->
     ?DESC("desc_config");
+desc("creation_opts") ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(mongodb_rs) ->
     ?DESC(mongodb_rs_conf);
 desc(mongodb_sharded) ->
@@ -102,6 +110,12 @@ desc(_) ->
 %%=================================================================================================
 %% Internal fns
 %%=================================================================================================
+
+type_and_name_fields(MongoType) ->
+    [
+        {type, mk(MongoType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
 
 values(mongodb_rs = MongoType, Method) ->
     TypeOpts = #{
@@ -135,15 +149,12 @@ values(common, MongoType, Method, TypeOpts) ->
         srv_record => false,
         pool_size => 8,
         username => <<"myuser">>,
-        password => <<"mypass">>
+        password => <<"******">>
     },
     MethodVals = method_values(MongoType, Method),
     Vals0 = maps:merge(MethodVals, Common),
     maps:merge(Vals0, TypeOpts).
 
-method_values(MongoType, get) ->
-    Vals = method_values(MongoType, post),
-    maps:merge(?METRICS_EXAMPLE, Vals);
 method_values(MongoType, _) ->
     ConnectorType =
         case MongoType of

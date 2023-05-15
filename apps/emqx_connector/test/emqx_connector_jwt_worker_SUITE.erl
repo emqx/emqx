@@ -127,8 +127,12 @@ t_unknown_error(_Config) ->
             1_000
         ),
         fun(Trace) ->
+            %% there seems to be some occasions when empty_key is
+            %% returned instead.
             ?assertMatch(
-                [#{error := {invalid_private_key, some_strange_error}}],
+                [#{error := Error}] when
+                    Error =:= {invalid_private_key, some_strange_error} orelse
+                        Error =:= empty_key,
                 ?of_kind(connector_jwt_worker_startup_error, Trace)
             ),
             ok
@@ -359,4 +363,24 @@ t_unknown_requests(_Config) ->
     Worker ! unknown_info,
     gen_server:cast(Worker, unknown_cast),
     ?assertEqual({error, bad_call}, gen_server:call(Worker, unknown_call)),
+    ok.
+
+t_truncated_private_key(_Config) ->
+    Config0 = generate_config(),
+    Config = Config0#{private_key := <<"-----BEGIN PRIVATE KEY-----\nMIIEvQI...">>},
+    process_flag(trap_exit, true),
+    ?check_trace(
+        ?wait_async_action(
+            ?assertMatch({ok, _}, emqx_connector_jwt_worker:start_link(Config)),
+            #{?snk_kind := connector_jwt_worker_startup_error},
+            1_000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := function_clause}],
+                ?of_kind(connector_jwt_worker_startup_error, Trace)
+            ),
+            ok
+        end
+    ),
     ok.

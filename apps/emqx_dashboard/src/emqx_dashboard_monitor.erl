@@ -126,7 +126,7 @@ current_rate() ->
             (_Node, Error) ->
                 Error
         end,
-    case lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running)) of
+    case lists:foldl(Fun, #{}, mria:cluster_nodes(running)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         Rate ->
@@ -205,7 +205,7 @@ do_call(Request) ->
     gen_server:call(?MODULE, Request, 5000).
 
 do_sample(all, Time) ->
-    do_sample(mria_mnesia:cluster_nodes(running), Time, #{});
+    do_sample(mria:cluster_nodes(running), Time, #{});
 do_sample(Node, Time) when Node == node() ->
     MS = match_spec(Time),
     internal_format(ets:select(?TAB, MS));

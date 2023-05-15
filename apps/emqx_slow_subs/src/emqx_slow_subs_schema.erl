@@ -22,7 +22,8 @@
 
 namespace() -> "slow_subs".
 
-roots() -> ["slow_subs"].
+roots() ->
+    [{"slow_subs", ?HOCON(?R_REF("slow_subs"), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields("slow_subs") ->
     [
@@ -30,13 +31,13 @@ fields("slow_subs") ->
         {threshold,
             sc(
                 emqx_schema:duration_ms(),
-                "500ms",
+                <<"500ms">>,
                 threshold
             )},
         {expire_interval,
             sc(
                 emqx_schema:duration_ms(),
-                "300s",
+                <<"300s">>,
                 expire_interval
             )},
         {top_k_num,

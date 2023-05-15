@@ -19,6 +19,7 @@
 -export([
     start/0,
     graceful_shutdown/0,
+    brutal_shutdown/0,
     is_ready/0,
 
     node_status/0,
@@ -29,6 +30,7 @@
 
 %% @doc EMQX boot entrypoint.
 start() ->
+    emqx_mgmt_cli:load(),
     case os:type() of
         {win32, nt} ->
             ok;
@@ -41,10 +43,14 @@ start() ->
     start_sysmon(),
     configure_shard_transports(),
     ekka:start(),
-    ok = print_otp_version_warning().
+    ok.
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().
+
+%% only used when failed to boot
+brutal_shutdown() ->
+    init:stop().
 
 set_backtrace_depth() ->
     {ok, Depth} = application:get_env(emqx_machine, backtrace_depth),
@@ -54,17 +60,6 @@ set_backtrace_depth() ->
 %% @doc Return true if boot is complete.
 is_ready() ->
     emqx_machine_terminator:is_running().
-
--if(?OTP_RELEASE > 22).
-print_otp_version_warning() -> ok.
--else.
-print_otp_version_warning() ->
-    ?ULOG(
-        "WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
-        [?OTP_RELEASE]
-    ).
-% OTP_RELEASE > 22
--endif.
 
 start_sysmon() ->
     _ = application:load(system_monitor),
@@ -82,7 +77,7 @@ start_sysmon() ->
     end.
 
 node_status() ->
-    emqx_json:encode(#{
+    emqx_utils_json:encode(#{
         backend => mria_rlog:backend(),
         role => mria_rlog:role()
     }).

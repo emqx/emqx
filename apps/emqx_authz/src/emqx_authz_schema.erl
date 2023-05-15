@@ -33,9 +33,11 @@
 -export([
     namespace/0,
     roots/0,
+    tags/0,
     fields/1,
     validations/0,
-    desc/1
+    desc/1,
+    authz_fields/0
 ]).
 
 -export([
@@ -47,18 +49,12 @@
 %% Hocon Schema
 %%--------------------------------------------------------------------
 
-namespace() -> authz.
-
-%% @doc authorization schema is not exported
-%% but directly used by emqx_schema
-roots() -> [].
-
-fields("authorization") ->
-    Types = [
+type_names() ->
+    [
         file,
         http_get,
         http_post,
-        mnesia,
+        builtin_db,
         mongo_single,
         mongo_rs,
         mongo_sharded,
@@ -67,18 +63,19 @@ fields("authorization") ->
         redis_single,
         redis_sentinel,
         redis_cluster
-    ],
-    Unions = [?R_REF(Type) || Type <- Types],
-    [
-        {sources,
-            ?HOCON(
-                ?ARRAY(?UNION(Unions)),
-                #{
-                    default => [],
-                    desc => ?DESC(sources)
-                }
-            )}
-    ];
+    ].
+
+namespace() -> authz.
+
+tags() ->
+    [<<"Authorization">>].
+
+%% @doc authorization schema is not exported
+%% but directly used by emqx_schema
+roots() -> [].
+
+fields("authorization") ->
+    authz_fields();
 fields(file) ->
     authz_common_fields(file) ++
         [{path, ?HOCON(string(), #{required => true, desc => ?DESC(path)})}];
@@ -96,7 +93,7 @@ fields(http_post) ->
             {method, method(post)},
             {headers, fun headers/1}
         ];
-fields(mnesia) ->
+fields(builtin_db) ->
     authz_common_fields(built_in_database);
 fields(mongo_single) ->
     authz_common_fields(mongodb) ++
@@ -194,8 +191,8 @@ desc(http_get) ->
     ?DESC(http_get);
 desc(http_post) ->
     ?DESC(http_post);
-desc(mnesia) ->
-    ?DESC(mnesia);
+desc(builtin_db) ->
+    ?DESC(builtin_db);
 desc(mongo_single) ->
     ?DESC(mongo_single);
 desc(mongo_rs) ->
@@ -226,7 +223,7 @@ http_common_fields() ->
         {url, fun url/1},
         {request_timeout,
             mk_duration("Request timeout", #{
-                required => false, default => "30s", desc => ?DESC(request_timeout)
+                required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
             })},
         {body, ?HOCON(map(), #{required => false, desc => ?DESC(body)})}
     ] ++
@@ -243,7 +240,7 @@ http_common_fields() ->
 mongo_common_fields() ->
     [
         {collection,
-            ?HOCON(atom(), #{
+            ?HOCON(binary(), #{
                 required => true,
                 desc => ?DESC(collection)
             })},
@@ -340,7 +337,7 @@ check_ssl_opts(Conf) ->
             (#{<<"url">> := Url} = Source) ->
                 case emqx_authz_http:parse_url(Url) of
                     {<<"https", _/binary>>, _, _} ->
-                        case emqx_map_lib:deep_find([<<"ssl">>, <<"enable">>], Source) of
+                        case emqx_utils_maps:deep_find([<<"ssl">>, <<"enable">>], Source) of
                             {ok, true} -> true;
                             {ok, false} -> throw({ssl_not_enable, Url});
                             _ -> throw({ssl_enable_not_found, Url})
@@ -408,9 +405,106 @@ common_rate_field() ->
     ].
 
 method(Method) ->
-    ?HOCON(Method, #{default => Method, required => true, desc => ?DESC(method)}).
+    ?HOCON(Method, #{required => true, desc => ?DESC(method)}).
 
 array(Ref) -> array(Ref, Ref).
 
 array(Ref, DescId) ->
     ?HOCON(?ARRAY(?R_REF(Ref)), #{desc => ?DESC(DescId)}).
+
+select_union_member(#{<<"type">> := <<"mongodb">>} = Value) ->
+    MongoType = maps:get(<<"mongo_type">>, Value, undefined),
+    case MongoType of
+        <<"single">> ->
+            ?R_REF(mongo_single);
+        <<"rs">> ->
+            ?R_REF(mongo_rs);
+        <<"sharded">> ->
+            ?R_REF(mongo_sharded);
+        Else ->
+            throw(#{
+                reason => "unknown_mongo_type",
+                expected => "single | rs | sharded",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"redis">>} = Value) ->
+    RedisType = maps:get(<<"redis_type">>, Value, undefined),
+    case RedisType of
+        <<"single">> ->
+            ?R_REF(redis_single);
+        <<"cluster">> ->
+            ?R_REF(redis_cluster);
+        <<"sentinel">> ->
+            ?R_REF(redis_sentinel);
+        Else ->
+            throw(#{
+                reason => "unknown_redis_type",
+                expected => "single | cluster | sentinel",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"http">>} = Value) ->
+    RedisType = maps:get(<<"method">>, Value, undefined),
+    case RedisType of
+        <<"get">> ->
+            ?R_REF(http_get);
+        <<"post">> ->
+            ?R_REF(http_post);
+        Else ->
+            throw(#{
+                reason => "unknown_http_method",
+                expected => "get | post",
+                got => Else
+            })
+    end;
+select_union_member(#{<<"type">> := <<"built_in_database">>}) ->
+    ?R_REF(builtin_db);
+select_union_member(#{<<"type">> := Type}) ->
+    select_union_member_loop(Type, type_names());
+select_union_member(_) ->
+    throw("missing_type_field").
+
+select_union_member_loop(TypeValue, []) ->
+    throw(#{
+        reason => "unknown_authz_type",
+        got => TypeValue
+    });
+select_union_member_loop(TypeValue, [Type | Types]) ->
+    case TypeValue =:= atom_to_binary(Type) of
+        true ->
+            ?R_REF(Type);
+        false ->
+            select_union_member_loop(TypeValue, Types)
+    end.
+
+authz_fields() ->
+    Types = [?R_REF(Type) || Type <- type_names()],
+    UnionMemberSelector =
+        fun
+            (all_union_members) -> Types;
+            %% must return list
+            ({value, Value}) -> [select_union_member(Value)]
+        end,
+    [
+        {sources,
+            ?HOCON(
+                ?ARRAY(?UNION(UnionMemberSelector)),
+                #{
+                    default => [default_authz()],
+                    desc => ?DESC(sources),
+                    %% doc_lift is force a root level reference instead of nesting sub-structs
+                    extra => #{doc_lift => true},
+                    %% it is recommended to configure authz sources from dashboard
+                    %% hance the importance level for config is low
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ].
+
+default_authz() ->
+    #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
+    }.

@@ -1,0 +1,21 @@
+emqx_connector_mqtt {
+
+name.desc:
+"""Connector name, used as a human-readable description of the connector."""
+
+name.label:
+"""Connector Name"""
+
+num_of_bridges.desc:
+"""The current number of bridges that are using this connector."""
+
+num_of_bridges.label:
+"""Num of Bridges"""
+
+type.desc:
+"""The Connector Type."""
+
+type.label:
+"""Connector Type"""
+
+}

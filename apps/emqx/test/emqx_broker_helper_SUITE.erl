@@ -55,11 +55,12 @@ t_register_sub(_) ->
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
 
 t_shard_seq(_) ->
-    ?assertEqual([], ets:lookup(emqx_subseq, <<"topic">>)),
-    emqx_broker_helper:create_seq(<<"topic">>),
-    ?assertEqual([{<<"topic">>, 1}], ets:lookup(emqx_subseq, <<"topic">>)),
-    emqx_broker_helper:reclaim_seq(<<"topic">>),
-    ?assertEqual([], ets:lookup(emqx_subseq, <<"topic">>)).
+    TestTopic = atom_to_list(?FUNCTION_NAME),
+    ?assertEqual([], ets:lookup(emqx_subseq, TestTopic)),
+    emqx_broker_helper:create_seq(TestTopic),
+    ?assertEqual([{TestTopic, 1}], ets:lookup(emqx_subseq, TestTopic)),
+    emqx_broker_helper:reclaim_seq(TestTopic),
+    ?assertEqual([], ets:lookup(emqx_subseq, TestTopic)).
 
 t_shards_num(_) ->
     ?assertEqual(emqx_vm:schedulers() * 32, emqx_broker_helper:shards_num()).

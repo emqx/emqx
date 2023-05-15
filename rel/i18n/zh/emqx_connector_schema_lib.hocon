@@ -1,0 +1,45 @@
+emqx_connector_schema_lib {
+
+auto_reconnect.desc:
+"""已弃用。自动重连数据库。"""
+
+auto_reconnect.label:
+"""已弃用。自动重连数据库"""
+
+database_desc.desc:
+"""数据库名字。"""
+
+database_desc.label:
+"""数据库名字"""
+
+password.desc:
+"""内部数据库密码。"""
+
+password.label:
+"""密码"""
+
+pool_size.desc:
+"""桥接远端服务时使用的连接池大小。"""
+
+pool_size.label:
+"""连接池大小"""
+
+prepare_statement.desc:
+"""SQL 预处理语句列表。"""
+
+prepare_statement.label:
+"""SQL 预处理语句列表"""
+
+ssl.desc:
+"""启用 SSL 连接。"""
+
+ssl.label:
+"""启用SSL"""
+
+username.desc:
+"""内部数据库的用户名。"""
+
+username.label:
+"""用户名"""
+
+}

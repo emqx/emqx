@@ -58,7 +58,7 @@ end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_resource:remove_local(?REDIS_RESOURCE),
     ok = stop_apps([emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authz]).
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
@@ -188,8 +188,7 @@ t_create_invalid_config(_Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            path := "authorization.sources.1",
-            discarded_errors_count := 0
+            path := "authorization.sources.1.server"
         }},
         emqx_authz:update(?CMD_REPLACE, [C])
     ).
@@ -263,7 +262,7 @@ raw_redis_authz_config() ->
     }.
 
 q(Command) ->
-    emqx_resource:query(
+    emqx_resource:simple_sync_query(
         ?REDIS_RESOURCE,
         {cmd, Command}
     ).

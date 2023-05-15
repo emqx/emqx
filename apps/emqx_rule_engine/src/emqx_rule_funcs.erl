@@ -227,7 +227,18 @@
     now_timestamp/1,
     format_date/3,
     format_date/4,
+    date_to_unix_ts/3,
     date_to_unix_ts/4
+]).
+
+%% MongoDB specific date functions. These functions return a date tuple. The
+%% MongoDB bridge converts such date tuples to a MongoDB date type. The
+%% following functions are therefore only useful for rules with at least one
+%% MongoDB action.
+-export([
+    mongo_date/0,
+    mongo_date/1,
+    mongo_date/2
 ]).
 
 %% Proc Dict Func
@@ -643,10 +654,10 @@ map(Data) ->
     emqx_plugin_libs_rule:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_misc:bin_to_hexstr(Bin, upper).
+    emqx_utils:bin_to_hexstr(Bin, upper).
 
 hexstr2bin(Str) when is_binary(Str) ->
-    emqx_misc:hexstr_to_bin(Str).
+    emqx_utils:hexstr_to_bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -944,7 +955,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_misc:bin_to_hexstr(crypto:hash(Type, Data), lower).
+    emqx_utils:bin_to_hexstr(crypto:hash(Type, Data), lower).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs
@@ -987,10 +998,10 @@ base64_decode(Data) when is_binary(Data) ->
     base64:decode(Data).
 
 json_encode(Data) ->
-    emqx_json:encode(Data).
+    emqx_utils_json:encode(Data).
 
 json_decode(Data) ->
-    emqx_json:decode(Data, [return_maps]).
+    emqx_utils_json:decode(Data, [return_maps]).
 
 term_encode(Term) ->
     erlang:term_to_binary(Term).
@@ -1085,6 +1096,9 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
         )
     ).
 
+date_to_unix_ts(TimeUnit, FormatString, InputString) ->
+    date_to_unix_ts(TimeUnit, "Z", FormatString, InputString).
+
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     emqx_rule_date:parse_date(
         time_unit(TimeUnit),
@@ -1097,26 +1111,27 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
 %% the function handling to the worker module.
 %% @end
-% '$handle_undefined_function'(schema_decode, [SchemaId, Data|MoreArgs]) ->
-%     emqx_schema_parser:decode(SchemaId, Data, MoreArgs);
-% '$handle_undefined_function'(schema_decode, Args) ->
-%     error({args_count_error, {schema_decode, Args}});
-
-% '$handle_undefined_function'(schema_encode, [SchemaId, Term|MoreArgs]) ->
-%     emqx_schema_parser:encode(SchemaId, Term, MoreArgs);
-% '$handle_undefined_function'(schema_encode, Args) ->
-%     error({args_count_error, {schema_encode, Args}});
-
-% '$handle_undefined_function'(sprintf, [Format|Args]) ->
-%     erlang:apply(fun sprintf_s/2, [Format, Args]);
-
-% '$handle_undefined_function'(Fun, Args) ->
-%     error({sql_function_not_supported, function_literal(Fun, Args)}).
-
+-if(?EMQX_RELEASE_EDITION == ee).
+%% EE
+'$handle_undefined_function'(schema_decode, [SchemaId, Data | MoreArgs]) ->
+    emqx_ee_schema_registry_serde:decode(SchemaId, Data, MoreArgs);
+'$handle_undefined_function'(schema_decode, Args) ->
+    error({args_count_error, {schema_decode, Args}});
+'$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
+    emqx_ee_schema_registry_serde:encode(SchemaId, Term, MoreArgs);
+'$handle_undefined_function'(schema_encode, Args) ->
+    error({args_count_error, {schema_encode, Args}});
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
 '$handle_undefined_function'(Fun, Args) ->
     error({sql_function_not_supported, function_literal(Fun, Args)}).
+-else.
+%% CE
+'$handle_undefined_function'(sprintf, [Format | Args]) ->
+    erlang:apply(fun sprintf_s/2, [Format, Args]);
+'$handle_undefined_function'(Fun, Args) ->
+    error({sql_function_not_supported, function_literal(Fun, Args)}).
+-endif.
 
 map_path(Key) ->
     {path, [{key, P} || P <- string:split(Key, ".", all)]}.
@@ -1134,3 +1149,21 @@ function_literal(Fun, [FArg | Args]) when is_atom(Fun), is_list(Args) ->
     ) ++ ")";
 function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.
+
+mongo_date() ->
+    erlang:timestamp().
+
+mongo_date(MillisecondsTimestamp) ->
+    convert_timestamp(MillisecondsTimestamp).
+
+mongo_date(Timestamp, Unit) ->
+    InsertedTimeUnit = time_unit(Unit),
+    ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
+    convert_timestamp(ScaledEpoch).
+
+convert_timestamp(MillisecondsTimestamp) ->
+    MicroTimestamp = MillisecondsTimestamp * 1000,
+    MegaSecs = MicroTimestamp div 1000_000_000_000,
+    Secs = MicroTimestamp div 1000_000 - MegaSecs * 1000_000,
+    MicroSecs = MicroTimestamp rem 1000_000,
+    {MegaSecs, Secs, MicroSecs}.

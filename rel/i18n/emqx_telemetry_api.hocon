@@ -1,0 +1,54 @@
+emqx_telemetry_api {
+
+active_modules.desc:
+"""Get active modules"""
+
+active_plugins.desc:
+"""Get active plugins"""
+
+emqx_version.desc:
+"""Get emqx version"""
+
+enable.desc:
+"""Enable telemetry"""
+
+get_telemetry_data_api.desc:
+"""Get telemetry data"""
+
+get_telemetry_status_api.desc:
+"""Get telemetry status"""
+
+license.desc:
+"""Get license information"""
+
+messages_received.desc:
+"""Get number of messages received"""
+
+messages_sent.desc:
+"""Get number of messages sent"""
+
+nodes_uuid.desc:
+"""Get nodes UUID"""
+
+num_clients.desc:
+"""Get number of clients"""
+
+os_name.desc:
+"""Get OS name"""
+
+os_version.desc:
+"""Get OS version"""
+
+otp_version.desc:
+"""Get Erlang OTP version"""
+
+up_time.desc:
+"""Get uptime"""
+
+update_telemetry_status_api.desc:
+"""Enable or disable telemetry"""
+
+uuid.desc:
+"""Get UUID"""
+
+}
