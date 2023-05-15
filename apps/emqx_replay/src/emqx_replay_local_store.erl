@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_replay_local_store).
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% API:
 -export([start_link/1]).
@@ -15,7 +15,7 @@
 
 -export([preserve_iterator/2, restore_iterator/2, discard_iterator/2]).
 
-%% behavior callbacks:
+%% behaviour callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -export_type([cf_refs/0, gen_id/0, db_write_options/0, state/0, iterator/0]).
@@ -156,7 +156,7 @@ discard_iterator(Shard, ReplayID) ->
     iterator_delete(Shard, ReplayID).
 
 %%================================================================================
-%% behavior callbacks
+%% behaviour callbacks
 %%================================================================================
 
 init([Shard]) ->

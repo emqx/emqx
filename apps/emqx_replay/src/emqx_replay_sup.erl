@@ -3,12 +3,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_replay_sup).
 
--behavior(supervisor).
+-behaviour(supervisor).
 
 %% API:
 -export([start_link/0]).
 
-%% behavior callbacks:
+%% behaviour callbacks:
 -export([init/1]).
 
 %%================================================================================
@@ -26,7 +26,7 @@ start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
 %%================================================================================
-%% behavior callbacks
+%% behaviour callbacks
 %%================================================================================
 
 init([]) ->
