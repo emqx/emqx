@@ -12,11 +12,13 @@ It implements the connection management and interaction without need for a
 For more information on Apache IoTDB, please see its [official
  site](https://iotdb.apache.org/).
 
+<!---
 # Configurations
 
 Please see [our official
  documentation](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-iotdb.html)
  for more detailed info.
+--->
 
 # Contributing
 Please see our [contributing.md](../../CONTRIBUTING.md).
