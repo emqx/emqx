@@ -244,13 +244,31 @@ t_keepalive(_Config) ->
     Body = #{interval => 11},
     {error, {"HTTP/1.1", 404, "Not Found"}} =
         emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
-    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
+    %% 65535 is the max value of keepalive
+    MaxKeepalive = 65535,
+    InitKeepalive = round(MaxKeepalive / 1.5 + 1),
+    {ok, C1} = emqtt:start_link(#{
+        username => Username, clientid => ClientId, keepalive => InitKeepalive
+    }),
     {ok, _} = emqtt:connect(C1),
+    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    %% will reset to max keepalive if keepalive > max keepalive
+    #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
+    ?assertMatch({keepalive, 65535000, _}, element(5, element(9, sys:get_state(Pid)))),
+
     {ok, NewClient} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
     #{<<"keepalive">> := 11} = emqx_utils_json:decode(NewClient, [return_maps]),
-    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
     ?assertEqual(11, Keepalive),
+    %% Disable keepalive
+    Body1 = #{interval => 0},
+    {ok, NewClient1} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body1),
+    #{<<"keepalive">> := 0} = emqx_utils_json:decode(NewClient1, [return_maps]),
+    ?assertMatch(#{conninfo := #{keepalive := 0}}, emqx_connection:info(Pid)),
+    %% Maximal keepalive
+    Body2 = #{interval => 65536},
+    {error, {"HTTP/1.1", 400, _}} =
+        emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body2),
     emqtt:disconnect(C1),
     ok.
 
