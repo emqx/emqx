@@ -400,6 +400,22 @@ t_conn_fail_with_server_two_IA_bundle_and_client_root_chain(Config) ->
   fail_when_no_ssl_alert(Socket, unknown_ca),
   ok = ssl:close(Socket).
 
+t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(Config) ->
+  Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+  DataDir = ?config(data_dir, Config),
+  Options = [{ssl_options, [ {cacertfile, filename:join(DataDir, "intermediate1.pem")}
+                           , {certfile, filename:join(DataDir, "server1.pem")}
+                           , {keyfile, filename:join(DataDir, "server1.key")}
+                           , {partial_chain, false}
+                           | ?config(ssl_config, Config)
+                           ]}],
+  emqx_listeners:start_listener(ssl, Port, Options),
+  {ok, Socket} = ssl:connect({127, 0, 0, 1}, Port, [{keyfile,  filename:join(DataDir, "client1.key")},
+                                                    {certfile,  filename:join(DataDir, "client1.pem")}
+                                                   ], 1000),
+  fail_when_no_ssl_alert(Socket, unknown_ca),
+  ssl:close(Socket).
+
 t_error_handling_invalid_cacertfile(Config) ->
   Port = emqx_test_tls_certs_helper:select_free_port(ssl),
   DataDir = ?config(data_dir, Config),

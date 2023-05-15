@@ -1647,7 +1647,7 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.partial_chain", "emqx.listeners", [
-  {datatype, atom}
+  {datatype, {enum, [true, false, two_cacerts_from_cacertfile, cacert_from_cacertfile]}}
 ]}.
 
 {mapping, "listener.ssl.$name.verify_peer_ext_key_usage", "emqx.listeners", [
