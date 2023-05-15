@@ -21,8 +21,10 @@ and easily ingest IoT data into RabbitMQ by leveraging
 
 # Documentation
 
+<!---
 - Refer to the [RabbitMQ bridge documentation](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-rabbitmq.html)
   for how to use EMQX dashboard to ingest IoT data into RabbitMQ.
+--->
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
   for an introduction to the EMQX rules engine.
 

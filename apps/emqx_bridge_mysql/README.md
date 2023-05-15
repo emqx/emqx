@@ -10,7 +10,7 @@ User can create a rule and easily ingest IoT data into MySQL by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into MySQL](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-mysql.html)
+- Refer to [Ingest Data into MySQL](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-mysql.html)
   for how to use EMQX dashboard to ingest IoT data into MySQL.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

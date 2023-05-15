@@ -16,7 +16,7 @@ For more information about Apache Kafka, please see its [official site](https://
 
 # Configurations
 
-Please see [Ingest data into Kafka](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-kafka.html) for more detailed info.
+Please see [Ingest Data into Kafka](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-kafka.html) for more detailed info.
 
 # Contributing
 

@@ -15,11 +15,13 @@ used by authentication and authorization applications.
 For more information on Apache Pulsar, please see its [official
 site](https://pulsar.apache.org/).
 
+<!---
 # Configurations
 
 Please see [our official
 documentation](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-pulsar.html)
 for more detailed info.
+--->
 
 # Contributing
 

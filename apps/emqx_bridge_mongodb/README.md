@@ -13,7 +13,7 @@ User can create a rule and easily ingest IoT data into MongoDB by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into MongoDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-mongodb.html)
+- Refer to [Ingest Data into MongoDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-mongodb.html)
   for how to use EMQX dashboard to ingest IoT data into MongoDB.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

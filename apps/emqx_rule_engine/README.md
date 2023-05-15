@@ -1,5 +1,5 @@
 
-# Emqx Rule Engine
+# EMQX Rule Engine
 
 The rule engine's goal is to provide a simple and flexible way to transform and
 reroute the messages coming to the EMQX broker. For example, one message

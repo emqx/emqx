@@ -15,7 +15,7 @@ easily ingest IoT data into InfluxDB by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into InfluxDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-influxdb.html)
+- Refer to [Ingest Data into InfluxDB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-influxdb.html)
   for how to use EMQX dashboard to ingest IoT data into InfluxDB.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

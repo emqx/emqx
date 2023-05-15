@@ -1,6 +1,6 @@
 # EMQX DynamoDB Bridge
 
-[Dynamodb](https://aws.amazon.com/dynamodb/) is a high-performance NoSQL database
+[DynamoDB](https://aws.amazon.com/dynamodb/) is a high-performance NoSQL database
 service provided by Amazon that's designed for scalability and low-latency access
 to structured data.
 

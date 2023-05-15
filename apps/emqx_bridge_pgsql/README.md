@@ -1,6 +1,6 @@
 # EMQX PostgreSQL Bridge
 
-[PostgreSQL](https://github.com/PostgreSQL/PostgreSQL) is an open-source relational
+[PostgreSQL](https://www.postgresql.org/) is an open-source relational
 database management system (RDBMS) that uses and extends the SQL language.
 It is known for its reliability, data integrity, and advanced features such as
 support for JSON, XML, and other data formats.
@@ -12,7 +12,7 @@ User can create a rule and easily ingest IoT data into PostgreSQL by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into PostgreSQL](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-pgsql.html)
+- Refer to [Ingest Data into PostgreSQL](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-pgsql.html)
   for how to use EMQX dashboard to ingest IoT data into PostgreSQL.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
