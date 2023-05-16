@@ -30,16 +30,16 @@
     )
 ).
 
--define(assertInclude(Pattern, List),
+-define(assertInclude(PATTERN, LIST),
     ?assert(
         lists:any(
-            fun(El) ->
-                case El of
-                    Pattern -> true;
+            fun(X__Elem_) ->
+                case X__Elem_ of
+                    PATTERN -> true;
                     _ -> false
                 end
             end,
-            List
+            LIST
         )
     )
 ).
