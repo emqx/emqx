@@ -165,20 +165,20 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 
-create(Type, Name, Conf, Opts0) ->
+create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
         msg => "create bridge",
         type => Type,
         name => Name,
         config => emqx_utils:redact(Conf)
     }),
-    Opts = override_start_after_created(Conf, Opts0),
+    TypeBin = bin(Type),
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
-        parse_confs(bin(Type), Name, Conf),
-        Opts
+        parse_confs(TypeBin, Name, Conf),
+        parse_opts(TypeBin, Conf, Opts)
     ),
     ok.
 
@@ -189,7 +189,7 @@ update(BridgeId, {OldConf, Conf}) ->
 update(Type, Name, {OldConf, Conf}) ->
     update(Type, Name, {OldConf, Conf}, #{}).
 
-update(Type, Name, {OldConf, Conf}, Opts0) ->
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -198,7 +198,6 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
     %% the `method` or `headers` of a WebHook is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    Opts = override_start_after_created(Conf, Opts0),
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
@@ -241,11 +240,12 @@ recreate(Type, Name, Conf) ->
     recreate(Type, Name, Conf, #{}).
 
 recreate(Type, Name, Conf, Opts) ->
+    TypeBin = bin(Type),
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
-        parse_confs(bin(Type), Name, Conf),
-        Opts
+        parse_confs(TypeBin, Name, Conf),
+        parse_opts(TypeBin, Conf, Opts)
     ).
 
 create_dry_run(Type, Conf0) ->
@@ -401,6 +401,16 @@ str(Str) when is_list(Str) -> Str.
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+parse_opts(Type, Conf, Opts0) ->
+    Opts1 = override_start_after_created(Conf, Opts0),
+    override_resource_request_timeout(Type, Conf, Opts1).
+
+%% Put webhook's http request_timeout into the resource options
+override_resource_request_timeout(<<"webhook">>, #{request_timeout := ReqTimeout}, Opts) ->
+    Opts#{request_timeout => ReqTimeout};
+override_resource_request_timeout(_Type, _Conf, Opts) ->
+    Opts.
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),
