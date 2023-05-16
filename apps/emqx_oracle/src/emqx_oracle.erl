@@ -96,7 +96,7 @@ on_start(
         {host, Host},
         {port, Port},
         {user, emqx_plugin_libs_rule:str(User)},
-        {password, emqx_secret:wrap(maps:get(password, Config, ""))},
+        {password, jamdb_secret:wrap(maps:get(password, Config, ""))},
         {sid, emqx_plugin_libs_rule:str(Sid)},
         {service_name, emqx_plugin_libs_rule:str(ServiceName)},
         {database, DB},
@@ -258,9 +258,7 @@ oracle_host_options() ->
     ?ORACLE_HOST_OPTIONS.
 
 connect(Opts) ->
-    Password = emqx_secret:unwrap(proplists:get_value(password, Opts)),
-    NewOpts = lists:keyreplace(password, 1, Opts, {password, Password}),
-    jamdb_oracle:start_link(NewOpts).
+    jamdb_oracle:start_link(Opts).
 
 sql_query_to_str(SqlQuery) ->
     emqx_plugin_libs_rule:str(SqlQuery).
