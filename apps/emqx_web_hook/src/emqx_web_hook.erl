@@ -91,10 +91,8 @@ on_client_connect(ConnInfo = #{clientid := ClientId, username := Username, peern
               , clientid => ClientId
               , username => maybe(Username)
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
-              , keepalive => maps:get(keepalive, ConnInfo)
-              , proto_ver => maps:get(proto_ver, ConnInfo)
               },
-    send_http_request(ClientId, Params).
+    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client connack
@@ -107,12 +105,9 @@ on_client_connack(ConnInfo = #{clientid := ClientId, username := Username, peern
               , clientid => ClientId
               , username => maybe(Username)
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
-              , keepalive => maps:get(keepalive, ConnInfo)
-              , proto_ver => maps:get(proto_ver, ConnInfo)
-              , connected_at => maps:get(connected_at, ConnInfo)
               , conn_ack => Rc
               },
-    send_http_request(ClientId, Params).
+    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client connected
@@ -125,11 +120,8 @@ on_client_connected(#{clientid := ClientId, username := Username, peerhost := Pe
               , clientid => ClientId
               , username => maybe(Username)
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
-              , keepalive => maps:get(keepalive, ConnInfo)
-              , proto_ver => maps:get(proto_ver, ConnInfo)
-              , connected_at => maps:get(connected_at, ConnInfo)
               },
-    send_http_request(ClientId, Params).
+    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client disconnected
@@ -387,3 +379,6 @@ stringfy(Term) ->
 
 maybe(undefined) -> null;
 maybe(Str) -> Str.
+
+add_optional_conn_fields(Fields, ConnInfo) ->
+    maps:merge(Fields, maps:with([keepalive, proto_ver, connected_at], ConnInfo)).
