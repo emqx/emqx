@@ -75,7 +75,8 @@ groups() ->
             t_username_as_clientid,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
-            t_certcn_as_clientid_tlsv1_2
+            t_certcn_as_clientid_tlsv1_2,
+            t_no_peercert_after_connected
         ]}
     ].
 
@@ -379,6 +380,23 @@ t_certcn_as_clientid_tlsv1_3(_) ->
 t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
 
+t_no_peercert_after_connected(_) ->
+    emqx_config:put_zone_conf(default, [mqtt], #{}),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    SslConf = emqx_common_test_helpers:client_ssl_twoway(default),
+    {ok, Client} = emqtt:start_link([
+        {port, 8883},
+        {clientid, ClientId},
+        {ssl, true},
+        {ssl_opts, SslConf}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    ?assertMatch(
+        #{conninfo := ConnInfo} when not is_map_key(peercert, ConnInfo),
+        emqx_connection:info(ConnPid)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -421,10 +439,4 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
-    %% verify that the peercert won't be stored in the conninfo
-    [ChannPid] = emqx_cm:lookup_channels(CN),
-    SysState = sys:get_state(ChannPid),
-    ChannelRecord = lists:keyfind(channel, 1, tuple_to_list(SysState)),
-    ConnInfo = lists:nth(2, tuple_to_list(ChannelRecord)),
-    ?assertMatch(#{peercert := undefined}, ConnInfo),
     emqtt:disconnect(Client).
