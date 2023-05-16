@@ -1,0 +1,18 @@
+emqx_prometheus_api {
+
+get_prom_conf_info.desc:
+"""Get Prometheus config info"""
+get_prom_conf_info.label:
+"""Get Prometheus config info"""
+
+update_prom_conf_info.desc:
+"""Update Prometheus config"""
+update_prom_conf_info.label:
+"""Update Prometheus config"""
+
+get_prom_data.desc:
+"""Get Prometheus Data"""
+get_prom_data.label:
+"""Get Prometheus Data"""
+
+}

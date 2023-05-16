@@ -1,0 +1,23 @@
+emqx_mgmt_api_nodes {
+
+list_nodes.desc:
+"""List EMQX nodes"""
+list_nodes.label:
+"""List EMQX nodes"""
+
+get_node_info.desc:
+"""Get node info"""
+get_node_info.label:
+"""Get node info"""
+
+get_node_metrics.desc:
+"""Get node metrics"""
+get_node_metrics.label:
+"""Get node metrics"""
+
+get_node_stats.desc:
+"""Get node stats"""
+get_node_stats.label:
+"""Get node stats"""
+
+}

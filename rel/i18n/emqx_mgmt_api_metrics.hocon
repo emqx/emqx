@@ -1,0 +1,8 @@
+emqx_mgmt_api_metrics {
+
+emqx_metrics.desc:
+"""EMQX metrics"""
+emqx_metrics.label:
+"""EMQX metrics"""
+
+}

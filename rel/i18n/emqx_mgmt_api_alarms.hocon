@@ -8,6 +8,8 @@ deactivate_at.desc:
 
 delete_alarms_api.desc:
 """Remove all historical alarms."""
+delete_alarms_api.label:
+"""Remove all historical alarms."""
 
 delete_alarms_api_response204.desc:
 """Historical alarms have been cleared successfully."""
@@ -26,6 +28,8 @@ The default is false."""
 
 list_alarms_api.desc:
 """List currently activated alarms or historical alarms, determined by query parameters."""
+list_alarms_api.label:
+"""List alarms"""
 
 message.desc:
 """Alarm message, which describes the alarm content in a human-readable format."""

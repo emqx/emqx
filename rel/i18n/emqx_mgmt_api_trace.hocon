@@ -1,0 +1,118 @@
+emqx_mgmt_api_trace {
+
+list_all.desc:
+"""List all trace"""
+list_all.label:
+"""List all trace"""
+
+create_new.desc:
+"""Create new trace"""
+create_new.label:
+"""Create new trace"""
+
+clear_all.desc:
+"""Clear all traces"""
+clear_all.label:
+"""Clear all traces"""
+
+delete_trace.desc:
+"""Delete specified trace"""
+delete_trace.label:
+"""Delete specified trace"""
+
+stop_trace.desc:
+"""Stop trace by name"""
+stop_trace.label:
+"""Stop trace by name"""
+
+download_log_by_name.desc:
+"""Download trace log by name"""
+download_log_by_name.label:
+"""Download trace log by name"""
+
+trace_zip_file.desc:
+"""A trace zip file"""
+trace_zip_file.label:
+"""A trace zip file"""
+
+get_trace_file_metadata.desc:
+"""get trace log file's metadata, such as size, last update time"""
+get_trace_file_metadata.label:
+"""get trace log file's metadata"""
+
+view_trace_log.desc:
+"""view trace log"""
+view_trace_log.label:
+"""view trace log"""
+
+file_size.desc:
+"""file size"""
+file_size.label:
+"""file size"""
+
+modification_date.desc:
+"""the modification and last access times of a file"""
+modification_date.label:
+"""last access time"""
+
+format.desc:
+"""Unique and format by [a-zA-Z0-9-_]"""
+format.label:
+"""Unique and format by [a-zA-Z0-9-_]"""
+
+filter_type.desc:
+"""Filter type"""
+filter_type.label:
+"""Filter type"""
+
+support_wildcard.desc:
+"""support mqtt wildcard topic."""
+support_wildcard.label:
+"""support mqtt wildcard topic"""
+
+mqtt_clientid.desc:
+"""mqtt clientid."""
+mqtt_clientid.label:
+"""mqtt clientid"""
+
+client_ip_addess.desc:
+"""client ip address"""
+client_ip_addess.label:
+"""client ip address"""
+
+trace_status.desc:
+"""trace status"""
+trace_status.label:
+"""trace status"""
+
+time_format.desc:
+"""rfc3339 timestamp or epoch second"""
+time_format.label:
+"""rfc3339 timestamp or epoch second"""
+
+time_format_g.desc:
+"""rfc3339 timestamp or epoch second"""
+time_format_g.label:
+"""rfc3339 timestamp or epoch second"""
+
+trace_log_size.desc:
+"""trace log size"""
+trace_log_size.label:
+"""trace log size"""
+
+node_name.desc:
+"""Node name"""
+node_name.label:
+"""Node name"""
+
+max_response_bytes.desc:
+"""Maximum number of bytes to send in response"""
+max_response_bytes.label:
+"""Maximum response bytes"""
+
+current_trace_offset.desc:
+"""Offset from the current trace position."""
+current_trace_offset.label:
+"""Offset from the current trace position."""
+
+}

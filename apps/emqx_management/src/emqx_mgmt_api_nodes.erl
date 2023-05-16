@@ -18,6 +18,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2, enum/1, array/1]).
 
@@ -60,7 +61,7 @@ schema("/nodes") ->
         'operationId' => nodes,
         get =>
             #{
-                description => <<"List EMQX nodes">>,
+                description => ?DESC(list_nodes),
                 tags => [<<"Nodes">>],
                 responses =>
                     #{
@@ -76,7 +77,7 @@ schema("/nodes/:node") ->
         'operationId' => node,
         get =>
             #{
-                description => <<"Get node info">>,
+                description => ?DESC(get_node_info),
                 tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
@@ -94,7 +95,7 @@ schema("/nodes/:node/metrics") ->
         'operationId' => node_metrics,
         get =>
             #{
-                description => <<"Get node metrics">>,
+                description => ?DESC(get_node_metrics),
                 tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
@@ -112,7 +113,7 @@ schema("/nodes/:node/stats") ->
         'operationId' => node_stats,
         get =>
             #{
-                description => <<"Get node stats">>,
+                description => ?DESC(get_node_stats),
                 tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
