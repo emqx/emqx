@@ -1211,7 +1211,6 @@ clientinfo(InitProps) ->
             clientid => <<"clientid">>,
             username => <<"username">>,
             is_superuser => false,
-            peercert => undefined,
             mountpoint => undefined
         },
         InitProps
