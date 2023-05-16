@@ -256,9 +256,7 @@ init(
     ),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
-        %% We remove the peercert because it duplicates to what's stored in the socket,
-        %% Saving a copy here causes unnecessary wast of memory (about 1KB per connection).
-        conninfo = maps:put(peercert, undefined, NConnInfo),
+        conninfo = NConnInfo,
         clientinfo = NClientInfo,
         topic_aliases = #{
             inbound => #{},
@@ -1989,9 +1987,20 @@ ensure_connected(
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{
-        conninfo = NConnInfo,
+        conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
     }.
+
+trim_conninfo(ConnInfo) ->
+    maps:without(
+        [
+            %% NOTE
+            %% We remove the peercert because it duplicates what's stored in the socket,
+            %% otherwise it wastes about 1KB per connection.
+            peercert
+        ],
+        ConnInfo
+    ).
 
 %%--------------------------------------------------------------------
 %% Init Alias Maximum
