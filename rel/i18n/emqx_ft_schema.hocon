@@ -41,7 +41,7 @@ s3_exporter.desc:
 """Exporter to the S3 API compatible object storage."""
 
 local_storage_exporter_root.desc:
-"""File system path to keep uploaded files."""
+"""Directory where the uploaded files are kept."""
 
 local_storage_segments_gc.desc:
 """Garbage collection settings for the intermediate and temporary files in the local file system."""
