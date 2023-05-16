@@ -1284,19 +1284,17 @@ t_inconsistent_webhook_request_timeouts(Config) ->
                 <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
             }
         ),
-    ?assertMatch(
-        {ok, 201, #{
-            %% note: same value on both fields
-            <<"request_timeout">> := <<"2s">>,
-            <<"resource_opts">> := #{<<"request_timeout">> := <<"2s">>}
-        }},
+    {ok, 201, #{
+        <<"request_timeout">> := <<"1s">>,
+        <<"resource_opts">> := ResourceOpts
+    }} =
         request_json(
             post,
             uri(["bridges"]),
             BadBridgeParams,
             Config
-        )
-    ),
+        ),
+    ?assertNot(maps:is_key(<<"request_timeout">>, ResourceOpts)),
     ok.
 
 %%
