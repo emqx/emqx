@@ -201,7 +201,7 @@ init(Req, Opts) ->
 
     case check_origin_header(Req, Opts) of
         {error, Message} ->
-            ?LOG(error, "Invalid Origin Header ~p~n", [Message]),
+            ?LOG(error, "Invalid Origin Header ~p", [Message]),
             {ok, cowboy_req:reply(403, Req), WsOpts};
         ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
     end.
@@ -408,7 +408,7 @@ websocket_info(Info, State) ->
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
-    ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
+    ?LOG(debug, "Websocket closed due to ~p", [Reason]),
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
@@ -554,7 +554,7 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
         error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data: ~0p",
+            ?LOG(error, "Parse failed for ~0p, ~0p, Frame data: ~0p",
                  [Reason, Stk, Data]),
             FrameError = {frame_error, Reason},
             postpone({incoming, FrameError}, State)
