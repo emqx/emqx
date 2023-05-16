@@ -35,19 +35,14 @@
     reply_delegator/2
 ]).
 
--type url() :: emqx_http_lib:uri_map().
--reflect_type([url/0]).
--typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
-
 -export([
     roots/0,
     fields/1,
     desc/1,
-    validations/0,
     namespace/0
 ]).
 
--export([check_ssl_opts/2, validate_method/1, join_paths/2]).
+-export([validate_method/1, join_paths/2]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -69,20 +64,6 @@ roots() ->
 
 fields(config) ->
     [
-        {base_url,
-            sc(
-                url(),
-                #{
-                    required => true,
-                    validator => fun
-                        (#{query := _Query}) ->
-                            {error, "There must be no query in the base_url"};
-                        (_) ->
-                            ok
-                    end,
-                    desc => ?DESC("base_url")
-                }
-            )},
         {connect_timeout,
             sc(
                 emqx_schema:duration_ms(),
@@ -170,9 +151,6 @@ desc("request") ->
     "";
 desc(_) ->
     undefined.
-
-validations() ->
-    [{check_ssl_opts, fun check_ssl_opts/1}].
 
 validate_method(M) when M =:= <<"post">>; M =:= <<"put">>; M =:= <<"get">>; M =:= <<"delete">> ->
     ok;
@@ -577,18 +555,6 @@ make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
 make_method(M) when M == <<"GET">>; M == <<"get">> -> get;
 make_method(M) when M == <<"DELETE">>; M == <<"delete">> -> delete.
-
-check_ssl_opts(Conf) ->
-    check_ssl_opts("base_url", Conf).
-
-check_ssl_opts(URLFrom, Conf) ->
-    #{scheme := Scheme} = hocon_maps:get(URLFrom, Conf),
-    SSL = hocon_maps:get("ssl", Conf),
-    case {Scheme, maps:get(enable, SSL, false)} of
-        {http, false} -> true;
-        {https, true} -> true;
-        {_, _} -> false
-    end.
 
 formalize_request(Method, BasePath, {Path, Headers, _Body}) when
     Method =:= get; Method =:= delete

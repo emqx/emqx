@@ -230,7 +230,6 @@ http_common_fields() ->
         maps:to_list(
             maps:without(
                 [
-                    base_url,
                     pool_type
                 ],
                 maps:from_list(connector_fields(http))
