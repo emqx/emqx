@@ -495,8 +495,7 @@ flush(Data0) ->
             {keep_state, Data1};
         {_, true} ->
             ?tp(buffer_worker_flush_but_inflight_full, #{}),
-            Data2 = ensure_flush_timer(Data1),
-            {keep_state, Data2};
+            {keep_state, Data1};
         {_, false} ->
             ?tp(buffer_worker_flush_before_pop, #{}),
             {Q1, QAckRef, Batch} = replayq:pop(Q0, #{count_limit => BatchSize}),
