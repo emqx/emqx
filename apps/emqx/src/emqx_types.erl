@@ -129,7 +129,7 @@
     socktype := socktype(),
     sockname := peername(),
     peername := peername(),
-    peercert := nossl | undefined | esockd_peercert:peercert(),
+    peercert => nossl | undefined | esockd_peercert:peercert(),
     conn_mod := module(),
     proto_name => binary(),
     proto_ver => proto_ver(),

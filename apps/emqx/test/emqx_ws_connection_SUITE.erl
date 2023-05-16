@@ -33,17 +33,6 @@
     ]
 ).
 
--define(STATS_KEYS, [
-    recv_oct,
-    recv_cnt,
-    send_oct,
-    send_cnt,
-    recv_pkt,
-    recv_msg,
-    send_pkt,
-    send_msg
-]).
-
 -define(ws_conn, emqx_ws_connection).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -618,7 +607,6 @@ channel(InitFields) ->
         clientid => <<"clientid">>,
         username => <<"username">>,
         is_superuser => false,
-        peercert => undefined,
         mountpoint => undefined
     },
     Conf = emqx_cm:get_session_confs(ClientInfo, #{
