@@ -13,7 +13,7 @@ database_desc.label:
 """Database Name"""
 
 password.desc:
-"""EMQX's password in the external database."""
+"""The password associated with the bridge, used for authentication with the external database."""
 
 password.label:
 """Password"""
@@ -37,7 +37,7 @@ ssl.label:
 """Enable SSL"""
 
 username.desc:
-"""EMQX's username in the external database."""
+"""The username associated with the bridge in the external database used for authentication or identification purposes."""
 
 username.label:
 """Username"""
