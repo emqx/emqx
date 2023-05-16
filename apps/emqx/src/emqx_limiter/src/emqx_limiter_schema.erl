@@ -38,7 +38,8 @@
     default_client_config/0,
     short_paths_fields/1,
     get_listener_opts/1,
-    get_node_opts/1
+    get_node_opts/1,
+    convert_node_opts/1
 ]).
 
 -define(KILOBYTE, 1024).
@@ -60,7 +61,7 @@
 -type limiter_id() :: atom().
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
--type burst_rate() :: 0 | float().
+-type burst_rate() :: number().
 %% this is a compatible type for the deprecated field and type `capacity`.
 -type burst() :: burst_rate().
 %% the capacity of the token bucket
@@ -308,6 +309,24 @@ get_node_opts(Type) ->
                     Opts#{rate := Rate}
             end
     end.
+
+convert_node_opts(Conf) ->
+    DefBucket = default_bucket_config(),
+    ShorPaths = short_paths(),
+    Fun = fun
+        %% The `client` in the node options was deprecated
+        (client, _Value, Acc) ->
+            Acc;
+        (Name, Value, Acc) ->
+            case lists:member(Name, ShorPaths) of
+                true ->
+                    Type = short_path_name_to_type(Name),
+                    Acc#{Type => DefBucket#{rate => Value}};
+                _ ->
+                    Acc#{Name => Value}
+            end
+    end,
+    maps:fold(Fun, #{}, Conf).
 
 %%--------------------------------------------------------------------
 %% Internal functions

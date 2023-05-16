@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_influxdb_SUITE).
+-module(emqx_bridge_influxdb_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -583,7 +583,7 @@ t_start_already_started(Config) ->
         emqx_bridge_schema, InfluxDBConfigString
     ),
     ?check_trace(
-        emqx_ee_connector_influxdb:on_start(ResourceId, InfluxDBConfigMap),
+        emqx_bridge_influxdb_connector:on_start(ResourceId, InfluxDBConfigMap),
         fun(Result, Trace) ->
             ?assertMatch({ok, _}, Result),
             ?assertMatch([_], ?of_kind(influxdb_connector_start_already_started, Trace)),
@@ -985,7 +985,7 @@ t_write_failure(Config) ->
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        not emqx_ee_connector_influxdb:is_unrecoverable_error(Result),
+                        not emqx_bridge_influxdb_connector:is_unrecoverable_error(Result),
                         #{got => Result}
                     );
                 async ->
@@ -993,7 +993,7 @@ t_write_failure(Config) ->
                     ?assertMatch([#{action := nack} | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        not emqx_ee_connector_influxdb:is_unrecoverable_error(Result),
+                        not emqx_bridge_influxdb_connector:is_unrecoverable_error(Result),
                         #{got => Result}
                     )
             end,

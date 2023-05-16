@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_influxdb_tests).
+-module(emqx_bridge_influxdb_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -192,7 +192,9 @@
         fields => [{"field", "\"field\\4\""}],
         timestamp => undefined
     }},
-    {"m5\\,mA,tag=\\=tag5\\=,\\,tag_a\\,=tag\\ 5a,tag_b=tag5b \\ field\\ =field5,field\\ _\\ a=field5a,\\,field_b\\ =\\=\\,\\ field5b ${timestamp5}",
+    {
+        "m5\\,mA,tag=\\=tag5\\=,\\,tag_a\\,=tag\\ 5a,tag_b=tag5b \\ field\\ =field5,"
+        "field\\ _\\ a=field5a,\\,field_b\\ =\\=\\,\\ field5b ${timestamp5}",
         #{
             measurement => "m5,mA",
             tags => [{"tag", "=tag5="}, {",tag_a,", "tag 5a"}, {"tag_b", "tag5b"}],
@@ -200,7 +202,8 @@
                 {" field ", "field5"}, {"field _ a", "field5a"}, {",field_b ", "=, field5b"}
             ],
             timestamp => "${timestamp5}"
-        }},
+        }
+    },
     {"m6,tag=tag6,tag_a=tag6a,tag_b=tag6b field=\"field6\",field_a=\"field6a\",field_b=\"field6b\"",
         #{
             measurement => "m6",
@@ -208,20 +211,26 @@
             fields => [{"field", "field6"}, {"field_a", "field6a"}, {"field_b", "field6b"}],
             timestamp => undefined
         }},
-    {"\\ \\ m7\\ \\ ,tag=\\ tag\\,7\\ ,tag_a=\"tag7a\",tag_b\\,tag1=tag7b field=\"field7\",field_a=field7a,field_b=\"field7b\\\\\n\"",
+    {
+        "\\ \\ m7\\ \\ ,tag=\\ tag\\,7\\ ,tag_a=\"tag7a\",tag_b\\,tag1=tag7b field=\"field7\","
+        "field_a=field7a,field_b=\"field7b\\\\\n\"",
         #{
             measurement => "  m7  ",
             tags => [{"tag", " tag,7 "}, {"tag_a", "\"tag7a\""}, {"tag_b,tag1", "tag7b"}],
             fields => [{"field", "field7"}, {"field_a", "field7a"}, {"field_b", "field7b\\\n"}],
             timestamp => undefined
-        }},
-    {"m8,tag=tag8,tag_a=\"tag8a\",tag_b=tag8b field=\"field8\",field_a=field8a,field_b=\"\\\"field\\\" = 8b\" ${timestamp8}",
+        }
+    },
+    {
+        "m8,tag=tag8,tag_a=\"tag8a\",tag_b=tag8b field=\"field8\",field_a=field8a,"
+        "field_b=\"\\\"field\\\" = 8b\" ${timestamp8}",
         #{
             measurement => "m8",
             tags => [{"tag", "tag8"}, {"tag_a", "\"tag8a\""}, {"tag_b", "tag8b"}],
             fields => [{"field", "field8"}, {"field_a", "field8a"}, {"field_b", "\"field\" = 8b"}],
             timestamp => "${timestamp8}"
-        }},
+        }
+    },
     {"m\\9,tag=tag9,tag_a=\"tag9a\",tag_b=tag9b field\\=field=\"field9\",field_a=field9a,field_b=\"\" ${timestamp9}",
         #{
             measurement => "m\\9",
@@ -263,7 +272,9 @@
         fields => [{"field", "\"field\\4\""}],
         timestamp => undefined
     }},
-    {" m5\\,mA,tag=\\=tag5\\=,\\,tag_a\\,=tag\\ 5a,tag_b=tag5b   \\ field\\ =field5,field\\ _\\ a=field5a,\\,field_b\\ =\\=\\,\\ field5b   ${timestamp5}    ",
+    {
+        " m5\\,mA,tag=\\=tag5\\=,\\,tag_a\\,=tag\\ 5a,tag_b=tag5b   \\ field\\ =field5,"
+        "field\\ _\\ a=field5a,\\,field_b\\ =\\=\\,\\ field5b   ${timestamp5}    ",
         #{
             measurement => "m5,mA",
             tags => [{"tag", "=tag5="}, {",tag_a,", "tag 5a"}, {"tag_b", "tag5b"}],
@@ -271,7 +282,8 @@
                 {" field ", "field5"}, {"field _ a", "field5a"}, {",field_b ", "=, field5b"}
             ],
             timestamp => "${timestamp5}"
-        }},
+        }
+    },
     {"  m6,tag=tag6,tag_a=tag6a,tag_b=tag6b   field=\"field6\",field_a=\"field6a\",field_b=\"field6b\"  ",
         #{
             measurement => "m6",
@@ -330,7 +342,7 @@ to_influx_lines(RawLines) ->
     try
         %% mute error logs from this call
         emqx_logger:set_primary_log_level(none),
-        emqx_ee_bridge_influxdb:to_influx_lines(RawLines)
+        emqx_bridge_influxdb:to_influx_lines(RawLines)
     after
         emqx_logger:set_primary_log_level(OldLevel)
     end.

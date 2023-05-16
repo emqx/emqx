@@ -25,6 +25,7 @@
     resource_id/2,
     bridge_id/2,
     parse_bridge_id/1,
+    parse_bridge_id/2,
     bridge_hookpoint/1,
     bridge_hookpoint_to_bridge_id/1
 ]).
@@ -86,11 +87,15 @@ bridge_id(BridgeType, BridgeName) ->
     Type = bin(BridgeType),
     <<Type/binary, ":", Name/binary>>.
 
--spec parse_bridge_id(list() | binary() | atom()) -> {atom(), binary()}.
 parse_bridge_id(BridgeId) ->
+    parse_bridge_id(BridgeId, #{atom_name => true}).
+
+-spec parse_bridge_id(list() | binary() | atom(), #{atom_name => boolean()}) ->
+    {atom(), atom() | binary()}.
+parse_bridge_id(BridgeId, Opts) ->
     case string:split(bin(BridgeId), ":", all) of
         [Type, Name] ->
-            {to_type_atom(Type), validate_name(Name)};
+            {to_type_atom(Type), validate_name(Name, Opts)};
         _ ->
             invalid_data(
                 <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
@@ -105,13 +110,16 @@ bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
-validate_name(Name0) ->
+validate_name(Name0, Opts) ->
     Name = unicode:characters_to_list(Name0, utf8),
     case is_list(Name) andalso Name =/= [] of
         true ->
             case lists:all(fun is_id_char/1, Name) of
                 true ->
-                    Name0;
+                    case maps:get(atom_name, Opts, true) of
+                        true -> list_to_existing_atom(Name);
+                        false -> Name0
+                    end;
                 false ->
                     invalid_data(<<"bad name: ", Name0/binary>>)
             end;
