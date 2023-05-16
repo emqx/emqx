@@ -92,7 +92,8 @@ on_client_connect(ConnInfo = #{clientid := ClientId, username := Username, peern
               , username => maybe(Username)
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               },
-    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
+    OptFields = [keepalive, proto_ver],
+    send_http_request(ClientId, add_optional_conn_fields(Params, OptFields, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client connack
@@ -107,7 +108,8 @@ on_client_connack(ConnInfo = #{clientid := ClientId, username := Username, peern
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               , conn_ack => Rc
               },
-    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
+    OptFields = [keepalive, proto_ver, connected_at],
+    send_http_request(ClientId, add_optional_conn_fields(Params, OptFields, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client connected
@@ -121,7 +123,8 @@ on_client_connected(#{clientid := ClientId, username := Username, peerhost := Pe
               , username => maybe(Username)
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               },
-    send_http_request(ClientId, add_optional_conn_fields(Params, ConnInfo)).
+    OptFields = [keepalive, proto_ver, connected_at],
+    send_http_request(ClientId, add_optional_conn_fields(Params, OptFields, ConnInfo)).
 
 %%--------------------------------------------------------------------
 %% Client disconnected
@@ -380,5 +383,5 @@ stringfy(Term) ->
 maybe(undefined) -> null;
 maybe(Str) -> Str.
 
-add_optional_conn_fields(Fields, ConnInfo) ->
-    maps:merge(Fields, maps:with([keepalive, proto_ver, connected_at], ConnInfo)).
+add_optional_conn_fields(Params, OptFields, ConnInfo) ->
+    maps:merge(Params, maps:with(OptFields, ConnInfo)).
