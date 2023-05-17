@@ -2,7 +2,7 @@
 %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_message_storage_shim).
+-module(emqx_ds_message_storage_bitmask_shim).
 
 -export([open/0]).
 -export([close/1]).

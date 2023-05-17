@@ -12,7 +12,7 @@
 -export([default_iteration_options/0]).
 
 -type backend_config() ::
-    {emqx_ds_message_storage, emqx_ds_message_storage:options()}
+    {emqx_ds_message_storage_bitmask, emqx_ds_message_storage_bitmask:options()}
     | {module(), _Options}.
 
 -export_type([backend_config/0]).
@@ -30,23 +30,23 @@ shard_config(Shard) ->
     maps:get(Shard, Shards, DefaultShardConfig).
 
 -spec shard_iteration_options(emqx_ds:shard()) ->
-    emqx_ds_message_storage:iteration_options().
+    emqx_ds_message_storage_bitmask:iteration_options().
 shard_iteration_options(Shard) ->
     case shard_config(Shard) of
-        {emqx_ds_message_storage, Config} ->
+        {emqx_ds_message_storage_bitmask, Config} ->
             maps:get(iteration, Config, default_iteration_options());
         {_Module, _} ->
             default_iteration_options()
     end.
 
--spec default_iteration_options() -> emqx_ds_message_storage:iteration_options().
+-spec default_iteration_options() -> emqx_ds_message_storage_bitmask:iteration_options().
 default_iteration_options() ->
-    {emqx_ds_message_storage, Config} = default_shard_config(),
+    {emqx_ds_message_storage_bitmask, Config} = default_shard_config(),
     maps:get(iteration, Config).
 
 -spec default_shard_config() -> backend_config().
 default_shard_config() ->
-    {emqx_ds_message_storage, #{
+    {emqx_ds_message_storage_bitmask, #{
         timestamp_bits => 64,
         topic_bits_per_level => [8, 8, 8, 32, 16],
         epoch => 5,

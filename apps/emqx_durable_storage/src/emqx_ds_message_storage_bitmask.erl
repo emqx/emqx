@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_message_storage).
+-module(emqx_ds_message_storage_bitmask).
 
 %%================================================================================
 %% @doc Description of the schema

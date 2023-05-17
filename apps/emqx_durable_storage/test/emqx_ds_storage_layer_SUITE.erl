@@ -12,7 +12,7 @@
 -define(SHARD, shard(?FUNCTION_NAME)).
 
 -define(DEFAULT_CONFIG,
-    {emqx_ds_message_storage, #{
+    {emqx_ds_message_storage_bitmask, #{
         timestamp_bits => 64,
         topic_bits_per_level => [8, 8, 32, 16],
         epoch => 5,
@@ -23,7 +23,7 @@
 ).
 
 -define(COMPACT_CONFIG,
-    {emqx_ds_message_storage, #{
+    {emqx_ds_message_storage_bitmask, #{
         timestamp_bits => 16,
         topic_bits_per_level => [16, 16],
         epoch => 10
