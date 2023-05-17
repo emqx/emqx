@@ -46,7 +46,14 @@ fields(config) ->
             )},
         {authentication,
             mk(hoconsc:union([none, ref(auth_basic), ref(auth_token)]), #{
-                default => none, desc => ?DESC("authentication")
+                default => none,
+                %% must mark this whole union as sensitive because
+                %% hocon ignores the `sensitive' metadata in struct
+                %% fields...  Also, when trying to type check a struct
+                %% that doesn't match the intended type, it won't have
+                %% sensitivity information from sibling types.
+                sensitive => true,
+                desc => ?DESC("authentication")
             })}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(producer_opts) ->
