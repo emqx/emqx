@@ -41,7 +41,7 @@ fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post");
 fields("creation_opts") ->
     [
-        deprecated_request_timeout()
+        hidden_request_timeout()
         | lists:filter(
             fun({K, _V}) ->
                 not lists:member(K, unsupported_opts())
@@ -195,12 +195,12 @@ name_field() ->
 method() ->
     enum([post, put, get, delete]).
 
-deprecated_request_timeout() ->
+hidden_request_timeout() ->
     {request_timeout,
         mk(
             hoconsc:union([infinity, emqx_schema:duration_ms()]),
             #{
-                default => <<"15s">>,
-                deprecated => {since, "5.0.26"}
+                required => false,
+                importance => ?IMPORTANCE_HIDDEN
             }
         )}.

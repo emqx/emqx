@@ -73,7 +73,7 @@ webhook_config_test() ->
         }
     } = check(Conf3),
     ?assertEqual(60_000, RequestTime),
-    ?assertNot(maps:is_key(<<"requst_timeout">>, ResourceOpts)),
+    ?assertMatch(#{<<"request_timeout">> := 60_000}, ResourceOpts),
     ok.
 
 up(#{<<"bridges">> := Bridges0} = Conf0) ->

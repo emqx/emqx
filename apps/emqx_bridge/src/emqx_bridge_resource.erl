@@ -178,7 +178,7 @@ create(Type, Name, Conf, Opts) ->
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
-        parse_opts(TypeBin, Conf, Opts)
+        parse_opts(Conf, Opts)
     ),
     ok.
 
@@ -245,7 +245,7 @@ recreate(Type, Name, Conf, Opts) ->
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
-        parse_opts(TypeBin, Conf, Opts)
+        parse_opts(Conf, Opts)
     ).
 
 create_dry_run(Type, Conf0) ->
@@ -402,15 +402,8 @@ bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
-parse_opts(Type, Conf, Opts0) ->
-    Opts1 = override_start_after_created(Conf, Opts0),
-    override_resource_request_timeout(Type, Conf, Opts1).
-
-%% Put webhook's http request_timeout into the resource options
-override_resource_request_timeout(<<"webhook">>, #{request_timeout := ReqTimeout}, Opts) ->
-    Opts#{request_timeout => ReqTimeout};
-override_resource_request_timeout(_Type, _Conf, Opts) ->
-    Opts.
+parse_opts(Conf, Opts0) ->
+    override_start_after_created(Conf, Opts0).
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),

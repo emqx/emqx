@@ -223,6 +223,25 @@ node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
 webhook_bridge_converter(Conf0, _HoconOpts) ->
-    emqx_bridge_compatible_config:upgrade_pre_ee(
+    Conf1 = emqx_bridge_compatible_config:upgrade_pre_ee(
         Conf0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
-    ).
+    ),
+    case Conf1 of
+        undefined ->
+            undefined;
+        _ ->
+            maps:map(
+                fun(_Name, Conf) ->
+                    do_convert_webhook_config(Conf)
+                end,
+                Conf1
+            )
+    end.
+
+%% We hide resource_opts.request_timeout from user.
+do_convert_webhook_config(
+    #{<<"request_timeout">> := ReqT, <<"resource_opts">> := ResOpts} = Conf
+) ->
+    Conf#{<<"resource_opts">> => ResOpts#{<<"request_timeout">> => ReqT}};
+do_convert_webhook_config(Conf) ->
+    Conf.
