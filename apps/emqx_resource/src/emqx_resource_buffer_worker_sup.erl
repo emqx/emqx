@@ -115,7 +115,8 @@ ensure_worker_started(ResId, Idx, Opts) ->
         id => ?CHILD_ID(Mod, ResId, Idx),
         start => {Mod, start_link, [ResId, Idx, Opts]},
         restart => transient,
-        shutdown => 5000,
+        %% if we delay shutdown, when the pool is big, it will take a long time
+        shutdown => brutal_kill,
         type => worker,
         modules => [Mod]
     },
@@ -130,13 +131,12 @@ ensure_worker_removed(ResId, Idx) ->
     ChildId = ?CHILD_ID(emqx_resource_buffer_worker, ResId, Idx),
     case supervisor:terminate_child(?SERVER, ChildId) of
         ok ->
-            Res = supervisor:delete_child(?SERVER, ChildId),
-            _ = gproc_pool:remove_worker(ResId, {ResId, Idx}),
-            Res;
-        {error, not_found} ->
+            _ = supervisor:delete_child(?SERVER, ChildId),
+            %% no need to remove worker from the pool,
+            %% because the entire pool will be forece deleted later
             ok;
-        {error, Reason} ->
-            {error, Reason}
+        {error, not_found} ->
+            ok
     end.
 
 ensure_disk_queue_dir_absent(ResourceId, Index) ->
