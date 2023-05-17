@@ -189,8 +189,13 @@ get_config(KeyPath) ->
 
 -spec get_config(emqx_utils_maps:config_key_path(), term()) -> term().
 get_config(KeyPath, Default) ->
-    KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {return, Default}),
-    emqx_config:get(KeyPath1, Default).
+    try
+        KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
+        emqx_config:get(KeyPath1, Default)
+    catch
+        error:config_not_found ->
+            Default
+    end.
 
 -spec get_raw_config(emqx_utils_maps:config_key_path()) -> term().
 get_raw_config(KeyPath) ->
