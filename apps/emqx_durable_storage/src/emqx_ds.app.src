@@ -1,11 +1,11 @@
 %% -*- mode: erlang -*-
-{application, emqx_replay, [
+{application, emqx_ds, [
     {description, "Message persistence and subscription replays for EMQX"},
     % strict semver, bump manually!
     {vsn, "0.1.0"},
     {modules, []},
     {registered, []},
     {applications, [kernel, stdlib, rocksdb, gproc]},
-    {mod, {emqx_replay_app, []}},
+    {mod, {emqx_ds_app, []}},
     {env, []}
 ]}.

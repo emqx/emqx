@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_replay_local_store).
+-module(emqx_ds_local_store).
 
 -behaviour(gen_server).
 
@@ -43,20 +43,20 @@
     %% When should this generation become active?
     %% This generation should only contain messages timestamped no earlier than that.
     %% The very first generation will have `since` equal 0.
-    since := emqx_replay:time()
+    since := emqx_ds:time()
 }.
 
 -record(s, {
-    shard :: emqx_replay:shard(),
+    shard :: emqx_ds:shard(),
     db :: rocksdb:db_handle(),
     cf_iterator :: rocksdb:cf_handle(),
     cf_generations :: cf_refs()
 }).
 
 -record(it, {
-    shard :: emqx_replay:shard(),
+    shard :: emqx_ds:shard(),
     gen :: gen_id(),
-    replay :: emqx_replay:replay(),
+    replay :: emqx_ds:replay(),
     module :: module(),
     data :: term()
 }).
@@ -91,16 +91,16 @@
 -callback create_new(rocksdb:db_handle(), gen_id(), _Options :: term()) ->
     {_Schema, cf_refs()}.
 
--callback open(emqx_replay:shard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
+-callback open(emqx_ds:shard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     term().
 
--callback store(_Schema, binary(), emqx_replay:time(), emqx_replay:topic(), binary()) ->
+-callback store(_Schema, binary(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
 
--callback make_iterator(_Schema, emqx_replay:replay()) ->
+-callback make_iterator(_Schema, emqx_ds:replay()) ->
     {ok, _It} | {error, _}.
 
--callback restore_iterator(_Schema, emqx_replay:replay(), binary()) -> {ok, _It} | {error, _}.
+-callback restore_iterator(_Schema, emqx_ds:replay(), binary()) -> {ok, _It} | {error, _}.
 
 -callback preserve_iterator(_Schema, _It) -> term().
 
@@ -110,24 +110,24 @@
 %% API funcions
 %%================================================================================
 
--spec start_link(emqx_replay:shard()) -> {ok, pid()}.
+-spec start_link(emqx_ds:shard()) -> {ok, pid()}.
 start_link(Shard) ->
     gen_server:start_link(?REF(Shard), ?MODULE, [Shard], []).
 
--spec create_generation(emqx_replay:shard(), emqx_replay:time(), emqx_replay_conf:backend_config()) ->
+-spec create_generation(emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()) ->
     {ok, gen_id()} | {error, nonmonotonic}.
 create_generation(Shard, Since, Config = {_Module, _Options}) ->
     gen_server:call(?REF(Shard), {create_generation, Since, Config}).
 
 -spec store(
-    emqx_replay:shard(), emqx_guid:guid(), emqx_replay:time(), emqx_replay:topic(), binary()
+    emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()
 ) ->
     ok | {error, _}.
 store(Shard, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
     Mod:store(Data, GUID, Time, Topic, Msg).
 
--spec make_iterator(emqx_replay:shard(), emqx_replay:replay()) ->
+-spec make_iterator(emqx_ds:shard(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(Shard, Replay = {_, StartTime}) ->
     {GenId, Gen} = meta_lookup_gen(Shard, StartTime),
@@ -155,12 +155,12 @@ next(It = #it{module = Mod, data = ItData}) ->
             end
     end.
 
--spec preserve_iterator(iterator(), emqx_replay:replay_id()) ->
+-spec preserve_iterator(iterator(), emqx_ds:replay_id()) ->
     ok | {error, _TODO}.
 preserve_iterator(It = #it{}, ReplayID) ->
     iterator_put_state(ReplayID, It).
 
--spec restore_iterator(emqx_replay:shard(), emqx_replay:replay_id()) ->
+-spec restore_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     {ok, iterator()} | {error, _TODO}.
 restore_iterator(Shard, ReplayID) ->
     case iterator_get_state(Shard, ReplayID) of
@@ -172,7 +172,7 @@ restore_iterator(Shard, ReplayID) ->
             Error
     end.
 
--spec discard_iterator(emqx_replay:shard(), emqx_replay:replay_id()) ->
+-spec discard_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     ok | {error, _TODO}.
 discard_iterator(Shard, ReplayID) ->
     iterator_delete(Shard, ReplayID).
@@ -229,14 +229,14 @@ populate_metadata(GenId, S = #s{shard = Shard, db = DBHandle}) ->
 ensure_current_generation(S = #s{shard = Shard, db = DBHandle}) ->
     case schema_get_current(DBHandle) of
         undefined ->
-            Config = emqx_replay_conf:shard_config(Shard),
+            Config = emqx_ds_conf:shard_config(Shard),
             {ok, _, NS} = create_new_gen(0, Config, S),
             NS;
         _GenId ->
             S
     end.
 
--spec create_new_gen(emqx_replay:time(), emqx_replay_conf:backend_config(), state()) ->
+-spec create_new_gen(emqx_ds:time(), emqx_ds_conf:backend_config(), state()) ->
     {ok, gen_id(), state()} | {error, nonmonotonic}.
 create_new_gen(Since, Config, S = #s{shard = Shard, db = DBHandle}) ->
     GenId = get_next_id(meta_get_current(Shard)),
@@ -253,7 +253,7 @@ create_new_gen(Since, Config, S = #s{shard = Shard, db = DBHandle}) ->
             Error
     end.
 
--spec create_gen(gen_id(), emqx_replay:time(), emqx_replay_conf:backend_config(), state()) ->
+-spec create_gen(gen_id(), emqx_ds:time(), emqx_ds_conf:backend_config(), state()) ->
     {ok, generation(), state()}.
 create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations = CFs}) ->
     % TODO: Backend implementation should ensure idempotency.
@@ -265,13 +265,13 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations
     },
     {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
--spec open_db(emqx_replay:shard()) -> {ok, state()} | {error, _TODO}.
+-spec open_db(emqx_ds:shard()) -> {ok, state()} | {error, _TODO}.
 open_db(Shard) ->
     Filename = binary_to_list(Shard),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
-        | emqx_replay_conf:db_options()
+        | emqx_ds_conf:db_options()
     ],
     ExistingCFs =
         case rocksdb:list_column_families(Filename, DBOptions) of
@@ -425,7 +425,7 @@ schema_gen_key(N) ->
 
 -define(PERSISTENT_TERM(SHARD, GEN), {?MODULE, SHARD, GEN}).
 
--spec meta_register_gen(emqx_replay:shard(), gen_id(), generation()) -> ok.
+-spec meta_register_gen(emqx_ds:shard(), gen_id(), generation()) -> ok.
 meta_register_gen(Shard, GenId, Gen) ->
     Gs =
         case GenId > 0 of
@@ -435,7 +435,7 @@ meta_register_gen(Shard, GenId, Gen) ->
     ok = meta_put(Shard, GenId, [Gen | Gs]),
     ok = meta_put(Shard, current, GenId).
 
--spec meta_lookup_gen(emqx_replay:shard(), emqx_replay:time()) -> {gen_id(), generation()}.
+-spec meta_lookup_gen(emqx_ds:shard(), emqx_ds:time()) -> {gen_id(), generation()}.
 meta_lookup_gen(Shard, Time) ->
     % TODO
     % Is cheaper persistent term GC on update here worth extra lookup? I'm leaning
@@ -449,30 +449,30 @@ find_gen(Time, GenId, [Gen = #{since := Since} | _]) when Time >= Since ->
 find_gen(Time, GenId, [_Gen | Rest]) ->
     find_gen(Time, GenId - 1, Rest).
 
--spec meta_get_gen(emqx_replay:shard(), gen_id()) -> generation() | undefined.
+-spec meta_get_gen(emqx_ds:shard(), gen_id()) -> generation() | undefined.
 meta_get_gen(Shard, GenId) ->
     case meta_lookup(Shard, GenId, []) of
         [Gen | _Older] -> Gen;
         [] -> undefined
     end.
 
--spec meta_get_current(emqx_replay:shard()) -> gen_id() | undefined.
+-spec meta_get_current(emqx_ds:shard()) -> gen_id() | undefined.
 meta_get_current(Shard) ->
     meta_lookup(Shard, current, undefined).
 
--spec meta_lookup(emqx_replay:shard(), _K) -> _V.
+-spec meta_lookup(emqx_ds:shard(), _K) -> _V.
 meta_lookup(Shard, K) ->
     persistent_term:get(?PERSISTENT_TERM(Shard, K)).
 
--spec meta_lookup(emqx_replay:shard(), _K, Default) -> _V | Default.
+-spec meta_lookup(emqx_ds:shard(), _K, Default) -> _V | Default.
 meta_lookup(Shard, K, Default) ->
     persistent_term:get(?PERSISTENT_TERM(Shard, K), Default).
 
--spec meta_put(emqx_replay:shard(), _K, _V) -> ok.
+-spec meta_put(emqx_ds:shard(), _K, _V) -> ok.
 meta_put(Shard, K, V) ->
     persistent_term:put(?PERSISTENT_TERM(Shard, K), V).
 
--spec meta_erase(emqx_replay:shard()) -> ok.
+-spec meta_erase(emqx_ds:shard()) -> ok.
 meta_erase(Shard) ->
     [
         persistent_term:erase(K)

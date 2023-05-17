@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_replay_message_storage).
+-module(emqx_ds_message_storage).
 
 %%================================================================================
 %% @doc Description of the schema
@@ -128,8 +128,8 @@
 %% Type declarations
 %%================================================================================
 
--type topic() :: emqx_replay:topic().
--type time() :: emqx_replay:time().
+-type topic() :: emqx_ds:topic().
+-type time() :: emqx_ds:time().
 
 %% Number of bits
 -type bits() :: non_neg_integer().
@@ -152,7 +152,7 @@
 
     iteration => iteration_options(),
 
-    cf_options => emqx_replay_local_store:db_cf_options()
+    cf_options => emqx_ds_local_store:db_cf_options()
 }.
 
 -type iteration_options() :: #{
@@ -170,12 +170,12 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
-    shard :: emqx_replay:shard(),
+    shard :: emqx_ds:shard(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
-    write_options = [{sync, true}] :: emqx_replay_local_store:db_write_options(),
-    read_options = [] :: emqx_replay_local_store:db_write_options()
+    write_options = [{sync, true}] :: emqx_ds_local_store:db_write_options(),
+    read_options = [] :: emqx_ds_local_store:db_write_options()
 }).
 
 -record(it, {
@@ -221,8 +221,8 @@
 %%================================================================================
 
 %% Create a new column family for the generation and a serializable representation of the schema
--spec create_new(rocksdb:db_handle(), emqx_replay_local_store:gen_id(), options()) ->
-    {schema(), emqx_replay_local_store:cf_refs()}.
+-spec create_new(rocksdb:db_handle(), emqx_ds_local_store:gen_id(), options()) ->
+    {schema(), emqx_ds_local_store:cf_refs()}.
 create_new(DBHandle, GenId, Options) ->
     CFName = data_cf(GenId),
     CFOptions = maps:get(cf_options, Options, []),
@@ -232,10 +232,10 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
-    emqx_replay:shard(),
+    emqx_ds:shard(),
     rocksdb:db_handle(),
-    emqx_replay_local_store:gen_id(),
-    emqx_replay_local_store:cf_refs(),
+    emqx_ds_local_store:gen_id(),
+    emqx_ds_local_store:cf_refs(),
     schema()
 ) ->
     db().
@@ -277,13 +277,13 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
     Value = make_message_value(Topic, MessagePayload),
     rocksdb:put(DBHandle, CFHandle, Key, Value, DB#db.write_options).
 
--spec make_iterator(db(), emqx_replay:replay()) ->
+-spec make_iterator(db(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(DB, Replay) ->
-    Options = emqx_replay_conf:shard_iteration_options(DB#db.shard),
+    Options = emqx_ds_conf:shard_iteration_options(DB#db.shard),
     make_iterator(DB, Replay, Options).
 
--spec make_iterator(db(), emqx_replay:replay(), iteration_options()) ->
+-spec make_iterator(db(), emqx_ds:replay(), iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time
     % and call it a day: client violated the contract anyway.
     {ok, iterator()} | {error, _TODO}.
@@ -337,7 +337,7 @@ preserve_iterator(#it{cursor = Cursor}) ->
     },
     term_to_binary(State).
 
--spec restore_iterator(db(), emqx_replay:replay(), binary()) ->
+-spec restore_iterator(db(), emqx_ds:replay(), binary()) ->
     {ok, iterator()} | {error, _TODO}.
 restore_iterator(DB, Replay, Serial) when is_binary(Serial) ->
     State = binary_to_term(Serial),
@@ -419,7 +419,7 @@ hash(Input, Bits) ->
     % at most 32 bits
     erlang:phash2(Input, 1 bsl Bits).
 
--spec make_keyspace_filter(emqx_replay:replay(), keymapper()) -> keyspace_filter().
+-spec make_keyspace_filter(emqx_ds:replay(), keymapper()) -> keyspace_filter().
 make_keyspace_filter({TopicFilter, StartTime}, Keymapper) ->
     Bitstring = compute_bitstring(TopicFilter, StartTime, Keymapper),
     HashBitmask = compute_topic_bitmask(TopicFilter, Keymapper),
@@ -710,7 +710,7 @@ substring(I, Offset, Size) ->
     (I bsr Offset) band ones(Size).
 
 %% @doc Generate a column family ID for the MQTT messages
--spec data_cf(emqx_replay_local_store:gen_id()) -> [char()].
+-spec data_cf(emqx_ds_local_store:gen_id()) -> [char()].
 data_cf(GenId) ->
     ?MODULE_STRING ++ integer_to_list(GenId).
 

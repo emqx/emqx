@@ -2,7 +2,7 @@
 %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_replay_message_storage_shim).
+-module(emqx_ds_message_storage_shim).
 
 -export([open/0]).
 -export([close/1]).
@@ -29,7 +29,7 @@ store(Tab, MessageID, PublishedAt, Topic, Payload) ->
     true = ets:insert(Tab, {{PublishedAt, MessageID}, Topic, Payload}),
     ok.
 
--spec iterate(t(), emqx_replay:replay()) ->
+-spec iterate(t(), emqx_ds:replay()) ->
     [binary()].
 iterate(Tab, {TopicFilter, StartTime}) ->
     ets:foldr(

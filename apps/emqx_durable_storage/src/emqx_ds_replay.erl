@@ -1,52 +1,47 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_replay_sup).
-
--behaviour(supervisor).
+-module(emqx_ds_replay).
 
 %% API:
--export([start_link/0]).
+-export([]).
 
-%% behaviour callbacks:
--export([init/1]).
+-export_type([topic/0, time/0, shard/0]).
+-export_type([replay_id/0, replay/0]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
--define(SUP, ?MODULE).
+%% parsed
+-type topic() :: list(binary()).
+
+-type shard() :: binary().
+
+%% Timestamp
+%% Earliest possible timestamp is 0.
+%% TODO granularity?
+-type time() :: non_neg_integer().
+
+-type replay_id() :: binary().
+
+-type replay() :: {
+    _TopicFilter :: topic(),
+    _StartTime :: time()
+}.
 
 %%================================================================================
 %% API funcions
 %%================================================================================
 
--spec start_link() -> {ok, pid()}.
-start_link() ->
-    supervisor:start_link({local, ?SUP}, ?MODULE, []).
-
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
 
-init([]) ->
-    Children = [shard_sup()],
-    SupFlags = #{
-        strategy => one_for_all,
-        intensity => 0,
-        period => 1
-    },
-    {ok, {SupFlags, Children}}.
+%%================================================================================
+%% Internal exports
+%%================================================================================
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-shard_sup() ->
-    #{
-        id => local_store_shard_sup,
-        start => {emqx_replay_local_store_sup, start_link, []},
-        restart => permanent,
-        type => supervisor,
-        shutdown => infinity
-    }.

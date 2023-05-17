@@ -1,6 +1,6 @@
 # EMQX Replay
 
-`emqx_replay` is a durable storage for MQTT messages within EMQX.
+`emqx_ds` is a durable storage for MQTT messages within EMQX.
 It implements the following scenarios:
 - Persisting messages published by clients
 -

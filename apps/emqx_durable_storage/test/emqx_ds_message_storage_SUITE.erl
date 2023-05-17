@@ -1,14 +1,14 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_replay_message_storage_SUITE).
+-module(emqx_ds_message_storage_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include_lib("stdlib/include/assert.hrl").
 
--import(emqx_replay_message_storage, [
+-import(emqx_ds_message_storage, [
     make_keymapper/1,
     keymapper_info/1,
     compute_topic_bitmask/2,
