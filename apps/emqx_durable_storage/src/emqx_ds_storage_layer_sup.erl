@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_local_store_sup).
+-module(emqx_ds_storage_layer_sup).
 
 -behaviour(supervisor).
 
@@ -55,7 +55,7 @@ init([]) ->
 shard_child_spec(Shard) ->
     #{
         id => Shard,
-        start => {emqx_ds_local_store, start_link, [Shard]},
+        start => {emqx_ds_storage_layer, start_link, [Shard]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

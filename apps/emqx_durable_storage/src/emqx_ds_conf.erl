@@ -55,6 +55,6 @@ default_shard_config() ->
         }
     }}.
 
--spec db_options() -> emqx_ds_local_store:db_options().
+-spec db_options() -> emqx_ds_storage_layer:db_options().
 db_options() ->
     application:get_env(?APP, db_options, []).

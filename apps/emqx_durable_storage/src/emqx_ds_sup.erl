@@ -45,7 +45,7 @@ init([]) ->
 shard_sup() ->
     #{
         id => local_store_shard_sup,
-        start => {emqx_ds_local_store_sup, start_link, []},
+        start => {emqx_ds_storage_layer_sup, start_link, []},
         restart => permanent,
         type => supervisor,
         shutdown => infinity

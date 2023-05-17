@@ -152,7 +152,7 @@
 
     iteration => iteration_options(),
 
-    cf_options => emqx_ds_local_store:db_cf_options()
+    cf_options => emqx_ds_storage_layer:db_cf_options()
 }.
 
 -type iteration_options() :: #{
@@ -174,8 +174,8 @@
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
-    write_options = [{sync, true}] :: emqx_ds_local_store:db_write_options(),
-    read_options = [] :: emqx_ds_local_store:db_write_options()
+    write_options = [{sync, true}] :: emqx_ds_storage_layer:db_write_options(),
+    read_options = [] :: emqx_ds_storage_layer:db_write_options()
 }).
 
 -record(it, {
@@ -221,8 +221,8 @@
 %%================================================================================
 
 %% Create a new column family for the generation and a serializable representation of the schema
--spec create_new(rocksdb:db_handle(), emqx_ds_local_store:gen_id(), options()) ->
-    {schema(), emqx_ds_local_store:cf_refs()}.
+-spec create_new(rocksdb:db_handle(), emqx_ds_storage_layer:gen_id(), options()) ->
+    {schema(), emqx_ds_storage_layer:cf_refs()}.
 create_new(DBHandle, GenId, Options) ->
     CFName = data_cf(GenId),
     CFOptions = maps:get(cf_options, Options, []),
@@ -234,8 +234,8 @@ create_new(DBHandle, GenId, Options) ->
 -spec open(
     emqx_ds:shard(),
     rocksdb:db_handle(),
-    emqx_ds_local_store:gen_id(),
-    emqx_ds_local_store:cf_refs(),
+    emqx_ds_storage_layer:gen_id(),
+    emqx_ds_storage_layer:cf_refs(),
     schema()
 ) ->
     db().
@@ -710,7 +710,7 @@ substring(I, Offset, Size) ->
     (I bsr Offset) band ones(Size).
 
 %% @doc Generate a column family ID for the MQTT messages
--spec data_cf(emqx_ds_local_store:gen_id()) -> [char()].
+-spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 data_cf(GenId) ->
     ?MODULE_STRING ++ integer_to_list(GenId).
 
