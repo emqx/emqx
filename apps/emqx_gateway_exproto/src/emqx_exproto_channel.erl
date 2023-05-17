@@ -297,7 +297,7 @@ handle_timeout(
             NChannel = remove_timer_ref(alive_timer, Channel),
             %% close connection if keepalive timeout
             Replies = [{event, disconnected}, {close, keepalive_timeout}],
-            NChannel1 = dispatch(on_timer_timeout, Req, NChannel),
+            NChannel1 = dispatch(on_timer_timeout, Req, NChannel#channel{closed_reason = keepalive_timeout}),
             {ok, Replies, NChannel1}
     end;
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
@@ -497,7 +497,7 @@ handle_cast(Req, Channel) ->
     | {shutdown, Reason :: term(), channel()}.
 handle_info(
     {sock_closed, Reason},
-    Channel = #channel{gcli = GClient}
+    Channel = #channel{gcli = GClient, closed_reason = ClosedReason}
 ) ->
     case emqx_exproto_gcli:is_empty(GClient) of
         true ->
@@ -505,7 +505,12 @@ handle_info(
             {shutdown, Reason, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
-            Channel1 = Channel#channel{closed_reason = Reason},
+            Channel1 = case ClosedReason of
+                           undefined ->
+                               Channel#channel{closed_reason = Reason};
+                           _ ->
+                               Channel
+                       end,
             Channel2 = ensure_timer(force_timer, Channel1),
             {ok, ensure_disconnected(Reason, Channel2)}
     end;
