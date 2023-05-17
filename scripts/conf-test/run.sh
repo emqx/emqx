@@ -16,12 +16,12 @@ start_emqx_with_conf() {
 MINOR_VSN=$(./pkg-vsn.sh "$PROFILE" | cut -d. -f1,2)
 
 if [ "$PROFILE" = "emqx" ]; then
-  EDITION="ce"
+  PREFIX="v"
 else
-  EDITION="ee"
+  PREFIX="e"
 fi
 
-FILES=$(ls ./scripts/conf-test/old-confs/$EDITION-v"$MINOR_VSN"*)
+FILES=$(ls ./scripts/conf-test/old-confs/$PREFIX"$MINOR_VSN"*)
 
 cp "$EMQX_ROOT"/etc/emqx.conf "$EMQX_ROOT"/etc/emqx.conf.bak
 cleanup() {
