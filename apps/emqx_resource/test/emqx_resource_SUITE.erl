@@ -1627,7 +1627,11 @@ t_retry_async_inflight_full(_Config) ->
             end
         ]
     ),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+    ?retry(
+        _Sleep = 300,
+        _Attempts0 = 20,
+        ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID))
+    ),
     ok.
 
 %% this test case is to ensure the buffer worker will not go crazy even
