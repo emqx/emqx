@@ -376,8 +376,8 @@ defmodule EMQXUmbrella.MixProject do
         emqx_prometheus: :permanent,
         emqx_psk: :permanent,
         emqx_slow_subs: :permanent,
-        emqx_plugins: :permanent,
         emqx_mongodb: :permanent,
+        emqx_plugins: :permanent,
         emqx_mix: :none
       ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
