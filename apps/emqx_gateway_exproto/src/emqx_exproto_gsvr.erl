@@ -176,6 +176,8 @@ call(ConnStr, Req) ->
             {error, ?RESP_PARAMS_TYPE_ERROR, <<"The conn type error">>};
         exit:noproc ->
             {error, ?RESP_CONN_PROCESS_NOT_ALIVE, <<"Connection process is not alive">>};
+        exit:{noproc, _} ->
+            {error, ?RESP_CONN_PROCESS_NOT_ALIVE, <<"Connection process is not alive">>};
         exit:timeout ->
             {error, ?RESP_UNKNOWN, <<"Connection is not answered">>};
         Class:Reason:Stk ->
