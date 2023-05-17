@@ -617,6 +617,24 @@ t_extract_with_type(_) ->
         )
     ).
 
+t_add_bucket(_) ->
+    Checker = fun(Size) ->
+        #{buckets := Buckets} = sys:get_state(emqx_limiter_server:whereis(bytes)),
+        ?assertEqual(Size, maps:size(Buckets), Buckets)
+    end,
+    DefBucket = emqx_limiter_schema:default_bucket_config(),
+    ?assertEqual(ok, emqx_limiter_server:add_bucket(?FUNCTION_NAME, bytes, undefined)),
+    Checker(0),
+    ?assertEqual(ok, emqx_limiter_server:add_bucket(?FUNCTION_NAME, bytes, DefBucket)),
+    Checker(0),
+    ?assertEqual(
+        ok, emqx_limiter_server:add_bucket(?FUNCTION_NAME, bytes, DefBucket#{rate := 100})
+    ),
+    Checker(1),
+    ?assertEqual(ok, emqx_limiter_server:del_bucket(?FUNCTION_NAME, bytes)),
+    Checker(0),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test Cases  Create Instance
 %%--------------------------------------------------------------------

@@ -36,6 +36,7 @@
     calc_capacity/1,
     extract_with_type/2,
     default_client_config/0,
+    default_bucket_config/0,
     short_paths_fields/1,
     get_listener_opts/1,
     get_node_opts/1,
