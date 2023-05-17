@@ -1794,11 +1794,12 @@ t_sqlparse_foreach_7(_Config) ->
         )
     ).
 
+-define(COLL, #{<<"info">> := [<<"haha">>, #{<<"name">> := <<"cmd1">>, <<"cmd">> := <<"1">>}]}).
 t_sqlparse_foreach_8(_Config) ->
     %% Verify foreach-do-incase and cascaded AS
     Sql =
         "foreach json_decode(payload) as p, p.sensors as s, s.collection as c, c.info as info "
-        "do info.cmd as msg_type, info.name as name "
+        "do info.cmd as msg_type, info.name as name, s, c "
         "incase is_map(info) "
         "from \"t/#\" "
         "where s.page = '2' ",
@@ -1807,7 +1808,14 @@ t_sqlparse_foreach_8(_Config) ->
         "{\"info\":[\"haha\", {\"name\":\"cmd1\", \"cmd\":\"1\"}]} } }"
     >>,
     ?assertMatch(
-        {ok, [#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}]},
+        {ok, [
+            #{
+                <<"name">> := <<"cmd1">>,
+                <<"msg_type">> := <<"1">>,
+                <<"s">> := #{<<"page">> := 2, <<"collection">> := ?COLL},
+                <<"c">> := ?COLL
+            }
+        ]},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql,

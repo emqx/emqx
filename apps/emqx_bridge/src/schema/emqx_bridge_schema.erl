@@ -238,36 +238,10 @@ webhook_bridge_converter(Conf0, _HoconOpts) ->
             )
     end.
 
+%% We hide resource_opts.request_timeout from user.
 do_convert_webhook_config(
-    #{<<"request_timeout">> := ReqT, <<"resource_opts">> := #{<<"request_timeout">> := ReqT}} = Conf
+    #{<<"request_timeout">> := ReqT, <<"resource_opts">> := ResOpts} = Conf
 ) ->
-    %% ok: same values
-    Conf;
-do_convert_webhook_config(
-    #{
-        <<"request_timeout">> := ReqTRootRaw,
-        <<"resource_opts">> := #{<<"request_timeout">> := ReqTResourceRaw}
-    } = Conf0
-) ->
-    %% different values; we set them to the same, if they are valid
-    %% durations
-    MReqTRoot = emqx_schema:to_duration_ms(ReqTRootRaw),
-    MReqTResource = emqx_schema:to_duration_ms(ReqTResourceRaw),
-    case {MReqTRoot, MReqTResource} of
-        {{ok, ReqTRoot}, {ok, ReqTResource}} ->
-            {_Parsed, ReqTRaw} = max({ReqTRoot, ReqTRootRaw}, {ReqTResource, ReqTResourceRaw}),
-            Conf1 = emqx_utils_maps:deep_merge(
-                Conf0,
-                #{
-                    <<"request_timeout">> => ReqTRaw,
-                    <<"resource_opts">> => #{<<"request_timeout">> => ReqTRaw}
-                }
-            ),
-            Conf1;
-        _ ->
-            %% invalid values; let the type checker complain about
-            %% that.
-            Conf0
-    end;
+    Conf#{<<"resource_opts">> => ResOpts#{<<"request_timeout">> => ReqT}};
 do_convert_webhook_config(Conf) ->
     Conf.
