@@ -687,11 +687,15 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
     ).
 
 is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx:get_config([bridges, BridgeType, binary_to_atom(BridgeName)]) of
+    try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, false)
     catch
         error:{config_not_found, _} ->
+            throw(not_found);
+        error:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
             throw(not_found)
     end.
 
