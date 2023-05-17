@@ -4,4 +4,3 @@ mongo_rs_sharded
 mysql
 redis
 redis_cluster
-clickhouse

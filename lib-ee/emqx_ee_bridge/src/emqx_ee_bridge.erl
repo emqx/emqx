@@ -32,9 +32,9 @@ api_schemas(Method) ->
         ref(emqx_bridge_timescale, Method),
         ref(emqx_bridge_matrix, Method),
         ref(emqx_bridge_tdengine, Method),
-        ref(emqx_ee_bridge_clickhouse, Method),
         ref(emqx_bridge_dynamo, Method),
         ref(emqx_bridge_rocketmq, Method),
+        ref(emqx_bridge_clickhouse, Method),
         ref(emqx_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
         ref(emqx_bridge_pulsar, Method ++ "_producer"),
@@ -57,7 +57,7 @@ schema_modules() ->
         emqx_bridge_timescale,
         emqx_bridge_matrix,
         emqx_bridge_tdengine,
-        emqx_ee_bridge_clickhouse,
+        emqx_bridge_clickhouse,
         emqx_bridge_dynamo,
         emqx_bridge_rocketmq,
         emqx_bridge_sqlserver,
@@ -101,7 +101,7 @@ resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
 resource_type(tdengine) -> emqx_bridge_tdengine_connector;
-resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
+resource_type(clickhouse) -> emqx_bridge_clickhouse_connector;
 resource_type(dynamo) -> emqx_bridge_dynamo_connector;
 resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
@@ -297,7 +297,7 @@ clickhouse_structs() ->
     [
         {clickhouse,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
+                hoconsc:map(name, ref(emqx_bridge_clickhouse, "config")),
                 #{
                     desc => <<"Clickhouse Bridge Config">>,
                     required => false

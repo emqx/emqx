@@ -2,7 +2,7 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_connector_clickhouse_SUITE).
+-module(emqx_bridge_clickhouse_connector_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -13,7 +13,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(CLICKHOUSE_HOST, "clickhouse").
--define(CLICKHOUSE_RESOURCE_MOD, emqx_ee_connector_clickhouse).
+-define(CLICKHOUSE_RESOURCE_MOD, emqx_bridge_clickhouse_connector).
 
 %% This test SUITE requires a running clickhouse instance. If you don't want to
 %% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script
@@ -21,7 +21,15 @@
 %% from root of the EMQX directory.). You also need to set ?CLICKHOUSE_HOST and
 %% ?CLICKHOUSE_PORT to appropriate values.
 %%
-%% docker run -d -p 18123:8123 -p19000:9000 --name some-clickhouse-server --ulimit nofile=262144:262144 -v "`pwd`/.ci/docker-compose-file/clickhouse/users.xml:/etc/clickhouse-server/users.xml" -v "`pwd`/.ci/docker-compose-file/clickhouse/config.xml:/etc/clickhouse-server/config.xml" clickhouse/clickhouse-server
+%% docker run \
+%%    -d \
+%%    -p 18123:8123 \
+%%    -p 19000:9000 \
+%%    --name some-clickhouse-server \
+%%    --ulimit nofile=262144:262144 \
+%%    -v "`pwd`/.ci/docker-compose-file/clickhouse/users.xml:/etc/clickhouse-server/users.xml" \
+%%    -v "`pwd`/.ci/docker-compose-file/clickhouse/config.xml:/etc/clickhouse-server/config.xml" \
+%%    clickhouse/clickhouse-server
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -119,7 +127,6 @@ perform_lifecycle_check(ResourceID, InitialConfig) ->
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceID)),
     % % Perform query as further check that the resource is working as expected
     (fun() ->
-        erlang:display({pool_name, ResourceID}),
         QueryNoParamsResWrapper = emqx_resource:query(ResourceID, test_query_no_params()),
         ?assertMatch({ok, _}, QueryNoParamsResWrapper),
         {_, QueryNoParamsRes} = QueryNoParamsResWrapper,

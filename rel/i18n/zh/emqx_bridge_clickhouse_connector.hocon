@@ -1,4 +1,4 @@
-emqx_ee_connector_clickhouse {
+emqx_bridge_clickhouse_connector {
 
 base_url.desc:
 """你想连接到的Clickhouse服务器的HTTP URL（例如http://myhostname:8123）。"""

@@ -2,17 +2,16 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_bridge_clickhouse_SUITE).
+-module(emqx_bridge_clickhouse_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
 -define(CLICKHOUSE_HOST, "clickhouse").
--define(CLICKHOUSE_RESOURCE_MOD, emqx_ee_connector_clickhouse).
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 %% See comment in
-%% lib-ee/emqx_ee_connector/test/ee_connector_clickhouse_SUITE.erl for how to
+%% lib-ee/emqx_ee_connector/test/ee_bridge_clickhouse_connector_SUITE.erl for how to
 %% run this without bringing up the whole CI infrastucture
 
 %%------------------------------------------------------------------------------

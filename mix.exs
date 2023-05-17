@@ -158,7 +158,6 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_gcp_pubsub,
       :emqx_bridge_cassandra,
       :emqx_bridge_opents,
-      :emqx_bridge_clickhouse,
       :emqx_bridge_dynamo,
       :emqx_bridge_hstreamdb,
       :emqx_bridge_influxdb,
@@ -175,7 +174,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_pulsar,
       :emqx_oracle,
       :emqx_bridge_oracle,
-      :emqx_bridge_rabbitmq
+      :emqx_bridge_rabbitmq,
+      :emqx_bridge_clickhouse
     ])
   end
 

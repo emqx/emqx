@@ -1,4 +1,4 @@
-emqx_ee_bridge_clickhouse {
+emqx_bridge_clickhouse {
 
 batch_value_separator.desc:
 """The default value ',' works for the VALUES format. You can also use other separator if other format is specified. See [INSERT INTO Statement](https://clickhouse.com/docs/en/sql-reference/statements/insert-into)."""

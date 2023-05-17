@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_clickhouse).
+-module(emqx_bridge_clickhouse).
 
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -101,7 +101,7 @@ fields("config") ->
                 }
             )}
     ] ++
-        emqx_ee_connector_clickhouse:fields(config);
+        emqx_bridge_clickhouse_connector:fields(config);
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts");
 fields("post") ->

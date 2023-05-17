@@ -1,4 +1,4 @@
-emqx_ee_connector_clickhouse {
+emqx_bridge_clickhouse_connector {
 
 base_url.desc:
 """The HTTP URL to the Clickhouse server that you want to connect to (for example http://myhostname:8123)"""
