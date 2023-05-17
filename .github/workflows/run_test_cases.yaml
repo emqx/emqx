@@ -109,7 +109,9 @@ jobs:
       - uses: actions/cache@v3
         with:
           path: "source/emqx_dialyzer_${{ matrix.otp }}_plt"
-          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}
+          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('source/rebar.*', 'source/apps/*/rebar.*', 'source/lib-ee/*/rebar.*') }}
+          restore-keys: |
+            rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-
       - name: run static checks
         env:
           PROFILE: ${{ matrix.profile }}
