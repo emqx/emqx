@@ -769,6 +769,7 @@ mark_channel_connected(ChanPid) ->
 mark_channel_disconnected(ChanPid) ->
     ?tp(emqx_cm_connected_client_count_dec, #{chan_pid => ChanPid}),
     ets:delete(?CHAN_LIVE_TAB, ChanPid),
+    ?tp(emqx_cm_connected_client_count_dec_done, #{chan_pid => ChanPid}),
     ok.
 
 get_connected_client_count() ->
