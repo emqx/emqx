@@ -882,6 +882,29 @@ format_metrics(#{
         Rate5m,
         RateMax,
         Rcvd
+    );
+format_metrics(_Metrics) ->
+    %% Empty metrics: can happen when a node joins another and a
+    %% bridge is not yet replicated to it, so the counters map is
+    %% empty.
+    ?METRICS(
+        _Dropped = 0,
+        _DroppedOther = 0,
+        _DroppedExpired = 0,
+        _DroppedQueueFull = 0,
+        _DroppedResourceNotFound = 0,
+        _DroppedResourceStopped = 0,
+        _Matched = 0,
+        _Queued = 0,
+        _Retried = 0,
+        _LateReply = 0,
+        _SentFailed = 0,
+        _SentInflight = 0,
+        _SentSucc = 0,
+        _Rate = 0,
+        _Rate5m = 0,
+        _RateMax = 0,
+        _Rcvd = 0
     ).
 
 fill_defaults(Type, RawConf) ->
