@@ -155,28 +155,71 @@ set_special_configs(_App) ->
     <<"ssl">> => #{<<"enable">> => false},
     <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
 }).
--define(SOURCE6, #{
+
+-define(FILE_SOURCE(Rules), #{
     <<"type">> => <<"file">>,
     <<"enable">> => true,
-    <<"rules">> =>
+    <<"rules">> => Rules
+}).
+
+-define(SOURCE6,
+    ?FILE_SOURCE(
         <<
             "{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
             "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
         >>
-}).
--define(SOURCE7, #{
+    )
+).
+-define(SOURCE7,
+    ?FILE_SOURCE(
+        <<
+            "{allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}.\n"
+            "{deny, all}."
+        >>
+    )
+).
+
+-define(BAD_FILE_SOURCE2, #{
     <<"type">> => <<"file">>,
     <<"enable">> => true,
     <<"rules">> =>
         <<
-            "{allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}.\n"
-            "{deny, all}."
+            "{not_allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}."
         >>
 }).
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+
+-define(UPDATE_ERROR(Err), {error, {pre_config_update, emqx_authz, Err}}).
+
+t_bad_file_source(_) ->
+    BadContent = ?FILE_SOURCE(<<"{allow,{username,\"bar\"}, publish, [\"test\"]}">>),
+    BadContentErr = {bad_acl_file_content, {1, erl_parse, ["syntax error before: ", []]}},
+    BadRule = ?FILE_SOURCE(<<"{allow,{username,\"bar\"},publish}.">>),
+    BadRuleErr = {invalid_authorization_rule, {allow, {username, "bar"}, publish}},
+    BadPermission = ?FILE_SOURCE(<<"{not_allow,{username,\"bar\"},publish,[\"test\"]}.">>),
+    BadPermissionErr = {invalid_authorization_permission, not_allow},
+    BadAction = ?FILE_SOURCE(<<"{allow,{username,\"bar\"},pubsub,[\"test\"]}.">>),
+    BadActionErr = {invalid_authorization_action, pubsub},
+    lists:foreach(
+        fun({Source, Error}) ->
+            ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_REPLACE, [Source])),
+            ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_PREPEND, Source)),
+            ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_APPEND, Source))
+        end,
+        [
+            {BadContent, BadContentErr},
+            {BadRule, BadRuleErr},
+            {BadPermission, BadPermissionErr},
+            {BadAction, BadActionErr}
+        ]
+    ),
+    ?assertMatch(
+        [],
+        emqx_conf:get([authorization, sources], [])
+    ).
 
 t_update_source(_) ->
     %% replace all
