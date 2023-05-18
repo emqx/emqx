@@ -175,11 +175,14 @@ insert_channel_info(ClientId, Info, Stats) ->
 %% Note that: It should be called on a lock transaction
 register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
     Chan = {ClientId, ChanPid},
+    %% We have to call `cast/1` before `ets:insert/2` to prevent data leakage
+    %% in ETS tables in case the process dies before being monitored.
+    cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
-    cast({registered, Chan}).
+    ok.
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
@@ -517,6 +520,8 @@ force_kill(Pid) ->
     exit(Pid, kill),
     ok.
 
+stale_channel_info(Pid) when node(Pid) =/= node() ->
+    non_local_proc_info;
 stale_channel_info(Pid) ->
     process_info(Pid, [status, message_queue_len, current_stacktrace]).
 
