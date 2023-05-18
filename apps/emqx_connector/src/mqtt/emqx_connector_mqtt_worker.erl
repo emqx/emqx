@@ -202,13 +202,13 @@ connect(Name) ->
                     Error
             end;
         {error, Reason} = Error ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "client_connect_failed",
-                reason => Reason
+                reason => Reason,
+                name => Name
             }),
             Error
     end.
-
 subscribe_remote_topics(Ref, #{remote := #{topic := FromTopic, qos := QoS}}) ->
     emqtt:subscribe(ref(Ref), FromTopic, QoS);
 subscribe_remote_topics(_Ref, undefined) ->
