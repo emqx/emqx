@@ -51,11 +51,39 @@ post_request() ->
 
 api_schema(Method) ->
     Broker = [
-        ref(Mod, Method)
-     || Mod <- [emqx_bridge_webhook_schema, emqx_bridge_mqtt_schema]
+        {Type, ref(Mod, Method)}
+     || {Type, Mod} <- [
+            {<<"webhook">>, emqx_bridge_webhook_schema},
+            {<<"mqtt">>, emqx_bridge_mqtt_schema}
+        ]
     ],
     EE = ee_api_schemas(Method),
-    hoconsc:union(Broker ++ EE).
+    hoconsc:union(bridge_api_union(Broker ++ EE)).
+
+bridge_api_union(Refs) ->
+    Index = maps:from_list(Refs),
+    fun
+        (all_union_members) ->
+            maps:values(Index);
+        ({value, V}) ->
+            case V of
+                #{<<"type">> := T} ->
+                    case maps:get(T, Index, undefined) of
+                        undefined ->
+                            throw(#{
+                                field_name => type,
+                                reason => <<"unknown bridge type">>
+                            });
+                        Ref ->
+                            [Ref]
+                    end;
+                _ ->
+                    throw(#{
+                        field_name => type,
+                        reason => <<"unknown bridge type">>
+                    })
+            end
+    end.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 ee_api_schemas(Method) ->
