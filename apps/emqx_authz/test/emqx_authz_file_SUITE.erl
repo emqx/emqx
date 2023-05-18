@@ -120,7 +120,9 @@ t_superuser(_Config) ->
 
 t_invalid_file(_Config) ->
     ?assertMatch(
-        {error, bad_acl_file_content},
+        {error,
+            {pre_config_update, emqx_authz,
+                {bad_acl_file_content, {1, erl_parse, ["syntax error before: ", "term"]}}}},
         emqx_authz:update(?CMD_REPLACE, [?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>}])
     ).
 

@@ -54,7 +54,7 @@ create(#{path := Path0} = Source) ->
                 throw(failed_to_read_acl_file);
             {error, Reason} ->
                 ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
-                throw(bad_acl_file_content)
+                throw({bad_acl_file_content, Reason})
         end,
     Source#{annotations => #{rules => Rules}}.
 
