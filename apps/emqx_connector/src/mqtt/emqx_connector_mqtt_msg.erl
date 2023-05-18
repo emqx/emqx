@@ -17,12 +17,9 @@
 -module(emqx_connector_mqtt_msg).
 
 -export([
-    to_binary/1,
-    from_binary/1,
     make_pub_vars/2,
     to_remote_msg/2,
-    to_broker_msg/3,
-    estimate_size/1
+    to_broker_msg/3
 ]).
 
 -export([
@@ -142,25 +139,6 @@ replace_simple_var(Tokens, Data) when is_list(Tokens) ->
     Var;
 replace_simple_var(Val, _Data) ->
     Val.
-
-%% @doc Make `binary()' in order to make iodata to be persisted on disk.
--spec to_binary(msg()) -> binary().
-to_binary(Msg) -> term_to_binary(Msg).
-
-%% @doc Unmarshal binary into `msg()'.
--spec from_binary(binary()) -> msg().
-from_binary(Bin) -> binary_to_term(Bin).
-
-%% @doc Estimate the size of a message.
-%% Count only the topic length + payload size
-%% There is no topic and payload for event message. So count all `Msg` term
--spec estimate_size(msg()) -> integer().
-estimate_size(#message{topic = Topic, payload = Payload}) ->
-    size(Topic) + size(Payload);
-estimate_size(#{topic := Topic, payload := Payload}) ->
-    size(Topic) + size(Payload);
-estimate_size(Term) ->
-    erlang:external_size(Term).
 
 set_headers(Val, Msg) ->
     emqx_message:set_headers(Val, Msg).

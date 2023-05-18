@@ -15,10 +15,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_mqtt).
 
--include("emqx_connector.hrl").
-
--include_lib("typerefl/include/types.hrl").
--include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(supervisor).
@@ -46,52 +42,6 @@
 ]).
 
 -export([on_async_result/2]).
-
--behaviour(hocon_schema).
-
--import(hoconsc, [mk/2]).
-
--export([
-    roots/0,
-    fields/1
-]).
-
-%%=====================================================================
-%% Hocon schema
-roots() ->
-    fields("config").
-
-fields("config") ->
-    emqx_connector_mqtt_schema:fields("config");
-fields("get") ->
-    [
-        {num_of_bridges,
-            mk(
-                integer(),
-                #{desc => ?DESC("num_of_bridges")}
-            )}
-    ] ++ fields("post");
-fields("put") ->
-    emqx_connector_mqtt_schema:fields("server_configs");
-fields("post") ->
-    [
-        {type,
-            mk(
-                mqtt,
-                #{
-                    required => true,
-                    desc => ?DESC("type")
-                }
-            )},
-        {name,
-            mk(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("name")
-                }
-            )}
-    ] ++ fields("put").
 
 %% ===================================================================
 %% supervisor APIs
@@ -313,7 +263,7 @@ maybe_put_fields(Fields, Conf, Acc0) ->
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Id, _Conf = #{clientid_prefix := Prefix = <<_/binary>>}) ->
+clientid(Id, _Conf = #{clientid_prefix := Prefix}) when is_binary(Prefix) ->
     iolist_to_binary([Prefix, ":", Id, ":", atom_to_list(node())]);
 clientid(Id, _Conf) ->
     iolist_to_binary([Id, ":", atom_to_list(node())]).
