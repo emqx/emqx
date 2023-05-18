@@ -33,9 +33,13 @@
 -export([strategy/0]).
 -endif.
 
+%% The takeover timeout (T_TAKEOVER) in emqx_cm is 15s, we should use a sufficent expiration
+%% time to avoid being killed by the ekka_locker before completing the entire takeover task.
+-define(EXPIRY_TIMEOUT, 60_000).
+
 -spec(start_link() -> startlink_ret()).
 start_link() ->
-    ekka_locker:start_link(?MODULE).
+    ekka_locker:start_link(?MODULE, ?EXPIRY_TIMEOUT).
 
 -spec(trans(emqx_types:clientid(), fun(([node()]) -> any())) -> any()).
 trans(ClientId, Fun) ->
