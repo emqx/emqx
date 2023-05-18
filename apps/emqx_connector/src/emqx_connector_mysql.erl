@@ -222,12 +222,11 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
+                {error, {undefined_table, NState}} ->
+                    {disconnected, NState, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
-                    connecting;
-                {undefined_table, NState} ->
-                    %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, NState, unhealthy_target}
+                    connecting
             end;
         false ->
             connecting
@@ -251,7 +250,7 @@ do_check_prepares(
                     {ok, Conn} ->
                         case mysql:prepare(Conn, get_status, SQL) of
                             {error, {1146, _, _}} ->
-                                {undefined_table, State};
+                                {error, {undefined_table, State}};
                             {ok, Statement} ->
                                 mysql:unprepare(Conn, Statement);
                             _ ->
@@ -276,7 +275,7 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, 
             {ok, State#{prepare_statement => Prepares}};
         {error, undefined_table} ->
             %% indicate the error
-            {undefined_table, State#{prepare_statement => {error, Prepares}}};
+            {error, {undefined_table, State#{prepare_statement => {error, Prepares}}}};
         {error, Reason} ->
             {error, Reason}
     end.

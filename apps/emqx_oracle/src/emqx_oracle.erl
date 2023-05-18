@@ -237,12 +237,12 @@ on_get_status(_InstId, #{pool_name := Pool} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
+                {error, {undefined_table, NState}} ->
+                    %% return new state indicating that we are connected but the target table is not created
+                    {disconnected, NState, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
-                    connecting;
-                {undefined_table, NState} ->
-                    %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, NState, unhealthy_target}
+                    connecting
             end;
         false ->
             disconnected
@@ -263,10 +263,14 @@ do_check_prepares(
     lists:foldl(
         fun
             (WorkerPid, ok) ->
-                {ok, Conn} = ecpool_worker:client(WorkerPid),
-                case check_if_table_exists(Conn, SQL, Tokens) of
-                    {error, undefined_table} -> {undefined_table, State};
-                    _ -> ok
+                case ecpool_worker:client(WorkerPid) of
+                    {ok, Conn} ->
+                        case check_if_table_exists(Conn, SQL, Tokens) of
+                            {error, undefined_table} -> {error, {undefined_table, State}};
+                            _ -> ok
+                        end;
+                    _ ->
+                        ok
                 end;
             (_, Acc) ->
                 Acc
@@ -283,7 +287,7 @@ do_check_prepares(
             {ok, State#{prepare_sql => Sts}};
         {error, undefined_table} ->
             %% indicate the error
-            {undefined_table, State#{prepare_sql => {error, Prepares}}};
+            {error, {undefined_table, State#{prepare_sql => {error, Prepares}}}};
         {error, _Reason} = Error ->
             Error
     end.

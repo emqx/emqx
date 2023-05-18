@@ -73,6 +73,12 @@ on_start(InstId, Config) ->
         sasl => emqx_bridge_kafka_impl:sasl(Auth),
         ssl => ssl(SSL)
     },
+    case do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) of
+        unhealthy_target ->
+            throw(unhealthy_target);
+        _ ->
+            ok
+    end,
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
         {ok, _} ->
             ?SLOG(info, #{
@@ -108,7 +114,9 @@ on_start(InstId, Config) ->
                 kafka_topic => KafkaTopic,
                 producers => Producers,
                 resource_id => ResourceId,
-                sync_query_timeout => SyncQueryTimeout
+                sync_query_timeout => SyncQueryTimeout,
+                hosts => Hosts,
+                kafka_config => KafkaConfig
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -131,6 +139,7 @@ on_start(InstId, Config) ->
                     client_id => ClientId
                 }
             ),
+
             throw(
                 "Failed to start Kafka client. Please check the logs for errors and check"
                 " the connection parameters."
@@ -294,34 +303,60 @@ on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
 %% Note: since wolff client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
 %% `emqx_resource_manager' will kill the wolff producers and messages might be lost.
-on_get_status(_InstId, #{client_id := ClientId, kafka_topic := KafkaTopic}) ->
+on_get_status(_InstId, #{client_id := ClientId} = State) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            do_get_status(Pid, KafkaTopic);
+            case do_get_status(Pid, State) of
+                ok -> connected;
+                unhealthy_target -> {disconnected, State, unhealthy_target};
+                error -> connecting
+            end;
         {error, _Reason} ->
             connecting
     end.
 
-do_get_status(Client, KafkaTopic) ->
-    %% TODO: add a wolff_producers:check_connectivity
+do_get_status(Client, #{kafka_topic := KafkaTopic, hosts := Hosts, kafka_config := KafkaConfig}) ->
+    case do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) of
+        unhealthy_target ->
+            unhealthy_target;
+        _ ->
+            case do_get_healthy_leaders(Client, KafkaTopic) of
+                [] -> error;
+                _ -> ok
+            end
+    end.
+
+do_get_healthy_leaders(Client, KafkaTopic) ->
     case wolff_client:get_leader_connections(Client, KafkaTopic) of
         {ok, Leaders} ->
-            %% Kafka is considered healthy as long as any of the partition leader is reachable
-            case
-                lists:any(
-                    fun({_Partition, Pid}) ->
-                        is_pid(Pid) andalso erlang:is_process_alive(Pid)
-                    end,
-                    Leaders
-                )
-            of
-                true ->
-                    connected;
-                false ->
-                    connecting
-            end;
+            %% Kafka is considered healthy as long as any of the partition leader is reachable.
+            lists:filtermap(
+                fun({_Partition, Pid}) ->
+                    case is_pid(Pid) andalso erlang:is_process_alive(Pid) of
+                        true -> {true, Pid};
+                        _ -> false
+                    end
+                end,
+                Leaders
+            );
         {error, _} ->
-            connecting
+            []
+    end.
+
+do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) ->
+    CheckTopicFun =
+        fun() ->
+            wolff_client:check_if_topic_exists(Hosts, KafkaConfig, KafkaTopic)
+        end,
+    try
+        case emqx_utils:nolink_apply(CheckTopicFun, 5_000) of
+            ok -> ok;
+            {error, unknown_topic_or_partition} -> unhealthy_target;
+            _ -> error
+        end
+    catch
+        _:_ ->
+            error
     end.
 
 ssl(#{enable := true} = SSL) ->

@@ -271,12 +271,12 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
-                false ->
-                    %% do not log error, it is logged in prepare_sql_to_conn
-                    connecting;
-                {undefined_table, NState} ->
+                {error, {undefined_table, NState}} ->
                     %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, NState, unhealthy_target}
+                    {disconnected, NState, unhealthy_target};
+                {error, _Reason} ->
+                    %% do not log error, it is logged in prepare_sql_to_conn
+                    connecting
             end;
         false ->
             connecting
@@ -296,10 +296,14 @@ do_check_prepares(
     lists:foldl(
         fun
             (WorkerPid, ok) ->
-                {ok, Conn} = ecpool_worker:client(WorkerPid),
-                case epgsql:parse2(Conn, "get_status", SQL, []) of
-                    {error, {_, _, _, undefined_table, _, _}} ->
-                        {undefined_table, State};
+                case ecpool_worker:client(WorkerPid) of
+                    {ok, Conn} ->
+                        case epgsql:parse2(Conn, "get_status", SQL, []) of
+                            {error, {_, _, _, undefined_table, _, _}} ->
+                                {error, {undefined_table, State}};
+                            _ ->
+                                ok
+                        end;
                     _ ->
                         ok
                 end;
@@ -319,9 +323,9 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_sql := {error, Prepar
             {ok, State#{prepare_sql => Prepares, prepare_statement := Sts}};
         {error, undefined_table} ->
             %% indicate the error
-            {undefined_table, State#{prepare_sql => {error, Prepares}}};
-        _Error ->
-            false
+            {error, {undefined_table, State#{prepare_sql => {error, Prepares}}}};
+        Error ->
+            {error, Error}
     end.
 
 %% ===================================================================
