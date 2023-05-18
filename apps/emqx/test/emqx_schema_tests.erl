@@ -655,6 +655,43 @@ password_converter_test() ->
     ?assertThrow("must_quote", emqx_schema:password_converter(foobar, #{})),
     ok.
 
+-define(MQTT(B, M), #{<<"keepalive_backoff">> => B, <<"keepalive_multiplier">> => M}).
+
+keepalive_convert_test() ->
+    ?assertEqual(undefined, emqx_schema:mqtt_converter(undefined, #{})),
+    DefaultBackoff = 0.75,
+    DefaultMultiplier = 1.5,
+    Default = ?MQTT(DefaultBackoff, DefaultMultiplier),
+    ?assertEqual(Default, emqx_schema:mqtt_converter(Default, #{})),
+    ?assertEqual(?MQTT(1.5, 3), emqx_schema:mqtt_converter(?MQTT(1.5, 3), #{})),
+    ?assertEqual(
+        ?MQTT(DefaultBackoff, 3), emqx_schema:mqtt_converter(?MQTT(DefaultBackoff, 3), #{})
+    ),
+    ?assertEqual(?MQTT(1, 2), emqx_schema:mqtt_converter(?MQTT(1, DefaultMultiplier), #{})),
+    ?assertEqual(?MQTT(1.5, 3), emqx_schema:mqtt_converter(?MQTT(1.5, 3), #{})),
+
+    ?assertEqual(#{}, emqx_schema:mqtt_converter(#{}, #{})),
+    ?assertEqual(
+        #{<<"keepalive_backoff">> => 1.5, <<"keepalive_multiplier">> => 3.0},
+        emqx_schema:mqtt_converter(#{<<"keepalive_backoff">> => 1.5}, #{})
+    ),
+    ?assertEqual(
+        #{<<"keepalive_multiplier">> => 5.0},
+        emqx_schema:mqtt_converter(#{<<"keepalive_multiplier">> => 5.0}, #{})
+    ),
+    ?assertEqual(
+        #{
+            <<"keepalive_backoff">> => DefaultBackoff,
+            <<"keepalive_multiplier">> => DefaultMultiplier
+        },
+        emqx_schema:mqtt_converter(#{<<"keepalive_backoff">> => DefaultBackoff}, #{})
+    ),
+    ?assertEqual(
+        #{<<"keepalive_multiplier">> => DefaultMultiplier},
+        emqx_schema:mqtt_converter(#{<<"keepalive_multiplier">> => DefaultMultiplier}, #{})
+    ),
+    ok.
+
 url_type_test_() ->
     [
         ?_assertEqual(

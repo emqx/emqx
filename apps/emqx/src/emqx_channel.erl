@@ -1202,7 +1202,7 @@ handle_call(
     }
 ) ->
     ClientId = info(clientid, Channel),
-    NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
+    NKeepalive = emqx_keepalive:update(timer:seconds(Interval), KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
@@ -2034,9 +2034,9 @@ ensure_keepalive_timer(0, Channel) ->
 ensure_keepalive_timer(disabled, Channel) ->
     Channel;
 ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}}) ->
-    Backoff = get_mqtt_conf(Zone, keepalive_backoff),
-    RecvOct = emqx_pd:get_counter(incoming_bytes),
-    Keepalive = emqx_keepalive:init(RecvOct, round(timer:seconds(Interval) * Backoff)),
+    Multiplier = get_mqtt_conf(Zone, keepalive_multiplier),
+    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    Keepalive = emqx_keepalive:init(RecvCnt, round(timer:seconds(Interval) * Multiplier)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->
