@@ -131,6 +131,9 @@ connect(Id, Type, Cfg) ->
 -spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
 add_bucket(_Id, _Type, undefined) ->
     ok;
+%% a bucket with an infinity rate shouldn't be added to this server, because it is always full
+add_bucket(_Id, _Type, #{rate := infinity}) ->
+    ok;
 add_bucket(Id, Type, Cfg) ->
     ?CALL(Type, {add_bucket, Id, Cfg}).
 
@@ -507,8 +510,6 @@ make_root(#{rate := Rate, burst := Burst}) ->
         correction => 0
     }.
 
-do_add_bucket(_Id, #{rate := infinity}, #{root := #{rate := infinity}} = State) ->
-    State;
 do_add_bucket(Id, #{rate := Rate} = Cfg, #{buckets := Buckets} = State) ->
     case maps:get(Id, Buckets, undefined) of
         undefined ->

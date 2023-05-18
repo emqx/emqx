@@ -144,14 +144,14 @@ do_apply_rule(
         )
     of
         true ->
-            Collection2 = filter_collection(Columns, InCase, DoEach, Collection),
+            Collection2 = filter_collection(ColumnsAndSelected, InCase, DoEach, Collection),
             case Collection2 of
                 [] ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
                 _ ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
-            NewEnvs = maps:merge(Columns, Envs),
+            NewEnvs = maps:merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- Collection2]};
         false ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),

@@ -36,6 +36,7 @@
     calc_capacity/1,
     extract_with_type/2,
     default_client_config/0,
+    default_bucket_config/0,
     short_paths_fields/1,
     get_listener_opts/1,
     get_node_opts/1,
@@ -61,7 +62,7 @@
 -type limiter_id() :: atom().
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
--type burst_rate() :: 0 | float().
+-type burst_rate() :: number().
 %% this is a compatible type for the deprecated field and type `capacity`.
 -type burst() :: burst_rate().
 %% the capacity of the token bucket

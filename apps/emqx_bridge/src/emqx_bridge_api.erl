@@ -892,10 +892,17 @@ fill_defaults(Type, RawConf) ->
 pack_bridge_conf(Type, RawConf) ->
     #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-unpack_bridge_conf(Type, PackedConf) ->
-    #{<<"bridges">> := Bridges} = PackedConf,
-    #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
+%% Hide webhook's resource_opts.request_timeout from user.
+filter_raw_conf(<<"webhook">>, RawConf0) ->
+    emqx_utils_maps:deep_remove([<<"resource_opts">>, <<"request_timeout">>], RawConf0);
+filter_raw_conf(_TypeBin, RawConf) ->
     RawConf.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"bridges">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    filter_raw_conf(TypeBin, RawConf).
 
 is_ok(ok) ->
     ok;

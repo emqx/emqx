@@ -267,6 +267,9 @@ evict_conns(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opts} 
             ConnEvictRate = maps:get(conn_evict_rate, Opts),
             NodesToEvict = nodes_to_evict(RecipientAvg, DonorNodeCounts),
             ?SLOG(warning, #{
+                donor_conn_avg => DonorAvg,
+                recipient_conn_avg => RecipientAvg,
+                thresholds => Thresholds,
                 msg => "node_rebalance_evict_conns",
                 nodes => NodesToEvict,
                 counts => ConnEvictRate
@@ -297,6 +300,9 @@ evict_sessions(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opt
             SessEvictRate = maps:get(sess_evict_rate, Opts),
             NodesToEvict = nodes_to_evict(RecipientAvg, DonorNodeCounts),
             ?SLOG(warning, #{
+                donor_sess_avg => DonorAvg,
+                recipient_sess_avg => RecipientAvg,
+                thresholds => Thresholds,
                 msg => "node_rebalance_evict_sessions",
                 nodes => NodesToEvict,
                 counts => SessEvictRate

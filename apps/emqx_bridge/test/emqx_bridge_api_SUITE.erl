@@ -1284,20 +1284,42 @@ t_inconsistent_webhook_request_timeouts(Config) ->
                 <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
             }
         ),
-    ?assertMatch(
-        {ok, 201, #{
-            %% note: same value on both fields
-            <<"request_timeout">> := <<"2s">>,
-            <<"resource_opts">> := #{<<"request_timeout">> := <<"2s">>}
-        }},
+    {ok, 201, #{
+        <<"request_timeout">> := <<"1s">>,
+        <<"resource_opts">> := ResourceOpts
+    }} =
         request_json(
             post,
             uri(["bridges"]),
             BadBridgeParams,
             Config
-        )
-    ),
+        ),
+    ?assertNot(maps:is_key(<<"request_timeout">>, ResourceOpts)),
+    validate_resource_request_timeout(proplists:get_value(group, Config), 1000, Name),
     ok.
+
+validate_resource_request_timeout(single, Timeout, Name) ->
+    SentData = #{payload => <<"Hello EMQX">>, timestamp => 1668602148000},
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
+    ResId = emqx_bridge_resource:resource_id(<<"webhook">>, Name),
+    ?check_trace(
+        begin
+            {ok, Res} =
+                ?wait_async_action(
+                    emqx_bridge:send_message(BridgeID, SentData),
+                    #{?snk_kind := async_query},
+                    1000
+                ),
+            ?assertMatch({ok, #{id := ResId, query_opts := #{timeout := Timeout}}}, Res)
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(async_query, Trace0),
+            ?assertMatch([#{query_opts := #{timeout := Timeout}}], Trace),
+            ok
+        end
+    );
+validate_resource_request_timeout(_Cluster, _Timeout, _Name) ->
+    ignore.
 
 %%
 
