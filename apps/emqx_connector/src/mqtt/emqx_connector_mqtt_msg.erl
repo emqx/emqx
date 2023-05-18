@@ -17,7 +17,6 @@
 -module(emqx_connector_mqtt_msg).
 
 -export([
-    make_pub_vars/2,
     to_remote_msg/2,
     to_broker_msg/3
 ]).
@@ -46,11 +45,6 @@
     remote := remote_config()
 }.
 
-make_pub_vars(_, undefined) ->
-    undefined;
-make_pub_vars(Mountpoint, Conf) when is_map(Conf) ->
-    Conf#{mountpoint => Mountpoint}.
-
 %% @doc Make export format:
 %% 1. Mount topic to a prefix
 %% 2. Fix QoS to 1
@@ -70,8 +64,7 @@ to_remote_msg(MapMsg, #{
         topic := TopicToken,
         qos := QoSToken,
         retain := RetainToken
-    } = Remote,
-    mountpoint := Mountpoint
+    } = Remote
 }) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(Remote, MapMsg),
@@ -81,12 +74,10 @@ to_remote_msg(MapMsg, #{
     #mqtt_msg{
         qos = QoS,
         retain = Retain,
-        topic = topic(Mountpoint, Topic),
+        topic = Topic,
         props = emqx_utils:pub_props_to_packet(PubProps),
         payload = Payload
-    };
-to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
-    Msg#message{topic = topic(Mountpoint, Topic)}.
+    }.
 
 %% published from remote node over a MQTT connection
 to_broker_msg(Msg, Vars, undefined) ->
@@ -98,8 +89,7 @@ to_broker_msg(
             topic := TopicToken,
             qos := QoSToken,
             retain := RetainToken
-        } = Local,
-        mountpoint := Mountpoint
+        } = Local
     },
     Props
 ) ->
@@ -112,7 +102,7 @@ to_broker_msg(
         Props#{properties => emqx_utils:pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
-            emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)
+            emqx_message:make(bridge, QoS, Topic, Payload)
         )
     ).
 
@@ -142,5 +132,3 @@ replace_simple_var(Val, _Data) ->
 
 set_headers(Val, Msg) ->
     emqx_message:set_headers(Val, Msg).
-topic(undefined, Topic) -> Topic;
-topic(Prefix, Topic) -> emqx_topic:prepend(Prefix, Topic).

@@ -72,33 +72,74 @@
 
 %% management APIs
 -export([
-    connect/1,
     status/1,
     ping/1,
     info/1,
-    send_to_remote/2,
-    send_to_remote_async/3
+    send_to_remote/3,
+    send_to_remote_async/4
 ]).
 
 -export([handle_publish/3]).
 -export([handle_disconnect/1]).
 
--export_type([
-    config/0,
-    ack_ref/0
-]).
+-export_type([config/0]).
+
+-type template() :: emqx_plugin_libs_rule:tmpl_token().
 
 -type name() :: term().
-% -type qos() :: emqx_types:qos().
--type config() :: map().
--type ack_ref() :: term().
-% -type topic() :: emqx_types:topic().
+-type options() :: #{
+    % endpoint
+    server := iodata(),
+    % emqtt client options
+    proto_ver := v3 | v4 | v5,
+    username := binary(),
+    password := binary(),
+    clientid := binary(),
+    clean_start := boolean(),
+    max_inflight := pos_integer(),
+    connect_timeout := pos_integer(),
+    retry_interval := timeout(),
+    bridge_mode := boolean(),
+    ssl := boolean(),
+    ssl_opts := proplists:proplist(),
+    % bridge options
+    subscriptions := map(),
+    forwards := map()
+}.
+
+-type config() :: #{
+    subscriptions := subscriptions() | undefined,
+    forwards := forwards() | undefined
+}.
+
+-type subscriptions() :: #{
+    remote := #{
+        topic := emqx_topic:topic(),
+        qos => emqx_types:qos()
+    },
+    local := #{
+        topic => template(),
+        qos => template() | emqx_types:qos(),
+        retain => template() | boolean(),
+        payload => template() | undefined
+    },
+    on_message_received := {module(), atom(), [term()]}
+}.
+
+-type forwards() :: #{
+    local => #{
+        topic => emqx_topic:topic()
+    },
+    remote := #{
+        topic := template(),
+        qos => template() | emqx_types:qos(),
+        retain => template() | boolean(),
+        payload => template() | undefined
+    }
+}.
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
--define(REF(Name), {via, gproc, ?NAME(Name)}).
--define(NAME(Name), {n, l, Name}).
 
 %% @doc Start a bridge worker. Supported configs:
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
@@ -107,20 +148,19 @@
 %%
 %% Find more connection specific configs in the callback modules
 %% of emqx_bridge_connect behaviour.
--spec start_link(name(), map()) ->
-    {ok, pid()} | {error, _Reason}.
+-spec start_link(name(), options()) ->
+    {ok, pid(), {emqtt:properties(), config()}} | {error, _Reason}.
 start_link(Name, BridgeOpts) ->
     ?SLOG(debug, #{
         msg => "client_starting",
         name => Name,
         options => BridgeOpts
     }),
-    Conf = init_config(Name, BridgeOpts),
-    Options = mk_client_options(Conf, BridgeOpts),
+    Config = init_config(Name, BridgeOpts),
+    Options = mk_client_options(Config, BridgeOpts),
     case emqtt:start_link(Options) of
         {ok, Pid} ->
-            true = gproc:reg_other(?NAME(Name), Pid, Conf),
-            {ok, Pid};
+            connect(Pid, Name, Config);
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "client_start_failed",
@@ -130,22 +170,50 @@ start_link(Name, BridgeOpts) ->
             Error
     end.
 
+connect(Pid, Name, Config = #{subscriptions := Subscriptions}) ->
+    case emqtt:connect(Pid) of
+        {ok, Props} ->
+            case subscribe_remote_topics(Pid, Subscriptions) of
+                ok ->
+                    {ok, Pid, {Props, Config}};
+                {ok, _, _RCs} ->
+                    {ok, Pid, {Props, Config}};
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "client_subscribe_failed",
+                        subscriptions => Subscriptions,
+                        reason => Reason
+                    }),
+                    _ = emqtt:stop(Pid),
+                    Error
+            end;
+        {error, Reason} = Error ->
+            ?SLOG(warning, #{
+                msg => "client_connect_failed",
+                reason => Reason,
+                name => Name
+            }),
+            _ = emqtt:stop(Pid),
+            Error
+    end.
+
+subscribe_remote_topics(Pid, #{remote := #{topic := RemoteTopic, qos := QoS}}) ->
+    emqtt:subscribe(Pid, RemoteTopic, QoS);
+subscribe_remote_topics(_Ref, undefined) ->
+    ok.
+
 init_config(Name, Opts) ->
-    Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
     Subscriptions = maps:get(subscriptions, Opts, undefined),
     Forwards = maps:get(forwards, Opts, undefined),
     #{
-        mountpoint => format_mountpoint(Mountpoint),
         subscriptions => pre_process_subscriptions(Subscriptions, Name, Opts),
         forwards => pre_process_forwards(Forwards)
     }.
 
-mk_client_options(Conf, BridgeOpts) ->
+mk_client_options(Config, BridgeOpts) ->
     Server = iolist_to_binary(maps:get(server, BridgeOpts)),
     HostPort = emqx_connector_mqtt_schema:parse_server(Server),
-    Mountpoint = maps:get(receive_mountpoint, BridgeOpts, undefined),
-    Subscriptions = maps:get(subscriptions, Conf),
-    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
+    Subscriptions = maps:get(subscriptions, Config),
     CleanStart =
         case Subscriptions of
             #{remote := _} ->
@@ -156,24 +224,26 @@ mk_client_options(Conf, BridgeOpts) ->
                 %% to ensure proper session recovery according to the MQTT spec.
                 true
         end,
-    Opts = maps:without(
+    Opts = maps:with(
         [
-            address,
-            auto_reconnect,
-            conn_type,
-            mountpoint,
-            forwards,
-            receive_mountpoint,
-            subscriptions
+            proto_ver,
+            username,
+            password,
+            clientid,
+            max_inflight,
+            connect_timeout,
+            retry_interval,
+            bridge_mode,
+            ssl,
+            ssl_opts
         ],
         BridgeOpts
     ),
     Opts#{
-        msg_handler => mk_client_event_handler(Vars, #{server => Server}),
+        msg_handler => mk_client_event_handler(Subscriptions, #{server => Server}),
         hosts => [HostPort],
         clean_start => CleanStart,
-        force_ping => true,
-        proto_ver => maps:get(proto_ver, BridgeOpts, v4)
+        force_ping => true
     }.
 
 mk_client_event_handler(Vars, Opts) when Vars /= undefined ->
@@ -184,45 +254,15 @@ mk_client_event_handler(Vars, Opts) when Vars /= undefined ->
 mk_client_event_handler(undefined, _Opts) ->
     undefined.
 
-connect(Name) ->
-    #{subscriptions := Subscriptions} = get_config(Name),
-    case emqtt:connect(get_pid(Name)) of
-        {ok, Properties} ->
-            case subscribe_remote_topics(Name, Subscriptions) of
-                ok ->
-                    {ok, Properties};
-                {ok, _, _RCs} ->
-                    {ok, Properties};
-                {error, Reason} = Error ->
-                    ?SLOG(error, #{
-                        msg => "client_subscribe_failed",
-                        subscriptions => Subscriptions,
-                        reason => Reason
-                    }),
-                    Error
-            end;
-        {error, Reason} = Error ->
-            ?SLOG(warning, #{
-                msg => "client_connect_failed",
-                reason => Reason,
-                name => Name
-            }),
-            Error
-    end.
-subscribe_remote_topics(Ref, #{remote := #{topic := FromTopic, qos := QoS}}) ->
-    emqtt:subscribe(ref(Ref), FromTopic, QoS);
-subscribe_remote_topics(_Ref, undefined) ->
-    ok.
+stop(Pid) ->
+    emqtt:stop(Pid).
 
-stop(Ref) ->
-    emqtt:stop(ref(Ref)).
+info(Pid) ->
+    emqtt:info(Pid).
 
-info(Ref) ->
-    emqtt:info(ref(Ref)).
-
-status(Ref) ->
+status(Pid) ->
     try
-        case proplists:get_value(socket, info(Ref)) of
+        case proplists:get_value(socket, info(Pid)) of
             Socket when Socket /= undefined ->
                 connected;
             undefined ->
@@ -233,14 +273,14 @@ status(Ref) ->
             disconnected
     end.
 
-ping(Ref) ->
-    emqtt:ping(ref(Ref)).
+ping(Pid) ->
+    emqtt:ping(Pid).
 
-send_to_remote(Name, MsgIn) ->
-    trycall(fun() -> do_send(Name, export_msg(Name, MsgIn)) end).
+send_to_remote(Pid, MsgIn, Conf) ->
+    do_send(Pid, export_msg(MsgIn, Conf)).
 
-do_send(Name, {true, Msg}) ->
-    case emqtt:publish(get_pid(Name), Msg) of
+do_send(Pid, {true, Msg}) ->
+    case emqtt:publish(Pid, Msg) of
         ok ->
             ok;
         {ok, #{reason_code := RC}} when
@@ -266,35 +306,14 @@ do_send(Name, {true, Msg}) ->
 do_send(_Name, false) ->
     ok.
 
-send_to_remote_async(Name, MsgIn, Callback) ->
-    trycall(fun() -> do_send_async(Name, export_msg(Name, MsgIn), Callback) end).
+send_to_remote_async(Pid, MsgIn, Callback, Conf) ->
+    do_send_async(Pid, export_msg(MsgIn, Conf), Callback).
 
-do_send_async(Name, {true, Msg}, Callback) ->
-    Pid = get_pid(Name),
+do_send_async(Pid, {true, Msg}, Callback) ->
     ok = emqtt:publish_async(Pid, Msg, _Timeout = infinity, Callback),
     {ok, Pid};
-do_send_async(_Name, false, _Callback) ->
+do_send_async(_Pid, false, _Callback) ->
     ok.
-
-ref(Pid) when is_pid(Pid) ->
-    Pid;
-ref(Term) ->
-    ?REF(Term).
-
-trycall(Fun) ->
-    try
-        Fun()
-    catch
-        throw:noproc ->
-            {error, disconnected};
-        exit:{noproc, _} ->
-            {error, disconnected}
-    end.
-
-format_mountpoint(undefined) ->
-    undefined;
-format_mountpoint(Prefix) ->
-    binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
 pre_process_subscriptions(undefined, _, _) ->
     undefined;
@@ -356,38 +375,15 @@ downgrade_ingress_qos(2) ->
 downgrade_ingress_qos(QoS) ->
     QoS.
 
-get_pid(Name) ->
-    case gproc:where(?NAME(Name)) of
-        Pid when is_pid(Pid) ->
-            Pid;
-        undefined ->
-            throw(noproc)
-    end.
-
-get_config(Name) ->
-    try
-        gproc:lookup_value(?NAME(Name))
-    catch
-        error:badarg ->
-            throw(noproc)
-    end.
-
-export_msg(Name, Msg) ->
-    case get_config(Name) of
-        #{forwards := Forwards = #{}, mountpoint := Mountpoint} ->
-            {true, export_msg(Mountpoint, Forwards, Msg)};
-        #{forwards := undefined} ->
-            ?SLOG(error, #{
-                msg => "forwarding_unavailable",
-                message => Msg,
-                reason => "egress is not configured"
-            }),
-            false
-    end.
-
-export_msg(Mountpoint, Forwards, Msg) ->
-    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
-    emqx_connector_mqtt_msg:to_remote_msg(Msg, Vars).
+export_msg(Msg, #{forwards := Forwards = #{}}) ->
+    {true, emqx_connector_mqtt_msg:to_remote_msg(Msg, Forwards)};
+export_msg(Msg, #{forwards := undefined}) ->
+    ?SLOG(error, #{
+        msg => "forwarding_unavailable",
+        message => Msg,
+        reason => "egress is not configured"
+    }),
+    false.
 
 %%
 
