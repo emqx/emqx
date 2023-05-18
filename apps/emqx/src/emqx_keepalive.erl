@@ -21,7 +21,8 @@
     init/2,
     info/1,
     info/2,
-    check/2
+    check/2,
+    update/2
 ]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
@@ -52,7 +53,7 @@ init(Interval) -> init(0, Interval).
 %% typically this is a few minutes.
 %% The maximum value is (65535s) 18 hours 12 minutes and 15 seconds.
 %% @doc Init keepalive.
--spec init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive().
+-spec init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive() | undefined.
 init(StatVal, Interval) when Interval > 0 andalso Interval =< ?MAX_INTERVAL ->
     #keepalive{interval = Interval, statval = StatVal};
 init(_, 0) ->
@@ -84,3 +85,10 @@ info(interval, undefined) ->
     {ok, keepalive()} | {error, timeout}.
 check(Val, #keepalive{statval = Val}) -> {error, timeout};
 check(Val, KeepAlive) -> {ok, KeepAlive#keepalive{statval = Val}}.
+
+%% @doc Update keepalive.
+%% The statval of the previous keepalive will be used,
+%% and normal checks will begin from the next cycle.
+-spec update(non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
+update(Interval, undefined) -> init(0, Interval);
+update(Interval, #keepalive{statval = StatVal}) -> init(StatVal, Interval).

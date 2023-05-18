@@ -1199,13 +1199,12 @@ handle_call(list_authz_cache, Channel) ->
 handle_call(
     {keepalive, Interval},
     Channel = #channel{
-        keepalive = _KeepAlive,
+        keepalive = KeepAlive,
         conninfo = ConnInfo
     }
 ) ->
     ClientId = info(clientid, Channel),
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
-    NKeepalive = emqx_keepalive:init(RecvCnt, Interval * 1000),
+    NKeepalive = emqx_keepalive:update(timer:seconds(Interval), KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
