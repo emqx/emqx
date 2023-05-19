@@ -29,3 +29,17 @@
         )
     )
 ).
+
+-define(assertInclude(PATTERN, LIST),
+    ?assert(
+        lists:any(
+            fun(X__Elem_) ->
+                case X__Elem_ of
+                    PATTERN -> true;
+                    _ -> false
+                end
+            end,
+            LIST
+        )
+    )
+).

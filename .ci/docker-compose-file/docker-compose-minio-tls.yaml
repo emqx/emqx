@@ -1,0 +1,23 @@
+version: '3.7'
+
+services:
+  minio_tls:
+    hostname: minio-tls
+    image: quay.io/minio/minio:${MINIO_TAG}
+    command: server --certs-dir /etc/certs --address ":9100" --console-address ":9101" /minio-data
+    volumes:
+      - ./certs/server.crt:/etc/certs/public.crt
+      - ./certs/server.key:/etc/certs/private.key
+    expose:
+      - "9100"
+      - "9101"
+    ports:
+      - "9100:9100"
+      - "9101:9101"
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:9100/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      emqx_bridge:

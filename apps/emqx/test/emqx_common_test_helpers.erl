@@ -30,6 +30,7 @@
     start_apps/1,
     start_apps/2,
     start_apps/3,
+    start_app/2,
     stop_apps/1,
     stop_apps/2,
     reload/2,
@@ -244,6 +245,9 @@ do_render_app_config(App, Schema, ConfigFile, Opts) ->
     copy_certs(App, RenderedConfigFile),
     ok.
 
+start_app(App, SpecAppConfig) ->
+    start_app(App, SpecAppConfig, #{}).
+
 start_app(App, SpecAppConfig, Opts) ->
     render_and_load_app_config(App, Opts),
     SpecAppConfig(App),
@@ -302,12 +306,7 @@ read_schema_configs(no_schema, _ConfigFile) ->
     ok;
 read_schema_configs(Schema, ConfigFile) ->
     NewConfig = generate_config(Schema, ConfigFile),
-    lists:foreach(
-        fun({App, Configs}) ->
-            [application:set_env(App, Par, Value) || {Par, Value} <- Configs]
-        end,
-        NewConfig
-    ).
+    application:set_env(NewConfig).
 
 generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
     {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),

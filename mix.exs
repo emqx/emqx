@@ -58,7 +58,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ekka, github: "emqx/ekka", tag: "0.15.1", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.9", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -175,7 +175,9 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_pulsar,
       :emqx_oracle,
       :emqx_bridge_oracle,
-      :emqx_bridge_rabbitmq
+      :emqx_bridge_rabbitmq,
+      :emqx_ft,
+      :emqx_s3
     ])
   end
 
@@ -190,13 +192,6 @@ defmodule EMQXUmbrella.MixProject do
       {:snappyer, "1.2.8", override: true},
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
-      {:erlcloud, github: "emqx/erlcloud", tag: "3.5.16-emqx-1", override: true},
-      # erlcloud's rebar.config requires rebar3 and does not support Mix,
-      # so it tries to fetch deps from git. We need to override this.
-      {:lhttpc, tag: "1.6.2", override: true},
-      {:eini, "1.2.9", override: true},
-      {:base16, "1.0.0", override: true},
-      # end of erlcloud's deps
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
@@ -212,7 +207,14 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/rabbitmq-server",
        tag: "v3.11.13-emqx",
        sparse: "deps/amqp_client",
-       override: true}
+       override: true},
+      {:erlcloud, github: "emqx/erlcloud", tag: "3.6.8-emqx-1", override: true},
+      # erlcloud's rebar.config requires rebar3 and does not support Mix,
+      # so it tries to fetch deps from git. We need to override this.
+      {:lhttpc, github: "erlcloud/lhttpc", tag: "1.6.2", override: true},
+      {:eini, "1.2.9", override: true},
+      {:base16, "1.0.0", override: true}
+      # end of erlcloud's deps
     ]
   end
 
@@ -411,7 +413,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_rabbitmq: :permanent,
           emqx_ee_schema_registry: :permanent,
           emqx_eviction_agent: :permanent,
-          emqx_node_rebalance: :permanent
+          emqx_node_rebalance: :permanent,
+          emqx_ft: :permanent
         ],
         else: []
       )

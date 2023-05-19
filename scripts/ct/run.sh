@@ -92,6 +92,12 @@ if [ "${WHICH_APP}" = 'novalue' ]; then
     exit 1
 fi
 
+if [ ! -d "${WHICH_APP}" ]; then
+    echo "must provide an existing path for --app arg"
+    help
+    exit 1
+fi
+
 if [[ "${WHICH_APP}" == lib-ee* && (-z "${PROFILE+x}" || "${PROFILE}" != emqx-enterprise) ]]; then
     echo 'You are trying to run an enterprise test case without the emqx-enterprise profile.'
     echo 'This will most likely not work.'
@@ -202,6 +208,10 @@ for dep in ${CT_DEPS}; do
             ;;
         rabbitmq)
             FILES+=( '.ci/docker-compose-file/docker-compose-rabbitmq.yaml' )
+            ;;
+        minio)
+            FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"

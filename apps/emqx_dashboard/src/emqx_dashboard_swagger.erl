@@ -19,12 +19,17 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+-define(BASE_PATH, "/api/v5").
+
 %% API
 -export([spec/1, spec/2]).
 -export([namespace/0, namespace/1, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
 -export([file_schema/1]).
+-export([base_path/0]).
+-export([relative_uri/1]).
+-export([compose_filters/2]).
 
 -export([
     filter_check_request/2,
@@ -84,14 +89,30 @@
 -type request() :: #{bindings => map(), query_string => map(), body => map()}.
 -type request_meta() :: #{module => module(), path => string(), method => atom()}.
 
--type filter_result() :: {ok, request()} | {400, 'BAD_REQUEST', binary()}.
--type filter() :: fun((request(), request_meta()) -> filter_result()).
+%% More exact types are defined in minirest.hrl, but we don't want to include it
+%% because it defines a lot of types and they may clash with the types declared locally.
+-type status_code() :: pos_integer().
+-type error_code() :: atom() | binary().
+-type error_message() :: binary().
+-type response_body() :: term().
+-type headers() :: map().
+
+-type response() ::
+    status_code()
+    | {status_code()}
+    | {status_code(), response_body()}
+    | {status_code(), headers(), response_body()}
+    | {status_code(), error_code(), error_message()}.
+
+-type filter_result() :: {ok, request()} | response().
+-type filter() :: emqx_maybe:t(fun((request(), request_meta()) -> filter_result())).
 
 -type spec_opts() :: #{
     check_schema => boolean() | filter(),
     translate_body => boolean(),
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
-    i18n_lang => atom() | string() | binary()
+    i18n_lang => atom() | string() | binary(),
+    filter => filter()
 }.
 
 -type route_path() :: string() | binary().
@@ -117,9 +138,9 @@ spec(Module, Options) ->
         lists:foldl(
             fun(Path, {AllAcc, AllRefsAcc}) ->
                 {OperationId, Specs, Refs} = parse_spec_ref(Module, Path, Options),
-                CheckSchema = support_check_schema(Options),
+                Opts = #{filter => filter(Options)},
                 {
-                    [{filename:join("/", Path), Specs, OperationId, CheckSchema} | AllAcc],
+                    [{filename:join("/", Path), Specs, OperationId, Opts} | AllAcc],
                     Refs ++ AllRefsAcc
                 }
             end,
@@ -184,6 +205,14 @@ error_codes(Codes = [_ | _], MsgDesc) ->
             })}
     ].
 
+-spec base_path() -> uri_string:uri_string().
+base_path() ->
+    ?BASE_PATH.
+
+-spec relative_uri(uri_string:uri_string()) -> uri_string:uri_string().
+relative_uri(Uri) ->
+    base_path() ++ Uri.
+
 file_schema(FileName) ->
     #{
         content => #{
@@ -242,6 +271,21 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         [pretty, force_utf8]
     ).
 
+-spec compose_filters(filter(), filter()) -> filter().
+compose_filters(undefined, Filter2) ->
+    Filter2;
+compose_filters(Filter1, undefined) ->
+    Filter1;
+compose_filters(Filter1, Filter2) ->
+    fun(Request, RequestMeta) ->
+        case Filter1(Request, RequestMeta) of
+            {ok, Request1} ->
+                Filter2(Request1, RequestMeta);
+            Response ->
+                Response
+        end
+    end.
+
 %%------------------------------------------------------------------------------
 %% Private functions
 %%------------------------------------------------------------------------------
@@ -273,14 +317,22 @@ check_only(Schema, Map, Opts) ->
     _ = hocon_tconf:check_plain(Schema, Map, Opts),
     Map.
 
-support_check_schema(#{check_schema := true, translate_body := true}) ->
-    #{filter => fun ?MODULE:filter_check_request_and_translate_body/2};
-support_check_schema(#{check_schema := true}) ->
-    #{filter => fun ?MODULE:filter_check_request/2};
-support_check_schema(#{check_schema := Filter}) when is_function(Filter, 2) ->
-    #{filter => Filter};
-support_check_schema(_) ->
-    #{filter => undefined}.
+filter(Options) ->
+    CheckSchemaFilter = check_schema_filter(Options),
+    CustomFilter = custom_filter(Options),
+    compose_filters(CheckSchemaFilter, CustomFilter).
+
+custom_filter(Options) ->
+    maps:get(filter, Options, undefined).
+
+check_schema_filter(#{check_schema := true, translate_body := true}) ->
+    fun ?MODULE:filter_check_request_and_translate_body/2;
+check_schema_filter(#{check_schema := true}) ->
+    fun ?MODULE:filter_check_request/2;
+check_schema_filter(#{check_schema := Filter}) when is_function(Filter, 2) ->
+    Filter;
+check_schema_filter(_) ->
+    undefined.
 
 parse_spec_ref(Module, Path, Options) ->
     Schema =
