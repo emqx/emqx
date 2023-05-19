@@ -2,11 +2,11 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_conf_schema).
+-module(emqx_enterprise_schema).
 
 -behaviour(hocon_schema).
 
--export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0]).
+-export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1]).
 
 -define(EE_SCHEMA_MODULES, [emqx_license_schema, emqx_ee_schema_registry_schema]).
 
@@ -48,10 +48,11 @@ redefine_roots(Roots) ->
 
 override(Fields, []) ->
     Fields;
-override(Fields, [{Name, Override}]) ->
+override(Fields, [{Name, Override} | More]) ->
     Schema = find_schema(Name, Fields),
     NewSchema = hocon_schema:override(Schema, Override),
-    replace_schema(Name, NewSchema, Fields).
+    NewFields = replace_schema(Name, NewSchema, Fields),
+    override(NewFields, More).
 
 find_schema(Name, Fields) ->
     {Name, Schema} = lists:keyfind(Name, 1, Fields),
@@ -59,3 +60,6 @@ find_schema(Name, Fields) ->
 
 replace_schema(Name, Schema, Fields) ->
     lists:keyreplace(Name, 1, Fields, {Name, Schema}).
+
+desc(Name) ->
+    emqx_conf_schema:desc(Name).

@@ -134,7 +134,7 @@ case "${PROFILE}" in
         export SCHEMA_MOD='emqx_conf_schema'
         ;;
     emqx-enterprise)
-        export SCHEMA_MOD='emqx_ee_conf_schema'
+        export SCHEMA_MOD='emqx_enterprise_schema'
         ;;
 esac
 
