@@ -1791,14 +1791,14 @@ message_to_packet(
 handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
     case do_subscribe({?SN_INVALID_TOPIC_ID, Topic, SubOpts}, Channel) of
         {ok, {_, NTopicName, NSubOpts}, NChannel} ->
-            reply({ok, {NTopicName, NSubOpts}}, NChannel);
+            reply_and_update({ok, {NTopicName, NSubOpts}}, NChannel);
         {error, ?SN_RC2_EXCEED_LIMITATION} ->
             reply({error, exceed_limitation}, Channel)
     end;
 handle_call({unsubscribe, Topic}, _From, Channel) ->
     TopicFilters = [emqx_topic:parse(Topic)],
     {ok, _, NChannel} = do_unsubscribe(TopicFilters, Channel),
-    reply(ok, NChannel);
+    reply_and_update(ok, NChannel);
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     reply({ok, maps:to_list(emqx_session:info(subscriptions, Session))}, Channel);
 handle_call(kick, _From, Channel) ->
@@ -2191,6 +2191,9 @@ terminate(_Reason, _Channel) ->
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
+
+reply_and_update(Reply, Channel) ->
+    {reply, Reply, [{event, updated}], Channel}.
 
 shutdown(Reason, Channel) ->
     {shutdown, Reason, Channel}.
