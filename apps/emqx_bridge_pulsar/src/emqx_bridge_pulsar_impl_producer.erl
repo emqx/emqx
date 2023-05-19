@@ -100,7 +100,7 @@ on_start(InstanceId, Config) ->
                 msg => "failed_to_start_pulsar_client",
                 instance_id => InstanceId,
                 pulsar_hosts => Servers,
-                reason => Reason
+                reason => emqx_utils:redact(Reason, fun is_sensitive_key/1)
             }),
             throw(failed_to_start_pulsar_client)
     end,
@@ -332,7 +332,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
                 #{
                     instance_id => InstanceId,
                     kind => Kind,
-                    reason => Error,
+                    reason => emqx_utils:redact(Error, fun is_sensitive_key/1),
                     stacktrace => Stacktrace
                 }
             ),
@@ -419,3 +419,6 @@ get_producer_status(Producers) ->
 
 partition_strategy(key_dispatch) -> first_key_dispatch;
 partition_strategy(Strategy) -> Strategy.
+
+is_sensitive_key(auth_data) -> true;
+is_sensitive_key(_) -> false.
