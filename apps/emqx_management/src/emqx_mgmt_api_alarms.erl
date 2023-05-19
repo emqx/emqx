@@ -123,8 +123,8 @@ alarms(get, #{query_string := QString}) ->
     of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, {badrpc, R}} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+        {error, Node, Error} ->
+            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Response ->
             {200, Response}
