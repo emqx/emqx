@@ -92,6 +92,8 @@
     ?RAISE(EXP, _ = do_nothing, ERROR)
 ).
 
+-define(RAISE_BAD_SQL(Detail), throw(Detail)).
+
 -define(RAISE(EXP, EXP_ON_FAIL, ERROR),
     fun() ->
         try
@@ -106,3 +108,16 @@
 
 %% Tables
 -define(RULE_TAB, emqx_rule_engine).
+
+%% Allowed sql function provider modules
+-define(DEFAULT_SQL_FUNC_PROVIDER, emqx_rule_funcs).
+-define(IS_VALID_SQL_FUNC_PROVIDER_MODULE_NAME(Name),
+    (case Name of
+        <<"emqx_rule_funcs", _/binary>> ->
+            true;
+        <<"EmqxRuleFuncs", _/binary>> ->
+            true;
+        _ ->
+            false
+    end)
+).

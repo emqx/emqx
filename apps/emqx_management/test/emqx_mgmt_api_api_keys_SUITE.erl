@@ -228,7 +228,7 @@ list_app() ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
-        {ok, Apps} -> {ok, emqx_json:decode(Apps, [return_maps])};
+        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps, [return_maps])};
         Error -> Error
     end.
 
@@ -236,7 +236,7 @@ read_app(Name) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -251,7 +251,7 @@ create_app(Name) ->
         enable => true
     },
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -260,7 +260,7 @@ create_unexpired_app(Name, Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -273,7 +273,7 @@ update_app(Name, Change) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};
+        {ok, Update} -> {ok, emqx_utils_json:decode(Update, [return_maps])};
         Error -> Error
     end.
 

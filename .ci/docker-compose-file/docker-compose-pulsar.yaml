@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  pulsar:
+    container_name: pulsar
+    image: apachepulsar/pulsar:2.11.0
+    # ports:
+    #   - 6650:6650
+    #   - 8080:8080
+    networks:
+      emqx_bridge:
+    volumes:
+      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/server.pem
+      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/key.pem
+      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.pem
+    restart: always
+    command:
+      - bash
+      - "-c"
+      - |
+        sed -i 's/^advertisedAddress=/#advertisedAddress=/' conf/standalone.conf
+        sed -ie 's/^brokerServicePort=.*/brokerServicePort=6649/' conf/standalone.conf
+        sed -i 's/^bindAddress=/#bindAddress=/' conf/standalone.conf
+        sed -i 's#^bindAddresses=#bindAddresses=plain:pulsar://0.0.0.0:6650,ssl:pulsar+ssl://0.0.0.0:6651,toxiproxy:pulsar://0.0.0.0:6652,toxiproxy_ssl:pulsar+ssl://0.0.0.0:6653#' conf/standalone.conf
+        sed -i 's#^advertisedAddress=#advertisedAddress=plain:pulsar://pulsar:6650,ssl:pulsar+ssl://pulsar:6651,toxiproxy:pulsar://toxiproxy:6652,toxiproxy_ssl:pulsar+ssl://toxiproxy:6653#' conf/standalone.conf
+        sed -i 's#^tlsCertificateFilePath=#tlsCertificateFilePath=/etc/certs/server.pem#' conf/standalone.conf
+        sed -i 's#^tlsTrustCertsFilePath=#tlsTrustCertsFilePath=/etc/certs/ca.pem#' conf/standalone.conf
+        sed -i 's#^tlsKeyFilePath=#tlsKeyFilePath=/etc/certs/key.pem#' conf/standalone.conf
+        sed -i 's#^tlsProtocols=#tlsProtocols=TLSv1.3,TLSv1.2#' conf/standalone.conf
+        sed -i 's#^tlsCiphers=#tlsCiphers=TLS_AES_256_GCM_SHA384#' conf/standalone.conf
+        echo 'advertisedListeners=plain:pulsar://pulsar:6650,ssl:pulsar+ssl://pulsar:6651,toxiproxy:pulsar://toxiproxy:6652,toxiproxy_ssl:pulsar+ssl://toxiproxy:6653' >> conf/standalone.conf
+        bin/pulsar standalone -nfw -nss

@@ -1,0 +1,49 @@
+emqx_modules_schema {
+
+enable.desc:
+"""Enable this feature"""
+
+max_delayed_messages.desc:
+"""Maximum number of delayed messages (0 is no limit)."""
+
+rewrite.desc:
+"""The topic rewriting function of EMQX supports rewriting topic A to topic B when the client subscribes to topics, publishes messages, and cancels subscriptions according to user-configured rules.
+Each rewrite rule consists of three parts: subject filter, regular expression, and target expression.
+Under the premise that the subject rewriting function is enabled, when EMQX receives a subject-based MQTT message such as a `PUBLISH` message,
+it will use the subject of the message to sequentially match the subject filter part of the rule in the configuration file. If the match is successful,
+the regular expression is used to extract the information in the subject, and then replaced with the target expression to form a new subject.
+Variables in the format of `$N` can be used in the target expression to match the elements extracted from the regular expression.
+The value of `$N` is the Nth element extracted from the regular expression. For example, `$1` is the regular expression. The first element extracted by the expression.
+It should be noted that EMQX uses reverse order to read the rewrite rules in the configuration file.
+When a topic can match the topic filter of multiple topic rewrite rules at the same time, EMQX will only use the first rule it matches. Rewrite.
+If the regular expression in this rule does not match the subject of the MQTT message, the rewriting will fail, and no other rules will be attempted for rewriting.
+Therefore, users need to carefully design MQTT message topics and topic rewriting rules when using them."""
+
+rewrite.label:
+"""Topic Rewrite"""
+
+tr_action.desc:
+"""Topic rewriting takes effect on the type of operation:
+  - `subscribe`: Rewrite topic when client do subscribe.
+  - `publish`: Rewrite topic when client do publish.
+  - `all`: Both"""
+
+tr_action.label:
+"""Action"""
+
+tr_dest_topic.desc:
+"""Destination topic."""
+
+tr_dest_topic.label:
+"""Destination Topic"""
+
+tr_re.desc:
+"""Regular expressions"""
+
+tr_source_topic.desc:
+"""Source topic, specified by the client."""
+
+tr_source_topic.label:
+"""Source Topic"""
+
+}

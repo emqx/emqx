@@ -1,0 +1,126 @@
+name: Performance Test Suite
+
+on:
+  push:
+    branches:
+      - 'perf/**'
+  schedule:
+    - cron:  '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'emqx'
+    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-25.1.2-3-ubuntu20.04
+    outputs:
+      BENCH_ID: ${{ steps.prepare.outputs.BENCH_ID }}
+      PACKAGE_FILE: ${{ steps.package_file.outputs.PACKAGE_FILE }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.inputs.ref }}
+    - name: Work around https://github.com/actions/checkout/issues/766
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - id: prepare
+      run: |
+        echo "EMQX_NAME=emqx" >> $GITHUB_ENV
+        echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        echo "BENCH_ID=$(date --utc +%F)/emqx-$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
+    - name: Build deb package
+      run: |
+        make ${EMQX_NAME}-pkg
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
+    - name: Get package file name
+      id: package_file
+      run: |
+        echo "PACKAGE_FILE=$(find _packages/emqx -name 'emqx-*.deb' | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
+    - uses: actions/upload-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: _packages/emqx/${{ steps.package_file.outputs.PACKAGE_FILE }}
+
+  tf_emqx_perf_test:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+    env:
+      TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
+      TF_VAR_grafana_api_key: ${{ secrets.TF_EMQX_PERF_TEST_GRAFANA_API_KEY }}
+      TF_AWS_REGION: eu-north-1
+      TF_VAR_test_duration: 1800
+
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
+        aws-region: eu-north-1
+    - name: Checkout tf-emqx-performance-test
+      uses: actions/checkout@v3
+      with:
+        repository: emqx/tf-emqx-performance-test
+        path: tf-emqx-performance-test
+    - uses: actions/download-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: tf-emqx-performance-test/
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+    - name: 1on1 scenario
+      id: scenario_1on1
+      working-directory: ./tf-emqx-performance-test
+      timeout-minutes: 60
+      env:
+        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/1on1"
+        TF_VAR_use_emqttb: 1
+        TF_VAR_use_emqtt_bench: 0
+        TF_VAR_emqttb_instance_count: 2
+        TF_VAR_emqttb_instance_type: "c5.large"
+        TF_VAR_emqttb_scenario: "@pub --topic 't/%n' --pubinterval 10ms --qos 1 --publatency 50ms --size 16 --num-clients 25000 @sub --topic 't/%n' --num-clients 25000"
+        TF_VAR_emqx_instance_type: "c5.xlarge"
+        TF_VAR_emqx_instance_count: 3
+      run: |
+        terraform init
+        terraform apply -auto-approve
+        ./wait-emqttb.sh
+        ./fetch-metrics.sh
+        MESSAGES_RECEIVED=$(cat metrics.json | jq '[.[]."messages.received"] | add')
+        MESSAGES_SENT=$(cat metrics.json | jq '[.[]."messages.sent"] | add')
+        echo MESSAGES_DROPPED=$(cat metrics.json | jq '[.[]."messages.dropped"] | add') >> $GITHUB_OUTPUT
+        echo PUB_MSG_RATE=$(($MESSAGES_RECEIVED / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
+        echo SUB_MSG_RATE=$(($MESSAGES_SENT / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
+        terraform destroy -auto-approve
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.23.0
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      with:
+        payload: |
+          {"text": "Performance test result for 1on1 scenario (50k pub, 50k sub): ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Pub message rate*: ${{ steps.scenario_1on1.outputs.PUB_MSG_RATE }}\n*Sub message rate*: ${{ steps.scenario_1on1.outputs.SUB_MSG_RATE }}\nDropped messages: ${{ steps.scenario_1on1.outputs.MESSAGES_DROPPED }}"}
+    - name: terraform destroy
+      if: always()
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform destroy -auto-approve
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: metrics
+        path: "./tf-emqx-performance-test/metrics.json"
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: terraform
+        path: |
+          ./tf-emqx-performance-test/.terraform
+          ./tf-emqx-performance-test/*.tfstate

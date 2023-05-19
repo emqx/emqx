@@ -53,7 +53,8 @@ fields("retainer") ->
             sc(
                 ?R_REF(flow_control),
                 flow_control,
-                #{}
+                #{},
+                ?IMPORTANCE_HIDDEN
             )},
         {max_payload_size,
             sc(
@@ -125,7 +126,9 @@ desc(_) ->
 %%    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
-    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
+    sc(Type, DescId, Default, ?DEFAULT_IMPORTANCE).
+sc(Type, DescId, Default, Importance) ->
+    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId), importance => Importance}).
 
 backend_config() ->
     hoconsc:mk(hoconsc:ref(?MODULE, mnesia_config), #{desc => ?DESC(backend)}).

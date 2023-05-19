@@ -1,0 +1,81 @@
+emqx_exhook_api {
+
+add_server.desc:
+"""Add a server"""
+
+delete_server.desc:
+"""Delete the server"""
+
+get_detail.desc:
+"""Get the detail information of Exhook server"""
+
+get_hooks.desc:
+"""Get the hooks information of server"""
+
+hook_metrics.desc:
+"""Metrics information of this hook in the current node"""
+
+hook_name.desc:
+"""The hook's name"""
+
+hook_params.desc:
+"""The parameters used when the hook is registered"""
+
+list_all_servers.desc:
+"""List all servers"""
+
+metric_failed.desc:
+"""The number of times the hook execution failed"""
+
+metric_max_rate.desc:
+"""Maximum call rate of hooks"""
+
+metric_rate.desc:
+"""The call rate of hooks"""
+
+metric_succeed.desc:
+"""The number of times the hooks execution successful"""
+
+metrics.desc:
+"""Metrics information"""
+
+move_api.desc:
+"""Move the server.
+NOTE: The position should be "front | rear | before:{name} | after:{name}"""
+
+move_api.label:
+"""Change order of execution for registered Exhook server"""
+
+move_position.desc:
+"""The target position to be moved"""
+
+node.desc:
+"""Node name"""
+
+node_hook_metrics.desc:
+"""Metrics information of this hook in all nodes"""
+
+node_metrics.desc:
+"""Metrics information of this server in all nodes"""
+
+node_status.desc:
+"""status of this server in all nodes"""
+
+server_metrics.desc:
+"""Metrics information of this server in the current node"""
+
+server_name.desc:
+"""The Exhook server name"""
+
+status.desc:
+"""The status of Exhook server.<br/>
+connected: connection succeeded<br/>
+connecting: connection failed, reconnecting<br/>
+disconnected: failed to connect and didn't reconnect<br/>
+disabled: this server is disabled<br/>
+error: failed to view the status of this server"""
+
+update_server.desc:
+"""Update the server"""
+
+}

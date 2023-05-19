@@ -174,7 +174,7 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
             desc = Desc,
             created_at = erlang:system_time(second),
             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-            api_key = list_to_binary(emqx_misc:gen_id(16))
+            api_key = list_to_binary(emqx_utils:gen_id(16))
         },
     case create_app(App) of
         {ok, Res} ->
@@ -213,7 +213,7 @@ do_force_create_app(App, ApiKey, NamePrefix) ->
     end.
 
 generate_unique_name(NamePrefix) ->
-    New = list_to_binary(NamePrefix ++ emqx_misc:gen_id(16)),
+    New = list_to_binary(NamePrefix ++ emqx_utils:gen_id(16)),
     case mnesia:read(?APP, New) of
         [] -> New;
         _ -> generate_unique_name(NamePrefix)
@@ -246,7 +246,7 @@ init_bootstrap_file(File) ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
-            Reason = emqx_misc:explain_posix(Reason0),
+            Reason = emqx_utils:explain_posix(Reason0),
             ?SLOG(
                 error,
                 #{

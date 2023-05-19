@@ -85,7 +85,7 @@ commit(Batch = #batch{batch_q = Q, commit_fun = Commit}) ->
     reset(Batch).
 
 reset(Batch = #batch{linger_timer = TRef}) ->
-    _ = emqx_misc:cancel_timer(TRef),
+    _ = emqx_utils:cancel_timer(TRef),
     Batch#batch{batch_q = [], linger_timer = undefined}.
 
 -spec size(batch()) -> non_neg_integer().

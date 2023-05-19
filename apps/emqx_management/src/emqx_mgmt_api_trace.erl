@@ -94,7 +94,8 @@ schema("/trace") ->
                 409 => emqx_dashboard_swagger:error_codes(
                     [
                         'ALREADY_EXISTS',
-                        'DUPLICATE_CONDITION'
+                        'DUPLICATE_CONDITION',
+                        'BAD_TYPE'
                     ],
                     <<"trace already exists">>
                 )
@@ -265,6 +266,19 @@ fields(trace) ->
                     example => running
                 }
             )},
+        {payload_encode,
+            hoconsc:mk(hoconsc:enum([hex, text, hidden]), #{
+                desc =>
+                    ""
+                    "Determine the format of the payload format in the trace file.<br/>\n"
+                    "`text`: Text-based protocol or plain text protocol.\n"
+                    " It is recommended when payload is JSON encoded.<br/>\n"
+                    "`hex`: Binary hexadecimal encode."
+                    "It is recommended when payload is a custom binary protocol.<br/>\n"
+                    "`hidden`: payload is obfuscated as `******`"
+                    "",
+                default => text
+            })},
         {start_at,
             hoconsc:mk(
                 emqx_datetime:epoch_second(),
@@ -376,7 +390,7 @@ trace(get, _Params) ->
                 fun(#{start_at := A}, #{start_at := B}) -> A > B end,
                 emqx_trace:format(List0)
             ),
-            Nodes = mria:running_nodes(),
+            Nodes = emqx:running_nodes(),
             TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
@@ -421,6 +435,11 @@ trace(post, #{body := Param}) ->
                 code => 'DUPLICATE_CONDITION',
                 message => ?TO_BIN([Name, " Duplication Condition"])
             }};
+        {error, {bad_type, _}} ->
+            {409, #{
+                code => 'BAD_TYPE',
+                message => <<"Rolling upgrade in progress, create failed">>
+            }};
         {error, Reason} ->
             {400, #{
                 code => 'INVALID_PARAMS',
@@ -445,7 +464,7 @@ format_trace(Trace0) ->
     LogSize = lists:foldl(
         fun(Node, Acc) -> Acc#{Node => 0} end,
         #{},
-        mria:running_nodes()
+        emqx:running_nodes()
     ),
     Trace2 = maps:without([enable, filter], Trace1),
     Trace2#{
@@ -479,7 +498,7 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
                     %% We generate a session ID so that we name files
                     %% with unique names. Then we won't cause
                     %% overwrites for concurrent requests.
-                    SessionId = emqx_misc:gen_id(),
+                    SessionId = emqx_utils:gen_id(),
                     ZipDir = filename:join([emqx_trace:zip_dir(), SessionId]),
                     ok = file:make_dir(ZipDir),
                     %% Write files to ZipDir and create an in-memory zip file
@@ -541,13 +560,13 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     ).
 
 collect_trace_file(undefined, TraceLog) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog));
 collect_trace_file(Node, TraceLog) ->
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file([Node], TraceLog)).
 
 collect_trace_file_detail(TraceLog) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file_detail(Nodes, TraceLog)).
 
 wrap_rpc({GoodRes, BadNodes}) ->
@@ -677,7 +696,7 @@ parse_node(Query, Default) ->
                 {ok, Default};
             {ok, NodeBin} ->
                 Node = binary_to_existing_atom(NodeBin),
-                true = lists:member(Node, mria:running_nodes()),
+                true = lists:member(Node, emqx:running_nodes()),
                 {ok, Node}
         end
     catch

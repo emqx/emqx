@@ -80,7 +80,7 @@ init(Conf) ->
         flush_time_interval := FlushTimeInterval
     } = Conf,
     FlushTimeInterval1 = flush_interval(FlushTimeInterval, SampleTimeInterval),
-    {Host, Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_PARSE_OPTS),
     Tags = maps:fold(fun(K, V, Acc) -> [{to_bin(K), to_bin(V)} | Acc] end, [], TagsRaw),
     Opts = [{tags, Tags}, {host, Host}, {port, Port}, {prefix, <<"emqx">>}],
     {ok, Pid} = estatsd:start_link(Opts),
@@ -144,7 +144,7 @@ flush_interval(_FlushInterval, SampleInterval) ->
     SampleInterval.
 
 ensure_timer(State = #{sample_time_interval := SampleTimeInterval}) ->
-    State#{timer => emqx_misc:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
+    State#{timer => emqx_utils:start_timer(SampleTimeInterval, ?SAMPLE_TIMEOUT)}.
 
 check_multicall_result({Results, []}) ->
     case

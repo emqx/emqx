@@ -229,7 +229,7 @@ lookup(HookPoint) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->

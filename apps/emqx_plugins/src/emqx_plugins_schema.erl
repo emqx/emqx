@@ -29,7 +29,7 @@
 
 namespace() -> "plugin".
 
-roots() -> [?CONF_ROOT].
+roots() -> [{?CONF_ROOT, ?HOCON(?R_REF(?CONF_ROOT), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(?CONF_ROOT) ->
     #{
@@ -73,16 +73,19 @@ states(type) -> ?ARRAY(?R_REF(state));
 states(required) -> false;
 states(default) -> [];
 states(desc) -> ?DESC(states);
+states(importance) -> ?IMPORTANCE_HIGH;
 states(_) -> undefined.
 
 install_dir(type) -> string();
 install_dir(required) -> false;
-%% runner's root dir
+%% runner's root dir todo move to data dir in 5.1
 install_dir(default) -> <<"plugins">>;
-install_dir(T) when T =/= desc -> undefined;
-install_dir(desc) -> ?DESC(install_dir).
+install_dir(desc) -> ?DESC(install_dir);
+install_dir(importance) -> ?IMPORTANCE_LOW;
+install_dir(_) -> undefined.
 
 check_interval(type) -> emqx_schema:duration();
 check_interval(default) -> <<"5s">>;
-check_interval(T) when T =/= desc -> undefined;
-check_interval(desc) -> ?DESC(check_interval).
+check_interval(desc) -> ?DESC(check_interval);
+check_interval(deprecated) -> {since, "5.0.24"};
+check_interval(_) -> undefined.

@@ -1,0 +1,90 @@
+emqx_authz_api_schema {
+
+body.desc:
+"""HTTP 请求体。"""
+
+body.label:
+"""请求体"""
+
+cmd.desc:
+"""访问控制数据查询命令。"""
+
+cmd.label:
+"""查询命令"""
+
+collection.desc:
+"""`MongoDB` 授权数据集。"""
+
+collection.label:
+"""数据集"""
+
+enable.desc:
+"""设为 <code>true</code> 或 <code>false</code> 以启用或禁用此访问控制数据源。"""
+
+enable.label:
+"""enable"""
+
+filter.desc:
+"""在查询中定义过滤条件的条件表达式。
+过滤器支持如下占位符：
+- <code>${username}</code>: 将在运行时被替换为客户端连接时使用的用户名
+- <code>${clientid}</code>: 将在运行时被替换为客户端连接时使用的客户端标识符"""
+
+filter.label:
+"""过滤器"""
+
+headers.desc:
+"""HTTP Headers 列表"""
+
+headers.label:
+"""请求头"""
+
+headers_no_content_type.desc:
+"""HTTP Headers 列表（无 <code>content-type</code>）。"""
+
+headers_no_content_type.label:
+"""请求头(无 content-type)"""
+
+method.desc:
+"""HTTP 请求方法。"""
+
+method.label:
+"""method"""
+
+position.desc:
+"""认证数据源位置。"""
+
+position.label:
+"""位置"""
+
+query.desc:
+"""访问控制数据查询语句。"""
+
+query.label:
+"""查询语句"""
+
+request_timeout.desc:
+"""请求超时时间。"""
+
+request_timeout.label:
+"""请求超时"""
+
+rules.desc:
+"""静态授权文件规则。"""
+
+rules.label:
+"""规则"""
+
+type.desc:
+"""数据后端类型。"""
+
+type.label:
+"""type"""
+
+url.desc:
+"""认证服务器 URL。"""
+
+url.label:
+"""url"""
+
+}

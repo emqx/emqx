@@ -1,0 +1,87 @@
+emqx_authz_api_mnesia {
+
+action.desc:
+"""Authorized action (pub/sub/all)"""
+
+action.label:
+"""action"""
+
+clientid.desc:
+"""ClientID"""
+
+clientid.label:
+"""clientid"""
+
+fuzzy_clientid.desc:
+"""Fuzzy search `clientid` as substring"""
+
+fuzzy_clientid.label:
+"""fuzzy_clientid"""
+
+fuzzy_username.desc:
+"""Fuzzy search `username` as substring"""
+
+fuzzy_username.label:
+"""fuzzy_username"""
+
+permission.desc:
+"""Permission"""
+
+permission.label:
+"""permission"""
+
+rules_all_delete.desc:
+"""Delete rules for 'all'"""
+
+rules_all_get.desc:
+"""Show the list of rules for 'all'"""
+
+rules_all_post.desc:
+"""Create/Update the list of rules for 'all'."""
+
+rules_delete.desc:
+"""Delete all rules for all 'users', 'clients' and 'all'"""
+
+topic.desc:
+"""Rule on specific topic"""
+
+topic.label:
+"""topic"""
+
+user_clientid_delete.desc:
+"""Delete rule for 'clientid'"""
+
+user_clientid_get.desc:
+"""Get rule for 'clientid'"""
+
+user_clientid_put.desc:
+"""Set rule for 'clientid'"""
+
+user_username_delete.desc:
+"""Delete rule for 'username'"""
+
+user_username_get.desc:
+"""Get rule for 'username'"""
+
+user_username_put.desc:
+"""Set rule for 'username'"""
+
+username.desc:
+"""Username"""
+
+username.label:
+"""username"""
+
+users_clientid_get.desc:
+"""Show the list of rules for clients"""
+
+users_clientid_post.desc:
+"""Add new rule for 'clientid'"""
+
+users_username_get.desc:
+"""Show the list of rules for users"""
+
+users_username_post.desc:
+"""Add new rule for 'username'"""
+
+}

@@ -34,16 +34,18 @@
 
 -export_type([container/0, check_result/0]).
 
--type container() :: #{
-    limiter_type() => undefined | limiter(),
-    %% the retry context of the limiter
-    retry_key() =>
-        undefined
-        | retry_context()
-        | future(),
-    %% the retry context of the container
-    retry_ctx := undefined | any()
-}.
+-type container() ::
+    infinity
+    | #{
+        limiter_type() => undefined | limiter(),
+        %% the retry context of the limiter
+        retry_key() =>
+            undefined
+            | retry_context()
+            | future(),
+        %% the retry context of the container
+        retry_ctx := undefined | any()
+    }.
 
 -type future() :: pos_integer().
 -type limiter_id() :: emqx_limiter_schema:limiter_id().
@@ -78,7 +80,20 @@ get_limiter_by_types(Id, Types, BucketCfgs) ->
         {ok, Limiter} = emqx_limiter_server:connect(Id, Type, BucketCfgs),
         add_new(Type, Limiter, Acc)
     end,
-    lists:foldl(Init, #{retry_ctx => undefined}, Types).
+    Container = lists:foldl(Init, #{retry_ctx => undefined}, Types),
+    case
+        lists:all(
+            fun(Type) ->
+                maps:get(Type, Container) =:= infinity
+            end,
+            Types
+        )
+    of
+        true ->
+            infinity;
+        _ ->
+            Container
+    end.
 
 -spec add_new(limiter_type(), limiter(), container()) -> container().
 add_new(Type, Limiter, Container) ->
@@ -89,11 +104,15 @@ add_new(Type, Limiter, Container) ->
 
 %% @doc check the specified limiter
 -spec check(pos_integer(), limiter_type(), container()) -> check_result().
+check(_Need, _Type, infinity) ->
+    {ok, infinity};
 check(Need, Type, Container) ->
     check_list([{Need, Type}], Container).
 
 %% @doc check multiple limiters
 -spec check_list(list({pos_integer(), limiter_type()}), container()) -> check_result().
+check_list(_Need, infinity) ->
+    {ok, infinity};
 check_list([{Need, Type} | T], Container) ->
     Limiter = maps:get(Type, Container),
     case emqx_htb_limiter:check(Need, Limiter) of
@@ -121,11 +140,15 @@ check_list([], Container) ->
 
 %% @doc retry the specified limiter
 -spec retry(limiter_type(), container()) -> check_result().
+retry(_Type, infinity) ->
+    {ok, infinity};
 retry(Type, Container) ->
     retry_list([Type], Container).
 
 %% @doc retry multiple limiters
 -spec retry_list(list(limiter_type()), container()) -> check_result().
+retry_list(_Types, infinity) ->
+    {ok, infinity};
 retry_list([Type | T], Container) ->
     Key = ?RETRY_KEY(Type),
     case Container of

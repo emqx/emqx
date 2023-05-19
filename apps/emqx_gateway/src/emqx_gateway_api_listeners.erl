@@ -96,7 +96,7 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         LName = binary_to_atom(maps:get(<<"name">>, LConf)),
 
         Path = [listeners, Type, LName],
-        case emqx_map_lib:deep_get(Path, RunningConf, undefined) of
+        case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
             undefined ->
                 ListenerId = emqx_gateway_utils:listener_id(
                     GwName, Type, LName
@@ -110,14 +110,12 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         end
     end).
 
-listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId0}}) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId}}) ->
     with_gateway(Name0, fun(_GwName, _) ->
         ok = emqx_gateway_http:remove_listener(ListenerId),
         {204}
     end);
-listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId0}}) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId}}) ->
     with_gateway(Name0, fun(_GwName, _) ->
         case emqx_gateway_conf:listener(ListenerId) of
             {ok, Listener} ->
@@ -130,9 +128,8 @@ listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     end);
 listeners_insta(put, #{
     body := LConf,
-    bindings := #{name := Name0, id := ListenerId0}
+    bindings := #{name := Name0, id := ListenerId}
 }) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
         {ok, RespConf} = emqx_gateway_http:update_listener(ListenerId, LConf),
         {200, RespConf}
@@ -141,10 +138,9 @@ listeners_insta(put, #{
 listeners_insta_authn(get, #{
     bindings := #{
         name := Name0,
-        id := ListenerId0
+        id := ListenerId
     }
 }) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
         try emqx_gateway_http:authn(GwName, ListenerId) of
             Authn -> {200, Authn}
@@ -157,10 +153,9 @@ listeners_insta_authn(post, #{
     body := Conf,
     bindings := #{
         name := Name0,
-        id := ListenerId0
+        id := ListenerId
     }
 }) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
         {ok, Authn} = emqx_gateway_http:add_authn(GwName, ListenerId, Conf),
         {201, Authn}
@@ -169,10 +164,9 @@ listeners_insta_authn(put, #{
     body := Conf,
     bindings := #{
         name := Name0,
-        id := ListenerId0
+        id := ListenerId
     }
 }) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
         {ok, Authn} = emqx_gateway_http:update_authn(
             GwName, ListenerId, Conf
@@ -182,10 +176,9 @@ listeners_insta_authn(put, #{
 listeners_insta_authn(delete, #{
     bindings := #{
         name := Name0,
-        id := ListenerId0
+        id := ListenerId
     }
 }) ->
-    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
         ok = emqx_gateway_http:remove_authn(GwName, ListenerId),
         {204}

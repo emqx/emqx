@@ -36,7 +36,7 @@ init([]) ->
     ChildSpecs =
         [
             child_spec(emqx_cluster_rpc, []),
-            child_spec(emqx_cluster_rpc_handler, [])
+            child_spec(emqx_cluster_rpc_cleaner, [])
         ],
     {ok, {SupFlags, ChildSpecs}}.
 

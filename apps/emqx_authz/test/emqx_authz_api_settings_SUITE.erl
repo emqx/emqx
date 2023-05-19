@@ -76,7 +76,7 @@ t_api(_) ->
 
     {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1),
     {ok, 200, Result1} = request(get, uri(["authorization", "settings"]), []),
-    ?assertEqual(Settings1, jsx:decode(Result1)),
+    ?assertEqual(Settings1, emqx_utils_json:decode(Result1)),
 
     Settings2 = #{
         <<"no_match">> => <<"allow">>,
@@ -90,7 +90,7 @@ t_api(_) ->
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
-    ?assertEqual(Settings2, jsx:decode(Result2)),
+    ?assertEqual(Settings2, emqx_utils_json:decode(Result2)),
 
     ok.
 

@@ -54,7 +54,7 @@ request_api(Method, Url, QueryParams, Auth, Body, HttpOpts) ->
             [] ->
                 {NewUrl, [Auth]};
             _ ->
-                {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}
+                {NewUrl, [Auth], "application/json", emqx_utils_json:encode(Body)}
         end,
     do_request_api(Method, Request, HttpOpts).
 
@@ -70,7 +70,7 @@ do_request_api(Method, Request, HttpOpts) ->
     end.
 
 get_http_data(ResponseBody) ->
-    emqx_json:decode(ResponseBody, [return_maps]).
+    emqx_utils_json:decode(ResponseBody, [return_maps]).
 
 auth_header(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),

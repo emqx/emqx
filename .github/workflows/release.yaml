@@ -15,7 +15,7 @@ on:
 
 jobs:
   upload:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
     steps:
@@ -53,16 +53,6 @@ jobs:
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ github.ref_name }} packages
-          cd packages
-          DEFAULT_BEAM_PLATFORM='otp24.3.4.2-3'
-          # all packages including full-name and default-name are uploaded to s3
-          # but we only upload default-name packages (and elixir) as github artifacts
-          # so we rename (overwrite) non-default packages before uploading
-          while read -r fname; do
-            default_fname=$(echo "$fname" | sed "s/-${DEFAULT_BEAM_PLATFORM}//g")
-            echo "$fname -> $default_fname"
-            mv -f "$fname" "$default_fname"
-          done < <(find . -maxdepth 1 -type f | grep -E "emqx(-enterprise)?-5\.[0-9]+\.[0-9]+.*-${DEFAULT_BEAM_PLATFORM}" | grep -v elixir)
       - uses: alexellis/upload-assets@0.4.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -79,3 +69,35 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
+      - name: Push to packagecloud.io
+        env:
+          PROFILE: ${{ steps.profile.outputs.profile }}
+          VERSION: ${{ steps.profile.outputs.version }}
+          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
+        run: |
+          set -eu
+          REPO=$PROFILE
+          if [ $PROFILE = 'emqx-enterprise' ]; then
+              REPO='emqx-enterprise5'
+          fi
+          function push() {
+            docker run -t --rm -e PACKAGECLOUD_TOKEN=$PACKAGECLOUD_TOKEN -v $(pwd)/$2:/w/$2 -w /w ghcr.io/emqx/package_cloud push emqx/$REPO/$1 $2
+          }
+          push "debian/buster" "packages/$PROFILE-$VERSION-debian10-amd64.deb"
+          push "debian/buster" "packages/$PROFILE-$VERSION-debian10-arm64.deb"
+          push "debian/bullseye" "packages/$PROFILE-$VERSION-debian11-amd64.deb"
+          push "debian/bullseye" "packages/$PROFILE-$VERSION-debian11-arm64.deb"
+          push "ubuntu/bionic" "packages/$PROFILE-$VERSION-ubuntu18.04-amd64.deb"
+          push "ubuntu/bionic" "packages/$PROFILE-$VERSION-ubuntu18.04-arm64.deb"
+          push "ubuntu/focal" "packages/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"
+          push "ubuntu/focal" "packages/$PROFILE-$VERSION-ubuntu20.04-arm64.deb"
+          push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-amd64.deb"
+          push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-arm64.deb"
+          push "el/6" "packages/$PROFILE-$VERSION-amzn2-amd64.rpm"
+          push "el/6" "packages/$PROFILE-$VERSION-amzn2-arm64.rpm"
+          push "el/7" "packages/$PROFILE-$VERSION-el7-amd64.rpm"
+          push "el/7" "packages/$PROFILE-$VERSION-el7-arm64.rpm"
+          push "el/8" "packages/$PROFILE-$VERSION-el8-amd64.rpm"
+          push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
+          push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"
+          push "el/9" "packages/$PROFILE-$VERSION-el9-arm64.rpm"

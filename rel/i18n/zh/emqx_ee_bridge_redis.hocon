@@ -1,0 +1,41 @@
+emqx_ee_bridge_redis {
+
+command_template.desc:
+"""用于推送数据的 Redis 命令模板。 每个列表元素代表一个命令名称或其参数。
+例如，要通过键值 `msgs` 将消息体推送到 Redis 列表中，数组元素应该是： `rpush`, `msgs`, `${payload}`。"""
+
+command_template.label:
+"""Redis Command  模板"""
+
+config_enable.desc:
+"""启用/禁用桥接"""
+
+config_enable.label:
+"""启用/禁用桥接"""
+
+desc_config.desc:
+"""Resis 桥接配置"""
+
+desc_config.label:
+"""Redis 桥接配置"""
+
+desc_name.desc:
+"""桥接名字，可读描述"""
+
+desc_name.label:
+"""桥接名字"""
+
+desc_type.desc:
+"""Bridge 类型"""
+
+desc_type.label:
+"""桥接类型"""
+
+local_topic.desc:
+"""发送到 'local_topic' 的消息都会转发到 Redis。 </br>
+注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发到 Redis。"""
+
+local_topic.label:
+"""本地 Topic"""
+
+}

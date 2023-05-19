@@ -28,9 +28,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?TOPIC, #{
-        raw_with_default => true
-    }),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?TOPIC),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
@@ -42,6 +40,9 @@ init_per_testcase(_Case, Config) ->
     emqx_topic_metrics:deregister_all(),
     Config.
 
+end_per_testcase(t_metrics_not_started, _Config) ->
+    _ = supervisor:restart_child(emqx_modules_sup, emqx_topic_metrics),
+    ok;
 end_per_testcase(_Case, _Config) ->
     emqx_topic_metrics:deregister_all(),
     emqx_config:put([topic_metrics], []),
@@ -181,3 +182,10 @@ t_unknown_messages(_) ->
         OldPid,
         whereis(emqx_topic_metrics)
     ).
+
+t_metrics_not_started(_Config) ->
+    _ = emqx_topic_metrics:register(<<"a/b/c">>),
+    ?assert(emqx_topic_metrics:is_registered(<<"a/b/c">>)),
+    ok = supervisor:terminate_child(emqx_modules_sup, emqx_topic_metrics),
+    ?assertNot(emqx_topic_metrics:is_registered(<<"a/b/c">>)),
+    {ok, _} = supervisor:restart_child(emqx_modules_sup, emqx_topic_metrics).

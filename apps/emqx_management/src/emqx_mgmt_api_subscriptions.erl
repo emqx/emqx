@@ -149,7 +149,7 @@ subscriptions(get, #{query_string := QString}) ->
                     fun ?MODULE:format/2
                 );
             Node0 ->
-                case emqx_misc:safe_to_existing_atom(Node0) of
+                case emqx_utils:safe_to_existing_atom(Node0) of
                     {ok, Node1} ->
                         emqx_mgmt_api:node_query(
                             Node1,
@@ -177,7 +177,7 @@ format(WhichNode, {{Topic, _Subscriber}, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
-            clientid => maps:get(subid, Options),
+            clientid => maps:get(subid, Options, null),
             node => WhichNode
         },
         maps:with([qos, nl, rap, rh], Options)

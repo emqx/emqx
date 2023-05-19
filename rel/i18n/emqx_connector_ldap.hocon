@@ -1,0 +1,21 @@
+emqx_connector_ldap {
+
+bind_dn.desc:
+"""LDAP's Binding Distinguished Name (DN)"""
+
+bind_dn.label:
+"""Bind DN"""
+
+port.desc:
+"""LDAP Port"""
+
+port.label:
+"""Port"""
+
+timeout.desc:
+"""LDAP's query timeout"""
+
+timeout.label:
+"""timeout"""
+
+}

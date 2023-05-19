@@ -1,0 +1,37 @@
+emqx_coap_schema {
+
+coap.desc:
+"""CoAP 网关配置。
+该网关的实现基于 RFC-7252 和 https://core-wg.github.io/coap-pubsub/draft-ietf-core-pubsub.html"""
+
+coap_connection_required.desc:
+"""是否开启连接模式。
+连接模式是非标准协议的功能。它维护 CoAP 客户端上线、认证、和连接状态的保持"""
+
+coap_heartbeat.desc:
+"""CoAP 网关要求客户端的最小心跳间隔时间。
+当 <code>connection_required</code> 开启后，该参数用于检查客户端连接是否存活"""
+
+coap_notify_type.desc:
+"""投递给 CoAP 客户端的通知消息类型。当客户端 Observe 一个资源（或订阅某个主题）时，网关会向客户端推送新产生的消息。其消息类型可设置为：<br/>
+  - non: 不需要客户端返回确认消息;<br/>
+  - con: 需要客户端返回一个确认消息;<br/>
+  - qos: 取决于消息的 QoS 等级; QoS 0 会以 `non` 类型下发，QoS 1/2 会以 `con` 类型下发"""
+
+coap_publish_qos.desc:
+"""客户端发布请求的默认 QoS 等级。
+当 CoAP 客户端发起发布请求时，如果未携带 `qos` 参数则会使用该默认值。默认值可设置为：<br>
+  - qos0、qos1、qos2: 设置为固定的 QoS 等级<br/>
+  - coap: 依据发布操作的 CoAP 报文类型来动态决定<br/>
+    * 当发布请求为 `non-confirmable` 类型时，取值为 qos0<br/>
+    * 当发布请求为 `confirmable` 类型时，取值为 qos1"""
+
+coap_subscribe_qos.desc:
+"""客户端订阅请求的默认 QoS 等级。
+当 CoAP 客户端发起订阅请求时，如果未携带 `qos` 参数则会使用该默认值。默认值可设置为：<br/>
+  - qos0、 qos1、qos2: 设置为固定的 QoS 等级<br/>
+  - coap: 依据订阅操作的 CoAP 报文类型来动态决定<br/>
+    * 当订阅请求为 `non-confirmable` 类型时，取值为 qos0<br/>
+    * 当订阅请求为 `confirmable` 类型时，取值为 qos1"""
+
+}

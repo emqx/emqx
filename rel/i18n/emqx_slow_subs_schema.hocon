@@ -1,0 +1,18 @@
+emqx_slow_subs_schema {
+
+enable.desc:
+"""Enable this feature"""
+
+expire_interval.desc:
+"""The eviction time of the record, which in the statistics record table"""
+
+stats_type.desc:
+"""The method to calculate the latency"""
+
+threshold.desc:
+"""The latency threshold for statistics"""
+
+top_k_num.desc:
+"""The maximum number of records in the slow subscription statistics record table"""
+
+}

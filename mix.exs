@@ -49,13 +49,13 @@ defmodule EMQXUmbrella.MixProject do
       {:redbug, "2.0.8"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.7", override: true},
-      {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.8", override: true},
+      {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.14.6", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.15.1", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.8", override: true},
@@ -65,14 +65,14 @@ defmodule EMQXUmbrella.MixProject do
       # maybe forbid to fetch quicer
       {:emqtt,
        github: "emqx/emqtt", tag: "1.8.5", override: true, system_env: maybe_no_quic_env()},
-      {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
+      {:rulesql, github: "emqx/rulesql", tag: "0.1.6"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
       {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.7", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.37.0", override: true},
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.6", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -83,6 +83,8 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
+      # in conflict by erlavro and rocketmq
+      {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
       # dependencies of dependencies; we choose specific refs to match
       # what rebar3 chooses.
       # in conflict by gun and emqtt
@@ -92,8 +94,8 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.5", override: true, runtime: false},
-      {:hackney, github: "benoitc/hackney", tag: "1.18.1", override: true}
+      {:gpb, "4.19.7", override: true, runtime: false},
+      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
@@ -105,6 +107,8 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp umbrella_apps() do
+    enterprise_apps = enterprise_umbrella_apps()
+
     "apps/*"
     |> Path.wildcard()
     |> Enum.map(fn path ->
@@ -115,9 +119,20 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.reject(fn dep_spec ->
+      dep_spec
+      |> elem(0)
+      |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    umbrella_apps =
+      Enum.map(enterprise_umbrella_apps(), fn app_name ->
+        path = "apps/#{app_name}"
+        {app_name, path: path, manager: :rebar3, override: true}
+      end)
+
     "lib-ee/*"
     |> Path.wildcard()
     |> Enum.filter(&File.dir?/1)
@@ -129,10 +144,39 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
     []
+  end
+
+  # need to remove those when listing `/apps/`...
+  defp enterprise_umbrella_apps() do
+    MapSet.new([
+      :emqx_bridge_kafka,
+      :emqx_bridge_gcp_pubsub,
+      :emqx_bridge_cassandra,
+      :emqx_bridge_opents,
+      :emqx_bridge_dynamo,
+      :emqx_bridge_hstreamdb,
+      :emqx_bridge_influxdb,
+      :emqx_bridge_iotdb,
+      :emqx_bridge_matrix,
+      :emqx_bridge_mongodb,
+      :emqx_bridge_mysql,
+      :emqx_bridge_pgsql,
+      :emqx_bridge_redis,
+      :emqx_bridge_rocketmq,
+      :emqx_bridge_tdengine,
+      :emqx_bridge_timescale,
+      :emqx_bridge_sqlserver,
+      :emqx_bridge_pulsar,
+      :emqx_oracle,
+      :emqx_bridge_oracle,
+      :emqx_bridge_rabbitmq,
+      :emqx_bridge_clickhouse
+    ])
   end
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
@@ -141,10 +185,34 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.9", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.2", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.8", override: true},
-      {:supervisor3, "1.1.11", override: true}
+      {:crc32cer, "0.1.8", override: true},
+      {:supervisor3, "1.1.12", override: true},
+      {:erlcloud, github: "emqx/erlcloud", tag: "3.5.16-emqx-1", override: true},
+      # erlcloud's rebar.config requires rebar3 and does not support Mix,
+      # so it tries to fetch deps from git. We need to override this.
+      {:lhttpc, "1.6.2", override: true},
+      {:eini, "1.2.9", override: true},
+      {:base16, "1.0.0", override: true},
+      # end of erlcloud's deps
+      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
+      # The following two are dependencies of rabbit_common. They are needed here to
+      # make mix not complain about conflicting versions
+      {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
+      {:credentials_obfuscation,
+       github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
+      {:rabbit_common,
+       github: "emqx/rabbitmq-server",
+       tag: "v3.11.13-emqx",
+       sparse: "deps/rabbit_common",
+       override: true},
+      {:amqp_client,
+       github: "emqx/rabbitmq-server",
+       tag: "v3.11.13-emqx",
+       sparse: "deps/amqp_client",
+       override: true}
     ]
   end
 
@@ -221,6 +289,11 @@ defmodule EMQXUmbrella.MixProject do
           applications: applications(edition_type),
           skip_mode_validation_for: [
             :emqx_gateway,
+            :emqx_gateway_stomp,
+            :emqx_gateway_mqttsn,
+            :emqx_gateway_coap,
+            :emqx_gateway_lwm2m,
+            :emqx_gateway_exproto,
             :emqx_dashboard,
             :emqx_resource,
             :emqx_connector,
@@ -271,9 +344,10 @@ defmodule EMQXUmbrella.MixProject do
         emqx_plugin_libs: :load,
         esasl: :load,
         observer_cli: :permanent,
-        tools: :load,
+        tools: :permanent,
         covertool: :load,
         system_monitor: :load,
+        emqx_utils: :load,
         emqx_http_lib: :permanent,
         emqx_resource: :permanent,
         emqx_connector: :permanent,
@@ -281,6 +355,11 @@ defmodule EMQXUmbrella.MixProject do
         emqx_authz: :permanent,
         emqx_auto_subscribe: :permanent,
         emqx_gateway: :permanent,
+        emqx_gateway_stomp: :permanent,
+        emqx_gateway_mqttsn: :permanent,
+        emqx_gateway_coap: :permanent,
+        emqx_gateway_lwm2m: :permanent,
+        emqx_gateway_exproto: :permanent,
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
         emqx_rule_engine: :permanent,
@@ -307,7 +386,32 @@ defmodule EMQXUmbrella.MixProject do
           emqx_license: :permanent,
           emqx_ee_conf: :load,
           emqx_ee_connector: :permanent,
-          emqx_ee_bridge: :permanent
+          emqx_ee_bridge: :permanent,
+          emqx_bridge_kafka: :permanent,
+          emqx_bridge_pulsar: :permanent,
+          emqx_bridge_gcp_pubsub: :permanent,
+          emqx_bridge_cassandra: :permanent,
+          emqx_bridge_opents: :permanent,
+          emqx_bridge_clickhouse: :permanent,
+          emqx_bridge_dynamo: :permanent,
+          emqx_bridge_hstreamdb: :permanent,
+          emqx_bridge_influxdb: :permanent,
+          emqx_bridge_iotdb: :permanent,
+          emqx_bridge_matrix: :permanent,
+          emqx_bridge_mongodb: :permanent,
+          emqx_bridge_mysql: :permanent,
+          emqx_bridge_pgsql: :permanent,
+          emqx_bridge_redis: :permanent,
+          emqx_bridge_rocketmq: :permanent,
+          emqx_bridge_tdengine: :permanent,
+          emqx_bridge_timescale: :permanent,
+          emqx_bridge_sqlserver: :permanent,
+          emqx_oracle: :permanent,
+          emqx_bridge_oracle: :permanent,
+          emqx_bridge_rabbitmq: :permanent,
+          emqx_ee_schema_registry: :permanent,
+          emqx_eviction_agent: :permanent,
+          emqx_node_rebalance: :permanent
         ],
         else: []
       )
@@ -394,10 +498,12 @@ defmodule EMQXUmbrella.MixProject do
     bin = Path.join(release.path, "bin")
     etc = Path.join(release.path, "etc")
     log = Path.join(release.path, "log")
+    plugins = Path.join(release.path, "plugins")
 
     Mix.Generator.create_directory(bin)
     Mix.Generator.create_directory(etc)
     Mix.Generator.create_directory(log)
+    Mix.Generator.create_directory(plugins)
     Mix.Generator.create_directory(Path.join(etc, "certs"))
 
     Enum.each(
@@ -423,7 +529,7 @@ defmodule EMQXUmbrella.MixProject do
     profile = System.get_env("MIX_ENV")
 
     Mix.Generator.copy_file(
-      "_build/docgen/#{profile}/emqx.conf.en.example",
+      "_build/docgen/#{profile}/emqx.conf.example",
       Path.join(etc, "emqx.conf.example"),
       force: overwrite?
     )
@@ -610,6 +716,7 @@ defmodule EMQXUmbrella.MixProject do
       &[
         "etc",
         "data",
+        "plugins",
         "bin/node_dump"
         | &1
       ]
@@ -625,7 +732,6 @@ defmodule EMQXUmbrella.MixProject do
       emqx_default_erlang_cookie: default_cookie(),
       platform_data_dir: "data",
       platform_etc_dir: "etc",
-      platform_log_dir: "log",
       platform_plugins_dir: "plugins",
       runner_bin_dir: "$RUNNER_ROOT_DIR/bin",
       emqx_etc_dir: "$RUNNER_ROOT_DIR/etc",
@@ -648,7 +754,6 @@ defmodule EMQXUmbrella.MixProject do
       emqx_default_erlang_cookie: default_cookie(),
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
-      platform_log_dir: "/var/log/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
       runner_bin_dir: "/usr/bin",
       emqx_etc_dir: "/etc/emqx",

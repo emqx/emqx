@@ -23,6 +23,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/qlc.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -export([start_link/0]).
 
@@ -70,6 +72,12 @@
     all_channels/0,
     all_client_ids/0,
     get_session_confs/2
+]).
+
+%% Client management
+-export([
+    channel_with_session_table/1,
+    live_connection_table/1
 ]).
 
 %% gen_server callbacks
@@ -465,23 +473,23 @@ request_stepdown(Action, ConnMod, Pid) ->
         catch
             % emqx_ws_connection: call
             _:noproc ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             % emqx_connection: gen_server:call
             _:{noproc, _} ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{shutdown, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{{shutdown, _}, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:{timeout, {gen_server, call, _}} ->
                 ?tp(
                     warning,
                     "session_stepdown_request_timeout",
-                    #{pid => Pid, action => Action, stale_channel => stale_channel_info(Pid)}
+                    #{stale_pid => Pid, action => Action, stale_channel => stale_channel_info(Pid)}
                 ),
                 ok = force_kill(Pid),
                 {error, timeout};
@@ -490,7 +498,7 @@ request_stepdown(Action, ConnMod, Pid) ->
                     error,
                     "session_stepdown_request_exception",
                     #{
-                        pid => Pid,
+                        stale_pid => Pid,
                         action => Action,
                         reason => Error,
                         stacktrace => St,
@@ -593,6 +601,40 @@ all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
 
+%% @doc Get clientinfo for all clients with sessions
+channel_with_session_table(ConnModuleList) ->
+    Ms = ets:fun2ms(
+        fun({{ClientId, _ChanPid}, Info, _Stats}) ->
+            {ClientId, Info}
+        end
+    ),
+    Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
+    ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
+    qlc:q([
+        {ClientId, ConnState, ConnInfo, ClientInfo}
+     || {ClientId, #{
+            conn_state := ConnState,
+            clientinfo := ClientInfo,
+            conninfo := #{clean_start := false, conn_mod := ConnModule} = ConnInfo
+        }} <-
+            Table,
+        sets:is_element(ConnModule, ConnModules)
+    ]).
+
+%% @doc Get all local connection query handle
+live_connection_table(ConnModules) ->
+    Ms = lists:map(fun live_connection_ms/1, ConnModules),
+    Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
+    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ChanPid)]).
+
+live_connection_ms(ConnModule) ->
+    {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
+
+is_channel_connected(ChanPid) when node(ChanPid) =:= node() ->
+    ets:member(?CHAN_LIVE_TAB, ChanPid);
+is_channel_connected(_ChanPid) ->
+    false.
+
 %% @doc Get all registered clientIDs. Debug/test interface
 all_client_ids() ->
     Pat = [{{'$1', '_'}, [], ['$1']}],
@@ -651,10 +693,10 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_tables:new(?CHAN_CONN_TAB, [bag | TabOpts]),
-    ok = emqx_tables:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
-    ok = emqx_tables:new(?CHAN_LIVE_TAB, [ordered_set, {write_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set, {write_concurrency, true} | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
     State = #{chan_pmon => emqx_pmon:new()},
     {ok, State}.
@@ -671,8 +713,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
-    ?tp(emqx_cm_process_down, #{pid => Pid, reason => _Reason}),
-    ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
+    ?tp(emqx_cm_process_down, #{stale_pid => Pid, reason => _Reason}),
+    ChanPids = [Pid | emqx_utils:drain_down(?BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     lists:foreach(fun mark_channel_disconnected/1, ChanPids),
     ok = emqx_pool:async_submit(fun lists:foreach/2, [fun ?MODULE:clean_down/1, Items]),
@@ -693,7 +735,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down({ChanPid, ClientId}) ->
-    do_unregister_channel({ClientId, ChanPid}).
+    do_unregister_channel({ClientId, ChanPid}),
+    ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->
     lists:foreach(fun update_stats/1, ?CHAN_STATS).
@@ -719,12 +762,12 @@ get_chann_conn_mod(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v1:get_chann_conn_mod(ClientId, ChanPid)).
 
 mark_channel_connected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_inc, #{}),
+    ?tp(emqx_cm_connected_client_count_inc, #{chan_pid => ChanPid}),
     ets:insert_new(?CHAN_LIVE_TAB, {ChanPid, true}),
     ok.
 
 mark_channel_disconnected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_dec, #{}),
+    ?tp(emqx_cm_connected_client_count_dec, #{chan_pid => ChanPid}),
     ets:delete(?CHAN_LIVE_TAB, ChanPid),
     ok.
 

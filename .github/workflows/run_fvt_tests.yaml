@@ -17,7 +17,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-33:1.13.4-24.3.4.2-3-debian11
+    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-24.3.4.2-3-debian11
 
     steps:
       - uses: actions/checkout@v3
@@ -50,7 +50,7 @@ jobs:
         os:
           - ["debian11", "debian:11-slim"]
         builder:
-          - 5.0-33
+          - 5.0-35
         otp:
           - 24.3.4.2-3
         elixir:
@@ -123,7 +123,7 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         builder:
-        - 5.0-33
+        - 5.0-35
         otp:
         - 24.3.4.2-3
         elixir:
@@ -167,8 +167,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \
@@ -185,8 +185,8 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
-            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/${{ matrix.profile }} \

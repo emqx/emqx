@@ -478,7 +478,7 @@ call_cluster(Fun) ->
 %%--------------------------------------------------------------------
 %% Internal Funcs
 %%--------------------------------------------------------------------
-err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
+err_msg(Msg) -> emqx_utils:readable_error_msg(Msg).
 
 get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),

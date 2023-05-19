@@ -1,0 +1,55 @@
+emqx_plugins_schema {
+
+check_interval.desc:
+"""Check interval: check if the status of the plugins in the cluster is consistent, <br/>
+if the results of 3 consecutive checks are not consistent, then alarm."""
+
+enable.desc:
+"""Set to 'true' to enable this plugin"""
+
+enable.label:
+"""Enable"""
+
+install_dir.desc:
+"""The installation directory for the external plugins.
+The plugin beam files and configuration files should reside in
+the subdirectory named as <code>emqx_foo_bar-0.1.0</code>.
+<br/>
+NOTE: For security reasons, this directory should **NOT** be writable
+by anyone except <code>emqx</code> (or any user which runs EMQX)."""
+
+install_dir.label:
+"""Install Directory"""
+
+name_vsn.desc:
+"""The {name}-{version} of the plugin.<br/>
+It should match the plugin application name-version as the for the plugin release package name<br/>
+For example: my_plugin-0.1.0."""
+
+name_vsn.label:
+"""Name-Version"""
+
+plugins.desc:
+"""Manage EMQX plugins.<br/>
+Plugins can be pre-built as a part of EMQX package,
+or installed as a standalone package in a location specified by
+<code>install_dir</code> config key<br/>
+The standalone-installed plugins are referred to as 'external' plugins."""
+
+plugins.label:
+"""Plugins"""
+
+state.desc:
+"""A per-plugin config to describe the desired state of the plugin."""
+
+state.label:
+"""State"""
+
+states.desc:
+"""An array of plugins in the desired states.<br/>
+The plugins are started in the defined order"""
+
+states.label:
+"""States"""
+
+}

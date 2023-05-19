@@ -22,6 +22,8 @@
 -import(lists, [nth/2]).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -67,14 +69,16 @@ groups() ->
             %% t_keepalive,
             %% t_redelivery_on_reconnect,
             %% subscribe_failure_test,
-            t_dollar_topics
+            t_dollar_topics,
+            t_sub_non_utf8_topic
         ]},
         {mqttv5, [non_parallel_tests], [t_basic_with_props_v5]},
         {others, [non_parallel_tests], [
             t_username_as_clientid,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
-            t_certcn_as_clientid_tlsv1_2
+            t_certcn_as_clientid_tlsv1_2,
+            t_peercert_preserved_before_connected
         ]}
     ].
 
@@ -297,6 +301,36 @@ t_dollar_topics(_) ->
     ok = emqtt:disconnect(C),
     ct:pal("$ topics test succeeded").
 
+t_sub_non_utf8_topic(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ConnPacket = emqx_frame:serialize(#mqtt_packet{
+        header = #mqtt_packet_header{type = 1},
+        variable = #mqtt_packet_connect{
+            clientid = <<"abcdefg">>
+        }
+    }),
+    ok = gen_tcp:send(Socket, ConnPacket),
+    receive
+        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
+    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
+    end,
+    SubHeader = <<130, 18, 25, 178>>,
+    SubTopicLen = <<0, 13>>,
+    %% this is not a valid utf8 topic
+    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
+    SubQoS = <<1>>,
+    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
+    ok = gen_tcp:send(Socket, SubPacket),
+    receive
+        {tcp_closed, _} -> ok
+    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    timer:sleep(1000),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
+    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
+    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5
 %%--------------------------------------------------------------------
@@ -347,6 +381,42 @@ t_certcn_as_clientid_tlsv1_3(_) ->
 
 t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
+
+t_peercert_preserved_before_connected(_) ->
+    ok = emqx_config:put_zone_conf(default, [mqtt], #{}),
+    ok = emqx_hooks:add(
+        'client.connect',
+        {?MODULE, on_hook, ['client.connect', self()]},
+        ?HP_HIGHEST
+    ),
+    ok = emqx_hooks:add(
+        'client.connected',
+        {?MODULE, on_hook, ['client.connected', self()]},
+        ?HP_HIGHEST
+    ),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    SslConf = emqx_common_test_helpers:client_ssl_twoway(default),
+    {ok, Client} = emqtt:start_link([
+        {port, 8883},
+        {clientid, ClientId},
+        {ssl, true},
+        {ssl_opts, SslConf}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    _ = ?assertReceive({'client.connect', #{peercert := PC}} when is_binary(PC)),
+    _ = ?assertReceive({'client.connected', #{peercert := PC}} when is_binary(PC)),
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    ?assertMatch(
+        #{conninfo := ConnInfo} when not is_map_key(peercert, ConnInfo),
+        emqx_connection:info(ConnPid)
+    ).
+
+on_hook(ConnInfo, _, 'client.connect' = HP, Pid) ->
+    _ = Pid ! {HP, ConnInfo},
+    ok;
+on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
+    _ = Pid ! {HP, ConnInfo},
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions

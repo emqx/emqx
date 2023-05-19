@@ -1,0 +1,135 @@
+emqx_authn_schema {
+
+backend.desc:
+"""Backend type."""
+
+backend.label:
+"""Backend Type"""
+
+enable.desc:
+"""Set to <code>true</code> or <code>false</code> to disable this auth provider."""
+
+enable.label:
+"""Enable"""
+
+failed.desc:
+"""Count of query failed."""
+
+failed.label:
+"""Failed"""
+
+matched.desc:
+"""Count of this resource is queried."""
+
+matched.label:
+"""Matched"""
+
+mechanism.desc:
+"""Authentication mechanism."""
+
+mechanism.label:
+"""Authentication Mechanism"""
+
+metrics.desc:
+"""The metrics of the resource."""
+
+metrics.label:
+"""Metrics"""
+
+metrics_failed.desc:
+"""The required authentication information is found in the current instance, and the instance returns authentication failure."""
+
+metrics_failed.label:
+"""Authentication Failed Times"""
+
+metrics_nomatch.desc:
+"""The number of times the instance was ignored when the required authentication information was not found in the current instance."""
+
+metrics_nomatch.label:
+"""Nomatch Times"""
+
+metrics_rate.desc:
+"""The total rate at which instances are triggered, times/second."""
+
+metrics_rate.label:
+"""Total Triggered Rate"""
+
+metrics_rate_last5m.desc:
+"""The average trigger rate of the instance within 5 minutes, times/second."""
+
+metrics_rate_last5m.label:
+"""Average Triggered Rate in Last 5min"""
+
+metrics_rate_max.desc:
+"""The highest trigger rate the instance has ever reached, times/second."""
+
+metrics_rate_max.label:
+"""Highest Triggered Rate"""
+
+metrics_success.desc:
+"""The required authentication information is found in the current instance, and the instance returns authentication success."""
+
+metrics_success.label:
+"""Authentication Success Times"""
+
+metrics_total.desc:
+"""The total number of times the current instance was triggered."""
+
+metrics_total.label:
+"""Total Triggered Times"""
+
+node.desc:
+"""Node name."""
+
+node.label:
+"""Node Name."""
+
+node_error.desc:
+"""The error of node."""
+
+node_error.label:
+"""Error in Node"""
+
+node_metrics.desc:
+"""The metrics of the resource for each node."""
+
+node_metrics.label:
+"""Resource Metrics in Node"""
+
+node_status.desc:
+"""The status of the resource for each node."""
+
+node_status.label:
+"""Resource Status in Node"""
+
+rate.desc:
+"""The rate of matched, times/second."""
+
+rate.label:
+"""Rate"""
+
+rate_last5m.desc:
+"""The average rate of matched in the last 5 minutes, times/second."""
+
+rate_last5m.label:
+"""Rate in Last 5min"""
+
+rate_max.desc:
+"""The max rate of matched, times/second."""
+
+rate_max.label:
+"""Max Rate"""
+
+status.desc:
+"""The status of the resource."""
+
+status.label:
+"""Status"""
+
+success.desc:
+"""Count of query success."""
+
+success.label:
+"""Success"""
+
+}

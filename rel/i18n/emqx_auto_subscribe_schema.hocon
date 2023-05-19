@@ -1,0 +1,48 @@
+emqx_auto_subscribe_schema {
+
+auto_subscribe.desc:
+"""After the device logs in successfully, the subscription is automatically completed for the device through the pre-defined subscription representation. Supports the use of placeholders."""
+
+auto_subscribe.label:
+"""Auto Subscribe"""
+
+nl.desc:
+"""Default value 0.
+MQTT v3.1.1： if you subscribe to the topic published by yourself, you will receive all messages that you published.
+MQTT v5: if you set this option as 1 when subscribing, the server will not forward the message you published to you."""
+
+nl.label:
+"""No Local"""
+
+qos.desc:
+"""Default value 0. Quality of service.
+At most once (0)
+At least once (1)
+Exactly once (2)"""
+
+qos.label:
+"""Quality of Service"""
+
+rap.desc:
+"""Default value 0. This option is used to specify whether the server retains the RETAIN mark when forwarding messages to the client, and this option does not affect the RETAIN mark in the retained message. Therefore, when the option Retain As Publish is set to 0, the client will directly distinguish whether this is a normal forwarded message or a retained message according to the RETAIN mark in the message, instead of judging whether this message is the first received after subscribing(the forwarded message may be sent before the retained message, which depends on the specific implementation of different brokers)."""
+
+rap.label:
+"""Retain As Publish"""
+
+rh.desc:
+"""Default value 0. This option is used to specify whether the server forwards the retained message to the client when establishing a subscription.
+Retain Handling is equal to 0, as long as the client successfully subscribes, the server will send the retained message.
+Retain Handling is equal to 1, if the client successfully subscribes and this subscription does not exist previously, the server sends the retained message. After all, sometimes the client re-initiate the subscription just to change the QoS, but it does not mean that it wants to receive the reserved messages again.
+Retain Handling is equal to 2, even if the client successfully subscribes, the server does not send the retained message."""
+
+rh.label:
+"""Retain Handling"""
+
+topic.desc:
+"""Topic name, placeholders are supported. For example: client/${clientid}/username/${username}/host/${host}/port/${port}
+Required field, and cannot be empty string"""
+
+topic.label:
+"""Topic"""
+
+}

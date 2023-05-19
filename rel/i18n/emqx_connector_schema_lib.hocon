@@ -1,0 +1,45 @@
+emqx_connector_schema_lib {
+
+auto_reconnect.desc:
+"""Deprecated. Enable automatic reconnect to the database."""
+
+auto_reconnect.label:
+"""Deprecated. Auto Reconnect Database"""
+
+database_desc.desc:
+"""Database name."""
+
+database_desc.label:
+"""Database Name"""
+
+password.desc:
+"""The password associated with the bridge, used for authentication with the external database."""
+
+password.label:
+"""Password"""
+
+pool_size.desc:
+"""Size of the connection pool towards the bridge target service."""
+
+pool_size.label:
+"""Connection Pool Size"""
+
+prepare_statement.desc:
+"""Key-value list of SQL prepared statements."""
+
+prepare_statement.label:
+"""SQL Prepared Statements List"""
+
+ssl.desc:
+"""SSL connection settings."""
+
+ssl.label:
+"""Enable SSL"""
+
+username.desc:
+"""The username associated with the bridge in the external database used for authentication or identification purposes."""
+
+username.label:
+"""Username"""
+
+}

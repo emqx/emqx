@@ -105,14 +105,16 @@ mnesia(boot) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-scram-builtin_db".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
-roots() -> [?CONF_NS].
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, scram))}].
 
-fields(?CONF_NS) ->
+fields(scram) ->
     [
         {mechanism, emqx_authn_schema:mechanism(scram)},
         {backend, emqx_authn_schema:backend(built_in_database)},
@@ -120,7 +122,7 @@ fields(?CONF_NS) ->
         {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
 
-desc(?CONF_NS) ->
+desc(scram) ->
     "Settings for Salted Challenge Response Authentication Mechanism\n"
     "(SCRAM) authentication.";
 desc(_) ->
@@ -141,7 +143,7 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, scram)].
 
 create(
     AuthenticatorID,

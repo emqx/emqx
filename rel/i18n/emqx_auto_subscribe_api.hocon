@@ -1,0 +1,12 @@
+emqx_auto_subscribe_api {
+
+list_auto_subscribe_api.desc:
+"""Get auto subscribe topic list"""
+
+update_auto_subscribe_api.desc:
+"""Update auto subscribe topic list"""
+
+update_auto_subscribe_api_response409.desc:
+"""Auto Subscribe topics max limit"""
+
+}

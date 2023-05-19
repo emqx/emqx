@@ -43,8 +43,8 @@ init_per_testcase(t_cpu_check_alarm, Config) ->
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
     Config;
 init_per_testcase(t_sys_mem_check_alarm, Config) ->
-    case os:type() of
-        {unix, linux} ->
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true ->
             SysMon = emqx_config:get([sysmon, os], #{}),
             emqx_config:put([sysmon, os], SysMon#{
                 sysmem_high_watermark => 0.51,
@@ -54,7 +54,7 @@ init_per_testcase(t_sys_mem_check_alarm, Config) ->
             ok = supervisor:terminate_child(emqx_sys_sup, emqx_os_mon),
             {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_os_mon),
             Config;
-        _ ->
+        false ->
             Config
     end;
 init_per_testcase(_, Config) ->
@@ -63,12 +63,6 @@ init_per_testcase(_, Config) ->
     Config.
 
 t_api(_) ->
-    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30000)),
-    ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
-    ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122000)),
-    ?assertEqual(120000, emqx_os_mon:get_mem_check_interval()),
-
     ?assertEqual(0.7, emqx_os_mon:get_sysmem_high_watermark()),
     ?assertEqual(ok, emqx_os_mon:set_sysmem_high_watermark(0.8)),
     ?assertEqual(0.8, emqx_os_mon:get_sysmem_high_watermark()),
@@ -86,12 +80,29 @@ t_api(_) ->
     gen_server:stop(emqx_os_mon),
     ok.
 
+t_sys_mem_check_disable(Config) ->
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true -> do_sys_mem_check_disable(Config);
+        false -> skip
+    end.
+
+do_sys_mem_check_disable(_Config) ->
+    MemRef0 = maps:get(mem_time_ref, sys:get_state(emqx_os_mon)),
+    ?assertEqual(true, is_reference(MemRef0), MemRef0),
+    emqx_config:put([sysmon, os, mem_check_interval], 1000),
+    emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    MemRef1 = maps:get(mem_time_ref, sys:get_state(emqx_os_mon)),
+    ?assertEqual(true, is_reference(MemRef1), {MemRef0, MemRef1}),
+    ?assertNotEqual(MemRef0, MemRef1),
+    emqx_config:put([sysmon, os, mem_check_interval], disabled),
+    emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    ?assertEqual(undefined, maps:get(mem_time_ref, sys:get_state(emqx_os_mon))),
+    ok.
+
 t_sys_mem_check_alarm(Config) ->
-    case os:type() of
-        {unix, linux} ->
-            do_sys_mem_check_alarm(Config);
-        _ ->
-            skip
+    case emqx_os_mon:is_sysmem_check_supported() of
+        true -> do_sys_mem_check_alarm(Config);
+        false -> skip
     end.
 
 do_sys_mem_check_alarm(_Config) ->

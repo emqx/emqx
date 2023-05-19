@@ -229,6 +229,7 @@ schema("/listeners/:listener_id/authentication") ->
         'operationId' => listener_authenticators,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_get),
             parameters => [param_listener_id()],
             responses => #{
@@ -240,6 +241,7 @@ schema("/listeners/:listener_id/authentication") ->
         },
         post => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_post),
             parameters => [param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -261,6 +263,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         'operationId' => listener_authenticator,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -273,6 +276,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_put),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -288,6 +292,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_delete),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -301,6 +306,7 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
         'operationId' => listener_authenticator_status,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_status_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
@@ -331,6 +337,7 @@ schema("/listeners/:listener_id/authentication/:id/position/:position") ->
         'operationId' => listener_authenticator_position,
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_position_put),
             parameters => [param_listener_id(), param_auth_id(), param_position()],
             responses => #{
@@ -394,6 +401,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         'operationId' => listener_authenticator_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_post),
             parameters => [param_auth_id(), param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -411,6 +419,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         },
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_get),
             parameters => [
                 param_listener_id(),
@@ -480,6 +489,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         'operationId' => listener_authenticator_user,
         get => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_get),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
@@ -492,6 +502,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_put),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -509,6 +520,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_delete),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
@@ -873,8 +885,8 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
                     case emqx_resource:get_instance(ResourceId) of
                         {error, not_found} ->
                             {error, {NodeId, not_found_resource}};
-                        {ok, _, #{status := Status, metrics := ResourceMetrics}} ->
-                            {ok, {NodeId, Status, Metrics, ResourceMetrics}}
+                        {ok, _, #{status := Status}} ->
+                            {ok, {NodeId, Status, Metrics, emqx_resource:get_metrics(ResourceId)}}
                     end
             end;
         {error, Reason} ->
@@ -930,7 +942,7 @@ aggregate_metrics([]) ->
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     ErrorLogger = fun(Reason) -> ?SLOG(info, #{msg => "bad_metrics_value", error => Reason}) end,
     Fun = fun(ElemMap, AccMap) ->
-        emqx_map_lib:best_effort_recursive_sum(AccMap, ElemMap, ErrorLogger)
+        emqx_utils_maps:best_effort_recursive_sum(AccMap, ElemMap, ErrorLogger)
     end,
     lists:foldl(Fun, HeadMetrics, AllMetrics).
 
@@ -1070,7 +1082,7 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
         true ->
             serialize_error({missing_parameter, password});
         false ->
-            UserInfo = emqx_map_lib:safe_atom_key_map(UserInfo0),
+            UserInfo = emqx_utils_maps:safe_atom_key_map(UserInfo0),
             case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};
@@ -1420,14 +1432,14 @@ request_user_create_examples() ->
             summary => <<"Regular user">>,
             value => #{
                 user_id => <<"user1">>,
-                password => <<"secret">>
+                password => <<"******">>
             }
         },
         super_user => #{
             summary => <<"Superuser">>,
             value => #{
                 user_id => <<"user2">>,
-                password => <<"secret">>,
+                password => <<"******">>,
                 is_superuser => true
             }
         }
@@ -1438,13 +1450,13 @@ request_user_update_examples() ->
         regular_user => #{
             summary => <<"Update regular user">>,
             value => #{
-                password => <<"newsecret">>
+                password => <<"******">>
             }
         },
         super_user => #{
             summary => <<"Update user and promote to superuser">>,
             value => #{
-                password => <<"newsecret">>,
+                password => <<"******">>,
                 is_superuser => true
             }
         }

@@ -1,0 +1,17 @@
+{application, emqx_bridge_kafka, [
+    {description, "EMQX Enterprise Kafka Bridge"},
+    {vsn, "0.1.2"},
+    {registered, [emqx_bridge_kafka_consumer_sup]},
+    {applications, [
+        kernel,
+        stdlib,
+        telemetry,
+        wolff,
+        brod,
+        brod_gssapi
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

@@ -107,7 +107,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 start_check_timer() ->
     Interval = emqx:get_config([sysmon, vm, process_check_interval]),
-    emqx_misc:start_timer(Interval, check).
+    emqx_utils:start_timer(Interval, check).
 
 usage(Percent) ->
     integer_to_list(floor(Percent * 100)) ++ "%".

@@ -72,7 +72,7 @@ t_config(_Config) ->
     ),
 
     UpdateConf = fun(Enable) ->
-        RawConf = emqx_json:decode(ConfJson, [return_maps]),
+        RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
         UpdateJson = RawConf#{<<"enable">> := Enable},
         {ok, UpdateResJson} = request_api(
             put,
@@ -81,7 +81,7 @@ t_config(_Config) ->
             auth_header_(),
             UpdateJson
         ),
-        UpdateRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+        UpdateRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
         ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
     end,
 
@@ -224,7 +224,7 @@ t_lookup_and_delete(_) ->
 t_change_storage_type(_Config) ->
     Path = api_path(["mqtt", "retainer"]),
     {ok, ConfJson} = request_api(get, Path),
-    RawConf = emqx_json:decode(ConfJson, [return_maps]),
+    RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
     %% pre-conditions
     ?assertMatch(
         #{
@@ -257,7 +257,7 @@ t_change_storage_type(_Config) ->
     #{data := Msgs0, meta := _} = decode_json(MsgsJson0),
     ?assertEqual(1, length(Msgs0)),
 
-    ChangedConf = emqx_map_lib:deep_merge(
+    ChangedConf = emqx_utils_maps:deep_merge(
         RawConf,
         #{
             <<"backend">> =>
@@ -271,7 +271,7 @@ t_change_storage_type(_Config) ->
         auth_header_(),
         ChangedConf
     ),
-    UpdatedRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+    UpdatedRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
     ?assertMatch(
         #{
             <<"backend">> := #{
@@ -311,8 +311,8 @@ t_change_storage_type(_Config) ->
 %% HTTP Request
 %%--------------------------------------------------------------------
 decode_json(Data) ->
-    BinJson = emqx_json:decode(Data, [return_maps]),
-    emqx_map_lib:unsafe_atom_key_map(BinJson).
+    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

@@ -293,4 +293,5 @@ qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
 
 parse_server(Str) ->
-    emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS).
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),
+    {Host, Port}.

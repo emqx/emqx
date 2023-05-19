@@ -32,25 +32,15 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(?LOG),
     ok.
 
-%% refresh logger config when booting, the override config may have changed after node start.
+%% refresh logger config when booting, the cluster config may have changed after node start.
 %% Kernel's app env is confirmed before the node starts,
-%% but we only copy cluster-override.conf from other node after this node starts,
+%% but we only copy cluster.conf from other node after this node starts,
 %% so we need to refresh the logger config after this node starts.
-%% It will not affect the logger config when cluster-override.conf is unchanged.
+%% It will not affect the logger config when cluster.conf is unchanged.
 refresh_config() ->
-    Overrides = emqx_config:read_override_confs(),
-    refresh_config(Overrides).
-
-refresh_config(#{<<"log">> := _}) ->
     %% read the checked config
     LogConfig = emqx:get_config(?LOG, undefined),
-    Conf = #{log => LogConfig},
-    ok = do_refresh_config(Conf);
-refresh_config(_) ->
-    %% No config override found for 'log', do nothing
-    %% because the 'kernel' app should already be configured
-    %% from the base configs. i.e. emqx.conf + env vars
-    ok.
+    do_refresh_config(#{log => LogConfig}).
 
 %% this call is shared between initial config refresh at boot
 %% and dynamic config update from HTTP API
@@ -61,10 +51,9 @@ do_refresh_config(Conf) ->
     ok = maybe_update_log_level(Level),
     ok.
 
+%% always refresh config when the override config is changed
 post_config_update(?LOG, _Req, NewConf, _OldConf, _AppEnvs) ->
-    ok = do_refresh_config(#{log => NewConf});
-post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
-    ok.
+    do_refresh_config(#{log => NewConf}).
 
 maybe_update_log_level(NewLevel) ->
     OldLevel = emqx_logger:get_primary_log_level(),
@@ -123,8 +112,8 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     end,
     ok.
 
-id_for_log(console) -> "log.console_handler";
-id_for_log(Other) -> "log.file_handlers." ++ atom_to_list(Other).
+id_for_log(console) -> "log.console";
+id_for_log(Other) -> "log.file." ++ atom_to_list(Other).
 
 atom(Id) when is_binary(Id) -> binary_to_atom(Id, utf8);
 atom(Id) when is_atom(Id) -> Id.
@@ -137,12 +126,12 @@ tr_handlers(Conf) ->
 
 %% For the default logger that outputs to console
 tr_console_handler(Conf) ->
-    case conf_get("log.console_handler.enable", Conf) of
+    case conf_get("log.console.enable", Conf) of
         true ->
-            ConsoleConf = conf_get("log.console_handler", Conf),
+            ConsoleConf = conf_get("log.console", Conf),
             [
                 {handler, console, logger_std_h, #{
-                    level => conf_get("log.console_handler.level", Conf),
+                    level => conf_get("log.console.level", Conf),
                     config => (log_handler_conf(ConsoleConf))#{type => standard_io},
                     formatter => log_formatter(ConsoleConf),
                     filters => log_filter(ConsoleConf)
@@ -161,14 +150,10 @@ tr_file_handler({HandlerName, SubConf}) ->
     {handler, atom(HandlerName), logger_disk_log_h, #{
         level => conf_get("level", SubConf),
         config => (log_handler_conf(SubConf))#{
-            type =>
-                case conf_get("rotation.enable", SubConf) of
-                    true -> wrap;
-                    _ -> halt
-                end,
-            file => conf_get("file", SubConf),
-            max_no_files => conf_get("rotation.count", SubConf),
-            max_no_bytes => conf_get("max_size", SubConf)
+            type => wrap,
+            file => conf_get("to", SubConf),
+            max_no_files => conf_get("rotation_count", SubConf),
+            max_no_bytes => conf_get("rotation_size", SubConf)
         },
         formatter => log_formatter(SubConf),
         filters => log_filter(SubConf),
@@ -176,14 +161,11 @@ tr_file_handler({HandlerName, SubConf}) ->
     }}.
 
 logger_file_handlers(Conf) ->
-    Handlers = maps:to_list(conf_get("log.file_handlers", Conf, #{})),
     lists:filter(
-        fun({_Name, Opts}) ->
-            B = conf_get("enable", Opts),
-            true = is_boolean(B),
-            B
+        fun({_Name, Handler}) ->
+            conf_get("enable", Handler, false)
         end,
-        Handlers
+        maps:to_list(conf_get("log.file", Conf, #{}))
     ).
 
 conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
@@ -248,12 +230,8 @@ log_filter(Conf) ->
     end.
 
 tr_level(Conf) ->
-    ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
-    FileLevels = [
-        conf_get("level", SubConf)
-     || {_, SubConf} <-
-            logger_file_handlers(Conf)
-    ],
+    ConsoleLevel = conf_get("log.console.level", Conf, undefined),
+    FileLevels = [conf_get("level", SubConf) || {_, SubConf} <- logger_file_handlers(Conf)],
     case FileLevels ++ [ConsoleLevel || ConsoleLevel =/= undefined] of
         %% warning is the default level we should use
         [] -> warning;

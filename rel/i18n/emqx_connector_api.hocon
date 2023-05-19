@@ -1,0 +1,46 @@
+emqx_connector_api {
+
+conn_get.desc:
+"""List all connectors"""
+
+conn_get.label:
+"""List All Connectors"""
+
+conn_id_delete.desc:
+"""Delete a connector by ID"""
+
+conn_id_delete.label:
+"""Delete Connector"""
+
+conn_id_get.desc:
+"""Get the connector by ID"""
+
+conn_id_get.label:
+"""Get Connector"""
+
+conn_id_put.desc:
+"""Update an existing connector by ID"""
+
+conn_id_put.label:
+"""Update Connector"""
+
+conn_post.desc:
+"""Create a new connector"""
+
+conn_post.label:
+"""Create Connector"""
+
+conn_test_post.desc:
+"""Test creating a new connector by given ID <br/>
+The ID must be of format '{type}:{name}'"""
+
+conn_test_post.label:
+"""Create Test Connector"""
+
+id.desc:
+"""The connector ID. Must be of format {type}:{name}"""
+
+id.label:
+"""Connector ID"""
+
+}

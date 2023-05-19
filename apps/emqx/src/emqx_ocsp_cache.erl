@@ -30,6 +30,7 @@
     sni_fun/2,
     fetch_response/1,
     register_listener/2,
+    unregister_listener/1,
     inject_sni_fun/2
 ]).
 
@@ -107,10 +108,13 @@ fetch_response(ListenerID) ->
 register_listener(ListenerID, Opts) ->
     gen_server:call(?MODULE, {register_listener, ListenerID, Opts}, ?CALL_TIMEOUT).
 
+unregister_listener(ListenerID) ->
+    gen_server:cast(?MODULE, {unregister_listener, ListenerID}).
+
 -spec inject_sni_fun(emqx_listeners:listener_id(), map()) -> map().
 inject_sni_fun(ListenerID, Conf0) ->
     SNIFun = emqx_const_v1:make_sni_fun(ListenerID),
-    Conf = emqx_map_lib:deep_merge(Conf0, #{ssl_options => #{sni_fun => SNIFun}}),
+    Conf = emqx_utils_maps:deep_merge(Conf0, #{ssl_options => #{sni_fun => SNIFun}}),
     ok = ?MODULE:register_listener(ListenerID, Conf),
     Conf.
 
@@ -120,7 +124,7 @@ inject_sni_fun(ListenerID, Conf0) ->
 
 init(_Args) ->
     logger:set_process_metadata(#{domain => [emqx, ocsp, cache]}),
-    emqx_tables:new(?CACHE_TAB, [
+    emqx_utils_ets:new(?CACHE_TAB, [
         named_table,
         public,
         {heir, whereis(emqx_kernel_sup), none},
@@ -149,7 +153,7 @@ handle_call({register_listener, ListenerID, Conf}, _From, State0) ->
         msg => "registering_ocsp_cache",
         listener_id => ListenerID
     }),
-    RefreshInterval0 = emqx_map_lib:deep_get([ssl_options, ocsp, refresh_interval], Conf),
+    RefreshInterval0 = emqx_utils_maps:deep_get([ssl_options, ocsp, refresh_interval], Conf),
     RefreshInterval = max(RefreshInterval0, ?MIN_REFRESH_INTERVAL),
     State = State0#{{refresh_interval, ListenerID} => RefreshInterval},
     %% we need to pass the config along because this might be called
@@ -160,6 +164,18 @@ handle_call({register_listener, ListenerID, Conf}, _From, State0) ->
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
+handle_cast({unregister_listener, ListenerID}, State0) ->
+    State2 =
+        case maps:take(?REFRESH_TIMER(ListenerID), State0) of
+            error ->
+                State0;
+            {TRef, State1} ->
+                emqx_utils:cancel_timer(TRef),
+                State1
+        end,
+    State = maps:remove({refresh_interval, ListenerID}, State2),
+    ?tp(ocsp_cache_listener_unregistered, #{listener_id => ListenerID}),
+    {noreply, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -476,9 +492,9 @@ ensure_timer(ListenerID, State, Timeout) ->
     ensure_timer(ListenerID, {refresh, ListenerID}, State, Timeout).
 
 ensure_timer(ListenerID, Message, State, Timeout) ->
-    emqx_misc:cancel_timer(maps:get(?REFRESH_TIMER(ListenerID), State, undefined)),
+    emqx_utils:cancel_timer(maps:get(?REFRESH_TIMER(ListenerID), State, undefined)),
     State#{
-        ?REFRESH_TIMER(ListenerID) => emqx_misc:start_timer(
+        ?REFRESH_TIMER(ListenerID) => emqx_utils:start_timer(
             Timeout,
             Message
         )

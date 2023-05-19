@@ -43,6 +43,7 @@ groups() -> [].
 init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
+    ok = emqx_common_test_helpers:start_apps([]),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     ok = emqx_config:put([node, cluster_call, retry_interval], 1000),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
@@ -53,6 +54,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    ok = emqx_common_test_helpers:stop_apps([]),
     ekka:stop(),
     mria:stop(),
     meck:unload(mria),
@@ -255,13 +257,13 @@ t_fast_forward_commit(_Config) ->
     ),
     ok.
 
-t_handler_unexpected_msg(_Config) ->
-    Handler = emqx_cluster_rpc_handler,
-    OldPid = erlang:whereis(Handler),
-    ok = gen_server:cast(Handler, unexpected_cast_msg),
-    ignore = gen_server:call(Handler, unexpected_cast_msg),
-    erlang:send(Handler, unexpected_info_msg),
-    NewPid = erlang:whereis(Handler),
+t_cleaner_unexpected_msg(_Config) ->
+    Cleaner = emqx_cluster_cleaner,
+    OldPid = erlang:whereis(Cleaner),
+    ok = gen_server:cast(Cleaner, unexpected_cast_msg),
+    ignore = gen_server:call(Cleaner, unexpected_cast_msg),
+    erlang:send(Cleaner, unexpected_info_msg),
+    NewPid = erlang:whereis(Cleaner),
     ?assertEqual(OldPid, NewPid),
     ok.
 
@@ -279,8 +281,8 @@ start() ->
     {ok, Pid1} = emqx_cluster_rpc:start_link(),
     {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
     {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
-    {ok, Pid4} = emqx_cluster_rpc_handler:start_link(100, 500),
-    true = erlang:register(emqx_cluster_rpc_handler, Pid4),
+    {ok, Pid4} = emqx_cluster_rpc_cleaner:start_link(100, 500),
+    true = erlang:register(emqx_cluster_rpc_cleaner, Pid4),
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->
@@ -296,7 +298,7 @@ stop() ->
         end
      || N <- [?NODE1, ?NODE2, ?NODE3]
     ],
-    gen_server:stop(emqx_cluster_rpc_handler, normal, 5000).
+    gen_server:stop(emqx_cluster_rpc_cleaner, normal, 5000).
 
 receive_msg(0, _Msg) ->
     ok;

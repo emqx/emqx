@@ -1,12 +1,15 @@
 #!/usr/bin/env escript
 
+%% called from check-i18n-style.sh
+
 -mode(compile).
 
--define(YELLOW, "\e[33m").
+% -define(YELLOW, "\e[33m"). % not used
 -define(RED, "\e[31m").
 -define(RESET, "\e[39m").
 
 main([Files0]) ->
+    io:format(user, "checking i18n file styles~n", []),
     _ = put(errors, 0),
     Files = string:tokens(Files0, "\n"),
     ok = load_hocon(),
@@ -17,7 +20,7 @@ main([Files0]) ->
         N when is_integer(N) andalso N > 1 ->
             logerr("~p errors found~n", [N]);
         _ ->
-            io:format(user, "OK~n", [])
+            io:format(user, "~nOK~n", [])
     end.
 
 load_hocon() ->
@@ -39,14 +42,14 @@ die(Msg, Args) ->
     halt(1).
 
 logerr(Fmt, Args) ->
-    io:format(standard_error, ?RED ++ "ERROR: " ++ Fmt ++ ?RESET, Args),
+    io:format(standard_error, "~n" ++ ?RED ++ "ERROR: " ++ Fmt ++ ?RESET, Args),
     N = get(errors),
     _ = put(errors, N + 1),
     ok.
 
 
 check(File) ->
-    io:format(user, "checking: ~s~n", [File]),
+    io:format(user, ".", []),
     {ok, C} = hocon:load(File),
     maps:foreach(fun check_one_field/2, C),
     ok.
@@ -73,22 +76,16 @@ check_label(_Name, _) ->
     ok.
 
 check_desc(Name, #{<<"desc">> := Desc}) ->
-    do_check_desc(Name, Desc);
+    check_desc_string(Name, Desc);
 check_desc(Name, _) ->
     die("~s: no 'desc'~n", [Name]).
 
-do_check_desc(Name, #{<<"zh">> := Zh, <<"en">> := En}) ->
-    ok = check_desc_string(Name, "zh", Zh),
-    ok = check_desc_string(Name, "en", En);
-do_check_desc(Name, _) ->
-    die("~s: missing 'zh' or 'en'~n", [Name]).
-
-check_desc_string(Name, Tr, <<>>) ->
-    io:format(standard_error, ?YELLOW ++ "WARNING: ~s.~s: empty string~n" ++ ?RESET, [Name, Tr]);
-check_desc_string(Name, Tr, BinStr) ->
+check_desc_string(Name, <<>>) ->
+    logerr("~s: empty string~n", [Name]);
+check_desc_string(Name, BinStr) ->
     Str = unicode:characters_to_list(BinStr, utf8),
     Err = fun(Reason) ->
-            logerr("~s.~s: ~s~n", [Name, Tr, Reason])
+            logerr("~s: ~s~n", [Name, Reason])
           end,
     case Str of
         [$\s | _] ->

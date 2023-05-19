@@ -29,9 +29,13 @@
     authn_type/1
 ]).
 
--ifdef(TEST).
--export([convert_certs/2, convert_certs/3, clear_certs/2]).
--endif.
+%% Used in emqx_gateway
+-export([
+    certs_dir/2,
+    convert_certs/2,
+    convert_certs/3,
+    clear_certs/2
+]).
 
 -export_type([config/0]).
 
@@ -330,10 +334,10 @@ atom(Bin) -> binary_to_existing_atom(Bin, utf8).
 certs_dir(ChainName, ConfigOrID) ->
     DirName = dir(ChainName, ConfigOrID),
     SubDir = iolist_to_binary(filename:join(["authn", DirName])),
-    emqx_misc:safe_filename(SubDir).
+    emqx_utils:safe_filename(SubDir).
 
 dir(ChainName, ID) when is_binary(ID) ->
-    emqx_misc:safe_filename(iolist_to_binary([to_bin(ChainName), "-", ID]));
+    emqx_utils:safe_filename(iolist_to_binary([to_bin(ChainName), "-", ID]));
 dir(ChainName, Config) when is_map(Config) ->
     dir(ChainName, authenticator_id(Config)).
 

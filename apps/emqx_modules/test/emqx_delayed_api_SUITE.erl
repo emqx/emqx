@@ -32,10 +32,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_modules]
     ),
@@ -229,8 +226,8 @@ t_large_payload(_) ->
 %%--------------------------------------------------------------------
 
 decode_json(Data) ->
-    BinJson = emqx_json:decode(Data, [return_maps]),
-    emqx_map_lib:unsafe_atom_key_map(BinJson).
+    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 clear_all_record() ->
     ets:delete_all_objects(emqx_delayed).

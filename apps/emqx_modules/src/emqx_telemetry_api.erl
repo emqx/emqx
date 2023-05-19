@@ -243,7 +243,7 @@ status(put, #{body := Body}) ->
 data(get, _Request) ->
     case emqx_modules_conf:is_telemetry_enabled() of
         true ->
-            {200, emqx_json:encode(get_telemetry_data())};
+            {200, emqx_utils_json:encode(get_telemetry_data())};
         false ->
             {404, #{
                 code => ?NOT_FOUND,

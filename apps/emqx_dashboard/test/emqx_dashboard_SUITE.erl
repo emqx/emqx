@@ -57,22 +57,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps(
-        [emqx_management, emqx_dashboard],
-        fun set_special_configs/1
-    ),
+    emqx_mgmt_api_test_util:init_suite([emqx_management]),
     Config.
 
 end_per_suite(_Config) ->
-    mnesia:clear_table(?ADMIN),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    mria:stop().
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
@@ -153,7 +142,7 @@ t_swagger_json(_Config) ->
     %% with auth
     Auth = auth_header_(<<"admin">>, <<"public_www1">>),
     {ok, 200, Body1} = request_api(get, Url, Auth),
-    ?assert(jsx:is_json(Body1)),
+    ?assert(emqx_utils_json:is_json(Body1)),
     %% without auth
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
         httpc:request(get, {Url, []}, [], [{body_format, binary}]),
@@ -257,5 +246,5 @@ api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
+    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
     Jsx.

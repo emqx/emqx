@@ -29,10 +29,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
         fun set_special_configs/1
@@ -113,7 +110,7 @@ t_status(_) ->
 
     ?assertEqual(
         #{<<"enable">> => false},
-        jsx:decode(Result0)
+        emqx_utils_json:decode(Result0)
     ),
 
     ?assertMatch(
@@ -139,7 +136,7 @@ t_status(_) ->
 
     ?assertEqual(
         #{<<"enable">> => true},
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -180,7 +177,7 @@ t_data(_) ->
             <<"uuid">> := _,
             <<"vm_specs">> := _
         },
-        jsx:decode(Result)
+        emqx_utils_json:decode(Result)
     ),
 
     {ok, 200, _} =

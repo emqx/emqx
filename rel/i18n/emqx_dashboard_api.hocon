@@ -1,0 +1,66 @@
+emqx_dashboard_api {
+
+change_pwd_api.desc:
+"""Change dashboard user password"""
+
+create_user_api.desc:
+"""Create dashboard user"""
+
+create_user_api_success.desc:
+"""Create dashboard user success"""
+
+delete_user_api.desc:
+"""Delete dashboard user"""
+
+license.desc:
+"""EMQX License. opensource or enterprise"""
+
+list_users_api.desc:
+"""Dashboard list users"""
+
+login_api.desc:
+"""Get Dashboard Auth Token."""
+
+login_failed401.desc:
+"""Login failed. Bad username or password"""
+
+login_failed_response400.desc:
+"""Login failed. Bad username or password"""
+
+login_success.desc:
+"""Dashboard Auth Success"""
+
+logout_api.desc:
+"""Dashboard user logout"""
+
+new_pwd.desc:
+"""New password"""
+
+old_pwd.desc:
+"""Old password"""
+
+password.desc:
+"""Dashboard Password"""
+
+token.desc:
+"""Dashboard Auth Token"""
+
+update_user_api.desc:
+"""Update dashboard user description"""
+
+update_user_api200.desc:
+"""Update dashboard user success"""
+
+user_description.desc:
+"""Dashboard User Description"""
+
+username.desc:
+"""Dashboard Username"""
+
+users_api404.desc:
+"""Dashboard user not found"""
+
+version.desc:
+"""EMQX Version"""
+
+}

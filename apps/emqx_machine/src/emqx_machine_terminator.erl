@@ -41,7 +41,7 @@
 -define(DO_IT, graceful_shutdown).
 
 %% @doc This API is called to shutdown the Erlang VM by RPC call from remote shell node.
-%% The shutown of apps is delegated to a to a process instead of doing it in the RPC spawned
+%% The shutdown of apps is delegated to a to a process instead of doing it in the RPC spawned
 %% process which has a remote group leader.
 start_link() ->
     {ok, _} = gen_server:start_link({local, ?TERMINATOR}, ?MODULE, [], []).
@@ -87,8 +87,9 @@ handle_cast(_Cast, State) ->
 
 handle_call(?DO_IT, _From, State) ->
     try
-        emqx_machine_boot:stop_apps(),
-        emqx_machine_boot:stop_port_apps()
+        %% stop port apps before stopping other apps.
+        emqx_machine_boot:stop_port_apps(),
+        emqx_machine_boot:stop_apps()
     catch
         C:E:St ->
             Apps = [element(1, A) || A <- application:which_applications()],

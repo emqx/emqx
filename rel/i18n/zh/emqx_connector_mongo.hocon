@@ -1,0 +1,152 @@
+emqx_connector_mongo {
+
+auth_source.desc:
+"""与用户证书关联的数据库名称。"""
+
+auth_source.label:
+"""认证源"""
+
+connect_timeout.desc:
+"""超时重连的等待时间。"""
+
+connect_timeout.label:
+"""连接超时"""
+
+desc_rs.desc:
+"""配置 Replica Set"""
+
+desc_rs.label:
+"""配置 Replica Set"""
+
+desc_sharded.desc:
+"""配置 Sharded Cluster"""
+
+desc_sharded.label:
+"""配置 Sharded Cluster"""
+
+desc_single.desc:
+"""配置 Single 模式"""
+
+desc_single.label:
+"""配置 Single 模式"""
+
+desc_topology.desc:
+"""配置 Topology"""
+
+desc_topology.label:
+"""配置 Topology"""
+
+heartbeat_period.desc:
+"""控制驱动程序何时检查MongoDB部署的状态。指定检查的间隔时间，从上一次检查结束到下一次检查开始计算。如果连接数增加（例如，如果你增加池子的大小，就会发生这种情况），你可能也需要增加这个周期，以避免在MongoDB日志文件中创建太多的日志条目。"""
+
+heartbeat_period.label:
+"""心跳期"""
+
+local_threshold.desc:
+"""在多个合适的MongoDB实例中进行选择的延迟窗口的大小。"""
+
+local_threshold.label:
+"""本地阈值"""
+
+max_overflow.desc:
+"""最大溢出。"""
+
+max_overflow.label:
+"""最大溢出"""
+
+min_heartbeat_period.desc:
+"""心跳间的最小间隙"""
+
+min_heartbeat_period.label:
+"""最小心跳周期"""
+
+overflow_check_period.desc:
+"""检查是否有超过配置的工人的周期（"溢出"）。"""
+
+overflow_check_period.label:
+"""溢出检查周期"""
+
+overflow_ttl.desc:
+"""当池内工人太多时，等待多久清除多余工人。"""
+
+overflow_ttl.label:
+"""溢出TTL"""
+
+r_mode.desc:
+"""读模式。"""
+
+r_mode.label:
+"""读模式"""
+
+replica_set_name.desc:
+"""副本集的名称。"""
+
+replica_set_name.label:
+"""副本集名称"""
+
+rs_mongo_type.desc:
+"""Replica set模式。当 MongoDB 服务运行在 replica-set 模式下，该配置必须设置为 'rs'。"""
+
+rs_mongo_type.label:
+"""Replica set 模式"""
+
+server.desc:
+"""将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>
+主机名具有以下形式：`Host[:Port]`。<br/>
+如果未指定 `[:Port]`，则使用 MongoDB 默认端口 27017。"""
+
+server.label:
+"""服务器地址"""
+
+server_selection_timeout.desc:
+"""指定在抛出异常之前为服务器选择阻断多长时间。"""
+
+server_selection_timeout.label:
+"""服务器选择超时"""
+
+servers.desc:
+"""集群将要连接的节点列表。 节点之间用逗号分隔，如：`Node[,Node].`
+每个节点的配置为：将要连接的 IPv4 或 IPv6 地址或主机名。
+主机名具有以下形式：`Host[:Port]`。
+如果未指定 `[:Port]`，则使用 MongoDB 默认端口 27017。"""
+
+servers.label:
+"""服务器列表"""
+
+sharded_mongo_type.desc:
+"""Sharded cluster模式。当 MongoDB 服务运行在 sharded 模式下，该配置必须设置为 'sharded'。"""
+
+sharded_mongo_type.label:
+"""Sharded cluster 模式"""
+
+single_mongo_type.desc:
+"""Standalone 模式。当 MongoDB 服务运行在 standalone 模式下，该配置必须设置为 'single'。"""
+
+single_mongo_type.label:
+"""Standalone 模式"""
+
+socket_timeout.desc:
+"""在尝试超时之前，在套接字上尝试发送或接收的持续时间。"""
+
+socket_timeout.label:
+"""套接字操作超时"""
+
+srv_record.desc:
+"""使用 DNS SRV 记录。"""
+
+srv_record.label:
+"""SRV 记录"""
+
+w_mode.desc:
+"""写模式。"""
+
+w_mode.label:
+"""写模式"""
+
+wait_queue_timeout.desc:
+"""工作者等待连接可用的最长时间。"""
+
+wait_queue_timeout.label:
+"""等待队列超时"""
+
+}

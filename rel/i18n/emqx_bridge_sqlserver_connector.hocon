@@ -1,0 +1,11 @@
+emqx_bridge_sqlserver_connector {
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The SQL Server default port 1433 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+}

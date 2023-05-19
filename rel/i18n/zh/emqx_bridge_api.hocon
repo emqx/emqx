@@ -1,0 +1,100 @@
+emqx_bridge_api {
+
+desc_api1.desc:
+"""列出所有 Bridge"""
+
+desc_api1.label:
+"""列出所有 Bridge"""
+
+desc_api2.desc:
+"""通过类型和名字创建 Bridge"""
+
+desc_api2.label:
+"""创建 Bridge"""
+
+desc_api3.desc:
+"""通过 ID 获取 Bridge"""
+
+desc_api3.label:
+"""获取 Bridge"""
+
+desc_api4.desc:
+"""通过 ID 更新 Bridge"""
+
+desc_api4.label:
+"""更新 Bridge"""
+
+desc_api5.desc:
+"""通过 ID 删除 Bridge"""
+
+desc_api5.label:
+"""删除 Bridge"""
+
+desc_api6.desc:
+"""通过 ID 重置 Bridge 的计数"""
+
+desc_api6.label:
+"""重置 Bridge 计数"""
+
+desc_api7.desc:
+"""停止或启用所有节点上的桥接"""
+
+desc_api7.label:
+"""集群 Bridge 操作"""
+
+desc_api8.desc:
+"""在某个节点上停止/重新启动 Bridge。"""
+
+desc_api8.label:
+"""单节点 Bridge 操作"""
+
+desc_api9.desc:
+"""通过给定的 ID 测试创建一个新的桥接。 </br>
+ID 的格式必须为 ’{type}:{name}”"""
+
+desc_api9.label:
+"""测试桥接创建"""
+
+desc_bridge_metrics.desc:
+"""通过 Id 来获取桥接的指标信息"""
+
+desc_bridge_metrics.label:
+"""获取桥接的指标"""
+
+desc_enable_bridge.desc:
+"""启用或禁用所有节点上的桥接"""
+
+desc_enable_bridge.label:
+"""是否启用集群内的桥接"""
+
+desc_param_path_enable.desc:
+"""是否启用桥接"""
+
+desc_param_path_enable.label:
+"""启用桥接"""
+
+desc_param_path_id.desc:
+"""Bridge ID ， 格式为 {type}:{name}"""
+
+desc_param_path_id.label:
+"""Bridge ID"""
+
+desc_param_path_node.desc:
+"""节点名，比如 emqx@127.0.0.1"""
+
+desc_param_path_node.label:
+"""节点名"""
+
+desc_param_path_operation_cluster.desc:
+"""集群可用操作：停止、重新启动"""
+
+desc_param_path_operation_cluster.label:
+"""集群可用操作"""
+
+desc_param_path_operation_on_node.desc:
+"""节点可用操作：停止、重新启动"""
+
+desc_param_path_operation_on_node.label:
+"""节点可用操作"""
+
+}

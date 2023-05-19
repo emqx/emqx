@@ -23,6 +23,7 @@
 -compile(export_all).
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -51,6 +52,13 @@ end_per_suite(_Config) ->
 
 suite() ->
     [{timetrap, {seconds, 60}}].
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% HTTP server for testing
@@ -158,7 +166,8 @@ bridge_async_config(#{port := Port} = Config) ->
     QueryMode = maps:get(query_mode, Config, "async"),
     ConnectTimeout = maps:get(connect_timeout, Config, 1),
     RequestTimeout = maps:get(request_timeout, Config, 10000),
-    ResourceRequestTimeout = maps:get(resouce_request_timeout, Config, "infinity"),
+    ResumeInterval = maps:get(resume_interval, Config, "1s"),
+    ResourceRequestTimeout = maps:get(resource_request_timeout, Config, "infinity"),
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
         "  url = \"http://localhost:~p\"\n"
@@ -172,12 +181,13 @@ bridge_async_config(#{port := Port} = Config) ->
         "  request_timeout = \"~ps\"\n"
         "  body = \"${id}\""
         "  resource_opts {\n"
-        "    async_inflight_window = 100\n"
+        "    inflight_window = 100\n"
         "    auto_restart_interval = \"60s\"\n"
         "    health_check_interval = \"15s\"\n"
-        "    max_queue_bytes = \"1GB\"\n"
+        "    max_buffer_bytes = \"1GB\"\n"
         "    query_mode = \"~s\"\n"
-        "    request_timeout = \"~s\"\n"
+        "    request_timeout = \"~p\"\n"
+        "    resume_interval = \"~s\"\n"
         "    start_after_created = \"true\"\n"
         "    start_timeout = \"5s\"\n"
         "    worker_pool_size = \"1\"\n"
@@ -194,7 +204,8 @@ bridge_async_config(#{port := Port} = Config) ->
             PoolSize,
             RequestTimeout,
             QueryMode,
-            ResourceRequestTimeout
+            ResourceRequestTimeout,
+            ResumeInterval
         ]
     ),
     ct:pal(ConfigString),
@@ -236,7 +247,7 @@ t_send_async_connection_timeout(_Config) ->
         query_mode => "async",
         connect_timeout => ResponseDelayMS * 2,
         request_timeout => 10000,
-        resouce_request_timeout => "infinity"
+        resource_request_timeout => "infinity"
     }),
     NumberOfMessagesToSend = 10,
     [
@@ -248,6 +259,97 @@ t_send_async_connection_timeout(_Config) ->
     MessageIDs = maps:from_keys(lists:seq(1, NumberOfMessagesToSend), void),
     receive_request_notifications(MessageIDs, ResponseDelayMS),
     stop_http_server(Server),
+    ok.
+
+t_async_free_retries(_Config) ->
+    #{port := Port} = start_http_server(#{response_delay_ms => 0}),
+    BridgeID = make_bridge(#{
+        port => Port,
+        pool_size => 1,
+        query_mode => "sync",
+        connect_timeout => 1_000,
+        request_timeout => 10_000,
+        resource_request_timeout => "10000s"
+    }),
+    %% Fail 5 times then succeed.
+    Context = #{error_attempts => 5},
+    ExpectedAttempts = 6,
+    Fn = fun(Get, Error) ->
+        ?assertMatch(
+            {ok, 200, _, _},
+            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            #{error => Error}
+        ),
+        ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
+    end,
+    do_t_async_retries(Context, {error, normal}, Fn),
+    do_t_async_retries(Context, {error, {shutdown, normal}}, Fn),
+    ok.
+
+t_async_common_retries(_Config) ->
+    #{port := Port} = start_http_server(#{response_delay_ms => 0}),
+    BridgeID = make_bridge(#{
+        port => Port,
+        pool_size => 1,
+        query_mode => "sync",
+        resume_interval => "100ms",
+        connect_timeout => 1_000,
+        request_timeout => 10_000,
+        resource_request_timeout => "10000s"
+    }),
+    %% Keeps failing until connector gives up.
+    Context = #{error_attempts => infinity},
+    ExpectedAttempts = 3,
+    FnSucceed = fun(Get, Error) ->
+        ?assertMatch(
+            {ok, 200, _, _},
+            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            #{error => Error, attempts => Get()}
+        ),
+        ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
+    end,
+    FnFail = fun(Get, Error) ->
+        ?assertMatch(
+            Error,
+            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            #{error => Error, attempts => Get()}
+        ),
+        ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
+    end,
+    %% These two succeed because they're further retried by the buffer
+    %% worker synchronously, and we're not mock that call.
+    do_t_async_retries(Context, {error, {closed, "The connection was lost."}}, FnSucceed),
+    do_t_async_retries(Context, {error, {shutdown, closed}}, FnSucceed),
+    %% This fails because this error is treated as unrecoverable.
+    do_t_async_retries(Context, {error, something_else}, FnFail),
+    ok.
+
+do_t_async_retries(TestContext, Error, Fn) ->
+    #{error_attempts := ErrorAttempts} = TestContext,
+    persistent_term:put({?MODULE, ?FUNCTION_NAME, attempts}, 0),
+    on_exit(fun() -> persistent_term:erase({?MODULE, ?FUNCTION_NAME, attempts}) end),
+    Get = fun() -> persistent_term:get({?MODULE, ?FUNCTION_NAME, attempts}) end,
+    GetAndBump = fun() ->
+        Attempts = persistent_term:get({?MODULE, ?FUNCTION_NAME, attempts}),
+        persistent_term:put({?MODULE, ?FUNCTION_NAME, attempts}, Attempts + 1),
+        Attempts + 1
+    end,
+    emqx_common_test_helpers:with_mock(
+        emqx_connector_http,
+        reply_delegator,
+        fun(Context, ReplyFunAndArgs, Result) ->
+            Attempts = GetAndBump(),
+            case Attempts > ErrorAttempts of
+                true ->
+                    ct:pal("succeeding ~p : ~p", [Error, Attempts]),
+                    meck:passthrough([Context, ReplyFunAndArgs, Result]);
+                false ->
+                    ct:pal("failing ~p : ~p", [Error, Attempts]),
+                    meck:passthrough([Context, ReplyFunAndArgs, Error])
+            end
+        end,
+        fun() -> Fn(Get, Error) end
+    ),
     ok.
 
 receive_request_notifications(MessageIDs, _ResponseDelay) when map_size(MessageIDs) =:= 0 ->

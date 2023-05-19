@@ -115,7 +115,7 @@ clients(get, #{
                         fun ?MODULE:format_channel_info/2
                     );
                 Node0 ->
-                    case emqx_misc:safe_to_existing_atom(Node0) of
+                    case emqx_utils:safe_to_existing_atom(Node0) of
                         {ok, Node1} ->
                             QStringWithoutNode = maps:without([<<"node">>], QString),
                             emqx_mgmt_api:node_query(
@@ -145,10 +145,9 @@ clients(get, #{
 clients_insta(get, #{
     bindings := #{
         name := Name0,
-        clientid := ClientId0
+        clientid := ClientId
     }
 }) ->
-    ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case
             emqx_gateway_http:lookup_client(
@@ -172,10 +171,9 @@ clients_insta(get, #{
 clients_insta(delete, #{
     bindings := #{
         name := Name0,
-        clientid := ClientId0
+        clientid := ClientId
     }
 }) ->
-    ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:kickout_client(GwName, ClientId),
         {204}
@@ -185,10 +183,9 @@ clients_insta(delete, #{
 subscriptions(get, #{
     bindings := #{
         name := Name0,
-        clientid := ClientId0
+        clientid := ClientId
     }
 }) ->
-    ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
             {error, not_found} ->
@@ -203,11 +200,10 @@ subscriptions(get, #{
 subscriptions(post, #{
     bindings := #{
         name := Name0,
-        clientid := ClientId0
+        clientid := ClientId
     },
     body := Body
 }) ->
-    ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
             {undefined, _} ->
@@ -231,12 +227,10 @@ subscriptions(post, #{
 subscriptions(delete, #{
     bindings := #{
         name := Name0,
-        clientid := ClientId0,
-        topic := Topic0
+        clientid := ClientId,
+        topic := Topic
     }
 }) ->
-    ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    Topic = emqx_mgmt_util:urldecode(Topic0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
         {204}

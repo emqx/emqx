@@ -86,7 +86,7 @@ init([]) ->
 %%  Internal functions
 %%--==================================================================
 make_child(Type) ->
-    Cfg = emqx:get_config([limiter, Type]),
+    Cfg = emqx_limiter_schema:get_node_opts(Type),
     make_child(Type, Cfg).
 
 make_child(Type, Cfg) ->

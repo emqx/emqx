@@ -165,7 +165,7 @@ banned(post, #{body := Body}) ->
                 {ok, Banned} ->
                     {200, format(Banned)};
                 {error, {already_exist, Old}} ->
-                    OldBannedFormat = emqx_json:encode(format(Old)),
+                    OldBannedFormat = emqx_utils_json:encode(format(Old)),
                     {400, 'ALREADY_EXISTS', OldBannedFormat}
             end
     end.

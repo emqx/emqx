@@ -49,7 +49,7 @@ t_nodes_api(Config) ->
     %% list all
     Path = emqx_mgmt_api_test_util:api_path(["topics"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
-    RoutesData = emqx_json:decode(Response, [return_maps]),
+    RoutesData = emqx_utils_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, RoutesData),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
@@ -68,7 +68,7 @@ t_nodes_api(Config) ->
     ]),
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     {ok, MatchResponse} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
-    MatchData = emqx_json:decode(MatchResponse, [return_maps]),
+    MatchData = emqx_utils_json:decode(MatchResponse, [return_maps]),
     ?assertMatch(
         #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
         maps:get(<<"meta">>, MatchData)
@@ -90,6 +90,6 @@ t_nodes_api(Config) ->
     [
         #{<<"topic">> := Topic, <<"node">> := Node1},
         #{<<"topic">> := Topic, <<"node">> := Node2}
-    ] = emqx_json:decode(RouteResponse, [return_maps]),
+    ] = emqx_utils_json:decode(RouteResponse, [return_maps]),
 
     ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])).

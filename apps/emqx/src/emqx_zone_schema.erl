@@ -15,8 +15,10 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_zone_schema).
+-include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
--export([namespace/0, roots/0, fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1, zone/0, zone_without_hidden/0]).
 
 namespace() -> zone.
 
@@ -31,6 +33,32 @@ roots() ->
         "conn_congestion",
         "force_gc",
         "overload_protection"
+    ].
+
+zone() ->
+    Fields = roots(),
+    Hidden = hidden(),
+    lists:map(
+        fun(F) ->
+            case lists:member(F, Hidden) of
+                true ->
+                    {F, ?HOCON(?R_REF(F), #{importance => ?IMPORTANCE_HIDDEN})};
+                false ->
+                    {F, ?HOCON(?R_REF(F), #{})}
+            end
+        end,
+        Fields
+    ).
+
+zone_without_hidden() ->
+    lists:map(fun(F) -> {F, ?HOCON(?R_REF(F), #{})} end, roots() -- hidden()).
+
+hidden() ->
+    [
+        "stats",
+        "overload_protection",
+        "conn_congestion",
+        "flapping_detect"
     ].
 
 %% zone schemas are clones from the same name from root level

@@ -1,0 +1,33 @@
+emqx_license_schema {
+
+connection_high_watermark_field.desc:
+"""High watermark limit above which license connection quota usage alarms are activated"""
+
+connection_high_watermark_field.label:
+"""Connection high watermark"""
+
+connection_low_watermark_field.desc:
+"""Low watermark limit below which license connection quota usage alarms are deactivated"""
+
+connection_low_watermark_field.label:
+"""Connection low watermark"""
+
+key_field.desc:
+"""License string"""
+
+key_field.label:
+"""License string"""
+
+license_root.desc:
+"""Defines the EMQX Enterprise license. 
+
+
+The default license has 100 connections limit, it is issued on 2023-01-09 and valid for 5 years (1825 days).
+
+EMQX comes with a default trial license.  For production use, please 
+visit https://www.emqx.com/apply-licenses/emqx to apply."""
+
+license_root.label:
+"""License"""
+
+}

@@ -587,24 +587,24 @@ request_stepdown(Action, ConnMod, Pid) ->
         catch
             % emqx_ws_connection: call
             _:noproc ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             % emqx_connection: gen_server:call
             _:{noproc, _} ->
-                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_gone", #{stale_pid => Pid, action => Action}),
                 {error, noproc};
             _:Reason = {shutdown, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, Reason};
             _:Reason = {{shutdown, _}, _} ->
-                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                ok = ?tp(debug, "session_already_shutdown", #{stale_pid => Pid, action => Action}),
                 {error, Reason};
             _:{timeout, {gen_server, call, _}} ->
                 ?tp(
                     warning,
                     "session_stepdown_request_timeout",
                     #{
-                        pid => Pid,
+                        stale_pid => Pid,
                         action => Action,
                         stale_channel => stale_channel_info(Pid)
                     }
@@ -616,7 +616,7 @@ request_stepdown(Action, ConnMod, Pid) ->
                     error,
                     "session_stepdown_request_exception",
                     #{
-                        pid => Pid,
+                        stale_pid => Pid,
                         action => Action,
                         reason => Error,
                         stacktrace => St,
@@ -766,9 +766,9 @@ init(Options) ->
     TabOpts = [public, {write_concurrency, true}],
 
     {ChanTab, ConnTab, InfoTab} = cmtabs(GwName),
-    ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_tables:new(ConnTab, [bag | TabOpts]),
-    ok = emqx_tables:new(InfoTab, [ordered_set, compressed | TabOpts]),
+    ok = emqx_utils_ets:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(ConnTab, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(InfoTab, [ordered_set, compressed | TabOpts]),
 
     %% Start link cm-registry process
     %% XXX: Should I hang it under a higher level supervisor?
@@ -802,7 +802,7 @@ handle_info(
     {'DOWN', _MRef, process, Pid, _Reason},
     State = #state{gwname = GwName, chan_pmon = PMon}
 ) ->
-    ChanPids = [Pid | emqx_misc:drain_down(?DEFAULT_BATCH_SIZE)],
+    ChanPids = [Pid | emqx_utils:drain_down(?DEFAULT_BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
 
     CmTabs = cmtabs(GwName),

@@ -352,4 +352,4 @@ receive_assert(Topic, Qos, Payload) ->
     end.
 
 decode_json(In) ->
-    emqx_json:decode(In, [return_maps]).
+    emqx_utils_json:decode(In, [return_maps]).

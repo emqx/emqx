@@ -54,7 +54,7 @@ type_names() ->
         file,
         http_get,
         http_post,
-        mnesia,
+        builtin_db,
         mongo_single,
         mongo_rs,
         mongo_sharded,
@@ -93,7 +93,7 @@ fields(http_post) ->
             {method, method(post)},
             {headers, fun headers/1}
         ];
-fields(mnesia) ->
+fields(builtin_db) ->
     authz_common_fields(built_in_database);
 fields(mongo_single) ->
     authz_common_fields(mongodb) ++
@@ -191,8 +191,8 @@ desc(http_get) ->
     ?DESC(http_get);
 desc(http_post) ->
     ?DESC(http_post);
-desc(mnesia) ->
-    ?DESC(mnesia);
+desc(builtin_db) ->
+    ?DESC(builtin_db);
 desc(mongo_single) ->
     ?DESC(mongo_single);
 desc(mongo_rs) ->
@@ -230,7 +230,6 @@ http_common_fields() ->
         maps:to_list(
             maps:without(
                 [
-                    base_url,
                     pool_type
                 ],
                 maps:from_list(connector_fields(http))
@@ -337,7 +336,7 @@ check_ssl_opts(Conf) ->
             (#{<<"url">> := Url} = Source) ->
                 case emqx_authz_http:parse_url(Url) of
                     {<<"https", _/binary>>, _, _} ->
-                        case emqx_map_lib:deep_find([<<"ssl">>, <<"enable">>], Source) of
+                        case emqx_utils_maps:deep_find([<<"ssl">>, <<"enable">>], Source) of
                             {ok, true} -> true;
                             {ok, false} -> throw({ssl_not_enable, Url});
                             _ -> throw({ssl_enable_not_found, Url})
@@ -459,7 +458,7 @@ select_union_member(#{<<"type">> := <<"http">>} = Value) ->
             })
     end;
 select_union_member(#{<<"type">> := <<"built_in_database">>}) ->
-    ?R_REF(mnesia);
+    ?R_REF(builtin_db);
 select_union_member(#{<<"type">> := Type}) ->
     select_union_member_loop(Type, type_names());
 select_union_member(_) ->
@@ -491,8 +490,20 @@ authz_fields() ->
             ?HOCON(
                 ?ARRAY(?UNION(UnionMemberSelector)),
                 #{
-                    default => [],
-                    desc => ?DESC(sources)
+                    default => [default_authz()],
+                    desc => ?DESC(sources),
+                    %% doc_lift is force a root level reference instead of nesting sub-structs
+                    extra => #{doc_lift => true},
+                    %% it is recommended to configure authz sources from dashboard
+                    %% hance the importance level for config is low
+                    importance => ?IMPORTANCE_LOW
                 }
             )}
     ].
+
+default_authz() ->
+    #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
+    }.

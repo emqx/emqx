@@ -20,6 +20,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     list_bridges/1,
     list_bridges_on_nodes/1,
@@ -38,6 +39,9 @@
 
 introduced_in() ->
     "5.0.21".
+
+deprecated_since() ->
+    "5.0.22".
 
 -spec list_bridges(node()) -> list() | emqx_rpc:badrpc().
 list_bridges(Node) ->

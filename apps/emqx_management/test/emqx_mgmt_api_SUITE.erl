@@ -179,14 +179,14 @@ t_bad_rpc(_) ->
     ClientLs1 = [start_emqtt_client(node(), I, 1883) || I <- lists:seq(1, 10)],
     Path = emqx_mgmt_api_test_util:api_path(["clients?limit=2&page=2"]),
     try
-        meck:expect(mria, running_nodes, 0, ['fake@nohost']),
+        meck:expect(emqx, running_nodes, 0, ['fake@nohost']),
         {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path),
         %% good cop, bad cop
-        meck:expect(mria, running_nodes, 0, [node(), 'fake@nohost']),
+        meck:expect(emqx, running_nodes, 0, [node(), 'fake@nohost']),
         {error, {_, 500, _}} = emqx_mgmt_api_test_util:request_api(get, Path)
     after
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
-        meck:unload(mria),
+        meck:unload(emqx),
         emqx_mgmt_api_test_util:end_suite()
     end.
 

@@ -22,7 +22,16 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:start_apps([]),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:stop_apps([]),
+    ok.
 
 t_check_pub(_) ->
     OldConf = emqx:get_config([zones], #{}),

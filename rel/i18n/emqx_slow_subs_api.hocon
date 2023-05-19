@@ -1,0 +1,30 @@
+emqx_slow_subs_api {
+
+clear_records_api.desc:
+"""Clear current data and re count slow topic"""
+
+clientid.desc:
+"""Message clientid"""
+
+get_records_api.desc:
+"""View slow topics statistics record data"""
+
+get_setting_api.desc:
+"""View slow subs settings"""
+
+last_update_time.desc:
+"""The timestamp of last update"""
+
+node.desc:
+"""Message node name"""
+
+timespan.desc:
+"""Timespan for message transmission"""
+
+topic.desc:
+"""Message topic"""
+
+update_setting_api.desc:
+"""Update slow subs settings"""
+
+}

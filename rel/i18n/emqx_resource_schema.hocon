@@ -1,0 +1,116 @@
+emqx_resource_schema {
+
+auto_restart_interval.desc:
+"""The auto restart interval after the resource is disconnected."""
+
+auto_restart_interval.label:
+"""Auto Restart Interval"""
+
+batch_size.desc:
+"""Maximum batch count. If equal to 1, there's effectively no batching."""
+
+batch_size.label:
+"""Max batch size"""
+
+batch_time.desc:
+"""Maximum waiting interval when accumulating a batch at a low message rates for more efficient resource usage."""
+
+batch_time.label:
+"""Max batch wait time"""
+
+buffer_mode.desc:
+"""Buffer operation mode.
+<code>memory_only</mode>: Buffer all messages in memory.<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"""
+
+buffer_mode.label:
+"""Buffer Mode"""
+
+buffer_seg_bytes.desc:
+"""Applicable when buffer mode is set to <code>volatile_offload</code>.
+This value is to specify the size of each on-disk buffer file."""
+
+buffer_seg_bytes.label:
+"""Segment File Bytes"""
+
+creation_opts.desc:
+"""Creation options."""
+
+creation_opts.label:
+"""Creation Options"""
+
+enable_batch.desc:
+"""Batch mode enabled."""
+
+enable_batch.label:
+"""Enable batch"""
+
+enable_queue.desc:
+"""Enable disk buffer queue (only applicable for egress bridges).
+When Enabled, messages will be buffered on disk when the bridge connection is down.
+When disabled the messages are buffered in RAM only."""
+
+enable_queue.label:
+"""Enable disk buffer queue"""
+
+health_check_interval.desc:
+"""Health check interval."""
+
+health_check_interval.label:
+"""Health Check Interval"""
+
+inflight_window.desc:
+"""Query inflight window. When query_mode is set to async, this config has to be set to 1 if messages from the same MQTT client have to be strictly ordered."""
+
+inflight_window.label:
+"""Inflight window"""
+
+max_buffer_bytes.desc:
+"""Maximum number of bytes to buffer for each buffer worker."""
+
+max_buffer_bytes.label:
+"""Max buffer queue size"""
+
+query_mode.desc:
+"""Query mode. Optional 'sync/async', default 'async'."""
+
+query_mode.label:
+"""Query mode"""
+
+request_timeout.desc:
+"""Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""
+
+request_timeout.label:
+"""Request Expiry"""
+
+resource_opts.desc:
+"""Resource options."""
+
+resource_opts.label:
+"""Resource Options"""
+
+resume_interval.desc:
+"""The interval at which the buffer worker attempts to resend failed requests in the inflight window."""
+
+resume_interval.label:
+"""Resume Interval"""
+
+start_after_created.desc:
+"""Whether start the resource right after created."""
+
+start_after_created.label:
+"""Start After Created"""
+
+start_timeout.desc:
+"""Time interval to wait for an auto-started resource to become healthy before responding resource creation requests."""
+
+start_timeout.label:
+"""Start Timeout"""
+
+worker_pool_size.desc:
+"""The number of buffer workers. Only applicable for egress type bridges.
+For bridges only have ingress direction data flow, it can be set to 0 otherwise must be greater than 0."""
+
+worker_pool_size.label:
+"""Buffer Pool Size"""
+
+}

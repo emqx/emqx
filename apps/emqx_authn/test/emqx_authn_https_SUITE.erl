@@ -168,7 +168,7 @@ cowboy_handler(Req0, State) ->
     Req = cowboy_req:reply(
         200,
         #{<<"content-type">> => <<"application/json">>},
-        jiffy:encode(#{result => allow, is_superuser => false}),
+        emqx_utils_json:encode(#{result => allow, is_superuser => false}),
         Req0
     ),
     {ok, Req, State}.

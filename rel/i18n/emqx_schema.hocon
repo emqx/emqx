@@ -1,0 +1,1567 @@
+emqx_schema {
+
+fields_mqtt_quic_listener_peer_unidi_stream_count.desc:
+"""Number of unidirectional streams to allow the peer to open."""
+
+fields_mqtt_quic_listener_peer_unidi_stream_count.label:
+"""Peer unidi stream count"""
+
+fields_authorization_no_match.desc:
+"""Default access control action if the user or client matches no ACL rules,
+or if no such user or client is found by the configurable authorization
+sources such as built_in_database, an HTTP API, or a query against PostgreSQL.
+Find more details in 'authorization.sources' config."""
+
+fields_authorization_no_match.label:
+"""Authorization no match"""
+
+sysmon_top_db_hostname.desc:
+"""Hostname of the PostgreSQL database that collects the data points"""
+
+sysmon_top_db_hostname.label:
+"""DB Hostname"""
+
+zones.desc:
+"""A zone is a set of configs grouped by the zone <code>name</code>.
+For flexible configuration mapping, the <code>name</code> can be set to a listener's <code>zone</code> config.
+NOTE: A built-in zone named <code>default</code> is auto created and can not be deleted."""
+
+fields_mqtt_quic_listener_certfile.desc:
+"""Path to the certificate file. Will be deprecated in 5.1, use .ssl_options.certfile instead."""
+
+fields_mqtt_quic_listener_certfile.label:
+"""Certificate file"""
+
+fields_rate_limit_conn_bytes_in.desc:
+"""Limit the rate of receiving packets for a MQTT connection.
+The rate is counted by bytes of packets per second."""
+
+fields_rate_limit_conn_bytes_in.label:
+"""Connection bytes in"""
+
+crl_cache_capacity.desc:
+"""The maximum number of CRL URLs that can be held in cache.  If the cache is at full capacity and a new URL must be fetched, then it'll evict the oldest inserted URL in the cache."""
+
+crl_cache_capacity.label:
+"""CRL Cache Capacity"""
+
+alarm_actions.desc:
+"""The actions triggered when the alarm is activated.<br/>Currently, the following actions are supported: <code>log</code> and <code>publish</code>.
+<code>log</code> is to write the alarm to log (console or file).
+<code>publish</code> is to publish the alarm as an MQTT message to the system topics:
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
+
+alarm_actions.label:
+"""Alarm Actions"""
+
+base_listener_max_connections.desc:
+"""The maximum number of concurrent connections allowed by the listener."""
+
+base_listener_max_connections.label:
+"""Max connections"""
+
+mqtt_peer_cert_as_username.desc:
+"""Use the CN, DN field in the peer certificate or the entire certificate content as Username. Only works for the TLS connection.
+Supported configurations are the following:
+- <code>cn</code>: CN field of the certificate
+- <code>dn</code>: DN field of the certificate
+- <code>crt</code>: Content of the <code>DER</code> or <code>PEM</code> certificate
+- <code>pem</code>: Convert <code>DER</code> certificate content to <code>PEM</code> format and use as Username
+- <code>md5</code>: MD5 value of the <code>DER</code> or <code>PEM</code> certificate"""
+
+mqtt_peer_cert_as_username.label:
+"""Use Peer Certificate as Username"""
+
+fields_cache_enable.desc:
+"""Enable or disable the authorization cache."""
+
+fields_cache_enable.label:
+"""Enable or disable the authorization cache."""
+
+fields_mqtt_quic_listener_disconnect_timeout_ms.desc:
+"""How long to wait for an ACK before declaring a path dead and disconnecting. Default: 16000"""
+
+fields_mqtt_quic_listener_disconnect_timeout_ms.label:
+"""Disconnect timeout ms"""
+
+mqtt_max_topic_alias.desc:
+"""Maximum topic alias, 0 means no topic alias supported."""
+
+mqtt_max_topic_alias.label:
+"""Max Topic Alias"""
+
+common_ssl_opts_schema_user_lookup_fun.desc:
+"""EMQX-internal callback that is used to lookup pre-shared key (PSK) identity."""
+
+common_ssl_opts_schema_user_lookup_fun.label:
+"""SSL PSK user lookup fun"""
+
+fields_listeners_wss.desc:
+"""HTTPS websocket listeners."""
+
+fields_listeners_wss.label:
+"""HTTPS websocket listeners"""
+
+sysmon_top_max_procs.desc:
+"""Stop collecting data when the number of processes
+in the VM exceeds this value"""
+
+sysmon_top_max_procs.label:
+"""Max procs"""
+
+mqtt_use_username_as_clientid.desc:
+"""Whether to use Username as Client ID.
+This setting takes effect later than <code>Use Peer Certificate as Username</code> and <code>Use peer certificate as Client ID</code>."""
+
+mqtt_use_username_as_clientid.label:
+"""Use Username as Client ID"""
+
+mqtt_max_qos_allowed.desc:
+"""Maximum QoS allowed."""
+
+mqtt_max_qos_allowed.label:
+"""Max QoS"""
+
+fields_mqtt_quic_listener_max_binding_stateless_operations.desc:
+"""The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"""
+
+fields_mqtt_quic_listener_max_binding_stateless_operations.label:
+"""Max binding stateless operations"""
+
+fields_mqtt_quic_listener_stream_recv_buffer_default.desc:
+"""Stream initial buffer size. Default: 4096"""
+
+fields_mqtt_quic_listener_stream_recv_buffer_default.label:
+"""Stream recv buffer default"""
+
+fields_mqtt_quic_listener_pacing_enabled.desc:
+"""Pace sending to avoid overfilling buffers on the path. Default: 1 (Enabled)"""
+
+fields_mqtt_quic_listener_pacing_enabled.label:
+"""Pacing enabled"""
+
+mqtt_max_subscriptions.desc:
+"""Maximum number of subscriptions allowed per client."""
+
+mqtt_max_subscriptions.label:
+"""Max Subscriptions"""
+
+persistent_session_builtin_messages_table.desc:
+"""Performance tuning options for built-in messages table."""
+
+persistent_session_builtin_messages_table.label:
+"""Persistent messages"""
+
+sysmon_os_cpu_low_watermark.desc:
+"""The threshold, as percentage of system CPU load,
+ for how much system cpu can be used before the corresponding alarm is cleared."""
+
+sysmon_os_cpu_low_watermark.label:
+"""CPU low watermark"""
+
+fields_mqtt_quic_listener_tls_server_max_send_buffer.desc:
+"""How much Server TLS data to buffer. Default: 8192"""
+
+fields_mqtt_quic_listener_tls_server_max_send_buffer.label:
+"""TLS server max send buffer"""
+
+base_listener_bind.desc:
+"""IP address and port for the listening socket."""
+
+base_listener_bind.label:
+"""IP address and port"""
+
+server_ssl_opts_schema_handshake_timeout.desc:
+"""Maximum time duration allowed for the handshake to complete"""
+
+server_ssl_opts_schema_handshake_timeout.label:
+"""Handshake timeout"""
+
+fields_deflate_opts_server_context_takeover.desc:
+"""Takeover means the compression state is retained between server messages."""
+
+fields_deflate_opts_server_context_takeover.label:
+"""Server context takeover"""
+
+mqtt_session_expiry_interval.desc:
+"""Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections."""
+
+mqtt_session_expiry_interval.label:
+"""Session Expiry Interval"""
+
+fields_listener_enabled.desc:
+"""Enable listener."""
+
+fields_listener_enabled.label:
+"""Enable listener"""
+
+mqtt.desc:
+"""Global MQTT configuration.
+The configs here work as default values which can be overridden in <code>zone</code> configs"""
+
+crl_cache_refresh_http_timeout.desc:
+"""The timeout for the HTTP request when fetching CRLs.  This is a global setting for all listeners."""
+
+crl_cache_refresh_http_timeout.label:
+"""CRL Cache Refresh HTTP Timeout"""
+
+fields_tcp_opts_backlog.desc:
+"""TCP backlog defines the maximum length that the queue of
+pending connections can grow to."""
+
+fields_tcp_opts_backlog.label:
+"""TCP backlog length"""
+
+broker_route_batch_clean.desc:
+"""Enable batch clean for deleted routes."""
+
+fields_mqtt_quic_listener_initial_window_packets.desc:
+"""The size (in packets) of the initial congestion window for a connection. Default: 10"""
+
+fields_mqtt_quic_listener_initial_window_packets.label:
+"""Initial window packets"""
+
+flapping_detect_enable.desc:
+"""Enable flapping connection detection feature."""
+
+flapping_detect_enable.label:
+"""Enable flapping detection"""
+
+sysmon_top_db_password.desc:
+"""EMQX user password in the PostgreSQL database"""
+
+sysmon_top_db_password.label:
+"""DB Password"""
+
+fields_ws_opts_check_origins.desc:
+"""List of allowed origins.<br/>See <code>check_origin_enable</code>."""
+
+fields_ws_opts_check_origins.label:
+"""Allowed origins"""
+
+fields_deflate_opts_client_context_takeover.desc:
+"""Takeover means the compression state is retained between client messages."""
+
+fields_deflate_opts_client_context_takeover.label:
+"""Client context takeover"""
+
+base_listener_acceptors.desc:
+"""The size of the listener's receiving pool."""
+
+base_listener_acceptors.label:
+"""Acceptors Num"""
+
+common_ssl_opts_schema_cacertfile.desc:
+"""Trusted PEM format CA certificates bundle file.<br/>
+The certificates in this file are used to verify the TLS peer's certificates.
+Append new certificates to the file if new CAs are to be trusted.
+There is no need to restart EMQX to have the updated file loaded, because
+the system regularly checks if file has been updated (and reload).<br/>
+NOTE: invalidating (deleting) a certificate from the file will not affect
+already established connections."""
+
+common_ssl_opts_schema_cacertfile.label:
+"""CACertfile"""
+
+fields_ws_opts_mqtt_path.desc:
+"""WebSocket's MQTT protocol path. So the address of EMQX Broker's WebSocket is:
+<code>ws://{ip}:{port}/mqtt</code>"""
+
+fields_ws_opts_mqtt_path.label:
+"""WS MQTT Path"""
+
+sysmon_os_procmem_high_watermark.desc:
+"""The threshold, as percentage of system memory,
+ for how much system memory can be allocated by one Erlang process before
+ the corresponding alarm is raised."""
+
+sysmon_os_procmem_high_watermark.label:
+"""ProcMem high wartermark"""
+
+fields_listeners_quic.desc:
+"""QUIC listeners."""
+
+fields_listeners_quic.label:
+"""QUIC listeners"""
+
+fields_listeners_ws.desc:
+"""HTTP websocket listeners."""
+
+fields_listeners_ws.label:
+"""HTTP websocket listeners"""
+
+mqtt_retry_interval.desc:
+"""Retry interval for QoS 1/2 message delivering."""
+
+mqtt_retry_interval.label:
+"""Retry Interval"""
+
+stats_enable.desc:
+"""Enable/disable statistic data collection."""
+
+stats_enable.label:
+"""Enable/disable statistic data collection."""
+
+fields_authorization_deny_action.desc:
+"""The action when the authorization check rejects an operation."""
+
+fields_authorization_deny_action.label:
+"""Authorization deny action"""
+
+fields_deflate_opts_server_max_window_bits.desc:
+"""Specifies the size of the compression context for the server."""
+
+fields_deflate_opts_server_max_window_bits.label:
+"""Server compression max window size"""
+
+client_ssl_opts_schema_server_name_indication.desc:
+"""Specify the host name to be used in TLS Server Name Indication extension.<br/>
+For instance, when connecting to "server.example.net", the genuine server
+which accepts the connection and performs TLS handshake may differ from the
+host the TLS client initially connects to, e.g. when connecting to an IP address
+or when the host has multiple resolvable DNS records <br/>
+If not specified, it will default to the host name string which is used
+to establish the connection, unless it is IP addressed used.<br/>
+The host name is then also used in the host name verification of the peer
+certificate.<br/> The special value 'disable' prevents the Server Name
+Indication extension from being sent and disables the hostname
+verification check."""
+
+client_ssl_opts_schema_server_name_indication.label:
+"""Server Name Indication"""
+
+fields_mqtt_quic_listener_retry_memory_limit.desc:
+"""The percentage of available memory usable for handshake connections before stateless retry is used. Calculated as `N/65535`. Default: 65"""
+
+fields_mqtt_quic_listener_retry_memory_limit.label:
+"""Retry memory limit"""
+
+force_shutdown_max_mailbox_size.desc:
+"""In EMQX, each online client corresponds to an individual Erlang process. The configuration value establishes a mailbox size limit for these processes. If the mailbox size surpasses this limit, the client will be automatically terminated."""
+
+force_shutdown_max_mailbox_size.label:
+"""Maximum mailbox size."""
+
+sys_heartbeat_interval.desc:
+"""Time interval for publishing following heartbeat messages:
+  - `$SYS/brokers/<node>/uptime`
+  - `$SYS/brokers/<node>/datetime`"""
+
+flapping_detect_ban_time.desc:
+"""How long the flapping clientid will be banned."""
+
+flapping_detect_ban_time.label:
+"""Ban time"""
+
+sysmon_top_num_items.desc:
+"""The number of top processes per monitoring group"""
+
+sysmon_top_num_items.label:
+"""Top num items"""
+
+persistent_session_builtin_session_table.desc:
+"""Performance tuning options for built-in session table."""
+
+persistent_session_builtin_session_table.label:
+"""Persistent session"""
+
+mqtt_upgrade_qos.desc:
+"""Force upgrade of QoS level according to subscription."""
+
+mqtt_upgrade_qos.label:
+"""Upgrade QoS"""
+
+mqtt_shared_subscription.desc:
+"""Whether to enable support for MQTT shared subscription."""
+
+mqtt_shared_subscription.label:
+"""Shared Subscription Available"""
+
+fields_tcp_opts_sndbuf.desc:
+"""The TCP send buffer (OS kernel) for the connections."""
+
+fields_tcp_opts_sndbuf.label:
+"""TCP send buffer"""
+
+sysmon_os_mem_check_interval.desc:
+"""The time interval for the periodic memory check."""
+
+sysmon_os_mem_check_interval.label:
+"""Mem check interval"""
+
+server_ssl_opts_schema_gc_after_handshake.desc:
+"""Memory usage tuning. If enabled, will immediately perform a garbage collection after the TLS/SSL handshake."""
+
+server_ssl_opts_schema_gc_after_handshake.label:
+"""Perform GC after handshake"""
+
+fields_mqtt_quic_listener_ssl_options.desc:
+"""TLS options for QUIC transport"""
+
+fields_mqtt_quic_listener_ssl_options.label:
+"""TLS Options"""
+
+fields_ws_opts_mqtt_piggyback.desc:
+"""Whether a WebSocket message is allowed to contain multiple MQTT packets."""
+
+fields_ws_opts_mqtt_piggyback.label:
+"""MQTT Piggyback"""
+
+base_listener_mountpoint.desc:
+"""When publishing or subscribing, prefix all topics with a mountpoint string.
+The prefixed string will be removed from the topic name when the message
+is delivered to the subscriber. The mountpoint is a way that users can use
+to implement isolation of message routing between different listeners.
+For example if a client A subscribes to `t` with `listeners.tcp.\<name>.mountpoint`
+set to `some_tenant`, then the client actually subscribes to the topic
+`some_tenant/t`. Similarly, if another client B (connected to the same listener
+as the client A) sends a message to topic `t`, the message is routed
+to all the clients subscribed `some_tenant/t`, so client A will receive the
+message, with topic name `t`.<br/>
+Set to `""` to disable the feature.<br/>
+
+Variables in mountpoint string:
+  - <code>${clientid}</code>: clientid
+  - <code>${username}</code>: username"""
+
+base_listener_mountpoint.label:
+"""mountpoint"""
+
+mqtt_max_awaiting_rel.desc:
+"""For each publisher session, the maximum number of outstanding QoS 2 messages pending on the client to send PUBREL. After reaching this limit, new QoS 2 PUBLISH requests will be rejected with `147(0x93)` until either PUBREL is received or timed out."""
+
+mqtt_max_awaiting_rel.label:
+"""Max Awaiting PUBREL"""
+
+ciphers_schema_quic.desc:
+"""This config holds TLS cipher suite names separated by comma,
+or as an array of strings. e.g.
+<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code> or
+<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>.
+<br/>
+Ciphers (and their ordering) define the way in which the
+client and server encrypts information over the network connection.
+Selecting a good cipher suite is critical for the
+application's data security, confidentiality and performance.
+
+The names should be in OpenSSL string format (not RFC format).
+All default values and examples provided by EMQX config
+documentation are all in OpenSSL format.<br/>
+
+NOTE: Certain cipher suites are only compatible with
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
+incompatible cipher suites will be silently dropped.
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
+configuring cipher suites for other versions will have no effect.
+<br/>
+
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br/>
+If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br/>
+PSK cipher suites: <code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
+RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
+RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
+RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code><br/>
+
+NOTE: QUIC listener supports only 'tlsv1.3' ciphers"""
+
+ciphers_schema_quic.label:
+""""""
+
+fields_mqtt_quic_listener_max_bytes_per_key.desc:
+"""Maximum number of bytes to encrypt with a single 1-RTT encryption key before initiating key update. Default: 274877906944"""
+
+fields_mqtt_quic_listener_max_bytes_per_key.label:
+"""Max bytes per key"""
+
+fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us.desc:
+"""The time in microseconds to wait before reattempting MTU probing if max was not reached. Default: 600000000"""
+
+fields_mqtt_quic_listener_mtu_discovery_search_complete_timeout_us.label:
+"""MTU discovery search complete timeout us"""
+
+fields_ws_opts_check_origin_enable.desc:
+"""If <code>true</code>, <code>origin</code> HTTP header will be
+ validated against the list of allowed origins configured in <code>check_origins</code>
+ parameter."""
+
+fields_ws_opts_check_origin_enable.label:
+"""Check origin"""
+
+sysmon_vm_busy_dist_port.desc:
+"""When the RPC connection used to communicate with other nodes in the cluster is overloaded,
+there will be a <code>busy_dist_port</code> warning log,
+and an MQTT message is published to system topic <code>$SYS/sysmon/busy_dist_port</code>."""
+
+sysmon_vm_busy_dist_port.label:
+"""Enable Busy Distribution Port monitoring."""
+
+mqtt_max_mqueue_len.desc:
+"""Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full."""
+
+mqtt_max_mqueue_len.label:
+"""Max Message Queue Length"""
+
+mqtt_max_inflight.desc:
+"""Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment."""
+
+mqtt_max_inflight.label:
+"""Max Inflight"""
+
+persistent_session_store_enabled.desc:
+"""Use the database to store information about persistent sessions.
+This makes it possible to migrate a client connection to another
+cluster node if a node is stopped."""
+
+persistent_session_store_enabled.label:
+"""Enable persistent session store"""
+
+fields_deflate_opts_level.desc:
+"""Compression level."""
+
+fields_deflate_opts_level.label:
+"""Compression level"""
+
+mqtt_server_keepalive.desc:
+"""The keep alive duration required by EMQX. To use the setting from the client side, choose disabled from the drop-down list. Only applicable to MQTT 5.0 clients."""
+
+mqtt_server_keepalive.label:
+"""Server Keep Alive"""
+
+global_authentication.desc:
+"""Default authentication configs for all MQTT listeners.
+
+For per-listener overrides see <code>authentication</code> in listener configs
+
+This option can be configured with:
+<ul>
+  <li><code>[]</code>: The default value, it allows *ALL* logins</li>
+  <li>one: For example <code>{enable:true,backend:"built_in_database",mechanism="password_based"}</code></li>
+  <li>chain: An array of structs.</li>
+</ul>
+
+When a chain is configured, the login credentials are checked against the backends per the configured order, until an 'allow' or 'deny' decision can be made.
+
+If there is no decision after a full chain exhaustion, the login is rejected."""
+
+fields_mqtt_quic_listener_load_balancing_mode.desc:
+"""0: Disabled, 1: SERVER_ID_IP, 2: SERVER_ID_FIXED. default: 0"""
+
+fields_mqtt_quic_listener_load_balancing_mode.label:
+"""Load balancing mode"""
+
+persistent_session_store_session_message_gc_interval.desc:
+"""The starting interval for garbage collection of transient data for
+persistent session messages. This does not affect the lifetime length
+of persistent session messages."""
+
+persistent_session_store_session_message_gc_interval.label:
+"""Session message GC interval"""
+
+server_ssl_opts_schema_ocsp_refresh_http_timeout.desc:
+"""The timeout for the HTTP request when checking OCSP responses."""
+
+server_ssl_opts_schema_ocsp_refresh_http_timeout.label:
+"""OCSP Refresh HTTP Timeout"""
+
+fields_tcp_opts_send_timeout.desc:
+"""The TCP send timeout for the connections."""
+
+fields_tcp_opts_send_timeout.label:
+"""TCP send timeout"""
+
+sysmon_vm_process_high_watermark.desc:
+"""The threshold, as percentage of processes, for how many
+ processes can simultaneously exist at the local node before the corresponding
+ alarm is raised."""
+
+sysmon_vm_process_high_watermark.label:
+"""Process high watermark"""
+
+fields_tcp_opts_buffer.desc:
+"""The size of the user-space buffer used by the driver."""
+
+fields_tcp_opts_buffer.label:
+"""TCP user-space buffer"""
+
+server_ssl_opts_schema_honor_cipher_order.desc:
+"""An important security setting, it forces the cipher to be set based
+ on the server-specified order instead of the client-specified order,
+ hence enforcing the (usually more properly configured) security
+ ordering of the server administrator."""
+
+server_ssl_opts_schema_honor_cipher_order.label:
+"""SSL honor cipher order"""
+
+conn_congestion_min_alarm_sustain_duration.desc:
+"""Minimal time before clearing the alarm.<br/>The alarm is cleared only when there's no pending data in<br/>the queue, and at least <code>min_alarm_sustain_duration</code>milliseconds passed since the last time we considered the connection 'congested'.<br/>This is to avoid clearing and raising the alarm again too often."""
+
+conn_congestion_min_alarm_sustain_duration.label:
+"""Sustain duration"""
+
+fields_mqtt_quic_listener_keep_alive_interval_ms.desc:
+"""How often to send PING frames to keep a connection alive."""
+
+fields_mqtt_quic_listener_keep_alive_interval_ms.label:
+"""Keep alive interval ms"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout_ms.desc:
+"""How long a handshake can idle before it is discarded"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout_ms.label:
+"""Handshake idle timeout ms"""
+
+broker_session_locking_strategy.desc:
+"""Session locking strategy in a cluster.
+  - `local`: only lock the session on the current node
+  - `one`: select only one remote node to lock the session
+  - `quorum`: select some nodes to lock the session
+  - `all`: lock the session on all the nodes in the cluster"""
+
+persistent_store_ram_cache.desc:
+"""Maintain a copy of the data in RAM for faster access."""
+
+persistent_store_ram_cache.label:
+"""RAM cache"""
+
+fields_mqtt_quic_listener_stream_recv_window_default.desc:
+"""Initial stream receive window size. Default: 32678"""
+
+fields_mqtt_quic_listener_stream_recv_window_default.label:
+"""Stream recv window default"""
+
+mqtt_mqueue_priorities.desc:
+"""Topic priorities. Priority number [1-255]
+There's no priority table by default, hence all messages are treated equal.
+
+**NOTE**: Comma and equal signs are not allowed for priority topic names.
+**NOTE**: Messages for topics not in the priority table are treated as either highest or lowest priority depending on the configured value for <code>mqtt.mqueue_default_priority</code>.
+
+**Examples**:
+To configure <code>"topic/1" > "topic/2"</code>:
+<code>mqueue_priorities: {"topic/1": 10, "topic/2": 8}</code>"""
+
+mqtt_mqueue_priorities.label:
+"""Topic Priorities"""
+
+fields_rate_limit_conn_messages_in.desc:
+"""Message limit for the external MQTT connections."""
+
+fields_rate_limit_conn_messages_in.label:
+"""connecting messages in"""
+
+fields_rate_limit_max_conn_rate.desc:
+"""Maximum connections per second."""
+
+fields_rate_limit_max_conn_rate.label:
+"""Max connection rate"""
+
+alarm_size_limit.desc:
+"""The maximum total number of deactivated alarms to keep as history.<br/>When this limit is exceeded, the oldest deactivated alarms are deleted to cap the total number."""
+
+alarm_size_limit.label:
+"""Alarm size limit"""
+
+fields_cache_max_size.desc:
+"""Maximum number of cached items."""
+
+fields_cache_max_size.label:
+"""Maximum number of cached items."""
+
+fields_listeners_tcp.desc:
+"""TCP listeners."""
+
+fields_listeners_tcp.label:
+"""TCP listeners"""
+
+conn_congestion_enable_alarm.desc:
+"""Enable or disable connection congestion alarm."""
+
+conn_congestion_enable_alarm.label:
+"""Enable/disable congestion alarm"""
+
+fields_ws_opts_proxy_port_header.desc:
+"""HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_port_header.label:
+"""Proxy port header"""
+
+overload_protection_enable.desc:
+"""React on system overload or not."""
+
+overload_protection_enable.label:
+"""React on system overload or not"""
+
+fields_mqtt_quic_listener_minimum_mtu.desc:
+"""The minimum MTU supported by a connection. This will be used as the starting MTU. Default: 1248"""
+
+fields_mqtt_quic_listener_minimum_mtu.label:
+"""Minimum MTU"""
+
+sys_msg_interval.desc:
+"""Time interval of publishing `$SYS` messages."""
+
+mqtt_await_rel_timeout.desc:
+"""For client to broker QoS 2 message, the time limit for the broker to wait before the `PUBREL` message is received. The wait is aborted after timed out, meaning the packet ID is freed for new `PUBLISH` requests. Receiving a stale `PUBREL` causes a warning level log. Note, the message is delivered to subscribers before entering the wait for PUBREL."""
+
+mqtt_await_rel_timeout.label:
+"""Max Awaiting PUBREL TIMEOUT"""
+
+common_ssl_opts_schema_verify.desc:
+"""Enable or disable peer verification."""
+
+common_ssl_opts_schema_verify.label:
+"""Verify peer"""
+
+fields_listeners_ssl.desc:
+"""SSL listeners."""
+
+fields_listeners_ssl.label:
+"""SSL listeners"""
+
+fields_deflate_opts_client_max_window_bits.desc:
+"""Specifies the size of the compression context for the client."""
+
+fields_deflate_opts_client_max_window_bits.label:
+"""Client compression max window size"""
+
+common_ssl_opts_schema_keyfile.desc:
+"""PEM format private key file."""
+
+common_ssl_opts_schema_keyfile.label:
+"""Keyfile"""
+
+sysmon_os_cpu_high_watermark.desc:
+"""The threshold, as percentage of system CPU load,
+ for how much system cpu can be used before the corresponding alarm is raised."""
+
+sysmon_os_cpu_high_watermark.label:
+"""CPU high watermark"""
+
+flapping_detect_window_time.desc:
+"""The time window for flapping detection."""
+
+flapping_detect_window_time.label:
+"""Window time"""
+
+mqtt_mqueue_default_priority.desc:
+"""Default topic priority, which will be used by topics not in <code>Topic Priorities</code> (<code>mqueue_priorities</code>)."""
+
+mqtt_mqueue_default_priority.label:
+"""Default Topic Priorities"""
+
+client_ssl_opts_schema_enable.desc:
+"""Enable TLS."""
+
+client_ssl_opts_schema_enable.label:
+"""Enable TLS."""
+
+fields_mqtt_quic_listener_mtu_discovery_missing_probe_count.desc:
+"""The maximum number of stateless operations that may be queued on a binding at any one time. Default: 3"""
+
+fields_mqtt_quic_listener_mtu_discovery_missing_probe_count.label:
+"""MTU discovery missing probe count"""
+
+fields_tcp_opts_recbuf.desc:
+"""The TCP receive buffer (OS kernel) for the connections."""
+
+fields_tcp_opts_recbuf.label:
+"""TCP receive buffer"""
+
+sysmon_vm_process_check_interval.desc:
+"""The time interval for the periodic process limit check."""
+
+sysmon_vm_process_check_interval.label:
+"""Process limit check interval"""
+
+fields_mqtt_quic_listener_server_resumption_level.desc:
+"""Controls resumption tickets and/or 0-RTT server support. Default: 0 (No resumption)"""
+
+fields_mqtt_quic_listener_server_resumption_level.label:
+"""Server resumption level"""
+
+fields_ws_opts_proxy_address_header.desc:
+"""HTTP header used to pass information about the client IP address.
+Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_address_header.label:
+"""Proxy address header"""
+
+sysmon_os_sysmem_high_watermark.desc:
+"""The threshold, as percentage of system memory,
+ for how much system memory can be allocated before the corresponding alarm is raised."""
+
+sysmon_os_sysmem_high_watermark.label:
+"""SysMem high wartermark"""
+
+fields_tcp_opts_high_watermark.desc:
+"""The socket is set to a busy state when the amount of data queued internally
+by the VM socket implementation reaches this limit."""
+
+fields_tcp_opts_high_watermark.label:
+"""TCP high watermark"""
+
+fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
+"""The time limit between operations for the same endpoint, in milliseconds. Default: 100"""
+
+fields_mqtt_quic_listener_stateless_operation_expiration_ms.label:
+"""Stateless operation expiration ms"""
+
+server_ssl_opts_schema_dhfile.desc:
+"""Path to a file containing PEM-encoded Diffie-Hellman parameters
+to be used by the server if a cipher suite using Diffie-Hellman
+key exchange is negotiated. If not specified, default parameters
+are used.<br/>
+NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."""
+
+server_ssl_opts_schema_dhfile.label:
+"""SSL dhfile"""
+
+flapping_detect_max_count.desc:
+"""The maximum number of disconnects allowed for a MQTT Client in `window_time`"""
+
+flapping_detect_max_count.label:
+"""Max count"""
+
+mqtt_max_topic_levels.desc:
+"""Maximum topic levels allowed."""
+
+mqtt_max_topic_levels.label:
+"""Max Topic Levels"""
+
+force_shutdown_max_heap_size.desc:
+"""Total heap size"""
+
+force_shutdown_max_heap_size.label:
+"""Total heap size"""
+
+persistent_store_on_disc.desc:
+"""Save information about the persistent sessions on disc.
+If this option is enabled, persistent sessions will survive full restart of the cluster.
+Otherwise, all the data will be stored in RAM, and it will be lost when all the nodes in the cluster are stopped."""
+
+persistent_store_on_disc.label:
+"""Persist on disc"""
+
+mqtt_ignore_loop_deliver.desc:
+"""Whether the messages sent by the MQTT v3.1.1/v3.1.0 client will be looped back to the publisher itself, similar to <code>No Local</code> in MQTT 5.0."""
+
+mqtt_ignore_loop_deliver.label:
+"""Ignore Loop Deliver"""
+
+common_ssl_opts_schema_certfile.desc:
+"""PEM format certificates chain file.<br/>
+The certificates in this file should be in reversed order of the certificate
+issue chain. That is, the host's certificate should be placed in the beginning
+of the file, followed by the immediate issuer certificate and so on.
+Although the root CA certificate is optional, it should be placed at the end of
+the file if it is to be added."""
+
+common_ssl_opts_schema_certfile.label:
+"""Certfile"""
+
+mqtt_exclusive_subscription.desc:
+"""Whether to enable support for MQTT exclusive subscription."""
+
+mqtt_exclusive_subscription.label:
+"""Exclusive Subscription"""
+
+mqtt_retain_available.desc:
+"""Whether to enable support for MQTT retained message."""
+
+mqtt_retain_available.label:
+"""Retain Available"""
+
+fields_tcp_opts_reuseaddr.desc:
+"""The SO_REUSEADDR flag for the connections."""
+
+fields_tcp_opts_reuseaddr.label:
+"""SO_REUSEADDR"""
+
+sysmon_vm_long_schedule.desc:
+"""When the Erlang VM detect a task scheduled for too long, a warning level 'long_schedule' log is emitted,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/long_schedule</code>."""
+
+sysmon_vm_long_schedule.label:
+"""Enable Long Schedule monitoring."""
+
+mqtt_keepalive_multiplier.desc:
+"""Keep-Alive Timeout = Keep-Alive interval × Keep-Alive Multiplier.
+The default value 1.5 is following the MQTT 5.0 specification. This multiplier is adjustable, providing system administrators flexibility for tailoring to their specific needs. For instance, if a client's 10-second Keep-Alive interval PINGREQ gets delayed by an extra 10 seconds, changing the multiplier to 2 lets EMQX tolerate this delay."""
+
+mqtt_keepalive_multiplier.label:
+"""Keep Alive Multiplier"""
+
+force_gc_bytes.desc:
+"""GC the process after specified number of bytes have passed through."""
+
+force_gc_bytes.label:
+"""Process GC bytes"""
+
+server_ssl_opts_schema_fail_if_no_peer_cert.desc:
+"""Used together with {verify, verify_peer} by an TLS/DTLS server.
+If set to true, the server fails if the client does not have a
+certificate to send, that is, sends an empty certificate.
+If set to false, it fails only if the client sends an invalid
+certificate (an empty certificate is considered valid)."""
+
+server_ssl_opts_schema_fail_if_no_peer_cert.label:
+"""SSL fail if no peer cert"""
+
+fields_ws_opts_compress.desc:
+"""If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>
+The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."""
+
+fields_ws_opts_compress.label:
+"""Ws compress"""
+
+fields_mqtt_quic_listener_keep_alive_interval.desc:
+"""How often to send PING frames to keep a connection alive. 0 means disabled."""
+
+fields_mqtt_quic_listener_keep_alive_interval.label:
+"""Keep Alive Interval"""
+
+fields_cache_ttl.desc:
+"""Time to live for the cached data."""
+
+fields_cache_ttl.label:
+"""Time to live for the cached data."""
+
+sys_topics.desc:
+"""System topics configuration."""
+
+sys_event_client_subscribed.desc:
+"""Enable to publish event message that client subscribed a topic successfully."""
+
+sysmon_top_db_port.desc:
+"""Port of the PostgreSQL database that collects the data points."""
+
+sysmon_top_db_port.label:
+"""DB Port"""
+
+fields_mqtt_quic_listener_max_operations_per_drain.desc:
+"""The maximum number of operations to drain per connection quantum. Default: 16"""
+
+fields_mqtt_quic_listener_max_operations_per_drain.label:
+"""Max operations per drain"""
+
+fields_mqtt_quic_listener_datagram_receive_enabled.desc:
+"""Advertise support for QUIC datagram extension. Reserve for the future. Default 0 (FALSE)"""
+
+fields_mqtt_quic_listener_datagram_receive_enabled.label:
+"""Datagram receive enabled"""
+
+fields_mqtt_quic_listener_initial_rtt_ms.desc:
+"""Initial RTT estimate."""
+
+fields_mqtt_quic_listener_initial_rtt_ms.label:
+"""Initial RTT ms"""
+
+overload_protection_backoff_gc.desc:
+"""When at high load, skip forceful GC."""
+
+overload_protection_backoff_gc.label:
+"""Skip GC"""
+
+broker_perf_route_lock_type.desc:
+"""Performance tuning for subscribing/unsubscribing a wildcard topic.
+Change this parameter only when there are many wildcard topics.
+
+NOTE: when changing from/to `global` lock, it requires all nodes in the cluster to be stopped before the change.
+  - `key`: mnesia transactional updates with per-key locks. Recommended for a single-node setup.
+  - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.
+  - `global`: updates are protected with a global lock. Recommended for large clusters."""
+
+fields_tcp_opts_nodelay.desc:
+"""The TCP_NODELAY flag for the connections."""
+
+fields_tcp_opts_nodelay.label:
+"""TCP_NODELAY"""
+
+sysmon_top_db_username.desc:
+"""Username of the PostgreSQL database"""
+
+sysmon_top_db_username.label:
+"""DB Username"""
+
+broker.desc:
+"""Message broker options."""
+
+force_gc_count.desc:
+"""GC the process after this many received messages."""
+
+force_gc_count.label:
+"""Process GC messages num"""
+
+mqtt_max_clientid_len.desc:
+"""Maximum allowed length of MQTT Client ID."""
+
+mqtt_max_clientid_len.label:
+"""Max Client ID Length"""
+
+fields_ws_opts_supported_subprotocols.desc:
+"""Comma-separated list of supported subprotocols."""
+
+fields_ws_opts_supported_subprotocols.label:
+"""Supported subprotocols"""
+
+broker_shared_subscription_strategy.desc:
+"""Dispatch strategy for shared subscription.
+  - `random`: dispatch the message to a random selected subscriber
+  - `round_robin`: select the subscribers in a round-robin manner
+  - `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
+  - `local`: select random local subscriber otherwise select random cluster-wide
+  - `sticky`: always use the last selected subscriber to dispatch, until the subscriber disconnects.
+  - `hash_clientid`: select the subscribers by hashing the `clientIds`
+  - `hash_topic`: select the subscribers by hashing the source topic"""
+
+fields_deflate_opts_mem_level.desc:
+"""Specifies the size of the compression state.<br/>
+Lower values decrease memory usage per connection."""
+
+fields_deflate_opts_mem_level.label:
+"""Size of the compression state"""
+
+fields_mqtt_quic_listener_send_idle_timeout_ms.desc:
+"""Reset congestion control after being idle for amount of time. Default: 1000"""
+
+fields_mqtt_quic_listener_send_idle_timeout_ms.label:
+"""Send idle timeout ms"""
+
+base_listener_limiter.desc:
+"""Type of the rate limit."""
+
+base_listener_limiter.label:
+"""Type of the rate limit."""
+
+max_conn_rate.desc:
+"""Maximum connection rate.<br/>
+This is used to limit the connection rate for this listener,
+once the limit is reached, new connections will be deferred or refused"""
+max_conn_rate.label:
+"""Maximum Connection Rate"""
+
+messages_rate.desc:
+"""Messages publish rate.<br/>
+This is used to limit the inbound message numbers for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+messages_rate.label:
+"""Messages Publish Rate"""
+
+bytes_rate.desc:
+"""Data publish rate.<br/>
+This is used to limit the inbound bytes rate for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+bytes_rate.label:
+"""Data Publish Rate"""
+
+persistent_session_store_backend.desc:
+"""Database management system used to store information about persistent sessions and messages.
+- `builtin`: Use the embedded database (mria)"""
+
+persistent_session_store_backend.label:
+"""Backend"""
+
+alarm_validity_period.desc:
+"""Retention time of deactivated alarms. Alarms are not deleted immediately
+when deactivated, but after the retention time."""
+
+alarm_validity_period.label:
+"""Alarm validity period"""
+
+server_ssl_opts_schema_ocsp_issuer_pem.desc:
+"""PEM-encoded certificate of the OCSP issuer for the server certificate."""
+
+server_ssl_opts_schema_ocsp_issuer_pem.label:
+"""OCSP Issuer Certificate"""
+
+fields_tcp_opts_active_n.desc:
+"""Specify the {active, N} option for this Socket.<br/>
+See: https://erlang.org/doc/man/inet.html#setopts-2"""
+
+fields_tcp_opts_active_n.label:
+"""active_n"""
+
+listener_authentication.desc:
+"""Per-listener authentication override.
+Authentication can be one single authenticator instance or a chain of authenticators as an array.
+When authenticating a login (username, client ID, etc.) the authenticators are checked in the configured order."""
+
+listener_authentication.label:
+"""Per-listener authentication override"""
+
+fields_trace_payload_encode.desc:
+"""Determine the format of the payload format in the trace file.<br/>
+`text`: Text-based protocol or plain text protocol.
+ It is recommended when payload is JSON encoded.<br/>
+`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br/>
+`hidden`: payload is obfuscated as `******`"""
+
+fields_trace_payload_encode.label:
+"""Payload encode"""
+
+mqtt_response_information.desc:
+"""UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
+To disable this feature, input <code>""</code> in the text box below. Only applicable to MQTT 5.0 clients."""
+
+mqtt_response_information.label:
+"""Response Information"""
+
+persistent_session_store_max_retain_undelivered.desc:
+"""The time messages that was not delivered to a persistent session
+is stored before being garbage collected if the node the previous
+session was handled on restarts of is stopped."""
+
+persistent_session_store_max_retain_undelivered.label:
+"""Max retain undelivered"""
+
+fields_mqtt_quic_listener_migration_enabled.desc:
+"""Enable clients to migrate IP addresses and tuples. Requires a cooperative load-balancer, or no load-balancer. Default: 1 (Enabled)"""
+
+fields_mqtt_quic_listener_migration_enabled.label:
+"""Migration enabled"""
+
+common_ssl_opts_schema_password.desc:
+"""String containing the user's password. Only used if the private key file is password-protected."""
+
+common_ssl_opts_schema_password.label:
+"""Keyfile passphrase"""
+
+common_ssl_opts_schema_hibernate_after.desc:
+"""Hibernate the SSL process after idling for amount of time reducing its memory footprint."""
+
+common_ssl_opts_schema_hibernate_after.label:
+"""hibernate after"""
+
+fields_mqtt_quic_listener_send_buffering_enabled.desc:
+"""Buffer send data instead of holding application buffers until sent data is acknowledged. Default: 1 (Enabled)"""
+
+fields_mqtt_quic_listener_send_buffering_enabled.label:
+"""Send buffering enabled"""
+
+sys_event_client_unsubscribed.desc:
+"""Enable to publish event message that client unsubscribed a topic successfully."""
+
+overload_protection_backoff_new_conn.desc:
+"""When at high load, close new incoming connections."""
+
+overload_protection_backoff_new_conn.label:
+"""Close new connections"""
+
+server_ssl_opts_schema_ocsp_responder_url.desc:
+"""URL for the OCSP responder to check the server certificate against."""
+
+server_ssl_opts_schema_ocsp_responder_url.label:
+"""OCSP Responder URL"""
+
+mqtt_idle_timeout.desc:
+"""Configure the duration of time that a connection can remain idle (i.e., without any data transfer) before being:
+  - Automatically disconnected  if no CONNECT package is received from the client yet.
+  - Put into hibernation mode to save resources if some CONNECT packages are already received.
+Note: Please set the parameter with caution as long idle time will lead to resource waste."""
+
+mqtt_idle_timeout.label:
+"""Idle Timeout"""
+
+fields_mqtt_quic_listener_conn_flow_control_window.desc:
+"""Connection-wide flow control window. Default: 16777216"""
+
+fields_mqtt_quic_listener_conn_flow_control_window.label:
+"""Conn flow control window"""
+
+fields_mqtt_quic_listener_maximum_mtu.desc:
+"""The maximum MTU supported by a connection. This will be the maximum probed value. Default: 1500"""
+
+fields_mqtt_quic_listener_maximum_mtu.label:
+"""Maximum MTU"""
+
+sysmon_top_db_name.desc:
+"""PostgreSQL database name"""
+
+sysmon_top_db_name.label:
+"""DB Name"""
+
+mqtt_strict_mode.desc:
+"""Whether to parse MQTT messages in strict mode.
+In strict mode, invalid utf8 strings in for example client ID, topic name, etc. will cause the client to be disconnected."""
+
+mqtt_strict_mode.label:
+"""Strict Mode"""
+
+shared_subscription_group_strategy.desc:
+"""Per group dispatch strategy for shared subscription.
+This config is a map from shared subscription group name to the strategy
+name. The group name should be of format `[A-Za-z0-9]`. i.e. no
+special characters are allowed."""
+
+fields_deflate_opts_strategy.desc:
+"""Specifies the compression strategy."""
+
+fields_deflate_opts_strategy.label:
+"""compression strategy"""
+
+shared_subscription_strategy_enum.desc:
+"""Dispatch strategy for shared subscription.
+- `random`: dispatch the message to a random selected subscriber
+- `round_robin`: select the subscribers in a round-robin manner
+- `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
+- `sticky`: always use the last selected subscriber to dispatch,
+until the subscriber disconnects.
+- `hash`: select the subscribers by the hash of `clientIds`
+- `local`: send to a random local subscriber. If local
+subscriber was not found, send to a random subscriber cluster-wide"""
+
+persistent_session_builtin_sess_msg_table.desc:
+"""Performance tuning options for built-in session messages table."""
+
+persistent_session_builtin_sess_msg_table.label:
+"""Persistent session messages"""
+
+mqtt_mqueue_store_qos0.desc:
+"""Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains."""
+
+mqtt_mqueue_store_qos0.label:
+"""Store QoS 0 Message"""
+
+server_ssl_opts_schema_client_renegotiation.desc:
+"""In protocols that support client-initiated renegotiation,
+the cost of resources of such an operation is higher for the server than the client.
+This can act as a vector for denial of service attacks.
+The SSL application already takes measures to counter-act such attempts,
+but client-initiated renegotiation can be strictly disabled by setting this option to false.
+The default value is true. Note that disabling renegotiation can result in
+long-lived connections becoming unusable due to limits on
+the number of messages the underlying cipher suite can encipher."""
+
+server_ssl_opts_schema_client_renegotiation.label:
+"""SSL client renegotiation"""
+
+server_ssl_opts_schema_enable_crl_check.desc:
+"""Whether to enable CRL verification for this listener."""
+
+server_ssl_opts_schema_enable_crl_check.label:
+"""Enable CRL Check"""
+
+fields_mqtt_quic_listener_peer_bidi_stream_count.desc:
+"""Number of bidirectional streams to allow the peer to open."""
+
+fields_mqtt_quic_listener_peer_bidi_stream_count.label:
+"""Peer bidi stream count"""
+
+fields_mqtt_quic_listener_max_stateless_operations.desc:
+"""The maximum number of stateless operations that may be queued on a worker at any one time. Default: 16"""
+
+fields_mqtt_quic_listener_max_stateless_operations.label:
+"""Max stateless operations"""
+
+fields_ws_opts_idle_timeout.desc:
+"""Close transport-layer connections from the clients that have not sent MQTT CONNECT message within this interval."""
+
+fields_ws_opts_idle_timeout.label:
+"""WS idle timeout"""
+
+fields_mqtt_quic_listener_max_ack_delay_ms.desc:
+"""How long to wait after receiving data before sending an ACK. Default: 25"""
+
+fields_mqtt_quic_listener_max_ack_delay_ms.label:
+"""Max ack delay ms"""
+
+base_listener_zone.desc:
+"""The configuration zone to which the listener belongs."""
+
+base_listener_zone.label:
+"""Zone"""
+
+fields_mqtt_quic_listener_handshake_idle_timeout.desc:
+"""How long a handshake can idle before it is discarded."""
+
+fields_mqtt_quic_listener_handshake_idle_timeout.label:
+"""Handshake Idle Timeout"""
+
+force_gc_enable.desc:
+"""Enable forced garbage collection."""
+
+force_gc_enable.label:
+"""Enable forced garbage collection"""
+
+fields_ws_opts_allow_origin_absence.desc:
+"""If <code>false</code> and <code>check_origin_enable</code> is
+ <code>true</code>, the server will reject requests that don't have <code>origin</code>
+ HTTP header."""
+
+fields_ws_opts_allow_origin_absence.label:
+"""Allow origin absence"""
+
+common_ssl_opts_schema_versions.desc:
+"""All TLS/DTLS versions to be supported.<br/>
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config.<br/>
+In case PSK cipher suites are intended, make sure to configure
+<code>['tlsv1.2', 'tlsv1.1']</code> here."""
+
+common_ssl_opts_schema_versions.label:
+"""SSL versions"""
+
+mqtt_listener_proxy_protocol_timeout.desc:
+"""Timeout for proxy protocol. EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."""
+
+mqtt_listener_proxy_protocol_timeout.label:
+"""Proxy protocol timeout"""
+
+fields_mqtt_quic_listener_idle_timeout.desc:
+"""How long a connection can go idle before it is gracefully shut down. 0 to disable"""
+
+fields_mqtt_quic_listener_idle_timeout.label:
+"""Idle Timeout"""
+
+common_ssl_opts_schema_secure_renegotiate.desc:
+"""SSL parameter renegotiation is a feature that allows a client and a server
+to renegotiate the parameters of the SSL connection on the fly.
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
+you drop support for the insecure renegotiation, prone to MitM attacks."""
+
+common_ssl_opts_schema_secure_renegotiate.label:
+"""SSL renegotiate"""
+
+common_ssl_opts_schema_log_level.desc:
+"""Log level for SSL communication. Default is 'notice'. Set to 'debug' to inspect TLS handshake messages."""
+common_ssl_opts_schema_log_level.label:
+"""SSL log level"""
+
+sysmon_vm_busy_port.desc:
+"""When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/busy_port</code>."""
+
+sysmon_vm_busy_port.label:
+"""Enable Busy Port monitoring."""
+
+sys_event_client_connected.desc:
+"""Enable to publish client connected event messages"""
+
+sysmon_vm_process_low_watermark.desc:
+"""The threshold, as percentage of processes, for how many
+ processes can simultaneously exist at the local node before the corresponding
+ alarm is cleared."""
+
+sysmon_vm_process_low_watermark.label:
+"""Process low watermark"""
+
+mqtt_max_packet_size.desc:
+"""Maximum MQTT packet size allowed."""
+
+mqtt_max_packet_size.label:
+"""Max Packet Size"""
+
+common_ssl_opts_schema_reuse_sessions.desc:
+"""Enable TLS session reuse."""
+
+common_ssl_opts_schema_reuse_sessions.label:
+"""TLS session reuse"""
+
+common_ssl_opts_schema_depth.desc:
+"""Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path.
+So, if depth is 0 the PEER must be signed by the trusted ROOT-CA directly;<br/>
+if 1 the path can be PEER, Intermediate-CA, ROOT-CA;<br/>
+if 2 the path can be PEER, Intermediate-CA1, Intermediate-CA2, ROOT-CA."""
+
+common_ssl_opts_schema_depth.label:
+"""CACert Depth"""
+
+sysmon_vm_long_gc.desc:
+"""When an Erlang process spends long time to perform garbage collection, a warning level <code>long_gc</code> log is emitted,
+and an MQTT message is published to the system topic <code>$SYS/sysmon/long_gc</code>."""
+
+sysmon_vm_long_gc.label:
+"""Enable Long GC monitoring."""
+
+fields_mqtt_quic_listener_keyfile.desc:
+"""Path to the secret key file. Will be deprecated in 5.1, use .ssl_options.keyfile instead."""
+
+fields_mqtt_quic_listener_keyfile.label:
+"""Key file"""
+
+mqtt_peer_cert_as_clientid.desc:
+"""Use the CN, DN field in the peer certificate or the entire certificate content as Client ID. Only works for the TLS connection.
+Supported configurations are the following:
+- <code>cn</code>: CN field of the certificate
+- <code>dn</code>: DN field of the certificate
+- <code>crt</code>: <code>DER</code> or <code>PEM</code> certificate
+- <code>pem</code>: Convert <code>DER</code> certificate content to <code>PEM</code> format and use as Client ID
+- <code>md5</code>: MD5 value of the <code>DER</code> or <code>PEM</code> certificate"""
+
+mqtt_peer_cert_as_clientid.label:
+"""Use Peer Certificate as Client ID"""
+
+persistent_session_store_message_gc_interval.desc:
+"""The starting interval for garbage collection of undelivered messages to
+a persistent session. This affects how often the "max_retain_undelivered"
+is checked for removal."""
+
+persistent_session_store_message_gc_interval.label:
+"""Message GC interval"""
+
+broker_shared_dispatch_ack_enabled.desc:
+"""Deprecated.
+This was designed to avoid dispatching messages to a shared-subscription session which has the client disconnected.
+However it's no longer useful because the shared-subscrption messages in a expired session will be redispatched to other sessions in the group."""
+
+base_listener_enable_authn.desc:
+"""Set <code>true</code> (default) to enable client authentication on this listener, the authentication
+process goes through the configured authentication chain.
+When set to <code>false</code> to allow any clients with or without authentication information such as username or password to log in.
+When set to <code>quick_deny_anonymous</code>, it behaves like when set to <code>true</code>, but clients will be
+denied immediately without going through any authenticators if <code>username</code> is not provided. This is useful to fence off
+anonymous clients early."""
+
+base_listener_enable_authn.label:
+"""Enable authentication"""
+
+force_shutdown_enable.desc:
+"""Enable `force_shutdown` feature."""
+
+force_shutdown_enable.label:
+"""Enable `force_shutdown` feature"""
+
+broker_enable_session_registry.desc:
+"""Enable session registry"""
+
+overload_protection_backoff_delay.desc:
+"""The maximum duration of delay for background task execution during high load conditions."""
+
+overload_protection_backoff_delay.label:
+"""Delay Time"""
+
+ciphers_schema_common.desc:
+"""This config holds TLS cipher suite names separated by comma,
+or as an array of strings. e.g.
+<code>"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"</code> or
+<code>["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]</code>.
+<br/>
+Ciphers (and their ordering) define the way in which the
+client and server encrypts information over the network connection.
+Selecting a good cipher suite is critical for the
+application's data security, confidentiality and performance.
+
+The names should be in OpenSSL string format (not RFC format).
+All default values and examples provided by EMQX config
+documentation are all in OpenSSL format.<br/>
+
+NOTE: Certain cipher suites are only compatible with
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
+incompatible cipher suites will be silently dropped.
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
+configuring cipher suites for other versions will have no effect.
+<br/>
+
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br/>
+If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br/>
+PSK cipher suites: <code>"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
+RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
+RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
+RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code>"""
+
+ciphers_schema_common.label:
+""""""
+
+sys_event_client_disconnected.desc:
+"""Enable to publish client disconnected event messages."""
+
+crl_cache_refresh_interval.desc:
+"""The period to refresh the CRLs from the servers.  This is a global setting for all URLs and listeners."""
+
+crl_cache_refresh_interval.label:
+"""CRL Cache Refresh Interval"""
+
+mqtt_listener_proxy_protocol.desc:
+"""Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.<br/>
+See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"""
+
+mqtt_listener_proxy_protocol.label:
+"""Proxy protocol"""
+
+mqtt_listener_access_rules.desc:
+"""The access control rules for this listener.<br/>See: https://github.com/emqtt/esockd#allowdeny"""
+
+mqtt_listener_access_rules.label:
+"""Access rules"""
+
+server_ssl_opts_schema_enable_ocsp_stapling.desc:
+"""Whether to enable Online Certificate Status Protocol (OCSP) stapling for the listener.  If set to true, requires defining the OCSP responder URL and issuer PEM path."""
+
+server_ssl_opts_schema_enable_ocsp_stapling.label:
+"""Enable OCSP Stapling"""
+
+fields_tcp_opts_send_timeout_close.desc:
+"""Close the connection if send timeout."""
+
+fields_tcp_opts_send_timeout_close.label:
+"""TCP send timeout close"""
+
+sysmon_os_cpu_check_interval.desc:
+"""The time interval for the periodic CPU check."""
+
+sysmon_os_cpu_check_interval.label:
+"""The time interval for the periodic CPU check."""
+
+sysmon_top_sample_interval.desc:
+"""Specifies how often process top should be collected"""
+
+sysmon_top_sample_interval.label:
+"""Top sample interval"""
+
+fields_mqtt_quic_listener_idle_timeout_ms.desc:
+"""How long a connection can go idle before it is gracefully shut down. 0 to disable timeout"""
+
+fields_mqtt_quic_listener_idle_timeout_ms.label:
+"""Idle timeout ms"""
+
+fields_ws_opts_fail_if_no_subprotocol.desc:
+"""If <code>true</code>, the server will return an error when
+ the client does not carry the <code>Sec-WebSocket-Protocol</code> field.
+ <br/>Note: WeChat applet needs to disable this verification."""
+
+fields_ws_opts_fail_if_no_subprotocol.label:
+"""Fail if no subprotocol"""
+
+mqtt_wildcard_subscription.desc:
+"""Whether to enable support for MQTT wildcard subscription."""
+
+mqtt_wildcard_subscription.label:
+"""Wildcard Subscription Available"""
+
+server_ssl_opts_schema_ocsp_refresh_interval.desc:
+"""The period to refresh the OCSP response for the server."""
+
+server_ssl_opts_schema_ocsp_refresh_interval.label:
+"""OCSP Refresh Interval"""
+
+overload_protection_backoff_hibernation.desc:
+"""When at high load, skip process hibernation."""
+
+overload_protection_backoff_hibernation.label:
+"""Skip hibernation"""
+
+fields_ws_opts_max_frame_size.desc:
+"""The maximum length of a single MQTT packet."""
+
+fields_ws_opts_max_frame_size.label:
+"""Max frame size"""
+
+sys_event_messages.desc:
+"""Client events messages."""
+
+broker_perf_trie_compaction.desc:
+"""Enable trie path compaction.
+Enabling it significantly improves wildcard topic subscribe rate, if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/', where ID is unique per subscriber.
+Topic match performance (when publishing) may degrade if messages are mostly published to topics with large number of levels.
+
+NOTE: This is a cluster-wide configuration. It requires all nodes to be stopped before changing it."""
+
+sysmon_vm_large_heap.desc:
+"""When an Erlang process consumed a large amount of memory for its heap space,
+the system will write a warning level <code>large_heap</code> log, and an MQTT message is published to
+the system topic <code>$SYS/sysmon/large_heap</code>."""
+
+sysmon_vm_large_heap.label:
+"""Enable Large Heap monitoring."""
+
+}

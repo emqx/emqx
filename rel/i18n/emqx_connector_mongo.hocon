@@ -1,0 +1,152 @@
+emqx_connector_mongo {
+
+auth_source.desc:
+"""Database name associated with the user's credentials."""
+
+auth_source.label:
+"""Auth Source"""
+
+connect_timeout.desc:
+"""The duration to attempt a connection before timing out."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+desc_rs.desc:
+"""Settings for replica set."""
+
+desc_rs.label:
+"""Setting Replica Set"""
+
+desc_sharded.desc:
+"""Settings for sharded cluster."""
+
+desc_sharded.label:
+"""Setting Sharded Cluster"""
+
+desc_single.desc:
+"""Settings for a single MongoDB instance."""
+
+desc_single.label:
+"""Setting Single MongoDB"""
+
+desc_topology.desc:
+"""Topology of MongoDB."""
+
+desc_topology.label:
+"""Setting Topology"""
+
+heartbeat_period.desc:
+"""Controls when the driver checks the state of the MongoDB deployment. Specify the interval between checks, counted from the end of the previous check until the beginning of the next one. If the number of connections is increased (which will happen, for example, if you increase the pool size), you may need to increase this period as well to avoid creating too many log entries in the MongoDB log file."""
+
+heartbeat_period.label:
+"""Heartbeat period"""
+
+local_threshold.desc:
+"""The size of the latency window for selecting among multiple suitable MongoDB instances."""
+
+local_threshold.label:
+"""Local Threshold"""
+
+max_overflow.desc:
+"""The maximum number of additional workers that can be created when all workers in the pool are busy. This helps to manage temporary spikes in workload by allowing more concurrent connections to the MongoDB server."""
+
+max_overflow.label:
+"""Max Overflow Workers"""
+
+min_heartbeat_period.desc:
+"""Controls the minimum amount of time to wait between heartbeats."""
+
+min_heartbeat_period.label:
+"""Minimum Heartbeat Period"""
+
+overflow_check_period.desc:
+"""Period for checking if there are more workers than configured ("overflow")."""
+
+overflow_check_period.label:
+"""Overflow Check Period"""
+
+overflow_ttl.desc:
+"""Period of time before workers that exceed the configured pool size ("overflow") to be terminated."""
+
+overflow_ttl.label:
+"""Overflow TTL"""
+
+r_mode.desc:
+"""Read mode."""
+
+r_mode.label:
+"""Read Mode"""
+
+replica_set_name.desc:
+"""Name of the replica set."""
+
+replica_set_name.label:
+"""Replica Set Name"""
+
+rs_mongo_type.desc:
+"""Replica set. Must be set to 'rs' when MongoDB server is running in 'replica set' mode."""
+
+rs_mongo_type.label:
+"""Replica set"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The MongoDB default port 27017 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+server_selection_timeout.desc:
+"""Specifies how long to block for server selection before throwing an exception."""
+
+server_selection_timeout.label:
+"""Server Selection Timeout"""
+
+servers.desc:
+"""A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
+For each Node should be: The IPv4 or IPv6 address or the hostname to connect to.
+A host entry has the following form: `Host[:Port]`.
+The MongoDB default port 27017 is used if `[:Port]` is not specified."""
+
+servers.label:
+"""Servers"""
+
+sharded_mongo_type.desc:
+"""Sharded cluster. Must be set to 'sharded' when MongoDB server is running in 'sharded' mode."""
+
+sharded_mongo_type.label:
+"""Sharded cluster"""
+
+single_mongo_type.desc:
+"""Standalone instance. Must be set to 'single' when MongoDB server is running in standalone mode."""
+
+single_mongo_type.label:
+"""Standalone instance"""
+
+socket_timeout.desc:
+"""The duration to attempt to send or to receive on a socket before the attempt times out."""
+
+socket_timeout.label:
+"""Socket Timeout"""
+
+srv_record.desc:
+"""Use DNS SRV record."""
+
+srv_record.label:
+"""Srv Record"""
+
+w_mode.desc:
+"""Write mode."""
+
+w_mode.label:
+"""Write Mode"""
+
+wait_queue_timeout.desc:
+"""The maximum duration that a worker can wait for a connection to become available."""
+
+wait_queue_timeout.label:
+"""Wait Queue Timeout"""
+
+}

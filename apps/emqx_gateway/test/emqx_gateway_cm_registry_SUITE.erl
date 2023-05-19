@@ -34,6 +34,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([]),
     Conf.

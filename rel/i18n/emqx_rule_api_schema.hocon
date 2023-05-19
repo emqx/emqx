@@ -1,0 +1,381 @@
+emqx_rule_api_schema {
+
+event_action.desc:
+"""Publish or Subscribe"""
+
+event_action.label:
+"""Publish or Subscribe"""
+
+event_payload.desc:
+"""The Message Payload"""
+
+event_payload.label:
+"""Message Payload"""
+
+metrics_actions_failed_out_of_service.desc:
+"""How many times the rule has failed to call actions due to the action is out of service. For example, a bridge is disabled or stopped."""
+
+metrics_actions_failed_out_of_service.label:
+"""Fail Action"""
+
+metrics_actions_failed_unknown.desc:
+"""The number of action failures that have occurred due to unanticipated reasons. For more information on these errors, please refer to the EMQX log file."""
+
+metrics_actions_failed_unknown.label:
+"""Unknown Failures"""
+
+event_server.desc:
+"""The IP address (or hostname) and port of the MQTT broker, in IP:Port format"""
+
+event_server.label:
+"""Server IP And Port"""
+
+metrics_actions_total.desc:
+"""How many times the actions are called by the rule. This value may several times of 'matched', depending on the number of the actions of the rule."""
+
+metrics_actions_total.label:
+"""Action Total"""
+
+event_ctx_disconnected_da.desc:
+"""The Time that this Client is Disconnected"""
+
+event_ctx_disconnected_da.label:
+"""Disconnected Time"""
+
+event_topic.desc:
+"""Message Topic"""
+
+event_topic.label:
+"""Message Topic"""
+
+event_peername.desc:
+"""The IP Address and Port of the Peer Client"""
+
+event_peername.label:
+"""IP Address And Port"""
+
+metrics_sql_passed.desc:
+"""How many times the SQL is passed"""
+
+metrics_sql_passed.label:
+"""SQL Passed"""
+
+test_context.desc:
+"""The context of the event for testing"""
+
+test_context.label:
+"""Event Conetxt"""
+
+node_node.desc:
+"""The node name"""
+
+node_node.label:
+"""Node Name"""
+
+event_from_clientid.desc:
+"""The Client ID"""
+
+event_from_clientid.label:
+"""Client ID"""
+
+event_keepalive.desc:
+"""KeepAlive"""
+
+event_keepalive.label:
+"""KeepAlive"""
+
+event_connected_at.desc:
+"""The Time that this Client is Connected"""
+
+event_connected_at.label:
+"""Connected Time"""
+
+metrics_sql_failed_exception.desc:
+"""How many times the SQL is failed due to exceptions. This may because of a crash when calling a SQL function, or trying to do arithmetic operation on undefined variables"""
+
+metrics_sql_failed_exception.label:
+"""SQL Exception"""
+
+event_from_username.desc:
+"""The User Name"""
+
+event_from_username.label:
+"""Username"""
+
+event_ctx_connack_reason_code.desc:
+"""The reason code"""
+
+event_ctx_connack_reason_code.label:
+"""Reason Code"""
+
+rs_description.desc:
+"""The description"""
+
+rs_description.label:
+"""Description"""
+
+rule_id.desc:
+"""The ID of the rule"""
+
+rule_id.label:
+"""Rule ID"""
+
+rs_event.desc:
+"""The event topics"""
+
+rs_event.label:
+"""Event Topics"""
+
+root_rule_engine.desc:
+"""Rule engine configurations. This API can be used to change EMQX rule engine settings. But not for the rules. To list, create, or update rules, call the '/rules' API instead."""
+
+root_rule_engine.label:
+"""Rule engine configuration"""
+
+event_sockname.desc:
+"""The IP Address and Port of the Local Listener"""
+
+event_sockname.label:
+"""IP Address And Port"""
+
+event_qos.desc:
+"""The Message QoS"""
+
+event_qos.label:
+"""Message QoS"""
+
+event_mountpoint.desc:
+"""The Mountpoint"""
+
+event_mountpoint.label:
+"""Mountpoint"""
+
+rs_title.desc:
+"""The title"""
+
+rs_title.label:
+"""Title"""
+
+ri_metrics.desc:
+"""The metrics of the rule"""
+
+ri_metrics.label:
+"""Rule Metrics"""
+
+event_retain.desc:
+"""If is a retain message"""
+
+event_retain.label:
+"""Retain Message"""
+
+event_event_type.desc:
+"""Event Type"""
+
+event_event_type.label:
+"""Event Type"""
+
+event_expiry_interval.desc:
+"""Expiry Interval"""
+
+event_expiry_interval.label:
+"""Expiry Interval"""
+
+metrics_sql_matched.desc:
+"""How many times the FROM clause of the SQL is matched."""
+
+metrics_sql_matched.label:
+"""Matched"""
+
+event_clientid.desc:
+"""The Client ID"""
+
+event_clientid.label:
+"""Client ID"""
+
+metrics_actions_success.desc:
+"""How many times the rule successided to call the actions."""
+
+metrics_actions_success.label:
+"""Success Action"""
+
+metrics_actions_failed.desc:
+"""How many times the rule failed to call the actions."""
+
+metrics_actions_failed.label:
+"""Failed Action"""
+
+metrics_sql_matched_rate.desc:
+"""The rate of matched, times/second"""
+
+metrics_sql_matched_rate.label:
+"""命中速率"""
+
+event_proto_ver.desc:
+"""Protocol Version"""
+
+event_proto_ver.label:
+"""Protocol Version"""
+
+event_publish_received_at.desc:
+"""The Time that this Message is Received"""
+
+event_publish_received_at.label:
+"""Message Received Time"""
+
+metrics_sql_matched_rate_last5m.desc:
+"""The average rate of matched in last 5 minutes, times/second"""
+
+metrics_sql_matched_rate_last5m.label:
+"""Average Matched Rate"""
+
+event_is_bridge.desc:
+"""Is Bridge"""
+
+event_is_bridge.label:
+"""Is Bridge"""
+
+event_authz_source.desc:
+"""Cache, Plugs or Default"""
+
+event_authz_source.label:
+"""Auth Source"""
+
+metrics_sql_failed_unknown.desc:
+"""How many times the SQL is failed due to an unknown error."""
+
+metrics_sql_failed_unknown.label:
+"""SQL Unknown Error"""
+
+metrics_sql_failed.desc:
+"""How many times the SQL statement has failed"""
+
+metrics_sql_failed.label:
+"""SQL Failed"""
+
+event_ctx_dropped.desc:
+"""The Reason for Dropping"""
+
+event_ctx_dropped.label:
+"""Dropped Reason"""
+
+root_rule_test.desc:
+"""Schema for testing rules"""
+
+root_rule_test.label:
+"""Rule Test Schema"""
+
+rs_test_columns.desc:
+"""The test columns"""
+
+rs_test_columns.label:
+"""Test Columns"""
+
+event_peerhost.desc:
+"""The IP Address of the Peer Client"""
+
+event_peerhost.label:
+"""Peer IP Address"""
+
+event_proto_name.desc:
+"""Protocol Name"""
+
+event_proto_name.label:
+"""Protocol Name"""
+
+root_rule_events.desc:
+"""Schema for rule events"""
+
+root_rule_events.label:
+"""Rule Events Schema"""
+
+rs_sql_example.desc:
+"""The sql_example"""
+
+rs_sql_example.label:
+"""SQL Example"""
+
+metrics_sql_matched_rate_max.desc:
+"""The max rate of matched, times/second"""
+
+metrics_sql_matched_rate_max.label:
+"""Max Matched Rate"""
+
+event_clean_start.desc:
+"""Clean Start"""
+
+event_clean_start.label:
+"""Clean Start"""
+
+ri_created_at.desc:
+"""The created time of the rule"""
+
+ri_created_at.label:
+"""Rule Create Time"""
+
+event_dup.desc:
+"""The DUP flag of the MQTT message"""
+
+event_dup.label:
+"""DUP Flag"""
+
+ri_from.desc:
+"""The topics of the rule"""
+
+ri_from.label:
+"""Topics of Rule"""
+
+ri_node_metrics.desc:
+"""The metrics of the rule for each node"""
+
+ri_node_metrics.label:
+"""Each Node Rule Metrics"""
+
+root_rule_creation.desc:
+"""Schema for creating rules"""
+
+root_rule_creation.label:
+"""Create Schema"""
+
+event_result.desc:
+"""Allow or Deny"""
+
+event_result.label:
+"""Auth Result"""
+
+event_id.desc:
+"""Message ID"""
+
+event_id.label:
+"""Message ID"""
+
+event_username.desc:
+"""Username"""
+
+event_username.label:
+"""Username"""
+
+root_rule_info.desc:
+"""Schema for rule info"""
+
+root_rule_info.label:
+"""Info Schema"""
+
+rs_columns.desc:
+"""The columns"""
+
+rs_columns.label:
+"""Column"""
+
+test_sql.desc:
+"""The SQL of the rule for testing"""
+
+test_sql.label:
+"""Test SQL"""
+
+event_ctx_disconnected_reason.desc:
+"""The Reason for Disconnect"""
+
+event_ctx_disconnected_reason.label:
+"""Disconnect Reason"""
+
+}

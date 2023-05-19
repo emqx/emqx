@@ -66,6 +66,7 @@ end_per_group(AuthName, Conf) ->
 
 init_per_suite(Config) ->
     emqx_config:erase(gateway),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     init_gateway_conf(),
     meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_authz_file, create, fun(S) -> S end),
@@ -164,7 +165,7 @@ t_case_lwm2m(_) ->
     Test("lwm2m", fun(SubTopic, Msg) ->
         ?assertEqual(true, lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics())),
         Payload = emqx_message:payload(Msg),
-        Cmd = emqx_json:decode(Payload, [return_maps]),
+        Cmd = emqx_utils_json:decode(Payload, [return_maps]),
         ?assertMatch(#{<<"msgType">> := <<"register">>, <<"data">> := _}, Cmd)
     end),
 
@@ -225,7 +226,7 @@ t_case_sn_subscribe(_) ->
         )
     end,
     Sub(<<"/subscribe">>, fun(Data) ->
-        {ok, Msg, _, _} = emqx_sn_frame:parse(Data, undefined),
+        {ok, Msg, _, _} = emqx_mqttsn_frame:parse(Data, undefined),
         ?assertMatch({mqtt_sn_message, _, {_, 3, 0, Payload}}, Msg)
     end),
     Sub(<<"/badsubscribe">>, fun(Data) ->
@@ -349,7 +350,7 @@ t_case_exproto_publish(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, 5000),
-                C = ?FUNCTOR(Bin, emqx_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(SvrMod:frame_connack(0)), C(Recv)),
 
                 Send = fun() ->
@@ -386,7 +387,7 @@ t_case_exproto_subscribe(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, WaitTime),
-                C = ?FUNCTOR(Bin, emqx_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(SvrMod:frame_connack(0)), C(Recv)),
 
                 SubBin = SvrMod:frame_subscribe(Topic, 0),

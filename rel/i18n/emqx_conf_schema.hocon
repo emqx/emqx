@@ -1,0 +1,790 @@
+emqx_conf_schema {
+
+common_handler_drop_mode_qlen.desc:
+"""When the number of buffered log events is larger than this value, the new log events are dropped.
+When drop mode is activated or deactivated, a message is printed in the logs."""
+
+common_handler_drop_mode_qlen.label:
+"""Queue Length before Entering Drop Mode"""
+
+cluster_mcast_addr.desc:
+"""Multicast IPv4 address."""
+
+cluster_mcast_addr.label:
+"""Cluster Multicast Address"""
+
+desc_cluster_dns.desc:
+"""Service discovery via DNS SRV records."""
+
+desc_cluster_dns.label:
+"""Cluster DNS"""
+
+cluster_dns_name.desc:
+"""The domain name from which to discover peer EMQX nodes' IP addresses.
+Applicable when <code>cluster.discovery_strategy = dns</code>"""
+
+cluster_dns_name.label:
+"""Cluster Dns Name"""
+
+rpc_keyfile.desc:
+"""Path to the private key file for the <code>rpc.certfile</code>.<br/>
+Note: contents of this file are secret, so it's necessary to set permissions to 600."""
+
+rpc_keyfile.label:
+"""RPC Keyfile"""
+
+cluster_mcast_recbuf.desc:
+"""Size of the kernel-level buffer for incoming datagrams."""
+
+cluster_mcast_recbuf.label:
+"""Cluster Muticast Sendbuf"""
+
+cluster_autoheal.desc:
+"""If <code>true</code>, the node will try to heal network partitions automatically."""
+
+cluster_autoheal.label:
+"""Cluster Auto Heal"""
+
+log_overload_kill_enable.desc:
+"""Enable log handler overload kill feature."""
+
+log_overload_kill_enable.label:
+"""Log Handler Overload Kill"""
+
+node_etc_dir.desc:
+"""<code>etc</code> dir for the node"""
+
+node_etc_dir.label:
+"""Etc Dir"""
+
+cluster_proto_dist.desc:
+"""The Erlang distribution protocol for the cluster.<br/>
+- inet_tcp: IPv4 TCP <br/>
+- inet_tls: IPv4 TLS, works together with <code>etc/ssl_dist.conf</code>"""
+
+cluster_proto_dist.label:
+"""Cluster Protocol Distribution"""
+
+log_burst_limit_enable.desc:
+"""Enable log burst control feature."""
+
+log_burst_limit_enable.label:
+"""Enable Burst"""
+
+dist_buffer_size.desc:
+"""Erlang's distribution buffer busy limit in kilobytes."""
+
+dist_buffer_size.label:
+"""Erlang's dist buffer size(KB)"""
+
+common_handler_max_depth.desc:
+"""Maximum depth for Erlang term log formatting and Erlang process message queue inspection."""
+
+common_handler_max_depth.label:
+"""Max Depth"""
+
+desc_log.desc:
+"""EMQX supports multiple log handlers, one console handler and multiple file handlers.
+EMQX by default logs to console when running in docker or in console/foreground mode,
+otherwise it logs to file $EMQX_LOG_DIR/emqx.log.
+For advanced configuration, you can find more parameters in this section."""
+
+desc_log.label:
+"""Log"""
+
+common_handler_flush_qlen.desc:
+"""If the number of buffered log events grows larger than this threshold, a flush (delete) operation takes place.
+To flush events, the handler discards the buffered log messages without logging."""
+
+common_handler_flush_qlen.label:
+"""Flush Threshold"""
+
+common_handler_chars_limit.desc:
+"""Set the maximum length of a single log message. If this length is exceeded, the log message will be truncated.
+NOTE: Restrict char limiter if formatter is JSON , it will get a truncated incomplete JSON data, which is not recommended."""
+
+common_handler_chars_limit.label:
+"""Single Log Max Length"""
+
+cluster_k8s_namespace.desc:
+"""Kubernetes namespace."""
+
+cluster_k8s_namespace.label:
+"""K8s Namespace"""
+
+node_name.desc:
+"""Unique name of the EMQX node. It must follow <code>%name%@FQDN</code> or
+<code>%name%@IPv4</code> format."""
+
+node_name.label:
+"""Node Name"""
+
+rpc_port_discovery.desc:
+"""<code>manual</code>: discover ports by <code>tcp_server_port</code>.<br/>
+<code>stateless</code>: discover ports in a stateless manner, using the following algorithm.
+If node name is <code>emqxN@127.0.0.1</code>, where the N is an integer,
+then the listening port will be 5370 + N."""
+
+rpc_port_discovery.label:
+"""RRC Port Discovery"""
+
+log_overload_kill_restart_after.desc:
+"""The handler restarts automatically after a delay in the event of termination, unless the value `infinity` is set, which blocks any subsequent restarts."""
+
+log_overload_kill_restart_after.label:
+"""Handler Restart Timer"""
+
+log_file_handler_max_size.desc:
+"""This parameter controls log file rotation. The value `infinity` means the log file will grow indefinitely, otherwise the log file will be rotated once it reaches `max_size` in bytes."""
+
+log_file_handler_max_size.label:
+"""Rotation Size"""
+
+desc_log_file_handler.desc:
+"""Log handler that prints log events to files."""
+
+desc_log_file_handler.label:
+"""Files Log Handler"""
+
+rpc_socket_keepalive_count.desc:
+"""How many times the keepalive probe message can fail to receive a reply
+until the RPC connection is considered lost."""
+
+rpc_socket_keepalive_count.label:
+"""RPC Socket Keepalive Count"""
+
+cluster_etcd_server.desc:
+"""List of endpoint URLs of the etcd cluster"""
+
+cluster_etcd_server.label:
+"""Cluster Etcd Server"""
+
+db_backend.desc:
+"""Select the backend for the embedded database.<br/>
+<code>rlog</code> is the default backend,
+that is suitable for very large clusters.<br/>
+<code>mnesia</code> is a backend that offers decent performance in small clusters."""
+
+db_backend.label:
+"""DB Backend"""
+
+desc_authorization.desc:
+"""Settings that control client authorization."""
+
+desc_authorization.label:
+"""Authorization"""
+
+cluster_etcd_ssl.desc:
+"""Options for the TLS connection to the etcd cluster."""
+
+cluster_etcd_ssl.label:
+"""Cluster Etcd SSL Option"""
+
+rpc_insecure_fallback.desc:
+"""Enable compatibility with old RPC authentication."""
+
+rpc_insecure_fallback.label:
+"""RPC insecure fallback"""
+
+cluster_mcast_buffer.desc:
+"""Size of the user-level buffer."""
+
+cluster_mcast_buffer.label:
+"""Cluster Muticast Buffer"""
+
+rpc_authentication_timeout.desc:
+"""Timeout for the remote node authentication."""
+
+rpc_authentication_timeout.label:
+"""RPC Authentication Timeout"""
+
+cluster_call_retry_interval.desc:
+"""Time interval to retry after a failed call."""
+
+cluster_call_retry_interval.label:
+"""Cluster Call Retry Interval"""
+
+cluster_mcast_sndbuf.desc:
+"""Size of the kernel-level buffer for outgoing datagrams."""
+
+cluster_mcast_sndbuf.label:
+"""Cluster Muticast Sendbuf"""
+
+rpc_driver.desc:
+"""Transport protocol used for inter-broker communication"""
+
+rpc_driver.label:
+"""RPC dirver"""
+
+max_ets_tables.desc:
+"""Max number of ETS tables"""
+
+max_ets_tables.label:
+"""Max number of ETS tables"""
+
+desc_db.desc:
+"""Settings for the embedded database."""
+
+desc_db.label:
+"""Database"""
+
+desc_cluster_etcd.desc:
+"""Service discovery using 'etcd' service."""
+
+desc_cluster_etcd.label:
+"""Cluster Etcd"""
+
+cluster_name.desc:
+"""Human-friendly name of the EMQX cluster."""
+
+cluster_name.label:
+"""Cluster Name"""
+
+log_rotation_enable.desc:
+"""Enable log rotation feature."""
+
+log_rotation_enable.label:
+"""Rotation Enable"""
+
+cluster_call_cleanup_interval.desc:
+"""Time interval to clear completed but stale transactions.
+Ensure that the number of completed transactions is less than the <code>max_history</code>."""
+
+cluster_call_cleanup_interval.label:
+"""Clean Up Interval"""
+
+desc_cluster_static.desc:
+"""Service discovery via static nodes.
+The new node joins the cluster by connecting to one of the bootstrap nodes."""
+
+desc_cluster_static.label:
+"""Cluster Static"""
+
+db_default_shard_transport.desc:
+"""Defines the default transport for pushing transaction logs.<br/>
+This may be overridden on a per-shard basis in <code>db.shard_transports</code>.
+<code>gen_rpc</code> uses the <code>gen_rpc</code> library,
+<code>distr</code> uses the Erlang distribution."""
+
+db_default_shard_transport.label:
+"""Default Shard Transport"""
+
+cluster_static_seeds.desc:
+"""List EMQX node names in the static cluster. See <code>node.name</code>."""
+
+cluster_static_seeds.label:
+"""Cluster Static Seeds"""
+
+log_overload_kill_qlen.desc:
+"""Maximum allowed queue length."""
+
+log_overload_kill_qlen.label:
+"""Max Queue Length"""
+
+node_backtrace_depth.desc:
+"""Maximum depth of the call stack printed in error messages and
+<code>process_info</code>."""
+
+node_backtrace_depth.label:
+"""BackTrace Depth"""
+
+desc_log_burst_limit.desc:
+"""Large bursts of log events produced in a short time can potentially cause problems, such as:
+ - Log files grow very large
+ - Log files are rotated too quickly, and useful information gets overwritten
+ - Overall performance impact on the system
+
+Log burst limit feature can temporarily disable logging to avoid these issues."""
+
+desc_log_burst_limit.label:
+"""Log Burst Limit"""
+
+common_handler_enable.desc:
+"""Enable this log handler."""
+
+common_handler_enable.label:
+"""Enable Log Handler"""
+
+cluster_k8s_service_name.desc:
+"""EMQX broker service name."""
+
+cluster_k8s_service_name.label:
+"""K8s Service Name"""
+
+log_rotation_count.desc:
+"""Maximum number of log files."""
+
+log_rotation_count.label:
+"""Max Log Files Number"""
+
+node_cookie.desc:
+"""Secret cookie is a random string that should be the same on all nodes in
+the given EMQX cluster, but unique per EMQX cluster. It is used to prevent EMQX nodes that
+belong to different clusters from accidentally connecting to each other."""
+
+node_cookie.label:
+"""Node Cookie"""
+
+db_role.desc:
+"""Select a node role.<br/>
+<code>core</code> nodes provide durability of the data, and take care of writes.
+It is recommended to place core nodes in different racks or different availability zones.<br/>
+<code>replicant</code> nodes are ephemeral worker nodes. Removing them from the cluster
+doesn't affect database redundancy<br/>
+It is recommended to have more replicant nodes than core nodes.<br/>
+Note: this parameter only takes effect when the <code>backend</code> is set
+to <code>rlog</code>."""
+
+db_role.label:
+"""DB Role"""
+
+rpc_tcp_server_port.desc:
+"""Listening port used by RPC local service.<br/>
+Note that this config only takes effect when rpc.port_discovery is set to manual."""
+
+rpc_tcp_server_port.label:
+"""RPC TCP Server Port"""
+
+desc_console_handler.desc:
+"""Log handler that prints log events to the EMQX console."""
+
+desc_console_handler.label:
+"""Console Handler"""
+
+node_applications.desc:
+"""List of Erlang applications that shall be rebooted when the EMQX broker joins the cluster."""
+
+node_applications.label:
+"""Application"""
+
+log_burst_limit_max_count.desc:
+"""Maximum number of log events to handle within a `window_time` interval. After the limit is reached, successive events are dropped until the end of the `window_time`."""
+
+log_burst_limit_max_count.label:
+"""Events Number"""
+
+rpc_tcp_client_num.desc:
+"""Set the maximum number of RPC communication channels initiated by this node to each remote node."""
+
+rpc_tcp_client_num.label:
+"""RPC TCP Client Num"""
+
+cluster_k8s_address_type.desc:
+"""Address type used for connecting to the discovered nodes.
+Setting <code>cluster.k8s.address_type</code> to <code>ip</code> will
+make EMQX to discover IP addresses of peer nodes from Kubernetes API."""
+
+cluster_k8s_address_type.label:
+"""K8s Address Type"""
+
+rpc_socket_sndbuf.desc:
+"""TCP tuning parameters. TCP sending buffer size."""
+
+rpc_socket_sndbuf.label:
+"""RPC Socket Sndbuf"""
+
+cluster_mcast_ttl.desc:
+"""Time-to-live (TTL) for the outgoing UDP datagrams."""
+
+cluster_mcast_ttl.label:
+"""Cluster Multicast TTL"""
+
+db_core_nodes.desc:
+"""List of core nodes that the replicant will connect to.<br/>
+Note: this parameter only takes effect when the <code>backend</code> is set
+to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
+This value needs to be defined for manual or static cluster discovery mechanisms.<br/>
+If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
+there is no need to set this value."""
+
+db_core_nodes.label:
+"""Db Core Node"""
+
+log_file_handler_file.desc:
+"""Name the log file."""
+
+log_file_handler_file.label:
+"""Log File Name"""
+
+node_dist_net_ticktime.desc:
+"""This is the approximate time an EMQX node may be unresponsive until it is considered down and thereby disconnected."""
+
+node_dist_net_ticktime.label:
+"""Dist Net TickTime"""
+
+desc_cluster_k8s.desc:
+"""Service discovery via Kubernetes API server."""
+
+desc_cluster_k8s.label:
+"""Cluster Kubernetes"""
+
+desc_cluster_mcast.desc:
+"""Service discovery via UDP multicast."""
+
+desc_cluster_mcast.label:
+"""Cluster Multicast"""
+
+rpc_cacertfile.desc:
+"""Path to certification authority TLS certificate file used to validate <code>rpc.certfile</code>.<br/>
+Note: certificates of all nodes in the cluster must be signed by the same CA."""
+
+rpc_cacertfile.label:
+"""RPC Cacertfile"""
+
+desc_node.desc:
+"""Node name, cookie, config & data directories and the Erlang virtual machine (BEAM) boot parameters."""
+
+desc_node.label:
+"""Node"""
+
+cluster_k8s_apiserver.desc:
+"""Kubernetes API endpoint URL."""
+
+cluster_k8s_apiserver.label:
+"""Cluster k8s ApiServer"""
+
+common_handler_supervisor_reports.desc:
+"""Type of supervisor reports that are logged. Defaults to <code>error</code><br/>
+  - <code>error</code>: only log errors in the Erlang processes<br/>.
+  - <code>progress</code>: log process startup."""
+
+common_handler_supervisor_reports.label:
+"""Report Type"""
+
+node_data_dir.desc:
+"""Path to the persistent data directory.<br/>
+Possible auto-created subdirectories are:<br/>
+- `mnesia/<node_name>`: EMQX's built-in database directory.<br/>
+For example, `mnesia/emqx@127.0.0.1`.<br/>
+There should be only one such subdirectory.<br/>
+Meaning, in case the node is to be renamed (to e.g. `emqx@10.0.1.1`),<br/>
+the old dir should be deleted first.<br/>
+- `configs`: Generated configs at boot time, and cluster/local override configs.<br/>
+- `patches`: Hot-patch beam files are to be placed here.<br/>
+- `trace`: Trace log files.<br/>
+
+**NOTE**: One data dir cannot be shared by two or more EMQX nodes."""
+
+node_data_dir.label:
+"""Node Data Dir"""
+
+cluster_k8s_suffix.desc:
+"""Node name suffix.<br/>
+Note: this parameter is only relevant when <code>address_type</code> is <code>dns</code>
+or <code>hostname</code>."""
+
+cluster_k8s_suffix.label:
+"""K8s Suffix"""
+
+db_rpc_module.desc:
+"""Protocol used for pushing transaction logs to the replicant nodes."""
+
+db_rpc_module.label:
+"""RPC Module"""
+
+cluster_etcd_prefix.desc:
+"""Key prefix used for EMQX service discovery."""
+
+cluster_etcd_prefix.label:
+"""Cluster Etcd Prefix"""
+
+cluster_mcast_iface.desc:
+"""Local IP address the node discovery service needs to bind to."""
+
+cluster_mcast_iface.label:
+"""Cluster Multicast Interface"""
+
+log_burst_limit_window_time.desc:
+"""See <code>max_count</code>."""
+
+log_burst_limit_window_time.label:
+"""Window Time"""
+
+cluster_dns_record_type.desc:
+"""DNS record type."""
+
+cluster_dns_record_type.label:
+"""DNS Record Type"""
+
+cluster_autoclean.desc:
+"""Remove disconnected nodes from the cluster after this interval."""
+
+cluster_autoclean.label:
+"""Cluster Auto Clean"""
+
+process_limit.desc:
+"""Maximum number of simultaneously existing processes for this Erlang system.
+The actual maximum chosen may be much larger than the Number passed.
+For more information, see: https://www.erlang.org/doc/man/erl.html"""
+
+process_limit.label:
+"""Erlang Process Limit"""
+
+max_ports.desc:
+"""Maximum number of simultaneously existing ports for this Erlang system.
+The actual maximum chosen may be much larger than the Number passed.
+For more information, see: https://www.erlang.org/doc/man/erl.html"""
+
+max_ports.label:
+"""Erlang Port Limit"""
+
+desc_log_rotation.desc:
+"""By default, the logs are stored in `./log` directory (for installation from zip file) or in `/var/log/emqx` (for binary installation).<br/>
+This section of the configuration controls the number of files kept for each log handler."""
+
+desc_log_rotation.label:
+"""Log Rotation"""
+
+desc_log_overload_kill.desc:
+"""Log overload kill features an overload protection that activates when the log handlers use too much memory or have too many buffered log messages.<br/>
+When the overload is detected, the log handler is terminated and restarted after a cooldown period."""
+
+desc_log_overload_kill.label:
+"""Log Overload Kill"""
+
+authorization.desc:
+"""Authorization a.k.a. ACL.<br/>
+In EMQX, MQTT client access control is extremely flexible.<br/>
+An out-of-the-box set of authorization data sources are supported.
+For example,<br/>
+'file' source is to support concise and yet generic ACL rules in a file;<br/>
+'built_in_database' source can be used to store per-client customizable rule sets,
+natively in the EMQX node;<br/>
+'http' source to make EMQX call an external HTTP API to make the decision;<br/>
+'PostgreSQL' etc. to look up clients or rules from external databases"""
+
+authorization.label:
+"""Authorization"""
+
+rpc_socket_keepalive_idle.desc:
+"""How long the connections between the brokers should remain open after the last message is sent."""
+
+rpc_socket_keepalive_idle.label:
+"""RPC Socket Keepalive Idle"""
+
+desc_cluster_call.desc:
+"""Options for the 'cluster call' feature that allows to execute a callback on all nodes in the cluster."""
+
+desc_cluster_call.label:
+"""Cluster Call"""
+
+cluster_mcast_ports.desc:
+"""List of UDP ports used for service discovery.<br/>
+Note: probe messages are broadcast to all the specified ports."""
+
+cluster_mcast_ports.label:
+"""Cluster Multicast Ports"""
+
+log_overload_kill_mem_size.desc:
+"""Maximum memory size that the log handler process is allowed to use."""
+
+log_overload_kill_mem_size.label:
+"""Log Handler Max Memory Size"""
+
+rpc_connect_timeout.desc:
+"""Timeout for establishing an RPC connection."""
+
+rpc_connect_timeout.label:
+"""RPC Connect Timeout"""
+
+cluster_etcd_node_ttl.desc:
+"""Expiration time of the etcd key associated with the node.
+It is refreshed automatically, as long as the node is alive."""
+
+cluster_etcd_node_ttl.label:
+"""Cluster Etcd Node TTL"""
+
+rpc_call_receive_timeout.desc:
+"""Timeout for the reply to a synchronous RPC."""
+
+rpc_call_receive_timeout.label:
+"""RPC Call Receive Timeout"""
+
+rpc_socket_recbuf.desc:
+"""TCP tuning parameters. TCP receiving buffer size."""
+
+rpc_socket_recbuf.label:
+"""RPC Socket Recbuf"""
+
+db_tlog_push_mode.desc:
+"""In sync mode the core node waits for an ack from the replicant nodes before sending the next
+transaction log entry."""
+
+db_tlog_push_mode.label:
+"""Tlog Push Mode"""
+
+node_crash_dump_bytes.desc:
+"""This variable sets the maximum size of a crash dump file in bytes.
+The crash dump will be truncated if this limit is exceeded.
+If setting it to 0, the runtime system does not even attempt to write a crash dump file."""
+
+node_crash_dump_bytes.label:
+"""Crash Dump Bytes"""
+
+rpc_certfile.desc:
+"""Path to TLS certificate file used to validate identity of the cluster nodes.
+Note that this config only takes effect when <code>rpc.driver</code> is set to <code>ssl</code>."""
+
+rpc_certfile.label:
+"""RPC Certfile"""
+
+node_crash_dump_seconds.desc:
+"""This variable gives the number of seconds that the emulator is allowed to spend writing a crash dump. When the given number of seconds have elapsed, the emulator is terminated.<br/>
+- If setting to 0 seconds, the runtime system does not even attempt to write the crash dump file. It only terminates.<br/>
+- If setting to a positive value S, wait for S seconds to complete the crash dump file and then terminates the runtime system with a SIGALRM signal.<br/>
+- A negative value causes the termination of the runtime system to wait indefinitely until the crash dump file has been completely written."""
+
+node_crash_dump_seconds.label:
+"""Crash Dump Seconds"""
+
+log_file_handlers.desc:
+"""File-based log handlers."""
+
+log_file_handlers.label:
+"""File Handler"""
+
+node_global_gc_interval.desc:
+"""Periodic garbage collection interval. Set to <code>disabled</code> to have it disabled."""
+
+node_global_gc_interval.label:
+"""Global GC Interval"""
+
+common_handler_time_offset.desc:
+"""The time offset to be used when formatting the timestamp.
+Can be one of:
+  - <code>system</code>: the time offset used by the local system
+  - <code>utc</code>: the UTC time offset
+  - <code>+-[hh]:[mm]</code>: user specified time offset, such as "-02:00" or "+00:00"
+Defaults to: <code>system</code>."""
+
+common_handler_time_offset.label:
+"""Time Offset"""
+
+rpc_mode.desc:
+"""In <code>sync</code> mode the sending side waits for the ack from the receiving side."""
+
+rpc_mode.label:
+"""RPC Mode"""
+
+node_crash_dump_file.desc:
+"""Location of the crash dump file."""
+
+node_crash_dump_file.label:
+"""Crash Dump File"""
+
+cluster_mcast_loop.desc:
+"""If <code>true</code>, loop UDP datagrams back to the local socket."""
+
+cluster_mcast_loop.label:
+"""Cluster Multicast Loop"""
+
+rpc_socket_keepalive_interval.desc:
+"""The interval between keepalive messages."""
+
+rpc_socket_keepalive_interval.label:
+"""RPC Socket Keepalive Interval"""
+
+common_handler_level.desc:
+"""The log level for the current log handler.
+Defaults to warning."""
+
+common_handler_level.label:
+"""Log Level"""
+
+desc_rpc.desc:
+"""EMQX uses a library called <code>gen_rpc</code> for inter-broker communication.<br/>
+Most of the time the default config should work,
+but in case you need to do performance fine-tuning or experiment a bit,
+this is where to look."""
+
+desc_rpc.label:
+"""RPC"""
+
+rpc_ssl_server_port.desc:
+"""Listening port used by RPC local service.<br/>
+Note that this config only takes effect when rpc.port_discovery is set to manual
+and <code>driver</code> is set to <code>ssl</code>."""
+
+rpc_ssl_server_port.label:
+"""RPC SSL Server Port"""
+
+desc_cluster.desc:
+"""EMQX nodes can form a cluster to scale up the total capacity.<br/>
+      Here holds the configs to instruct how individual nodes can discover each other."""
+
+desc_cluster.label:
+"""Cluster"""
+
+common_handler_sync_mode_qlen.desc:
+"""As long as the number of buffered log events is lower than this value,
+all log events are handled asynchronously. This means that the client process sending the log event,
+by calling a log function in the Logger API, does not wait for a response from the handler
+but continues executing immediately after the event is sent.
+It is not affected by the time it takes the handler to print the event to the log device.
+If the message queue grows larger than this value,
+the handler starts handling log events synchronously instead,
+meaning that the client process sending the event must wait for a response.
+When the handler reduces the message queue to a level below the sync_mode_qlen threshold,
+asynchronous operation is resumed."""
+
+common_handler_sync_mode_qlen.label:
+"""Queue Length before Entering Sync Mode"""
+
+common_handler_formatter.desc:
+"""Choose log formatter. <code>text</code> for free text, and <code>json</code> for structured logging."""
+
+common_handler_formatter.label:
+"""Log Formatter"""
+
+rpc_async_batch_size.desc:
+"""The maximum number of batch messages sent in asynchronous mode.
+      Note that this configuration does not work in synchronous mode."""
+
+rpc_async_batch_size.label:
+"""Async Batch Size"""
+
+cluster_call_max_history.desc:
+"""Retain the maximum number of completed transactions (for queries)."""
+
+cluster_call_max_history.label:
+"""Cluster Call Max History"""
+
+cluster_discovery_strategy.desc:
+"""Service discovery method for the cluster nodes. Possible values are:
+- manual: Use <code>emqx ctl cluster</code> command to manage cluster.<br/>
+- static: Configure static nodes list by setting <code>seeds</code> in config file.<br/>
+- dns: Use DNS A record to discover peer nodes.<br/>
+- etcd: Use etcd to discover peer nodes.<br/>
+- k8s: Use Kubernetes API to discover peer pods."""
+
+cluster_discovery_strategy.label:
+"""Cluster Discovery Strategy"""
+
+rpc_send_timeout.desc:
+"""Timeout for sending the RPC request."""
+
+rpc_send_timeout.label:
+"""RPC Send Timeout"""
+
+common_handler_single_line.desc:
+"""Print logs in a single line if set to true. Otherwise, log messages may span multiple lines."""
+
+common_handler_single_line.label:
+"""Single Line Mode"""
+
+rpc_socket_buffer.desc:
+"""TCP tuning parameters. Socket buffer size in user mode."""
+
+rpc_socket_buffer.label:
+"""RPC Socket Buffer"""
+
+db_shard_transports.desc:
+"""Allows to tune the transport method used for transaction log replication, on a per-shard basis.<br/>
+<code>gen_rpc</code> uses the <code>gen_rpc</code> library,
+<code>distr</code> uses the Erlang distribution.<br/>If not specified,
+the default is to use the value set in <code>db.default_shard_transport</code>."""
+
+db_shard_transports.label:
+"""Shard Transports"""
+
+}

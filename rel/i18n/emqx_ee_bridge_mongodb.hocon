@@ -1,0 +1,57 @@
+emqx_ee_bridge_mongodb {
+
+collection.desc:
+"""The collection where data will be stored into"""
+
+collection.label:
+"""Collection to be used"""
+
+desc_config.desc:
+"""Configuration for MongoDB Bridge"""
+
+desc_config.label:
+"""MongoDB Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type."""
+
+desc_type.label:
+"""Bridge Type"""
+
+enable.desc:
+"""Enable or disable this MongoDB Bridge"""
+
+enable.label:
+"""Enable or disable"""
+
+mongodb_rs_conf.desc:
+"""MongoDB (Replica Set) configuration"""
+
+mongodb_rs_conf.label:
+"""MongoDB (Replica Set) Configuration"""
+
+mongodb_sharded_conf.desc:
+"""MongoDB (Sharded) configuration"""
+
+mongodb_sharded_conf.label:
+"""MongoDB (Sharded) Configuration"""
+
+mongodb_single_conf.desc:
+"""MongoDB (Standalone) configuration"""
+
+mongodb_single_conf.label:
+"""MongoDB (Standalone) Configuration"""
+
+payload_template.desc:
+"""The template for formatting the outgoing messages.  If undefined, rule engine will use JSON format to serialize all visible inputs, such as clientid, topic, payload etc."""
+
+payload_template.label:
+"""Payload template"""
+
+}

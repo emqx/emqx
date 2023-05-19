@@ -291,16 +291,16 @@ stats(Session) -> info(?STATS_KEYS, Session).
 
 ignore_local(ClientInfo, Delivers, Subscriber, Session) ->
     Subs = info(subscriptions, Session),
-    lists:dropwhile(
+    lists:filter(
         fun({deliver, Topic, #message{from = Publisher} = Msg}) ->
             case maps:find(Topic, Subs) of
                 {ok, #{nl := 1}} when Subscriber =:= Publisher ->
                     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     ok = emqx_metrics:inc('delivery.dropped.no_local'),
-                    true;
+                    false;
                 _ ->
-                    false
+                    true
             end
         end,
         Delivers
@@ -941,7 +941,7 @@ age(Now, Ts) -> Now - Ts.
 %%--------------------------------------------------------------------
 
 set_field(Name, Value, Session) ->
-    Pos = emqx_misc:index_of(Name, record_info(fields, session)),
+    Pos = emqx_utils:index_of(Name, record_info(fields, session)),
     setelement(Pos + 1, Session, Value).
 
 get_mqueue(#session{mqueue = Q}) ->

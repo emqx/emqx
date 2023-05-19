@@ -163,7 +163,7 @@ cluster_query(Tab, QString, QSchema, MsFun, FmtFun) ->
             {error, page_limit_invalid};
         Meta ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
-            Nodes = mria:running_nodes(),
+            Nodes = emqx:running_nodes(),
             ResultAcc = init_query_result(),
             QueryState = init_query_state(Tab, NQString, MsFun, Meta),
             NResultAcc = do_cluster_query(

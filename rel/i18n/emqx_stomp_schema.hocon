@@ -1,0 +1,16 @@
+emqx_stomp_schema {
+
+stom_frame_max_body_length.desc:
+"""Maximum number of bytes of Body allowed per Stomp packet"""
+
+stom_frame_max_headers.desc:
+"""The maximum number of Header"""
+
+stomp.desc:
+"""The Stomp Gateway configuration.
+This gateway supports v1.2/1.1/1.0"""
+
+stomp_frame_max_headers_length.desc:
+"""The maximum string length of the Header Value"""
+
+}

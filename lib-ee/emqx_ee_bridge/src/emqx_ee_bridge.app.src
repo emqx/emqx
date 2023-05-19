@@ -1,12 +1,24 @@
 {application, emqx_ee_bridge, [
     {description, "EMQX Enterprise data bridges"},
-    {vsn, "0.1.7"},
-    {registered, [emqx_ee_bridge_kafka_consumer_sup]},
+    {vsn, "0.1.13"},
+    {registered, []},
     {applications, [
         kernel,
         stdlib,
         emqx_ee_connector,
-        telemetry
+        telemetry,
+        emqx_bridge_kafka,
+        emqx_bridge_gcp_pubsub,
+        emqx_bridge_cassandra,
+        emqx_bridge_opents,
+        emqx_bridge_pulsar,
+        emqx_bridge_dynamo,
+        emqx_bridge_sqlserver,
+        emqx_bridge_rocketmq,
+        emqx_bridge_rabbitmq,
+        emqx_bridge_tdengine,
+        emqx_bridge_influxdb,
+        emqx_bridge_clickhouse
     ]},
     {env, []},
     {modules, []},

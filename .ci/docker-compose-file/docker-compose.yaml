@@ -16,11 +16,15 @@ services:
       GITHUB_REF: ${GITHUB_REF}
     networks:
       - emqx_bridge
+    ports:
+      - 28083:18083
+      - 2883:1883
     volumes:
       - ../..:/emqx
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
+      # - ./odbc/odbcinst.ini:/etc/odbcinst.ini
     working_dir: /emqx
     tty: true
     user: "${DOCKER_USER:-root}"

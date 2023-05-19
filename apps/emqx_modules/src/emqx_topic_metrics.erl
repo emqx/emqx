@@ -179,7 +179,12 @@ deregister_all() ->
     gen_server:call(?MODULE, {deregister, all}).
 
 is_registered(Topic) ->
-    ets:member(?TAB, Topic).
+    try
+        ets:member(?TAB, Topic)
+    catch
+        error:badarg ->
+            false
+    end.
 
 all_registered_topics() ->
     [Topic || {Topic, _} <- ets:tab2list(?TAB)].
@@ -201,7 +206,7 @@ reset() ->
 
 init([Opts]) ->
     erlang:process_flag(trap_exit, true),
-    ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
+    ok = emqx_utils_ets:new(?TAB, [{read_concurrency, true}]),
     erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
     Fun =
         fun(#{topic := Topic}, CurrentSpeeds) ->

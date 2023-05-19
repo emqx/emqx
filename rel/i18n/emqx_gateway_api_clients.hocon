@@ -1,0 +1,207 @@
+emqx_gateway_api_clients {
+
+disconnected_at.desc:
+"""Client offline time, This field is only valid and returned when connected is false"""
+
+heap_size.desc:
+"""Process heap size with the unit of byte"""
+
+send_oct.desc:
+"""Number of bytes sent"""
+
+get_client.desc:
+"""Get the gateway client information"""
+
+param_gte_created_at.desc:
+"""Match the session created datetime greater than a certain value"""
+
+param_conn_state.desc:
+"""Match the client's connection state"""
+
+send_pkt.desc:
+"""Number of protocol packets sent"""
+
+clean_start.desc:
+"""Indicate whether the client is using a brand new session"""
+
+inflight_cnt.desc:
+"""Current length of inflight"""
+
+delete_subscription.desc:
+"""Delete a subscriptions membership"""
+
+param_lte_connected_at.desc:
+"""Match the client socket connected datatime less than a certain value"""
+
+node.desc:
+"""Name of the node to which the client is connected"""
+
+awaiting_rel_cnt.desc:
+"""Number of awaiting acknowledge packet"""
+
+rap.desc:
+"""Retain as Published option, enum: 0, 1"""
+
+inflight_max.desc:
+"""Maximum length of inflight"""
+
+param_username.desc:
+"""Match the client's Username"""
+
+param_like_endpoint_name.desc:
+"""Use sub-string to match lwm2m client's endpoint name"""
+
+created_at.desc:
+"""Session creation time"""
+
+sub_props.desc:
+"""Subscription properties"""
+
+list_clients.desc:
+"""Get the gateway client list"""
+
+subscriptions_cnt.desc:
+"""Number of subscriptions established by this client"""
+
+mailbox_len.desc:
+"""Process mailbox size"""
+
+send_cnt.desc:
+"""Number of socket packets sent"""
+
+rh.desc:
+"""Retain Handling option, enum: 0, 1, 2"""
+
+connected.desc:
+"""Whether the client is connected"""
+
+qos.desc:
+"""QoS level, enum: 0, 1, 2"""
+
+ip_address.desc:
+"""Client's IP address"""
+
+param_gte_connected_at.desc:
+"""Match the client socket connected datetime greater than a certain value"""
+
+awaiting_rel_max.desc:
+"""Maximum allowed number of awaiting PUBREC packet"""
+
+param_like_username.desc:
+"""Use sub-string to match client's username"""
+
+nl.desc:
+"""No Local option, enum: 0, 1"""
+
+param_like_clientid.desc:
+"""Use sub-string to match client's ID"""
+
+param_lte_created_at.desc:
+"""Match the session created datetime less than a certain value"""
+
+topic.desc:
+"""Topic Filter/Name"""
+
+proto_ver.desc:
+"""Protocol version used by the client"""
+
+mountpoint.desc:
+"""Topic mountpoint"""
+
+proto_name.desc:
+"""Client protocol name"""
+
+param_lte_lifetime.desc:
+"""Match the lwm2m client registered lifetime less than a certain value"""
+
+port.desc:
+"""Client's port"""
+
+connected_at.desc:
+"""Client connection time"""
+
+expiry_interval.desc:
+"""Session expiration interval, with the unit of second"""
+
+username.desc:
+"""Username of client when connecting"""
+
+param_clean_start.desc:
+"""Match the client's clean start flag"""
+
+recv_msg.desc:
+"""Number of message packets received"""
+
+list_subscriptions.desc:
+"""Get the gateway client subscriptions"""
+
+recv_oct.desc:
+"""Number of bytes received"""
+
+keepalive.desc:
+"""Keepalive time, with the unit of second"""
+
+param_clientid.desc:
+"""Match the client's ID"""
+
+subscriptions_max.desc:
+"""Maximum number of subscriptions allowed by this client"""
+
+param_ip_address.desc:
+"""Match the client's ip address"""
+
+mqueue_max.desc:
+"""Maximum length of message queue"""
+
+mqueue_dropped.desc:
+"""Number of messages dropped by the message queue due to exceeding the length"""
+
+subid.desc:
+"""Only stomp protocol, a unique identity for the subscription. range: 1-65535."""
+
+clientid.desc:
+"""Client ID"""
+
+kick_client.desc:
+"""Kick out the gateway client"""
+
+is_bridge.desc:
+"""Indicates whether the client is connected via bridge"""
+
+lifetime.desc:
+"""LwM2M Life time"""
+
+send_msg.desc:
+"""Number of message packets sent"""
+
+add_subscription.desc:
+"""Create a subscription membership"""
+
+param_endpoint_name.desc:
+"""Match the lwm2m client's endpoint name"""
+
+param_node.desc:
+"""Match the client's node name"""
+
+recv_cnt.desc:
+"""Number of socket packets received"""
+
+recv_pkt.desc:
+"""Number of protocol packets received"""
+
+endpoint_name.desc:
+"""The LwM2M client endpoint name"""
+
+param_proto_ver.desc:
+"""Match the client's protocol version"""
+
+reductions.desc:
+"""Erlang reduction"""
+
+param_gte_lifetime.desc:
+"""Match the lwm2m client registered lifetime greater than a certain value"""
+
+mqueue_len.desc:
+"""Current length of message queue"""
+
+}

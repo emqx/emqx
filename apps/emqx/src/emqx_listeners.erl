@@ -20,6 +20,7 @@
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 10000}}]).
 
 -include("emqx_mqtt.hrl").
+-include("emqx_schema.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -33,7 +34,9 @@
     is_running/1,
     current_conns/2,
     max_conns/2,
-    id_example/0
+    id_example/0,
+    default_max_conn/0,
+    shutdown_count/2
 ]).
 
 -export([
@@ -62,9 +65,11 @@
 -export([certs_dir/2]).
 -endif.
 
+-type listener_id() :: atom() | binary().
 -define(ROOT_KEY, listeners).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
+-define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -107,19 +112,22 @@ do_list_raw() ->
 
 format_raw_listeners({Type0, Conf}) ->
     Type = binary_to_atom(Type0),
-    lists:map(
-        fun({LName, LConf0}) when is_map(LConf0) ->
-            Bind = parse_bind(LConf0),
-            Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
-            LConf1 = maps:remove(<<"authentication">>, LConf0),
-            LConf3 = maps:put(<<"running">>, Running, LConf1),
-            CurrConn =
-                case Running of
-                    true -> current_conns(Type, LName, Bind);
-                    false -> 0
-                end,
-            LConf4 = maps:put(<<"current_connections">>, CurrConn, LConf3),
-            {Type0, LName, LConf4}
+    lists:filtermap(
+        fun
+            ({LName, LConf0}) when is_map(LConf0) ->
+                Bind = parse_bind(LConf0),
+                Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
+                LConf1 = maps:remove(<<"authentication">>, LConf0),
+                LConf2 = maps:put(<<"running">>, Running, LConf1),
+                CurrConn =
+                    case Running of
+                        true -> current_conns(Type, LName, Bind);
+                        false -> 0
+                    end,
+                LConf = maps:put(<<"current_connections">>, CurrConn, LConf2),
+                {true, {Type0, LName, LConf}};
+            ({_LName, _MarkDel}) ->
+                false
         end,
         maps:to_list(Conf)
     ).
@@ -189,6 +197,17 @@ max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
 max_conns(_, _, _) ->
     {error, not_support}.
 
+shutdown_count(ID, ListenOn) ->
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
+    shutdown_count(Type, Name, ListenOn).
+
+shutdown_count(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+    esockd:get_shutdown_count({listener_id(Type, Name), ListenOn});
+shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    [];
+shutdown_count(_, _, _) ->
+    {error, not_support}.
+
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
@@ -200,7 +219,7 @@ start() ->
     ok = emqx_config_handler:add_handler([?ROOT_KEY], ?MODULE),
     foreach_listeners(fun start_listener/3).
 
--spec start_listener(atom()) -> ok | {error, term()}.
+-spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun start_listener/3).
 
@@ -251,7 +270,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
 restart() ->
     foreach_listeners(fun restart_listener/3).
 
--spec restart_listener(atom()) -> ok | {error, term()}.
+-spec restart_listener(listener_id()) -> ok | {error, term()}.
 restart_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun restart_listener/3).
 
@@ -277,7 +296,7 @@ stop() ->
     _ = emqx_config_handler:remove_handler(?ROOT_KEY),
     foreach_listeners(fun stop_listener/3).
 
--spec stop_listener(atom()) -> ok | {error, term()}.
+-spec stop_listener(listener_id()) -> ok | {error, term()}.
 stop_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun stop_listener/3).
 
@@ -333,7 +352,8 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == tcp; Type == ssl
 ->
     Id = listener_id(Type, ListenerName),
-    add_limiter_bucket(Id, Opts),
+    Limiter = limiter(Opts),
+    add_limiter_bucket(Id, Limiter),
     esockd:open(
         Id,
         ListenOn,
@@ -342,7 +362,7 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
             #{
                 listener => {Type, ListenerName},
                 zone => zone(Opts),
-                limiter => limiter(Opts),
+                limiter => Limiter,
                 enable_authn => enable_authn(Opts)
             }
         ]}
@@ -352,9 +372,10 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == ws; Type == wss
 ->
     Id = listener_id(Type, ListenerName),
-    add_limiter_bucket(Id, Opts),
+    Limiter = limiter(Opts),
+    add_limiter_bucket(Id, Limiter),
     RanchOpts = ranch_opts(Type, ListenOn, Opts),
-    WsOpts = ws_opts(Type, ListenerName, Opts),
+    WsOpts = ws_opts(Type, ListenerName, Opts, Limiter),
     case Type of
         ws -> cowboy:start_clear(Id, RanchOpts, WsOpts);
         wss -> cowboy:start_tls(Id, RanchOpts, WsOpts)
@@ -394,23 +415,29 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                 ] ++
                     case maps:get(cacertfile, SSLOpts, undefined) of
                         undefined -> [];
-                        CaCertFile -> [{cacertfile, binary_to_list(CaCertFile)}]
+                        CaCertFile -> [{cacertfile, str(CaCertFile)}]
+                    end ++
+                    case maps:get(password, SSLOpts, undefined) of
+                        undefined -> [];
+                        Password -> [{password, str(Password)}]
                     end ++
                     optional_quic_listener_opts(Opts),
+            Limiter = limiter(Opts),
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
                 peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
                 peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
                 zone => zone(Opts),
                 listener => {quic, ListenerName},
-                limiter => limiter(Opts)
+                limiter => Limiter
             },
             StreamOpts = #{
                 stream_callback => emqx_quic_stream,
                 active => 1
             },
+
             Id = listener_id(quic, ListenerName),
-            add_limiter_bucket(Id, Opts),
+            add_limiter_bucket(Id, Limiter),
             quicer:start_listener(
                 Id,
                 ListenOn,
@@ -421,7 +448,9 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     end.
 
 %% Update the listeners at runtime
-pre_config_update([listeners, Type, Name], {create, NewConf}, undefined) ->
+pre_config_update([listeners, Type, Name], {create, NewConf}, V) when
+    V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
+->
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
 pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
@@ -429,13 +458,15 @@ pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
 pre_config_update([listeners, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
-    NewConfT = emqx_map_lib:deep_merge(RawConf, Request),
+    NewConfT = emqx_utils_maps:deep_merge(RawConf, Request),
     NewConf = ensure_override_limiter_conf(NewConfT, Request),
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
 pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf) ->
-    NewConf = emqx_map_lib:deep_merge(RawConf, Updated),
+    NewConf = emqx_utils_maps:deep_merge(RawConf, Updated),
     {ok, NewConf};
+pre_config_update([listeners, _Type, _Name], ?MARK_DEL, _RawConf) ->
+    {ok, ?TOMBSTONE_VALUE};
 pre_config_update([listeners], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([listeners], NewConf, _RawConf) ->
@@ -445,18 +476,26 @@ post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefin
     create_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, {OldConf, NewConf});
-post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
-    ok;
-post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
+post_config_update([listeners, Type, Name], Op, _, OldConf, _AppEnvs) when
+    Op =:= ?MARK_DEL andalso is_map(OldConf)
+->
     remove_listener(Type, Name, OldConf);
 post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
     #{enabled := NewEnabled} = NewConf,
     #{enabled := OldEnabled} = OldConf,
     case {NewEnabled, OldEnabled} of
-        {true, true} -> restart_listener(Type, Name, {OldConf, NewConf});
-        {true, false} -> start_listener(Type, Name, NewConf);
-        {false, true} -> stop_listener(Type, Name, OldConf);
-        {false, false} -> stop_listener(Type, Name, OldConf)
+        {true, true} ->
+            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+            restart_listener(Type, Name, {OldConf, NewConf});
+        {true, false} ->
+            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+            start_listener(Type, Name, NewConf);
+        {false, true} ->
+            ok = unregister_ocsp_stapling_refresh(Type, Name),
+            stop_listener(Type, Name, OldConf);
+        {false, false} ->
+            ok = unregister_ocsp_stapling_refresh(Type, Name),
+            stop_listener(Type, Name, OldConf)
     end;
 post_config_update([listeners], _Request, OldConf, OldConf, _AppEnvs) ->
     ok;
@@ -483,6 +522,7 @@ recreate_authenticator(Error, _Type, _Name, _NewConf) ->
     Error.
 
 remove_listener(Type, Name, OldConf) ->
+    ok = unregister_ocsp_stapling_refresh(Type, Name),
     case stop_listener(Type, Name, OldConf) of
         ok ->
             _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
@@ -493,6 +533,7 @@ remove_listener(Type, Name, OldConf) ->
 
 update_listener(Type, Name, {OldConf, NewConf}) ->
     try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
+    ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
     Res = restart_listener(Type, Name, {OldConf, NewConf}),
     recreate_authenticator(Res, Type, Name, NewConf).
 
@@ -516,7 +557,7 @@ esockd_opts(ListenerId, Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Limiter = limiter(Opts0),
     Opts2 =
-        case maps:get(connection, Limiter, undefined) of
+        case emqx_limiter_schema:extract_with_type(connection, Limiter) of
             undefined ->
                 Opts1;
             BucketCfg ->
@@ -542,12 +583,12 @@ esockd_opts(ListenerId, Type, Opts0) ->
         end
     ).
 
-ws_opts(Type, ListenerName, Opts) ->
+ws_opts(Type, ListenerName, Opts, Limiter) ->
     WsPaths = [
-        {emqx_map_lib:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
+        {emqx_utils_maps:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            limiter => limiter(Opts),
+            limiter => Limiter,
             enable_authn => enable_authn(Opts)
         }}
     ],
@@ -582,7 +623,7 @@ esockd_access_rules(StrRules) ->
         [A, CIDR] = string:tokens(S, " "),
         %% esockd rules only use words 'allow' and 'deny', both are existing
         %% comparison of strings may be better, but there is a loss of backward compatibility
-        case emqx_misc:safe_to_existing_atom(A) of
+        case emqx_utils:safe_to_existing_atom(A) of
             {ok, Action} ->
                 [
                     {
@@ -604,7 +645,7 @@ esockd_access_rules(StrRules) ->
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_misc:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
+            [{tcp_options, emqx_utils:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
         false ->
             [{tcp_options, ?MQTT_SOCKOPTS} | Options]
     end.
@@ -645,6 +686,7 @@ format_bind(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
+-spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
     case string:split(str(Id), ":", leading) of
         [Type, Name] ->
@@ -660,28 +702,31 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts, #{}).
+    emqx_limiter_schema:get_listener_opts(Opts).
 
-add_limiter_bucket(Id, #{limiter := Limiter}) ->
+add_limiter_bucket(_Id, undefined) ->
+    ok;
+add_limiter_bucket(Id, Limiter) ->
     maps:fold(
         fun(Type, Cfg, _) ->
             emqx_limiter_server:add_bucket(Id, Type, Cfg)
         end,
         ok,
         maps:without([client], Limiter)
-    );
-add_limiter_bucket(_Id, _Cfg) ->
-    ok.
+    ).
 
-del_limiter_bucket(Id, #{limiter := Limiters}) ->
-    lists:foreach(
-        fun(Type) ->
-            emqx_limiter_server:del_bucket(Id, Type)
-        end,
-        maps:keys(Limiters)
-    );
-del_limiter_bucket(_Id, _Cfg) ->
-    ok.
+del_limiter_bucket(Id, Conf) ->
+    case limiter(Conf) of
+        undefined ->
+            ok;
+        Limiter ->
+            lists:foreach(
+                fun(Type) ->
+                    emqx_limiter_server:del_bucket(Id, Type)
+                end,
+                maps:keys(Limiter)
+            )
+    end.
 
 diff_confs(NewConfs, OldConfs) ->
     emqx_map_lib:diff_maps(
@@ -894,3 +939,22 @@ inject_crl_config(
     };
 inject_crl_config(Conf) ->
     Conf.
+
+maybe_unregister_ocsp_stapling_refresh(
+    ssl = Type, Name, #{ssl_options := #{ocsp := #{enable_ocsp_stapling := false}}} = _Conf
+) ->
+    unregister_ocsp_stapling_refresh(Type, Name),
+    ok;
+maybe_unregister_ocsp_stapling_refresh(_Type, _Name, _Conf) ->
+    ok.
+
+unregister_ocsp_stapling_refresh(Type, Name) ->
+    ListenerId = listener_id(Type, Name),
+    emqx_ocsp_cache:unregister_listener(ListenerId),
+    ok.
+
+%% There is currently an issue with frontend
+%% infinity is not a good value for it, so we use 5m for now
+default_max_conn() ->
+    %% TODO: <<"infinity">>
+    5_000_000.

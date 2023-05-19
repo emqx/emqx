@@ -28,7 +28,14 @@
 -define(DEFAULT_INIT_TXN_ID, -1).
 
 start(_StartType, _StartArgs) ->
-    init_conf(),
+    try
+        ok = init_conf()
+    catch
+        C:E:St ->
+            %% logger is not quite ready.
+            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
+            init:stop(1)
+    end,
     ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
 
@@ -49,7 +56,15 @@ get_override_config_file() ->
                         TnxId = emqx_cluster_rpc:get_node_tnx_id(Node),
                         WallClock = erlang:statistics(wall_clock),
                         Conf = emqx_config_handler:get_raw_cluster_override_conf(),
-                        #{wall_clock => WallClock, conf => Conf, tnx_id => TnxId, node => Node}
+                        HasDeprecateFile = emqx_config:has_deprecated_file(),
+                        #{
+                            wall_clock => WallClock,
+                            conf => Conf,
+                            tnx_id => TnxId,
+                            node => Node,
+                            has_deprecated_file => HasDeprecateFile,
+                            release => emqx_app:get_release()
+                        }
                     end,
                     case mria:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
                         {atomic, Res} -> {ok, Res};
@@ -73,30 +88,26 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
--ifdef(TEST).
 init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => false}).
-
--else.
-
-init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module(), #{raw_with_default => true}).
--endif.
+    emqx_config:init_load(emqx_conf:schema_module()).
 
 init_conf() ->
+    %% Workaround for https://github.com/emqx/mria/issues/94:
+    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
+    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, TnxId} = copy_override_conf_from_core_node(),
-    emqx_app:set_init_tnx_id(TnxId),
-    init_load(),
-    emqx_app:set_init_config_load_done().
+    _ = emqx_app:set_init_tnx_id(TnxId),
+    ok = init_load(),
+    ok = emqx_app:set_init_config_load_done().
 
 cluster_nodes() ->
-    maps:get(running_nodes, ekka_cluster:info()) -- [node()].
+    mria:cluster_nodes(cores) -- [node()].
 
 copy_override_conf_from_core_node() ->
     case cluster_nodes() of
         %% The first core nodes is self.
         [] ->
-            ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
+            ?SLOG(debug, #{msg => "skip_copy_override_conf_from_core_node"}),
             {ok, ?DEFAULT_INIT_TXN_ID};
         Nodes ->
             {Results, Failed} = emqx_conf_proto_v2:get_override_config_file(Nodes),
@@ -130,7 +141,7 @@ copy_override_conf_from_core_node() ->
                             %% finish the boot sequence and load the
                             %% config for other nodes to copy it.
                             ?SLOG(info, #{
-                                msg => "skip_copy_overide_conf_from_core_node",
+                                msg => "skip_copy_override_conf_from_core_node",
                                 loading_from_disk => true,
                                 nodes => Nodes,
                                 failed => Failed,
@@ -139,10 +150,10 @@ copy_override_conf_from_core_node() ->
                             {ok, ?DEFAULT_INIT_TXN_ID};
                         false ->
                             %% retry in some time
-                            Jitter = rand:uniform(2_000),
-                            Timeout = 10_000 + Jitter,
+                            Jitter = rand:uniform(2000),
+                            Timeout = 10000 + Jitter,
                             ?SLOG(info, #{
-                                msg => "copy_overide_conf_from_core_node_retry",
+                                msg => "copy_cluster_conf_from_core_node_retry",
                                 timeout => Timeout,
                                 nodes => Nodes,
                                 failed => Failed,
@@ -154,18 +165,18 @@ copy_override_conf_from_core_node() ->
                 _ ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
+                    HasDeprecatedFile = has_deprecated_file(Info),
                     ?SLOG(debug, #{
-                        msg => "copy_overide_conf_from_core_node_success",
+                        msg => "copy_cluster_conf_from_core_node_success",
                         node => Node,
-                        cluster_override_conf_file => application:get_env(
-                            emqx, cluster_override_conf_file
-                        ),
-                        local_override_conf_file => application:get_env(
-                            emqx, local_override_conf_file
-                        ),
-                        data_dir => emqx:data_dir()
+                        has_deprecated_file => HasDeprecatedFile,
+                        local_release => emqx_app:get_release(),
+                        remote_release => maps:get(release, Info, "before_v5.0.24|e5.0.3"),
+                        data_dir => emqx:data_dir(),
+                        tnx_id => TnxId
                     }),
                     ok = emqx_config:save_to_override_conf(
+                        HasDeprecatedFile,
                         RawOverrideConf,
                         #{override_to => cluster}
                     ),
@@ -207,4 +218,14 @@ sync_data_from_node(Node) ->
         Error ->
             ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
             error(Error)
+    end.
+
+has_deprecated_file(#{conf := Conf} = Info) ->
+    case maps:find(has_deprecated_file, Info) of
+        {ok, HasDeprecatedFile} ->
+            HasDeprecatedFile;
+        error ->
+            %% The old version don't have emqx_config:has_deprecated_file/0
+            %% Conf is not empty if deprecated file is found.
+            Conf =/= #{}
     end.

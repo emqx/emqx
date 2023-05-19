@@ -107,7 +107,7 @@ t_update_with_invalid_config(_Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            matched_type := "authn-postgresql:authentication",
+            matched_type := "authn:postgresql",
             path := "authentication.1.server",
             reason := required_field
         }},

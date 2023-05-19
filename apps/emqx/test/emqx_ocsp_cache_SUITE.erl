@@ -143,7 +143,7 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -184,7 +184,7 @@ init_per_testcase(_TestCase, Config) ->
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_map_lib:binary_key_map(Conf),
+    ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
     snabbkaffe:start_trace(),
@@ -254,10 +254,15 @@ does_module_exist(Mod) ->
     end.
 
 assert_no_http_get() ->
+    Timeout = 0,
+    Error = should_be_cached,
+    assert_no_http_get(Timeout, Error).
+
+assert_no_http_get(Timeout, Error) ->
     receive
         {http_get, _URL} ->
-            error(should_be_cached)
-    after 0 ->
+            error(Error)
+    after Timeout ->
         ok
     end.
 
@@ -430,7 +435,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
         Error ->
             Error
     end.
@@ -679,13 +684,11 @@ do_t_update_listener(Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
     ?assertMatch(
         #{
-            <<"ssl_options">> :=
-                #{
-                    <<"ocsp">> :=
-                        #{<<"enable_ocsp_stapling">> := false}
-                }
+            <<"enable_ocsp_stapling">> := false,
+            <<"refresh_http_timeout">> := _,
+            <<"refresh_interval">> := _
         },
-        ListenerData0
+        emqx_utils_maps:deep_get([<<"ssl_options">>, <<"ocsp">>], ListenerData0, undefined)
     ),
     assert_no_http_get(),
 
@@ -704,11 +707,13 @@ do_t_update_listener(Config) ->
                             %% the API converts that to an internally
                             %% managed file
                             <<"issuer_pem">> => IssuerPem,
-                            <<"responder_url">> => <<"http://localhost:9877">>
+                            <<"responder_url">> => <<"http://localhost:9877">>,
+                            %% for quicker testing; min refresh in tests is 5 s.
+                            <<"refresh_interval">> => <<"5s">>
                         }
                 }
         },
-    ListenerData1 = emqx_map_lib:deep_merge(ListenerData0, OCSPConfig),
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, OCSPConfig),
     {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
     ?assertMatch(
         #{
@@ -728,19 +733,83 @@ do_t_update_listener(Config) ->
     %% location
     ?assertNotEqual(
         IssuerPemPath,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
     ),
     ?assertNotEqual(
         IssuerPem,
-        emqx_map_lib:deep_get(
+        emqx_utils_maps:deep_get(
             [<<"ssl_options">>, <<"ocsp">>, <<"issuer_pem">>],
             ListenerData2
         )
     ),
     assert_http_get(1, 5_000),
+
+    %% Disable OCSP Stapling; the periodic refreshes should stop
+    RefreshInterval = emqx_config:get([listeners, ssl, default, ssl_options, ocsp, refresh_interval]),
+    OCSPConfig1 =
+        #{
+            <<"ssl_options">> =>
+                #{
+                    <<"ocsp">> =>
+                        #{
+                            <<"enable_ocsp_stapling">> => false
+                        }
+                }
+        },
+    ListenerData3 = emqx_utils_maps:deep_merge(ListenerData2, OCSPConfig1),
+    {ok, {_, _, ListenerData4}} = update_listener_via_api(ListenerId, ListenerData3),
+    ?assertMatch(
+        #{
+            <<"ssl_options">> :=
+                #{
+                    <<"ocsp">> :=
+                        #{
+                            <<"enable_ocsp_stapling">> := false
+                        }
+                }
+        },
+        ListenerData4
+    ),
+
+    assert_no_http_get(2 * RefreshInterval, should_stop_refreshing),
+
+    ok.
+
+t_double_unregister(_Config) ->
+    ListenerID = <<"ssl:test_ocsp">>,
+    Conf = emqx_config:get_listener_conf(ssl, test_ocsp, []),
+    ?check_trace(
+        begin
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:register_listener(ListenerID, Conf),
+                    #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID},
+                    5_000
+                ),
+            assert_http_get(1),
+
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:unregister_listener(ListenerID),
+                    #{?snk_kind := ocsp_cache_listener_unregistered, listener_id := ListenerID},
+                    5_000
+                ),
+
+            %% Should be idempotent and not crash
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ocsp_cache:unregister_listener(ListenerID),
+                    #{?snk_kind := ocsp_cache_listener_unregistered, listener_id := ListenerID},
+                    5_000
+                ),
+            ok
+        end,
+        []
+    ),
+
     ok.
 
 t_ocsp_responder_error_responses(_Config) ->
@@ -824,7 +893,7 @@ do_t_validations(_Config) ->
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
     ListenerData1 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -833,7 +902,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -845,11 +914,11 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
 
     ListenerData2 =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -863,7 +932,7 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw2}} = update_listener_via_api(ListenerId, ListenerData2),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw2} =
-        emqx_json:decode(ResRaw2, [return_maps]),
+        emqx_utils_json:decode(ResRaw2, [return_maps]),
     ?assertMatch(
         #{
             <<"mismatches">> :=
@@ -875,11 +944,11 @@ do_t_validations(_Config) ->
                         }
                 }
         },
-        emqx_json:decode(MsgRaw2, [return_maps])
+        emqx_utils_json:decode(MsgRaw2, [return_maps])
     ),
 
     ListenerData3a =
-        emqx_map_lib:deep_merge(
+        emqx_utils_maps:deep_merge(
             ListenerData0,
             #{
                 <<"ssl_options">> =>
@@ -892,24 +961,17 @@ do_t_validations(_Config) ->
                     }
             }
         ),
-    ListenerData3 = emqx_map_lib:deep_remove([<<"ssl_options">>, <<"certfile">>], ListenerData3a),
+    ListenerData3 = emqx_utils_maps:deep_remove(
+        [<<"ssl_options">>, <<"certfile">>], ListenerData3a
+    ),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
-        emqx_json:decode(ResRaw3, [return_maps]),
+        emqx_utils_json:decode(ResRaw3, [return_maps]),
+    %% we can't remove certfile now, because it has default value.
     ?assertMatch(
-        #{
-            <<"mismatches">> :=
-                #{
-                    <<"listeners:ssl_not_required_bind">> :=
-                        #{
-                            <<"reason">> :=
-                                <<"Server certificate must be defined when using OCSP stapling">>
-                        }
-                }
-        },
-        emqx_json:decode(MsgRaw3, [return_maps])
+        <<"{bad_ssl_config,#{file_read => enoent,pem_check => invalid_pem", _/binary>>,
+        MsgRaw3
     ),
-
     ok.
 
 t_unknown_error_fetching_ocsp_response(_Config) ->

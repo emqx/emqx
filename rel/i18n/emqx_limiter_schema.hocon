@@ -1,0 +1,115 @@
+emqx_limiter_schema {
+
+max_conn_rate.desc:
+"""Maximum connection rate.<br/>
+This is used to limit the connection rate for this node,
+once the limit is reached, new connections will be deferred or refused"""
+max_conn_rate.label:
+"""Maximum Connection Rate"""
+
+messages_rate.desc:
+"""Messages publish rate.<br/>
+This is used to limit the inbound message numbers for this node,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+messages_rate.label:
+"""Messages Publish Rate"""
+
+bytes_rate.desc:
+"""Data publish rate.<br/>
+This is used to limit the inbound bytes rate for this node,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+bytes_rate.label:
+"""Data Publish Rate"""
+
+bucket_cfg.desc:
+"""Bucket Configs"""
+
+bucket_cfg.label:
+"""Buckets"""
+
+burst.desc:
+"""The burst, This value is based on rate.<br/>
+ This value + rate = the maximum limit that can be achieved when limiter burst."""
+
+burst.label:
+"""Burst"""
+
+bytes.desc:
+"""The `bytes` limiter.
+This is used to limit the inbound bytes rate for this EMQX node.
+Once the limit is reached, the restricted client will be slow down even be hung for a while."""
+
+bytes.label:
+"""Bytes"""
+
+client.desc:
+"""The rate limit for each user of the bucket"""
+
+client.label:
+"""Per Client"""
+
+connection.desc:
+"""The connection limiter.
+This is used to limit the connection rate for this EMQX node.
+Once the limit is reached, new connections will be refused"""
+
+connection.label:
+"""Connection"""
+
+divisible.desc:
+"""Is it possible to split the number of requested tokens?"""
+
+divisible.label:
+"""Divisible"""
+
+failure_strategy.desc:
+"""The strategy when all the retries failed."""
+
+failure_strategy.label:
+"""Failure Strategy"""
+
+initial.desc:
+"""The initial number of tokens for this bucket."""
+
+initial.label:
+"""Initial"""
+
+internal.desc:
+"""Limiter for EMQX internal app."""
+
+low_watermark.desc:
+"""If the remaining tokens are lower than this value,
+the check/consume will succeed, but it will be forced to wait for a short period of time."""
+
+low_watermark.label:
+"""Low Watermark"""
+
+max_retry_time.desc:
+"""The maximum retry time when acquire failed."""
+
+max_retry_time.label:
+"""Max Retry Time"""
+
+message_routing.desc:
+"""The message routing limiter.
+This is used to limit the forwarding rate for this EMQX node.
+Once the limit is reached, new publish will be refused"""
+
+message_routing.label:
+"""Message Routing"""
+
+messages.desc:
+"""The `messages` limiter.
+This is used to limit the inbound message numbers for this EMQX node
+Once the limit is reached, the restricted client will be slow down even be hung for a while."""
+
+messages.label:
+"""Messages"""
+
+rate.desc:
+"""Rate for this bucket."""
+
+rate.label:
+"""Rate"""
+
+}

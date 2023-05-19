@@ -1,0 +1,50 @@
+emqx_connector_redis {
+
+cluster.desc:
+"""Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""
+
+cluster.label:
+"""Cluster Mode"""
+
+database.desc:
+"""Redis database ID."""
+
+database.label:
+"""Database ID"""
+
+sentinel.desc:
+"""Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode."""
+
+sentinel.label:
+"""Sentinel Mode"""
+
+sentinel_desc.desc:
+"""The cluster name in Redis sentinel mode."""
+
+sentinel_desc.label:
+"""Cluster Name"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The Redis default port 6379 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+servers.desc:
+"""A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
+For each Node should be: The IPv4 or IPv6 address or the hostname to connect to.
+A host entry has the following form: `Host[:Port]`.
+The Redis default port 6379 is used if `[:Port]` is not specified."""
+
+servers.label:
+"""Servers"""
+
+single.desc:
+"""Single mode. Must be set to 'single' when Redis server is running in single mode."""
+
+single.label:
+"""Single Mode"""
+
+}

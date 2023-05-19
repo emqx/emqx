@@ -1,0 +1,65 @@
+emqx_gateway_api_listeners {
+
+add_listener.desc:
+"""Create the gateway listener.<br/>
+Note: For listener types not supported by a gateway, this API returns `400: BAD_REQUEST`."""
+
+add_listener_authn.desc:
+"""Enable authenticator for specified listener for client authentication.<br/>
+When authenticator is enabled for a listener, all clients connecting to that listener will use that authenticator for authentication."""
+
+add_user.desc:
+"""Add user for the authenticator (only supports built_in_database)"""
+
+current_connections.desc:
+"""Current Connections"""
+
+delete_listener.desc:
+"""Delete the gateway listener. All connected clients under the deleted listener will be disconnected."""
+
+delete_listener_authn.desc:
+"""Remove authenticator for the listener."""
+
+delete_user.desc:
+"""Delete the user for the gateway authenticator (only supports built_in_database)"""
+
+get_listener.desc:
+"""Get the gateway listener configs"""
+
+get_listener_authn.desc:
+"""Get the listener's authenticator configs."""
+
+get_user.desc:
+"""Get user info from the gateway authenticator (only supports built_in_database)"""
+
+import_users.desc:
+"""Import users into the gateway authenticator (only supports built_in_database)"""
+
+list_listeners.desc:
+"""Gets a list of gateway listeners. This interface returns all the configs of the listener (including the authenticator on that listener), as well as the status of that listener running in the cluster."""
+
+list_users.desc:
+"""Get the users for the authenticator (only supported by <code>built_in_database</code>)"""
+
+listener_id.desc:
+"""Listener ID"""
+
+listener_node_status.desc:
+"""listener status of each node in the cluster"""
+
+listener_status.desc:
+"""listener status"""
+
+node.desc:
+"""Node Name"""
+
+update_listener.desc:
+"""Update the gateway listener. The listener being updated performs a restart and all clients connected to that listener will be disconnected."""
+
+update_listener_authn.desc:
+"""Update authenticator configs for the listener, or disable/enable it."""
+
+update_user.desc:
+"""Update the user info for the gateway authenticator (only supports built_in_database)"""
+
+}

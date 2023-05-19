@@ -101,3 +101,21 @@ t_expired_detecting(_) ->
             ets:tab2list(emqx_flapping)
         )
     ).
+
+t_conf_without_window_time(_) ->
+    %% enable is deprecated, so we need to make sure it won't be used.
+    Global = emqx_config:get([flapping_detect]),
+    ?assertNot(maps:is_key(enable, Global)),
+    %% zones don't have default value, so we need to make sure fallback to global conf.
+    %% this new_zone will fallback to global conf.
+    emqx_config:put_zone_conf(new_zone, [flapping_detect], #{}),
+    ?assertEqual(Global, get_policy(new_zone)),
+
+    emqx_config:put_zone_conf(new_zone_1, [flapping_detect], #{window_time => 100}),
+    ?assertEqual(100, emqx_flapping:get_policy(window_time, new_zone_1)),
+    ?assertEqual(maps:get(ban_time, Global), emqx_flapping:get_policy(ban_time, new_zone_1)),
+    ?assertEqual(maps:get(max_count, Global), emqx_flapping:get_policy(max_count, new_zone_1)),
+    ok.
+
+get_policy(Zone) ->
+    emqx_flapping:get_policy([window_time, ban_time, max_count], Zone).

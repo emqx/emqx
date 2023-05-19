@@ -46,6 +46,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     application:load(emqx),
+    emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_config:delete_override_conf_files(),
     emqx_config:erase(gateway),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
@@ -163,7 +164,7 @@ t_gateway_stomp(_) ->
     {204, _} = request(put, "/gateways/stomp", GwConf),
     {200, ConfResp} = request(get, "/gateways/stomp"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{frame => #{max_headers => 10}}),
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{frame => #{max_headers => 10}}),
     {204, _} = request(put, "/gateways/stomp", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateways/stomp"),
     assert_confs(GwConf2, ConfResp2),
@@ -185,7 +186,7 @@ t_gateway_mqttsn(_) ->
     {204, _} = request(put, "/gateways/mqttsn", GwConf),
     {200, ConfResp} = request(get, "/gateways/mqttsn"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{predefined => []}),
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{predefined => []}),
     {204, _} = request(put, "/gateways/mqttsn", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateways/mqttsn"),
     assert_confs(GwConf2, ConfResp2),
@@ -205,7 +206,7 @@ t_gateway_coap(_) ->
     {204, _} = request(put, "/gateways/coap", GwConf),
     {200, ConfResp} = request(get, "/gateways/coap"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{heartbeat => <<"10s">>}),
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{heartbeat => <<"10s">>}),
     {204, _} = request(put, "/gateways/coap", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateways/coap"),
     assert_confs(GwConf2, ConfResp2),
@@ -214,9 +215,17 @@ t_gateway_coap(_) ->
 t_gateway_lwm2m(_) ->
     {200, Gw} = request(get, "/gateways/lwm2m"),
     assert_gw_unloaded(Gw),
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_gateway_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
     GwConf = #{
         name => <<"lwm2m">>,
-        xml_dir => <<"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml">>,
+        xml_dir => list_to_binary(XmlDir),
         lifetime_min => <<"1s">>,
         lifetime_max => <<"1000s">>,
         qmode_time_window => <<"30s">>,
@@ -235,7 +244,7 @@ t_gateway_lwm2m(_) ->
     {204, _} = request(put, "/gateways/lwm2m", GwConf),
     {200, ConfResp} = request(get, "/gateways/lwm2m"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{qmode_time_window => <<"10s">>}),
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{qmode_time_window => <<"10s">>}),
     {204, _} = request(put, "/gateways/lwm2m", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateways/lwm2m"),
     assert_confs(GwConf2, ConfResp2),
@@ -255,7 +264,7 @@ t_gateway_exproto(_) ->
     {204, _} = request(put, "/gateways/exproto", GwConf),
     {200, ConfResp} = request(get, "/gateways/exproto"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
     {204, _} = request(put, "/gateways/exproto", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateways/exproto"),
     assert_confs(GwConf2, ConfResp2),
@@ -284,7 +293,7 @@ t_gateway_exproto_with_ssl(_) ->
     {204, _} = request(put, "/gateways/exproto", GwConf),
     {200, ConfResp} = request(get, "/gateways/exproto"),
     assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{
+    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{
         server => #{
             bind => <<"9200">>,
             ssl_options => SslCliOpts

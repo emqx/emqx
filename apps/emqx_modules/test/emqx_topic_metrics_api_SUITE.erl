@@ -40,10 +40,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
-        raw_with_default => true
-    }),
-
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_modules]
     ),
@@ -74,7 +71,7 @@ t_mqtt_topic_metrics_collection(_) ->
 
     ?assertEqual(
         [],
-        jsx:decode(Result0)
+        emqx_utils_json:decode(Result0)
     ),
 
     {ok, 200, _} = request(
@@ -95,7 +92,7 @@ t_mqtt_topic_metrics_collection(_) ->
                 <<"metrics">> := #{}
             }
         ],
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -150,7 +147,7 @@ t_mqtt_topic_metrics(_) ->
         uri(["mqtt", "topic_metrics"])
     ),
 
-    ?assertMatch([_], jsx:decode(Result0)),
+    ?assertMatch([_], emqx_utils_json:decode(Result0)),
 
     {ok, 200, Result1} = request(
         get,
@@ -162,7 +159,7 @@ t_mqtt_topic_metrics(_) ->
             <<"topic">> := <<"topic/1/2">>,
             <<"metrics">> := #{}
         },
-        jsx:decode(Result1)
+        emqx_utils_json:decode(Result1)
     ),
 
     ?assertMatch(
@@ -288,7 +285,7 @@ t_node_aggregation(_) ->
             <<"topic">> := <<"topic/1/2">>,
             <<"metrics">> := #{<<"messages.dropped.count">> := 3}
         },
-        jsx:decode(Result)
+        emqx_utils_json:decode(Result)
     ),
 
     meck:unload(emqx_topic_metrics_proto_v1).

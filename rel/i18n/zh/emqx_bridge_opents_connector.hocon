@@ -1,0 +1,20 @@
+emqx_bridge_opents_connector {
+
+    server.desc:
+        """服务器的地址。"""
+
+    server.label:
+        "服务器地址"
+
+    summary.desc:
+        """是否返回摘要信息。"""
+
+    summary.label:
+        "摘要信息"
+
+    details.desc:
+        """是否返回详细信息。"""
+
+    details.label:
+        "详细信息"
+}

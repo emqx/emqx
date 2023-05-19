@@ -1,0 +1,27 @@
+emqx_bridge_dynamo_connector {
+
+aws_access_key_id.desc:
+"""Access Key ID for connecting to DynamoDB."""
+
+aws_access_key_id.label:
+"""AWS Access Key ID"""
+
+aws_secret_access_key.desc:
+"""AWS Secret Access Key for connecting to DynamoDB."""
+
+aws_secret_access_key.label:
+"""AWS Secret Access Key"""
+
+table.desc:
+"""DynamoDB Table."""
+
+table.label:
+"""Table """
+
+url.desc:
+"""The url of DynamoDB endpoint."""
+
+url.label:
+"""DynamoDB Endpoint"""
+
+}

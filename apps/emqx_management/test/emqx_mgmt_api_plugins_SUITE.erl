@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(EMQX_PLUGIN_TEMPLATE_NAME, "emqx_plugin_template").
 -define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
@@ -89,6 +90,27 @@ t_plugins(Config) ->
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
+t_install_plugin_matching_exisiting_name(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePath = get_demo_plugin_package(DemoShDir),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    NameVsn1 = ?EMQX_PLUGIN_TEMPLATE_NAME ++ "_a" ++ "-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN,
+    PackagePath1 = create_renamed_package(PackagePath, NameVsn1),
+    NameVsn1 = filename:basename(PackagePath1, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn1),
+    ok = emqx_plugins:delete_package(NameVsn1),
+    %% First, install plugin "emqx_plugin_template_a", then:
+    %% "emqx_plugin_template" which matches the beginning
+    %% of the previously installed plugin name
+    ok = install_plugin(PackagePath1),
+    ok = install_plugin(PackagePath),
+    {ok, _} = describe_plugins(NameVsn),
+    {ok, _} = describe_plugins(NameVsn1),
+    {ok, _} = uninstall_plugin(NameVsn),
+    {ok, _} = uninstall_plugin(NameVsn1).
+
 t_bad_plugin(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePathOrig = get_demo_plugin_package(DemoShDir),
@@ -114,14 +136,14 @@ t_bad_plugin(Config) ->
 list_plugins() ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins"]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Apps} -> {ok, emqx_json:decode(Apps, [return_maps])};
+        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps, [return_maps])};
         Error -> Error
     end.
 
 describe_plugins(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -150,7 +172,7 @@ update_boot_order(Name, MoveBody) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", Name, "move"]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, MoveBody) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
@@ -160,9 +182,31 @@ uninstall_plugin(Name) ->
 
 get_demo_plugin_package(Dir) ->
     #{package := Pkg} = emqx_plugins_SUITE:get_demo_plugin_package(),
-    FileName = "emqx_plugin_template-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
+    FileName = ?EMQX_PLUGIN_TEMPLATE_NAME ++ "-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
     PluginPath = "./" ++ FileName,
     Pkg = filename:join([Dir, FileName]),
     _ = os:cmd("cp " ++ Pkg ++ " " ++ PluginPath),
     true = filelib:is_regular(PluginPath),
     PluginPath.
+
+create_renamed_package(PackagePath, NewNameVsn) ->
+    {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
+    {ok, NewName, _Vsn} = emqx_plugins:parse_name_vsn(NewNameVsn),
+    NewNameB = atom_to_binary(NewName, utf8),
+    Content1 = lists:map(
+        fun({F, B}) ->
+            [_ | PathPart] = filename:split(F),
+            B1 = update_release_json(PathPart, B, NewNameB),
+            {filename:join([NewNameVsn | PathPart]), B1}
+        end,
+        Content
+    ),
+    NewPackagePath = filename:join(filename:dirname(PackagePath), NewNameVsn ++ ?PACKAGE_SUFFIX),
+    ok = erl_tar:create(NewPackagePath, Content1, [compressed]),
+    NewPackagePath.
+
+update_release_json(["release.json"], FileContent, NewName) ->
+    ContentMap = emqx_utils_json:decode(FileContent, [return_maps]),
+    emqx_utils_json:encode(ContentMap#{<<"name">> => NewName});
+update_release_json(_FileName, FileContent, _NewName) ->
+    FileContent.

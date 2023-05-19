@@ -33,7 +33,6 @@ init_per_suite(Config) ->
     mria:start(),
     application:load(emqx_dashboard),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -61,7 +60,7 @@ t_object(_Config) ->
                             #{
                                 <<"schema">> =>
                                     #{
-                                        required => [<<"timeout">>, <<"per_page">>],
+                                        required => [<<"per_page">>, <<"timeout">>],
                                         <<"properties">> => [
                                             {<<"per_page">>, #{
                                                 description => <<"good per page desc">>,
@@ -308,8 +307,8 @@ t_nest_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{mfa := {?MODULE, schema, [Path]}}},
+    ?assertError(
+        {failed_to_generate_swagger_spec, ?MODULE, Path},
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
     ),
     ok.

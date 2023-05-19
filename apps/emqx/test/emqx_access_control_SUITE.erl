@@ -116,7 +116,6 @@ clientinfo(InitProps) ->
             username => <<"username">>,
             password => <<"passwd">>,
             is_superuser => false,
-            peercert => undefined,
             mountpoint => undefined
         },
         InitProps

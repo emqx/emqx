@@ -1,0 +1,20 @@
+emqx_mgmt_api_key_schema {
+
+api_key.desc:
+"""API Key, can be used to request API other than the management API key and the Dashboard user management API"""
+
+api_key.label:
+"""API Key"""
+
+bootstrap_file.desc:
+"""Bootstrap file is used to add an api_key when emqx is launched,
+      the format is:
+       ```
+       7e729ae70d23144b:2QILI9AcQ9BYlVqLDHQNWN2saIjBV4egr1CZneTNKr9CpK
+       ec3907f865805db0:Ee3taYltUKtoBVD9C3XjQl9C6NXheip8Z9B69BpUv5JxVHL
+       ```"""
+
+bootstrap_file.label:
+"""Initialize api_key file."""
+
+}

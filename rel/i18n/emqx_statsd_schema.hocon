@@ -1,0 +1,30 @@
+emqx_statsd_schema {
+
+enable.desc:
+"""Enable or disable StatsD metrics collection and push service."""
+
+flush_interval.desc:
+"""The push interval for metrics."""
+
+get_statsd_config_api.desc:
+"""List the configuration of StatsD metrics collection and push service."""
+
+sample_interval.desc:
+"""The sampling interval for metrics."""
+
+server.desc:
+"""StatsD server address."""
+
+statsd.desc:
+"""StatsD metrics collection and push configuration."""
+
+statsd.label:
+"""StatsD"""
+
+tags.desc:
+"""The tags for metrics."""
+
+update_statsd_config_api.desc:
+"""Update the configuration of StatsD metrics collection and push service."""
+
+}

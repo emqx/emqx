@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -45,25 +46,7 @@
 ]).
 
 -export([lookup_from_local_node/2]).
-
-%% [TODO] Move those to a commonly shared header file
--define(ERROR_MSG(CODE, REASON), #{code => CODE, message => emqx_misc:readable_error_msg(REASON)}).
-
--define(OK(CONTENT), {200, CONTENT}).
-
--define(NO_CONTENT, 204).
-
--define(BAD_REQUEST(CODE, REASON), {400, ?ERROR_MSG(CODE, REASON)}).
--define(BAD_REQUEST(REASON), ?BAD_REQUEST('BAD_REQUEST', REASON)).
-
--define(NOT_FOUND(REASON), {404, ?ERROR_MSG('NOT_FOUND', REASON)}).
-
--define(INTERNAL_ERROR(REASON), {500, ?ERROR_MSG('INTERNAL_ERROR', REASON)}).
-
--define(NOT_IMPLEMENTED, 501).
-
--define(SERVICE_UNAVAILABLE(REASON), {503, ?ERROR_MSG('SERVICE_UNAVAILABLE', REASON)}).
-%% End TODO
+-export([get_metrics_from_local_node/2]).
 
 -define(BRIDGE_NOT_ENABLED,
     ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
@@ -71,17 +54,18 @@
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", (BRIDGE_NAME)/binary, "' of type ",
+        <<"Bridge lookup failed: bridge named '", (bin(BRIDGE_NAME))/binary, "' of type ",
             (bin(BRIDGE_TYPE))/binary, " does not exist.">>
     )
 ).
 
+%% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge_resource:parse_bridge_id(Id) of
+    try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
-        throw:{invalid_bridge_id, Reason} ->
+        throw:#{reason := Reason} ->
             ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
     end
 ).
@@ -236,8 +220,8 @@ info_example_basic(webhook) ->
             health_check_interval => 15000,
             auto_restart_interval => 15000,
             query_mode => async,
-            async_inflight_window => 100,
-            max_queue_bytes => 100 * 1024 * 1024
+            inflight_window => 100,
+            max_buffer_bytes => 100 * 1024 * 1024
         }
     };
 info_example_basic(mqtt) ->
@@ -253,7 +237,7 @@ mqtt_main_example() ->
         server => <<"127.0.0.1:1883">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,
-        password => <<"bar">>,
+        password => <<"******">>,
         clean_start => true,
         keepalive => <<"300s">>,
         retry_interval => <<"15s">>,
@@ -262,7 +246,7 @@ mqtt_main_example() ->
             health_check_interval => <<"15s">>,
             auto_restart_interval => <<"60s">>,
             query_mode => sync,
-            max_queue_bytes => 100 * 1024 * 1024
+            max_buffer_bytes => 100 * 1024 * 1024
         },
         ssl => #{
             enable => false
@@ -439,7 +423,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
         'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Stop/Restart bridge">>,
+            summary => <<"Stop/restart bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -482,12 +466,11 @@ schema("/bridges_probe") ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
         {error, not_found} ->
             Conf = filter_out_request_body(Conf0),
-            {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
-            lookup_from_all_nodes(BridgeType, BridgeName, 201)
+            create_bridge(BridgeType, BridgeName, Conf)
     end;
 '/bridges'(get, _Params) ->
     Nodes = mria:running_nodes(),
-    NodeReplies = emqx_bridge_proto_v3:list_bridges_on_nodes(Nodes),
+    NodeReplies = emqx_bridge_proto_v4:list_bridges_on_nodes(Nodes),
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
             AllBridges = [
@@ -509,8 +492,7 @@ schema("/bridges_probe") ->
             {ok, _} ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
-                {ok, _} = emqx_bridge:create(BridgeType, BridgeName, Conf),
-                lookup_from_all_nodes(BridgeType, BridgeName, 200);
+                update_bridge(BridgeType, BridgeName, Conf);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
@@ -545,7 +527,7 @@ schema("/bridges_probe") ->
     ).
 
 '/bridges/:id/metrics'(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, lookup_from_all_nodes_metrics(BridgeType, BridgeName, 200)).
+    ?TRY_PARSE_ID(Id, get_metrics_from_all_nodes(BridgeType, BridgeName)).
 
 '/bridges/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
@@ -566,6 +548,8 @@ schema("/bridges_probe") ->
             case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     ?NO_CONTENT;
+                {error, #{kind := validation_error} = Reason} ->
+                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
                 {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
                     ?BAD_REQUEST('TEST_FAILED', Reason)
             end;
@@ -585,19 +569,21 @@ maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeN
 maybe_deobfuscate_bridge_probe(Params) ->
     Params.
 
-lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    FormatFun = fun format_bridge_info/1,
-    do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun).
-
-lookup_from_all_nodes_metrics(BridgeType, BridgeName, SuccCode) ->
-    FormatFun = fun format_bridge_metrics/1,
-    do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun).
-
-do_lookup_from_all_nodes(BridgeType, BridgeName, SuccCode, FormatFun) ->
+get_metrics_from_all_nodes(BridgeType, BridgeName) ->
     Nodes = mria:running_nodes(),
-    case is_ok(emqx_bridge_proto_v3:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
+    Result = do_bpapi_call(all, get_metrics_from_all_nodes, [Nodes, BridgeType, BridgeName]),
+    case Result of
+        Metrics when is_list(Metrics) ->
+            {200, format_bridge_metrics(lists:zip(Nodes, Metrics))};
+        {error, Reason} ->
+            ?INTERNAL_ERROR(Reason)
+    end.
+
+lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
+    Nodes = mria:running_nodes(),
+    case is_ok(emqx_bridge_proto_v4:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
-            {SuccCode, FormatFun([R || {ok, R} <- Results])};
+            {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
@@ -609,6 +595,23 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error
     end.
+
+create_bridge(BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(BridgeType, BridgeName, Conf, 201).
+
+update_bridge(BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
+
+create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+    case emqx_bridge:create(BridgeType, BridgeName, Conf) of
+        {ok, _} ->
+            lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
+        {error, #{kind := validation_error} = Reason} ->
+            ?BAD_REQUEST(map_to_json(Reason))
+    end.
+
+get_metrics_from_local_node(BridgeType, BridgeName) ->
+    format_metrics(emqx_bridge:get_metrics(BridgeType, BridgeName)).
 
 '/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
@@ -669,7 +672,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                     false ->
                         ?BRIDGE_NOT_ENABLED;
                     true ->
-                        case emqx_misc:safe_to_existing_atom(Node, utf8) of
+                        case emqx_utils:safe_to_existing_atom(Node, utf8) of
                             {ok, TargetNode} ->
                                 call_operation(TargetNode, OperFunc, [
                                     TargetNode, BridgeType, BridgeName
@@ -746,7 +749,7 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
     ).
 
 format_bridge_info([FirstBridge | _] = Bridges) ->
-    Res = maps:without([node, metrics], FirstBridge),
+    Res = maps:remove(node, FirstBridge),
     NodeStatus = node_status(Bridges),
     redact(Res#{
         status => aggregate_status(NodeStatus),
@@ -773,7 +776,7 @@ aggregate_status(AllStatus) ->
     end.
 
 collect_metrics(Bridges) ->
-    [maps:with([node, metrics], B) || B <- Bridges].
+    [#{node => Node, metrics => Metrics} || {Node, Metrics} <- Bridges].
 
 aggregate_metrics(AllMetrics) ->
     InitMetrics = ?EMPTY_METRICS,
@@ -807,9 +810,7 @@ aggregate_metrics(
         M15 + N15,
         M16 + N16,
         M17 + N17
-    );
-aggregate_metrics(#{}, Metrics) ->
-    Metrics.
+    ).
 
 format_resource(
     #{
@@ -833,62 +834,56 @@ format_resource(
     ).
 
 format_resource_data(ResData) ->
-    maps:fold(fun format_resource_data/3, #{}, maps:with([status, metrics, error], ResData)).
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], ResData)).
 
 format_resource_data(error, undefined, Result) ->
     Result;
 format_resource_data(error, Error, Result) ->
-    Result#{status_reason => emqx_misc:readable_error_msg(Error)};
-format_resource_data(
-    metrics,
-    #{
-        counters := #{
-            'dropped' := Dropped,
-            'dropped.other' := DroppedOther,
-            'dropped.expired' := DroppedExpired,
-            'dropped.queue_full' := DroppedQueueFull,
-            'dropped.resource_not_found' := DroppedResourceNotFound,
-            'dropped.resource_stopped' := DroppedResourceStopped,
-            'matched' := Matched,
-            'retried' := Retried,
-            'late_reply' := LateReply,
-            'failed' := SentFailed,
-            'success' := SentSucc,
-            'received' := Rcvd
-        },
-        gauges := Gauges,
-        rate := #{
-            matched := #{current := Rate, last5m := Rate5m, max := RateMax}
-        }
-    },
-    Result
-) ->
-    Queued = maps:get('queuing', Gauges, 0),
-    SentInflight = maps:get('inflight', Gauges, 0),
-    Result#{
-        metrics =>
-            ?METRICS(
-                Dropped,
-                DroppedOther,
-                DroppedExpired,
-                DroppedQueueFull,
-                DroppedResourceNotFound,
-                DroppedResourceStopped,
-                Matched,
-                Queued,
-                Retried,
-                LateReply,
-                SentFailed,
-                SentInflight,
-                SentSucc,
-                Rate,
-                Rate5m,
-                RateMax,
-                Rcvd
-            )
-    };
+    Result#{status_reason => emqx_utils:readable_error_msg(Error)};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
+
+format_metrics(#{
+    counters := #{
+        'dropped' := Dropped,
+        'dropped.other' := DroppedOther,
+        'dropped.expired' := DroppedExpired,
+        'dropped.queue_full' := DroppedQueueFull,
+        'dropped.resource_not_found' := DroppedResourceNotFound,
+        'dropped.resource_stopped' := DroppedResourceStopped,
+        'matched' := Matched,
+        'retried' := Retried,
+        'late_reply' := LateReply,
+        'failed' := SentFailed,
+        'success' := SentSucc,
+        'received' := Rcvd
+    },
+    gauges := Gauges,
+    rate := #{
+        matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+    }
+}) ->
+    Queued = maps:get('queuing', Gauges, 0),
+    SentInflight = maps:get('inflight', Gauges, 0),
+    ?METRICS(
+        Dropped,
+        DroppedOther,
+        DroppedExpired,
+        DroppedQueueFull,
+        DroppedResourceNotFound,
+        DroppedResourceStopped,
+        Matched,
+        Queued,
+        Retried,
+        LateReply,
+        SentFailed,
+        SentInflight,
+        SentSucc,
+        Rate,
+        Rate5m,
+        RateMax,
+        Rcvd
+    ).
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_bridge_conf(Type, RawConf),
@@ -898,10 +893,17 @@ fill_defaults(Type, RawConf) ->
 pack_bridge_conf(Type, RawConf) ->
     #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-unpack_bridge_conf(Type, PackedConf) ->
-    #{<<"bridges">> := Bridges} = PackedConf,
-    #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
+%% Hide webhook's resource_opts.request_timeout from user.
+filter_raw_conf(<<"webhook">>, RawConf0) ->
+    emqx_utils_maps:deep_remove([<<"resource_opts">>, <<"request_timeout">>], RawConf0);
+filter_raw_conf(_TypeBin, RawConf) ->
     RawConf.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"bridges">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    filter_raw_conf(TypeBin, RawConf).
 
 is_ok(ok) ->
     ok;
@@ -930,7 +932,7 @@ filter_out_request_body(Conf) ->
         <<"type">>,
         <<"name">>,
         <<"status">>,
-        <<"error">>,
+        <<"status_reason">>,
         <<"node_status">>,
         <<"node_metrics">>,
         <<"metrics">>,
@@ -997,7 +999,7 @@ do_bpapi_call(Node, Call, Args) ->
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
     case lists:member(SupportedVersion, supported_versions(Call)) of
         true ->
-            apply(emqx_bridge_proto_v3, Call, Args);
+            apply(emqx_bridge_proto_v4, Call, Args);
         false ->
             {error, not_implemented}
     end.
@@ -1007,12 +1009,13 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> [2, 3];
-supported_versions(start_bridges_to_all_nodes) -> [2, 3];
-supported_versions(_Call) -> [1, 2, 3].
+supported_versions(start_bridge_to_node) -> [2, 3, 4];
+supported_versions(start_bridges_to_all_nodes) -> [2, 3, 4];
+supported_versions(get_metrics_from_all_nodes) -> [4];
+supported_versions(_Call) -> [1, 2, 3, 4].
 
 redact(Term) ->
-    emqx_misc:redact(Term).
+    emqx_utils:redact(Term).
 
 deobfuscate(NewConf, OldConf) ->
     maps:fold(
@@ -1023,7 +1026,7 @@ deobfuscate(NewConf, OldConf) ->
                 {ok, OldV} when is_map(V), is_map(OldV) ->
                     Acc#{K => deobfuscate(V, OldV)};
                 {ok, OldV} ->
-                    case emqx_misc:is_redacted(K, V) of
+                    case emqx_utils:is_redacted(K, V) of
                         true ->
                             Acc#{K => OldV};
                         _ ->
@@ -1033,4 +1036,9 @@ deobfuscate(NewConf, OldConf) ->
         end,
         #{},
         NewConf
+    ).
+
+map_to_json(M) ->
+    emqx_utils_json:encode(
+        emqx_utils_maps:jsonable_map(M, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end)
     ).

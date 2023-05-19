@@ -32,7 +32,8 @@
 
 namespace() -> "statsd".
 
-roots() -> ["statsd"].
+roots() ->
+    [{"statsd", hoconsc:mk(hoconsc:ref(?MODULE, "statsd"), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields("statsd") ->
     [

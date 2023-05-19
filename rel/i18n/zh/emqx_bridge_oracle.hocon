@@ -1,0 +1,51 @@
+emqx_bridge_oracle {
+
+  local_topic {
+    desc = "发送到 'local_topic' 的消息都会转发到 Oracle Database。 </br>"
+           "注意：如果这个 Bridge 被用作规则（EMQX 规则引擎）的输出，同时也配置了 'local_topic' ，那么这两部分的消息都会被转发。"
+    label = "本地 Topic"
+  }
+
+  sql_template {
+    desc = "SQL模板。模板字符串可以包含消息元数据和有效载荷字段的占位符。占位符"
+           "的插入不需要任何检查和特殊格式化，因此必须确保插入的数值格式化和转义正确。模板字符串可以包含占位符"
+           "模板字符串可以包含消息元数据和有效载荷字段的占位符。这些占位符被插入"
+           "所以必须确保插入的值的格式正确。因此，确保插入的值格式化和转义正确是非常重要的。模板字符串可以包含占位符"
+           "模板字符串可以包含消息元数据和有效载荷字段的占位符。这些占位符被插入"
+           "所以必须确保插入的值的格式正确。确保插入的值被正确地格式化和转义。"
+    label = "SQL 模板"
+  }
+
+  server {
+    desc = "将要连接的 IPv4 或 IPv6 地址，或者主机名。<br/>"
+           "主机名具有以下形式：`Host[:Port]`。<br/>"
+           "如果未指定 `[:Port]`，则使用 Oracle Database 默认端口 1521。"
+    label = "服务器地址"
+  }
+
+  sid {
+    desc = "Oracle Database Sid 名称"
+    label = "Oracle Database Sid"
+  }
+
+  config_enable {
+    desc = "启用/禁用桥接"
+    label = "启用/禁用桥接"
+  }
+
+  desc_config {
+    desc = "Oracle Database 桥接配置"
+    label = "Oracle Database 桥接配置"
+  }
+
+  desc_type {
+    desc = "Bridge 类型"
+    label = "桥接类型"
+  }
+
+  desc_name {
+    desc = "桥接名字"
+    label = "桥接名字"
+  }
+
+}

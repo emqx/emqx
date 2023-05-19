@@ -1,0 +1,170 @@
+emqx_connector_mqtt_schema {
+
+bridge_mode.desc:
+"""是否启用 Bridge Mode。
+注意：此设置只针对 MQTT 协议版本 < 5.0 有效，并且需要远程 MQTT Broker 支持 Bridge Mode。
+如果设置为 true ，桥接会告诉远端服务器当前连接是一个桥接而不是一个普通的客户端。
+这意味着消息回环检测会更加高效，并且远端服务器收到的保留消息的标志位会透传给本地。"""
+
+bridge_mode.label:
+"""Bridge 模式"""
+
+clean_start.desc:
+"""与 ingress MQTT 桥的远程服务器重连时是否清除老的 MQTT 会话。"""
+
+clean_start.label:
+"""清除会话"""
+
+clientid_prefix.desc:
+"""可选的前缀，用于在出口网桥使用的clientid前加上前缀。"""
+
+clientid_prefix.label:
+"""客户ID前缀"""
+
+egress_desc.desc:
+"""出口配置定义了该桥接如何将消息从本地 Broker 转发到远程 Broker。
+以下字段中允许使用带有变量的模板：'remote.topic', 'local.qos', 'local.retain', 'local.payload'。<br/>
+注意：如果此桥接被用作规则的动作，并且配置了 'local.topic'，则从规则输出的数据以及匹配到 'local.topic' 的 MQTT 消息都会被转发。"""
+
+egress_desc.label:
+"""出方向配置"""
+
+egress_local.desc:
+"""如何从本地 Broker 接收消息相关的配置。"""
+
+egress_local.label:
+"""本地配置"""
+
+egress_local_topic.desc:
+"""要转发到远程broker的本地主题"""
+
+egress_local_topic.label:
+"""本地主题"""
+
+egress_remote.desc:
+"""发送消息到远程 Broker 相关的配置。"""
+
+egress_remote.label:
+"""远程配置"""
+
+egress_remote_qos.desc:
+"""待发送 MQTT 消息的 QoS。<br/>
+允许使用带有变量的模板。"""
+
+egress_remote_qos.label:
+"""远程 QoS"""
+
+egress_remote_topic.desc:
+"""转发到远程broker的哪个topic。<br/>
+允许使用带有变量的模板。"""
+
+egress_remote_topic.label:
+"""远程主题"""
+
+ingress_desc.desc:
+"""入口配置定义了该桥接如何从远程 MQTT Broker 接收消息，然后将消息发送到本地 Broker。<br/>
+        以下字段中允许使用带有变量的模板：'remote.qos', 'local.topic', 'local.qos', 'local.retain', 'local.payload'。<br/>
+        注意：如果此桥接被用作规则的输入，并且配置了 'local.topic'，则从远程代理获取的消息将同时被发送到 'local.topic' 和规则。"""
+
+ingress_desc.label:
+"""入方向配置"""
+
+ingress_local.desc:
+"""发送消息到本地 Broker 相关的配置。"""
+
+ingress_local.label:
+"""本地配置"""
+
+ingress_local_qos.desc:
+"""待发送 MQTT 消息的 QoS。<br/>
+允许使用带有变量的模板。"""
+
+ingress_local_qos.label:
+"""本地 QoS"""
+
+ingress_local_topic.desc:
+"""向本地broker的哪个topic发送消息。<br/>
+允许使用带有变量的模板。"""
+
+ingress_local_topic.label:
+"""本地主题"""
+
+ingress_remote.desc:
+"""订阅远程 Broker 相关的配置。"""
+
+ingress_remote.label:
+"""远程配置"""
+
+ingress_remote_qos.desc:
+"""订阅远程borker时要使用的 QoS 级别"""
+
+ingress_remote_qos.label:
+"""远程 QoS"""
+
+ingress_remote_topic.desc:
+"""从远程broker的哪个topic接收消息"""
+
+ingress_remote_topic.label:
+"""远程主题"""
+
+max_inflight.desc:
+"""MQTT 协议的最大飞行（已发送但未确认）消息"""
+
+max_inflight.label:
+"""最大飞行消息"""
+
+mode.desc:
+"""MQTT 桥的模式。 <br/>
+- cluster_shareload：在 emqx 集群的每个节点上创建一个 MQTT 连接。<br/>
+在“cluster_shareload”模式下，来自远程代理的传入负载通过共享订阅的方式接收。<br/>
+请注意，<code>clientid</code> 以节点名称为后缀，这是为了避免不同节点之间的 <code> clientid</code> 冲突。
+而且对于入口连接的 <code>remote.topic</code>，我们只能使用共享订阅主题过滤器。"""
+
+mode.label:
+"""MQTT 桥接模式"""
+
+password.desc:
+"""MQTT 协议的密码"""
+
+password.label:
+"""密码"""
+
+payload.desc:
+"""要发送的 MQTT 消息的负载。<br/>
+允许使用带有变量的模板。"""
+
+payload.label:
+"""消息负载"""
+
+proto_ver.desc:
+"""MQTT 协议版本"""
+
+proto_ver.label:
+"""协议版本"""
+
+retain.desc:
+"""要发送的 MQTT 消息的“保留”标志。<br/>
+允许使用带有变量的模板。"""
+
+retain.label:
+"""保留消息标志"""
+
+server.desc:
+"""远程 MQTT Broker的主机和端口。"""
+
+server.label:
+"""Broker主机和端口"""
+
+server_configs.desc:
+"""服务器相关的配置。"""
+
+server_configs.label:
+"""服务配置。"""
+
+username.desc:
+"""MQTT 协议的用户名"""
+
+username.label:
+"""用户名"""
+
+}

@@ -29,20 +29,15 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-type url() :: emqx_http_lib:uri_map().
+-reflect_type([url/0]).
+-typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:load(emqx_dashboard),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
-    emqx_dashboard:init_i18n(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
-    ok.
 
 end_per_suite(Config) ->
     end_suite(),
@@ -50,7 +45,7 @@ end_per_suite(Config) ->
 
 end_suite() ->
     application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_simple_binary(_config) ->
     Path = "/simple/bin",
@@ -67,7 +62,7 @@ t_object(_config) ->
                 <<"application/json">> =>
                     #{
                         <<"schema">> => #{
-                            required => [<<"timeout">>, <<"per_page">>],
+                            required => [<<"per_page">>, <<"timeout">>],
                             <<"properties">> => [
                                 {<<"per_page">>, #{
                                     description => <<"good per page desc">>,
@@ -286,11 +281,8 @@ t_bad_ref(_Config) ->
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow(
-        {error, #{
-            mfa := {?MODULE, schema, ["/ref/none"]},
-            reason := function_clause
-        }},
+    ?assertError(
+        {failed_to_generate_swagger_spec, ?MODULE, Path},
         validate(Path, #{}, [])
     ),
     ok.
@@ -326,7 +318,7 @@ t_sub_fields(_Config) ->
     ok.
 
 t_complicated_type(_Config) ->
-    Path = "/ref/complicated_type",
+    Path = "/ref/complex_type",
     Object = #{
         <<"content">> => #{
             <<"application/json">> =>
@@ -645,14 +637,14 @@ schema("/error") ->
             }
         }
     };
-schema("/ref/complicated_type") ->
+schema("/ref/complex_type") ->
     #{
         operationId => test,
         post => #{
             responses => #{
                 200 => [
                     {no_neg_integer, hoconsc:mk(non_neg_integer(), #{})},
-                    {url, hoconsc:mk(emqx_connector_http:url(), #{})},
+                    {url, hoconsc:mk(url(), #{})},
                     {server, hoconsc:mk(emqx_schema:ip_port(), #{})},
                     {connect_timeout, hoconsc:mk(emqx_connector_http:connect_timeout(), #{})},
                     {pool_type, hoconsc:mk(emqx_connector_http:pool_type(), #{})},

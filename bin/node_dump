@@ -10,10 +10,10 @@ echo "Running node dump in ${RUNNER_ROOT_DIR}"
 
 cd "${RUNNER_ROOT_DIR}"
 
-DUMP="$RUNNER_LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
-CONF_DUMP="$RUNNER_LOG_DIR/conf.dump"
-LICENSE_INFO="$RUNNER_LOG_DIR/license_info.txt"
-SYSINFO="$RUNNER_LOG_DIR/sysinfo.txt"
+DUMP="$EMQX_LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
+CONF_DUMP="$EMQX_LOG_DIR/conf.dump"
+LICENSE_INFO="$EMQX_LOG_DIR/license_info.txt"
+SYSINFO="$EMQX_LOG_DIR/sysinfo.txt"
 
 LOG_MAX_AGE_DAYS=3
 
@@ -49,7 +49,7 @@ done
 # Collect system info:
 {
     collect "$RUNNER_BIN_DIR"/emqx_ctl broker
-    collect "$RUNNER_BIN_DIR"/emqx eval-erl "'emqx_node_dump:sys_info()'"
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:sys_info()'"
 
     collect uname -a
     collect uptime
@@ -64,7 +64,7 @@ done
 
 # Collect information about the configuration:
 {
-    collect "$RUNNER_BIN_DIR"/emqx eval-erl "'emqx_node_dump:app_env_dump()'"
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:app_env_dump()'"
 } > "${CONF_DUMP}"
 
 # Collect license info:
@@ -74,7 +74,7 @@ done
 
 # Pack files
 {
-    find "$RUNNER_LOG_DIR" -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
+    find "$EMQX_LOG_DIR" -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
     echo "${SYSINFO}"
     echo "${CONF_DUMP}"
     echo "${LICENSE_INFO}"

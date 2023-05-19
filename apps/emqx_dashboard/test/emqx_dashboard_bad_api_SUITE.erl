@@ -31,15 +31,10 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-end_per_suite(Config) ->
-    end_suite(),
-    Config.
-
-end_suite() ->
+end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_bad_api_path(_) ->

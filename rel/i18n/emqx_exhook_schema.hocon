@@ -1,0 +1,45 @@
+emqx_exhook_schema {
+
+auto_reconnect.desc:
+"""Whether to automatically reconnect (initialize) the gRPC server.
+When gRPC is not available, Exhook tries to request the gRPC service at that interval and reinitialize the list of mounted hooks."""
+
+enable.desc:
+"""Enable this Exhook server"""
+
+failed_action.desc:
+"""The value that is returned when the request to the gRPC server fails for any reason"""
+
+keepalive.desc:
+"""Enables/disables periodic transmission on a connected socket when no other data is exchanged.
+If the other end does not respond, the connection is considered broken and an error message is sent to the controlling process."""
+
+name.desc:
+"""Name of the exhook server"""
+
+nodelay.desc:
+"""If true, option TCP_NODELAY is turned on for the socket,
+which means that also small amounts of data are sent immediately"""
+
+pool_size.desc:
+"""The process pool size for gRPC client"""
+
+recbuf.desc:
+"""The minimum size of receive buffer to use for the socket"""
+
+request_timeout.desc:
+"""The timeout of request gRPC server"""
+
+servers.desc:
+"""List of exhook servers"""
+
+sndbuf.desc:
+"""The minimum size of send buffer to use for the socket"""
+
+socket_options.desc:
+"""Connection socket options"""
+
+url.desc:
+"""URL of the gRPC server"""
+
+}

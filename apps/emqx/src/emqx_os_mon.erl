@@ -23,8 +23,6 @@
 -export([start_link/0]).
 
 -export([
-    get_mem_check_interval/0,
-    set_mem_check_interval/1,
     get_sysmem_high_watermark/0,
     set_sysmem_high_watermark/1,
     get_procmem_high_watermark/0,
@@ -46,6 +44,9 @@
     terminate/2,
     code_change/3
 ]).
+-ifdef(TEST).
+-export([is_sysmem_check_supported/0]).
+-endif.
 
 -include("emqx.hrl").
 
@@ -60,14 +61,6 @@ update(OS) ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
-get_mem_check_interval() ->
-    memsup:get_check_interval().
-
-set_mem_check_interval(Seconds) when Seconds < 60000 ->
-    memsup:set_check_interval(1);
-set_mem_check_interval(Seconds) ->
-    memsup:set_check_interval(Seconds div 60000).
 
 get_sysmem_high_watermark() ->
     gen_server:call(?OS_MON, ?FUNCTION_NAME, infinity).
@@ -103,11 +96,9 @@ init_os_monitor() ->
 init_os_monitor(OS) ->
     #{
         sysmem_high_watermark := SysHW,
-        procmem_high_watermark := PHW,
-        mem_check_interval := MCI
+        procmem_high_watermark := PHW
     } = OS,
     set_procmem_high_watermark(PHW),
-    set_mem_check_interval(MCI),
     ok = update_mem_alarm_status(SysHW),
     SysHW.
 
@@ -180,8 +171,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 cancel_outdated_timer(#{mem_time_ref := MemRef, cpu_time_ref := CpuRef}) ->
-    emqx_misc:cancel_timer(MemRef),
-    emqx_misc:cancel_timer(CpuRef),
+    emqx_utils:cancel_timer(MemRef),
+    emqx_utils:cancel_timer(CpuRef),
     ok.
 
 start_cpu_check_timer() ->
@@ -204,7 +195,7 @@ start_mem_check_timer() ->
     end.
 
 start_timer(Interval, Msg) ->
-    emqx_misc:start_timer(Interval, Msg).
+    emqx_utils:start_timer(Interval, Msg).
 
 update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
     ?SLOG(warning, #{msg => "discarded_out_of_range_mem_alarm_threshold", value => HWM}),

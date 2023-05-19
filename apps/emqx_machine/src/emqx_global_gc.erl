@@ -86,7 +86,7 @@ ensure_timer(State) ->
         disabled ->
             State;
         Interval when is_integer(Interval) ->
-            TRef = emqx_misc:start_timer(Interval, run),
+            TRef = emqx_utils:start_timer(Interval, run),
             State#{timer := TRef}
     end.
 

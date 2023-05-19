@@ -159,10 +159,10 @@ usage() {
         echo "Print EMQX installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang or Elixir expression in the EMQX node"
+        echo "Evaluate an Erlang expression in the EMQX node."
         ;;
-    eval-erl)
-        echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
+    eval-ex)
+        echo "Evaluate an Elixir expression in the EMQX node. Only applies to Elixir node"
         ;;
     versions)
         echo "List installed EMQX release versions and their status"
@@ -228,7 +228,7 @@ usage() {
         echo "  Install Info:     ertspath | root_dir"
         echo "  Runtime Status:   pid | ping"
         echo "  Validate Config:  check_config"
-        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-erl"
+        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-ex"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
     ;;
@@ -304,7 +304,7 @@ if [ "$ES" -ne 0 ]; then
 fi
 
 # Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
+mkdir -p "$EMQX_LOG_DIR"
 
 # turn off debug as this is static
 set +x
@@ -372,12 +372,6 @@ maybe_use_portable_dynlibs() {
     fi
 }
 
-# Warn the user if ulimit -n is less than 1024
-ULIMIT_F=$(ulimit -n)
-if [ "$ULIMIT_F" -lt 1024 ]; then
-    logwarn "ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
-fi
-
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
     *GNU*) SED_REPLACE="sed -i ";;
@@ -402,7 +396,7 @@ relx_get_pid() {
 remsh() {
     # Generate a unique id used to allow multiple remsh to the same node
     # transparently
-    id="remsh$(relx_gen_id)-${NAME}"
+    id="remsh$(gen_node_id)-${NAME}"
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
@@ -430,7 +424,7 @@ remsh() {
 }
 
 # Generate a random id
-relx_gen_id() {
+gen_node_id() {
     od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
 }
 
@@ -457,7 +451,7 @@ find_emqx_process() {
     if [ -n "${EMQX_NODE__NAME:-}" ]; then
         # if node name is provided, filter by node name
         # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s\-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
     else
         # shellcheck disable=SC2009
         ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
@@ -488,7 +482,7 @@ RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     if [ "$RUNNING_NODES_COUNT" -gt 0 ] && [ "$COMMAND" != 'check_config' ]; then
-        running_node_name=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
+        running_node_name=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
         if [ -n "$running_node_name" ] && [ "$running_node_name" = "${EMQX_NODE__NAME:-}" ]; then
             echo "Node ${running_node_name} is already running!"
             exit 1
@@ -526,10 +520,10 @@ else
     #    would try to stop the new node instead.
     if [ "$RUNNING_NODES_COUNT" -eq 1 ]; then
         ## only one emqx node is running, get running args from 'ps -ef' output
-        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' || true)
-        tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s\-setcookie.*" | awk '{print $2}' || true)
+        tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
+        tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s-setcookie.*" | awk '{print $2}' || true)
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
-        tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s\-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
+        tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         if [ -z "$SSL_DIST_OPTFILE" ]; then
@@ -542,7 +536,7 @@ else
     else
         if [ "$RUNNING_NODES_COUNT" -gt 1 ]; then
             if [ -z "${EMQX_NODE__NAME:-}" ]; then
-                tmp_nodenames=$(echo -e "$PS_LINE" | $GREP -oE "\s\-s?name.*" | awk '{print $2}' | tr '\n' ' ')
+                tmp_nodenames=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' | tr '\n' ' ')
                 logerr "More than one EMQX node found running (root dir: ${RUNNER_ROOT_DIR})"
                 logerr "Running nodes: $tmp_nodenames"
                 logerr "Make sure environment variable EMQX_NODE__NAME is set to indicate for which node this command is intended."
@@ -763,7 +757,7 @@ generate_config() {
     local node_name="$2"
     ## Delete the *.siz files first or it can't start after
     ## changing the config 'log.rotation.size'
-    rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    rm -f "${EMQX_LOG_DIR}"/*.siz
 
     ## timestamp for each generation
     local NOW_TIME
@@ -812,6 +806,7 @@ generate_config() {
 }
 
 # check if a PID is down
+# shellcheck disable=SC2317 # call in func `nodetool_shutdown()`
 is_down() {
     PID="$1"
     if ps -p "$PID" >/dev/null; then
@@ -867,23 +862,29 @@ wait_until_return_val() {
     done
 }
 
-# backward compatible with 4.x
+# First, there is EMQX_DEFAULT_LOG_HANDLER which can control the default values
+# to be used when generating configs.
+# It's set in docker entrypoint and in systemd service file.
+#
+# To be backward compatible with 4.x and v5.0.0 ~ v5.0.24/e5.0.2:
+# if EMQX_LOG__TO is set, we try to enable handlers from environment variables.
+# i.e. it overrides the default value set in EMQX_DEFAULT_LOG_HANDLER
 tr_log_to_env() {
     local log_to=${EMQX_LOG__TO:-undefined}
     # unset because it's unknown to 5.0
     unset EMQX_LOG__TO
     case "${log_to}" in
         console)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='false'
+            export EMQX_LOG__CONSOLE__ENABLE='true'
+            export EMQX_LOG__FILE__ENABLE='false'
             ;;
         file)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='false'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            export EMQX_LOG__CONSOLE__ENABLE='false'
+            export EMQX_LOG__FILE__ENABLE='true'
             ;;
         both)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            export EMQX_LOG__CONSOLE__ENABLE='true'
+            export EMQX_LOG__FILE__ENABLE='true'
             ;;
         default)
             # want to use config file defaults, do nothing
@@ -899,13 +900,19 @@ tr_log_to_env() {
 
 maybe_log_to_console() {
     if [ "${EMQX_LOG__TO:-}" = 'default' ]; then
-        # want to use config file defaults, do nothing
+        # want to use defaults, do nothing
         unset EMQX_LOG__TO
     else
         tr_log_to_env
-        # ensure defaults
-        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
-        export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-false}"
+        export EMQX_DEFAULT_LOG_HANDLER=${EMQX_DEFAULT_LOG_HANDLER:-console}
+    fi
+}
+
+# Warn the user if ulimit -n is less than 1024
+maybe_warn_ulimit() {
+    ULIMIT_F=$(ulimit -n)
+    if [ "$ULIMIT_F" -lt 1024 ]; then
+        logwarn "ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
     fi
 }
 
@@ -931,7 +938,7 @@ case "$NAME" in
 esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 HOST_NAME="$(echo "$NAME" | awk -F'@' '{print $2}')"
-if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
+if ! (echo "$SHORT_NAME" | $GREP -q '^[0-9A-Za-z_\-]\+$'); then
     logerr "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
 fi
@@ -966,7 +973,7 @@ maybe_warn_default_cookie() {
 ## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
 if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "rlog" ]]; then
-    if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'MNESIA_OK'); then
+    if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'MNESIA_OK'); then
       logerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
       export EMQX_NODE__DB_BACKEND=mnesia
       export EMQX_NODE__DB_ROLE=core
@@ -977,7 +984,7 @@ diagnose_boot_failure_and_die() {
     local ps_line
     ps_line="$(find_emqx_process)"
     if [ -z "$ps_line" ]; then
-        echo "Find more information in the latest log file: ${RUNNER_LOG_DIR}/erlang.log.*"
+        echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
         exit 1
     fi
     if ! relx_nodetool "ping" > /dev/null; then
@@ -988,7 +995,7 @@ diagnose_boot_failure_and_die() {
     fi
     if ! relx_nodetool 'eval' 'true = emqx:is_running()' > /dev/null; then
         logerr "$NAME node is started, but failed to complete the boot sequence in time."
-        echo "Please collect the logs in ${RUNNER_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
+        echo "Please collect the logs in ${EMQX_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
         pipe_shutdown
         exit 3
     fi
@@ -1030,6 +1037,7 @@ cd "$RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
+        maybe_warn_ulimit
         maybe_warn_default_cookie
 
         # this flag passes down to console mode
@@ -1062,7 +1070,7 @@ case "${COMMAND}" in
 
         mkdir -p "$PIPE_DIR"
 
-        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
+        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$EMQX_LOG_DIR" \
                           "$(relx_start_command)"
 
         WAIT_TIME=${EMQX_WAIT_FOR_START:-120}
@@ -1181,6 +1189,7 @@ case "${COMMAND}" in
             tr_log_to_env
         else
             maybe_log_to_console
+            maybe_warn_ulimit
             maybe_warn_default_cookie
         fi
 
@@ -1259,11 +1268,17 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
+        relx_nodetool "eval" "$@"
+        ;;
+    eval-ex)
+        assert_node_alive
+
+        shift
         if [ "$IS_ELIXIR" = "yes" ]
         then
           "$REL_DIR/elixir" \
               --hidden \
-              --name "rand-$(relx_gen_id)-$NAME" \
+              --name "rand-$(gen_node_id)-$NAME" \
               --cookie "$COOKIE" \
               --boot "$REL_DIR/start_clean" \
               --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
@@ -1271,16 +1286,11 @@ case "${COMMAND}" in
               --erl "-start_epmd false -epmd_module ekka_epmd" \
               --rpc-eval "$NAME" "$@"
         else
-          relx_nodetool "eval" "$@"
+            echo "EMQX node is not an Elixir node"
+            usage "$COMMAND"
+            exit 1
         fi
         ;;
-    eval-erl)
-        assert_node_alive
-
-        shift
-        relx_nodetool "eval" "$@"
-        ;;
-
     check_config)
         check_config
         ;;

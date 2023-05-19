@@ -1,0 +1,54 @@
+emqx_telemetry_api {
+
+active_modules.desc:
+"""获取活跃模块"""
+
+active_plugins.desc:
+"""获取活跃插件"""
+
+emqx_version.desc:
+"""获取 emqx 版本"""
+
+enable.desc:
+"""启用遥测"""
+
+get_telemetry_data_api.desc:
+"""获取遥测数据"""
+
+get_telemetry_status_api.desc:
+"""获取遥测状态"""
+
+license.desc:
+"""获取 license 信息"""
+
+messages_received.desc:
+"""获取接收到的消息数量"""
+
+messages_sent.desc:
+"""获取发送的消息数量"""
+
+nodes_uuid.desc:
+"""获取节点 UUID"""
+
+num_clients.desc:
+"""获取客户端数量"""
+
+os_name.desc:
+"""获取操作系统名称"""
+
+os_version.desc:
+"""获取操作系统版本"""
+
+otp_version.desc:
+"""获取 OTP 版本"""
+
+up_time.desc:
+"""获取运行时间"""
+
+update_telemetry_status_api.desc:
+"""更新遥测状态"""
+
+uuid.desc:
+"""获取 UUID"""
+
+}

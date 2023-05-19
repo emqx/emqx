@@ -62,6 +62,7 @@ set_callback_mode(Mode) ->
     persistent_term:put(?CM_KEY, Mode).
 
 on_start(_InstId, #{create_error := true}) ->
+    ?tp(connector_demo_start_error, #{}),
     error("some error");
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
@@ -144,8 +145,18 @@ on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
             Result
     after 1000 ->
         {error, timeout}
-    end.
+    end;
+on_query(_InstId, {sync_sleep_before_reply, SleepFor}, _State) ->
+    %% This simulates a slow sync call
+    timer:sleep(SleepFor),
+    {ok, slept}.
 
+on_query_async(_InstId, block, ReplyFun, #{pid := Pid}) ->
+    Pid ! {block, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, resume, ReplyFun, #{pid := Pid}) ->
+    Pid ! {resume, ReplyFun},
+    {ok, Pid};
 on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
     Pid ! {inc, N, ReplyFun},
     {ok, Pid};
@@ -233,6 +244,7 @@ batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}
     {ok, Pid}.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
+    ?tp(connector_demo_health_check_error, #{}),
     disconnected;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
@@ -274,6 +286,10 @@ counter_loop(
             block ->
                 ct:pal("counter recv: ~p", [block]),
                 State#{status => blocked};
+            {block, ReplyFun} ->
+                ct:pal("counter recv: ~p", [block]),
+                apply_reply(ReplyFun, ok),
+                State#{status => blocked};
             {block_now, ReplyFun} ->
                 ct:pal("counter recv: ~p", [block_now]),
                 apply_reply(
@@ -283,6 +299,11 @@ counter_loop(
             resume ->
                 {messages, Msgs} = erlang:process_info(self(), messages),
                 ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
+                State#{status => running};
+            {resume, ReplyFun} ->
+                {messages, Msgs} = erlang:process_info(self(), messages),
+                ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
+                apply_reply(ReplyFun, ok),
                 State#{status => running};
             {inc, N, ReplyFun} when Status == running ->
                 %ct:pal("async counter recv: ~p", [{inc, N}]),

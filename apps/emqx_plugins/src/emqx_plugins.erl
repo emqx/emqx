@@ -479,20 +479,37 @@ ensure_exists_and_installed(NameVsn) ->
     case filelib:is_dir(dir(NameVsn)) of
         true ->
             ok;
-        _ ->
-            Nodes = [N || N <- mria:running_nodes(), N /= node()],
-            case get_from_any_node(Nodes, NameVsn, []) of
+        false ->
+            %% Do we have the package, but it's not extracted yet?
+            case get_tar(NameVsn) of
                 {ok, TarContent} ->
                     ok = file:write_file(pkg_file(NameVsn), TarContent),
                     ok = do_ensure_installed(NameVsn);
-                {error, NodeErrors} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_copy_plugin_from_other_nodes",
-                        name_vsn => NameVsn,
-                        node_errors => NodeErrors
-                    }),
-                    {error, plugin_not_found}
+                _ ->
+                    %% If not, try to get it from the cluster.
+                    do_get_from_cluster(NameVsn)
             end
+    end.
+
+do_get_from_cluster(NameVsn) ->
+    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    case get_from_any_node(Nodes, NameVsn, []) of
+        {ok, TarContent} ->
+            ok = file:write_file(pkg_file(NameVsn), TarContent),
+            ok = do_ensure_installed(NameVsn);
+        {error, NodeErrors} when Nodes =/= [] ->
+            ?SLOG(error, #{
+                msg => "failed_to_copy_plugin_from_other_nodes",
+                name_vsn => NameVsn,
+                node_errors => NodeErrors
+            }),
+            {error, plugin_not_found};
+        {error, _} ->
+            ?SLOG(error, #{
+                msg => "no_nodes_to_copy_plugin_from",
+                name_vsn => NameVsn
+            }),
+            {error, plugin_not_found}
     end.
 
 get_from_any_node([], _NameVsn, Errors) ->

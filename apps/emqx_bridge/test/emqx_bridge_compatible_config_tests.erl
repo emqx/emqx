@@ -59,27 +59,21 @@ webhook_config_test() ->
         },
         check(Conf2)
     ),
-
-    %% the converter should pick the greater of the two
-    %% request_timeouts and place them in the root and inside
-    %% resource_opts.
-    ?assertMatch(
-        #{
-            <<"bridges">> := #{
-                <<"webhook">> := #{
-                    <<"the_name">> :=
-                        #{
-                            <<"method">> := get,
-                            <<"request_timeout">> := 60_000,
-                            <<"resource_opts">> := #{<<"request_timeout">> := 60_000},
-                            <<"body">> := <<"${payload}">>
-                        }
-                }
+    #{
+        <<"bridges">> := #{
+            <<"webhook">> := #{
+                <<"the_name">> :=
+                    #{
+                        <<"method">> := get,
+                        <<"request_timeout">> := RequestTime,
+                        <<"resource_opts">> := ResourceOpts,
+                        <<"body">> := <<"${payload}">>
+                    }
             }
-        },
-        check(Conf3)
-    ),
-
+        }
+    } = check(Conf3),
+    ?assertEqual(60_000, RequestTime),
+    ?assertMatch(#{<<"request_timeout">> := 60_000}, ResourceOpts),
     ok.
 
 up(#{<<"bridges">> := Bridges0} = Conf0) ->
@@ -129,7 +123,7 @@ assert_upgraded1(Map) ->
     ?assert(maps:is_key(<<"ssl">>, Map)).
 
 check(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf).
+    hocon_tconf:check_plain(emqx_bridge_schema, Conf, #{required => false}).
 
 %% erlfmt-ignore
 %% this is config generated from v5.0.11

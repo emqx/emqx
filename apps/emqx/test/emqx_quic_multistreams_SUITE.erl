@@ -1569,7 +1569,7 @@ t_multi_streams_remote_shutdown(Config) ->
 
     ok = stop_emqx(),
     %% Client should be closed
-    assert_client_die(C).
+    assert_client_die(C, 100, 50).
 
 t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -2026,18 +2026,7 @@ stop_emqx() ->
 %% select a random port picked by OS
 -spec select_port() -> inet:port_number().
 select_port() ->
-    {ok, S} = gen_udp:open(0, [{reuseaddr, true}]),
-    {ok, {_, Port}} = inet:sockname(S),
-    gen_udp:close(S),
-    case os:type() of
-        {unix, darwin} ->
-            %% in MacOS, still get address_in_use after close port
-            timer:sleep(500);
-        _ ->
-            skip
-    end,
-    ct:pal("select port: ~p", [Port]),
-    Port.
+    emqx_common_test_helpers:select_free_port(quic).
 
 -spec via_stream({quic, quicer:connection_handle(), quicer:stream_handle()}) ->
     quicer:stream_handle().
@@ -2047,14 +2036,15 @@ via_stream({quic, _Conn, Stream}) ->
 assert_client_die(C) ->
     assert_client_die(C, 100, 10).
 assert_client_die(C, _, 0) ->
-    ct:fail("Client ~p did not die", [C]);
+    ct:fail("Client ~p did not die: stacktrace: ~p", [C, process_info(C, current_stacktrace)]);
 assert_client_die(C, Delay, Retries) ->
-    case catch emqtt:info(C) of
-        {'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}} ->
-            ok;
-        _Other ->
+    try emqtt:info(C) of
+        Info when is_list(Info) ->
             timer:sleep(Delay),
             assert_client_die(C, Delay, Retries - 1)
+    catch
+        exit:Error ->
+            ct:comment("client die with ~p", [Error])
     end.
 
 %% BUILD_WITHOUT_QUIC

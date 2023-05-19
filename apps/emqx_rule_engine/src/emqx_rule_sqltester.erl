@@ -48,7 +48,7 @@ test(#{sql := Sql, context := Context}) ->
     end.
 
 test_rule(Sql, Select, Context, EventTopics) ->
-    RuleId = iolist_to_binary(["sql_tester:", emqx_misc:gen_id(16)]),
+    RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
     ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
     Rule = #{
         id => RuleId,

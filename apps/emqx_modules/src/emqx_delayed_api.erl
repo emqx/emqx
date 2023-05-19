@@ -52,7 +52,7 @@
 -define(INVALID_NODE, 'INVALID_NODE').
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
@@ -202,9 +202,9 @@ delayed_message(get, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
                             {200, Message#{payload => base64:encode(Payload)}}
                     end;
                 {error, not_found} ->
-                    {404, generate_http_code_map(not_found, Id)};
+                    {404, generate_http_code_map(not_found, HexId)};
                 {badrpc, _} ->
-                    {400, generate_http_code_map(invalid_node, Id)}
+                    {400, generate_http_code_map(invalid_node, NodeBin)}
             end
         end
     );
@@ -271,19 +271,19 @@ generate_http_code_map(id_schema_error, Id) ->
     #{
         code => ?MESSAGE_ID_SCHEMA_ERROR,
         message =>
-            iolist_to_binary(io_lib:format("Message ID ~p schema error", [Id]))
+            iolist_to_binary(io_lib:format("Message ID ~s schema error", [Id]))
     };
 generate_http_code_map(not_found, Id) ->
     #{
         code => ?MESSAGE_ID_NOT_FOUND,
         message =>
-            iolist_to_binary(io_lib:format("Message ID ~p not found", [Id]))
+            iolist_to_binary(io_lib:format("Message ID ~s not found", [Id]))
     };
 generate_http_code_map(invalid_node, Node) ->
     #{
         code => ?INVALID_NODE,
         message =>
-            iolist_to_binary(io_lib:format("The node name ~p is invalid", [Node]))
+            iolist_to_binary(io_lib:format("The node name ~s is invalid", [Node]))
     }.
 
 make_maybe(X, Error, Fun) ->

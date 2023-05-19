@@ -77,7 +77,7 @@ init([]) ->
     {ok, start_timer(#{timer => undefined, events => []})}.
 
 start_timer(State) ->
-    State#{timer := emqx_misc:start_timer(timer:seconds(2), reset)}.
+    State#{timer := emqx_utils:start_timer(timer:seconds(2), reset)}.
 
 sysm_opts(VM) ->
     sysm_opts(maps:to_list(VM), []).
@@ -204,7 +204,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->
-    emqx_misc:cancel_timer(TRef),
+    emqx_utils:cancel_timer(TRef),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

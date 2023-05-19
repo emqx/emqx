@@ -1,0 +1,9 @@
+emqx_authz_api_settings {
+
+authorization_settings_get.desc:
+"""Get authorization settings"""
+
+authorization_settings_put.desc:
+"""Update authorization settings"""
+
+}

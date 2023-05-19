@@ -1,0 +1,96 @@
+emqx_authn_api {
+
+authentication_get.desc:
+"""List authenticators for global authentication."""
+
+authentication_id_delete.desc:
+"""Delete authenticator from global authentication chain."""
+
+authentication_id_get.desc:
+"""Get authenticator from global authentication chain."""
+
+authentication_id_position_put.desc:
+"""Move authenticator in global authentication chain."""
+
+authentication_id_put.desc:
+"""Update authenticator from global authentication chain."""
+
+authentication_id_status_get.desc:
+"""Get authenticator status from global authentication chain."""
+
+authentication_id_users_get.desc:
+"""List users in authenticator in global authentication chain."""
+
+authentication_id_users_post.desc:
+"""Create users for authenticator in global authentication chain."""
+
+authentication_id_users_user_id_delete.desc:
+"""Delete user in authenticator in global authentication chain."""
+
+authentication_id_users_user_id_get.desc:
+"""Get user from authenticator in global authentication chain."""
+
+authentication_id_users_user_id_put.desc:
+"""Update user in authenticator in global authentication chain."""
+
+authentication_post.desc:
+"""Create authenticator for global authentication."""
+
+is_superuser.desc:
+"""Is superuser"""
+
+like_user_id.desc:
+"""Fuzzy search user_id (username or clientid)."""
+
+like_user_id.label:
+"""like_user_id"""
+
+listeners_listener_id_authentication_get.desc:
+"""List authenticators for listener authentication."""
+
+listeners_listener_id_authentication_id_delete.desc:
+"""Delete authenticator from listener authentication chain."""
+
+listeners_listener_id_authentication_id_get.desc:
+"""Get authenticator from listener authentication chain."""
+
+listeners_listener_id_authentication_id_position_put.desc:
+"""Move authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_id_put.desc:
+"""Update authenticator from listener authentication chain."""
+
+listeners_listener_id_authentication_id_status_get.desc:
+"""Get authenticator status from listener authentication chain."""
+
+listeners_listener_id_authentication_id_users_get.desc:
+"""List users in authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_id_users_post.desc:
+"""Create users for authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_id_users_user_id_delete.desc:
+"""Delete user in authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_id_users_user_id_get.desc:
+"""Get user from authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_id_users_user_id_put.desc:
+"""Update user in authenticator in listener authentication chain."""
+
+listeners_listener_id_authentication_post.desc:
+"""Create authenticator for listener authentication."""
+
+param_auth_id.desc:
+"""Authenticator ID."""
+
+param_listener_id.desc:
+"""Listener ID."""
+
+param_position.desc:
+"""Position of authenticator in chain. Possible values are 'front', 'rear', 'before:{other_authenticator}', 'after:{other_authenticator}'."""
+
+param_user_id.desc:
+"""User ID."""
+
+}

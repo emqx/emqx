@@ -45,14 +45,16 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-mysql".
+namespace() -> "authn".
 
 tags() ->
     [<<"Authentication">>].
 
-roots() -> [?CONF_NS].
+%% used for config check when the schema module is resolved
+roots() ->
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, mysql))}].
 
-fields(?CONF_NS) ->
+fields(mysql) ->
     [
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(mysql)},
@@ -62,8 +64,8 @@ fields(?CONF_NS) ->
     ] ++ emqx_authn_schema:common_fields() ++
         proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
 
-desc(?CONF_NS) ->
-    ?DESC(?CONF_NS);
+desc(mysql) ->
+    ?DESC(mysql);
 desc(_) ->
     undefined.
 
@@ -82,7 +84,7 @@ query_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, mysql)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).

@@ -52,7 +52,7 @@
 -export([set_field/3]).
 
 -import(
-    emqx_misc,
+    emqx_utils,
     [
         maybe_apply/2,
         start_timer/2
@@ -90,7 +90,7 @@
     listener :: {Type :: atom(), Name :: atom()},
 
     %% Limiter
-    limiter :: maybe(container()),
+    limiter :: container(),
 
     %% cache operation when overload
     limiter_cache :: queue:queue(cache()),
@@ -121,8 +121,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(ENABLED(X), (X =/= undefined)).
--define(LIMITER_BYTES_IN, bytes_in).
--define(LIMITER_MESSAGE_IN, message_in).
+-define(LIMITER_BYTES_IN, bytes).
+-define(LIMITER_MESSAGE_IN, messages).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [websocket_init/1]}).
@@ -172,7 +172,7 @@ stats(WsPid) when is_pid(WsPid) ->
 stats(#state{channel = Channel}) ->
     SockStats = emqx_pd:get_counters(?SOCK_STATS),
     ChanStats = emqx_channel:stats(Channel),
-    ProcStats = emqx_misc:proc_stats(),
+    ProcStats = emqx_utils:proc_stats(),
     lists:append([SockStats, ChanStats, ProcStats]).
 
 %% kick|discard|takeover
@@ -340,7 +340,7 @@ tune_heap_size(Channel) ->
         )
     of
         #{enable := false} -> ok;
-        ShutdownPolicy -> emqx_misc:tune_heap_size(ShutdownPolicy)
+        ShutdownPolicy -> emqx_utils:tune_heap_size(ShutdownPolicy)
     end.
 
 get_stats_enable(Zone) ->
@@ -454,7 +454,7 @@ websocket_info(
     State = #state{listener = {Type, Listener}}
 ) ->
     ActiveN = get_active_n(Type, Listener),
-    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 websocket_info(
     {timeout, _, limit_timeout},
@@ -580,53 +580,60 @@ handle_timeout(TRef, TMsg, State) ->
     state()
 ) -> state().
 check_limiter(
+    _Needs,
+    Data,
+    WhenOk,
+    Msgs,
+    #state{limiter = infinity} = State
+) ->
+    WhenOk(Data, Msgs, State);
+check_limiter(
     Needs,
     Data,
     WhenOk,
     Msgs,
-    #state{
-        limiter = Limiter,
-        limiter_timer = LimiterTimer,
-        limiter_cache = Cache
-    } = State
+    #state{limiter_timer = undefined, limiter = Limiter} = State
 ) ->
-    case LimiterTimer of
-        undefined ->
-            case emqx_limiter_container:check_list(Needs, Limiter) of
-                {ok, Limiter2} ->
-                    WhenOk(Data, Msgs, State#state{limiter = Limiter2});
-                {pause, Time, Limiter2} ->
-                    ?SLOG(debug, #{
-                        msg => "pause_time_due_to_rate_limit",
-                        needs => Needs,
-                        time_in_ms => Time
-                    }),
+    case emqx_limiter_container:check_list(Needs, Limiter) of
+        {ok, Limiter2} ->
+            WhenOk(Data, Msgs, State#state{limiter = Limiter2});
+        {pause, Time, Limiter2} ->
+            ?SLOG(debug, #{
+                msg => "pause_time_due_to_rate_limit",
+                needs => Needs,
+                time_in_ms => Time
+            }),
 
-                    Retry = #retry{
-                        types = [Type || {_, Type} <- Needs],
-                        data = Data,
-                        next = WhenOk
-                    },
+            Retry = #retry{
+                types = [Type || {_, Type} <- Needs],
+                data = Data,
+                next = WhenOk
+            },
 
-                    Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
+            Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
 
-                    TRef = start_timer(Time, limit_timeout),
+            TRef = start_timer(Time, limit_timeout),
 
-                    enqueue(
-                        {active, false},
-                        State#state{
-                            sockstate = blocked,
-                            limiter = Limiter3,
-                            limiter_timer = TRef
-                        }
-                    );
-                {drop, Limiter2} ->
-                    {ok, State#state{limiter = Limiter2}}
-            end;
-        _ ->
-            New = #cache{need = Needs, data = Data, next = WhenOk},
-            State#state{limiter_cache = queue:in(New, Cache)}
-    end.
+            enqueue(
+                {active, false},
+                State#state{
+                    sockstate = blocked,
+                    limiter = Limiter3,
+                    limiter_timer = TRef
+                }
+            );
+        {drop, Limiter2} ->
+            {ok, State#state{limiter = Limiter2}}
+    end;
+check_limiter(
+    Needs,
+    Data,
+    WhenOk,
+    _Msgs,
+    #state{limiter_cache = Cache} = State
+) ->
+    New = #cache{need = Needs, data = Data, next = WhenOk},
+    State#state{limiter_cache = queue:in(New, Cache)}.
 
 -spec retry_limiter(state()) -> state().
 retry_limiter(#state{limiter = Limiter} = State) ->
@@ -678,7 +685,7 @@ check_oom(State = #state{channel = Channel}) ->
         #{enable := false} ->
             State;
         #{enable := true} ->
-            case emqx_misc:check_oom(ShutdownPolicy) of
+            case emqx_utils:check_oom(ShutdownPolicy) of
                 Shutdown = {shutdown, _Reason} ->
                     postpone(Shutdown, State);
                 _Other ->
@@ -913,7 +920,7 @@ inc_qos_stats_key(_, _) -> undefined.
 %% Cancel idle timer
 
 cancel_idle_timer(State = #state{idle_timer = IdleTimer}) ->
-    ok = emqx_misc:cancel_timer(IdleTimer),
+    ok = emqx_utils:cancel_timer(IdleTimer),
     State#state{idle_timer = undefined}.
 
 %%--------------------------------------------------------------------
@@ -1046,7 +1053,7 @@ check_max_connection(Type, Listener) ->
 %%--------------------------------------------------------------------
 
 set_field(Name, Value, State) ->
-    Pos = emqx_misc:index_of(Name, record_info(fields, state)),
+    Pos = emqx_utils:index_of(Name, record_info(fields, state)),
     setelement(Pos + 1, State, Value).
 
 %% ensure lowercase letters in headers

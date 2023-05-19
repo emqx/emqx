@@ -1,0 +1,24 @@
+emqx_exproto_schema {
+
+exproto.desc:
+"""The Extension Protocol configuration"""
+
+exproto_grpc_handler_address.desc:
+"""gRPC server address."""
+
+exproto_grpc_handler_ssl.desc:
+"""SSL configuration for the gRPC client."""
+
+exproto_grpc_server_bind.desc:
+"""Listening address and port for the gRPC server."""
+
+exproto_grpc_server_ssl.desc:
+"""SSL configuration for the gRPC server."""
+
+exproto_handler.desc:
+"""Configurations for request to <code>ConnectionHandler</code> service"""
+
+exproto_server.desc:
+"""Configurations for starting the <code>ConnectionAdapter</code> service"""
+
+}

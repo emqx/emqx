@@ -1,0 +1,56 @@
+emqx_lwm2m_schema {
+
+lwm2m.desc:
+"""LwM2M 网关配置。仅支持 v1.0.1 协议。"""
+
+lwm2m_auto_observe.desc:
+"""自动 Observe REGISTER 数据包的 Object 列表。"""
+
+lwm2m_lifetime_max.desc:
+"""允许 LwM2M 客户端允许设置的心跳最大值。"""
+
+lwm2m_lifetime_min.desc:
+"""允许 LwM2M 客户端允许设置的心跳最小值。"""
+
+lwm2m_qmode_time_window.desc:
+"""在QMode模式下，LwM2M网关认为网络链接有效的时间窗口的值。
+例如，在收到客户端的更新信息后，在这个时间窗口内的任何信息都会直接发送到LwM2M客户端，而超过这个时间窗口的所有信息都会暂时储存在内存中。"""
+
+lwm2m_translators.desc:
+"""LwM2M 网关订阅/发布消息的主题映射配置。"""
+
+lwm2m_translators_command.desc:
+"""下行命令主题。
+对于每个成功上线的新 LwM2M 客户端，网关会创建一个订阅关系来接收下行消息并将其发送给客户端。"""
+
+lwm2m_translators_notify.desc:
+"""用于发布来自 LwM2M 客户端的通知事件的主题。
+在成功 Observe 到 LwM2M 客户端的资源后，如果客户端报告任何资源状态的变化，网关将通过该主题发送通知事件。"""
+
+lwm2m_translators_register.desc:
+"""用于发布来自 LwM2M 客户端的注册事件的主题。"""
+
+lwm2m_translators_response.desc:
+"""用于网关发布来自 LwM2M 客户端的确认事件的主题。"""
+
+lwm2m_translators_update.desc:
+"""用于发布来自LwM2M客户端的更新事件的主题。"""
+
+lwm2m_update_msg_publish_condition.desc:
+"""发布UPDATE事件消息的策略。<br/>
+  - always: 只要收到 UPDATE 请求，就发送更新事件。<br/>
+  - contains_object_list: 仅当 UPDATE 请求携带 Object 列表时才发送更新事件。"""
+
+lwm2m_xml_dir.desc:
+"""LwM2M Resource 定义的 XML 文件目录路径。"""
+
+translator.desc:
+"""配置某网关客户端对于发布消息或订阅的主题和 QoS 等级。"""
+
+translator_qos.desc:
+"""QoS 等级"""
+
+translator_topic.desc:
+"""主题名称"""
+
+}

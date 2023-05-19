@@ -36,7 +36,7 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
-        changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
+        changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
                              -- ":(exclude)"$app_path/src/*.appup.src"" \

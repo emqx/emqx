@@ -31,14 +31,17 @@
 namespace() -> "auto_subscribe".
 
 roots() ->
-    ["auto_subscribe"].
+    [{"auto_subscribe", ?HOCON(?R_REF("auto_subscribe"), #{importance => ?IMPORTANCE_HIDDEN})}].
 
 fields("auto_subscribe") ->
     [
         {topics,
             ?HOCON(
                 ?ARRAY(?R_REF("topic")),
-                #{desc => ?DESC(auto_subscribe), default => []}
+                #{
+                    desc => ?DESC(auto_subscribe),
+                    default => []
+                }
             )}
     ];
 fields("topic") ->

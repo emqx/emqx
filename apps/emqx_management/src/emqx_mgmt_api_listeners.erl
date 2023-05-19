@@ -293,12 +293,14 @@ listeners_type() ->
 listeners_info(Opts) ->
     Listeners = hocon_schema:fields(emqx_schema, "listeners"),
     lists:map(
-        fun({Type, #{type := ?MAP(_Name, ?R_REF(Mod, Field))}}) ->
-            Fields0 = hocon_schema:fields(Mod, Field),
+        fun({ListenerType, Schema}) ->
+            Type = emqx_schema:get_tombstone_map_value_type(Schema),
+            ?R_REF(Mod, StructName) = Type,
+            Fields0 = hocon_schema:fields(Mod, StructName),
             Fields1 = lists:keydelete("authentication", 1, Fields0),
             Fields3 = required_bind(Fields1, Opts),
-            Ref = listeners_ref(Type, Opts),
-            TypeAtom = list_to_existing_atom(Type),
+            Ref = listeners_ref(ListenerType, Opts),
+            TypeAtom = list_to_existing_atom(ListenerType),
             #{
                 ref => ?R_REF(Ref),
                 schema => [
@@ -390,7 +392,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                 undefined ->
                     {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
                 PrevConf ->
-                    MergeConfT = emqx_map_lib:deep_merge(PrevConf, Conf),
+                    MergeConfT = emqx_utils_maps:deep_merge(PrevConf, Conf),
                     MergeConf = emqx_listeners:ensure_override_limiter_conf(MergeConfT, Conf),
                     case update(Path, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
@@ -483,7 +485,7 @@ err_msg_str(Reason) ->
     io_lib:format("~p", [Reason]).
 
 list_listeners() ->
-    [list_listeners(Node) || Node <- mria:running_nodes()].
+    [list_listeners(Node) || Node <- emqx:running_nodes()].
 
 list_listeners(Node) ->
     wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).
@@ -642,7 +644,7 @@ create(Path, Conf) ->
     wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
 
 ensure_remove(Path) ->
-    wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
+    wrap(emqx_conf:tombstone(Path, ?OPTS(cluster))).
 
 wrap({error, {post_config_update, emqx_listeners, Reason}}) -> {error, Reason};
 wrap({error, {pre_config_update, emqx_listeners, Reason}}) -> {error, Reason};

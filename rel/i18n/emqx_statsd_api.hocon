@@ -1,0 +1,9 @@
+emqx_statsd_api {
+
+get_statsd_config_api.desc:
+"""List the configuration of StatsD metrics collection and push service."""
+
+update_statsd_config_api.desc:
+"""Update the configuration of StatsD metrics collection and push service."""
+
+}

@@ -1,0 +1,105 @@
+emqx_topic_metrics_api {
+
+message_qos1_in_rate.desc:
+"""QoS1 in messages rate"""
+
+message_out_count.desc:
+"""Out messages count"""
+
+message_qos2_out_rate.desc:
+"""QoS2 out messages rate"""
+
+message_qos0_in_rate.desc:
+"""QoS0 in messages rate"""
+
+get_topic_metrics_api.desc:
+"""List topic metrics"""
+
+reset_time.desc:
+"""Reset time. In rfc3339. Nullable if never reset"""
+
+topic_metrics_api_response400.desc:
+"""Bad request. Already exists or bad topic name"""
+
+reset_topic_desc.desc:
+"""Topic Name. If this parameter is not present,all created topic metrics will be reset."""
+
+topic_metrics_api_response409.desc:
+"""Conflict. Topic metrics exceeded max limit 512"""
+
+post_topic_metrics_api.desc:
+"""Create topic metrics"""
+
+message_dropped_rate.desc:
+"""Dropped messages rate"""
+
+message_qos2_in_rate.desc:
+"""QoS2 in messages rate"""
+
+message_in_rate.desc:
+"""In messages rate"""
+
+message_qos0_out_rate.desc:
+"""QoS0 out messages rate"""
+
+message_qos2_in_count.desc:
+"""QoS2 in messages count"""
+
+message_dropped_count.desc:
+"""Dropped messages count"""
+
+topic_metrics_api_response404.desc:
+"""Not Found. Topic metrics not found"""
+
+topic_in_path.desc:
+"""Topic string. Notice: Topic string in url path must be encoded"""
+
+action.desc:
+"""Action. Only support reset"""
+
+message_qos0_in_count.desc:
+"""QoS0 in messages count"""
+
+message_qos1_out_rate.desc:
+"""QoS1 out messages rate"""
+
+topic.desc:
+"""Topic"""
+
+reset_topic_metrics_api.desc:
+"""Reset telemetry status"""
+
+create_time.desc:
+"""Create time"""
+
+metrics.desc:
+"""Metrics"""
+
+message_qos1_out_count.desc:
+"""QoS1 out messages count"""
+
+gat_topic_metrics_data_api.desc:
+"""Get topic metrics"""
+
+message_qos1_in_count.desc:
+"""QoS1 in messages count"""
+
+delete_topic_metrics_data_api.desc:
+"""Delete topic metrics"""
+
+message_qos0_out_count.desc:
+"""QoS0 out messages count"""
+
+topic_in_body.desc:
+"""Raw topic string"""
+
+message_in_count.desc:
+"""In messages count"""
+
+message_qos2_out_count.desc:
+"""QoS2 out messages count"""
+
+message_out_rate.desc:
+"""Out messages rate"""
+
+}

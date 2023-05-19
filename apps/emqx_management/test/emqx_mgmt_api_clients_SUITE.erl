@@ -58,7 +58,7 @@ t_clients(_) ->
     %% get /clients
     ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
     {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
-    ClientsResponse = emqx_json:decode(Clients, [return_maps]),
+    ClientsResponse = emqx_utils_json:decode(Clients, [return_maps]),
     ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
     ClientsPage = maps:get(<<"page">>, ClientsMeta),
     ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
@@ -70,7 +70,7 @@ t_clients(_) ->
     %% get /clients/:clientid
     Client1Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1)]),
     {ok, Client1} = emqx_mgmt_api_test_util:request_api(get, Client1Path),
-    Client1Response = emqx_json:decode(Client1, [return_maps]),
+    Client1Response = emqx_utils_json:decode(Client1, [return_maps]),
     ?assertEqual(Username1, maps:get(<<"username">>, Client1Response)),
     ?assertEqual(ClientId1, maps:get(<<"clientid">>, Client1Response)),
     ?assertEqual(120, maps:get(<<"expiry_interval">>, Client1Response)),
@@ -130,7 +130,7 @@ t_clients(_) ->
         "",
         AuthHeader
     ),
-    [SubscriptionsData] = emqx_json:decode(SubscriptionsRes, [return_maps]),
+    [SubscriptionsData] = emqx_utils_json:decode(SubscriptionsRes, [return_maps]),
     ?assertMatch(
         #{
             <<"clientid">> := ClientId1,
@@ -210,7 +210,7 @@ t_query_clients_with_time(_) ->
                     GteParamRfc3339 ++ GteParamStamp
         ],
     DecodedResults = [
-        emqx_json:decode(Response, [return_maps])
+        emqx_utils_json:decode(Response, [return_maps])
      || {ok, Response} <- RequestResults
     ],
     {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
@@ -244,13 +244,31 @@ t_keepalive(_Config) ->
     Body = #{interval => 11},
     {error, {"HTTP/1.1", 404, "Not Found"}} =
         emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
-    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
+    %% 65535 is the max value of keepalive
+    MaxKeepalive = 65535,
+    InitKeepalive = round(MaxKeepalive / 1.5 + 1),
+    {ok, C1} = emqtt:start_link(#{
+        username => Username, clientid => ClientId, keepalive => InitKeepalive
+    }),
     {ok, _} = emqtt:connect(C1),
-    {ok, NewClient} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
-    #{<<"keepalive">> := 11} = emqx_json:decode(NewClient, [return_maps]),
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    %% will reset to max keepalive if keepalive > max keepalive
+    #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
+    ?assertMatch({keepalive, 65535000, _}, element(5, element(9, sys:get_state(Pid)))),
+
+    {ok, NewClient} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
+    #{<<"keepalive">> := 11} = emqx_utils_json:decode(NewClient, [return_maps]),
     #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
     ?assertEqual(11, Keepalive),
+    %% Disable keepalive
+    Body1 = #{interval => 0},
+    {ok, NewClient1} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body1),
+    #{<<"keepalive">> := 0} = emqx_utils_json:decode(NewClient1, [return_maps]),
+    ?assertMatch(#{conninfo := #{keepalive := 0}}, emqx_connection:info(Pid)),
+    %% Maximal keepalive
+    Body2 = #{interval => 65536},
+    {error, {"HTTP/1.1", 400, _}} =
+        emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body2),
     emqtt:disconnect(C1),
     ok.
 

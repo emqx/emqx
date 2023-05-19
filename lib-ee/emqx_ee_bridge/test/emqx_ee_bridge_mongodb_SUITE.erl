@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -16,9 +17,8 @@
 
 all() ->
     [
-        {group, rs},
-        {group, sharded},
-        {group, single}
+        {group, async},
+        {group, sync}
         | (emqx_common_test_helpers:all(?MODULE) -- group_tests())
     ].
 
@@ -26,16 +26,29 @@ group_tests() ->
     [
         t_setup_via_config_and_publish,
         t_setup_via_http_api_and_publish,
-        t_payload_template
+        t_payload_template,
+        t_collection_template,
+        t_mongo_date_rule_engine_functions
     ].
 
 groups() ->
+    TypeGroups = [
+        {group, rs},
+        {group, sharded},
+        {group, single}
+    ],
     [
+        {async, TypeGroups},
+        {sync, TypeGroups},
         {rs, group_tests()},
         {sharded, group_tests()},
         {single, group_tests()}
     ].
 
+init_per_group(async, Config) ->
+    [{query_mode, async} | Config];
+init_per_group(sync, Config) ->
+    [{query_mode, sync} | Config];
 init_per_group(Type = rs, Config) ->
     MongoHost = os:getenv("MONGO_RS_HOST", "mongo1"),
     MongoPort = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
@@ -43,7 +56,7 @@ init_per_group(Type = rs, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -62,7 +75,7 @@ init_per_group(Type = sharded, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -81,7 +94,7 @@ init_per_group(Type = single, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type),
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
@@ -102,17 +115,19 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf, emqx_rule_engine]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
     catch clear_db(Config),
     delete_bridge(Config),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
     catch clear_db(Config),
     delete_bridge(Config),
+    snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -125,12 +140,23 @@ start_apps() ->
     %% we want to make sure they are loaded before
     %% ekka start in emqx_common_test_helpers:start_apps/1
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]).
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine, emqx_bridge]).
 
 ensure_loaded() ->
     _ = application:load(emqx_ee_bridge),
+    _ = application:load(emqtt),
     _ = emqx_ee_bridge:module_info(),
     ok.
+
+mongo_type(Config) ->
+    case ?config(mongo_type, Config) of
+        rs ->
+            {rs, maps:get(<<"replica_set_name">>, ?config(mongo_config, Config))};
+        sharded ->
+            sharded;
+        single ->
+            single
+    end.
 
 mongo_type_bin(rs) ->
     <<"mongodb_rs">>;
@@ -139,7 +165,8 @@ mongo_type_bin(sharded) ->
 mongo_type_bin(single) ->
     <<"mongodb_single">>.
 
-mongo_config(MongoHost, MongoPort0, rs = Type) ->
+mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Servers = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -153,13 +180,19 @@ mongo_config(MongoHost, MongoPort0, rs = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Servers]
+            [
+                Name,
+                Servers,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, sharded = Type) ->
+mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Servers = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -172,13 +205,19 @@ mongo_config(MongoHost, MongoPort0, sharded = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Servers]
+            [
+                Name,
+                Servers,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, single = Type) ->
+mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
+    QueryMode = ?config(query_mode, Config),
     MongoPort = integer_to_list(MongoPort0),
     Server = MongoHost ++ ":" ++ MongoPort,
     Name = atom_to_binary(?MODULE),
@@ -191,10 +230,15 @@ mongo_config(MongoHost, MongoPort0, single = Type) ->
             "  w_mode = safe\n"
             "  database = mqtt\n"
             "  resource_opts = {\n"
+            "    query_mode = ~s\n"
             "    worker_pool_size = 1\n"
             "  }\n"
             "}",
-            [Name, Server]
+            [
+                Name,
+                Server,
+                QueryMode
+            ]
         ),
     {Name, parse_and_check(ConfigString, Type, Name)}.
 
@@ -212,7 +256,7 @@ create_bridge(Config, Overrides) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
     MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig = emqx_map_lib:deep_merge(MongoConfig0, Overrides),
+    MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
     ct:pal("creating ~p bridge with config:\n ~p", [Type, MongoConfig]),
     emqx_bridge:create(Type, Name, MongoConfig).
 
@@ -225,29 +269,47 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
 clear_db(Config) ->
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    Name = ?config(mongo_name, Config),
-    #{<<"collection">> := Collection} = ?config(mongo_config, Config),
-    ResourceID = emqx_bridge_resource:resource_id(Type, Name),
-    {ok, _, #{state := #{connector_state := #{poolname := PoolName}}}} =
-        emqx_resource:get_instance(ResourceID),
-    Selector = #{},
-    {true, _} = ecpool:pick_and_do(
-        PoolName, {mongo_api, delete, [Collection, Selector]}, no_handover
-    ),
-    ok.
+    Type = mongo_type(Config),
+    Host = ?config(mongo_host, Config),
+    Port = ?config(mongo_port, Config),
+    Server = Host ++ ":" ++ integer_to_list(Port),
+    #{<<"database">> := Db, <<"collection">> := Collection} = ?config(mongo_config, Config),
+    {ok, Client} = mongo_api:connect(Type, [Server], [], [{database, Db}, {w_mode, unsafe}]),
+    {true, _} = mongo_api:delete(Client, Collection, _Selector = #{}),
+    mongo_api:disconnect(Client).
 
 find_all(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
     #{<<"collection">> := Collection} = ?config(mongo_config, Config),
     ResourceID = emqx_bridge_resource:resource_id(Type, Name),
-    emqx_resource:query(ResourceID, {find, Collection, #{}, #{}}).
+    emqx_resource:simple_sync_query(ResourceID, {find, Collection, #{}, #{}}).
+
+find_all_wait_until_non_empty(Config) ->
+    wait_until(
+        fun() ->
+            case find_all(Config) of
+                {ok, []} -> false;
+                _ -> true
+            end
+        end,
+        5_000
+    ),
+    find_all(Config).
+
+wait_until(Fun, Timeout) when Timeout >= 0 ->
+    case Fun() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            wait_until(Fun, Timeout - 100)
+    end.
 
 send_message(Config, Payload) ->
     Name = ?config(mongo_name, Config),
@@ -265,7 +327,12 @@ t_setup_via_config_and_publish(Config) ->
         create_bridge(Config)
     ),
     Val = erlang:unique_integer(),
-    ok = send_message(Config, #{key => Val}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"key">> := Val}]},
         find_all(Config)
@@ -285,7 +352,12 @@ t_setup_via_http_api_and_publish(Config) ->
         create_bridge_http(MongoConfig)
     ),
     Val = erlang:unique_integer(),
-    ok = send_message(Config, #{key => Val}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"key">> := Val}]},
         find_all(Config)
@@ -296,9 +368,88 @@ t_payload_template(Config) ->
     {ok, _} = create_bridge(Config, #{<<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>}),
     Val = erlang:unique_integer(),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    ok = send_message(Config, #{key => Val, clientid => ClientId}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{key => Val, clientid => ClientId}),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
     ?assertMatch(
         {ok, [#{<<"foo">> := ClientId}]},
         find_all(Config)
+    ),
+    ok.
+
+t_collection_template(Config) ->
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>,
+            <<"collection">> => <<"${mycollectionvar}">>
+        }
+    ),
+    Val = erlang:unique_integer(),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{
+                key => Val,
+                clientid => ClientId,
+                mycollectionvar => <<"mycol">>
+            }),
+            #{?snk_kind := mongo_ee_connector_on_query_return},
+            5_000
+        ),
+    ?assertMatch(
+        {ok, [#{<<"foo">> := ClientId}]},
+        find_all(Config)
+    ),
+    ok.
+
+t_mongo_date_rule_engine_functions(Config) ->
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"payload_template">> =>
+                    <<"{\"date_0\": ${date_0}, \"date_1\": ${date_1}, \"date_2\": ${date_2}}">>
+            }
+        ),
+    Type = mongo_type_bin(?config(mongo_type, Config)),
+    Name = ?config(mongo_name, Config),
+    SQL =
+        "SELECT mongo_date() as date_0, mongo_date(1000) as date_1, mongo_date(1, 'second') as date_2 FROM "
+        "\"t_mongo_date_rule_engine_functions/topic\"",
+    %% Remove rule if it already exists
+    RuleId = <<"rule:t_mongo_date_rule_engine_functions">>,
+    emqx_rule_engine:delete_rule(RuleId),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    {ok, _Rule} = emqx_rule_engine:create_rule(
+        #{
+            id => <<"rule:t_mongo_date_rule_engine_functions">>,
+            sql => SQL,
+            actions => [
+                BridgeId,
+                #{function => console}
+            ],
+            description => <<"to mongo bridge">>
+        }
+    ),
+    %% Send a message to topic
+    {ok, Client} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+    emqtt:publish(Client, <<"t_mongo_date_rule_engine_functions/topic">>, #{}, <<"{\"x\":1}">>, [
+        {qos, 2}
+    ]),
+    emqtt:stop(Client),
+    ?assertMatch(
+        {ok, [
+            #{
+                <<"date_0">> := {_, _, _},
+                <<"date_1">> := {0, 1, 0},
+                <<"date_2">> := {0, 1, 0}
+            }
+        ]},
+        find_all_wait_until_non_empty(Config)
     ),
     ok.
