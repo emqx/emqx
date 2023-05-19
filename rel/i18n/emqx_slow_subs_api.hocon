@@ -2,14 +2,20 @@ emqx_slow_subs_api {
 
 clear_records_api.desc:
 """Clear current data and re count slow topic"""
+clear_records_api.label:
+"""Clear current data and re count slow topic"""
 
 clientid.desc:
 """Message clientid"""
 
 get_records_api.desc:
 """View slow topics statistics record data"""
+get_records_api.label:
+"""View slow topics statistics record data"""
 
 get_setting_api.desc:
+"""View slow subs settings"""
+get_setting_api.label:
 """View slow subs settings"""
 
 last_update_time.desc:
@@ -25,6 +31,8 @@ topic.desc:
 """Message topic"""
 
 update_setting_api.desc:
+"""Update slow subs settings"""
+update_setting_api.label:
 """Update slow subs settings"""
 
 }

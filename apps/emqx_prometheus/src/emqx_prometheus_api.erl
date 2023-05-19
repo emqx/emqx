@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_prometheus.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [ref/2]).
 
@@ -50,14 +51,14 @@ schema("/prometheus") ->
         'operationId' => prometheus,
         get =>
             #{
-                description => <<"Get Prometheus config info">>,
+                description => ?DESC(get_prom_conf_info),
                 tags => ?TAGS,
                 responses =>
                     #{200 => prometheus_config_schema()}
             },
         put =>
             #{
-                description => <<"Update Prometheus config">>,
+                description => ?DESC(update_prom_conf_info),
                 tags => ?TAGS,
                 'requestBody' => prometheus_config_schema(),
                 responses =>
@@ -69,7 +70,7 @@ schema("/prometheus/stats") ->
         'operationId' => stats,
         get =>
             #{
-                description => <<"Get Prometheus Data">>,
+                description => ?DESC(get_prom_data),
                 tags => ?TAGS,
                 security => [],
                 responses =>

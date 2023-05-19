@@ -1,0 +1,13 @@
+emqx_mgmt_api_topics {
+
+topic_list.desc:
+"""Topics list"""
+topic_list.label:
+"""Topics list"""
+
+topic_info_by_name.desc:
+"""Lookup topic info by name"""
+topic_info_by_name.label:
+"""Lookup topic info by name"""
+
+}

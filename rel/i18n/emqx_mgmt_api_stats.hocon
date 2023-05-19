@@ -1,0 +1,8 @@
+emqx_mgmt_api_stats {
+
+emqx_stats.desc:
+"""EMQX stats"""
+emqx_stats.label:
+"""EMQX stats"""
+
+}

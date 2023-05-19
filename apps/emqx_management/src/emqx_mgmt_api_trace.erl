@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     api_spec/0,
@@ -73,14 +74,14 @@ schema("/trace") ->
     #{
         'operationId' => trace,
         get => #{
-            description => "List all trace",
+            description => ?DESC(list_all),
             tags => ?TAGS,
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(trace))
             }
         },
         post => #{
-            description => "Create new trace",
+            description => ?DESC(create_new),
             tags => ?TAGS,
             'requestBody' => delete([status, log_size], fields(trace)),
             responses => #{
@@ -102,7 +103,7 @@ schema("/trace") ->
             }
         },
         delete => #{
-            description => "Clear all traces",
+            description => ?DESC(clear_all),
             tags => ?TAGS,
             responses => #{
                 204 => <<"No Content">>
@@ -113,7 +114,7 @@ schema("/trace/:name") ->
     #{
         'operationId' => delete_trace,
         delete => #{
-            description => "Delete specified trace",
+            description => ?DESC(delete_trace),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -126,7 +127,7 @@ schema("/trace/:name/stop") ->
     #{
         'operationId' => update_trace,
         put => #{
-            description => "Stop trace by name",
+            description => ?DESC(stop_trace),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -139,7 +140,7 @@ schema("/trace/:name/download") ->
     #{
         'operationId' => download_trace_log,
         get => #{
-            description => "Download trace log by name",
+            description => ?DESC(download_log_by_name),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name), hoconsc:ref(node)],
             responses => #{
@@ -161,7 +162,7 @@ schema("/trace/:name/log_detail") ->
     #{
         'operationId' => log_file_detail,
         get => #{
-            description => "get trace log file's metadata, such as size, last update time",
+            description => ?DESC(get_trace_file_metadata),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -174,7 +175,7 @@ schema("/trace/:name/log") ->
     #{
         'operationId' => stream_log_file,
         get => #{
-            description => "view trace log",
+            description => ?DESC(view_trace_log),
             tags => ?TAGS,
             parameters => [
                 hoconsc:ref(name),
@@ -204,9 +205,8 @@ schema("/trace/:name/log") ->
 fields(log_file_detail) ->
     fields(node) ++
         [
-            {size, hoconsc:mk(integer(), #{desc => "file size"})},
-            {mtime,
-                hoconsc:mk(integer(), #{desc => "the modification and last access times of a file"})}
+            {size, hoconsc:mk(integer(), #{description => ?DESC(file_size)})},
+            {mtime, hoconsc:mk(integer(), #{description => ?DESC(modification_date)})}
         ];
 fields(trace) ->
     [
@@ -214,7 +214,7 @@ fields(trace) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Unique and format by [a-zA-Z0-9-_]",
+                    description => ?DESC(format),
                     validator => fun ?MODULE:validate_name/1,
                     required => true,
                     example => <<"EMQX-TRACE-1">>
@@ -224,7 +224,7 @@ fields(trace) ->
             hoconsc:mk(
                 hoconsc:enum([clientid, topic, ip_address]),
                 #{
-                    desc => "" "Filter type" "",
+                    description => ?DESC(filter_type),
                     required => true,
                     example => <<"clientid">>
                 }
@@ -233,7 +233,7 @@ fields(trace) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "" "support mqtt wildcard topic." "",
+                    description => ?DESC(support_wildcard),
                     required => false,
                     example => <<"/dev/#">>
                 }
@@ -242,7 +242,7 @@ fields(trace) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "" "mqtt clientid." "",
+                    description => ?DESC(mqtt_clientid),
                     required => false,
                     example => <<"dev-001">>
                 }
@@ -252,7 +252,7 @@ fields(trace) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "client ip address",
+                    description => ?DESC(client_ip_addess),
                     required => false,
                     example => <<"127.0.0.1">>
                 }
@@ -261,7 +261,7 @@ fields(trace) ->
             hoconsc:mk(
                 hoconsc:enum([running, stopped, waiting]),
                 #{
-                    desc => "trace status",
+                    description => ?DESC(trace_status),
                     required => false,
                     example => running
                 }
@@ -283,7 +283,7 @@ fields(trace) ->
             hoconsc:mk(
                 emqx_datetime:epoch_second(),
                 #{
-                    desc => "rfc3339 timestamp or epoch second",
+                    description => ?DESC(time_format),
                     required => false,
                     example => <<"2021-11-04T18:17:38+08:00">>
                 }
@@ -292,7 +292,7 @@ fields(trace) ->
             hoconsc:mk(
                 emqx_datetime:epoch_second(),
                 #{
-                    desc => "rfc3339 timestamp or epoch second",
+                    description => ?DESC(time_format),
                     required => false,
                     example => <<"2021-11-05T18:17:38+08:00">>
                 }
@@ -301,7 +301,7 @@ fields(trace) ->
             hoconsc:mk(
                 hoconsc:array(map()),
                 #{
-                    desc => "trace log size",
+                    description => ?DESC(trace_log_size),
                     example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
                     required => false
                 }
@@ -326,7 +326,7 @@ fields(node) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Node name",
+                    description => ?DESC(node_name),
                     in => query,
                     required => false,
                     example => "emqx@127.0.0.1"
@@ -341,7 +341,7 @@ fields(bytes) ->
                 %% across different OS
                 range(0, ?MAX_SINT32),
                 #{
-                    desc => "Maximum number of bytes to send in response",
+                    description => ?DESC(max_response_bytes),
                     in => query,
                     required => false,
                     default => 1000,
@@ -356,7 +356,7 @@ fields(position) ->
             hoconsc:mk(
                 integer(),
                 #{
-                    desc => "Offset from the current trace position.",
+                    description => ?DESC(current_trace_offset),
                     in => query,
                     required => false,
                     default => 0

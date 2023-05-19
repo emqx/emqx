@@ -39,7 +39,7 @@ schema("/cluster") ->
     #{
         'operationId' => cluster_info,
         get => #{
-            description => "Get cluster info",
+            desc => ?DESC(get_cluster_info),
             tags => [<<"Cluster">>],
             responses => #{
                 200 => [
@@ -54,7 +54,7 @@ schema("/cluster/:node/invite") ->
     #{
         'operationId' => invite_node,
         put => #{
-            description => "Invite node to cluster",
+            desc => ?DESC(invite_node),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
             responses => #{
@@ -67,7 +67,7 @@ schema("/cluster/:node/force_leave") ->
     #{
         'operationId' => force_leave,
         delete => #{
-            description => "Force leave node from cluster",
+            desc => ?DESC(force_remove_node),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
             responses => #{

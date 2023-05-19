@@ -66,7 +66,7 @@ schema("/listeners_status") ->
         'operationId' => listener_type_status,
         get => #{
             tags => [<<"listeners">>],
-            desc => <<"List all running node's listeners live status. group by listener type">>,
+            description => ?DESC(list_node_live_statuses),
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(
@@ -81,7 +81,7 @@ schema("/listeners") ->
         'operationId' => list_listeners,
         get => #{
             tags => [<<"listeners">>],
-            desc => <<"List all running node's listeners for the specified type.">>,
+            description => ?DESC(list_listeners),
             parameters => [
                 {type,
                     ?HOCON(
@@ -99,7 +99,7 @@ schema("/listeners") ->
         },
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Create the specified listener on all nodes.">>,
+            description => ?DESC(create_on_all_nodes),
             parameters => [],
             'requestBody' => create_listener_schema(#{bind => true}),
             responses => #{
@@ -113,7 +113,7 @@ schema("/listeners/:id") ->
         'operationId' => crud_listeners_by_id,
         get => #{
             tags => [<<"listeners">>],
-            desc => <<"List all running node's listeners for the specified id.">>,
+            description => ?DESC(list_by_id),
             parameters => [?R_REF(listener_id)],
             responses => #{
                 200 => listener_schema(#{bind => true}),
@@ -122,7 +122,7 @@ schema("/listeners/:id") ->
         },
         put => #{
             tags => [<<"listeners">>],
-            desc => <<"Update the specified listener on all nodes.">>,
+            description => ?DESC(update_lisener),
             parameters => [?R_REF(listener_id)],
             'requestBody' => listener_schema(#{bind => false}),
             responses => #{
@@ -133,7 +133,7 @@ schema("/listeners/:id") ->
         },
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Create the specified listener on all nodes.">>,
+            description => ?DESC(create_on_all_nodes),
             parameters => [?R_REF(listener_id)],
             'requestBody' => listener_schema(#{bind => true}),
             responses => #{
@@ -144,7 +144,7 @@ schema("/listeners/:id") ->
         },
         delete => #{
             tags => [<<"listeners">>],
-            desc => <<"Delete the specified listener on all nodes.">>,
+            description => ?DESC(delete_on_all_nodes),
             parameters => [?R_REF(listener_id)],
             responses => #{
                 204 => <<"Listener deleted">>,
@@ -157,7 +157,7 @@ schema("/listeners/:id/start") ->
         'operationId' => start_listeners_by_id,
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Start the listener on all nodes.">>,
+            description => ?DESC(start_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)
             ],
@@ -172,7 +172,7 @@ schema("/listeners/:id/stop") ->
         'operationId' => stop_listeners_by_id,
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Stop the listener on all nodes.">>,
+            description => ?DESC(stop_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)
             ],
@@ -187,7 +187,7 @@ schema("/listeners/:id/restart") ->
         'operationId' => restart_listeners_by_id,
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Restart listeners on all nodes.">>,
+            description => ?DESC(restart_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)
             ],

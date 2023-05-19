@@ -2,14 +2,22 @@ emqx_dashboard_api {
 
 change_pwd_api.desc:
 """Change dashboard user password"""
+change_pwd_api.label:
+"""Change dashboard user password"""
 
 create_user_api.desc:
+"""Create dashboard user"""
+create_user_api.label:
 """Create dashboard user"""
 
 create_user_api_success.desc:
 """Create dashboard user success"""
+create_user_api_success.label:
+"""Create dashboard user success"""
 
 delete_user_api.desc:
+"""Delete dashboard user"""
+delete_user_api.label:
 """Delete dashboard user"""
 
 license.desc:
@@ -17,8 +25,12 @@ license.desc:
 
 list_users_api.desc:
 """Dashboard list users"""
+list_users_api.label:
+"""Dashboard list users"""
 
 login_api.desc:
+"""Get Dashboard Auth Token."""
+login_api.label:
 """Get Dashboard Auth Token."""
 
 login_failed401.desc:
@@ -31,6 +43,8 @@ login_success.desc:
 """Dashboard Auth Success"""
 
 logout_api.desc:
+"""Dashboard user logout"""
+logout_api.label:
 """Dashboard user logout"""
 
 new_pwd.desc:
@@ -46,6 +60,8 @@ token.desc:
 """Dashboard Auth Token"""
 
 update_user_api.desc:
+"""Update dashboard user description"""
+update_user_api.label:
 """Update dashboard user description"""
 
 update_user_api200.desc:
