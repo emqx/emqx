@@ -594,7 +594,7 @@ t_batch_insert(Config) ->
 
     Size = 5,
     Ts = erlang:system_time(millisecond),
-    {_, {ok, #{result := Result}}} =
+    {_, {ok, #{result := _Result}}} =
         ?wait_async_action(
             lists:foreach(
                 fun(Idx) ->
@@ -609,11 +609,13 @@ t_batch_insert(Config) ->
             2_000
         ),
 
-    timer:sleep(200),
-
-    ?assertMatch(
-        [[Size]],
-        connect_and_query(Config, "SELECT COUNT(1) FROM t_mqtt_msg")
+    ?retry(
+        _Sleep = 50,
+        _Attempts = 30,
+        ?assertMatch(
+            [[Size]],
+            connect_and_query(Config, "SELECT COUNT(1) FROM t_mqtt_msg")
+        )
     ).
 
 t_auto_create_simple_insert(Config0) ->
@@ -660,7 +662,7 @@ t_auto_create_batch_insert(Config0) ->
     Size2 = 3,
 
     Ts = erlang:system_time(millisecond),
-    {_, {ok, #{result := Result}}} =
+    {_, {ok, #{result := _Result}}} =
         ?wait_async_action(
             lists:foreach(
                 fun({Offset, ClientId, Size}) ->
@@ -683,16 +685,23 @@ t_auto_create_batch_insert(Config0) ->
             2_000
         ),
 
-    timer:sleep(200),
+    ?retry(
+        _Sleep = 50,
+        _Attempts = 30,
 
-    ?assertMatch(
-        [[Size1]],
-        connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId1)
+        ?assertMatch(
+            [[Size1]],
+            connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId1)
+        )
     ),
 
-    ?assertMatch(
-        [[Size2]],
-        connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId2)
+    ?retry(
+        50,
+        30,
+        ?assertMatch(
+            [[Size2]],
+            connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId2)
+        )
     ),
 
     ?assertMatch(

@@ -208,8 +208,8 @@ execute(Conn, Query, Opts) ->
 
 do_batch_insert(Conn, Tokens, BatchReqs, Opts) ->
     Queries = aggregate_query(Tokens, BatchReqs),
-    SQL = lists:foldl(
-        fun({InsertPart, Values}, Acc) ->
+    SQL = maps:fold(
+        fun(InsertPart, Values, Acc) ->
             lists:foldl(
                 fun(ValuePart, IAcc) ->
                     <<IAcc/binary, " ", ValuePart/binary>>
@@ -224,17 +224,15 @@ do_batch_insert(Conn, Tokens, BatchReqs, Opts) ->
     execute(Conn, SQL, Opts).
 
 aggregate_query({InsertPartTks, ParamsPartTks}, BatchReqs) ->
-    maps:to_list(
-        lists:foldl(
-            fun({_, Data}, Acc) ->
-                InsertPart = emqx_plugin_libs_rule:proc_sql_param_str(InsertPartTks, Data),
-                ParamsPart = emqx_plugin_libs_rule:proc_sql_param_str(ParamsPartTks, Data),
-                Values = maps:get(InsertPart, Acc, []),
-                maps:put(InsertPart, [ParamsPart | Values], Acc)
-            end,
-            #{},
-            BatchReqs
-        )
+    lists:foldl(
+        fun({_, Data}, Acc) ->
+            InsertPart = emqx_plugin_libs_rule:proc_sql_param_str(InsertPartTks, Data),
+            ParamsPart = emqx_plugin_libs_rule:proc_sql_param_str(ParamsPartTks, Data),
+            Values = maps:get(InsertPart, Acc, []),
+            maps:put(InsertPart, [ParamsPart | Values], Acc)
+        end,
+        #{},
+        BatchReqs
     ).
 
 connect(Opts) ->
@@ -268,8 +266,8 @@ parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
                         InsertTksMap#{Key => InsertTks},
                         BatchTksMap#{Key => {InsertPartTks, ParamsPartTks}}
                     );
-                _ ->
-                    ?SLOG(error, #{msg => "split sql failed", sql => H}),
+                Result ->
+                    ?SLOG(error, #{msg => "split sql failed", sql => H, result => Result}),
                     parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
             end;
         {error, Reason} ->
@@ -287,11 +285,14 @@ to_bin(List) when is_list(List) ->
 
 split_insert_sql(SQL0) ->
     SQL = emqx_plugin_libs_rule:formalize_sql(SQL0),
-    lists:foldr(
-        fun
-            (<<>>, Acc) -> Acc;
-            (E, Acc) -> [string:trim(E) | Acc]
+    lists:filtermap(
+        fun(E) ->
+            case string:trim(E) of
+                <<>> ->
+                    false;
+                E1 ->
+                    {true, E1}
+            end
         end,
-        [],
         re:split(SQL, "(?i)(insert into)|(?i)(values)")
     ).
