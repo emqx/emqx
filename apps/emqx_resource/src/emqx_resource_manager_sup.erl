@@ -17,7 +17,7 @@
 
 -behaviour(supervisor).
 
--export([ensure_child/5]).
+-export([ensure_child/5, delete_child/1]).
 
 -export([start_link/0]).
 
@@ -25,6 +25,11 @@
 
 ensure_child(ResId, Group, ResourceType, Config, Opts) ->
     _ = supervisor:start_child(?MODULE, [ResId, Group, ResourceType, Config, Opts]),
+    ok.
+
+delete_child(Pid) ->
+    _ = supervisor:terminate_child(?MODULE, Pid),
+    _ = supervisor:delete_child(?MODULE, Pid),
     ok.
 
 start_link() ->
@@ -36,7 +41,10 @@ init([]) ->
             id => emqx_resource_manager,
             start => {emqx_resource_manager, start_link, []},
             restart => transient,
-            shutdown => brutal_kill,
+            %% never force kill a resource manager.
+            %% becasue otherwise it may lead to release leak,
+            %% resource_manager's terminate callback calls resource on_stop
+            shutdown => infinity,
             type => worker,
             modules => [emqx_resource_manager]
         }

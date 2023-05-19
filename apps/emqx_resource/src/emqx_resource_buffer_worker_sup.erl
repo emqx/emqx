@@ -133,7 +133,7 @@ ensure_worker_removed(ResId, Idx) ->
         ok ->
             _ = supervisor:delete_child(?SERVER, ChildId),
             %% no need to remove worker from the pool,
-            %% because the entire pool will be forece deleted later
+            %% because the entire pool will be force deleted later
             ok;
         {error, not_found} ->
             ok
