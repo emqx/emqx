@@ -936,27 +936,34 @@ ensure_metrics_flush_timer(Data = #{metrics_tref := undefined, metrics_flush_int
 
 -spec bump_counters(id(), counters()) -> ok.
 bump_counters(Id, Counters) ->
-    maps:foreach(
-        fun
-            (dropped_expired, Val) ->
-                emqx_resource_metrics:dropped_expired_inc(Id, Val);
-            (dropped_queue_full, Val) ->
-                emqx_resource_metrics:dropped_queue_full_inc(Id, Val);
-            (failed, Val) ->
-                emqx_resource_metrics:failed_inc(Id, Val);
-            (retried_failed, Val) ->
-                emqx_resource_metrics:retried_failed_inc(Id, Val);
-            (success, Val) ->
-                emqx_resource_metrics:success_inc(Id, Val);
-            (retried_success, Val) ->
-                emqx_resource_metrics:retried_success_inc(Id, Val);
-            (dropped_resource_not_found, Val) ->
-                emqx_resource_metrics:dropped_resource_not_found_inc(Id, Val);
-            (dropped_resource_stopped, Val) ->
-                emqx_resource_metrics:dropped_resource_stopped_inc(Id, Val)
-        end,
-        Counters
-    ).
+    Iter = maps:iterator(Counters),
+    do_bump_counters(Iter, Id).
+
+do_bump_counters(Iter, Id) ->
+    case maps:next(Iter) of
+        {Key, Val, NIter} ->
+            do_bump_counters1(Key, Val, Id),
+            do_bump_counters(NIter, Id);
+        none ->
+            ok
+    end.
+
+do_bump_counters1(dropped_expired, Val, Id) ->
+    emqx_resource_metrics:dropped_expired_inc(Id, Val);
+do_bump_counters1(dropped_queue_full, Val, Id) ->
+    emqx_resource_metrics:dropped_queue_full_inc(Id, Val);
+do_bump_counters1(failed, Val, Id) ->
+    emqx_resource_metrics:failed_inc(Id, Val);
+do_bump_counters1(retried_failed, Val, Id) ->
+    emqx_resource_metrics:retried_failed_inc(Id, Val);
+do_bump_counters1(success, Val, Id) ->
+    emqx_resource_metrics:success_inc(Id, Val);
+do_bump_counters1(retried_success, Val, Id) ->
+    emqx_resource_metrics:retried_success_inc(Id, Val);
+do_bump_counters1(dropped_resource_not_found, Val, Id) ->
+    emqx_resource_metrics:dropped_resource_not_found_inc(Id, Val);
+do_bump_counters1(dropped_resource_stopped, Val, Id) ->
+    emqx_resource_metrics:dropped_resource_stopped_inc(Id, Val).
 
 -spec set_gauges(data()) -> ok.
 set_gauges(_Data = #{id := Id, index := Index, queue := Q, inflight_tid := InflightTID}) ->
