@@ -7,6 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_HOST, "clickhouse").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
@@ -25,10 +26,7 @@ init_per_suite(Config) ->
         true ->
             emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
             ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(emqx_ee_connector),
-            {ok, _} = application:ensure_all_started(emqx_ee_bridge),
+            ok = emqx_connector_test_helpers:start_apps([emqx_resource, ?APP]),
             snabbkaffe:fix_ct_logging(),
             %% Create the db table
             Conn = start_clickhouse_connection(),
@@ -75,11 +73,8 @@ start_clickhouse_connection() ->
 end_per_suite(Config) ->
     ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
     clickhouse:stop(ClickhouseConnection),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_ee_connector),
-    _ = application:stop(emqx_bridge).
+    ok = emqx_connector_test_helpers:stop_apps([?APP, emqx_resource]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]).
 
 init_per_testcase(_, Config) ->
     reset_table(Config),
