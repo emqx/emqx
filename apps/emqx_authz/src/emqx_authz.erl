@@ -482,6 +482,8 @@ maybe_write_files(NewSource) ->
 
 write_acl_file(#{<<"rules">> := Rules} = Source0) ->
     AclPath = ?MODULE:acl_conf_file(),
+    %% Always check if the rules are valid before writing to the file
+    %% If the rules are invalid, the old file will be kept
     ok = check_acl_file_rules(AclPath, Rules),
     ok = write_file(AclPath, Rules),
     Source1 = maps:remove(<<"rules">>, Source0),
@@ -538,8 +540,7 @@ check_acl_file_rules(Path, Rules) ->
     TmpPath = Path ++ ".tmp",
     try
         ok = write_file(Path, Rules),
-        #{annotations := #{rules := _}} = emqx_authz_file:create(#{path => Path}),
-        ok
+        emqx_authz_schema:validate_file_rules(Path)
     catch
         throw:Reason -> throw(Reason)
     after
