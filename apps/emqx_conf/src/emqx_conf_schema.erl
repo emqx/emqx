@@ -560,7 +560,7 @@ fields("node") ->
                 emqx_schema:comma_separated_atoms(),
                 #{
                     mapping => "emqx_machine.applications",
-                    default => [],
+                    default => <<"">>,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_applications)
