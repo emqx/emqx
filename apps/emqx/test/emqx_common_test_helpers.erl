@@ -653,10 +653,16 @@ emqx_cluster(Specs0, CommonOpts) ->
     ]),
     %% Set the default node of the cluster:
     CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
-    JoinTo =
+    JoinTo0 =
         case CoreNodes of
             [First | _] -> First;
             _ -> undefined
+        end,
+    JoinTo =
+        case maps:find(join_to, CommonOpts) of
+            {ok, true} -> JoinTo0;
+            {ok, JT} -> JT;
+            error -> JoinTo0
         end,
     [
         {Name,
