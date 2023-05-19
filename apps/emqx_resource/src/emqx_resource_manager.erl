@@ -460,7 +460,7 @@ health_check_actions(Data) ->
 handle_remove_event(From, ClearMetrics, Data) ->
     %% stop the buffer workers first, brutal_kill, so it should be fast
     ok = emqx_resource_buffer_worker_sup:stop_workers(Data#data.id, Data#data.opts),
-    %% no stop the resource, this can be slow
+    %% now stop the resource, this can be slow
     _ = stop_resource(Data),
     case ClearMetrics of
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
