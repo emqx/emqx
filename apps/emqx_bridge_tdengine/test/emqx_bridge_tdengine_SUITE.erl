@@ -435,7 +435,12 @@ t_write_failure(Config) ->
                 #{?snk_kind := buffer_worker_flush_ack},
                 2_000
             ),
-        ?assertMatch({error, Reason} when Reason =:= econnrefused; Reason =:= closed, Result),
+        case Result of
+            {error, Reason} when Reason =:= econnrefused; Reason =:= closed ->
+                ok;
+            _ ->
+                throw({unexpected, Result})
+        end,
         ok
     end),
     ok.
