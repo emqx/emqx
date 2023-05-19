@@ -159,14 +159,14 @@ t_explicit_session_takeover(Config) ->
     ]),
     {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
 
-    ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),
-
     ?assertEqual(
         1,
         rpc:call(Node1, emqx_eviction_agent, connection_count, [])
     ),
 
     [ChanPid] = rpc:call(Node1, emqx_cm, lookup_channels, [<<"client_with_session">>]),
+
+    ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),
 
     ?assertWaitEvent(
         begin
