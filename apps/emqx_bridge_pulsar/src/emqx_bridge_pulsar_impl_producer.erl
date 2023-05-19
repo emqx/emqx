@@ -48,6 +48,7 @@
         memory_overload_protection := boolean()
     },
     compression := compression_mode(),
+    connect_timeout := emqx_schema:duration_ms(),
     max_batch_bytes := emqx_schema:bytesize(),
     message := message_template_raw(),
     pulsar_topic := binary(),
@@ -81,7 +82,9 @@ on_start(InstanceId, Config) ->
     Servers = format_servers(Servers0),
     ClientId = make_client_id(InstanceId, BridgeName),
     SSLOpts = emqx_tls_lib:to_client_opts(SSL),
+    ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(5)),
     ClientOpts = #{
+        connect_timeout => ConnectTimeout,
         ssl_opts => SSLOpts,
         conn_opts => conn_opts(Config)
     },
@@ -96,13 +99,19 @@ on_start(InstanceId, Config) ->
                 }
             );
         {error, Reason} ->
+            RedactedReason = emqx_utils:redact(Reason, fun is_sensitive_key/1),
             ?SLOG(error, #{
                 msg => "failed_to_start_pulsar_client",
                 instance_id => InstanceId,
                 pulsar_hosts => Servers,
-                reason => emqx_utils:redact(Reason, fun is_sensitive_key/1)
+                reason => RedactedReason
             }),
-            throw(failed_to_start_pulsar_client)
+            Message =
+                case get_error_message(RedactedReason) of
+                    {ok, Msg} -> Msg;
+                    error -> failed_to_start_pulsar_client
+                end,
+            throw(Message)
     end,
     start_producer(Config, InstanceId, ClientId, ClientOpts).
 
@@ -422,3 +431,19 @@ partition_strategy(Strategy) -> Strategy.
 
 is_sensitive_key(auth_data) -> true;
 is_sensitive_key(_) -> false.
+
+get_error_message({BrokerErrorMap, _}) when is_map(BrokerErrorMap) ->
+    Iter = maps:iterator(BrokerErrorMap),
+    do_get_error_message(Iter);
+get_error_message(_Error) ->
+    error.
+
+do_get_error_message(Iter) ->
+    case maps:next(Iter) of
+        {{_Broker, _Port}, #{message := Message}, _NIter} ->
+            {ok, Message};
+        {_K, _V, NIter} ->
+            do_get_error_message(NIter);
+        none ->
+            error
+    end.
