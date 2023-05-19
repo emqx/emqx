@@ -238,6 +238,8 @@ render_and_load_app_config(App, Opts) ->
     end.
 
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
+    %% copy acl_conf must run before read_schema_configs
+    copy_acl_conf(),
     Vars = mustache_vars(App, Opts),
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
@@ -495,6 +497,16 @@ copy_certs(emqx_conf, Dest0) ->
     os:cmd(["cp -rf ", From, "/certs ", Dest, "/"]),
     ok;
 copy_certs(_, _) ->
+    ok.
+
+copy_acl_conf() ->
+    Dest = filename:join([code:lib_dir(emqx), "etc/acl.conf"]),
+    case code:lib_dir(emqx_authz) of
+        {error, bad_name} ->
+            (not filelib:is_regular(Dest)) andalso file:write_file(Dest, <<"">>);
+        _ ->
+            {ok, _} = file:copy(deps_path(emqx_authz, "etc/acl.conf"), Dest)
+    end,
     ok.
 
 load_config(SchemaModule, Config) ->
