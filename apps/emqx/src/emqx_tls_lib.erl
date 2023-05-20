@@ -620,9 +620,11 @@ ensure_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
 ensure_ssl_file_key(_SSL, []) ->
     ok;
 ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
-    NotFoundRef = make_ref(),
     Filter = fun(KeyPath) ->
-        NotFoundRef =:= emqx_utils_maps:deep_get(KeyPath, SSL, NotFoundRef)
+        case emqx_utils_maps:deep_find(KeyPath, SSL) of
+            {not_found, _, _} -> true;
+            _ -> false
+        end
     end,
     case lists:filter(Filter, RequiredKeyPaths) of
         [] -> ok;

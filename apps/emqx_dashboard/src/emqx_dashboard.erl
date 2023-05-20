@@ -95,7 +95,7 @@ start_listeners(Listeners) ->
                 end
             end,
             {[], []},
-            listeners(Listeners)
+            listeners(ensure_ssl_cert(Listeners))
         ),
     case ErrListeners of
         [] ->
@@ -140,18 +140,18 @@ apps() ->
 
 listeners(Listeners) ->
     lists:filtermap(
-        fun({Protocol, Conf}) ->
-            maps:get(enable, Conf) andalso
-                begin
-                    {Conf1, Bind} = ip_port(Conf),
-                    {true, {
-                        listener_name(Protocol),
-                        Protocol,
-                        Bind,
-                        ranch_opts(Conf1),
-                        proto_opts(Conf1)
-                    }}
-                end
+        fun
+            ({Protocol, Conf = #{enable := true}}) ->
+                {Conf1, Bind} = ip_port(Conf),
+                {true, {
+                    listener_name(Protocol),
+                    Protocol,
+                    Bind,
+                    ranch_opts(Conf1),
+                    proto_opts(Conf1)
+                }};
+            ({_Protocol, #{enable := false}}) ->
+                false
         end,
         maps:to_list(Listeners)
     ).
@@ -191,8 +191,8 @@ ranch_opts(Options) ->
         end,
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
-proto_opts(Options) ->
-    maps:with([proxy_header], Options).
+proto_opts(#{proxy_header := ProxyHeader}) ->
+    #{proxy_header => ProxyHeader}.
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
@@ -224,7 +224,7 @@ return_unauthorized(Code, Message) ->
     {401,
         #{
             <<"WWW-Authenticate">> =>
-                <<"Basic Realm=\"minirest-server\"">>
+                <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
 
@@ -247,3 +247,9 @@ api_key_authorize(Req, Key, Secret) ->
                 <<"Check api_key/api_secret">>
             )
     end.
+
+ensure_ssl_cert(Listeners = #{https := Https0}) ->
+    Https1 = emqx_tls_lib:to_server_opts(tls, Https0),
+    Listeners#{https => maps:from_list(Https1)};
+ensure_ssl_cert(Listeners) ->
+    Listeners.
