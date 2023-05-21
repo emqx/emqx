@@ -725,7 +725,9 @@ t_slice(_) ->
     ?assertEqual([4], apply_func(sublist, [4, 2, {1, 2, 3, 4}])),
     ?assertEqual([], apply_func(sublist, [5, 2, {1, 2, 3, 4}])),
     ?assertEqual([2, 3], apply_func(sublist, [2, 2, {1, 2, 3, 4}])),
-    ?assertEqual([1], apply_func(sublist, [1, 1, {1, 2, 3, 4}])).
+    ?assertEqual([1], apply_func(sublist, [1, 1, {1, 2, 3, 4}])),
+    ?assertEqual([], apply_func(sublist, [1, {}])),
+    ?assertEqual([], apply_func(sublist, [0, 1, {}])).
 
 t_first_last(_) ->
     ?assertEqual(1, apply_func(first, [[1, 2, 3, 4]])),
@@ -747,7 +749,8 @@ t_contains(_) ->
     ?assertEqual(true, apply_func(contains, [#{a => b}, {#{a => 1}, #{a => b}}])),
     ?assertEqual(false, apply_func(contains, [#{a => b}, {#{a => 1}}])),
     ?assertEqual(false, apply_func(contains, [3, {1, 2}])),
-    ?assertEqual(false, apply_func(contains, [<<"c">>, {<<>>, <<"ab">>, 3, <<"a">>}])).
+    ?assertEqual(false, apply_func(contains, [<<"c">>, {<<>>, <<"ab">>, 3, <<"a">>}])),
+    ?assertEqual(false, apply_func(contains, [<<"c">>, {}])).
 
 t_map_get(_) ->
     ?assertEqual(1, apply_func(map_get, [<<"a">>, #{a => 1}])),
