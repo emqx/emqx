@@ -852,25 +852,52 @@ jq(FilterProgram, JSONBin) ->
 %%------------------------------------------------------------------------------
 
 nth(N, L) when is_integer(N), is_list(L) ->
-    lists:nth(N, L).
+    lists:nth(N, L);
+nth(N, Tuple) when is_integer(N), is_tuple(Tuple) ->
+    element(N, Tuple).
 
 length(List) when is_list(List) ->
-    erlang:length(List).
+    erlang:length(List);
+length(Tuple) when is_tuple(Tuple) ->
+    tuple_size(Tuple).
 
 sublist(Len, List) when is_integer(Len), is_list(List) ->
-    lists:sublist(List, Len).
+    lists:sublist(List, Len);
+sublist(Len, Tuple) when is_integer(Len), is_tuple(Tuple), Len =< tuple_size(Tuple), Len > 0 ->
+    [element(N, Tuple) || N <- lists:seq(1, Len)];
+sublist(_, {}) ->
+    [].
 
 sublist(Start, Len, List) when is_integer(Start), is_integer(Len), is_list(List) ->
-    lists:sublist(List, Start, Len).
+    lists:sublist(List, Start, Len);
+sublist(Start, Len, Tuple) when is_integer(Start), is_integer(Len), is_tuple(Tuple), Start > 0 ->
+    End = min(tuple_size(Tuple), Start + Len - 1),
+    [element(N, Tuple) || N <- lists:seq(Start, End)];
+sublist(_, _, {}) ->
+    [].
 
 first(List) when is_list(List) ->
-    hd(List).
+    hd(List);
+first(Tuple) when is_tuple(Tuple) ->
+    element(1, Tuple).
 
 last(List) when is_list(List) ->
-    lists:last(List).
+    lists:last(List);
+last(Tuple) when is_tuple(Tuple) ->
+    element(tuple_size(Tuple), Tuple).
 
 contains(Elm, List) when is_list(List) ->
-    lists:member(Elm, List).
+    lists:member(Elm, List);
+contains(_, {}) -> false;
+contains(Elm, Tuple) when is_tuple(Tuple) ->
+    contains(Elm, Tuple, 1, tuple_size(Tuple)).
+
+contains(Elm, Tuple, Index, Size) when Index =< Size ->
+    case element(Index, Tuple) of
+        Elm -> true;
+        _ -> contains(Elm, Tuple, Index+1, Size)
+    end;
+contains(_, _, _, _) -> false.
 
 map_new() ->
     #{}.
