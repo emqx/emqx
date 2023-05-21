@@ -888,16 +888,18 @@ last(Tuple) when is_tuple(Tuple) ->
 
 contains(Elm, List) when is_list(List) ->
     lists:member(Elm, List);
-contains(_, {}) -> false;
+contains(_, {}) ->
+    false;
 contains(Elm, Tuple) when is_tuple(Tuple) ->
     contains(Elm, Tuple, 1, tuple_size(Tuple)).
 
 contains(Elm, Tuple, Index, Size) when Index =< Size ->
     case element(Index, Tuple) of
         Elm -> true;
-        _ -> contains(Elm, Tuple, Index+1, Size)
+        _ -> contains(Elm, Tuple, Index + 1, Size)
     end;
-contains(_, _, _, _) -> false.
+contains(_, _, _, _) ->
+    false.
 
 map_new() ->
     #{}.
