@@ -859,8 +859,8 @@ setup_node(Node, Opts) when is_map(Opts) ->
             LoadSchema andalso
                 begin
                     %% to avoid sharing data between executions and/or
-                    %% nodes.  these variables might notbe in the
-                    %% config file (e.g.: emqx_ee_conf_schema).
+                    %% nodes.  these variables might not be in the
+                    %% config file (e.g.: emqx_enterprise_schema).
                     NodeDataDir = filename:join([
                         PrivDataDir,
                         node(),

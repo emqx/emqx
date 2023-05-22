@@ -384,7 +384,7 @@ defmodule EMQXUmbrella.MixProject do
       if(edition_type == :enterprise,
         do: [
           emqx_license: :permanent,
-          emqx_ee_conf: :load,
+          emqx_enterprise: :load,
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
@@ -785,7 +785,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_schema_mod(:enterprise), do: :emqx_ee_conf_schema
+  defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
   defp bcrypt_dep() do

@@ -1,6 +1,6 @@
-{application, emqx_ee_conf, [
-    {description, "EMQX Enterprise Edition configuration schema"},
-    {vsn, "0.1.2"},
+{application, emqx_enterprise, [
+    {description, "EMQX Enterprise Edition"},
+    {vsn, "0.1.0"},
     {registered, []},
     {applications, [
         kernel,
