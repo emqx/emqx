@@ -112,7 +112,8 @@ fields("rule_test") ->
                     ref("ctx_disconnected"),
                     ref("ctx_connack"),
                     ref("ctx_check_authz_complete"),
-                    ref("ctx_bridge_mqtt")
+                    ref("ctx_bridge_mqtt"),
+                    ref("ctx_delivery_dropped")
                 ]),
                 #{
                     desc => ?DESC("test_context"),
@@ -276,6 +277,15 @@ fields("ctx_bridge_mqtt") ->
         {"retain", sc(binary(), #{desc => ?DESC("event_retain")})},
         {"message_received_at", publish_received_at_sc()},
         qos()
+    ];
+fields("ctx_delivery_dropped") ->
+    [
+        {"event_type", event_type_sc(delivery_dropped)},
+        {"id", sc(binary(), #{desc => ?DESC("event_id")})},
+        {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})},
+        {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})},
+        {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
+        | msg_event_common_fields()
     ].
 
 qos() ->
