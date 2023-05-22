@@ -285,29 +285,7 @@ send_to_remote(Pid, MsgIn, Conf) ->
     do_send(Pid, export_msg(MsgIn, Conf)).
 
 do_send(Pid, Msg) when Msg /= undefined ->
-    case emqtt:publish(Pid, Msg) of
-        ok ->
-            ok;
-        {ok, #{reason_code := RC}} when
-            RC =:= ?RC_SUCCESS;
-            RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
-        ->
-            ok;
-        {ok, #{reason_code := RC, reason_code_name := Reason}} ->
-            ?SLOG(warning, #{
-                msg => "remote_publish_failed",
-                message => Msg,
-                reason_code => RC,
-                reason_code_name => Reason
-            }),
-            {error, Reason};
-        {error, Reason} ->
-            ?SLOG(info, #{
-                msg => "client_failed",
-                reason => Reason
-            }),
-            {error, Reason}
-    end;
+    emqtt:publish(Pid, Msg);
 do_send(_Name, undefined) ->
     ok.
 
