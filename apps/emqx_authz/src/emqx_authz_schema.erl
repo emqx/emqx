@@ -42,8 +42,7 @@
 
 -export([
     headers_no_content_type/1,
-    headers/1,
-    validate_file_rules/1
+    headers/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -85,7 +84,7 @@ fields(file) ->
                     string(),
                     #{
                         required => true,
-                        validator => fun ?MODULE:validate_file_rules/1,
+                        validator => fun(Path) -> element(1, emqx_authz_file:validate(Path)) end,
                         desc => ?DESC(path)
                     }
                 )}
@@ -519,10 +518,3 @@ default_authz() ->
         <<"enable">> => true,
         <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
     }.
-
-validate_file_rules(Path) ->
-    %% Don't need assert the create result here, all error is thrown
-    %% some test mock the create function
-    %% #{annotations := #{rules := _}}
-    _ = emqx_authz_file:create(#{path => Path}),
-    ok.

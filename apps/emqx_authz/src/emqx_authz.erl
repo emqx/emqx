@@ -539,8 +539,9 @@ update_authz_chain(Actions) ->
 check_acl_file_rules(Path, Rules) ->
     TmpPath = Path ++ ".tmp",
     try
-        ok = write_file(Path, Rules),
-        emqx_authz_schema:validate_file_rules(Path)
+        ok = write_file(TmpPath, Rules),
+        {ok, _} = emqx_authz_file:validate(TmpPath),
+        ok
     catch
         throw:Reason -> throw(Reason)
     after
