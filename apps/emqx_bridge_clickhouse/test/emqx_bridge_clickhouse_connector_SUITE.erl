@@ -9,9 +9,9 @@
 
 -include("emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+-define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_HOST, "clickhouse").
 -define(CLICKHOUSE_RESOURCE_MOD, emqx_bridge_clickhouse_connector).
 
@@ -51,9 +51,7 @@ init_per_suite(Config) ->
     of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(emqx_ee_connector),
+            ok = emqx_connector_test_helpers:start_apps([emqx_resource, ?APP]),
             %% Create the db table
             {ok, Conn} =
                 clickhouse:start_link([
@@ -76,8 +74,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector).
+    ok = emqx_connector_test_helpers:stop_apps([?APP, emqx_resource]).
 
 init_per_testcase(_, Config) ->
     Config.

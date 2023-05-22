@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_clickhouse).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
