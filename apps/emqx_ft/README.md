@@ -8,7 +8,7 @@ As almost any other EMQX application, `emqx_ft` is configured via the EMQX confi
 
 ```
 file_transfer {
-  enabled = true
+  enable = true
 }
 ```
 
@@ -26,7 +26,7 @@ The `local` exporter is the default one, and it stores the transferred files in 
 
 ```
 file_transfer {
-  enabled = true
+  enable = true
   storage {
     local {
       exporter {
@@ -47,7 +47,7 @@ This snippet configures File Transfer to store the transferred files in the `my-
 
 ```
 file_transfer {
-  enabled = true
+  enable = true
   storage {
     local {
       exporter {
