@@ -140,7 +140,12 @@ update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
 pre_config_update(_, Cmd, Sources) ->
-    {ok, do_pre_config_update(Cmd, Sources)}.
+    try do_pre_config_update(Cmd, Sources) of
+        {error, Reason} -> {error, Reason};
+        NSources -> {ok, NSources}
+    catch
+        _:Reason -> {error, Reason}
+    end.
 
 do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);
@@ -475,11 +480,14 @@ maybe_write_files(#{<<"type">> := <<"file">>} = Source) ->
 maybe_write_files(NewSource) ->
     maybe_write_certs(NewSource).
 
-write_acl_file(#{<<"rules">> := Rules} = Source) ->
-    NRules = check_acl_file_rules(Rules),
-    Path = ?MODULE:acl_conf_file(),
-    {ok, _Filename} = write_file(Path, NRules),
-    maps:without([<<"rules">>], Source#{<<"path">> => Path}).
+write_acl_file(#{<<"rules">> := Rules} = Source0) ->
+    AclPath = ?MODULE:acl_conf_file(),
+    %% Always check if the rules are valid before writing to the file
+    %% If the rules are invalid, the old file will be kept
+    ok = check_acl_file_rules(AclPath, Rules),
+    ok = write_file(AclPath, Rules),
+    Source1 = maps:remove(<<"rules">>, Source0),
+    maps:put(<<"path">>, AclPath, Source1).
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
@@ -506,7 +514,7 @@ write_file(Filename, Bytes) ->
     ok = filelib:ensure_dir(Filename),
     case file:write_file(Filename, Bytes) of
         ok ->
-            {ok, iolist_to_binary(Filename)};
+            ok;
         {error, Reason} ->
             ?SLOG(error, #{filename => Filename, msg => "write_file_error", reason => Reason}),
             throw(Reason)
@@ -528,6 +536,14 @@ get_source_by_type(Type, Sources) ->
 update_authz_chain(Actions) ->
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [Actions]}, ?HP_AUTHZ).
 
-check_acl_file_rules(RawRules) ->
-    %% TODO: make sure the bin rules checked
-    RawRules.
+check_acl_file_rules(Path, Rules) ->
+    TmpPath = Path ++ ".tmp",
+    try
+        ok = write_file(TmpPath, Rules),
+        {ok, _} = emqx_authz_file:validate(TmpPath),
+        ok
+    catch
+        throw:Reason -> throw(Reason)
+    after
+        _ = file:delete(TmpPath)
+    end.

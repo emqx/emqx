@@ -78,7 +78,17 @@ fields("authorization") ->
     authz_fields();
 fields(file) ->
     authz_common_fields(file) ++
-        [{path, ?HOCON(string(), #{required => true, desc => ?DESC(path)})}];
+        [
+            {path,
+                ?HOCON(
+                    string(),
+                    #{
+                        required => true,
+                        validator => fun(Path) -> element(1, emqx_authz_file:validate(Path)) end,
+                        desc => ?DESC(path)
+                    }
+                )}
+        ];
 fields(http_get) ->
     authz_common_fields(http) ++
         http_common_fields() ++
@@ -496,7 +506,7 @@ authz_fields() ->
                     %% doc_lift is force a root level reference instead of nesting sub-structs
                     extra => #{doc_lift => true},
                     %% it is recommended to configure authz sources from dashboard
-                    %% hance the importance level for config is low
+                    %% hence the importance level for config is low
                     importance => ?IMPORTANCE_LOW
                 }
             )}

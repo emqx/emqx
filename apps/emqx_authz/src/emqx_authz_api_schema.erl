@@ -39,8 +39,10 @@ fields(file) ->
                 type => binary(),
                 required => true,
                 example =>
-                    <<"{allow,{username,\"^dashboard?\"},", "subscribe,[\"$SYS/#\"]}.\n",
-                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>,
+                    <<
+                        "{allow,{username,{re,\"^dashboard$\"}},subscribe,[\"$SYS/#\"]}.\n",
+                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
+                    >>,
                 desc => ?DESC(rules)
             }}
         ];

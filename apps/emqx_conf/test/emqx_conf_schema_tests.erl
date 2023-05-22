@@ -23,6 +23,7 @@
     """).
 
 array_nodes_test() ->
+    ensure_acl_conf(),
     ExpectNodes = ['emqx1@127.0.0.1', 'emqx2@127.0.0.1'],
     lists:foreach(
         fun(Nodes) ->
@@ -79,6 +80,7 @@ array_nodes_test() ->
 ).
 
 authn_validations_test() ->
+    ensure_acl_conf(),
     BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
 
     OKHttps = to_bin(?BASE_AUTHN_ARRAY, [post, true, <<"https://127.0.0.1:8080">>]),
@@ -128,6 +130,7 @@ authn_validations_test() ->
 ).
 
 listeners_test() ->
+    ensure_acl_conf(),
     BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
 
     Conf = <<BaseConf/binary, ?LISTENERS>>,
@@ -198,6 +201,7 @@ listeners_test() ->
     ok.
 
 doc_gen_test() ->
+    ensure_acl_conf(),
     %% the json file too large to encode.
     {
         timeout,
@@ -220,3 +224,11 @@ doc_gen_test() ->
 
 to_bin(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).
+
+ensure_acl_conf() ->
+    File = emqx_schema:naive_env_interpolation(<<"${EMQX_ETC_DIR}/acl.conf">>),
+    ok = filelib:ensure_dir(filename:dirname(File)),
+    case filelib:is_regular(File) of
+        true -> ok;
+        false -> file:write_file(File, <<"">>)
+    end.
