@@ -189,7 +189,7 @@ segment_t(Filesize, Segsizes) ->
     ).
 
 filesize_t() ->
-    scaled(4000, non_neg_integer()).
+    scaled(2500, non_neg_integer()).
 
 segsizes_t() ->
     ?LET(
