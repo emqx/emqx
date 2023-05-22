@@ -955,10 +955,10 @@ t_format_date_funcs(_) ->
     ?PROPTEST(prop_format_date_fun).
 
 prop_format_date_fun() ->
-    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%y---%H:%M:%S%Z">>],
+    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%Y---%H:%M:%S%z">>],
     ?FORALL(
         S,
-        range(0, 4000000000),
+        erlang:system_time(second),
         S ==
             apply_func(
                 date_to_unix_ts,
@@ -971,14 +971,15 @@ prop_format_date_fun() ->
                     ]
             )
     ),
-    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%y---%H:%M:%S%Z">>],
+    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S:%3N%z">>],
+    Args2DTUS = [<<"millisecond">>, <<"--%m--%d--%Y---%H:%M:%S:%3N%z">>],
     ?FORALL(
         S,
-        range(0, 4000000000),
+        erlang:system_time(millisecond),
         S ==
             apply_func(
                 date_to_unix_ts,
-                Args2 ++
+                Args2DTUS ++
                     [
                         apply_func(
                             format_date,
@@ -987,14 +988,15 @@ prop_format_date_fun() ->
                     ]
             )
     ),
-    Args = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    Args = [<<"second">>, <<"+08:00">>, <<"%Y-%m-%d-%H:%M:%S%z">>],
+    ArgsDTUS = [<<"second">>, <<"%Y-%m-%d-%H:%M:%S%z">>],
     ?FORALL(
         S,
-        range(0, 4000000000),
+        erlang:system_time(second),
         S ==
             apply_func(
                 date_to_unix_ts,
-                Args ++
+                ArgsDTUS ++
                     [
                         apply_func(
                             format_date,
@@ -1003,24 +1005,12 @@ prop_format_date_fun() ->
                     ]
             )
     ),
-    %% When no offset is specified, the offset should be taken from the formatted time string
-    ArgsNoOffset = [<<"second">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
-    ArgsOffset = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
-    ?FORALL(
-        S,
-        range(0, 4000000000),
-        S ==
-            apply_func(
-                date_to_unix_ts,
-                ArgsNoOffset ++
-                    [
-                        apply_func(
-                            format_date,
-                            ArgsOffset ++ [S]
-                        )
-                    ]
-            )
-    ).
+    % no offset in format string. force add offset
+    Second = erlang:system_time(second),
+    Args3 = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Second],
+    Formatters3 = apply_func(format_date, Args3),
+    Args3DTUS = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
+    Second == apply_func(date_to_unix_ts, Args3DTUS).
 
 %%------------------------------------------------------------------------------
 %% Utility functions

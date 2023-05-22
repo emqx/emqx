@@ -1,0 +1,8 @@
+emqx_mgmt_api_subscriptions {
+
+list_subs.desc:
+"""List subscriptions"""
+list_subs.label:
+"""List subscriptions"""
+
+}

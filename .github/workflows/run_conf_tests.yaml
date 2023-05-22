@@ -1,0 +1,53 @@
+name: Run Configuration tests
+
+concurrency:
+  group: test-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - master
+      - 'ci/**'
+    tags:
+      - v*
+      - e*
+  pull_request:
+
+env:
+  IS_CI: "yes"
+
+jobs:
+  run_conf_tests:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+    container: "ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-25.1.2-3-ubuntu22.04"
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/checkout@v3
+        with:
+          path: source
+      - name: build_package
+        working-directory: source
+        run: |
+          make ${{ matrix.profile }}
+      - name: run_tests
+        working-directory: source
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          ./scripts/conf-test/run.sh
+      - name: print_erlang_log
+        if: failure()
+        run: |
+          cat source/_build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: logs-${{ matrix.profile }}
+          path: source/_build/${{ matrix.profile }}/rel/emqx/logs

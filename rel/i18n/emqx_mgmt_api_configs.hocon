@@ -1,0 +1,40 @@
+emqx_mgmt_api_configs {
+
+get_conf_node.desc:
+"""Get all the configurations of the specified node, including hot and non-hot updatable items."""
+get_conf_node.label:
+"""Get all the configurations for node."""
+
+node_name.desc:
+"""Node's name: If you do not fill in the fields, this node will be used by default."""
+node_name.label:
+"""Node's name."""
+
+rest_conf_query.desc:
+"""Reset the config entry specified by the query string parameter `conf_path`.<br/>
+- For a config entry that has default value, this resets it to the default value;
+- For a config entry that has no default value, an error 400 will be returned"""
+rest_conf_query.label:
+"""Reset the config entry with query"""
+
+get_global_zone_configs.desc:
+"""Get the global zone configs"""
+get_global_zone_configs.label:
+"""Get the global zone configs"""
+
+update_globar_zone_configs.desc:
+"""Update globbal zone configs"""
+update_globar_zone_configs.label:
+"""Update globbal zone configs"""
+
+get_node_level_limiter_congigs.desc:
+"""Get the node-level limiter configs"""
+get_node_level_limiter_congigs.label:
+"""Get the node-level limiter configs"""
+
+update_node_level_limiter_congigs.desc:
+"""Update the node-level limiter configs"""
+update_node_level_limiter_congigs.label:
+"""Update the node-level limiter configs"""
+
+}

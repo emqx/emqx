@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 %% API
 -behaviour(minirest_api).
@@ -51,7 +52,7 @@ schema("/topics") ->
     #{
         'operationId' => topics,
         get => #{
-            description => <<"Topics list">>,
+            description => ?DESC(topic_list),
             tags => ?TAGS,
             parameters => [
                 topic_param(query),
@@ -71,7 +72,7 @@ schema("/topics/:topic") ->
     #{
         'operationId' => topic,
         get => #{
-            description => <<"Lookup topic info by name">>,
+            description => ?DESC(topic_info_by_name),
             tags => ?TAGS,
             parameters => [topic_param(path)],
             responses => #{

@@ -20,6 +20,7 @@
 -include_lib("emqx/include/http_api.hrl").
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     api_spec/0,
@@ -50,7 +51,7 @@ schema("/error_codes") ->
         'operationId' => error_codes,
         get => #{
             security => [],
-            description => <<"API Error Codes">>,
+            description => ?DESC(error_codes),
             tags => [<<"Error Codes">>],
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(?MODULE, error_code))
@@ -62,7 +63,7 @@ schema("/error_codes/:code") ->
         'operationId' => error_code,
         get => #{
             security => [],
-            description => <<"API Error Codes">>,
+            description => ?DESC(error_codes_u),
             tags => [<<"Error Codes">>],
             parameters => [
                 {code,

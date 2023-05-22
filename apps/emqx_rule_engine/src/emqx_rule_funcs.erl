@@ -1075,37 +1075,34 @@ now_timestamp(Unit) ->
 time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
-time_unit(<<"nanosecond">>) -> nanosecond.
+time_unit(<<"nanosecond">>) -> nanosecond;
+time_unit(second) -> second;
+time_unit(millisecond) -> millisecond;
+time_unit(microsecond) -> microsecond;
+time_unit(nanosecond) -> nanosecond.
 
 format_date(TimeUnit, Offset, FormatString) ->
-    emqx_plugin_libs_rule:bin(
-        emqx_rule_date:date(
-            time_unit(TimeUnit),
-            emqx_plugin_libs_rule:str(Offset),
-            emqx_plugin_libs_rule:str(FormatString)
-        )
-    ).
+    Unit = time_unit(TimeUnit),
+    TimeEpoch = erlang:system_time(Unit),
+    format_date(Unit, Offset, FormatString, TimeEpoch).
 
 format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
+    Unit = time_unit(TimeUnit),
     emqx_plugin_libs_rule:bin(
-        emqx_rule_date:date(
-            time_unit(TimeUnit),
-            emqx_plugin_libs_rule:str(Offset),
-            emqx_plugin_libs_rule:str(FormatString),
-            TimeEpoch
+        lists:concat(
+            emqx_calendar:format(TimeEpoch, Unit, Offset, FormatString)
         )
     ).
 
 date_to_unix_ts(TimeUnit, FormatString, InputString) ->
-    date_to_unix_ts(TimeUnit, "Z", FormatString, InputString).
+    Unit = time_unit(TimeUnit),
+    emqx_calendar:parse(InputString, Unit, FormatString).
 
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
-    emqx_rule_date:parse_date(
-        time_unit(TimeUnit),
-        emqx_plugin_libs_rule:str(Offset),
-        emqx_plugin_libs_rule:str(FormatString),
-        emqx_plugin_libs_rule:str(InputString)
-    ).
+    Unit = time_unit(TimeUnit),
+    OffsetSecond = emqx_calendar:offset_second(Offset),
+    OffsetDelta = erlang:convert_time_unit(OffsetSecond, second, Unit),
+    date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
