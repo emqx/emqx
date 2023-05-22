@@ -321,12 +321,13 @@ boot() {
     ## Make erl command aware where to load all the beams
     ## this should be done before every erl command
     prepare_erl_libs "$PROFILE"
+    ## make sure copy acl.conf and certs to etc before render_hocon_conf
+    ## hocon will check rules inside acl.conf.
+    copy_other_conf_files
     render_hocon_conf
     generate_app_conf
     append_args_file
-    copy_other_conf_files
     APPS="$(apps_to_load)"
-
 
     BOOT_SEQUENCE="
         Apps=[${APPS}],
