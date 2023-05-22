@@ -127,6 +127,8 @@ to_ejson(L) when is_list(L) ->
     [to_ejson(E) || E <- L];
 to_ejson(M) when is_map(M) ->
     maps:map(fun(_K, V) -> to_ejson(V) end, M);
+to_ejson(T) when is_tuple(T) ->
+    [to_ejson(E) || E <- tuple_to_list(T)];
 to_ejson(T) ->
     T.
 

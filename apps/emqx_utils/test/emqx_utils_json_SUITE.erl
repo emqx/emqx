@@ -66,6 +66,7 @@
 %% 1.25                       -> 1.25           -> 1.25
 %% []                         -> []             -> []
 %% [true, 1.0]                -> [true, 1.0]    -> [true, 1.0]
+%% {true, 1.0}                -> [true, 1.0]    -> [true, 1.0]
 %m [{}]                       -> {}             -> [{}]
 %a [{<<"foo">>, <<"bar">>}]   -> {"foo": "bar"} -> [{<<"foo">>, <<"bar">>}]
 %% #{<<"foo">> => <<"bar">>}  -> {"foo": "bar"} -> #{<<"foo">> => <<"bar">>}
@@ -84,6 +85,7 @@ t_decode_encode(_) ->
     1.25 = decode(encode(1.25)),
     [] = decode(encode([])),
     [true, 1] = decode(encode([true, 1])),
+    [true, 1] = decode(encode({true, 1})),
     [{}] = decode(encode([{}]), []),
     [{<<"foo">>, <<"bar">>}] = decode(encode([{foo, bar}]), []),
     [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}]), []),
@@ -111,7 +113,7 @@ t_decode_encode(_) ->
         <<"int">> => 10,
         <<"foo">> => <<"bar">>
     },
-    ?assertEqual(JsonText, encode({decode(JsonText, [])})),
+    ?assertEqual(JsonText, encode(decode(JsonText, []))),
     ?assertEqual(JsonMaps, decode(JsonText, [return_maps])),
     ?assertEqual(
         #{<<"foo">> => #{<<"bar">> => <<"baz">>}},
