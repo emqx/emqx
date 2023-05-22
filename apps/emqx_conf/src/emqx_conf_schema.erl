@@ -893,8 +893,7 @@ fields("log_file_handler") ->
                 #{
                     desc => ?DESC("log_file_handler_file"),
                     default => <<"${EMQX_LOG_DIR}/emqx.log">>,
-                    converter => fun emqx_schema:naive_env_interpolation/1,
-                    validator => fun validate_file_location/1
+                    converter => fun emqx_schema:naive_env_interpolation/1
                 }
             )},
         {"rotation",
@@ -1332,11 +1331,6 @@ emqx_schema_high_prio_roots() ->
                 }
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
-
-validate_file_location(File) ->
-    ValidFile = "^[/\\_a-zA-Z0-9\\.\\-]*$",
-    Error = "Invalid file name: " ++ ValidFile,
-    validator_string_re(File, ValidFile, Error).
 
 validate_time_offset(Offset) ->
     ValidTimeOffset = "^([\\-\\+][0-1][0-9]:[0-6][0-9]|system|utc)$",
