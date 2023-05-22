@@ -33,13 +33,14 @@
     update/1,
     destroy/1,
     authorize/4,
+    validate/1,
     read_file/1
 ]).
 
 description() ->
     "AuthZ with static rules".
 
-create(#{path := Path0} = Source) ->
+validate(Path0) ->
     Path = filename(Path0),
     Rules =
         case file:consult(Path) of
@@ -56,6 +57,10 @@ create(#{path := Path0} = Source) ->
                 ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
                 throw({bad_acl_file_content, Reason})
         end,
+    {ok, Rules}.
+
+create(#{path := Path} = Source) ->
+    {ok, Rules} = validate(Path),
     Source#{annotations => #{rules => Rules}}.
 
 update(#{path := _Path} = Source) ->

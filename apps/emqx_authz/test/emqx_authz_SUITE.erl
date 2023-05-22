@@ -205,9 +205,14 @@ t_bad_file_source(_) ->
     BadActionErr = {invalid_authorization_action, pubsub},
     lists:foreach(
         fun({Source, Error}) ->
+            File = emqx_authz:acl_conf_file(),
+            {ok, Bin1} = file:read_file(File),
             ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_REPLACE, [Source])),
             ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_PREPEND, Source)),
-            ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_APPEND, Source))
+            ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_APPEND, Source)),
+            %% Check file content not changed if update failed
+            {ok, Bin2} = file:read_file(File),
+            ?assertEqual(Bin1, Bin2)
         end,
         [
             {BadContent, BadContentErr},
