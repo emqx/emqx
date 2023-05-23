@@ -140,10 +140,7 @@ t_download_transfer(Config) ->
         request(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{
-                    fileref => FileId,
-                    node => <<"nonode@nohost">>
-                })
+                query(#{fileref => FileId, node => <<"nonode@nohost">>})
         )
     ),
 
@@ -152,10 +149,25 @@ t_download_transfer(Config) ->
         request(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{
-                    fileref => <<"unknown_file">>,
-                    node => node()
-                })
+                query(#{fileref => <<"unknown_file">>, node => node()})
+        )
+    ),
+
+    ?assertMatch(
+        {ok, 404, #{<<"message">> := <<"Invalid query parameter", _/bytes>>}},
+        request_json(
+            get,
+            uri(["file_transfer", "file"]) ++
+                query(#{fileref => <<>>, node => node()})
+        )
+    ),
+
+    ?assertMatch(
+        {ok, 404, #{<<"message">> := <<"Invalid query parameter", _/bytes>>}},
+        request_json(
+            get,
+            uri(["file_transfer", "file"]) ++
+                query(#{fileref => <<"/etc/passwd">>, node => node()})
         )
     ),
 
