@@ -165,6 +165,7 @@ init_per_testcase(_TestCase, Config) ->
             {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
         end
     ),
+    snabbkaffe:start_trace(),
     _Heir = spawn_dummy_heir(),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     DataDir = ?config(data_dir, Config),
@@ -187,7 +188,6 @@ init_per_testcase(_TestCase, Config) ->
     ConfBin = emqx_utils_maps:binary_key_map(Conf),
     hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
-    snabbkaffe:start_trace(),
     [
         {cache_pid, CachePid}
         | Config
@@ -231,12 +231,19 @@ end_per_testcase(_TestCase, Config) ->
 %% In some tests, we don't start the full supervision tree, so we need
 %% this dummy process.
 spawn_dummy_heir() ->
-    spawn_link(fun() ->
-        true = register(emqx_kernel_sup, self()),
-        receive
-            stop -> ok
-        end
-    end).
+    {_, {ok, _}} =
+        ?wait_async_action(
+            spawn_link(fun() ->
+                true = register(emqx_kernel_sup, self()),
+                ?tp(heir_name_registered, #{}),
+                receive
+                    stop -> ok
+                end
+            end),
+            #{?snk_kind := heir_name_registered},
+            1_000
+        ),
+    ok.
 
 does_module_exist(Mod) ->
     case erlang:module_loaded(Mod) of
