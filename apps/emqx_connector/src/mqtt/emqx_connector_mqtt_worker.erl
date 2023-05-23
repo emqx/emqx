@@ -14,51 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Bridge works in two layers (1) batching layer (2) transport layer
-%% The `bridge' batching layer collects local messages in batches and sends over
-%% to remote MQTT node/cluster via `connection' transport layer.
-%% In case `REMOTE' is also an EMQX node, `connection' is recommended to be
-%% the `gen_rpc' based implementation `emqx_bridge_rpc'. Otherwise `connection'
-%% has to be `emqx_connector_mqtt_mod'.
-%%
-%% ```
-%% +------+                        +--------+
-%% | EMQX |                        | REMOTE |
-%% |      |                        |        |
-%% |   (bridge) <==(connection)==> |        |
-%% |      |                        |        |
-%% |      |                        |        |
-%% +------+                        +--------+
-%% '''
-%%
-%%
-%% This module implements 2 kinds of APIs with regards to batching and
-%% messaging protocol. (1) A `gen_statem' based local batch collector;
-%% (2) APIs for incoming remote batches/messages.
-%%
-%% Batch collector state diagram
-%%
-%% [idle] --(0) --> [connecting] --(2)--> [connected]
-%%                  |        ^                 |
-%%                  |        |                 |
-%%                  '--(1)---'--------(3)------'
-%%
-%% (0): auto or manual start
-%% (1): retry timeout
-%% (2): successfully connected to remote node/cluster
-%% (3): received {disconnected, Reason} OR
-%%      failed to send to remote node/cluster.
-%%
-%% NOTE: A bridge worker may subscribe to multiple (including wildcard)
-%% local topics, and the underlying `emqx_bridge_connect' may subscribe to
-%% multiple remote topics, however, worker/connections are not designed
-%% to support automatic load-balancing, i.e. in case it can not keep up
-%% with the amount of messages coming in, administrator should split and
-%% balance topics between worker/connections manually.
-%%
-%% NOTES:
-%% * Local messages are all normalised to QoS-1 when exporting to remote
-
 -module(emqx_connector_mqtt_worker).
 
 -include_lib("emqx/include/logger.hrl").
@@ -66,7 +21,8 @@
 
 %% APIs
 -export([
-    start_link/2,
+    init/2,
+    connect/1,
     stop/1
 ]).
 
@@ -99,6 +55,7 @@
     max_inflight := pos_integer(),
     connect_timeout := pos_integer(),
     retry_interval := timeout(),
+    keepalive := non_neg_integer(),
     bridge_mode := boolean(),
     ssl := boolean(),
     ssl_opts := proplists:proplist(),
@@ -106,6 +63,11 @@
     subscriptions := map(),
     forwards := map()
 }.
+
+-type client_option() ::
+    emqtt:option()
+    | {name, name()}
+    | {subscriptions, subscriptions() | undefined}.
 
 -type config() :: #{
     subscriptions := subscriptions() | undefined,
@@ -138,50 +100,64 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
-%% @doc Start a bridge worker. Supported configs:
-%% mountpoint: The topic mount point for messages sent to remote node/cluster
-%%      `undefined', `<<>>' or `""' to disable
-%% forwards: Local topics to subscribe.
-%%
-%% Find more connection specific configs in the callback modules
-%% of emqx_bridge_connect behaviour.
--spec start_link(name(), options()) ->
-    {ok, pid(), {emqtt:properties(), config()}} | {error, _Reason}.
-start_link(Name, BridgeOpts) ->
+-spec init(name(), options()) ->
+    {ok, [client_option()], config()}.
+init(Name, BridgeOpts) ->
+    Config = init_config(Name, BridgeOpts),
+    ClientOpts0 = mk_client_options(Config, BridgeOpts),
+    ClientOpts = ClientOpts0#{
+        name => Name,
+        subscriptions => maps:get(subscriptions, Config)
+    },
+    {ok, maps:to_list(ClientOpts), Config}.
+
+%% @doc Start a bridge worker.
+-spec connect([client_option() | {ecpool_worker_id, pos_integer()}]) ->
+    {ok, pid()} | {error, _Reason}.
+connect(ClientOpts0) ->
     ?SLOG(debug, #{
         msg => "client_starting",
-        name => Name,
-        options => BridgeOpts
+        options => emqx_utils:redact(ClientOpts0)
     }),
-    Config = init_config(Name, BridgeOpts),
-    Options = mk_client_options(Config, BridgeOpts),
-    case emqtt:start_link(Options) of
+    {value, {_, Name}, ClientOpts1} = lists:keytake(name, 1, ClientOpts0),
+    {value, {_, WorkerId}, ClientOpts} = lists:keytake(ecpool_worker_id, 1, ClientOpts1),
+    case emqtt:start_link(mk_emqtt_opts(WorkerId, ClientOpts)) of
         {ok, Pid} ->
-            connect(Pid, Name, Config);
+            connect(Pid, Name, WorkerId, ClientOpts);
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "client_start_failed",
-                config => emqx_utils:redact(BridgeOpts),
+                config => emqx_utils:redact(ClientOpts),
                 reason => Reason
             }),
             Error
     end.
 
-connect(Pid, Name, Config = #{subscriptions := Subscriptions}) ->
+mk_emqtt_opts(WorkerId, ClientOpts) ->
+    {_, ClientId} = lists:keyfind(clientid, 1, ClientOpts),
+    lists:keystore(clientid, 1, ClientOpts, {clientid, mk_clientid(WorkerId, ClientId)}).
+
+mk_clientid(WorkerId, ClientId) ->
+    iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
+
+connect(Pid, Name, WorkerId, ClientOpts) ->
     case emqtt:connect(Pid) of
-        {ok, Props} ->
-            case subscribe_remote_topics(Pid, Subscriptions) of
-                ok ->
-                    {ok, Pid, {Props, Config}};
+        {ok, _Props} ->
+            % NOTE
+            % Subscribe to remote topics only when the first worker is started.
+            Subscriptions = proplists:get_value(subscriptions, ClientOpts),
+            case WorkerId =:= 1 andalso subscribe_remote_topics(Pid, Subscriptions) of
+                false ->
+                    {ok, Pid};
                 {ok, _, _RCs} ->
-                    {ok, Pid, {Props, Config}};
+                    {ok, Pid};
                 {error, Reason} = Error ->
                     ?SLOG(error, #{
                         msg => "client_subscribe_failed",
                         subscriptions => Subscriptions,
                         reason => Reason
                     }),
-                    _ = emqtt:stop(Pid),
+                    _ = catch emqtt:stop(Pid),
                     Error
             end;
         {error, Reason} = Error ->
@@ -190,14 +166,14 @@ connect(Pid, Name, Config = #{subscriptions := Subscriptions}) ->
                 reason => Reason,
                 name => Name
             }),
-            _ = emqtt:stop(Pid),
+            _ = catch emqtt:stop(Pid),
             Error
     end.
 
 subscribe_remote_topics(Pid, #{remote := #{topic := RemoteTopic, qos := QoS}}) ->
     emqtt:subscribe(Pid, RemoteTopic, QoS);
 subscribe_remote_topics(_Ref, undefined) ->
-    ok.
+    false.
 
 init_config(Name, Opts) ->
     Subscriptions = maps:get(subscriptions, Opts, undefined),
@@ -230,6 +206,7 @@ mk_client_options(Config, BridgeOpts) ->
             max_inflight,
             connect_timeout,
             retry_interval,
+            keepalive,
             bridge_mode,
             ssl,
             ssl_opts

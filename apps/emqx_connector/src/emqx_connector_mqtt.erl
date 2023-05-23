@@ -18,23 +18,13 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--behaviour(supervisor).
 -behaviour(emqx_resource).
-
-%% API and callbacks for supervisor
--export([
-    callback_mode/0,
-    start_link/0,
-    init/1,
-    create_bridge/2,
-    remove_bridge/1,
-    bridges/0
-]).
 
 -export([on_message_received/3]).
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -44,46 +34,7 @@
 
 -export([on_async_result/2]).
 
-%% ===================================================================
-%% supervisor APIs
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    SupFlag = #{
-        strategy => one_for_one,
-        intensity => 100,
-        period => 10
-    },
-    {ok, {SupFlag, []}}.
-
-bridge_spec(Name, Options) ->
-    #{
-        id => Name,
-        start => {emqx_connector_mqtt_worker, start_link, [Name, Options]},
-        restart => temporary,
-        shutdown => 1000
-    }.
-
--spec bridges() -> [{_Name, _Status}].
-bridges() ->
-    [
-        {Name, emqx_connector_mqtt_worker:status(Name)}
-     || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)
-    ].
-
-create_bridge(Name, Options) ->
-    supervisor:start_child(?MODULE, bridge_spec(Name, Options)).
-
-remove_bridge(Name) ->
-    case supervisor:terminate_child(?MODULE, Name) of
-        ok ->
-            supervisor:delete_child(?MODULE, Name);
-        {error, not_found} ->
-            ok;
-        {error, Error} ->
-            {error, Error}
-    end.
+-define(HEALTH_CHECK_TIMEOUT, 1000).
 
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
@@ -101,24 +52,16 @@ on_start(ResourceId, Conf) ->
         connector => ResourceId,
         config => emqx_utils:redact(Conf)
     }),
-    BasicConf = basic_config(Conf),
-    BridgeOpts = BasicConf#{
-        clientid => clientid(ResourceId, Conf),
+    BasicOpts = mk_worker_opts(ResourceId, Conf),
+    BridgeOpts = BasicOpts#{
         subscriptions => make_sub_confs(maps:get(ingress, Conf, #{}), Conf, ResourceId),
         forwards => maps:get(egress, Conf, #{})
     },
-    case create_bridge(ResourceId, BridgeOpts) of
-        {ok, Pid, {ConnProps, WorkerConf}} ->
-            {ok, #{
-                name => ResourceId,
-                worker => Pid,
-                config => WorkerConf,
-                props => ConnProps
-            }};
-        {error, {already_started, _Pid}} ->
-            ok = remove_bridge(ResourceId),
-            on_start(ResourceId, Conf);
-        {error, Reason} ->
+    {ok, ClientOpts, WorkerConf} = emqx_connector_mqtt_worker:init(ResourceId, BridgeOpts),
+    case emqx_resource_pool:start(ResourceId, emqx_connector_mqtt_worker, ClientOpts) of
+        ok ->
+            {ok, #{config => WorkerConf}};
+        {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
 
@@ -127,34 +70,34 @@ on_stop(ResourceId, #{}) ->
         msg => "stopping_mqtt_connector",
         connector => ResourceId
     }),
-    case remove_bridge(ResourceId) of
-        ok ->
-            ok;
-        {error, not_found} ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "stop_mqtt_connector_error",
-                connector => ResourceId,
-                reason => Reason
-            })
-    end.
+    emqx_resource_pool:stop(ResourceId).
 
-on_query(ResourceId, {send_message, Msg}, #{worker := Pid, config := Config}) ->
+on_query(ResourceId, {send_message, Msg}, #{config := Config}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
-    Result = emqx_connector_mqtt_worker:send_to_remote(Pid, Msg, Config),
-    handle_send_result(Result).
+    handle_send_result(with_worker(ResourceId, send_to_remote, [Msg, Config])).
 
-on_query_async(ResourceId, {send_message, Msg}, CallbackIn, #{worker := Pid, config := Config}) ->
+on_query_async(ResourceId, {send_message, Msg}, CallbackIn, #{config := Config}) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
     Callback = {fun on_async_result/2, [CallbackIn]},
-    case emqx_connector_mqtt_worker:send_to_remote_async(Pid, Msg, Callback, Config) of
+    Result = with_worker(ResourceId, send_to_remote_async, [Msg, Callback, Config]),
+    case Result of
         ok ->
             ok;
-        {ok, Pid} ->
+        {ok, Pid} when is_pid(Pid) ->
             {ok, Pid};
-        {error, _} = Error ->
-            handle_send_result(Error)
+        {error, Reason} ->
+            {error, classify_error(Reason)}
+    end.
+
+with_worker(ResourceId, Fun, Args) ->
+    Worker = ecpool:get_client(ResourceId),
+    case is_pid(Worker) andalso ecpool_worker:client(Worker) of
+        {ok, Client} ->
+            erlang:apply(emqx_connector_mqtt_worker, Fun, [Client | Args]);
+        {error, Reason} ->
+            {error, Reason};
+        false ->
+            {error, disconnected}
     end.
 
 on_async_result(Callback, Result) ->
@@ -166,9 +109,6 @@ apply_callback_function({F, A}, Result) when is_function(F), is_list(A) ->
     erlang:apply(F, A ++ [Result]);
 apply_callback_function({M, F, A}, Result) when is_atom(M), is_atom(F), is_list(A) ->
     erlang:apply(M, F, A ++ [Result]).
-
-on_get_status(_ResourceId, #{worker := Pid}) ->
-    emqx_connector_mqtt_worker:status(Pid).
 
 handle_send_result(ok) ->
     ok;
@@ -195,6 +135,36 @@ classify_error(shutdown = Reason) ->
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
+on_get_status(ResourceId, #{}) ->
+    Workers = [Worker || {_Name, Worker} <- ecpool:workers(ResourceId)],
+    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+        Statuses ->
+            combine_status(Statuses)
+    catch
+        exit:timeout ->
+            connecting
+    end.
+
+get_status(Worker) ->
+    case ecpool_worker:client(Worker) of
+        {ok, Client} ->
+            emqx_connector_mqtt_worker:status(Client);
+        {error, _} ->
+            disconnected
+    end.
+
+combine_status(Statuses) ->
+    %% NOTE
+    %% Natural order of statuses: [connected, connecting, disconnected]
+    %% * `disconnected` wins over any other status
+    %% * `connecting` wins over `connected`
+    case lists:reverse(lists:usort(Statuses)) of
+        [Status | _] ->
+            Status;
+        [] ->
+            disconnected
+    end.
+
 make_sub_confs(Subscriptions, _Conf, _) when map_size(Subscriptions) == 0 ->
     Subscriptions;
 make_sub_confs(Subscriptions, #{hookpoint := HookPoint}, ResourceId) ->
@@ -203,7 +173,8 @@ make_sub_confs(Subscriptions, #{hookpoint := HookPoint}, ResourceId) ->
 make_sub_confs(_SubRemoteConf, Conf, ResourceId) ->
     error({no_hookpoint_provided, ResourceId, Conf}).
 
-basic_config(
+mk_worker_opts(
+    ResourceId,
     #{
         server := Server,
         proto_ver := ProtoVer,
@@ -215,7 +186,7 @@ basic_config(
         ssl := #{enable := EnableSsl} = Ssl
     } = Conf
 ) ->
-    BasicConf = #{
+    Options = #{
         server => Server,
         %% 30s
         connect_timeout => 30,
@@ -224,6 +195,7 @@ basic_config(
         %% A load balancing server (such as haproxy) is often set up before the emqx broker server.
         %% When the load balancing server enables mqtt connection packet inspection,
         %% non-standard mqtt connection packets might be filtered out by LB.
+        clientid => clientid(ResourceId, Conf),
         bridge_mode => BridgeMode,
         keepalive => ms_to_s(KeepAlive),
         clean_start => CleanStart,
@@ -233,7 +205,7 @@ basic_config(
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     },
     maps:merge(
-        BasicConf,
+        Options,
         maps:with([username, password], Conf)
     ).
 

@@ -256,11 +256,15 @@ t_mqtt_egress_bridge_ignores_clean_start(_) ->
         }
     ),
 
-    {ok, _, #{state := #{worker := WorkerPid}}} =
-        emqx_resource:get_instance(emqx_bridge_resource:resource_id(BridgeID)),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeID),
+    ClientInfo = ecpool:pick_and_do(
+        ResourceID,
+        {emqx_connector_mqtt_worker, info, []},
+        no_handover
+    ),
     ?assertMatch(
         #{clean_start := true},
-        maps:from_list(emqx_connector_mqtt_worker:info(WorkerPid))
+        maps:from_list(ClientInfo)
     ),
 
     %% delete the bridge
