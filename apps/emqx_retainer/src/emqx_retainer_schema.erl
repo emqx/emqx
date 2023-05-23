@@ -32,7 +32,13 @@
 
 namespace() -> "retainer".
 
-roots() -> ["retainer"].
+roots() ->
+    [
+        {"retainer",
+            hoconsc:mk(hoconsc:ref(?MODULE, "retainer"), #{
+                converter => fun retainer_converter/2
+            })}
+    ].
 
 fields("retainer") ->
     [
@@ -68,6 +74,11 @@ fields("retainer") ->
                 stop_publish_clear_msg,
                 false
             )},
+        {deliver_rate,
+            ?HOCON(
+                emqx_limiter_schema:rate(),
+                #{required => false, desc => ?DESC(deliver_rate), example => <<"1000/s">>}
+            )},
         {backend, backend_config()}
     ];
 fields(mnesia_config) ->
@@ -97,7 +108,7 @@ fields(flow_control) ->
             )},
         {batch_deliver_number,
             sc(
-                range(0, 1000),
+                non_neg_integer(),
                 batch_deliver_number,
                 0
             )},
@@ -173,3 +184,23 @@ check_duplicate(List) ->
         false -> ?INVALID_SPEC(unique_index_spec_limited);
         true -> ok
     end.
+
+retainer_converter(#{<<"deliver_rate">> := <<"infinity">>} = Conf, _Opts) ->
+    Conf#{
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 0,
+            <<"batch_deliver_number">> => 0
+        }
+    };
+retainer_converter(#{<<"deliver_rate">> := RateStr} = Conf, _Opts) ->
+    {ok, RateNum} = emqx_limiter_schema:to_rate(RateStr),
+    RawRate = erlang:floor(RateNum * 1000 / emqx_limiter_schema:default_period()),
+    Control = #{
+        <<"batch_read_number">> => RawRate,
+        <<"batch_deliver_number">> => RawRate,
+        %% Set the maximum delivery rate per session
+        <<"batch_deliver_limiter">> => #{<<"client">> => #{<<"rate">> => RateStr}}
+    },
+    Conf#{<<"flow_control">> => Control};
+retainer_converter(Conf, _Opts) ->
+    Conf.
