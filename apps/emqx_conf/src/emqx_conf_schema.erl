@@ -508,6 +508,7 @@ fields("node") ->
                     desc => ?DESC(node_crash_dump_file),
                     default => crash_dump_file_default(),
                     importance => ?IMPORTANCE_HIDDEN,
+                    converter => fun ensure_unicode_path/2,
                     'readOnly' => true
                 }
             )},
@@ -754,6 +755,7 @@ fields("rpc") ->
                 file(),
                 #{
                     mapping => "gen_rpc.certfile",
+                    converter => fun ensure_unicode_path/2,
                     desc => ?DESC(rpc_certfile)
                 }
             )},
@@ -762,6 +764,7 @@ fields("rpc") ->
                 file(),
                 #{
                     mapping => "gen_rpc.keyfile",
+                    converter => fun ensure_unicode_path/2,
                     desc => ?DESC(rpc_keyfile)
                 }
             )},
@@ -770,6 +773,7 @@ fields("rpc") ->
                 file(),
                 #{
                     mapping => "gen_rpc.cacertfile",
+                    converter => fun ensure_unicode_path/2,
                     desc => ?DESC(rpc_cacertfile)
                 }
             )},
@@ -892,8 +896,10 @@ fields("log_file_handler") ->
                 file(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
-                    default => <<"${EMQX_LOG_DIR}/emqx.log">>,
-                    converter => fun emqx_schema:naive_env_interpolation/1
+                    converter => fun(Path, Opts) ->
+                        emqx_schema:naive_env_interpolation(ensure_unicode_path(Path, Opts))
+                    end,
+                    default => <<"${EMQX_LOG_DIR}/emqx.log">>
                 }
             )},
         {"rotation",
@@ -1349,3 +1355,20 @@ validator_string_re(Val, RE, Error) ->
 
 node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
+
+ensure_unicode_path(undefined, _) ->
+    undefined;
+ensure_unicode_path(Path, #{make_serializable := true}) ->
+    %% format back to serializable string
+    unicode:characters_to_binary(Path, utf8);
+ensure_unicode_path(Path, Opts) when is_binary(Path) ->
+    case unicode:characters_to_list(Path, utf8) of
+        {R, _, _} when R =:= error orelse R =:= incomplete ->
+            throw({"bad_file_path_string", Path});
+        PathStr ->
+            ensure_unicode_path(PathStr, Opts)
+    end;
+ensure_unicode_path(Path, _) when is_list(Path) ->
+    Path;
+ensure_unicode_path(Path, _) ->
+    throw({"not_string", Path}).
