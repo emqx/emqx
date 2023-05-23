@@ -277,9 +277,7 @@ convert_float(undefined) ->
     null.
 
 make_iotdb_insert_request(MessageUnparsedPayload, State) ->
-    PayloadUnparsed = maps:get(payload, MessageUnparsedPayload),
-    PayloadParsed = make_parsed_payload(PayloadUnparsed),
-    Message = MessageUnparsedPayload#{payload => PayloadParsed},
+    Message = maps:update_with(payload, fun make_parsed_payload/1, MessageUnparsedPayload),
     IsAligned = maps:get(is_aligned, State, false),
     DeviceId = device_id(Message, State),
     IotDBVsn = maps:get(iotdb_version, State, ?VSN_1_X),
