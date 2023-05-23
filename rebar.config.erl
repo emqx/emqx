@@ -99,6 +99,8 @@ is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_sqlserver") -> false;
 is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
+is_community_umbrella_app("apps/emqx_ft") -> false;
+is_community_umbrella_app("apps/emqx_s3") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -480,7 +482,8 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_rabbitmq,
         emqx_ee_schema_registry,
         emqx_eviction_agent,
-        emqx_node_rebalance
+        emqx_node_rebalance,
+        emqx_ft
     ];
 relx_apps_per_edition(ce) ->
     [emqx_telemetry].

@@ -8,6 +8,8 @@ config_not_found.desc:
 
 delete_matching_api.desc:
 """Delete matching messages."""
+delete_matching_api.label:
+"""Delete matching messages"""
 
 from_clientid.desc:
 """The clientid of publisher."""
@@ -17,12 +19,18 @@ from_username.desc:
 
 get_config_api.desc:
 """View config"""
+get_config_api.label:
+"""View config"""
 
 list_retained_api.desc:
+"""List retained messages."""
+list_retained_api.label:
 """List retained messages."""
 
 lookup_api.desc:
 """Lookup a message by a topic without wildcards."""
+lookup_api.label:
+"""Lookup a message"""
 
 message_detail.desc:
 """Details of the message."""
@@ -59,5 +67,7 @@ update_config_success.desc:
 
 update_retainer_api.desc:
 """Update retainer config."""
+update_retainer_api.label:
+"""Update retainer config"""
 
 }

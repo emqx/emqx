@@ -32,7 +32,8 @@
     proc_cql_param_str/2,
     split_insert_sql/1,
     detect_sql_type/1,
-    proc_batch_sql/3
+    proc_batch_sql/3,
+    formalize_sql/1
 ]).
 
 %% type converting
@@ -126,7 +127,8 @@ proc_cql_param_str(Tokens, Data) ->
 -spec split_insert_sql(binary()) -> {ok, {InsertSQL, Params}} | {error, atom()} when
     InsertSQL :: binary(),
     Params :: binary().
-split_insert_sql(SQL) ->
+split_insert_sql(SQL0) ->
+    SQL = formalize_sql(SQL0),
     case re:split(SQL, "((?i)values)", [{return, binary}]) of
         [Part1, _, Part3] ->
             case string:trim(Part1, leading) of
@@ -172,6 +174,12 @@ proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
         ])
     ),
     <<InsertPart/binary, " values ", ValuesPart/binary>>.
+
+formalize_sql(Input) ->
+    %% 1. replace all whitespaces like '\r' '\n' or spaces to a single space char.
+    SQL = re:replace(Input, "\\s+", " ", [global, {return, binary}]),
+    %% 2. trims the result
+    string:trim(SQL).
 
 unsafe_atom_key(Key) when is_atom(Key) ->
     Key;

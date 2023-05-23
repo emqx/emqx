@@ -45,9 +45,19 @@ fields(config) ->
                 }
             )},
         {authentication,
-            mk(hoconsc:union([none, ref(auth_basic), ref(auth_token)]), #{
-                default => none, desc => ?DESC("authentication")
-            })}
+            mk(
+                hoconsc:union(fun auth_union_member_selector/1),
+                #{
+                    default => none,
+                    %% must mark this whole union as sensitive because
+                    %% hocon ignores the `sensitive' metadata in struct
+                    %% fields...  Also, when trying to type check a struct
+                    %% that doesn't match the intended type, it won't have
+                    %% sensitivity information from sibling types.
+                    sensitive => true,
+                    desc => ?DESC("authentication")
+                }
+            )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(producer_opts) ->
     [
@@ -225,4 +235,22 @@ override_default(OriginalFn, NewDefault) ->
     fun
         (default) -> NewDefault;
         (Field) -> OriginalFn(Field)
+    end.
+
+auth_union_member_selector(all_union_members) ->
+    [none, ref(auth_basic), ref(auth_token)];
+auth_union_member_selector({value, V}) ->
+    case V of
+        #{<<"password">> := _} ->
+            [ref(auth_basic)];
+        #{<<"jwt">> := _} ->
+            [ref(auth_token)];
+        <<"none">> ->
+            [none];
+        _ ->
+            Expected = "none | basic | token",
+            throw(#{
+                field_name => authentication,
+                expected => Expected
+            })
     end.

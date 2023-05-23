@@ -2,71 +2,117 @@ emqx_delayed_api {
 
 bad_msgid_format.desc:
 """Bad Message ID format"""
+bad_msgid_format.label:
+"""Bad Message ID format"""
 
 count.desc:
+"""Count of delayed messages"""
+count.label:
 """Count of delayed messages"""
 
 delayed_interval.desc:
 """Delayed interval(second)"""
+delayed_interval.label:
+"""Delayed interval"""
 
 delayed_remaining.desc:
 """Delayed remaining(second)"""
+delayed_remaining.label:
+"""Delayed remaining"""
 
 delete_api.desc:
+"""Delete delayed message"""
+delete_api.label:
 """Delete delayed message"""
 
 expected_at.desc:
 """Expect publish time, in RFC 3339 format"""
+expected_at.label:
+"""Expect publish time"""
 
 from_clientid.desc:
+"""From ClientID"""
+from_clientid.label:
 """From ClientID"""
 
 from_username.desc:
 """From Username"""
+from_username.label:
+"""From Username"""
 
 get_message_api.desc:
+"""View delayed message"""
+get_message_api.label:
 """View delayed message"""
 
 illegality_limit.desc:
 """Max limit illegality"""
+illegality_limit.label:
+"""Max limit illegality"""
 
 list_api.desc:
+"""List delayed messages"""
+list_api.label:
 """List delayed messages"""
 
 msgid.desc:
 """Delayed Message ID"""
+msgid.label:
+"""Delayed Message ID"""
 
 msgid_not_found.desc:
+"""Message ID not found"""
+msgid_not_found.label:
 """Message ID not found"""
 
 node.desc:
 """The node where message from"""
+node.label:
+"""Node where message from"""
 
 payload.desc:
 """Payload, base64 encoded. Payload will be set to 'PAYLOAD_TO_LARGE' if its length is larger than 2048 bytes"""
+payload.label:
+"""Payload"""
 
 publish_at.desc:
 """Clinet publish message time, in RFC 3339 format"""
+publish_at.label:
+"""Client publish message time"""
 
 qos.desc:
+"""QoS"""
+qos.label:
 """QoS"""
 
 topic.desc:
 """Topic"""
+topic.label:
+"""Topic"""
 
 update_api.desc:
 """Enable or disable delayed, set max delayed messages"""
+update_api.label:
+"""Enable or disable delayed"""
 
 update_success.desc:
+"""Enable or disable delayed successfully"""
+update_success.label:
 """Enable or disable delayed successfully"""
 
 view_limit.desc:
 """Page limit"""
+view_limit.label:
+"""Page limit"""
 
 view_page.desc:
 """View page"""
+view_page.label:
+"""View page"""
 
 view_status_api.desc:
+"""Get delayed status"""
+view_status_api.label:
 """Get delayed status"""
 
 }

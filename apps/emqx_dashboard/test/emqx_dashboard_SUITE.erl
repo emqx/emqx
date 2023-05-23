@@ -36,8 +36,6 @@
 
 -define(HOST, "http://127.0.0.1:18083").
 
-%% -define(API_VERSION, "v5").
-
 -define(BASE_PATH, "/api/v5").
 
 -define(APP_DASHBOARD, emqx_dashboard).
@@ -57,6 +55,10 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    %% Load all applications to ensure swagger.json is fully generated.
+    Apps = emqx_machine_boot:reboot_apps(),
+    ct:pal("load apps:~p~n", [Apps]),
+    lists:foreach(fun(App) -> application:load(App) end, Apps),
     emqx_mgmt_api_test_util:init_suite([emqx_management]),
     Config.
 

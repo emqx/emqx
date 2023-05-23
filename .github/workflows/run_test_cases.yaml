@@ -195,6 +195,7 @@ jobs:
           INFLUXDB_TAG: "2.5.0"
           TDENGINE_TAG: "3.0.2.4"
           OPENTS_TAG: "9aa7f88"
+          MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
           PROFILE: ${{ matrix.profile }}
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}

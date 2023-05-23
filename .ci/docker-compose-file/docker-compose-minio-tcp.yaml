@@ -1,0 +1,21 @@
+version: '3.7'
+
+services:
+  minio:
+    hostname: minio
+    image: quay.io/minio/minio:${MINIO_TAG}
+    command: server --address ":9000" --console-address ":9001" /minio-data
+    expose:
+      - "9000"
+      - "9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      emqx_bridge:
+
