@@ -126,32 +126,32 @@ reboot_apps() ->
     BaseRebootApps ++ ConfigApps.
 
 basic_reboot_apps() ->
-    CE =
-        ?BASIC_REBOOT_APPS ++
-            [
-                emqx_prometheus,
-                emqx_modules,
-                emqx_dashboard,
-                emqx_connector,
-                emqx_gateway,
-                emqx_statsd,
-                emqx_resource,
-                emqx_rule_engine,
-                emqx_bridge,
-                emqx_plugin_libs,
-                emqx_management,
-                emqx_retainer,
-                emqx_exhook,
-                emqx_authn,
-                emqx_authz,
-                emqx_slow_subs,
-                emqx_auto_subscribe,
-                emqx_plugins
-            ],
-    case emqx_release:edition() of
-        ce -> CE;
-        ee -> CE ++ []
-    end.
+    ?BASIC_REBOOT_APPS ++
+        [
+            emqx_prometheus,
+            emqx_modules,
+            emqx_dashboard,
+            emqx_connector,
+            emqx_gateway,
+            emqx_statsd,
+            emqx_resource,
+            emqx_rule_engine,
+            emqx_bridge,
+            emqx_plugin_libs,
+            emqx_management,
+            emqx_retainer,
+            emqx_exhook,
+            emqx_authn,
+            emqx_authz,
+            emqx_slow_subs,
+            emqx_auto_subscribe,
+            emqx_plugins
+        ] ++ basic_reboot_apps_enterprise(emqx_release:edition()).
+
+basic_reboot_apps_enterprise(ee) ->
+    [emqx_license];
+basic_reboot_apps_enterprise(_) ->
+    [].
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],
