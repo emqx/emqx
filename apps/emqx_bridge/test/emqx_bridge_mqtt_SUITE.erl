@@ -100,17 +100,21 @@
     ?assertMetrics(Pat, true, BridgeID)
 ).
 -define(assertMetrics(Pat, Guard, BridgeID),
-    ?assertMatch(
-        #{
-            <<"metrics">> := Pat,
-            <<"node_metrics">> := [
-                #{
-                    <<"node">> := _,
-                    <<"metrics">> := Pat
-                }
-            ]
-        } when Guard,
-        request_bridge_metrics(BridgeID)
+    ?retry(
+        _Sleep = 300,
+        _Attempts0 = 20,
+        ?assertMatch(
+            #{
+                <<"metrics">> := Pat,
+                <<"node_metrics">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := Pat
+                    }
+                ]
+            } when Guard,
+            request_bridge_metrics(BridgeID)
+        )
     )
 ).
 

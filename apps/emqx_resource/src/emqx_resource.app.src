@@ -9,6 +9,7 @@
         stdlib,
         gproc,
         jsx,
+        ecpool,
         emqx,
         telemetry
     ]},

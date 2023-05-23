@@ -18,6 +18,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2]).
@@ -36,14 +37,14 @@ schema("/api_key") ->
     #{
         'operationId' => api_key,
         get => #{
-            description => "Return api_key list",
+            description => ?DESC(api_key_list),
             tags => ?TAGS,
             responses => #{
                 200 => delete([api_secret], fields(app))
             }
         },
         post => #{
-            description => "Create new api_key",
+            description => ?DESC(create_new_api_key),
             tags => ?TAGS,
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
@@ -56,7 +57,7 @@ schema("/api_key/:name") ->
     #{
         'operationId' => api_key_by_name,
         get => #{
-            description => "Return the specific api_key",
+            description => ?DESC(get_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -65,7 +66,7 @@ schema("/api_key/:name") ->
             }
         },
         put => #{
-            description => "Update the specific api_key",
+            description => ?DESC(update_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
@@ -75,7 +76,7 @@ schema("/api_key/:name") ->
             }
         },
         delete => #{
-            description => "Delete the specific api_key",
+            description => ?DESC(delete_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{

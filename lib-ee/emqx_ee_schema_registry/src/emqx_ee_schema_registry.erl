@@ -58,7 +58,11 @@ get_serde(SchemaName) ->
 
 -spec get_schema(schema_name()) -> {ok, map()} | {error, not_found}.
 get_schema(SchemaName) ->
-    case emqx_config:get([?CONF_KEY_ROOT, schemas, SchemaName], undefined) of
+    case
+        emqx_config:get(
+            [?CONF_KEY_ROOT, schemas, binary_to_atom(SchemaName)], undefined
+        )
+    of
         undefined ->
             {error, not_found};
         Config ->

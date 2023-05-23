@@ -1,0 +1,58 @@
+emqx_mgmt_api_clients {
+
+list_clients.desc:
+"""List clients"""
+list_clients.label:
+"""List clients"""
+
+clients_info_from_id.desc:
+"""Get clients info by client ID"""
+clients_info_from_id.label:
+"""Get clients info by client ID"""
+
+kick_client_id.desc:
+"""Kick out client by client ID"""
+kick_client_id.label:
+"""Kick out client by client ID"""
+
+get_authz_cache.desc:
+"""Get client authz cache in the cluster."""
+get_authz_cache.label:
+"""Get client authz cache in the cluster."""
+
+clean_authz_cache.desc:
+"""Clean client authz cache in the cluster."""
+clean_authz_cache.label:
+"""Clean client authz cache in the cluster."""
+
+get_client_subs.desc:
+"""Get client subscriptions"""
+get_client_subs.label:
+"""Get client subscriptions"""
+
+subscribe.desc:
+"""Subscribe"""
+subscribe.label:
+"""Subscribe"""
+
+subscribe_g.desc:
+"""Subscribe bulk"""
+subscribe_g.label:
+"""Subscribe bulk"""
+
+unsubscribe.desc:
+"""Unsubscribe"""
+unsubscribe.label:
+"""Unsubscribe"""
+
+unsubscribe_g.desc:
+"""Unsubscribe bulk"""
+unsubscribe_g.label:
+"""Unsubscribe bulk"""
+
+set_keepalive_seconds.desc:
+"""Set the online client keepalive by seconds"""
+set_keepalive_seconds.label:
+"""Set the online client keepalive by seconds"""
+
+}

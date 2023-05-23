@@ -496,7 +496,7 @@ cluster(Config) ->
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
-            {schema_mod, emqx_ee_conf_schema},
+            {schema_mod, emqx_enterprise_schema},
             {env_handler, fun
                 (emqx) ->
                     application:set_env(emqx, boot_modules, [broker, router]),

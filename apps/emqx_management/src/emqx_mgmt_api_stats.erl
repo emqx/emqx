@@ -18,6 +18,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(
     hoconsc,
@@ -49,7 +50,7 @@ schema("/stats") ->
         'operationId' => list,
         get =>
             #{
-                description => <<"EMQX stats">>,
+                description => ?DESC(emqx_stats),
                 tags => [<<"Metrics">>],
                 parameters => [ref(aggregate)],
                 responses =>

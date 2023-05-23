@@ -89,6 +89,8 @@
     remove_handlers/0
 ]).
 
+-export([ensure_atom_conf_path/2]).
+
 -ifdef(TEST).
 -export([erase_all/0]).
 -endif.
@@ -114,7 +116,8 @@
     update_cmd/0,
     update_args/0,
     update_error/0,
-    update_result/0
+    update_result/0,
+    runtime_config_key_path/0
 ]).
 
 -type update_request() :: term().
@@ -145,6 +148,8 @@
 -type config() :: #{atom() => term()} | list() | undefined.
 -type app_envs() :: [proplists:property()].
 
+-type runtime_config_key_path() :: [atom()].
+
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_utils_maps:config_key_path()) -> map().
 get_root([RootName | _]) ->
@@ -157,25 +162,21 @@ get_root_raw([RootName | _]) ->
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
--spec get(emqx_utils_maps:config_key_path()) -> term().
+-spec get(runtime_config_key_path()) -> term().
 get(KeyPath) -> do_get(?CONF, KeyPath).
 
--spec get(emqx_utils_maps:config_key_path(), term()) -> term().
+-spec get(runtime_config_key_path(), term()) -> term().
 get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
 
--spec find(emqx_utils_maps:config_key_path()) ->
+-spec find(runtime_config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
 find([]) ->
     case do_get(?CONF, [], ?CONFIG_NOT_FOUND_MAGIC) of
         ?CONFIG_NOT_FOUND_MAGIC -> {not_found, []};
         Res -> {ok, Res}
     end;
-find(KeyPath) ->
-    atom_conf_path(
-        KeyPath,
-        fun(AtomKeyPath) -> emqx_utils_maps:deep_find(AtomKeyPath, get_root(KeyPath)) end,
-        {return, {not_found, KeyPath}}
-    ).
+find(AtomKeyPath) ->
+    emqx_utils_maps:deep_find(AtomKeyPath, get_root(AtomKeyPath)).
 
 -spec find_raw(emqx_utils_maps:config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
@@ -778,21 +779,14 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
     persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
 
-do_deep_get(?CONF, KeyPath, Map, Default) ->
-    atom_conf_path(
-        KeyPath,
-        fun(AtomKeyPath) -> emqx_utils_maps:deep_get(AtomKeyPath, Map, Default) end,
-        {return, Default}
-    );
+do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
+    emqx_utils_maps:deep_get(AtomKeyPath, Map, Default);
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
     emqx_utils_maps:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
 
 do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
-    atom_conf_path(
-        KeyPath,
-        fun(AtomKeyPath) -> Putter(AtomKeyPath, Map, Value) end,
-        {raise_error, {not_found, KeyPath}}
-    );
+    AtomKeyPath = ensure_atom_conf_path(KeyPath, {raise_error, {not_found, KeyPath}}),
+    Putter(AtomKeyPath, Map, Value);
 do_deep_put(?RAW_CONF, Putter, KeyPath, Map, Value) ->
     Putter([bin(Key) || Key <- KeyPath], Map, Value).
 
@@ -839,15 +833,24 @@ conf_key(?CONF, RootName) ->
 conf_key(?RAW_CONF, RootName) ->
     bin(RootName).
 
-atom_conf_path(Path, ExpFun, OnFail) ->
-    try [atom(Key) || Key <- Path] of
-        AtomKeyPath -> ExpFun(AtomKeyPath)
+ensure_atom_conf_path(Path, OnFail) ->
+    case lists:all(fun erlang:is_atom/1, Path) of
+        true ->
+            %% Do not try to build new atom PATH if it already is.
+            Path;
+        _ ->
+            to_atom_conf_path(Path, OnFail)
+    end.
+
+to_atom_conf_path(Path, OnFail) ->
+    try
+        [atom(Key) || Key <- Path]
     catch
         error:badarg ->
             case OnFail of
-                {return, Val} ->
-                    Val;
                 {raise_error, Err} ->
-                    error(Err)
+                    error(Err);
+                {return, V} ->
+                    V
             end
     end.

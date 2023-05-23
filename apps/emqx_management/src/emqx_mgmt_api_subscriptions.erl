@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     api_spec/0,
@@ -58,7 +59,7 @@ schema("/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get => #{
-            description => <<"List subscriptions">>,
+            description => ?DESC(list_subs),
             tags => [<<"Subscriptions">>],
             parameters => parameters(),
             responses => #{

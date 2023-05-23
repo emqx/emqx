@@ -30,6 +30,7 @@
     start_apps/1,
     start_apps/2,
     start_apps/3,
+    start_app/2,
     stop_apps/1,
     stop_apps/2,
     reload/2,
@@ -237,12 +238,17 @@ render_and_load_app_config(App, Opts) ->
     end.
 
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
+    %% copy acl_conf must run before read_schema_configs
+    copy_acl_conf(),
     Vars = mustache_vars(App, Opts),
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
     force_set_config_file_paths(App, [RenderedConfigFile]),
     copy_certs(App, RenderedConfigFile),
     ok.
+
+start_app(App, SpecAppConfig) ->
+    start_app(App, SpecAppConfig, #{}).
 
 start_app(App, SpecAppConfig, Opts) ->
     render_and_load_app_config(App, Opts),
@@ -324,12 +330,7 @@ read_schema_configs(no_schema, _ConfigFile) ->
     ok;
 read_schema_configs(Schema, ConfigFile) ->
     NewConfig = generate_config(Schema, ConfigFile),
-    lists:foreach(
-        fun({App, Configs}) ->
-            [application:set_env(App, Par, Value) || {Par, Value} <- Configs]
-        end,
-        NewConfig
-    ).
+    application:set_env(NewConfig).
 
 generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
     {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
@@ -520,6 +521,16 @@ copy_certs(emqx_conf, Dest0) ->
 copy_certs(_, _) ->
     ok.
 
+copy_acl_conf() ->
+    Dest = filename:join([code:lib_dir(emqx), "etc/acl.conf"]),
+    case code:lib_dir(emqx_authz) of
+        {error, bad_name} ->
+            (not filelib:is_regular(Dest)) andalso file:write_file(Dest, <<"">>);
+        _ ->
+            {ok, _} = file:copy(deps_path(emqx_authz, "etc/acl.conf"), Dest)
+    end,
+    ok.
+
 load_config(SchemaModule, Config) ->
     ConfigBin =
         case is_map(Config) of
@@ -675,10 +686,16 @@ emqx_cluster(Specs0, CommonOpts) ->
     ]),
     %% Set the default node of the cluster:
     CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
-    JoinTo =
+    JoinTo0 =
         case CoreNodes of
             [First | _] -> First;
             _ -> undefined
+        end,
+    JoinTo =
+        case maps:find(join_to, CommonOpts) of
+            {ok, true} -> JoinTo0;
+            {ok, JT} -> JT;
+            error -> JoinTo0
         end,
     [
         {Name,
@@ -847,8 +864,8 @@ setup_node(Node, Opts) when is_map(Opts) ->
             LoadSchema andalso
                 begin
                     %% to avoid sharing data between executions and/or
-                    %% nodes.  these variables might notbe in the
-                    %% config file (e.g.: emqx_ee_conf_schema).
+                    %% nodes.  these variables might not be in the
+                    %% config file (e.g.: emqx_enterprise_schema).
                     NodeDataDir = filename:join([
                         PrivDataDir,
                         node(),

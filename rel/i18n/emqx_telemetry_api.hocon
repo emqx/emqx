@@ -14,8 +14,12 @@ enable.desc:
 
 get_telemetry_data_api.desc:
 """Get telemetry data"""
+get_telemetry_data_api.label:
+"""Get telemetry data"""
 
 get_telemetry_status_api.desc:
+"""Get telemetry status"""
+get_telemetry_status_api.label:
 """Get telemetry status"""
 
 license.desc:
@@ -46,6 +50,8 @@ up_time.desc:
 """Get uptime"""
 
 update_telemetry_status_api.desc:
+"""Enable or disable telemetry"""
+update_telemetry_status_api.label:
 """Enable or disable telemetry"""
 
 uuid.desc:

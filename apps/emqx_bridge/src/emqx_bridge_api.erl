@@ -688,11 +688,15 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
     ).
 
 is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx:get_config([bridges, BridgeType, BridgeName]) of
+    try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, false)
     catch
         error:{config_not_found, _} ->
+            throw(not_found);
+        error:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
             throw(not_found)
     end.
 
@@ -883,6 +887,29 @@ format_metrics(#{
         Rate5m,
         RateMax,
         Rcvd
+    );
+format_metrics(_Metrics) ->
+    %% Empty metrics: can happen when a node joins another and a
+    %% bridge is not yet replicated to it, so the counters map is
+    %% empty.
+    ?METRICS(
+        _Dropped = 0,
+        _DroppedOther = 0,
+        _DroppedExpired = 0,
+        _DroppedQueueFull = 0,
+        _DroppedResourceNotFound = 0,
+        _DroppedResourceStopped = 0,
+        _Matched = 0,
+        _Queued = 0,
+        _Retried = 0,
+        _LateReply = 0,
+        _SentFailed = 0,
+        _SentInflight = 0,
+        _SentSucc = 0,
+        _Rate = 0,
+        _Rate5m = 0,
+        _RateMax = 0,
+        _Rcvd = 0
     ).
 
 fill_defaults(Type, RawConf) ->

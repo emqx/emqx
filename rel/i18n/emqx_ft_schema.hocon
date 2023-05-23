@@ -1,0 +1,62 @@
+emqx_ft_schema {
+
+enable.desc:
+"""Enable the File Transfer feature.<br/>
+Enabling File Transfer implies reserving special MQTT topics in order to serve the protocol.<br/>
+This toggle also affects the availability of the File Transfer REST API and
+storage-dependent background activities (e.g. garbage collection)."""
+
+init_timeout.desc:
+"""Timeout for initializing the file transfer.<br/>
+After reaching the timeout, `init` message will be acked with an error"""
+
+assemble_timeout.desc:
+"""Timeout for assembling and exporting file segments into a final file.<br/>
+After reaching the timeout, `fin` message will be acked with an error"""
+
+store_segment_timeout.desc:
+"""Timeout for storing a file segment.<br/>
+After reaching the timeout, message with the segment will be acked with an error"""
+
+storage_backend.desc:
+"""Storage settings for file transfer."""
+
+local_storage.desc:
+"""Local file system backend to store uploaded fragments and temporary data."""
+
+local_storage_segments.desc:
+"""Settings for local segments storage, which include uploaded transfer fragments and temporary data."""
+
+local_storage_segments_root.desc:
+"""File system path to keep uploaded fragments and temporary data."""
+
+local_storage_exporter_backend.desc:
+"""Exporter for the local file system storage backend.<br/>
+Exporter defines where and how fully transferred and assembled files are stored."""
+
+local_storage_exporter.desc:
+"""Exporter to the local file system."""
+
+s3_exporter.desc:
+"""Exporter to the S3 API compatible object storage."""
+
+local_storage_exporter_root.desc:
+"""Directory where the uploaded files are kept."""
+
+local_storage_segments_gc.desc:
+"""Garbage collection settings for the intermediate and temporary files in the local file system."""
+
+storage_gc_interval.desc:
+"""Interval of periodic garbage collection."""
+
+storage_gc_max_segments_ttl.desc:
+"""Maximum TTL of a segment kept in the local file system.<br/>
+This is a hard limit: no segment will outlive this TTL, even if some file transfer specifies a
+TTL more than that."""
+
+storage_gc_min_segments_ttl.desc:
+"""Minimum TTL of a segment kept in the local file system.<br/>
+This is a hard limit: no segment will be garbage collected before reaching this TTL,
+even if some file transfer specifies a TTL less than that."""
+
+}

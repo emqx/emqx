@@ -23,6 +23,12 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
+%% range interval in ms
+-define(HEALTH_CHECK_INTERVAL_RANGE_MIN, 1).
+-define(HEALTH_CHECK_INTERVAL_RANGE_MAX, 3_600_000).
+-define(AUTO_RESTART_INTERVAL_RANGE_MIN, 1).
+-define(AUTO_RESTART_INTERVAL_RANGE_MAX, 3_600_000).
+
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 
@@ -44,6 +50,7 @@ fields("creation_opts") ->
         {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
         {resume_interval, fun resume_interval/1},
+        {metrics_flush_interval, fun metrics_flush_interval/1},
         {start_after_created, fun start_after_created/1},
         {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
@@ -77,11 +84,30 @@ resume_interval(desc) -> ?DESC("resume_interval");
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
 
+metrics_flush_interval(type) -> emqx_schema:duration_ms();
+metrics_flush_interval(importance) -> ?IMPORTANCE_HIDDEN;
+metrics_flush_interval(required) -> false;
+metrics_flush_interval(_) -> undefined.
+
 health_check_interval(type) -> emqx_schema:duration_ms();
 health_check_interval(desc) -> ?DESC("health_check_interval");
 health_check_interval(default) -> ?HEALTHCHECK_INTERVAL_RAW;
 health_check_interval(required) -> false;
+health_check_interval(validator) -> fun health_check_interval_range/1;
 health_check_interval(_) -> undefined.
+
+health_check_interval_range(HealthCheckInterval) when
+    is_integer(HealthCheckInterval) andalso
+        HealthCheckInterval >= ?HEALTH_CHECK_INTERVAL_RANGE_MIN andalso
+        HealthCheckInterval =< ?HEALTH_CHECK_INTERVAL_RANGE_MAX
+->
+    ok;
+health_check_interval_range(_HealthCheckInterval) ->
+    {error, #{
+        msg => <<"Health Check Interval out of range">>,
+        min => ?HEALTH_CHECK_INTERVAL_RANGE_MIN,
+        max => ?HEALTH_CHECK_INTERVAL_RANGE_MAX
+    }}.
 
 start_after_created(type) -> boolean();
 start_after_created(desc) -> ?DESC("start_after_created");
@@ -99,7 +125,21 @@ auto_restart_interval(type) -> hoconsc:union([infinity, emqx_schema:duration_ms(
 auto_restart_interval(desc) -> ?DESC("auto_restart_interval");
 auto_restart_interval(default) -> ?AUTO_RESTART_INTERVAL_RAW;
 auto_restart_interval(required) -> false;
+auto_restart_interval(validator) -> fun auto_restart_interval_range/1;
 auto_restart_interval(_) -> undefined.
+
+auto_restart_interval_range(AutoRestartInterval) when
+    is_integer(AutoRestartInterval) andalso
+        AutoRestartInterval >= ?AUTO_RESTART_INTERVAL_RANGE_MIN andalso
+        AutoRestartInterval =< ?AUTO_RESTART_INTERVAL_RANGE_MAX
+->
+    ok;
+auto_restart_interval_range(_AutoRestartInterval) ->
+    {error, #{
+        msg => <<"Auto Restart Interval out of range">>,
+        min => ?AUTO_RESTART_INTERVAL_RANGE_MIN,
+        max => ?AUTO_RESTART_INTERVAL_RANGE_MAX
+    }}.
 
 query_mode(type) -> enum([sync, async]);
 query_mode(desc) -> ?DESC("query_mode");

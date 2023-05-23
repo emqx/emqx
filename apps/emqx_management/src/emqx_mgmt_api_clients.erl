@@ -20,6 +20,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -101,7 +102,7 @@ schema("/clients") ->
     #{
         'operationId' => clients,
         get => #{
-            description => <<"List clients">>,
+            description => ?DESC(list_clients),
             tags => ?TAGS,
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
@@ -214,7 +215,7 @@ schema("/clients/:clientid") ->
     #{
         'operationId' => client,
         get => #{
-            description => <<"Get clients info by client ID">>,
+            description => ?DESC(clients_info_from_id),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
@@ -225,7 +226,7 @@ schema("/clients/:clientid") ->
             }
         },
         delete => #{
-            description => <<"Kick out client by client ID">>,
+            description => ?DESC(kick_client_id),
             tags => ?TAGS,
             parameters => [
                 {clientid, hoconsc:mk(binary(), #{in => path})}
@@ -242,7 +243,7 @@ schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
         get => #{
-            description => <<"Get client authz cache in the cluster.">>,
+            description => ?DESC(get_authz_cache),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
@@ -253,7 +254,7 @@ schema("/clients/:clientid/authorization/cache") ->
             }
         },
         delete => #{
-            description => <<"Clean client authz cache in the cluster.">>,
+            description => ?DESC(clean_authz_cache),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
@@ -268,7 +269,7 @@ schema("/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get => #{
-            description => <<"Get client subscriptions">>,
+            description => ?DESC(get_client_subs),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
@@ -285,7 +286,7 @@ schema("/clients/:clientid/subscribe") ->
     #{
         'operationId' => subscribe,
         post => #{
-            description => <<"Subscribe">>,
+            description => ?DESC(subscribe),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, subscribe)),
@@ -301,7 +302,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
     #{
         'operationId' => subscribe_batch,
         post => #{
-            description => <<"Subscribe">>,
+            description => ?DESC(subscribe_g),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscribe))),
@@ -317,7 +318,7 @@ schema("/clients/:clientid/unsubscribe") ->
     #{
         'operationId' => unsubscribe,
         post => #{
-            description => <<"Unsubscribe">>,
+            description => ?DESC(unsubscribe),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, unsubscribe)),
@@ -333,7 +334,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
     #{
         'operationId' => unsubscribe_batch,
         post => #{
-            description => <<"Unsubscribe">>,
+            description => ?DESC(unsubscribe_g),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, unsubscribe))),
@@ -349,7 +350,7 @@ schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
         put => #{
-            description => <<"Set the online client keepalive by seconds">>,
+            description => ?DESC(set_keepalive_seconds),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),

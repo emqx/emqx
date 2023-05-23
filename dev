@@ -131,10 +131,10 @@ export PROFILE
 
 case "${PROFILE}" in
     emqx)
-        SCHEMA_MOD='emqx_conf_schema'
+        export SCHEMA_MOD='emqx_conf_schema'
         ;;
     emqx-enterprise)
-        SCHEMA_MOD='emqx_ee_conf_schema'
+        export SCHEMA_MOD='emqx_enterprise_schema'
         ;;
 esac
 
@@ -323,17 +323,18 @@ boot() {
     ## Make erl command aware where to load all the beams
     ## this should be done before every erl command
     prepare_erl_libs "$PROFILE"
+    ## make sure copy acl.conf and certs to etc before render_hocon_conf
+    ## hocon will check rules inside acl.conf.
+    copy_other_conf_files
     render_hocon_conf
     generate_app_conf
     append_args_file
-    copy_other_conf_files
     APPS="$(apps_to_load)"
-
 
     BOOT_SEQUENCE="
         Apps=[${APPS}],
         ok=lists:foreach(fun application:load/1, Apps),
-        io:format(user, \"~nLoaded ~p apps~n\", [length(Apps)]),
+        io:format(user, \"~nLoaded: ~p~n\", [Apps]),
         {ok, _} = application:ensure_all_started(emqx_machine).
     "
 

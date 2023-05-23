@@ -146,10 +146,15 @@ build_http_header(X) ->
     [X].
 
 api_path(Parts) ->
-    ?SERVER ++ filename:join([?BASE_PATH | Parts]).
+    join_http_path([?SERVER, ?BASE_PATH | Parts]).
 
 api_path_without_base_path(Parts) ->
-    ?SERVER ++ filename:join([Parts]).
+    join_http_path([?SERVER | Parts]).
+
+join_http_path([]) ->
+    [];
+join_http_path([Part | Rest]) ->
+    lists:foldl(fun(P, Acc) -> emqx_connector_http:join_paths(Acc, P) end, Part, Rest).
 
 %% Usage:
 %% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,
