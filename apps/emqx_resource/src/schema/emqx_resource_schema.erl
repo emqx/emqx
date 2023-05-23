@@ -96,12 +96,14 @@ health_check_interval_range(HealthCheckInterval) when
         HealthCheckInterval =< ?HEALTH_CHECK_INTERVAL_RANGE_MAX
 ->
     ok;
-health_check_interval_range(_HealthCheckInterval) ->
-    {error, #{
-        msg => <<"Health Check Interval out of range">>,
-        min => ?HEALTH_CHECK_INTERVAL_RANGE_MIN,
-        max => ?HEALTH_CHECK_INTERVAL_RANGE_MAX
-    }}.
+health_check_interval_range(HealthCheckInterval) ->
+    Message = get_out_of_range_msg(
+        <<"Health Check Interval">>,
+        HealthCheckInterval,
+        ?HEALTH_CHECK_INTERVAL_RANGE_MIN,
+        ?HEALTH_CHECK_INTERVAL_RANGE_MAX
+    ),
+    {error, Message}.
 
 start_after_created(type) -> boolean();
 start_after_created(desc) -> ?DESC("start_after_created");
@@ -128,12 +130,14 @@ auto_restart_interval_range(AutoRestartInterval) when
         AutoRestartInterval =< ?AUTO_RESTART_INTERVAL_RANGE_MAX
 ->
     ok;
-auto_restart_interval_range(_AutoRestartInterval) ->
-    {error, #{
-        msg => <<"Auto Restart Interval out of range">>,
-        min => ?AUTO_RESTART_INTERVAL_RANGE_MIN,
-        max => ?AUTO_RESTART_INTERVAL_RANGE_MAX
-    }}.
+auto_restart_interval_range(AutoRestartInterval) ->
+    Message = get_out_of_range_msg(
+        <<"Auto Restart Interval">>,
+        AutoRestartInterval,
+        ?AUTO_RESTART_INTERVAL_RANGE_MIN,
+        ?AUTO_RESTART_INTERVAL_RANGE_MAX
+    ),
+    {error, Message}.
 
 query_mode(type) -> enum([sync, async]);
 query_mode(desc) -> ?DESC("query_mode");
@@ -200,3 +204,15 @@ buffer_seg_bytes(importance) -> ?IMPORTANCE_HIDDEN;
 buffer_seg_bytes(_) -> undefined.
 
 desc("creation_opts") -> ?DESC("creation_opts").
+
+get_value_with_unit(Value) when is_integer(Value) ->
+    <<(erlang:integer_to_binary(Value))/binary, "ms">>;
+get_value_with_unit(Value) ->
+    Value.
+
+get_out_of_range_msg(Field, Value, Min, Max) ->
+    ValueStr = get_value_with_unit(Value),
+    MinStr = get_value_with_unit(Min),
+    MaxStr = get_value_with_unit(Max),
+    <<Field/binary, " (", ValueStr/binary, ") is out of range (", MinStr/binary, " to ",
+        MaxStr/binary, ")">>.
