@@ -75,8 +75,6 @@ on_start(
     InstId,
     #{
         server := Server,
-        database := DB,
-        sid := Sid,
         username := User
     } = Config
 ) ->
@@ -91,15 +89,19 @@ on_start(
     jamdb_oracle_conn:set_max_cursors_number(?MAX_CURSORS),
 
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, oracle_host_options()),
-    ServiceName = maps:get(<<"service_name">>, Config, Sid),
+    Sid = maps:get(sid, Config, ""),
+    ServiceName =
+        case maps:get(service_name, Config, undefined) of
+            undefined -> undefined;
+            ServiceName0 -> emqx_plugin_libs_rule:str(ServiceName0)
+        end,
     Options = [
         {host, Host},
         {port, Port},
         {user, emqx_plugin_libs_rule:str(User)},
         {password, jamdb_secret:wrap(maps:get(password, Config, ""))},
         {sid, emqx_plugin_libs_rule:str(Sid)},
-        {service_name, emqx_plugin_libs_rule:str(ServiceName)},
-        {database, DB},
+        {service_name, ServiceName},
         {pool_size, maps:get(<<"pool_size">>, Config, ?DEFAULT_POOL_SIZE)},
         {timeout, ?OPT_TIMEOUT},
         {app_name, "EMQX Data To Oracle Database Action"}
