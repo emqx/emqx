@@ -22,7 +22,7 @@ emqx_bridge_pulsar {
 
   connect_timeout {
     desc = "建立 TCP 连接时的最大等待时长（若启用认证，这个等待时长也包含完成认证所需时间）。"
-    label = "连接超时"
+    label = "连接超时时间"
   }
 
   servers {
