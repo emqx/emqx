@@ -288,12 +288,14 @@ get_default_value([RootName | _] = KeyPath) ->
     end.
 
 -spec get_raw(emqx_utils_maps:config_key_path()) -> term().
-get_raw([Root | T]) when is_atom(Root) -> get_raw([bin(Root) | T]);
-get_raw(KeyPath) -> do_get_raw(KeyPath).
+get_raw([Root | _] = KeyPath) when is_binary(Root) -> do_get_raw(KeyPath);
+get_raw([Root | T]) -> get_raw([bin(Root) | T]);
+get_raw([]) -> do_get_raw([]).
 
 -spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
-get_raw([Root | T], Default) when is_atom(Root) -> get_raw([bin(Root) | T], Default);
-get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
+get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPath, Default);
+get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
+get_raw([], Default) -> do_get_raw([], Default).
 
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->

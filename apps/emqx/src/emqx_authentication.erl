@@ -86,12 +86,6 @@
 %% utility functions
 -export([authenticator_id/1, metrics_id/2]).
 
-%% proxy callback
--export([
-    pre_config_update/3,
-    post_config_update/5
-]).
-
 -export_type([
     authenticator_id/0,
     position/0,
@@ -275,12 +269,6 @@ get_enabled(Authenticators) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-pre_config_update(Path, UpdateReq, OldConfig) ->
-    emqx_authentication_config:pre_config_update(Path, UpdateReq, OldConfig).
-
-post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    emqx_authentication_config:post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs).
-
 %% @doc Get all registered authentication providers.
 get_providers() ->
     call(get_providers).
@@ -447,8 +435,9 @@ list_users(ChainName, AuthenticatorID, FuzzyParams) ->
 
 init(_Opts) ->
     process_flag(trap_exit, true),
-    ok = emqx_config_handler:add_handler([?CONF_ROOT], ?MODULE),
-    ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], ?MODULE),
+    Module = emqx_authentication_config,
+    ok = emqx_config_handler:add_handler([?CONF_ROOT], Module),
+    ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], Module),
     {ok, #{hooked => false, providers => #{}}}.
 
 handle_call(get_providers, _From, #{providers := Providers} = State) ->
