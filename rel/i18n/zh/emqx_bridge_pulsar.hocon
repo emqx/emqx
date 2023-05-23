@@ -20,6 +20,11 @@ emqx_bridge_pulsar {
     label = "启用或停用"
   }
 
+  connect_timeout {
+    desc = "建立 TCP 连接时的最大等待时长（若启用认证，这个等待时长也包含完成认证所需时间）。"
+    label = "连接超时时间"
+  }
+
   servers {
     desc = "以逗号分隔的 <code>scheme://host[:port]</code> 格式的 Pulsar URL 列表，"
            "支持的 scheme 有 <code>pulsar://</code> （默认）"
