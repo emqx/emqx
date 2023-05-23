@@ -208,9 +208,6 @@ fields_tcp_opts_backlog.desc:
 fields_tcp_opts_backlog.label:
 """TCP 连接队列长度"""
 
-broker_route_batch_clean.desc:
-"""是否开启批量清除路由。"""
-
 fields_mqtt_quic_listener_initial_window_packets.desc:
 """一个连接的初始拥堵窗口的大小（以包为单位）。默认值：10"""
 

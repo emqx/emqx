@@ -213,9 +213,6 @@ pending connections can grow to."""
 fields_tcp_opts_backlog.label:
 """TCP backlog length"""
 
-broker_route_batch_clean.desc:
-"""Enable batch clean for deleted routes."""
-
 fields_mqtt_quic_listener_initial_window_packets.desc:
 """The size (in packets) of the initial congestion window for a connection. Default: 10"""
 
