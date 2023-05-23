@@ -156,7 +156,7 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_excluded_deps emqx-enterprise emqx emqx_telemetry
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 make_elixir_rel() {
