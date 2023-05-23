@@ -282,7 +282,7 @@ make_iotdb_insert_request(MessageUnparsedPayload, State) ->
     Message = MessageUnparsedPayload#{payload => PayloadParsed},
     IsAligned = maps:get(is_aligned, State, false),
     DeviceId = device_id(Message, State),
-    IotDBVsn = maps:get(iotdb_version, State, ?VSN_1_0_X),
+    IotDBVsn = maps:get(iotdb_version, State, ?VSN_1_X),
     Payload = make_list(maps:get(payload, Message)),
     PreProcessedData = preproc_data_list(Payload),
     DataList = proc_data(PreProcessedData, Message),
@@ -351,15 +351,15 @@ insert_value(1, Data, [Value | Values]) ->
 insert_value(Index, Data, [Value | Values]) ->
     [[null | Value] | insert_value(Index - 1, Data, Values)].
 
-iotdb_field_key(is_aligned, ?VSN_1_0_X) ->
+iotdb_field_key(is_aligned, ?VSN_1_X) ->
     <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_0_13_X) ->
     <<"isAligned">>;
-iotdb_field_key(device_id, ?VSN_1_0_X) ->
+iotdb_field_key(device_id, ?VSN_1_X) ->
     <<"device">>;
 iotdb_field_key(device_id, ?VSN_0_13_X) ->
     <<"deviceId">>;
-iotdb_field_key(data_types, ?VSN_1_0_X) ->
+iotdb_field_key(data_types, ?VSN_1_X) ->
     <<"data_types">>;
 iotdb_field_key(data_types, ?VSN_0_13_X) ->
     <<"dataTypes">>.
