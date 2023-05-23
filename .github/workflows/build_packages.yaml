@@ -102,9 +102,16 @@ jobs:
     - name: run emqx
       timeout-minutes: 5
       run: |
+        $ErrorActionPreference = "Stop"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
-        Start-Sleep -s 5
-        echo "EMQX started"
+        Start-Sleep -s 10
+        $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
+        if ($pingOutput = 'pong') {
+          echo "EMQX started OK"
+        } else {
+          echo "Failed to ping EMQX $pingOutput"
+          Exit 1
+        }
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
