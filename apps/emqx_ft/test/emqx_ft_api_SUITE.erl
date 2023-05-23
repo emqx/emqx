@@ -218,6 +218,16 @@ t_list_files_paging(Config) ->
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{following => <<>>}))
+    ),
+
+    ?assertMatch(
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{following => <<"{\"\":}">>}))
+    ),
+
+    ?assertMatch(
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             get,
             uri(["file_transfer", "files"]) ++ query(#{following => <<"whatsthat!?">>})
