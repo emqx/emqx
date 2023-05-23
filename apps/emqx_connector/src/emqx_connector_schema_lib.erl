@@ -30,6 +30,7 @@
     database/1,
     username/1,
     password/1,
+    password_required/1,
     auto_reconnect/1
 ]).
 
@@ -103,6 +104,14 @@ password(format) -> <<"password">>;
 password(sensitive) -> true;
 password(converter) -> fun emqx_schema:password_converter/2;
 password(_) -> undefined.
+
+password_required(type) -> binary();
+password_required(desc) -> ?DESC("password");
+password_required(required) -> true;
+password_required(format) -> <<"password">>;
+password_required(sensitive) -> true;
+password_required(converter) -> fun emqx_schema:password_converter/2;
+password_required(_) -> undefined.
 
 auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
