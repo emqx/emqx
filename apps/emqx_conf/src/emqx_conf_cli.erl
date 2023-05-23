@@ -33,15 +33,6 @@ unload() ->
     emqx_ctl:unregister_command(?CLUSTER_CALL),
     emqx_ctl:unregister_command(?CONF).
 
-conf(["reload"]) ->
-    ConfFiles = lists:flatten(lists:join(",", application:get_env(emqx, config_files, []))),
-    case emqx_config:reload_etc_conf_on_local_node() of
-        [] ->
-            emqx_ctl:print("reload ~s success~n", [ConfFiles]);
-        Error ->
-            emqx_ctl:print("reload ~s failed:~n", [ConfFiles]),
-            print(Error)
-    end;
 conf(["print", "--only-keys"]) ->
     print(emqx_config:get_root_names());
 conf(["print"]) ->

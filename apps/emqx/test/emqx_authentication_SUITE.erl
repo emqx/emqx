@@ -296,7 +296,7 @@ t_update_config({init, Config}) ->
         | Config
     ];
 t_update_config(Config) when is_list(Config) ->
-    emqx_config_handler:add_handler([?CONF_ROOT], emqx_authentication),
+    emqx_config_handler:add_handler([?CONF_ROOT], emqx_authentication_config),
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
