@@ -1,0 +1,33 @@
+emqx_mgmt_api_api_keys {
+
+api_key_list.desc:
+"""Return api_key list"""
+api_key_list.label:
+"""Return api_key list"""
+
+create_new_api_key.desc:
+"""Create new api_key"""
+create_new_api_key.label:
+"""Create new api_key"""
+
+get_api_key.desc:
+"""Return the specific api_key"""
+get_api_key.label:
+"""Return the specific api_key"""
+
+update_api_key.desc:
+"""Update the specific api_key"""
+update_api_key.label:
+"""Update the specific api_key"""
+
+delete_api_key.desc:
+"""Delete the specific api_key"""
+delete_api_key.label:
+"""Delete the specific api_key"""
+
+format.desc:
+"""Unique and format by [a-zA-Z0-9-_]"""
+format.label:
+"""Unique and format by [a-zA-Z0-9-_]"""
+
+}

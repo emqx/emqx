@@ -32,8 +32,6 @@
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 
--define(BASE_PATH, "/api/v5").
-
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 
 %%--------------------------------------------------------------------
@@ -52,7 +50,7 @@ start_listeners(Listeners) ->
     GlobalSpec = #{
         openapi => "3.0.0",
         info => #{title => "EMQX API", version => ?EMQX_API_VERSION},
-        servers => [#{url => ?BASE_PATH}],
+        servers => [#{url => emqx_dashboard_swagger:base_path()}],
         components => #{
             schemas => #{},
             'securitySchemes' => #{
@@ -69,11 +67,11 @@ start_listeners(Listeners) ->
         {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
         {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
         {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
-        {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []},
+        {emqx_dashboard_swagger:relative_uri("/[...]"), emqx_dashboard_bad_api, []},
         {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
     ],
     BaseMinirest = #{
-        base_path => ?BASE_PATH,
+        base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
@@ -97,7 +95,7 @@ start_listeners(Listeners) ->
                 end
             end,
             {[], []},
-            listeners(Listeners)
+            listeners(ensure_ssl_cert(Listeners))
         ),
     case ErrListeners of
         [] ->
@@ -142,18 +140,18 @@ apps() ->
 
 listeners(Listeners) ->
     lists:filtermap(
-        fun({Protocol, Conf}) ->
-            maps:get(enable, Conf) andalso
-                begin
-                    {Conf1, Bind} = ip_port(Conf),
-                    {true, {
-                        listener_name(Protocol),
-                        Protocol,
-                        Bind,
-                        ranch_opts(Conf1),
-                        proto_opts(Conf1)
-                    }}
-                end
+        fun
+            ({Protocol, Conf = #{enable := true}}) ->
+                {Conf1, Bind} = ip_port(Conf),
+                {true, {
+                    listener_name(Protocol),
+                    Protocol,
+                    Bind,
+                    ranch_opts(Conf1),
+                    proto_opts(Conf1)
+                }};
+            ({_Protocol, #{enable := false}}) ->
+                false
         end,
         maps:to_list(Listeners)
     ).
@@ -193,8 +191,8 @@ ranch_opts(Options) ->
         end,
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
-proto_opts(Options) ->
-    maps:with([proxy_header], Options).
+proto_opts(#{proxy_header := ProxyHeader}) ->
+    #{proxy_header => ProxyHeader}.
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
@@ -226,7 +224,7 @@ return_unauthorized(Code, Message) ->
     {401,
         #{
             <<"WWW-Authenticate">> =>
-                <<"Basic Realm=\"minirest-server\"">>
+                <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
 
@@ -249,3 +247,9 @@ api_key_authorize(Req, Key, Secret) ->
                 <<"Check api_key/api_secret">>
             )
     end.
+
+ensure_ssl_cert(Listeners = #{https := Https0}) ->
+    Https1 = emqx_tls_lib:to_server_opts(tls, Https0),
+    Listeners#{https => maps:from_list(Https1)};
+ensure_ssl_cert(Listeners) ->
+    Listeners.

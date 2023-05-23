@@ -28,6 +28,7 @@
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("logger.hrl").
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -3324,6 +3325,11 @@ naive_env_interpolation("$" ++ Maybe = Original) ->
         {ok, Path} ->
             filename:join([Path, Tail]);
         error ->
+            ?SLOG(warning, #{
+                msg => "failed_to_resolve_env_variable",
+                env => Env,
+                original => Original
+            }),
             Original
     end;
 naive_env_interpolation(Other) ->

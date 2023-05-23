@@ -6,6 +6,7 @@
 
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hocon_types.hrl").
 
 -behaviour(minirest_api).
 
@@ -38,7 +39,7 @@ schema("/monitor") ->
         'operationId' => monitor,
         get => #{
             tags => [<<"Metrics">>],
-            desc => <<"List monitor data.">>,
+            description => ?DESC(list_monitor),
             parameters => [parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
@@ -51,7 +52,7 @@ schema("/monitor/nodes/:node") ->
         'operationId' => monitor,
         get => #{
             tags => [<<"Metrics">>],
-            desc => <<"List the monitor data on the node.">>,
+            description => ?DESC(list_monitor_node),
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
@@ -64,7 +65,7 @@ schema("/monitor_current") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            desc => <<"Current status. Gauge and rate.">>,
+            description => ?DESC(current_status),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
             }
@@ -75,7 +76,7 @@ schema("/monitor_current/nodes/:node") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            desc => <<"Node current status. Gauge and rate.">>,
+            description => ?DESC(current_status_node),
             parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),

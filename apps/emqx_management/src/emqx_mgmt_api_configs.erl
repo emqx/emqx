@@ -67,8 +67,7 @@ schema("/configs") ->
         'operationId' => configs,
         get => #{
             tags => ?TAGS,
-            description =>
-                <<"Get all the configurations of the specified node, including hot and non-hot updatable items.">>,
+            description => ?DESC(get_conf_node),
             parameters => [
                 {node,
                     hoconsc:mk(
@@ -77,8 +76,7 @@ schema("/configs") ->
                             in => query,
                             required => false,
                             example => <<"emqx@127.0.0.1">>,
-                            desc =>
-                                <<"Node's name: If you do not fill in the fields, this node will be used by default.">>
+                            description => ?DESC(node_name)
                         }
                     )}
             ],
@@ -95,12 +93,7 @@ schema("/configs_reset/:rootname") ->
         'operationId' => config_reset,
         post => #{
             tags => ?TAGS,
-            description =>
-                <<
-                    "Reset the config entry specified by the query string parameter `conf_path`.<br/>"
-                    "- For a config entry that has default value, this resets it to the default value;\n"
-                    "- For a config entry that has no default value, an error 400 will be returned"
-                >>,
+            description => ?DESC(rest_conf_query),
             %% We only return "200" rather than the new configs that has been changed, as
             %% the schema of the changed configs is depends on the request parameter
             %% `conf_path`, it cannot be defined here.
@@ -134,12 +127,12 @@ schema("/configs/global_zone") ->
         'operationId' => global_zone_configs,
         get => #{
             tags => ?TAGS,
-            description => <<"Get the global zone configs">>,
+            description => ?DESC(get_global_zone_configs),
             responses => #{200 => Schema}
         },
         put => #{
             tags => ?TAGS,
-            description => <<"Update globbal zone configs">>,
+            description => ?DESC(update_globar_zone_configs),
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
@@ -153,7 +146,7 @@ schema("/configs/limiter") ->
         'operationId' => limiter,
         get => #{
             tags => ?TAGS,
-            description => <<"Get the node-level limiter configs">>,
+            description => ?DESC(get_node_level_limiter_congigs),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
@@ -161,7 +154,7 @@ schema("/configs/limiter") ->
         },
         put => #{
             tags => ?TAGS,
-            description => <<"Update the node-level limiter configs">>,
+            description => ?DESC(update_node_level_limiter_congigs),
             'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
@@ -172,15 +165,22 @@ schema("/configs/limiter") ->
     };
 schema(Path) ->
     {RootKey, {_Root, Schema}} = find_schema(Path),
+    GetDesc = iolist_to_binary([
+        <<"Get the sub-configurations under *">>,
+        RootKey,
+        <<"*">>
+    ]),
+    PutDesc = iolist_to_binary([
+        <<"Update the sub-configurations under *">>,
+        RootKey,
+        <<"*">>
+    ]),
     #{
         'operationId' => config,
         get => #{
             tags => ?TAGS,
-            description => iolist_to_binary([
-                <<"Get the sub-configurations under *">>,
-                RootKey,
-                <<"*">>
-            ]),
+            desc => GetDesc,
+            summary => GetDesc,
             responses => #{
                 200 => Schema,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
@@ -188,11 +188,8 @@ schema(Path) ->
         },
         put => #{
             tags => ?TAGS,
-            description => iolist_to_binary([
-                <<"Update the sub-configurations under *">>,
-                RootKey,
-                <<"*">>
-            ]),
+            desc => PutDesc,
+            summary => PutDesc,
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,

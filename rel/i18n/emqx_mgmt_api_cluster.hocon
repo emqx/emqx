@@ -1,0 +1,18 @@
+emqx_mgmt_api_cluster {
+
+get_cluster_info.desc:
+"""Get cluster info"""
+get_cluster_info.label:
+"""Get cluster info"""
+
+invite_node.desc:
+"""Invite node to cluster"""
+invite_node.label:
+"""Invite node to cluster"""
+
+force_remove_node.desc:
+"""Force leave node from cluster"""
+force_remove_node.label:
+"""Force leave node from cluster"""
+
+}

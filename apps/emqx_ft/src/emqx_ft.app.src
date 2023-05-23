@@ -1,0 +1,14 @@
+{application, emqx_ft, [
+    {description, "EMQX file transfer over MQTT"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_ft_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        gproc,
+        emqx_s3
+    ]},
+    {env, []},
+    {modules, []}
+]}.

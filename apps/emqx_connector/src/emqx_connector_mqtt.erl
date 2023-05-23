@@ -112,7 +112,7 @@ bridge_spec(Config) ->
         id => Name,
         start => {emqx_connector_mqtt_worker, start_link, [Name, NConfig]},
         restart => temporary,
-        shutdown => 5000
+        shutdown => 1000
     }.
 
 -spec bridges() -> [{_Name, _Status}].
@@ -181,7 +181,7 @@ on_stop(_InstId, #{name := InstanceId}) ->
             ok;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "stop_mqtt_connector",
+                msg => "stop_mqtt_connector_error",
                 connector => InstanceId,
                 reason => Reason
             })

@@ -26,7 +26,7 @@
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
 -ifdef(TEST).
--export([sorted_reboot_apps/1]).
+-export([sorted_reboot_apps/1, reboot_apps/0]).
 -endif.
 
 %% these apps are always (re)started by emqx_machine
@@ -120,7 +120,7 @@ restart_type(App) ->
 
 %% the list of (re)started apps depends on release type/edition
 reboot_apps() ->
-    {ok, ConfigApps0} = application:get_env(emqx_machine, applications),
+    ConfigApps0 = application:get_env(emqx_machine, applications, []),
     BaseRebootApps = basic_reboot_apps(),
     ConfigApps = lists:filter(fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0),
     BaseRebootApps ++ ConfigApps.
@@ -154,6 +154,8 @@ basic_reboot_apps() ->
         ee ->
             CE ++
                 [
+                    emqx_s3,
+                    emqx_ft,
                     emqx_eviction_agent,
                     emqx_node_rebalance
                 ]

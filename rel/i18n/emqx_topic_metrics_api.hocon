@@ -2,104 +2,172 @@ emqx_topic_metrics_api {
 
 message_qos1_in_rate.desc:
 """QoS1 in messages rate"""
+message_qos1_in_rate.label:
+"""QoS1 in messages rate"""
 
 message_out_count.desc:
+"""Out messages count"""
+message_out_count.label:
 """Out messages count"""
 
 message_qos2_out_rate.desc:
 """QoS2 out messages rate"""
+message_qos2_out_rate.label:
+"""QoS2 out messages rate"""
 
 message_qos0_in_rate.desc:
+"""QoS0 in messages rate"""
+message_qos0_in_rate.label:
 """QoS0 in messages rate"""
 
 get_topic_metrics_api.desc:
 """List topic metrics"""
+get_topic_metrics_api.label:
+"""List topic metrics"""
 
 reset_time.desc:
 """Reset time. In rfc3339. Nullable if never reset"""
+reset_time.label:
+"""Reset time"""
 
 topic_metrics_api_response400.desc:
 """Bad request. Already exists or bad topic name"""
+topic_metrics_api_response400.label:
+"""Bad request"""
 
 reset_topic_desc.desc:
 """Topic Name. If this parameter is not present,all created topic metrics will be reset."""
+reset_topic_desc.label:
+"""Topic Name"""
 
 topic_metrics_api_response409.desc:
 """Conflict. Topic metrics exceeded max limit 512"""
+topic_metrics_api_response409.label:
+"""Conflict"""
 
 post_topic_metrics_api.desc:
+"""Create topic metrics"""
+post_topic_metrics_api.label:
 """Create topic metrics"""
 
 message_dropped_rate.desc:
 """Dropped messages rate"""
+message_dropped_rate.label:
+"""Dropped messages rate"""
 
 message_qos2_in_rate.desc:
+"""QoS2 in messages rate"""
+message_qos2_in_rate.label:
 """QoS2 in messages rate"""
 
 message_in_rate.desc:
 """In messages rate"""
+message_in_rate.label:
+"""In messages rate"""
 
 message_qos0_out_rate.desc:
+"""QoS0 out messages rate"""
+message_qos0_out_rate.label:
 """QoS0 out messages rate"""
 
 message_qos2_in_count.desc:
 """QoS2 in messages count"""
+message_qos2_in_count.label:
+"""QoS2 in messages count"""
 
 message_dropped_count.desc:
+"""Dropped messages count"""
+message_dropped_count.label:
 """Dropped messages count"""
 
 topic_metrics_api_response404.desc:
 """Not Found. Topic metrics not found"""
+topic_metrics_api_response404.label:
+"""Not Found"""
 
 topic_in_path.desc:
 """Topic string. Notice: Topic string in url path must be encoded"""
+topic_in_path.label:
+"""Topic string"""
 
 action.desc:
 """Action. Only support reset"""
+action.label:
+"""Action"""
 
 message_qos0_in_count.desc:
+"""QoS0 in messages count"""
+message_qos0_in_count.label:
 """QoS0 in messages count"""
 
 message_qos1_out_rate.desc:
 """QoS1 out messages rate"""
+message_qos1_out_rate.label:
+"""QoS1 out messages rate"""
 
 topic.desc:
+"""Topic"""
+topic.label:
 """Topic"""
 
 reset_topic_metrics_api.desc:
 """Reset telemetry status"""
+reset_topic_metrics_api.label:
+"""Reset telemetry status"""
 
 create_time.desc:
+"""Create time"""
+create_time.label:
 """Create time"""
 
 metrics.desc:
 """Metrics"""
+metrics.label:
+"""Metrics"""
 
 message_qos1_out_count.desc:
+"""QoS1 out messages count"""
+message_qos1_out_count.label:
 """QoS1 out messages count"""
 
 gat_topic_metrics_data_api.desc:
 """Get topic metrics"""
+gat_topic_metrics_data_api.label:
+"""Get topic metrics"""
 
 message_qos1_in_count.desc:
+"""QoS1 in messages count"""
+message_qos1_in_count.label:
 """QoS1 in messages count"""
 
 delete_topic_metrics_data_api.desc:
 """Delete topic metrics"""
+delete_topic_metrics_data_api.label:
+"""Delete topic metrics"""
 
 message_qos0_out_count.desc:
+"""QoS0 out messages count"""
+message_qos0_out_count.label:
 """QoS0 out messages count"""
 
 topic_in_body.desc:
 """Raw topic string"""
+topic_in_body.label:
+"""Raw topic string"""
 
 message_in_count.desc:
+"""In messages count"""
+message_in_count.label:
 """In messages count"""
 
 message_qos2_out_count.desc:
 """QoS2 out messages count"""
+message_qos2_out_count.label:
+"""QoS2 out messages count"""
 
 message_out_rate.desc:
+"""Out messages rate"""
+message_out_rate.label:
 """Out messages rate"""
 
 }

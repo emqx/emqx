@@ -1,0 +1,23 @@
+emqx_dashboard_monitor_api {
+
+list_monitor.desc:
+"""List monitor data."""
+list_monitor.label:
+"""List monitor data."""
+
+list_monitor_node.desc:
+"""List the monitor data on the node."""
+list_monitor_node.label:
+"""List the monitor data on the node."""
+
+current_status.desc:
+"""Current status. Gauge and rate."""
+current_status.label:
+"""Current status. Gauge and rate."""
+
+current_status_node.desc:
+"""Node current status. Gauge and rate."""
+current_status_node.label:
+"""Node current status. Gauge and rate."""
+
+}

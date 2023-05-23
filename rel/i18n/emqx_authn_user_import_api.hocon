@@ -2,8 +2,12 @@ emqx_authn_user_import_api {
 
 authentication_id_import_users_post.desc:
 """Import users into authenticator in global authentication chain."""
+authentication_id_import_users_post.label:
+"""Global import users into authenticator"""
 
 listeners_listener_id_authentication_id_import_users_post.desc:
 """Import users into authenticator in listener authentication chain."""
+listeners_listener_id_authentication_id_import_users_post.label:
+"""Import users into authenticator in listener"""
 
 }

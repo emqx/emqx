@@ -1,0 +1,38 @@
+emqx_s3_schema {
+
+access_key_id.desc:
+"""The access key ID of the S3 bucket."""
+
+secret_access_key.desc:
+"""The secret access key of the S3 bucket."""
+
+bucket.desc:
+"""The name of the S3 bucket."""
+
+host.desc:
+"""The host of the S3 endpoint."""
+
+port.desc:
+"""The port of the S3 endpoint."""
+
+url_expire_time.desc:
+"""The time in seconds for which the signed URLs to the S3 objects are valid."""
+
+min_part_size.desc:
+"""The minimum part size for multipart uploads.<br/>
+Uploaded data will be accumulated in memory until this size is reached."""
+
+max_part_size.desc:
+"""The maximum part size for multipart uploads.<br/>
+S3 uploader won't try to upload parts larger than this size."""
+
+acl.desc:
+"""The ACL to use for the uploaded objects."""
+
+transport_options.desc:
+"""Options for the HTTP transport layer used by the S3 client."""
+
+ipv6_probe.desc:
+"""Whether to probe for IPv6 support."""
+
+}
