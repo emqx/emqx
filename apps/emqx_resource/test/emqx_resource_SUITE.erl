@@ -316,7 +316,11 @@ t_query_counter_async_query(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, batch_size => 1}
+        #{
+            query_mode => async,
+            batch_size => 1,
+            metrics_flush_interval => 50
+        }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     NMsgs = 1_000,
@@ -350,7 +354,11 @@ t_query_counter_async_query(_) ->
         end
     ),
     #{counters := C} = emqx_resource:get_metrics(?ID),
-    ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C),
+    ?retry(
+        _Sleep = 300,
+        _Attempts0 = 20,
+        ?assertMatch(#{matched := 1002, 'success' := 1002, 'failed' := 0}, C)
+    ),
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter_async_callback(_) ->
@@ -1171,6 +1179,7 @@ t_unblock_only_required_buffer_workers(_) ->
         #{
             query_mode => async,
             batch_size => 5,
+            metrics_flush_interval => 50,
             batch_time => 100
         }
     ),
@@ -1219,6 +1228,7 @@ t_retry_batch(_Config) ->
             batch_size => 5,
             batch_time => 100,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1318,6 +1328,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
             worker_pool_size => NumBufferWorkers,
             buffer_mode => volatile_offload,
             buffer_seg_bytes => 100,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1354,10 +1365,16 @@ t_delete_and_re_create_with_same_name(_Config) ->
 
             %% ensure that stuff got enqueued into disk
             tap_metrics(?LINE),
-            Queuing1 = emqx_resource_metrics:queuing_get(?ID),
-            Inflight1 = emqx_resource_metrics:inflight_get(?ID),
-            ?assert(Queuing1 > 0),
-            ?assertEqual(2, Inflight1),
+            ?retry(
+                _Sleep = 300,
+                _Attempts0 = 20,
+                ?assert(emqx_resource_metrics:queuing_get(?ID) > 0)
+            ),
+            ?retry(
+                _Sleep = 300,
+                _Attempts0 = 20,
+                ?assertEqual(2, emqx_resource_metrics:inflight_get(?ID))
+            ),
 
             %% now, we delete the resource
             process_flag(trap_exit, true),
@@ -1409,6 +1426,7 @@ t_always_overflow(_Config) ->
             batch_size => 1,
             worker_pool_size => 1,
             max_buffer_bytes => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1446,6 +1464,7 @@ t_retry_sync_inflight(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1496,6 +1515,7 @@ t_retry_sync_inflight_batch(_Config) ->
             batch_size => 2,
             batch_time => 200,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1546,6 +1566,7 @@ t_retry_async_inflight(_Config) ->
             query_mode => async,
             batch_size => 1,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1590,6 +1611,7 @@ t_retry_async_inflight_full(_Config) ->
             inflight_window => AsyncInflightWindow,
             batch_size => 1,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1627,7 +1649,11 @@ t_retry_async_inflight_full(_Config) ->
             end
         ]
     ),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID)),
+    ?retry(
+        _Sleep = 300,
+        _Attempts0 = 20,
+        ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID))
+    ),
     ok.
 
 %% this test case is to ensure the buffer worker will not go crazy even
@@ -1649,6 +1675,7 @@ t_async_reply_multi_eval(_Config) ->
             batch_size => 3,
             batch_time => 10,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1663,7 +1690,7 @@ t_async_reply_multi_eval(_Config) ->
         #{}
     ),
     ?retry(
-        ResumeInterval,
+        2 * ResumeInterval,
         TotalTime div ResumeInterval,
         begin
             Metrics = tap_metrics(?LINE),
@@ -1679,7 +1706,7 @@ t_async_reply_multi_eval(_Config) ->
                 failed := Failed
             } = Counters,
             ?assertEqual(TotalQueries, Matched - 1),
-            ?assertEqual(Matched, Success + Dropped + LateReply + Failed)
+            ?assertEqual(Matched, Success + Dropped + LateReply + Failed, #{counters => Counters})
         end
     ).
 
@@ -1696,6 +1723,7 @@ t_retry_async_inflight_batch(_Config) ->
             batch_size => 2,
             batch_time => 200,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1741,6 +1769,7 @@ t_async_pool_worker_death(_Config) ->
             query_mode => async,
             batch_size => 1,
             worker_pool_size => NumBufferWorkers,
+            metrics_refresh_interval => 50,
             resume_interval => ResumeInterval
         }
     ),
@@ -1764,8 +1793,11 @@ t_async_pool_worker_death(_Config) ->
             inc_counter_in_parallel_increasing(NumReqs, 1, ReqOpts),
             {ok, _} = snabbkaffe:receive_events(SRef0),
 
-            Inflight0 = emqx_resource_metrics:inflight_get(?ID),
-            ?assertEqual(NumReqs, Inflight0),
+            ?retry(
+                _Sleep = 300,
+                _Attempts0 = 20,
+                ?assertEqual(NumReqs, emqx_resource_metrics:inflight_get(?ID))
+            ),
 
             %% grab one of the worker pids and kill it
             {ok, #{pid := Pid0}} = emqx_resource:simple_sync_query(?ID, get_state),
@@ -1816,6 +1848,7 @@ t_expiration_sync_before_sending(_Config) ->
             query_mode => sync,
             batch_size => 1,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1833,6 +1866,7 @@ t_expiration_sync_batch_before_sending(_Config) ->
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1849,6 +1883,7 @@ t_expiration_async_before_sending(_Config) ->
             query_mode => async,
             batch_size => 1,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1866,6 +1901,7 @@ t_expiration_async_batch_before_sending(_Config) ->
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
+            metrics_flush_interval => 50,
             resume_interval => 1_000
         }
     ),
@@ -1946,6 +1982,7 @@ t_expiration_sync_before_sending_partial_batch(_Config) ->
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
+            metrics_flush_interval => 250,
             resume_interval => 1_000
         }
     ),
@@ -1964,6 +2001,7 @@ t_expiration_async_before_sending_partial_batch(_Config) ->
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
+            metrics_flush_interval => 250,
             resume_interval => 1_000
         }
     ),
@@ -2053,7 +2091,14 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
                 ],
                 ?of_kind(buffer_worker_flush_potentially_partial, Trace)
             ),
-            wait_until_gauge_is(inflight, 0, 500),
+            wait_until_gauge_is(
+                inflight,
+                #{
+                    expected_value => 0,
+                    timeout => 500,
+                    max_events => 10
+                }
+            ),
             Metrics = tap_metrics(?LINE),
             case QueryMode of
                 async ->
@@ -2929,8 +2974,15 @@ install_telemetry_handler(TestCase) ->
     put({?MODULE, telemetry_table}, Tid),
     Tid.
 
-wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
-    Events = receive_all_events(GaugeName, Timeout),
+wait_until_gauge_is(
+    GaugeName,
+    #{
+        expected_value := ExpectedValue,
+        timeout := Timeout,
+        max_events := MaxEvents
+    }
+) ->
+    Events = receive_all_events(GaugeName, Timeout, MaxEvents),
     case length(Events) > 0 andalso lists:last(Events) of
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
@@ -2944,12 +2996,18 @@ wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
     end.
 
 receive_all_events(EventName, Timeout) ->
-    receive_all_events(EventName, Timeout, []).
+    receive_all_events(EventName, Timeout, _MaxEvents = 50, _Count = 0, _Acc = []).
 
-receive_all_events(EventName, Timeout, Acc) ->
+receive_all_events(EventName, Timeout, MaxEvents) ->
+    receive_all_events(EventName, Timeout, MaxEvents, _Count = 0, _Acc = []).
+
+receive_all_events(_EventName, _Timeout, MaxEvents, Count, Acc) when Count >= MaxEvents ->
+    lists:reverse(Acc);
+receive_all_events(EventName, Timeout, MaxEvents, Count, Acc) ->
     receive
         {telemetry, #{name := [_, _, EventName]} = Event} ->
-            receive_all_events(EventName, Timeout, [Event | Acc])
+            ct:pal("telemetry event: ~p", [Event]),
+            receive_all_events(EventName, Timeout, MaxEvents, Count + 1, [Event | Acc])
     after Timeout ->
         lists:reverse(Acc)
     end.

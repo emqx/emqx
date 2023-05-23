@@ -44,11 +44,23 @@
 
 -type alias() :: binary() | list(binary()).
 
--type field() ::
-    const()
-    | variable()
-    | {as, field(), alias()}
-    | {'fun', atom(), list(field())}.
+%% TODO: So far the SQL function module names and function names are as binary(),
+%% binary_to_atom is called to convert to module and function name.
+%% For better performance, the function references
+%% can be converted to a fun Module:Function/N When compiling the SQL.
+-type ext_module_name() :: atom() | binary().
+-type func_name() :: atom() | binary().
+-type func_args() :: [field()].
+%% Functions defiend in emqx_rule_funcs
+-type builtin_func_ref() :: {var, func_name()}.
+%% Functions defined in other modules, reference syntax: Module.Function(Arg1, Arg2, ...)
+%% NOTE: it's '.' (Elixir style), but not ':' (Erlang style).
+%% Parsed as a two element path-list: [{key, Module}, {key, Func}].
+-type external_func_ref() :: {path, [{key, ext_module_name() | func_name()}]}.
+-type func_ref() :: builtin_func_ref() | external_func_ref().
+-type sql_func() :: {'fun', func_ref(), func_args()}.
+
+-type field() :: const() | variable() | {as, field(), alias()} | sql_func().
 
 -export_type([select/0]).
 

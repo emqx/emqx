@@ -25,6 +25,7 @@
     resource_id/2,
     bridge_id/2,
     parse_bridge_id/1,
+    parse_bridge_id/2,
     bridge_hookpoint/1,
     bridge_hookpoint_to_bridge_id/1
 ]).
@@ -56,6 +57,11 @@
     (TYPE) =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
 ).
 
+%% [FIXME] this has no place here, it's used in parse_confs/3, which should
+%% rather delegate to a behavior callback than implementing domain knowledge
+%% here (reversed dependency)
+-define(INSERT_TABLET_PATH, "/rest/v2/insertTablet").
+
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
@@ -81,11 +87,15 @@ bridge_id(BridgeType, BridgeName) ->
     Type = bin(BridgeType),
     <<Type/binary, ":", Name/binary>>.
 
--spec parse_bridge_id(list() | binary() | atom()) -> {atom(), binary()}.
 parse_bridge_id(BridgeId) ->
+    parse_bridge_id(BridgeId, #{atom_name => true}).
+
+-spec parse_bridge_id(list() | binary() | atom(), #{atom_name => boolean()}) ->
+    {atom(), atom() | binary()}.
+parse_bridge_id(BridgeId, Opts) ->
     case string:split(bin(BridgeId), ":", all) of
         [Type, Name] ->
-            {to_type_atom(Type), validate_name(Name)};
+            {to_type_atom(Type), validate_name(Name, Opts)};
         _ ->
             invalid_data(
                 <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
@@ -100,13 +110,16 @@ bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
-validate_name(Name0) ->
+validate_name(Name0, Opts) ->
     Name = unicode:characters_to_list(Name0, utf8),
     case is_list(Name) andalso Name =/= [] of
         true ->
             case lists:all(fun is_id_char/1, Name) of
                 true ->
-                    Name0;
+                    case maps:get(atom_name, Opts, true) of
+                        true -> list_to_existing_atom(Name);
+                        false -> Name0
+                    end;
                 false ->
                     invalid_data(<<"bad name: ", Name0/binary>>)
             end;
@@ -152,20 +165,20 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 
-create(Type, Name, Conf, Opts0) ->
+create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
         msg => "create bridge",
         type => Type,
         name => Name,
         config => emqx_utils:redact(Conf)
     }),
-    Opts = override_start_after_created(Conf, Opts0),
+    TypeBin = bin(Type),
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
-        parse_confs(bin(Type), Name, Conf),
-        Opts
+        parse_confs(TypeBin, Name, Conf),
+        parse_opts(Conf, Opts)
     ),
     ok.
 
@@ -176,7 +189,7 @@ update(BridgeId, {OldConf, Conf}) ->
 update(Type, Name, {OldConf, Conf}) ->
     update(Type, Name, {OldConf, Conf}, #{}).
 
-update(Type, Name, {OldConf, Conf}, Opts0) ->
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -185,7 +198,6 @@ update(Type, Name, {OldConf, Conf}, Opts0) ->
     %% the `method` or `headers` of a WebHook is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    Opts = override_start_after_created(Conf, Opts0),
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
@@ -228,11 +240,12 @@ recreate(Type, Name, Conf) ->
     recreate(Type, Name, Conf, #{}).
 
 recreate(Type, Name, Conf, Opts) ->
+    TypeBin = bin(Type),
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
-        parse_confs(bin(Type), Name, Conf),
-        Opts
+        parse_confs(TypeBin, Name, Conf),
+        parse_opts(Conf, Opts)
     ).
 
 create_dry_run(Type, Conf0) ->
@@ -329,6 +342,30 @@ parse_confs(
                 max_retries => Retry
             }
     };
+parse_confs(<<"iotdb">>, Name, Conf) ->
+    #{
+        base_url := BaseURL,
+        authentication :=
+            #{
+                username := Username,
+                password := Password
+            }
+    } = Conf,
+    BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
+    WebhookConfig =
+        Conf#{
+            method => <<"post">>,
+            url => <<BaseURL/binary, ?INSERT_TABLET_PATH>>,
+            headers => [
+                {<<"Content-type">>, <<"application/json">>},
+                {<<"Authorization">>, BasicToken}
+            ]
+        },
+    parse_confs(
+        <<"webhook">>,
+        Name,
+        WebhookConfig
+    );
 parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
@@ -364,6 +401,9 @@ str(Str) when is_list(Str) -> Str.
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+parse_opts(Conf, Opts0) ->
+    override_start_after_created(Conf, Opts0).
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),

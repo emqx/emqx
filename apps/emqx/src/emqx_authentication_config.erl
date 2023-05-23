@@ -29,9 +29,13 @@
     authn_type/1
 ]).
 
--ifdef(TEST).
--export([convert_certs/2, convert_certs/3, clear_certs/2]).
--endif.
+%% Used in emqx_gateway
+-export([
+    certs_dir/2,
+    convert_certs/2,
+    convert_certs/3,
+    clear_certs/2
+]).
 
 -export_type([config/0]).
 

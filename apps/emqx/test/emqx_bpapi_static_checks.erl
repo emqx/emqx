@@ -47,7 +47,9 @@
 -type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
 %% Applications and modules we wish to ignore in the analysis:
--define(IGNORED_APPS, "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria").
+-define(IGNORED_APPS,
+    "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria, amqp_client, rabbit_common"
+).
 -define(IGNORED_MODULES, "emqx_rpc").
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").

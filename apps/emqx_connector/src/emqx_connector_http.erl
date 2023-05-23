@@ -32,22 +32,17 @@
     on_query/3,
     on_query_async/4,
     on_get_status/2,
-    reply_delegator/2
+    reply_delegator/3
 ]).
-
--type url() :: emqx_http_lib:uri_map().
--reflect_type([url/0]).
--typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
 
 -export([
     roots/0,
     fields/1,
     desc/1,
-    validations/0,
     namespace/0
 ]).
 
--export([check_ssl_opts/2, validate_method/1, join_paths/2]).
+-export([validate_method/1, join_paths/2]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -69,20 +64,6 @@ roots() ->
 
 fields(config) ->
     [
-        {base_url,
-            sc(
-                url(),
-                #{
-                    required => true,
-                    validator => fun
-                        (#{query := _Query}) ->
-                            {error, "There must be no query in the base_url"};
-                        (_) ->
-                            ok
-                    end,
-                    desc => ?DESC("base_url")
-                }
-            )},
         {connect_timeout,
             sc(
                 emqx_schema:duration_ms(),
@@ -170,9 +151,6 @@ desc("request") ->
     "";
 desc(_) ->
     undefined.
-
-validations() ->
-    [{check_ssl_opts, fun check_ssl_opts/1}].
 
 validate_method(M) when M =:= <<"post">>; M =:= <<"put">>; M =:= <<"get">>; M =:= <<"delete">> ->
     ok;
@@ -267,10 +245,11 @@ on_query(InstId, {send_message, Msg}, State) ->
                 request_timeout := Timeout
             } = process_request(Request, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
-            Retry = 0,
+            Retry = 2,
+            ClientId = maps:get(clientid, Msg, undefined),
             on_query(
                 InstId,
-                {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
+                {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
                 State
             )
     end;
@@ -370,9 +349,10 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request(Request, Msg),
+            ClientId = maps:get(clientid, Msg, undefined),
             on_query_async(
                 InstId,
-                {undefined, Method, {Path, Headers, Body}, Timeout},
+                {ClientId, Method, {Path, Headers, Body}, Timeout},
                 ReplyFunAndArgs,
                 State
             )
@@ -394,12 +374,22 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
+    MaxAttempts = maps:get(max_attempts, State, 3),
+    Context = #{
+        attempt => 1,
+        max_attempts => MaxAttempts,
+        state => State,
+        key_or_num => KeyOrNum,
+        method => Method,
+        request => NRequest,
+        timeout => Timeout
+    },
     ok = ehttpc:request_async(
         Worker,
         Method,
         NRequest,
         Timeout,
-        {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
+        {fun ?MODULE:reply_delegator/3, [Context, ReplyFunAndArgs]}
     ),
     {ok, Worker}.
 
@@ -578,18 +568,6 @@ make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
 make_method(M) when M == <<"GET">>; M == <<"get">> -> get;
 make_method(M) when M == <<"DELETE">>; M == <<"delete">> -> delete.
 
-check_ssl_opts(Conf) ->
-    check_ssl_opts("base_url", Conf).
-
-check_ssl_opts(URLFrom, Conf) ->
-    #{scheme := Scheme} = hocon_maps:get(URLFrom, Conf),
-    SSL = hocon_maps:get("ssl", Conf),
-    case {Scheme, maps:get(enable, SSL, false)} of
-        {http, false} -> true;
-        {https, true} -> true;
-        {_, _} -> false
-    end.
-
 formalize_request(Method, BasePath, {Path, Headers, _Body}) when
     Method =:= get; Method =:= delete
 ->
@@ -632,7 +610,10 @@ to_bin(Str) when is_list(Str) ->
 to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
-reply_delegator(ReplyFunAndArgs, Result) ->
+reply_delegator(Context, ReplyFunAndArgs, Result) ->
+    spawn(fun() -> maybe_retry(Result, Context, ReplyFunAndArgs) end).
+
+transform_result(Result) ->
     case Result of
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
@@ -643,15 +624,46 @@ reply_delegator(ReplyFunAndArgs, Result) ->
             Reason =:= {shutdown, normal};
             Reason =:= {shutdown, closed}
         ->
-            Result1 = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+            {error, {recoverable_error, Reason}};
         {error, {closed, _Message} = Reason} ->
             %% _Message = "The connection was lost."
-            Result1 = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+            {error, {recoverable_error, Reason}};
         _ ->
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+            Result
     end.
+
+maybe_retry(Result0, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAndArgs) when
+    N >= Max
+->
+    Result = transform_result(Result0),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
+    #{
+        state := State,
+        attempt := Attempt,
+        key_or_num := KeyOrNum,
+        method := Method,
+        request := Request,
+        timeout := Timeout
+    } = Context,
+    %% TODO: reset the expiration time for free retries?
+    IsFreeRetry = Reason =:= normal orelse Reason =:= {shutdown, normal},
+    NContext =
+        case IsFreeRetry of
+            true -> Context;
+            false -> Context#{attempt := Attempt + 1}
+        end,
+    Worker = resolve_pool_worker(State, KeyOrNum),
+    ok = ehttpc:request_async(
+        Worker,
+        Method,
+        Request,
+        Timeout,
+        {fun ?MODULE:reply_delegator/3, [NContext, ReplyFunAndArgs]}
+    ),
+    ok;
+maybe_retry(Result, _Context, ReplyFunAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 %% The HOCON schema system may generate sensitive keys with this format
 is_sensitive_key([{str, StringKey}]) ->

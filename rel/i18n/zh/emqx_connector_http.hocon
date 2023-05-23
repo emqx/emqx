@@ -1,13 +1,5 @@
 emqx_connector_http {
 
-base_url.desc:
-"""base URL 只包含host和port。<br/>
-发送HTTP请求时，真实的URL是由base URL 和 path parameter连接而成。<br/>
-示例：`http://localhost:9901/`"""
-
-base_url.label:
-"""Base Url"""
-
 body.desc:
 """HTTP请求报文主体。"""
 

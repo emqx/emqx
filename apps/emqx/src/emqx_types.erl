@@ -129,7 +129,7 @@
     socktype := socktype(),
     sockname := peername(),
     peername := peername(),
-    peercert := nossl | undefined | esockd_peercert:peercert(),
+    peercert => nossl | undefined | esockd_peercert:peercert(),
     conn_mod := module(),
     proto_name => binary(),
     proto_ver => proto_ver(),
@@ -238,7 +238,7 @@
 -type stats() :: [{atom(), term()}].
 
 -type oom_policy() :: #{
-    max_message_queue_len => non_neg_integer(),
+    max_mailbox_size => non_neg_integer(),
     max_heap_size => non_neg_integer(),
     enable => boolean()
 }.

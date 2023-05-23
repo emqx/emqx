@@ -140,7 +140,7 @@ t_index_of(_) ->
 
 t_check(_) ->
     Policy = #{
-        max_message_queue_len => 10,
+        max_mailbox_size => 10,
         max_heap_size => 1024 * 1024 * 8,
         enable => true
     },

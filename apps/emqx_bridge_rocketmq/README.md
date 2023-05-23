@@ -11,7 +11,7 @@ User can create a rule and easily ingest IoT data into RocketMQ by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into RocketMQ](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-rocketmq.html)
+- Refer to [Ingest Data into RocketMQ](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-rocketmq.html)
   for how to use EMQX dashboard to ingest IoT data into RocketMQ.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

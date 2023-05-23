@@ -40,12 +40,15 @@ fields("put") ->
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post");
 fields("creation_opts") ->
-    lists:filter(
-        fun({K, _V}) ->
-            not lists:member(K, unsupported_opts())
-        end,
-        emqx_resource_schema:fields("creation_opts")
-    ).
+    [
+        hidden_request_timeout()
+        | lists:filter(
+            fun({K, _V}) ->
+                not lists:member(K, unsupported_opts())
+            end,
+            emqx_resource_schema:fields("creation_opts")
+        )
+    ].
 
 desc("config") ->
     ?DESC("desc_config");
@@ -68,7 +71,7 @@ basic_config() ->
             )}
     ] ++ webhook_creation_opts() ++
         proplists:delete(
-            max_retries, proplists:delete(base_url, emqx_connector_http:fields(config))
+            max_retries, emqx_connector_http:fields(config)
         ).
 
 request_config() ->
@@ -163,7 +166,8 @@ unsupported_opts() ->
     [
         enable_batch,
         batch_size,
-        batch_time
+        batch_time,
+        request_timeout
     ].
 
 %%======================================================================================
@@ -190,3 +194,13 @@ name_field() ->
 
 method() ->
     enum([post, put, get, delete]).
+
+hidden_request_timeout() ->
+    {request_timeout,
+        mk(
+            hoconsc:union([infinity, emqx_schema:duration_ms()]),
+            #{
+                required => false,
+                importance => ?IMPORTANCE_HIDDEN
+            }
+        )}.

@@ -86,6 +86,7 @@ is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
 is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
 is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_influxdb") -> false;
+is_community_umbrella_app("apps/emqx_bridge_iotdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
@@ -97,6 +98,7 @@ is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
 is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_sqlserver") -> false;
 is_community_umbrella_app("apps/emqx_oracle") -> false;
+is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -344,7 +346,7 @@ overlay_vars_edition(ce) ->
     ];
 overlay_vars_edition(ee) ->
     [
-        {emqx_schema_mod, emqx_ee_conf_schema},
+        {emqx_schema_mod, emqx_enterprise_schema},
         {is_enterprise, "yes"}
     ].
 
@@ -403,7 +405,7 @@ relx_apps(ReleaseType, Edition) ->
             {emqx_plugin_libs, load},
             {esasl, load},
             observer_cli,
-            {tools, load},
+            tools,
             {covertool, load},
             % started by emqx_machine
             {system_monitor, load},
@@ -451,7 +453,7 @@ is_app(Name) ->
 relx_apps_per_edition(ee) ->
     [
         emqx_license,
-        {emqx_ee_conf, load},
+        {emqx_enterprise, load},
         emqx_ee_connector,
         emqx_ee_bridge,
         emqx_bridge_kafka,
@@ -463,6 +465,7 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_dynamo,
         emqx_bridge_hstreamdb,
         emqx_bridge_influxdb,
+        emqx_bridge_iotdb,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
         emqx_bridge_mysql,
@@ -474,7 +477,10 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_sqlserver,
         emqx_oracle,
         emqx_bridge_oracle,
-        emqx_ee_schema_registry
+        emqx_bridge_rabbitmq,
+        emqx_ee_schema_registry,
+        emqx_eviction_agent,
+        emqx_node_rebalance
     ];
 relx_apps_per_edition(ce) ->
     [emqx_telemetry].

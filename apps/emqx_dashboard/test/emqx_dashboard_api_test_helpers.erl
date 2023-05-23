@@ -20,6 +20,7 @@
     set_default_config/0,
     set_default_config/1,
     set_default_config/2,
+    set_default_config/3,
     request/2,
     request/3,
     request/4,
@@ -40,11 +41,14 @@ set_default_config(DefaultUsername) ->
     set_default_config(DefaultUsername, false).
 
 set_default_config(DefaultUsername, HAProxyEnabled) ->
+    set_default_config(DefaultUsername, HAProxyEnabled, #{}).
+
+set_default_config(DefaultUsername, HAProxyEnabled, Opts) ->
     Config = #{
         listeners => #{
             http => #{
                 enable => true,
-                bind => 18083,
+                bind => maps:get(bind, Opts, 18083),
                 inet6 => false,
                 ipv6_v6only => false,
                 max_connections => 512,

@@ -1,0 +1,53 @@
+emqx_bridge_rocketmq_connector {
+
+access_key.desc:
+"""RocketMQ server `accessKey`."""
+
+access_key.label:
+"""AccessKey"""
+
+refresh_interval.desc:
+"""RocketMQ Topic Route Refresh Interval."""
+
+refresh_interval.label:
+"""Topic Route Refresh Interval"""
+
+secret_key.desc:
+"""RocketMQ server `secretKey`."""
+
+secret_key.label:
+"""SecretKey"""
+
+security_token.desc:
+"""RocketMQ Server Security Token"""
+
+security_token.label:
+"""Security Token"""
+
+send_buffer.desc:
+"""The socket send buffer size of the RocketMQ driver client."""
+
+send_buffer.label:
+"""Send Buffer Size"""
+
+servers.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The RocketMQ default port 9876 is used if `[:Port]` is not specified."""
+
+servers.label:
+"""Server Host"""
+
+sync_timeout.desc:
+"""Timeout of RocketMQ driver synchronous call."""
+
+sync_timeout.label:
+"""Sync Timeout"""
+
+topic.desc:
+"""RocketMQ Topic"""
+
+topic.label:
+"""RocketMQ Topic"""
+
+}

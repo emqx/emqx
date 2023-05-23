@@ -39,8 +39,10 @@ fields(file) ->
                 type => binary(),
                 required => true,
                 example =>
-                    <<"{allow,{username,\"^dashboard?\"},", "subscribe,[\"$SYS/#\"]}.\n",
-                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>,
+                    <<
+                        "{allow,{username,{re,\"^dashboard$\"}},subscribe,[\"$SYS/#\"]}.\n",
+                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
+                    >>,
                 desc => ?DESC(rules)
             }}
         ];
@@ -114,7 +116,6 @@ authz_http_common_fields() ->
         maps:to_list(
             maps:without(
                 [
-                    base_url,
                     pool_type
                 ],
                 maps:from_list(emqx_connector_http:fields(config))

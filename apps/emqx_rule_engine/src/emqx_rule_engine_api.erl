@@ -407,17 +407,22 @@ param_path_id() ->
             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
     end;
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
-    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
-    case emqx_conf:remove(ConfPath, #{override_to => cluster}) of
-        {ok, _} ->
-            {204};
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "delete_rule_failed",
-                id => Id,
-                reason => Reason
-            }),
-            {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+            case emqx_conf:remove(ConfPath, #{override_to => cluster}) of
+                {ok, _} ->
+                    {204};
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "delete_rule_failed",
+                        id => Id,
+                        reason => Reason
+                    }),
+                    {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
+            end;
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
 '/rules/:id/metrics'(get, #{bindings := #{id := Id}}) ->

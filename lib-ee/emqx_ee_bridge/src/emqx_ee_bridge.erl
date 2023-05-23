@@ -19,26 +19,28 @@ api_schemas(Method) ->
         ref(emqx_bridge_kafka, Method ++ "_producer"),
         ref(emqx_bridge_cassandra, Method),
         ref(emqx_ee_bridge_mysql, Method),
-        ref(emqx_ee_bridge_pgsql, Method),
+        ref(emqx_bridge_pgsql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
         ref(emqx_ee_bridge_hstreamdb, Method),
-        ref(emqx_ee_bridge_influxdb, Method ++ "_api_v1"),
-        ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2"),
+        ref(emqx_bridge_influxdb, Method ++ "_api_v1"),
+        ref(emqx_bridge_influxdb, Method ++ "_api_v2"),
         ref(emqx_ee_bridge_redis, Method ++ "_single"),
         ref(emqx_ee_bridge_redis, Method ++ "_sentinel"),
         ref(emqx_ee_bridge_redis, Method ++ "_cluster"),
-        ref(emqx_ee_bridge_timescale, Method),
-        ref(emqx_ee_bridge_matrix, Method),
-        ref(emqx_ee_bridge_tdengine, Method),
-        ref(emqx_ee_bridge_clickhouse, Method),
-        ref(emqx_ee_bridge_dynamo, Method),
-        ref(emqx_ee_bridge_rocketmq, Method),
+        ref(emqx_bridge_timescale, Method),
+        ref(emqx_bridge_matrix, Method),
+        ref(emqx_bridge_tdengine, Method),
+        ref(emqx_bridge_dynamo, Method),
+        ref(emqx_bridge_rocketmq, Method),
+        ref(emqx_bridge_clickhouse, Method),
         ref(emqx_bridge_sqlserver, Method),
         ref(emqx_bridge_opents, Method),
         ref(emqx_bridge_pulsar, Method ++ "_producer"),
-        ref(emqx_bridge_oracle, Method)
+        ref(emqx_bridge_oracle, Method),
+        ref(emqx_bridge_iotdb, Method),
+        ref(emqx_bridge_rabbitmq, Method)
     ].
 
 schema_modules() ->
@@ -47,21 +49,23 @@ schema_modules() ->
         emqx_bridge_cassandra,
         emqx_ee_bridge_hstreamdb,
         emqx_bridge_gcp_pubsub,
-        emqx_ee_bridge_influxdb,
+        emqx_bridge_influxdb,
         emqx_ee_bridge_mongodb,
         emqx_ee_bridge_mysql,
         emqx_ee_bridge_redis,
-        emqx_ee_bridge_pgsql,
-        emqx_ee_bridge_timescale,
-        emqx_ee_bridge_matrix,
-        emqx_ee_bridge_tdengine,
-        emqx_ee_bridge_clickhouse,
-        emqx_ee_bridge_dynamo,
-        emqx_ee_bridge_rocketmq,
+        emqx_bridge_pgsql,
+        emqx_bridge_timescale,
+        emqx_bridge_matrix,
+        emqx_bridge_tdengine,
+        emqx_bridge_clickhouse,
+        emqx_bridge_dynamo,
+        emqx_bridge_rocketmq,
         emqx_bridge_sqlserver,
         emqx_bridge_opents,
         emqx_bridge_pulsar,
-        emqx_bridge_oracle
+        emqx_bridge_oracle,
+        emqx_bridge_iotdb,
+        emqx_bridge_rabbitmq
     ].
 
 examples(Method) ->
@@ -88,22 +92,24 @@ resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
 resource_type(mysql) -> emqx_connector_mysql;
-resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
-resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb;
+resource_type(influxdb_api_v1) -> emqx_bridge_influxdb_connector;
+resource_type(influxdb_api_v2) -> emqx_bridge_influxdb_connector;
 resource_type(redis_single) -> emqx_ee_connector_redis;
 resource_type(redis_sentinel) -> emqx_ee_connector_redis;
 resource_type(redis_cluster) -> emqx_ee_connector_redis;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
-resource_type(tdengine) -> emqx_ee_connector_tdengine;
-resource_type(clickhouse) -> emqx_ee_connector_clickhouse;
-resource_type(dynamo) -> emqx_ee_connector_dynamo;
-resource_type(rocketmq) -> emqx_ee_connector_rocketmq;
+resource_type(tdengine) -> emqx_bridge_tdengine_connector;
+resource_type(clickhouse) -> emqx_bridge_clickhouse_connector;
+resource_type(dynamo) -> emqx_bridge_dynamo_connector;
+resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
 resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
-resource_type(oracle) -> emqx_oracle.
+resource_type(oracle) -> emqx_oracle;
+resource_type(iotdb) -> emqx_bridge_iotdb_impl;
+resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector.
 
 fields(bridges) ->
     [
@@ -133,7 +139,7 @@ fields(bridges) ->
             )},
         {tdengine,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_tdengine, "config")),
+                hoconsc:map(name, ref(emqx_bridge_tdengine, "config")),
                 #{
                     desc => <<"TDengine Bridge Config">>,
                     required => false
@@ -141,7 +147,7 @@ fields(bridges) ->
             )},
         {dynamo,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_dynamo, "config")),
+                hoconsc:map(name, ref(emqx_bridge_dynamo, "config")),
                 #{
                     desc => <<"Dynamo Bridge Config">>,
                     required => false
@@ -149,7 +155,7 @@ fields(bridges) ->
             )},
         {rocketmq,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_rocketmq, "config")),
+                hoconsc:map(name, ref(emqx_bridge_rocketmq, "config")),
                 #{
                     desc => <<"RocketMQ Bridge Config">>,
                     required => false
@@ -178,10 +184,18 @@ fields(bridges) ->
                     desc => <<"Oracle Bridge Config">>,
                     required => false
                 }
+            )},
+        {iotdb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_iotdb, "config")),
+                #{
+                    desc => <<"Apache IoTDB Bridge Config">>,
+                    required => false
+                }
             )}
     ] ++ kafka_structs() ++ pulsar_structs() ++ mongodb_structs() ++ influxdb_structs() ++
         redis_structs() ++
-        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs().
+        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs().
 
 mongodb_structs() ->
     [
@@ -233,7 +247,7 @@ influxdb_structs() ->
     [
         {Protocol,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_influxdb, Protocol)),
+                hoconsc:map(name, ref(emqx_bridge_influxdb, Protocol)),
                 #{
                     desc => <<"InfluxDB Bridge Config">>,
                     required => false
@@ -266,7 +280,7 @@ pgsql_structs() ->
     [
         {Type,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_pgsql, "config")),
+                hoconsc:map(name, ref(emqx_bridge_pgsql, "config")),
                 #{
                     desc => <<Name/binary, " Bridge Config">>,
                     required => false
@@ -283,7 +297,7 @@ clickhouse_structs() ->
     [
         {clickhouse,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_clickhouse, "config")),
+                hoconsc:map(name, ref(emqx_bridge_clickhouse, "config")),
                 #{
                     desc => <<"Clickhouse Bridge Config">>,
                     required => false
@@ -312,3 +326,15 @@ kafka_producer_converter(Map, Opts) ->
         end,
         Map
     ).
+
+rabbitmq_structs() ->
+    [
+        {rabbitmq,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_rabbitmq, "config")),
+                #{
+                    desc => <<"RabbitMQ Bridge Config">>,
+                    required => false
+                }
+            )}
+    ].

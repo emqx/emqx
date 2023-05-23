@@ -337,11 +337,11 @@ fields_mqtt_quic_listener_retry_memory_limit.desc:
 fields_mqtt_quic_listener_retry_memory_limit.label:
 """Retry memory limit"""
 
-force_shutdown_max_message_queue_len.desc:
-"""Maximum message queue length."""
+force_shutdown_max_mailbox_size.desc:
+"""In EMQX, each online client corresponds to an individual Erlang process. The configuration value establishes a mailbox size limit for these processes. If the mailbox size surpasses this limit, the client will be automatically terminated."""
 
-force_shutdown_max_message_queue_len.label:
-"""Maximum mailbox queue length of process."""
+force_shutdown_max_mailbox_size.label:
+"""Maximum mailbox size."""
 
 sys_heartbeat_interval.desc:
 """Time interval for publishing following heartbeat messages:
@@ -799,7 +799,7 @@ fields_tcp_opts_high_watermark.desc:
 by the VM socket implementation reaches this limit."""
 
 fields_tcp_opts_high_watermark.label:
-"""TCP 高水位线"""
+"""TCP high watermark"""
 
 fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
 """The time limit between operations for the same endpoint, in milliseconds. Default: 100"""
@@ -885,11 +885,12 @@ and an MQTT message is published to the system topic <code>$SYS/sysmon/long_sche
 sysmon_vm_long_schedule.label:
 """Enable Long Schedule monitoring."""
 
-mqtt_keepalive_backoff.desc:
-"""The coefficient EMQX uses to confirm whether the keep alive duration of the client expires. Formula: Keep Alive * Backoff * 2"""
+mqtt_keepalive_multiplier.desc:
+"""Keep-Alive Timeout = Keep-Alive interval × Keep-Alive Multiplier.
+The default value 1.5 is following the MQTT 5.0 specification. This multiplier is adjustable, providing system administrators flexibility for tailoring to their specific needs. For instance, if a client's 10-second Keep-Alive interval PINGREQ gets delayed by an extra 10 seconds, changing the multiplier to 2 lets EMQX tolerate this delay."""
 
-mqtt_keepalive_backoff.label:
-"""Keep Alive Backoff"""
+mqtt_keepalive_multiplier.label:
+"""Keep Alive Multiplier"""
 
 force_gc_bytes.desc:
 """GC the process after specified number of bytes have passed through."""
@@ -1032,6 +1033,27 @@ base_listener_limiter.desc:
 
 base_listener_limiter.label:
 """Type of the rate limit."""
+
+max_conn_rate.desc:
+"""Maximum connection rate.<br/>
+This is used to limit the connection rate for this listener,
+once the limit is reached, new connections will be deferred or refused"""
+max_conn_rate.label:
+"""Maximum Connection Rate"""
+
+messages_rate.desc:
+"""Messages publish rate.<br/>
+This is used to limit the inbound message numbers for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+messages_rate.label:
+"""Messages Publish Rate"""
+
+bytes_rate.desc:
+"""Data publish rate.<br/>
+This is used to limit the inbound bytes rate for each client connected to this listener,
+once the limit is reached, the restricted client will slow down and even be hung for a while."""
+bytes_rate.label:
+"""Data Publish Rate"""
 
 persistent_session_store_backend.desc:
 """Database management system used to store information about persistent sessions and messages.
@@ -1299,6 +1321,11 @@ you drop support for the insecure renegotiation, prone to MitM attacks."""
 
 common_ssl_opts_schema_secure_renegotiate.label:
 """SSL renegotiate"""
+
+common_ssl_opts_schema_log_level.desc:
+"""Log level for SSL communication. Default is 'notice'. Set to 'debug' to inspect TLS handshake messages."""
+common_ssl_opts_schema_log_level.label:
+"""SSL log level"""
 
 sysmon_vm_busy_port.desc:
 """When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,

@@ -16,7 +16,7 @@ For more information about Microsoft SQL Server, please see the [official site](
 
 # Configurations
 
-Please see [Ingest data into SQL Server](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-sqlserver.html) for more detailed information.
+Please see [Ingest Data into SQL Server](https://www.emqx.io/docs/en/v5.0/data-integration/data-bridge-sqlserver.html) for more detailed information.
 
 # HTTP APIs
 

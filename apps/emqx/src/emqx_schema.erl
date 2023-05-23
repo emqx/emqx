@@ -42,7 +42,7 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
--type port_number() :: 1..65536.
+-type port_number() :: 1..65535.
 -type server_parse_option() :: #{
     default_port => port_number(),
     no_port => boolean(),
@@ -77,6 +77,7 @@
     validate_heap_size/1,
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
+    validate_keepalive_multiplier/1,
     non_empty_string/1,
     validations/0,
     naive_env_interpolation/1
@@ -109,7 +110,8 @@
     servers_validator/2,
     servers_sc/2,
     convert_servers/1,
-    convert_servers/2
+    convert_servers/2,
+    mqtt_converter/2
 ]).
 
 %% tombstone types
@@ -135,7 +137,8 @@
     cipher/0,
     comma_separated_atoms/0,
     url/0,
-    json_binary/0
+    json_binary/0,
+    port_number/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -149,6 +152,8 @@
 
 -define(BIT(Bits), (1 bsl (Bits))).
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
+-define(DEFAULT_MULTIPLIER, 1.5).
+-define(DEFAULT_BACKOFF, 0.75).
 
 namespace() -> broker.
 
@@ -171,6 +176,7 @@ roots(high) ->
                 ref("mqtt"),
                 #{
                     desc => ?DESC(mqtt),
+                    converter => fun ?MODULE:mqtt_converter/2,
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
@@ -521,8 +527,19 @@ fields("mqtt") ->
             sc(
                 number(),
                 #{
-                    default => 0.75,
-                    desc => ?DESC(mqtt_keepalive_backoff)
+                    default => ?DEFAULT_BACKOFF,
+                    %% Must add required => false, zone schema has no default.
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"keepalive_multiplier",
+            sc(
+                number(),
+                #{
+                    default => ?DEFAULT_MULTIPLIER,
+                    validator => fun ?MODULE:validate_keepalive_multiplier/1,
+                    desc => ?DESC(mqtt_keepalive_multiplier)
                 }
             )},
         {"max_subscriptions",
@@ -687,12 +704,13 @@ fields("force_shutdown") ->
                     desc => ?DESC(force_shutdown_enable)
                 }
             )},
-        {"max_message_queue_len",
+        {"max_mailbox_size",
             sc(
                 range(0, inf),
                 #{
                     default => 1000,
-                    desc => ?DESC(force_shutdown_max_message_queue_len)
+                    aliases => [max_message_queue_len],
+                    desc => ?DESC(force_shutdown_max_mailbox_size)
                 }
             )},
         {"max_heap_size",
@@ -2000,7 +2018,8 @@ base_listener(Bind) ->
                     listener_fields
                 ),
                 #{
-                    desc => ?DESC(base_listener_limiter)
+                    desc => ?DESC(base_listener_limiter),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"enable_authn",
@@ -2011,7 +2030,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ].
+    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
@@ -2186,8 +2205,8 @@ filter(Opts) ->
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
--spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults) ->
+-spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults, Type) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2197,7 +2216,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("cacertfile"),
+                    default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2206,7 +2225,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("certfile"),
+                    default => cert_file("cert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2215,7 +2234,7 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 binary(),
                 #{
-                    default => D("keyfile"),
+                    default => cert_file("key.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -2286,6 +2305,17 @@ common_ssl_opts_schema(Defaults) ->
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )},
+        {"log_level",
+            sc(
+                hoconsc:enum([
+                    emergency, alert, critical, error, warning, notice, info, debug, none, all
+                ]),
+                #{
+                    default => notice,
+                    desc => ?DESC(common_ssl_opts_schema_log_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
 
         {"hibernate_after",
             sc(
@@ -2302,7 +2332,7 @@ common_ssl_opts_schema(Defaults) ->
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
@@ -2428,7 +2458,7 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, client) ++
         [
             {"enable",
                 sc(
@@ -2729,6 +2759,13 @@ validate_heap_size(Siz) when is_integer(Siz) ->
     end;
 validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
+
+validate_keepalive_multiplier(Multiplier) when
+    is_number(Multiplier) andalso Multiplier >= 1.0 andalso Multiplier =< 65535.0
+->
+    ok;
+validate_keepalive_multiplier(_Multiplier) ->
+    {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
 
 validate_alarm_actions(Actions) ->
     UnSupported = lists:filter(
@@ -3248,13 +3285,10 @@ default_listener(ws) ->
     };
 default_listener(SSLListener) ->
     %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
-    CertFile = fun(Name) ->
-        iolist_to_binary("${EMQX_ETC_DIR}/" ++ filename:join(["certs", Name]))
-    end,
     SslOptions = #{
-        <<"cacertfile">> => CertFile(<<"cacert.pem">>),
-        <<"certfile">> => CertFile(<<"cert.pem">>),
-        <<"keyfile">> => CertFile(<<"key.pem">>)
+        <<"cacertfile">> => cert_file(<<"cacert.pem">>, server),
+        <<"certfile">> => cert_file(<<"cert.pem">>, server),
+        <<"keyfile">> => cert_file(<<"key.pem">>, server)
     },
     case SSLListener of
         ssl ->
@@ -3371,3 +3405,23 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
+
+cert_file(_File, client) -> undefined;
+cert_file(File, server) -> iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
+
+mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
+    case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of
+        false ->
+            %% Multiplier is provided, and it's not default value
+            Mqtt;
+        true ->
+            %% Multiplier is default value, fallback to use Backoff value
+            %% Backoff default value was half of Multiplier default value
+            %% so there is no need to compare Backoff with its default.
+            Backoff = maps:get(<<"keepalive_backoff">>, Mqtt, ?DEFAULT_BACKOFF),
+            Mqtt#{<<"keepalive_multiplier">> => Backoff * 2}
+    end;
+mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
+    Mqtt#{<<"keepalive_multiplier">> => Backoff * 2};
+mqtt_converter(Mqtt, _Opts) ->
+    Mqtt.

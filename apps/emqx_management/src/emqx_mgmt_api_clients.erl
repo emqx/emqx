@@ -546,7 +546,8 @@ fields(authz_cache) ->
     ];
 fields(keepalive) ->
     [
-        {interval, hoconsc:mk(integer(), #{desc => <<"Keepalive time, with the unit of second">>})}
+        {interval,
+            hoconsc:mk(range(0, 65535), #{desc => <<"Keepalive time, with the unit of second">>})}
     ];
 fields(subscribe) ->
     [

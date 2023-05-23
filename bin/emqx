@@ -875,16 +875,16 @@ tr_log_to_env() {
     unset EMQX_LOG__TO
     case "${log_to}" in
         console)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='false'
+            export EMQX_LOG__CONSOLE__ENABLE='true'
+            export EMQX_LOG__FILE__ENABLE='false'
             ;;
         file)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='false'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            export EMQX_LOG__CONSOLE__ENABLE='false'
+            export EMQX_LOG__FILE__ENABLE='true'
             ;;
         both)
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
-            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            export EMQX_LOG__CONSOLE__ENABLE='true'
+            export EMQX_LOG__FILE__ENABLE='true'
             ;;
         default)
             # want to use config file defaults, do nothing

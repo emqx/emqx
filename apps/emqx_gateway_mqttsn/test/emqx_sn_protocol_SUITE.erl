@@ -2259,6 +2259,46 @@ t_clients_subscription_api(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_clients_api_complex_id(_) ->
+    ClientId = <<"!@#$%^&*()_+{}:\"<>?/">>,
+    ClientIdUriEncoded = cow_qs:urlencode(ClientId),
+    Path = "/gateways/mqttsn/clients/" ++ binary_to_list(ClientIdUriEncoded),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    %% get
+    {200, Client} = request(get, Path),
+    ?assertMatch(#{clientid := ClientId}, Client),
+    %% subscription list
+    {200, []} = request(get, Path ++ "/subscriptions"),
+    %% kickout
+    {204, _} = request(delete, Path),
+    gen_udp:close(Socket).
+
+t_update_info_after_subscribed_via_api(_) ->
+    ClientId = <<"client_id_test1">>,
+    Path = "/gateways/mqttsn/clients/client_id_test1/subscriptions",
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    %% create
+    SubReq = #{
+        topic => <<"tx">>,
+        qos => 1,
+        nl => 0,
+        rap => 0,
+        rh => 0
+    },
+    {201, _SubsResp} = request(post, Path, SubReq),
+    timer:sleep(500),
+    %% assert
+    {200, Client} = request(get, "/gateways/mqttsn/clients/client_id_test1"),
+    ?assertMatch(#{subscriptions_cnt := 1}, Client),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 %%--------------------------------------------------------------------
 %% Helper funcs
 %%--------------------------------------------------------------------

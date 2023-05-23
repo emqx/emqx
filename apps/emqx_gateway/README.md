@@ -19,8 +19,8 @@ More introduction: [Extended Protocol Gateway](https://www.emqx.io/docs/en/v5.0/
 ## Usage
 
 This application is just a Framework, we provide some standard implementations,
-such as [Stomp](../emqx_stomp/README.md), [MQTT-SN](../emqx_mqttsn/README.md),
-[CoAP](../emqx_coap/README.md) and [LwM2M](../emqx_lwm2m/README.md) gateway.
+such as [Stomp](../emqx_gateway_stomp/README.md), [MQTT-SN](../emqx_gateway_mqttsn/README.md),
+[CoAP](../emqx_gateway_coap/README.md) and [LwM2M](../emqx_gateway_lwm2m/README.md) gateway.
 
 These applications are all packaged by default in the EMQX distribution. If you
 need to start a certain gateway, you only need to enable it via

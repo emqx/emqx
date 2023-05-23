@@ -144,14 +144,14 @@ do_apply_rule(
         )
     of
         true ->
-            Collection2 = filter_collection(Columns, InCase, DoEach, Collection),
+            Collection2 = filter_collection(ColumnsAndSelected, InCase, DoEach, Collection),
             case Collection2 of
                 [] ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
                 _ ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
-            NewEnvs = maps:merge(Columns, Envs),
+            NewEnvs = maps:merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- Collection2]};
         false ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
@@ -452,19 +452,23 @@ eval_switch_clauses(CaseOn, [{Cond, Clause} | CaseClauses], ElseClauses, Columns
             eval_switch_clauses(CaseOn, CaseClauses, ElseClauses, Columns)
     end.
 
-apply_func(Name, Args, Columns) when is_atom(Name) ->
-    do_apply_func(Name, Args, Columns);
 apply_func(Name, Args, Columns) when is_binary(Name) ->
-    FunName =
-        try
-            binary_to_existing_atom(Name, utf8)
-        catch
-            error:badarg -> error({sql_function_not_supported, Name})
-        end,
-    do_apply_func(FunName, Args, Columns).
+    FuncName = parse_function_name(?DEFAULT_SQL_FUNC_PROVIDER, Name),
+    apply_func(FuncName, Args, Columns);
+apply_func([{key, ModuleName0}, {key, FuncName0}], Args, Columns) ->
+    ModuleName = parse_module_name(ModuleName0),
+    FuncName = parse_function_name(ModuleName, FuncName0),
+    do_apply_func(ModuleName, FuncName, Args, Columns);
+apply_func(Name, Args, Columns) when is_atom(Name) ->
+    do_apply_func(?DEFAULT_SQL_FUNC_PROVIDER, Name, Args, Columns);
+apply_func(Other, _, _) ->
+    ?RAISE_BAD_SQL(#{
+        reason => bad_sql_function_reference,
+        reference => Other
+    }).
 
-do_apply_func(Name, Args, Columns) ->
-    case erlang:apply(emqx_rule_funcs, Name, Args) of
+do_apply_func(Module, Name, Args, Columns) ->
+    case erlang:apply(Module, Name, Args) of
         Func when is_function(Func) ->
             erlang:apply(Func, [Columns]);
         Result ->
@@ -531,3 +535,39 @@ is_ok_result(R) when is_tuple(R) ->
     ok == erlang:element(1, R);
 is_ok_result(_) ->
     false.
+
+parse_module_name(Name) when is_binary(Name) ->
+    case ?IS_VALID_SQL_FUNC_PROVIDER_MODULE_NAME(Name) of
+        true ->
+            ok;
+        false ->
+            ?RAISE_BAD_SQL(#{
+                reason => sql_function_provider_module_not_allowed,
+                module => Name
+            })
+    end,
+    try
+        parse_module_name(binary_to_existing_atom(Name, utf8))
+    catch
+        error:badarg ->
+            ?RAISE_BAD_SQL(#{
+                reason => sql_function_provider_module_not_loaded,
+                module => Name
+            })
+    end;
+parse_module_name(Name) when is_atom(Name) ->
+    Name.
+
+parse_function_name(Module, Name) when is_binary(Name) ->
+    try
+        parse_function_name(Module, binary_to_existing_atom(Name, utf8))
+    catch
+        error:badarg ->
+            ?RAISE_BAD_SQL(#{
+                reason => sql_function_not_supported,
+                module => Module,
+                function => Name
+            })
+    end;
+parse_function_name(_Module, Name) when is_atom(Name) ->
+    Name.

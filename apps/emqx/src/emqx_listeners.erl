@@ -35,7 +35,8 @@
     current_conns/2,
     max_conns/2,
     id_example/0,
-    default_max_conn/0
+    default_max_conn/0,
+    shutdown_count/2
 ]).
 
 -export([
@@ -195,6 +196,17 @@ max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
 max_conns(_, _, _) ->
     {error, not_support}.
 
+shutdown_count(ID, ListenOn) ->
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
+    shutdown_count(Type, Name, ListenOn).
+
+shutdown_count(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+    esockd:get_shutdown_count({listener_id(Type, Name), ListenOn});
+shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    [];
+shutdown_count(_, _, _) ->
+    {error, not_support}.
+
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
@@ -265,9 +277,8 @@ restart_listener(Type, ListenerName, Conf) ->
     restart_listener(Type, ListenerName, Conf, Conf).
 
 restart_listener(Type, ListenerName, OldConf, NewConf) ->
-    case do_stop_listener(Type, ListenerName, OldConf) of
+    case stop_listener(Type, ListenerName, OldConf) of
         ok -> start_listener(Type, ListenerName, NewConf);
-        {error, not_found} -> start_listener(Type, ListenerName, NewConf);
         {error, Reason} -> {error, Reason}
     end.
 
@@ -284,41 +295,62 @@ stop_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun stop_listener/3).
 
 stop_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
-    case do_stop_listener(Type, ListenerName, Conf) of
+    Id = listener_id(Type, ListenerName),
+    ok = del_limiter_bucket(Id, Conf),
+    case do_stop_listener(Type, Id, Conf) of
         ok ->
             console_print(
                 "Listener ~ts on ~ts stopped.~n",
-                [listener_id(Type, ListenerName), format_bind(Bind)]
+                [Id, format_bind(Bind)]
             ),
             ok;
         {error, not_found} ->
-            ?ELOG(
-                "Failed to stop listener ~ts on ~ts: ~0p~n",
-                [listener_id(Type, ListenerName), format_bind(Bind), already_stopped]
-            ),
             ok;
         {error, Reason} ->
             ?ELOG(
                 "Failed to stop listener ~ts on ~ts: ~0p~n",
-                [listener_id(Type, ListenerName), format_bind(Bind), Reason]
+                [Id, format_bind(Bind), Reason]
             ),
             {error, Reason}
     end.
 
 -spec do_stop_listener(atom(), atom(), map()) -> ok | {error, term()}.
 
-do_stop_listener(Type, ListenerName, #{bind := ListenOn} = Conf) when Type == tcp; Type == ssl ->
-    Id = listener_id(Type, ListenerName),
-    del_limiter_bucket(Id, Conf),
+do_stop_listener(Type, Id, #{bind := ListenOn}) when Type == tcp; Type == ssl ->
     esockd:close(Id, ListenOn);
-do_stop_listener(Type, ListenerName, Conf) when Type == ws; Type == wss ->
-    Id = listener_id(Type, ListenerName),
-    del_limiter_bucket(Id, Conf),
-    cowboy:stop_listener(Id);
-do_stop_listener(quic, ListenerName, Conf) ->
-    Id = listener_id(quic, ListenerName),
-    del_limiter_bucket(Id, Conf),
+do_stop_listener(Type, Id, #{bind := ListenOn}) when Type == ws; Type == wss ->
+    case cowboy:stop_listener(Id) of
+        ok ->
+            wait_listener_stopped(ListenOn);
+        Error ->
+            Error
+    end;
+do_stop_listener(quic, Id, _Conf) ->
     quicer:stop_listener(Id).
+
+wait_listener_stopped(ListenOn) ->
+    % NOTE
+    % `cowboy:stop_listener/1` will not close the listening socket explicitly,
+    % it will be closed by the runtime system **only after** the process exits.
+    Endpoint = maps:from_list(ip_port(ListenOn)),
+    case
+        gen_tcp:connect(
+            maps:get(ip, Endpoint, loopback),
+            maps:get(port, Endpoint),
+            [{active, false}]
+        )
+    of
+        {error, _EConnrefused} ->
+            %% NOTE
+            %% We should get `econnrefused` here because acceptors are already dead
+            %% but don't want to crash if not, because this doesn't make any difference.
+            ok;
+        {ok, Socket} ->
+            %% NOTE
+            %% Tiny chance to get a connected socket here, when some other process
+            %% concurrently binds to the same port.
+            gen_tcp:close(Socket)
+    end.
 
 -ifndef(TEST).
 console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
@@ -335,7 +367,8 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == tcp; Type == ssl
 ->
     Id = listener_id(Type, ListenerName),
-    add_limiter_bucket(Id, Opts),
+    Limiter = limiter(Opts),
+    add_limiter_bucket(Id, Limiter),
     esockd:open(
         Id,
         ListenOn,
@@ -344,7 +377,7 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
             #{
                 listener => {Type, ListenerName},
                 zone => zone(Opts),
-                limiter => limiter(Opts),
+                limiter => Limiter,
                 enable_authn => enable_authn(Opts)
             }
         ]}
@@ -354,9 +387,10 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == ws; Type == wss
 ->
     Id = listener_id(Type, ListenerName),
-    add_limiter_bucket(Id, Opts),
+    Limiter = limiter(Opts),
+    add_limiter_bucket(Id, Limiter),
     RanchOpts = ranch_opts(Type, ListenOn, Opts),
-    WsOpts = ws_opts(Type, ListenerName, Opts),
+    WsOpts = ws_opts(Type, ListenerName, Opts, Limiter),
     case Type of
         ws -> cowboy:start_clear(Id, RanchOpts, WsOpts);
         wss -> cowboy:start_tls(Id, RanchOpts, WsOpts)
@@ -403,20 +437,22 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                         Password -> [{password, str(Password)}]
                     end ++
                     optional_quic_listener_opts(Opts),
+            Limiter = limiter(Opts),
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
                 peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
                 peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
                 zone => zone(Opts),
                 listener => {quic, ListenerName},
-                limiter => limiter(Opts)
+                limiter => Limiter
             },
             StreamOpts = #{
                 stream_callback => emqx_quic_stream,
                 active => 1
             },
+
             Id = listener_id(quic, ListenerName),
-            add_limiter_bucket(Id, Opts),
+            add_limiter_bucket(Id, Limiter),
             quicer:start_listener(
                 Id,
                 ListenOn,
@@ -520,12 +556,12 @@ esockd_opts(ListenerId, Type, Opts0) ->
         end
     ).
 
-ws_opts(Type, ListenerName, Opts) ->
+ws_opts(Type, ListenerName, Opts, Limiter) ->
     WsPaths = [
         {emqx_utils_maps:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            limiter => limiter(Opts),
+            limiter => Limiter,
             enable_authn => enable_authn(Opts)
         }}
     ],
@@ -639,28 +675,31 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts, undefined).
+    emqx_limiter_schema:get_listener_opts(Opts).
 
-add_limiter_bucket(Id, #{limiter := Limiter}) ->
+add_limiter_bucket(_Id, undefined) ->
+    ok;
+add_limiter_bucket(Id, Limiter) ->
     maps:fold(
         fun(Type, Cfg, _) ->
             emqx_limiter_server:add_bucket(Id, Type, Cfg)
         end,
         ok,
         maps:without([client], Limiter)
-    );
-add_limiter_bucket(_Id, _Cfg) ->
-    ok.
+    ).
 
-del_limiter_bucket(Id, #{limiter := Limiters}) ->
-    lists:foreach(
-        fun(Type) ->
-            emqx_limiter_server:del_bucket(Id, Type)
-        end,
-        maps:keys(Limiters)
-    );
-del_limiter_bucket(_Id, _Cfg) ->
-    ok.
+del_limiter_bucket(Id, Conf) ->
+    case limiter(Conf) of
+        undefined ->
+            ok;
+        Limiter ->
+            lists:foreach(
+                fun(Type) ->
+                    emqx_limiter_server:del_bucket(Id, Type)
+                end,
+                maps:keys(Limiter)
+            )
+    end.
 
 enable_authn(Opts) ->
     maps:get(enable_authn, Opts, true).

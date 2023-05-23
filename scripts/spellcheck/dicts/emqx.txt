@@ -32,6 +32,7 @@ GCM
 HMAC
 HOCON
 HTTPS
+IoTDB
 JSON
 JWK
 JWKs
@@ -235,6 +236,7 @@ sysmem
 sysmon
 tcp
 ticktime
+timeseries
 tlog
 tls
 tlsv

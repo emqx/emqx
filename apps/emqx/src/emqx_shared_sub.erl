@@ -158,9 +158,18 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec strategy(emqx_topic:group()) -> strategy().
 strategy(Group) ->
-    case emqx:get_config([broker, shared_subscription_group, Group, strategy], undefined) of
-        undefined -> emqx:get_config([broker, shared_subscription_strategy]);
-        Strategy -> Strategy
+    try
+        emqx:get_config([
+            broker,
+            shared_subscription_group,
+            binary_to_existing_atom(Group),
+            strategy
+        ])
+    catch
+        error:{config_not_found, _} ->
+            get_default_shared_subscription_strategy();
+        error:badarg ->
+            get_default_shared_subscription_strategy()
     end.
 
 -spec ack_enabled() -> boolean().
@@ -544,3 +553,6 @@ delete_route_if_needed({Group, Topic} = GroupTopic) ->
     if_no_more_subscribers(GroupTopic, fun() ->
         ok = emqx_router:do_delete_route(Topic, {Group, node()})
     end).
+
+get_default_shared_subscription_strategy() ->
+    emqx:get_config([broker, shared_subscription_strategy]).

@@ -68,7 +68,13 @@ compile({Permission, Who, Action, TopicFilters}) when
     {atom(Permission), compile_who(Who), atom(Action), [
         compile_topic(Topic)
      || Topic <- TopicFilters
-    ]}.
+    ]};
+compile({Permission, _Who, _Action, _TopicFilter}) when not ?ALLOW_DENY(Permission) ->
+    throw({invalid_authorization_permission, Permission});
+compile({_Permission, _Who, Action, _TopicFilter}) when not ?PUBSUB(Action) ->
+    throw({invalid_authorization_action, Action});
+compile(BadRule) ->
+    throw({invalid_authorization_rule, BadRule}).
 
 compile_who(all) ->
     all;

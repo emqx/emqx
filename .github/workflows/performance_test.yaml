@@ -15,7 +15,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     if: github.repository_owner == 'emqx'
-    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-25.1.2-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-25.1.2-3-ubuntu20.04
     outputs:
       BENCH_ID: ${{ steps.prepare.outputs.BENCH_ID }}
       PACKAGE_FILE: ${{ steps.package_file.outputs.PACKAGE_FILE }}
@@ -51,11 +51,10 @@ jobs:
     needs:
       - prepare
     env:
-      TF_VAR_bench_id: ${{ needs.prepare.outputs.BENCH_ID }}
       TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
-      TF_VAR_test_duration: 300
       TF_VAR_grafana_api_key: ${{ secrets.TF_EMQX_PERF_TEST_GRAFANA_API_KEY }}
       TF_AWS_REGION: eu-north-1
+      TF_VAR_test_duration: 1800
 
     steps:
     - name: Configure AWS Credentials
@@ -77,38 +76,37 @@ jobs:
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_wrapper: false
-    - name: terraform init
+    - name: 1on1 scenario
+      id: scenario_1on1
       working-directory: ./tf-emqx-performance-test
+      timeout-minutes: 60
+      env:
+        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/1on1"
+        TF_VAR_use_emqttb: 1
+        TF_VAR_use_emqtt_bench: 0
+        TF_VAR_emqttb_instance_count: 2
+        TF_VAR_emqttb_instance_type: "c5.large"
+        TF_VAR_emqttb_scenario: "@pub --topic 't/%n' --pubinterval 10ms --qos 1 --publatency 50ms --size 16 --num-clients 25000 @sub --topic 't/%n' --num-clients 25000"
+        TF_VAR_emqx_instance_type: "c5.xlarge"
+        TF_VAR_emqx_instance_count: 3
       run: |
         terraform init
-    - name: terraform apply
-      working-directory: ./tf-emqx-performance-test
-      run: |
         terraform apply -auto-approve
-    - name: Wait for test results
-      timeout-minutes: 30
-      working-directory: ./tf-emqx-performance-test
-      id: test-results
-      run: |
-        sleep $TF_VAR_test_duration
-        until aws s3api head-object --bucket tf-emqx-performance-test --key "$TF_VAR_bench_id/DONE" > /dev/null 2>&1
-        do
-          printf '.'
-          sleep 10
-        done
-        echo
-        aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/metrics.json" ./
-        aws s3 cp "s3://tf-emqx-performance-test/$TF_VAR_bench_id/stats.json" ./
-        echo MESSAGES_DELIVERED=$(cat metrics.json | jq '[.[]."messages.delivered"] | add') >> $GITHUB_OUTPUT
-        echo MESSAGES_DROPPED=$(cat metrics.json | jq '[.[]."messages.dropped"] | add')  >> $GITHUB_OUTPUT
+        ./wait-emqttb.sh
+        ./fetch-metrics.sh
+        MESSAGES_RECEIVED=$(cat metrics.json | jq '[.[]."messages.received"] | add')
+        MESSAGES_SENT=$(cat metrics.json | jq '[.[]."messages.sent"] | add')
+        echo MESSAGES_DROPPED=$(cat metrics.json | jq '[.[]."messages.dropped"] | add') >> $GITHUB_OUTPUT
+        echo PUB_MSG_RATE=$(($MESSAGES_RECEIVED / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
+        echo SUB_MSG_RATE=$(($MESSAGES_SENT / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
+        terraform destroy -auto-approve
     - name: Send notification to Slack
-      if: success()
       uses: slackapi/slack-github-action@v1.23.0
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       with:
         payload: |
-          {"text": "EMQX performance test completed.\nMessages delivered: ${{ steps.test-results.outputs.MESSAGES_DELIVERED }}.\nMessages dropped: ${{ steps.test-results.outputs.MESSAGES_DROPPED }}.\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+          {"text": "Performance test result for 1on1 scenario (50k pub, 50k sub): ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Pub message rate*: ${{ steps.scenario_1on1.outputs.PUB_MSG_RATE }}\n*Sub message rate*: ${{ steps.scenario_1on1.outputs.SUB_MSG_RATE }}\nDropped messages: ${{ steps.scenario_1on1.outputs.MESSAGES_DROPPED }}"}
     - name: terraform destroy
       if: always()
       working-directory: ./tf-emqx-performance-test
@@ -117,10 +115,10 @@ jobs:
     - uses: actions/upload-artifact@v3
       if: success()
       with:
-        name: test-results
-        path: "./tf-emqx-performance-test/*.json"
+        name: metrics
+        path: "./tf-emqx-performance-test/metrics.json"
     - uses: actions/upload-artifact@v3
-      if: always()
+      if: failure()
       with:
         name: terraform
         path: |

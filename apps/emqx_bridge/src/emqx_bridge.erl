@@ -72,7 +72,8 @@
     T == cassandra;
     T == sqlserver;
     T == pulsar_producer;
-    T == oracle
+    T == oracle;
+    T == iotdb
 ).
 
 load() ->

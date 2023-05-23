@@ -54,13 +54,14 @@
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
     ?NOT_FOUND(
-        <<"Bridge lookup failed: bridge named '", (BRIDGE_NAME)/binary, "' of type ",
+        <<"Bridge lookup failed: bridge named '", (bin(BRIDGE_NAME))/binary, "' of type ",
             (bin(BRIDGE_TYPE))/binary, " does not exist.">>
     )
 ).
 
+%% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge_resource:parse_bridge_id(Id) of
+    try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
@@ -686,11 +687,15 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
     ).
 
 is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx:get_config([bridges, BridgeType, BridgeName]) of
+    try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, false)
     catch
         error:{config_not_found, _} ->
+            throw(not_found);
+        error:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
             throw(not_found)
     end.
 
@@ -891,10 +896,17 @@ fill_defaults(Type, RawConf) ->
 pack_bridge_conf(Type, RawConf) ->
     #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-unpack_bridge_conf(Type, PackedConf) ->
-    #{<<"bridges">> := Bridges} = PackedConf,
-    #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
+%% Hide webhook's resource_opts.request_timeout from user.
+filter_raw_conf(<<"webhook">>, RawConf0) ->
+    emqx_utils_maps:deep_remove([<<"resource_opts">>, <<"request_timeout">>], RawConf0);
+filter_raw_conf(_TypeBin, RawConf) ->
     RawConf.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"bridges">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    filter_raw_conf(TypeBin, RawConf).
 
 is_ok(ok) ->
     ok;

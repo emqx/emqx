@@ -131,6 +131,9 @@ connect(Id, Type, Cfg) ->
 -spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
 add_bucket(_Id, _Type, undefined) ->
     ok;
+%% a bucket with an infinity rate shouldn't be added to this server, because it is always full
+add_bucket(_Id, _Type, #{rate := infinity}) ->
+    ok;
 add_bucket(Id, Type, Cfg) ->
     ?CALL(Type, {add_bucket, Id, Cfg}).
 
@@ -481,7 +484,7 @@ dispatch_burst_to_buckets([], _, Alloced, Buckets) ->
 
 -spec init_tree(emqx_limiter_schema:limiter_type()) -> state().
 init_tree(Type) when is_atom(Type) ->
-    Cfg = emqx:get_config([limiter, Type]),
+    Cfg = emqx_limiter_schema:get_node_opts(Type),
     init_tree(Type, Cfg).
 
 init_tree(Type, #{rate := Rate} = Cfg) ->
@@ -507,8 +510,6 @@ make_root(#{rate := Rate, burst := Burst}) ->
         correction => 0
     }.
 
-do_add_bucket(_Id, #{rate := infinity}, #{root := #{rate := infinity}} = State) ->
-    State;
 do_add_bucket(Id, #{rate := Rate} = Cfg, #{buckets := Buckets} = State) ->
     case maps:get(Id, Buckets, undefined) of
         undefined ->
@@ -625,13 +626,10 @@ find_referenced_bucket(Id, Type, #{rate := Rate} = Cfg) when Rate =/= infinity -
             {error, invalid_bucket}
     end;
 %% this is a node-level reference
-find_referenced_bucket(Id, Type, _) ->
-    case emqx:get_config([limiter, Type], undefined) of
+find_referenced_bucket(_Id, Type, _) ->
+    case emqx_limiter_schema:get_node_opts(Type) of
         #{rate := infinity} ->
             false;
-        undefined ->
-            ?SLOG(error, #{msg => "invalid limiter type", type => Type, id => Id}),
-            {error, invalid_bucket};
         NodeCfg ->
             {ok, Bucket} = emqx_limiter_manager:find_root(Type),
             {ok, Bucket, NodeCfg}

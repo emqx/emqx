@@ -72,6 +72,7 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
         'operationId' => listener_authenticator_import_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
+            deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_listener_id(), emqx_authn_api:param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
