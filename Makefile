@@ -4,8 +4,6 @@ SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-28:1.13.4-24.3.4.2-2-debian11
 export EMQX_DEFAULT_RUNNER = debian:11-slim
-export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
-export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v1.2.1
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.5
 export EMQX_REL_FORM ?= tgz
@@ -15,6 +13,17 @@ ifeq ($(OS),Windows_NT)
 	FIND=/usr/bin/find
 else
 	FIND=find
+endif
+
+# `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
+# In make 4.4+, for backward-compatibility the value from the original environment is used.
+# so the shell script will be executed tons of times.
+# https://github.com/emqx/emqx/pull/10627
+ifeq ($(strip $(OTP_VSN)),)
+    export OTP_VSN := $(shell $(SCRIPTS)/get-otp-vsn.sh)
+endif
+ifeq ($(strip $(ELIXIR_VSN)),)
+    export ELIXIR_VSN := $(shell $(SCRIPTS)/get-elixir-vsn.sh)
 endif
 
 PROFILE ?= emqx
