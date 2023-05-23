@@ -50,6 +50,7 @@
 -define(TYPE_UNSUBSCRIBE, 7).
 -define(TYPE_UNSUBACK, 8).
 -define(TYPE_DISCONNECT, 9).
+-define(TYPE_RAW_PUBLISH, 10).
 
 %%--------------------------------------------------------------------
 %% callbacks

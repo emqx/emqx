@@ -297,7 +297,9 @@ handle_timeout(
             NChannel = remove_timer_ref(alive_timer, Channel),
             %% close connection if keepalive timeout
             Replies = [{event, disconnected}, {close, keepalive_timeout}],
-            NChannel1 = dispatch(on_timer_timeout, Req, NChannel#channel{closed_reason = keepalive_timeout}),
+            NChannel1 = dispatch(on_timer_timeout, Req, NChannel#channel{
+                closed_reason = keepalive_timeout
+            }),
             {ok, Replies, NChannel1}
     end;
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
@@ -474,10 +476,21 @@ handle_call(kick, _From, Channel) ->
     {reply, ok, [{event, disconnected}, {close, kicked}], Channel};
 handle_call(discard, _From, Channel) ->
     {shutdown, discarded, ok, Channel};
-handle_call(Req, _From, Channel) ->
+handle_call(
+    Req,
+    _From,
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = ClientInfo,
+        closed_reason = ClosedReason
+    }
+) ->
     ?SLOG(warning, #{
         msg => "unexpected_call",
-        call => Req
+        call => Req,
+        conn_state => ConnState,
+        clientid => maps:get(clientid, ClientInfo, undefined),
+        closed_reason => ClosedReason
     }),
     {reply, {error, unexpected_call}, Channel}.
 
@@ -505,12 +518,13 @@ handle_info(
             {shutdown, Reason, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
-            Channel1 = case ClosedReason of
-                           undefined ->
-                               Channel#channel{closed_reason = Reason};
-                           _ ->
-                               Channel
-                       end,
+            Channel1 =
+                case ClosedReason of
+                    undefined ->
+                        Channel#channel{closed_reason = Reason};
+                    _ ->
+                        Channel
+                end,
             Channel2 = ensure_timer(force_timer, Channel1),
             {ok, ensure_disconnected(Reason, Channel2)}
     end;

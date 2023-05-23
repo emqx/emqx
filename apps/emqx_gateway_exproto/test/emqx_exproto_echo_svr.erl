@@ -27,6 +27,7 @@
     frame_connect/2,
     frame_connack/1,
     frame_publish/3,
+    frame_raw_publish/3,
     frame_puback/1,
     frame_subscribe/2,
     frame_suback/1,
@@ -55,6 +56,7 @@
 -define(authenticate(Req), ?CLIENT:authenticate(Req, #{channel => ct_test_channel})).
 -define(start_timer(Req), ?CLIENT:start_timer(Req, #{channel => ct_test_channel})).
 -define(publish(Req), ?CLIENT:publish(Req, #{channel => ct_test_channel})).
+-define(raw_publish(Req), ?CLIENT:raw_publish(Req, #{channel => ct_test_channel})).
 -define(subscribe(Req), ?CLIENT:subscribe(Req, #{channel => ct_test_channel})).
 -define(unsubscribe(Req), ?CLIENT:unsubscribe(Req, #{channel => ct_test_channel})).
 
@@ -67,6 +69,7 @@
 -define(TYPE_UNSUBSCRIBE, 7).
 -define(TYPE_UNSUBACK, 8).
 -define(TYPE_DISCONNECT, 9).
+-define(TYPE_RAW_PUBLISH, 10).
 
 -define(loop_recv_and_reply_empty_success(Stream),
     ?loop_recv_and_reply_empty_success(Stream, fun(_) -> ok end)
@@ -267,6 +270,17 @@ handle_in(Conn, ?TYPE_PUBLISH, #{
         _ ->
             handle_out(Conn, ?TYPE_PUBACK, 1)
     end;
+handle_in(Conn, ?TYPE_RAW_PUBLISH, #{
+    <<"topic">> := Topic,
+    <<"qos">> := Qos,
+    <<"payload">> := Payload
+}) ->
+    case ?raw_publish(#{topic => Topic, qos => Qos, payload => Payload}) of
+        {ok, #{code := 'SUCCESS'}, _} ->
+            handle_out(Conn, ?TYPE_PUBACK, 0);
+        _ ->
+            handle_out(Conn, ?TYPE_PUBACK, 1)
+    end;
 handle_in(Conn, ?TYPE_SUBSCRIBE, #{<<"qos">> := Qos, <<"topic">> := Topic}) ->
     case ?subscribe(#{conn => Conn, topic => Topic, qos => Qos}) of
         {ok, #{code := 'SUCCESS'}, _} ->
@@ -293,7 +307,9 @@ handle_out(Conn, ?TYPE_SUBACK, Code) ->
 handle_out(Conn, ?TYPE_UNSUBACK, Code) ->
     ?send(#{conn => Conn, bytes => frame_unsuback(Code)});
 handle_out(Conn, ?TYPE_PUBLISH, #{qos := Qos, topic := Topic, payload := Payload}) ->
-    ?send(#{conn => Conn, bytes => frame_publish(Topic, Qos, Payload)}).
+    ?send(#{conn => Conn, bytes => frame_publish(Topic, Qos, Payload)});
+handle_out(Conn, ?TYPE_RAW_PUBLISH, #{qos := Qos, topic := Topic, payload := Payload}) ->
+    ?send(#{conn => Conn, bytes => frame_raw_publish(Topic, Qos, Payload)}).
 
 handle_out(Conn, ?TYPE_DISCONNECT) ->
     ?send(#{conn => Conn, bytes => frame_disconnect()}).
@@ -313,6 +329,14 @@ frame_connack(Code) ->
 frame_publish(Topic, Qos, Payload) ->
     emqx_utils_json:encode(#{
         type => ?TYPE_PUBLISH,
+        topic => Topic,
+        qos => Qos,
+        payload => Payload
+    }).
+
+frame_raw_publish(Topic, Qos, Payload) ->
+    emqx_utils_json:encode(#{
+        type => ?TYPE_RAW_PUBLISH,
         topic => Topic,
         qos => Qos,
         payload => Payload

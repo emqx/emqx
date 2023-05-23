@@ -41,6 +41,8 @@ service ConnectionAdapter {
   rpc Subscribe(SubscribeRequest) returns (CodeResponse) {};
 
   rpc Unsubscribe(UnsubscribeRequest) returns (CodeResponse) {};
+
+  rpc RawPublish(RawPublishRequest) returns (CodeResponse) {};
 }
 
 // Deprecated service.
@@ -163,6 +165,15 @@ message PublishRequest {
   uint32 qos = 3;
 
   bytes payload = 4;
+}
+
+message RawPublishRequest {
+
+  string topic = 1;
+
+  uint32 qos = 2;
+
+  bytes payload = 3;
 }
 
 message SubscribeRequest {

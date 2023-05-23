@@ -31,6 +31,7 @@
         frame_connect/2,
         frame_connack/1,
         frame_publish/3,
+        frame_raw_publish/3,
         frame_puback/1,
         frame_subscribe/2,
         frame_suback/1,
@@ -86,6 +87,7 @@ groups() ->
     MainCases = [
         t_keepalive_timeout,
         t_mountpoint_echo,
+        t_raw_publish,
         t_auth_deny,
         t_acl_deny,
         t_hook_connected_disconnected,
@@ -218,6 +220,40 @@ t_mountpoint_echo(Cfg) ->
     PubAckBin = frame_puback(0),
 
     emqx:subscribe(<<"ct/t/up">>),
+
+    send(Sock, PubBin2),
+    {ok, PubAckBin} = recv(Sock, 5000),
+
+    receive
+        {deliver, _, _} -> ok
+    after 1000 ->
+        error(echo_not_running)
+    end,
+    close(Sock).
+
+t_raw_publish(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>,
+        mountpoint => <<"ct/">>
+    },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    PubBin2 = frame_raw_publish(<<"t/up">>, 0, <<"echo">>),
+    PubAckBin = frame_puback(0),
+
+    %% mountpoint is not used in raw publish
+    emqx:subscribe(<<"t/up">>),
 
     send(Sock, PubBin2),
     {ok, PubAckBin} = recv(Sock, 5000),

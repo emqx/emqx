@@ -33,6 +33,7 @@
     authenticate/2,
     start_timer/2,
     publish/2,
+    raw_publish/2,
     subscribe/2,
     unsubscribe/2
 ]).
@@ -128,6 +129,19 @@ publish(Req, Md) ->
         request => Req
     }),
     {ok, response({error, ?RESP_PARAMS_TYPE_ERROR}), Md}.
+
+-spec raw_publish(emqx_exproto_pb:raw_publish_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_stream:error_response()}.
+raw_publish(Req = #{topic := Topic, qos := Qos, payload := Payload}, Md) ->
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
+    Msg = emqx_message:make(exproto, Qos, Topic, Payload),
+    _ = emqx_broker:safe_publish(Msg),
+    {ok, response(ok), Md}.
 
 -spec subscribe(emqx_exproto_pb:subscribe_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
