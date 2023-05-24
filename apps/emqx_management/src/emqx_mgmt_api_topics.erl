@@ -139,9 +139,9 @@ lookup(#{topic := Topic}) ->
 %%%==============================================================================================
 %% internal
 generate_topic(Params = #{<<"topic">> := Topic}) ->
-    Params#{<<"topic">> => uri_string:percent_decode(Topic)};
+    Params#{<<"topic">> => Topic};
 generate_topic(Params = #{topic := Topic}) ->
-    Params#{topic => uri_string:percent_decode(Topic)};
+    Params#{topic => Topic};
 generate_topic(Params) ->
     Params.
 
