@@ -1115,7 +1115,11 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
 '$handle_undefined_function'(schema_decode, Args) ->
     error({args_count_error, {schema_decode, Args}});
 '$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
-    emqx_ee_schema_registry_serde:encode(SchemaId, Term, MoreArgs);
+    %% encode outputs iolists, but when the rule actions process those
+    %% it might wrongly encode them as JSON lists, so we force them to
+    %% binaries here.
+    IOList = emqx_ee_schema_registry_serde:encode(SchemaId, Term, MoreArgs),
+    iolist_to_binary(IOList);
 '$handle_undefined_function'(schema_encode, Args) ->
     error({args_count_error, {schema_encode, Args}});
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
