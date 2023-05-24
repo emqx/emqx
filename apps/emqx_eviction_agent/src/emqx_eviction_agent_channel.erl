@@ -218,10 +218,10 @@ cancel_expiry_timer(_) ->
 
 set_expiry_timer(#{conninfo := ConnInfo} = Channel) ->
     case maps:get(expiry_interval, ConnInfo) of
-        ?UINT_MAX ->
+        ?EXPIRE_INTERVAL_INFINITE ->
             {ok, Channel};
         I when I > 0 ->
-            Timer = erlang:send_after(timer:seconds(I), self(), expire_session),
+            Timer = erlang:send_after(I, self(), expire_session),
             {ok, Channel#{expiry_timer => Timer}};
         _ ->
             {error, should_be_expired}

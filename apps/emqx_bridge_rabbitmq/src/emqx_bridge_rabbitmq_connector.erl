@@ -72,7 +72,7 @@ fields(config) ->
                     desc => ?DESC("username")
                 }
             )},
-        {password, fun emqx_connector_schema_lib:password/1},
+        {password, fun emqx_connector_schema_lib:password_required/1},
         {pool_size,
             hoconsc:mk(
                 typerefl:pos_integer(),

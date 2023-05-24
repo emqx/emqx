@@ -438,3 +438,47 @@ ensure_acl_conf() ->
         true -> ok;
         false -> file:write_file(File, <<"">>)
     end.
+
+log_path_test_() ->
+    Fh = fun(Path) ->
+        #{<<"log">> => #{<<"file_handlers">> => #{<<"name1">> => #{<<"file">> => Path}}}}
+    end,
+    Assert = fun(Name, Path, Conf) ->
+        ?assertMatch(#{log := #{file_handlers := #{Name := #{file := Path}}}}, Conf)
+    end,
+
+    [
+        {"default-values", fun() -> Assert(default, "log/emqx.log", check(#{})) end},
+        {"file path with space", fun() -> Assert(name1, "a /b", check(Fh(<<"a /b">>))) end},
+        {"windows", fun() -> Assert(name1, "c:\\a\\ b\\", check(Fh(<<"c:\\a\\ b\\">>))) end},
+        {"unicoded", fun() -> Assert(name1, "路 径", check(Fh(<<"路 径"/utf8>>))) end},
+        {"bad utf8", fun() ->
+            ?assertThrow(
+                {emqx_conf_schema, [
+                    #{
+                        kind := validation_error,
+                        reason := {"bad_file_path_string", _}
+                    }
+                ]},
+                check(Fh(<<239, 32, 132, 47, 117, 116, 102, 56>>))
+            )
+        end},
+        {"not string", fun() ->
+            ?assertThrow(
+                {emqx_conf_schema, [
+                    #{
+                        kind := validation_error,
+                        reason := {"not_string", _}
+                    }
+                ]},
+                check(Fh(#{<<"foo">> => <<"bar">>}))
+            )
+        end}
+    ].
+
+check(Config) ->
+    Schema = emqx_conf_schema,
+    {_, Conf} = hocon_tconf:map(Schema, Config, [log], #{
+        atom_key => false, required => false, format => map
+    }),
+    emqx_utils_maps:unsafe_atom_key_map(Conf).

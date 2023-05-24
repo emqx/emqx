@@ -161,7 +161,7 @@ init_node(Type) ->
         primary ->
             ok = emqx_config:put(
                 [dashboard, listeners],
-                #{http => #{enable => true, bind => 18083}, proxy_header => false}
+                #{http => #{enable => true, bind => 18083, proxy_header => false}}
             ),
             ok = emqx_dashboard:start_listeners(),
             ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
