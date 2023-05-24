@@ -181,7 +181,7 @@ fields(client_opts) ->
                 boolean(),
                 #{
                     desc => ?DESC(divisible),
-                    default => false,
+                    default => true,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -190,7 +190,7 @@ fields(client_opts) ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(max_retry_time),
-                    default => <<"10s">>,
+                    default => <<"1h">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -280,8 +280,8 @@ default_client_config() ->
         initial => 0,
         low_watermark => 0,
         burst => 0,
-        divisible => false,
-        max_retry_time => timer:seconds(10),
+        divisible => true,
+        max_retry_time => timer:hours(1),
         failure_strategy => force
     }.
 
