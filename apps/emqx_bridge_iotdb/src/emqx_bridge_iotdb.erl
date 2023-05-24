@@ -130,6 +130,7 @@ request_config() ->
             mk(
                 emqx_schema:url(),
                 #{
+                    required => true,
                     desc => ?DESC("config_base_url")
                 }
             )},
