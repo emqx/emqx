@@ -746,7 +746,7 @@ t_create_esockd_htb_limiter(_) ->
     ok.
 
 t_esockd_htb_consume(_) ->
-    ClientCfg = emqx_limiter_schema:default_client_config(),
+    ClientCfg = default_client_config(),
     Cfg = #{client => #{bytes => ClientCfg#{rate := 50, max_retry_time := 0}}},
     Opts = emqx_esockd_htb_limiter:new_create_options(?FUNCTION_NAME, bytes, Cfg),
     Limiter = emqx_esockd_htb_limiter:create(Opts),
@@ -1067,7 +1067,7 @@ parse_and_check(ConfigString) ->
 
 make_create_test_data_with_infinity_node(FakeInstnace) ->
     Infinity = emqx_htb_limiter:make_infinity_limiter(),
-    ClientCfg = emqx_limiter_schema:default_client_config(),
+    ClientCfg = default_client_config(),
     InfinityRef = emqx_limiter_bucket_ref:infinity_bucket(),
     MkC = fun(Rate) ->
         #{client => #{bytes => ClientCfg#{rate := Rate}}}
@@ -1133,3 +1133,7 @@ parse_schema(ConfigString) ->
         RawConf,
         #{required => false, atom_key => false}
     ).
+
+default_client_config() ->
+    Conf = emqx_limiter_schema:default_client_config(),
+    Conf#{divisible := false, max_retry_time := timer:seconds(10)}.
