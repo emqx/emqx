@@ -74,12 +74,12 @@ t_update(_Config) ->
                     Pid1 = spawn_link(fun() -> timer:sleep(100) end),
                     register(installer_test, Pid1)
                 end,
-                #{?snk_kind := emqx_license_installer_called},
+                #{?snk_kind := license_reloaded_after_emqx_app_restart},
                 1000
             )
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(emqx_license_installer_called, Trace))
+            ?assertMatch([_ | _], ?of_kind(license_reloaded_after_emqx_app_restart, Trace))
         end
     ).
 
