@@ -381,7 +381,13 @@ start_consumer(Config, ResourceId, ClientID) ->
 stop_subscriber(SubscriberId) ->
     _ = log_when_error(
         fun() ->
-            emqx_bridge_kafka_consumer_sup:ensure_child_deleted(SubscriberId)
+            try
+                emqx_bridge_kafka_consumer_sup:ensure_child_deleted(SubscriberId)
+            catch
+                exit:{noproc, _} ->
+                    %% may happen when node is shutting down
+                    ok
+            end
         end,
         #{
             msg => "failed_to_delete_kafka_subscriber",
@@ -465,16 +471,22 @@ do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
     end.
 
 are_subscriber_workers_alive(SubscriberId) ->
-    Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
-    case lists:keyfind(SubscriberId, 1, Children) of
-        false ->
-            false;
-        {_, Pid, _, _} ->
-            Workers = brod_group_subscriber_v2:get_workers(Pid),
-            %% we can't enforce the number of partitions on a single
-            %% node, as the group might be spread across an emqx
-            %% cluster.
-            lists:all(fun is_process_alive/1, maps:values(Workers))
+    try
+        Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
+        case lists:keyfind(SubscriberId, 1, Children) of
+            false ->
+                false;
+            {_, Pid, _, _} ->
+                Workers = brod_group_subscriber_v2:get_workers(Pid),
+                %% we can't enforce the number of partitions on a single
+                %% node, as the group might be spread across an emqx
+                %% cluster.
+                lists:all(fun is_process_alive/1, maps:values(Workers))
+        end
+    catch
+        exit:{shutdown, _} ->
+            %% may happen if node is shutting down
+            false
     end.
 
 log_when_error(Fun, Log) ->

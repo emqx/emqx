@@ -335,6 +335,7 @@ init_per_testcase(TestCase, Config) ->
 common_init_per_testcase(TestCase, Config0) ->
     ct:timetrap(timer:seconds(60)),
     delete_all_bridges(),
+    emqx_config:delete_override_conf_files(),
     KafkaTopic =
         <<
             (atom_to_binary(TestCase))/binary,
