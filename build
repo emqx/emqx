@@ -94,9 +94,19 @@ log() {
 prepare_erl_libs() {
     local libs_dir="$1"
     local erl_libs="${ERL_LIBS:-}"
+    local sep
+    if [ "${SYSTEM}" = 'windows' ]; then
+        sep=';'
+    else
+        sep=':'
+    fi
     for app in "${libs_dir}"/*; do
         if [ -d "${app}/ebin" ]; then
-            erl_libs="${erl_libs}:${app}"
+            if [ -n "$erl_libs" ]; then
+                erl_libs="${erl_libs}${sep}${app}"
+            else
+                erl_libs="${app}"
+            fi
         fi
     done
     export ERL_LIBS="$erl_libs"

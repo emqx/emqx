@@ -58,6 +58,7 @@ fi
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 export EMQX_LOG__FILE__DEFAULT__ENABLE='false'
 export EMQX_LOG__CONSOLE__ENABLE='true'
+SYSTEM="$(./scripts/get-distro.sh)"
 EMQX_NODE_NAME="${EMQX_NODE_NAME:-emqx@127.0.0.1}"
 PROFILE="${PROFILE:-emqx}"
 FORCE_COMPILE=0
@@ -158,13 +159,23 @@ prepare_erl_libs() {
     local profile="$1"
     local libs_dir="_build/${profile}/lib"
     local erl_libs="${ERL_LIBS:-}"
+    local sep
+    if [ "${SYSTEM}" = 'windows' ]; then
+        sep=';'
+    else
+        sep=':'
+    fi
     if [ $FORCE_COMPILE -eq 1 ] || [ ! -d "$libs_dir" ]; then
         make "compile-${PROFILE}"
     else
         echo "Running from code in $libs_dir"
     fi
     for app in "${libs_dir}"/*; do
-        erl_libs="${erl_libs}:${app}"
+        if [ -n "$erl_libs" ]; then
+            erl_libs="${erl_libs}${sep}${app}"
+        else
+            erl_libs="${app}"
+        fi
     done
     export ERL_LIBS="$erl_libs"
 }
