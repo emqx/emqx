@@ -41,15 +41,6 @@ init([]) ->
                     shutdown => 5000,
                     type => worker,
                     modules => [emqx_license_resources]
-                },
-
-                #{
-                    id => license_installer,
-                    start => {emqx_license_installer, start_link, [fun emqx_license:load/0]},
-                    restart => permanent,
-                    shutdown => 5000,
-                    type => worker,
-                    modules => [emqx_license_installer]
                 }
             ]
         }}.
