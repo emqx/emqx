@@ -117,7 +117,7 @@ handle_cast(_Msg, State) ->
 handle_info(check_license, #{license := License} = State) ->
     #{} = check_license(License),
     NewState = ensure_check_license_timer(State),
-    ?tp(debug, emqx_license_checked, #{}),
+    ?tp(emqx_license_checked, #{}),
     {noreply, NewState};
 handle_info(check_expiry_alarm, #{license := License} = State) ->
     ok = expiry_early_alarm(License),
