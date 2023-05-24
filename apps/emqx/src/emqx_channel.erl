@@ -2079,7 +2079,7 @@ maybe_resume_session(#channel{
 
 maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
     case maps:get(expiry_interval, ConnInfo) of
-        ?UINT_MAX ->
+        ?EXPIRE_INTERVAL_INFINITE ->
             {ok, Channel};
         I when I > 0 ->
             {ok, ensure_timer(expire_timer, I, Channel)};

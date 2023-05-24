@@ -177,7 +177,7 @@ t_explicit_session_takeover(Config) ->
                 ?assert(false, "Connection not evicted")
             end
         end,
-        #{?snk_kind := emqx_cm_connected_client_count_dec, chan_pid := ChanPid},
+        #{?snk_kind := emqx_cm_connected_client_count_dec_done, chan_pid := ChanPid},
         2000
     ),
 
@@ -383,7 +383,7 @@ t_ws_conn(_Config) ->
 
     ?assertWaitEvent(
         ok = emqx_eviction_agent:evict_connections(1),
-        #{?snk_kind := emqx_cm_connected_client_count_dec},
+        #{?snk_kind := emqx_cm_connected_client_count_dec_done},
         1000
     ),
 
@@ -418,7 +418,7 @@ t_quic_conn(_Config) ->
 
     ?assertWaitEvent(
         ok = emqx_eviction_agent:evict_connections(1),
-        #{?snk_kind := emqx_cm_connected_client_count_dec},
+        #{?snk_kind := emqx_cm_connected_client_count_dec_done},
         1000
     ),
 

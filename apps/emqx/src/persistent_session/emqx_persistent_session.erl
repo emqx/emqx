@@ -60,13 +60,11 @@
 -export_type([sess_msg_key/0]).
 
 -include("emqx.hrl").
+-include("emqx_channel.hrl").
 -include("emqx_persistent_session.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile({inline, [is_store_enabled/0]}).
-
-%% 16#FFFFFFFF * 1000
--define(MAX_EXPIRY_INTERVAL, 4294967295000).
 
 %% NOTE: Order is significant because of traversal order of the table.
 -define(MARKER, 3).
@@ -424,7 +422,7 @@ pending(SessionID, MarkerIds) ->
 %% @private [MQTT-3.1.2-23]
 persistent_session_status(#session_store{expiry_interval = 0}) ->
     not_persistent;
-persistent_session_status(#session_store{expiry_interval = ?MAX_EXPIRY_INTERVAL}) ->
+persistent_session_status(#session_store{expiry_interval = ?EXPIRE_INTERVAL_INFINITE}) ->
     persistent;
 persistent_session_status(#session_store{expiry_interval = E, ts = TS}) ->
     case E + TS > erlang:system_time(millisecond) of
