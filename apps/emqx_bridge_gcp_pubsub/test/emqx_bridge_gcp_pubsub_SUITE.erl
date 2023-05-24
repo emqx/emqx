@@ -631,6 +631,30 @@ t_publish_success(Config) ->
     ),
     ok.
 
+t_publish_success_infinity_timeout(Config) ->
+    ServiceAccountJSON = ?config(service_account_json, Config),
+    Topic = <<"t/topic">>,
+    {ok, _} = create_bridge(Config, #{
+        <<"resource_opts">> => #{<<"request_timeout">> => <<"infinity">>}
+    }),
+    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
+    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    Payload = <<"payload">>,
+    Message = emqx_message:make(Topic, Payload),
+    emqx:publish(Message),
+    DecodedMessages = assert_http_request(ServiceAccountJSON),
+    ?assertMatch(
+        [
+            #{
+                <<"topic">> := Topic,
+                <<"payload">> := Payload,
+                <<"metadata">> := #{<<"rule_id">> := RuleId}
+            }
+        ],
+        DecodedMessages
+    ),
+    ok.
+
 t_publish_success_local_topic(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
