@@ -57,11 +57,6 @@
     (TYPE) =:= <<"kafka_consumer">> orelse ?IS_BI_DIR_BRIDGE(TYPE)
 ).
 
-%% [FIXME] this has no place here, it's used in parse_confs/3, which should
-%% rather delegate to a behavior callback than implementing domain knowledge
-%% here (reversed dependency)
--define(INSERT_TABLET_PATH, "/rest/v2/insertTablet").
-
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
@@ -343,6 +338,11 @@ parse_confs(
             }
     };
 parse_confs(<<"iotdb">>, Name, Conf) ->
+    %% [FIXME] this has no place here, it's used in parse_confs/3, which should
+    %% rather delegate to a behavior callback than implementing domain knowledge
+    %% here (reversed dependency)
+    InsertTabletPathV1 = <<"rest/v1/insertTablet">>,
+    InsertTabletPathV2 = <<"rest/v2/insertTablet">>,
     #{
         base_url := BaseURL,
         authentication :=
@@ -352,10 +352,21 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
             }
     } = Conf,
     BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
+    %% This version atom correspond to the macro ?VSN_1_1_X in
+    %% emqx_bridge_iotdb.hrl. It would be better to use the macro directly, but
+    %% this cannot be done without introducing a dependency on the
+    %% emqx_iotdb_bridge app (which is an EE app).
+    DefaultIOTDBBridge = 'v1.1.x',
+    Version = maps:get(iotdb_version, Conf, DefaultIOTDBBridge),
+    InsertTabletPath =
+        case Version of
+            DefaultIOTDBBridge -> InsertTabletPathV2;
+            _ -> InsertTabletPathV1
+        end,
     WebhookConfig =
         Conf#{
             method => <<"post">>,
-            url => <<BaseURL/binary, ?INSERT_TABLET_PATH>>,
+            url => <<BaseURL/binary, InsertTabletPath/binary>>,
             headers => [
                 {<<"Content-type">>, <<"application/json">>},
                 {<<"Authorization">>, BasicToken}
