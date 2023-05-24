@@ -211,7 +211,7 @@ send_message(BridgeId, Message) ->
 
 query_opts(Config) ->
     case emqx_utils_maps:deep_get([resource_opts, request_timeout], Config, false) of
-        Timeout when is_integer(Timeout) ->
+        Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
             %% request_timeout is configured
             #{timeout => Timeout};
         _ ->

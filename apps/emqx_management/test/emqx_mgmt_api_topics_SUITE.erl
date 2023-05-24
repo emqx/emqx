@@ -92,4 +92,35 @@ t_nodes_api(Config) ->
         #{<<"topic">> := Topic, <<"node">> := Node2}
     ] = emqx_utils_json:decode(RouteResponse, [return_maps]),
 
-    ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])).
+    ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])),
+
+    ok = emqtt:stop(Client).
+
+t_percent_topics(_Config) ->
+    Node = atom_to_binary(node(), utf8),
+    Topic = <<"test_%%1">>,
+    {ok, Client} = emqtt:start_link(#{
+        username => <<"routes_username">>, clientid => <<"routes_cid">>
+    }),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, Topic),
+
+    %% exact match with percent encoded topic
+    Path = emqx_mgmt_api_test_util:api_path(["topics"]),
+    QS = uri_string:compose_query([
+        {"topic", Topic},
+        {"node", atom_to_list(node())}
+    ]),
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, MatchResponse} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
+    MatchData = emqx_utils_json:decode(MatchResponse, [return_maps]),
+    ?assertMatch(
+        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
+        maps:get(<<"meta">>, MatchData)
+    ),
+    ?assertMatch(
+        [#{<<"topic">> := Topic, <<"node">> := Node}],
+        maps:get(<<"data">>, MatchData)
+    ),
+
+    ok = emqtt:stop(Client).

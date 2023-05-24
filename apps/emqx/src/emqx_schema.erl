@@ -1556,7 +1556,8 @@ fields("broker") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC(broker_route_batch_clean)
+                    desc => "This config is stale since 4.3",
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"perf",
