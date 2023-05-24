@@ -416,7 +416,9 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
         ok ->
-            {connected, State};
+            connected;
+        {error, still_connecting} ->
+            connecting;
         {error, Reason} ->
             {disconnected, State, Reason}
     end.
@@ -438,7 +440,8 @@ do_get_status(PoolName, Timeout) ->
             end
         end,
     try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
-        % we crash in case of non-empty lists since we don't know what to do in that case
+        [] ->
+            {error, still_connecting};
         [_ | _] = Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->
