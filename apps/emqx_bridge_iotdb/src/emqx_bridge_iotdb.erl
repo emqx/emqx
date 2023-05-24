@@ -109,10 +109,10 @@ basic_config() ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC("config_iotdb_version"),
-                    default => ?VSN_1_X
+                    default => ?VSN_1_1_X
                 }
             )}
     ] ++ resource_creation_opts() ++
@@ -217,7 +217,7 @@ conn_bridge_example(_Method, Type) ->
         is_aligned => false,
         device_id => <<"my_device">>,
         base_url => <<"http://iotdb.local:18080/">>,
-        iotdb_version => ?VSN_1_X,
+        iotdb_version => ?VSN_1_1_X,
         connect_timeout => <<"15s">>,
         pool_type => <<"random">>,
         pool_size => 8,
