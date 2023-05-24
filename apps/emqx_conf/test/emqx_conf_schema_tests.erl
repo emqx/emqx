@@ -444,7 +444,7 @@ log_path_test_() ->
         #{<<"log">> => #{<<"file_handlers">> => #{<<"name1">> => #{<<"file">> => Path}}}}
     end,
     Assert = fun(Name, Path, Conf) ->
-        ?assertMatch(#{log := #{file_handlers := #{Name := #{file := Path}}}}, Conf)
+        ?assertMatch(#{log := #{file := #{Name := #{to := Path}}}}, Conf)
     end,
 
     [
@@ -457,7 +457,15 @@ log_path_test_() ->
                 {emqx_conf_schema, [
                     #{
                         kind := validation_error,
-                        reason := {"bad_file_path_string", _}
+                        mismatches :=
+                            #{
+                                "handler_name" :=
+                                    #{
+                                        kind := validation_error,
+                                        path := "log.file.name1.to",
+                                        reason := {"bad_file_path_string", _}
+                                    }
+                            }
                     }
                 ]},
                 check(Fh(<<239, 32, 132, 47, 117, 116, 102, 56>>))
@@ -468,7 +476,15 @@ log_path_test_() ->
                 {emqx_conf_schema, [
                     #{
                         kind := validation_error,
-                        reason := {"not_string", _}
+                        mismatches :=
+                            #{
+                                "handler_name" :=
+                                    #{
+                                        kind := validation_error,
+                                        path := "log.file.name1.to",
+                                        reason := {"not_string", _}
+                                    }
+                            }
                     }
                 ]},
                 check(Fh(#{<<"foo">> => <<"bar">>}))
