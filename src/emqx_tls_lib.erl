@@ -200,7 +200,7 @@ opt_partial_chain(SslOpts) ->
         undefined ->
             SslOpts;
         false ->
-            SslOpts;
+            proplists:delete(partial_chain, SslOpts);
         V when V =:= cacert_from_cacertfile orelse V == true ->
             replace(SslOpts, partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts));
         V when V =:= two_cacerts_from_cacertfile -> %% for certificate rotations
