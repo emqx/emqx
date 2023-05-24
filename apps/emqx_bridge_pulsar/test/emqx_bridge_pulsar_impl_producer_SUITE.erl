@@ -541,8 +541,14 @@ kill_resource_managers() ->
     lists:foreach(
         fun({_, Pid, _, _}) ->
             ct:pal("terminating resource manager ~p", [Pid]),
-            %% sys:terminate(Pid, stop),
+            Ref = monitor(process, Pid),
             exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, killed} ->
+                    ok
+            after 500 ->
+                ct:fail("pid ~p didn't die!", [Pid])
+            end,
             ok
         end,
         supervisor:which_children(emqx_resource_manager_sup)
