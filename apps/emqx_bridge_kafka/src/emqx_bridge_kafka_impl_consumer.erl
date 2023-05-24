@@ -101,6 +101,10 @@
     " the connection parameters."
 ).
 
+%% Allocatable resources
+-define(kafka_client_id, kafka_client_id).
+-define(kafka_subscriber_id, kafka_subscriber_id).
+
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
@@ -140,6 +144,7 @@ on_start(ResourceId, Config) ->
             Auth -> [{sasl, emqx_bridge_kafka_impl:sasl(Auth)}]
         end,
     ClientOpts = add_ssl_opts(ClientOpts0, SSL),
+    ok = emqx_resource:allocate_resource(ResourceId, ?kafka_client_id, ClientID),
     case brod:start_client(BootstrapHosts, ClientID, ClientOpts) of
         ok ->
             ?tp(
@@ -163,7 +168,21 @@ on_start(ResourceId, Config) ->
     start_consumer(Config, ResourceId, ClientID).
 
 -spec on_stop(resource_id(), state()) -> ok.
-on_stop(_ResourceID, State) ->
+on_stop(ResourceId, _State = undefined) ->
+    case emqx_resource:get_allocated_resources(ResourceId) of
+        #{?kafka_client_id := ClientID, ?kafka_subscriber_id := SubscriberId} ->
+            stop_subscriber(SubscriberId),
+            stop_client(ClientID),
+            ?tp(kafka_consumer_subcriber_and_client_stopped, #{}),
+            ok;
+        #{?kafka_client_id := ClientID} ->
+            stop_client(ClientID),
+            ?tp(kafka_consumer_just_client_stopped, #{}),
+            ok;
+        _ ->
+            ok
+    end;
+on_stop(_ResourceId, State) ->
     #{
         subscriber_id := SubscriberId,
         kafka_client_id := ClientID
@@ -333,6 +352,9 @@ start_consumer(Config, ResourceId, ClientID) ->
     %% spawns one worker for each assigned topic-partition
     %% automatically, so we should not spawn duplicate workers.
     SubscriberId = make_subscriber_id(BridgeName),
+    ?tp(kafka_consumer_about_to_start_subscriber, #{}),
+    ok = emqx_resource:allocate_resource(ResourceId, ?kafka_subscriber_id, SubscriberId),
+    ?tp(kafka_consumer_subscriber_allocated, #{}),
     case emqx_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
         {ok, _ConsumerPid} ->
             ?tp(

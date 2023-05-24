@@ -59,7 +59,9 @@ only_once_tests() ->
         t_cluster_group,
         t_node_joins_existing_cluster,
         t_cluster_node_down,
-        t_multiple_topic_mappings
+        t_multiple_topic_mappings,
+        t_resource_manager_crash_after_subscriber_started,
+        t_resource_manager_crash_before_subscriber_started
     ].
 
 init_per_suite(Config) ->
@@ -1118,6 +1120,24 @@ stop_async_publisher(Pid) ->
     end,
     ok.
 
+kill_resource_managers() ->
+    ct:pal("gonna kill resource managers"),
+    lists:foreach(
+        fun({_, Pid, _, _}) ->
+            ct:pal("terminating resource manager ~p", [Pid]),
+            Ref = monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, killed} ->
+                    ok
+            after 500 ->
+                ct:fail("pid ~p didn't die!", [Pid])
+            end,
+            ok
+        end,
+        supervisor:which_children(emqx_resource_manager_sup)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -2022,5 +2042,67 @@ t_begin_offset_earliest(Config) ->
             ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId)),
             ok
         end
+    ),
+    ok.
+
+t_resource_manager_crash_after_subscriber_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := kafka_consumer_subscriber_allocated},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := kafka_consumer_subscriber_started}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := kafka_consumer_subcriber_and_client_stopped},
+                    10_000
+                ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_resource_manager_crash_before_subscriber_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := kafka_consumer_client_started},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := kafka_consumer_about_to_start_subscriber}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := kafka_consumer_just_client_stopped},
+                    10_000
+                ),
+            ok
+        end,
+        []
     ),
     ok.
