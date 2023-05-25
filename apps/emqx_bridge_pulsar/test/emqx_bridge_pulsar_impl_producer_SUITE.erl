@@ -43,7 +43,9 @@ only_once_tests() ->
         t_send_when_down,
         t_send_when_timeout,
         t_failure_to_start_producer,
-        t_producer_process_crash
+        t_producer_process_crash,
+        t_resource_manager_crash_after_producers_started,
+        t_resource_manager_crash_before_producers_started
     ].
 
 init_per_suite(Config) ->
@@ -429,7 +431,19 @@ wait_until_producer_connected() ->
     wait_until_connected(pulsar_producers_sup, pulsar_producer).
 
 wait_until_connected(SupMod, Mod) ->
-    Pids = [
+    Pids = get_pids(SupMod, Mod),
+    ?retry(
+        _Sleep = 300,
+        _Attempts0 = 20,
+        lists:foreach(fun(P) -> {connected, _} = sys:get_state(P) end, Pids)
+    ),
+    ok.
+
+get_pulsar_producers() ->
+    get_pids(pulsar_producers_sup, pulsar_producer).
+
+get_pids(SupMod, Mod) ->
+    [
         P
      || {_Name, SupPid, _Type, _Mods} <- supervisor:which_children(SupMod),
         P <- element(2, process_info(SupPid, links)),
@@ -437,13 +451,7 @@ wait_until_connected(SupMod, Mod) ->
             {Mod, init, _} -> true;
             _ -> false
         end
-    ],
-    ?retry(
-        _Sleep = 300,
-        _Attempts0 = 20,
-        lists:foreach(fun(P) -> {connected, _} = sys:get_state(P) end, Pids)
-    ),
-    ok.
+    ].
 
 create_rule_and_action_http(Config) ->
     PulsarName = ?config(pulsar_name, Config),
@@ -527,6 +535,18 @@ start_cluster(Cluster) ->
         )
     end),
     Nodes.
+
+kill_resource_managers() ->
+    ct:pal("gonna kill resource managers"),
+    lists:foreach(
+        fun({_, Pid, _, _}) ->
+            ct:pal("terminating resource manager ~p", [Pid]),
+            %% sys:terminate(Pid, stop),
+            exit(Pid, kill),
+            ok
+        end,
+        supervisor:which_children(emqx_resource_manager_sup)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -921,7 +941,11 @@ t_producer_process_crash(Config) ->
                     ok
             after 1_000 -> ct:fail("pid didn't die")
             end,
-            ?assertEqual({ok, connecting}, emqx_resource_manager:health_check(ResourceId)),
+            ?retry(
+                _Sleep0 = 50,
+                _Attempts0 = 50,
+                ?assertEqual({ok, connecting}, emqx_resource_manager:health_check(ResourceId))
+            ),
             %% Should recover given enough time.
             ?retry(
                 _Sleep = 1_000,
@@ -946,6 +970,69 @@ t_producer_process_crash(Config) ->
                 ],
                 Data0
             ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_resource_manager_crash_after_producers_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := pulsar_producer_producers_allocated},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := pulsar_producer_bridge_started}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := Producers} when
+                        Producers =/= undefined,
+                    10_000
+                ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_resource_manager_crash_before_producers_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := pulsar_producer_capture_name},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := pulsar_producer_about_to_start_producers}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},
+                    10_000
+                ),
             ok
         end,
         []

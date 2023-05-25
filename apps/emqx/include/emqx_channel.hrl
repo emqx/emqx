@@ -40,3 +40,5 @@
     session,
     will_msg
 ]).
+
+-define(EXPIRE_INTERVAL_INFINITE, 4294967295000).

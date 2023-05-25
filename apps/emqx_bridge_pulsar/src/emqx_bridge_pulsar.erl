@@ -57,6 +57,14 @@ fields(config) ->
                     sensitive => true,
                     desc => ?DESC("authentication")
                 }
+            )},
+        {connect_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC("connect_timeout")
+                }
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(producer_opts) ->

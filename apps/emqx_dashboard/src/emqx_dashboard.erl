@@ -192,7 +192,9 @@ ranch_opts(Options) ->
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
 proto_opts(#{proxy_header := ProxyHeader}) ->
-    #{proxy_header => ProxyHeader}.
+    #{proxy_header => ProxyHeader};
+proto_opts(_Opts) ->
+    #{}.
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].

@@ -25,7 +25,12 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+-ifndef(TEST).
 -define(HEALTH_CHECK_TIMEOUT, 15000).
+-else.
+%% make tests faster
+-define(HEALTH_CHECK_TIMEOUT, 1000).
+-endif.
 
 start(Name, Mod, Options) ->
     case ecpool:start_sup_pool(Name, Mod, Options) of
