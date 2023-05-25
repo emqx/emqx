@@ -2058,14 +2058,41 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                 ?tp(resource_manager_killed, #{}),
                 ok
             end),
+
             %% even if the resource manager is dead, we can still
             %% clear the allocated resources.
-            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+
+            %% We avoid asserting only the `config_update_crashed'
+            %% error here because there's a race condition (just a
+            %% problem for the test assertion below) in which the
+            %% `emqx_resource_manager:create/5' call returns a failure
+            %% (not checked) and then `lookup' in that module is
+            %% delayed enough so that the manager supervisor has time
+            %% to restart the manager process and for the latter to
+            %% startup successfully.  Occurs frequently in CI...
+
+            {Res, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
                     #{?snk_kind := kafka_consumer_subcriber_and_client_stopped},
                     10_000
                 ),
+            case Res of
+                {error, {config_update_crashed, {killed, _}}} ->
+                    ok;
+                {ok, _} ->
+                    %% the new manager may have had time to startup
+                    %% before the resource status cache is read...
+                    ok;
+                _ ->
+                    ct:fail("unexpected result: ~p", [Res])
+            end,
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?retry(
+                _Sleep = 50,
+                _Attempts = 50,
+                ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
+            ),
             ok
         end,
         []
@@ -2089,14 +2116,40 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
                 ?tp(resource_manager_killed, #{}),
                 ok
             end),
+
             %% even if the resource manager is dead, we can still
             %% clear the allocated resources.
-            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+
+            %% We avoid asserting only the `config_update_crashed'
+            %% error here because there's a race condition (just a
+            %% problem for the test assertion below) in which the
+            %% `emqx_resource_manager:create/5' call returns a failure
+            %% (not checked) and then `lookup' in that module is
+            %% delayed enough so that the manager supervisor has time
+            %% to restart the manager process and for the latter to
+            %% startup successfully.  Occurs frequently in CI...
+            {Res, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
                     #{?snk_kind := kafka_consumer_just_client_stopped},
                     10_000
                 ),
+            case Res of
+                {error, {config_update_crashed, {killed, _}}} ->
+                    ok;
+                {ok, _} ->
+                    %% the new manager may have had time to startup
+                    %% before the resource status cache is read...
+                    ok;
+                _ ->
+                    ct:fail("unexpected result: ~p", [Res])
+            end,
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?retry(
+                _Sleep = 50,
+                _Attempts = 50,
+                ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
+            ),
             ok
         end,
         []

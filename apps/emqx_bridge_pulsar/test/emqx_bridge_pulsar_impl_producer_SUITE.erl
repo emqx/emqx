@@ -285,6 +285,11 @@ create_bridge(Config, Overrides) ->
     PulsarConfig = emqx_utils_maps:deep_merge(PulsarConfig0, Overrides),
     emqx_bridge:create(Type, Name, PulsarConfig).
 
+delete_bridge(Config) ->
+    Type = ?BRIDGE_TYPE_BIN,
+    Name = ?config(pulsar_name, Config),
+    emqx_bridge:remove(Type, Name).
+
 create_bridge_api(Config) ->
     create_bridge_api(Config, _Overrides = #{}).
 
@@ -1008,6 +1013,8 @@ t_resource_manager_crash_after_producers_started(Config) ->
                         Producers =/= undefined,
                     10_000
                 ),
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertEqual([], get_pulsar_producers()),
             ok
         end,
         []
@@ -1039,6 +1046,8 @@ t_resource_manager_crash_before_producers_started(Config) ->
                     #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},
                     10_000
                 ),
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertEqual([], get_pulsar_producers()),
             ok
         end,
         []
