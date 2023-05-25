@@ -500,8 +500,10 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     %% We don't care the return value of the Mod:on_stop/2.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
-    case ResState /= undefined of
+    HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
+    case ResState =/= undefined orelse HasAllocatedResources of
         true ->
+            %% we clear the allocated resources after stop is successful
             emqx_resource:call_stop(Data#data.id, Data#data.mod, ResState);
         false ->
             ok

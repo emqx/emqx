@@ -67,6 +67,11 @@ emqx_bridge_pulsar {
     label = "Enable or Disable"
   }
 
+  connect_timeout {
+    desc = "Maximum wait time for TCP connection establishment (including authentication time if enabled)."
+    label = "Connect Timeout"
+  }
+
   desc_name {
     desc = "Bridge name, used as a human-readable description of the bridge."
     label = "Bridge Name"

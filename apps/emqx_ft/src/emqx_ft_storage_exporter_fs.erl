@@ -422,7 +422,7 @@ decode_cursor(Cursor) ->
         true = is_list(Name),
         {Node, #{transfer => {ClientId, FileId}, name => Name}}
     catch
-        error:{_, invalid_json} ->
+        error:{Loc, JsonError} when is_integer(Loc), is_atom(JsonError) ->
             error({badarg, cursor});
         error:{badmatch, _} ->
             error({badarg, cursor});

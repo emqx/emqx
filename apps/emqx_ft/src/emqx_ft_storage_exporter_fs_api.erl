@@ -167,7 +167,7 @@ parse_filepath(PathBin) ->
             throw({invalid, PathBin})
     end,
     PathComponents = filename:split(PathBin),
-    case lists:any(fun is_special_component/1, PathComponents) of
+    case PathComponents == [] orelse lists:any(fun is_special_component/1, PathComponents) of
         false ->
             filename:join(PathComponents);
         true ->

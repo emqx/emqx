@@ -47,6 +47,7 @@ groups() ->
             t_invalid_topic_format,
             t_meta_conflict,
             t_nasty_clientids_fileids,
+            t_nasty_filenames,
             t_no_meta,
             t_no_segment,
             t_simple_transfer
@@ -205,10 +206,6 @@ t_invalid_filename(Config) ->
             encode_meta(meta(lists:duplicate(1000, $A), <<>>)),
             1
         )
-    ),
-    ?assertRCName(
-        success,
-        emqtt:publish(C, mk_init_topic(<<"f5">>), encode_meta(meta("146%", <<>>)), 1)
     ).
 
 t_simple_transfer(Config) ->
@@ -263,6 +260,22 @@ t_nasty_clientids_fileids(_Config) ->
             ?assertEqual({ok, ClientId}, read_export(Export))
         end,
         Transfers
+    ).
+
+t_nasty_filenames(_Config) ->
+    Filenames = [
+        {<<"nasty1">>, "146%"},
+        {<<"nasty2">>, "🌚"},
+        {<<"nasty3">>, "中文.txt"}
+    ],
+    ok = lists:foreach(
+        fun({ClientId, Filename}) ->
+            FileId = unicode:characters_to_binary(Filename),
+            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Filename, FileId),
+            [Export] = list_files(ClientId),
+            ?assertEqual({ok, FileId}, read_export(Export))
+        end,
+        Filenames
     ).
 
 t_meta_conflict(Config) ->

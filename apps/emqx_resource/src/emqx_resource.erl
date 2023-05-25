@@ -79,7 +79,13 @@
     query/2,
     query/3,
     %% query the instance without batching and queuing messages.
-    simple_sync_query/2
+    simple_sync_query/2,
+    %% functions used by connectors to register resources that must be
+    %% freed when stopping or even when a resource manager crashes.
+    allocate_resource/3,
+    has_allocated_resources/1,
+    get_allocated_resources/1,
+    forget_allocated_resources/1
 ]).
 
 %% Direct calls to the callback module
@@ -372,6 +378,9 @@ is_buffer_supported(Module) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(ResId, Mod, Config) ->
     try
+        %% If the previous manager process crashed without cleaning up
+        %% allocated resources, clean them up.
+        clean_allocated_resources(ResId, Mod),
         Mod:on_start(ResId, Config)
     catch
         throw:Error ->
@@ -390,7 +399,16 @@ call_health_check(ResId, Mod, ResourceState) ->
 
 -spec call_stop(resource_id(), module(), resource_state()) -> term().
 call_stop(ResId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_stop(ResId, ResourceState)).
+    ?SAFE_CALL(begin
+        Res = Mod:on_stop(ResId, ResourceState),
+        case Res of
+            ok ->
+                emqx_resource:forget_allocated_resources(ResId);
+            _ ->
+                ok
+        end,
+        Res
+    end).
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
@@ -486,7 +504,37 @@ apply_reply_fun({F, A}, Result) when is_function(F) ->
 apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
 
+-spec allocate_resource(resource_id(), any(), term()) -> ok.
+allocate_resource(InstanceId, Key, Value) ->
+    true = ets:insert(?RESOURCE_ALLOCATION_TAB, {InstanceId, Key, Value}),
+    ok.
+
+-spec has_allocated_resources(resource_id()) -> boolean().
+has_allocated_resources(InstanceId) ->
+    ets:member(?RESOURCE_ALLOCATION_TAB, InstanceId).
+
+-spec get_allocated_resources(resource_id()) -> map().
+get_allocated_resources(InstanceId) ->
+    Objects = ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId),
+    maps:from_list([{K, V} || {_InstanceId, K, V} <- Objects]).
+
+-spec forget_allocated_resources(resource_id()) -> ok.
+forget_allocated_resources(InstanceId) ->
+    true = ets:delete(?RESOURCE_ALLOCATION_TAB, InstanceId),
+    ok.
+
 %% =================================================================================
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
+
+clean_allocated_resources(ResourceId, ResourceMod) ->
+    case emqx_resource:has_allocated_resources(ResourceId) of
+        true ->
+            %% The resource entries in the ETS table are erased inside
+            %% `call_stop' if the call is successful.
+            ok = emqx_resource:call_stop(ResourceId, ResourceMod, _ResourceState = undefined),
+            ok;
+        false ->
+            ok
+    end.

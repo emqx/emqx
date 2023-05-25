@@ -121,3 +121,5 @@
 
 -define(TEST_ID_PREFIX, "_probe_:").
 -define(RES_METRICS, resource_metrics).
+
+-define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
