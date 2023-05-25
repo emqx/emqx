@@ -1256,6 +1256,13 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
             %% some queries are not expired, put them back to the inflight batch
             %% so it can be either acked now or retried later
             ok = update_inflight_item(InflightTID, Ref, RealNotExpired, NumExpired),
+            ?tp_ignore_side_effects_in_prod(
+                handle_async_reply_partially_expired,
+                #{
+                    inflight_count => inflight_count(InflightTID),
+                    num_inflight_messages => inflight_num_msgs(InflightTID)
+                }
+            ),
             do_handle_async_batch_reply(ReplyContext#{min_batch := RealNotExpired}, Result)
     end.
 
