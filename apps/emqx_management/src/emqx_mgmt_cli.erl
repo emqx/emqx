@@ -514,6 +514,8 @@ trace_off(Type, Filter) ->
 
 %%--------------------------------------------------------------------
 %% @doc Trace Cluster Command
+-define(DEFAULT_TRACE_DURATION, "1800").
+
 traces(["list"]) ->
     {200, List} = emqx_mgmt_api_trace:trace(get, []),
     case List of
@@ -542,7 +544,7 @@ traces(["stop", Name]) ->
 traces(["delete", Name]) ->
     trace_cluster_del(Name);
 traces(["start", Name, Operation, Filter]) ->
-    traces(["start", Name, Operation, Filter, "1800"]);
+    traces(["start", Name, Operation, Filter, ?DEFAULT_TRACE_DURATION]);
 traces(["start", Name, Operation, Filter0, DurationS]) ->
     case trace_type(Operation, Filter0) of
         {ok, Type, Filter} -> trace_cluster_on(Name, Type, Filter, DurationS);
@@ -551,11 +553,16 @@ traces(["start", Name, Operation, Filter0, DurationS]) ->
 traces(_) ->
     emqx_ctl:usage([
         {"traces list", "List all cluster traces started"},
-        {"traces start <Name> client <ClientId>", "Traces for a client in cluster"},
-        {"traces start <Name> topic <Topic>", "Traces for a topic in cluster"},
-        {"traces start <Name> ip_address <IPAddr>", "Traces for a IP in cluster"},
-        {"traces stop  <Name>", "Stop trace in cluster"},
-        {"traces delete  <Name>", "Delete trace in cluster"}
+        {"traces start <Name> client <ClientId> [<Duration>]", "Traces for a client in cluster"},
+        {"traces start <Name> topic <Topic> [<Duration>]", "Traces for a topic in cluster"},
+        {"traces start <Name> ip_address <IPAddr> [<Duration>]",
+            "Traces for a client IP in cluster\n"
+            "Trace will start immediately on all nodes, including the core and replicant,\n"
+            "and will end after <Duration> seconds. The default value for <Duration> is "
+            ?DEFAULT_TRACE_DURATION
+            " seconds."},
+        {"traces stop <Name>", "Stop trace in cluster"},
+        {"traces delete <Name>", "Delete trace in cluster"}
     ]).
 
 trace_cluster_on(Name, Type, Filter, DurationS0) ->
