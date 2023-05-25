@@ -124,7 +124,7 @@ fields(transport_options) ->
             mk(
                 boolean(),
                 #{
-                    default => true,
+                    default => false,
                     desc => ?DESC("ipv6_probe"),
                     required => false
                 }
