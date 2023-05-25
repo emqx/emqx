@@ -137,9 +137,14 @@ t_global_zone(_Config) ->
     ),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(
-        emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
+        emqx_config:get_zone_conf(default, [mqtt, max_qos_allowed]),
         emqx_utils_maps:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)
     ),
+    ?assertError(
+        {config_not_found, [zones, no_default, mqtt, max_qos_allowed]},
+        emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])
+    ),
+
     NewZones1 = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
     NewZones2 = emqx_utils_maps:deep_remove([<<"mqtt">>, <<"peer_cert_as_clientid">>], NewZones1),
     {ok, #{<<"mqtt">> := Res}} = update_global_zone(NewZones2),
@@ -151,7 +156,11 @@ t_global_zone(_Config) ->
         },
         Res
     ),
-    ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
+    ?assertEqual(1, emqx_config:get_zone_conf(default, [mqtt, max_qos_allowed])),
+    ?assertError(
+        {config_not_found, [zones, no_default, mqtt, max_qos_allowed]},
+        emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])
+    ),
     %% Make sure the override config is updated, and remove the default value.
     ?assertMatch(#{<<"max_qos_allowed">> := 1}, read_conf(<<"mqtt">>)),
 
