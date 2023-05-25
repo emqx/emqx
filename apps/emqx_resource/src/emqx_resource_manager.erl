@@ -450,6 +450,8 @@ retry_actions(Data) ->
     case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
         undefined ->
             [];
+        infinity ->
+            [];
         RetryInterval ->
             [{state_timeout, RetryInterval, auto_retry}]
     end.

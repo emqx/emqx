@@ -124,6 +124,8 @@ auto_restart_interval(required) -> false;
 auto_restart_interval(validator) -> fun auto_restart_interval_range/1;
 auto_restart_interval(_) -> undefined.
 
+auto_restart_interval_range(infinity) ->
+    ok;
 auto_restart_interval_range(AutoRestartInterval) when
     is_integer(AutoRestartInterval) andalso
         AutoRestartInterval >= ?AUTO_RESTART_INTERVAL_RANGE_MIN andalso
