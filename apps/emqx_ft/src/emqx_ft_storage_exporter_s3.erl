@@ -94,7 +94,8 @@ complete(#{pid := Pid} = _ExportSt, _Checksum) ->
 -spec discard(export_st()) ->
     ok.
 discard(#{pid := Pid} = _ExportSt) ->
-    emqx_s3_uploader:abort(Pid).
+    % NOTE: will abort upload asynchronously if needed
+    emqx_s3_uploader:shutdown(Pid).
 
 -spec list(options(), query()) ->
     {ok, page(exportinfo())} | {error, term()}.
