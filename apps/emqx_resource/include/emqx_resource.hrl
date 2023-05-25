@@ -66,7 +66,7 @@
     start_after_created => boolean(),
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
-    auto_restart_interval => pos_integer(),
+    auto_restart_interval => pos_integer() | infinity,
     batch_size => pos_integer(),
     batch_time => pos_integer(),
     max_buffer_bytes => pos_integer(),
