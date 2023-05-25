@@ -11,7 +11,7 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--include("src/emqx_s3.hrl").
+-include("emqx_s3.hrl").
 
 -export([
     start_link/2,
@@ -377,10 +377,10 @@ stop_http_pool(ProfileId, PoolName) ->
     ok = ?tp(debug, "s3_stop_http_pool", #{pool_name => PoolName}).
 
 do_start_http_pool(PoolName, HttpConfig) ->
-    ?SLOG(warning, #{msg => "s3_start_http_pool", pool_name => PoolName, config => HttpConfig}),
+    ?SLOG(debug, #{msg => "s3_starting_http_pool", pool_name => PoolName, config => HttpConfig}),
     case ehttpc_sup:start_pool(PoolName, HttpConfig) of
         {ok, _} ->
-            ?SLOG(warning, #{msg => "s3_start_http_pool_success", pool_name => PoolName}),
+            ?SLOG(info, #{msg => "s3_start_http_pool_success", pool_name => PoolName}),
             ok;
         {error, _} = Error ->
             ?SLOG(error, #{msg => "s3_start_http_pool_fail", pool_name => PoolName, error => Error}),
