@@ -585,8 +585,8 @@ t_auto_restart_interval(Config) ->
                     Config
                 )
             ),
-            ?block_until(#{?snk_kind := resource_disconnected_enter}),
-            ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500)
+            {ok, _} = ?block_until(#{?snk_kind := resource_disconnected_enter}),
+            {ok, _} = ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500)
         end,
         fun(Trace0) ->
             Trace = ?of_kind(resource_auto_reconnect, Trace0),
@@ -620,8 +620,8 @@ t_auto_restart_interval(Config) ->
                     Config
                 )
             ),
-            ?block_until(#{?snk_kind := resource_disconnected_enter}),
-            ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500)
+            {ok, _} = ?block_until(#{?snk_kind := resource_disconnected_enter}),
+            ?assertEqual(timeout, ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500))
         end,
         fun(Trace0) ->
             Trace = ?of_kind(resource_auto_reconnect, Trace0),
