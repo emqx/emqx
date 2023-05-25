@@ -389,8 +389,10 @@ handle_event(state_timeout, health_check, connected, Data) ->
 %% State: DISCONNECTED
 handle_event(enter, _OldState, disconnected = State, Data) ->
     ok = log_state_consistency(State, Data),
+    ?tp(resource_disconnected_enter, #{}),
     {keep_state_and_data, retry_actions(Data)};
 handle_event(state_timeout, auto_retry, disconnected, Data) ->
+    ?tp(resource_auto_reconnect, #{}),
     start_resource(Data, undefined);
 %% State: STOPPED
 %% The stopped state is entered after the resource has been explicitly stopped
