@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(SUITE, ?MODULE).
 
@@ -46,12 +47,30 @@
 all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
-    net_kernel:start(['master@127.0.0.1', longnames]),
+    DistPid =
+        case net_kernel:nodename() of
+            ignored ->
+                %% calling `net_kernel:start' without `epmd'
+                %% running will result in a failure.
+                emqx_common_test_helpers:start_epmd(),
+                {ok, Pid} = net_kernel:start(['master@127.0.0.1', longnames]),
+                ct:pal("start epmd, node name: ~p", [node()]),
+                Pid;
+            _ ->
+                undefined
+        end,
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    Config.
+    [{dist_pid, DistPid} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    DistPid = ?config(dist_pid, Config),
+    case DistPid of
+        Pid when is_pid(Pid) ->
+            net_kernel:stop();
+        _ ->
+            ok
+    end,
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(Case, Config) ->
