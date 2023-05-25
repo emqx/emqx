@@ -64,7 +64,7 @@ jobs:
         changed_files="$(git diff --name-only ${compare_base} HEAD apps/emqx)"
         if [ "$changed_files" = '' ]; then
           echo "nothing changed in apps/emqx, ignored."
-          exit 0
+          #exit 0
         fi
         make ensure-rebar3
         cp rebar3 apps/emqx/
