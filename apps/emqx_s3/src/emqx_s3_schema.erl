@@ -34,11 +34,12 @@ fields(s3) ->
             )},
         {secret_access_key,
             mk(
-                string(),
+                hoconsc:union([string(), function()]),
                 #{
                     desc => ?DESC("secret_access_key"),
                     required => false,
-                    sensitive => true
+                    sensitive => true,
+                    converter => fun secret/2
                 }
             )},
         {bucket,
@@ -141,6 +142,14 @@ desc(s3) ->
     "S3 connection options";
 desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
+
+secret(undefined, #{}) ->
+    undefined;
+secret(Secret, #{make_serializable := true}) ->
+    unicode:characters_to_binary(emqx_secret:unwrap(Secret));
+secret(Secret, #{}) ->
+    _ = is_binary(Secret) orelse throw({expected_type, string}),
+    emqx_secret:wrap(unicode:characters_to_list(Secret)).
 
 translate(Conf) ->
     translate(Conf, #{}).

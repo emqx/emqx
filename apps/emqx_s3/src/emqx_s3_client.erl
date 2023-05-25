@@ -60,7 +60,7 @@
     acl := emqx_s3:acl() | undefined,
     url_expire_time := pos_integer(),
     access_key_id := string() | undefined,
-    secret_access_key := string() | undefined,
+    secret_access_key := emqx_secret:t(string()) | undefined,
     http_pool := http_pool(),
     pool_type := pool_type(),
     request_timeout := timeout() | undefined,
@@ -230,7 +230,7 @@ aws_config(#{
         s3_bucket_after_host = true,
 
         access_key_id = AccessKeyId,
-        secret_access_key = SecretAccessKey,
+        secret_access_key = emqx_secret:unwrap(SecretAccessKey),
 
         http_client = request_fun(
             HttpPool, PoolType, with_default(MaxRetries, ?DEFAULT_MAX_RETRIES)
