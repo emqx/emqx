@@ -1390,18 +1390,20 @@ t_inconsistent_webhook_request_timeouts(Config) ->
                 <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
             }
         ),
-    {ok, 201, #{
-        <<"request_timeout">> := <<"1s">>,
-        <<"resource_opts">> := ResourceOpts
-    }} =
+    %% root request_timeout is deprecated for bridge.
+    {ok, 201,
+        #{
+            <<"resource_opts">> := ResourceOpts
+        } = Response} =
         request_json(
             post,
             uri(["bridges"]),
             BadBridgeParams,
             Config
         ),
-    ?assertNot(maps:is_key(<<"request_timeout">>, ResourceOpts)),
-    validate_resource_request_timeout(proplists:get_value(group, Config), 1000, Name),
+    ?assertNot(maps:is_key(<<"request_timeout">>, Response)),
+    ?assertMatch(#{<<"request_timeout">> := <<"2s">>}, ResourceOpts),
+    validate_resource_request_timeout(proplists:get_value(group, Config), 2000, Name),
     ok.
 
 t_cluster_later_join_metrics(Config) ->
