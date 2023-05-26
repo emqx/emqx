@@ -242,7 +242,8 @@ pulsar_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_pulsar, pulsar_producer)),
                 #{
                     desc => <<"Pulsar Producer Bridge Config">>,
-                    required => false
+                    required => false,
+                    validator => fun emqx_bridge_pulsar:producer_strategy_key_validator/1
                 }
             )}
     ].
