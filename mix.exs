@@ -102,11 +102,11 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp emqx_apps(profile_info, version) do
-    apps = umbrella_apps() ++ enterprise_apps(profile_info)
+    apps = umbrella_apps(profile_info) ++ enterprise_apps(profile_info)
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps() do
+  defp umbrella_apps(profile_info) do
     enterprise_apps = enterprise_umbrella_apps()
 
     "apps/*"
@@ -123,6 +123,15 @@ defmodule EMQXUmbrella.MixProject do
       dep_spec
       |> elem(0)
       |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
+    |> Enum.reject(fn {app, _} ->
+      case profile_info do
+        %{edition_type: :enterprise} ->
+          app == :emqx_telemetry
+
+        _ ->
+          false
+      end
     end)
   end
 

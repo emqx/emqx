@@ -146,7 +146,7 @@ assert_no_excluded_deps() {
         found="$($FIND "$rel_dir" -maxdepth 1 -type d -name "$app-*")"
         if [ -n "${found}" ]; then
             echo "ERROR: ${app} should not be included in ${PROFILE}"
-            echo "ERROR: found ${app}in ${rel_dir}"
+            echo "ERROR: found ${app} in ${rel_dir}"
             exit 1
         fi
     done
