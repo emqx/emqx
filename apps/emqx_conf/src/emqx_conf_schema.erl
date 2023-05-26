@@ -49,7 +49,6 @@
 -define(MERGED_CONFIGS, [
     emqx_bridge_schema,
     emqx_retainer_schema,
-    emqx_statsd_schema,
     emqx_authn_schema,
     emqx_authz_schema,
     emqx_auto_subscribe_schema,

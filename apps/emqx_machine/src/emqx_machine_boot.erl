@@ -134,7 +134,6 @@ basic_reboot_apps() ->
                 emqx_dashboard,
                 emqx_connector,
                 emqx_gateway,
-                emqx_statsd,
                 emqx_resource,
                 emqx_rule_engine,
                 emqx_bridge,

@@ -431,7 +431,6 @@ relx_apps(ReleaseType, Edition) ->
             emqx_management,
             emqx_dashboard,
             emqx_retainer,
-            emqx_statsd,
             emqx_prometheus,
             emqx_psk,
             emqx_slow_subs,
