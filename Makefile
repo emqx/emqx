@@ -297,4 +297,4 @@ fmt: $(REBAR)
 
 .PHONY: clean-test-cluster-config
 clean-test-cluster-config:
-	@rm apps/emqx_conf/data/configs/cluster.hocon || true
+	@rm -f apps/emqx_conf/data/configs/cluster.hocon || true
