@@ -175,7 +175,7 @@ t_sync_query_simple(Config) ->
         fun(Result) ->
             ?assertEqual(ok, element(1, Result))
         end,
-    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck).
+    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query).
 
 t_async_query(Config) ->
     DeviceId = iotdb_device(Config),
@@ -185,7 +185,9 @@ t_async_query(Config) ->
         fun(Result) ->
             ?assertEqual(ok, element(1, Result))
         end,
-    emqx_bridge_testlib:t_async_query(Config, MakeMessageFun, IsSuccessCheck).
+    emqx_bridge_testlib:t_async_query(
+        Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query_async
+    ).
 
 t_sync_query_aggregated(Config) ->
     DeviceId = iotdb_device(Config),
@@ -212,7 +214,7 @@ t_sync_query_aggregated(Config) ->
         fun(Result) ->
             ?assertEqual(ok, element(1, Result))
         end,
-    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck).
+    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query).
 
 t_sync_query_fail(Config) ->
     DeviceId = iotdb_device(Config),
@@ -222,7 +224,7 @@ t_sync_query_fail(Config) ->
         fun(Result) ->
             ?assertEqual(error, element(1, Result))
         end,
-    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck).
+    emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query).
 
 t_create_via_http(Config) ->
     emqx_bridge_testlib:t_create_via_http(Config).

@@ -72,7 +72,7 @@ on_start(InstanceId, Config) ->
                 instance_id => InstanceId,
                 request => maps:get(request, State, <<>>)
             }),
-            ?tp(iotdb_bridge_started, #{}),
+            ?tp(iotdb_bridge_started, #{instance_id => InstanceId}),
             {ok, maps:merge(Config, State)};
         {error, Reason} ->
             ?SLOG(error, #{
@@ -104,6 +104,7 @@ on_get_status(InstanceId, State) ->
     | {ok, pos_integer(), [term()]}
     | {error, term()}.
 on_query(InstanceId, {send_message, Message}, State) ->
+    ?tp(iotdb_bridge_on_query, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
         msg => "iotdb_bridge_on_query_called",
         instance_id => InstanceId,
@@ -124,6 +125,7 @@ on_query(InstanceId, {send_message, Message}, State) ->
 -spec on_query_async(manager_id(), {send_message, map()}, {function(), [term()]}, state()) ->
     {ok, pid()} | {error, empty_request}.
 on_query_async(InstanceId, {send_message, Message}, ReplyFunAndArgs0, State) ->
+    ?tp(iotdb_bridge_on_query_async, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
         msg => "iotdb_bridge_on_query_async_called",
         instance_id => InstanceId,
