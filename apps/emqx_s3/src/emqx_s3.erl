@@ -44,7 +44,7 @@
 -type profile_config() :: #{
     bucket := string(),
     access_key_id => string(),
-    secret_access_key => string(),
+    secret_access_key => emqx_secret:t(string()),
     host := string(),
     port := pos_integer(),
     url_expire_time := pos_integer(),
