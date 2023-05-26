@@ -191,14 +191,19 @@ t_sync_query_aggregated(Config) ->
     DeviceId = iotdb_device(Config),
     Payload = [
         make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "36"),
-        (make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "37"))#{timestamp => <<"mow_us">>},
-        (make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "38"))#{timestamp => <<"mow_ns">>},
+        (make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "37"))#{timestamp => <<"now_us">>},
+        (make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "38"))#{timestamp => <<"now_ns">>},
+        (make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "38"))#{
+            timestamp => <<"1685112026296">>
+        },
         make_iotdb_payload(DeviceId, "charged", <<"BOOLEAN">>, "1"),
         make_iotdb_payload(DeviceId, "stoked", <<"BOOLEAN">>, "true"),
         make_iotdb_payload(DeviceId, "enriched", <<"BOOLEAN">>, <<"TRUE">>),
+        make_iotdb_payload(DeviceId, "gutted", <<"BOOLEAN">>, <<"True">>),
         make_iotdb_payload(DeviceId, "drained", <<"BOOLEAN">>, "0"),
         make_iotdb_payload(DeviceId, "dazzled", <<"BOOLEAN">>, "false"),
         make_iotdb_payload(DeviceId, "unplugged", <<"BOOLEAN">>, <<"FALSE">>),
+        make_iotdb_payload(DeviceId, "unraveled", <<"BOOLEAN">>, <<"False">>),
         make_iotdb_payload(DeviceId, "weight", <<"FLOAT">>, "87.3"),
         make_iotdb_payload(DeviceId, "foo", <<"TEXT">>, <<"bar">>)
     ],
