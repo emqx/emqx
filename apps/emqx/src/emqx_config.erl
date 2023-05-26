@@ -855,4 +855,4 @@ maybe_update_zone([RootName | _T] = Path, Value) ->
 
 -spec zone_roots() -> [atom()].
 zone_roots() ->
-    lists:map(fun atom/1, emqx_zone_schema:roots()).
+    lists:map(fun list_to_atom/1, emqx_zone_schema:roots()).

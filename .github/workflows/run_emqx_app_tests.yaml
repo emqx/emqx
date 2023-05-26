@@ -76,5 +76,5 @@ jobs:
     - uses: actions/upload-artifact@v3
       if: failure()
       with:
-        name: logs
+        name: logs-${{ matrix.runs-on }}
         path: apps/emqx/_build/test/logs
