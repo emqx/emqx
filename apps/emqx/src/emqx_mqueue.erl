@@ -129,7 +129,7 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
     #mqueue{
         max_len = MaxLen,
         store_qos0 = Qos0,
-        p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
+        p_table = p_table(get_opt(priorities, Opts, ?NO_PRIORITY_TABLE)),
         default_p = get_priority_opt(Opts),
         shift_opts = get_shift_opt(Opts)
     }.
@@ -295,3 +295,18 @@ get_shift_opt(Opts) ->
         multiplier = Mult,
         base = Base
     }.
+
+%% topic from mqtt.mqueue_priorities(map()) is atom.
+p_table(PTab = #{}) ->
+    maps:fold(
+        fun
+            (Topic, Priority, Acc) when is_atom(Topic) ->
+                maps:put(atom_to_binary(Topic), Priority, Acc);
+            (Topic, Priority, Acc) when is_binary(Topic) ->
+                maps:put(Topic, Priority, Acc)
+        end,
+        #{},
+        PTab
+    );
+p_table(PTab) ->
+    PTab.

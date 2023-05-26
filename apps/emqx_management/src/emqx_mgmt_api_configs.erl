@@ -132,7 +132,7 @@ schema("/configs/global_zone") ->
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(update_globar_zone_configs),
+            description => ?DESC(update_global_zone_configs),
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
@@ -146,7 +146,7 @@ schema("/configs/limiter") ->
         'operationId' => limiter,
         get => #{
             tags => ?TAGS,
-            description => ?DESC(get_node_level_limiter_congigs),
+            description => ?DESC(get_node_level_limiter_configs),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
@@ -154,7 +154,7 @@ schema("/configs/limiter") ->
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(update_node_level_limiter_congigs),
+            description => ?DESC(update_node_level_limiter_configs),
             'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
@@ -356,4 +356,4 @@ global_zone_roots() ->
     lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
-    emqx_zone_schema:zone_without_hidden().
+    emqx_zone_schema:global_zone_with_default().
