@@ -196,7 +196,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_conf:remove_handler([telemetry]).
+    emqx_telemetry_config:on_server_stop().
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
