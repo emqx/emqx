@@ -145,6 +145,16 @@ just_compile() {
     make_docs
 }
 
+just_compile_elixir() {
+    ./scripts/pre-compile.sh "$PROFILE"
+    rm -f rebar.lock
+    # shellcheck disable=SC1010
+    env MIX_ENV="$PROFILE" mix do local.hex --if-missing --force, \
+        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
+        deps.get
+    env MIX_ENV="$PROFILE" mix compile
+}
+
 make_rel() {
     local release_or_tar="${1}"
     just_compile
@@ -395,7 +405,11 @@ log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
     apps)
-        just_compile
+        if [ "${IS_ELIXIR:-}" = "yes" ]; then
+            just_compile_elixir
+        else
+            just_compile
+        fi
         ;;
     doc|docs)
         make_docs

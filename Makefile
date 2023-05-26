@@ -159,6 +159,10 @@ compile: $(PROFILES:%=compile-%)
 $(PROFILES:%=compile-%):
 	@$(BUILD) $(@:compile-%=%) apps
 
+.PHONY: $(PROFILES:%=compile-%-elixir)
+$(PROFILES:%=compile-%-elixir):
+	@env IS_ELIXIR=yes $(BUILD) $(@:compile-%-elixir=%) apps
+
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
 ## 2. it's slow
