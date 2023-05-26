@@ -24,6 +24,7 @@
 -export([stop_port_apps/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
+-dialyzer({no_match, [basic_reboot_apps_edition/1]}).
 
 -ifdef(TEST).
 -export([sorted_reboot_apps/1, reboot_apps/0]).
