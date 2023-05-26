@@ -30,7 +30,7 @@
 roots() -> ["telemetry"].
 
 fields("telemetry") ->
-    [{enable, ?HOCON(boolean(), #{default => true, desc => ?DESC("enable")})}].
+    [{enable, ?HOCON(boolean(), #{required => false, desc => ?DESC("enable")})}].
 
 desc("telemetry") ->
     ?DESC("telemetry_root_doc");
