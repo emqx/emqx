@@ -756,7 +756,14 @@ format_bridge_info([FirstBridge | _] = Bridges) ->
     }).
 
 format_bridge_metrics(Bridges) ->
-    NodeMetrics = collect_metrics(Bridges),
+    FilteredBridges = lists:filter(
+        fun
+            ({_Node, Metric}) when is_map(Metric) -> true;
+            (_) -> false
+        end,
+        Bridges
+    ),
+    NodeMetrics = collect_metrics(FilteredBridges),
     #{
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics
