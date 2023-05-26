@@ -157,6 +157,31 @@ t_traces(_Config) ->
     %% traces delete  <Name>                   # Delete trace in cluster
     ok.
 
+t_traces_client(_Config) ->
+    TraceC = "TraceNameClientID",
+    emqx_ctl:run_command(["traces", "start", TraceC, "client", "ClientID"]),
+    emqx_ctl:run_command(["traces", "stop", TraceC]),
+    emqx_ctl:run_command(["traces", "delete", TraceC]).
+
+t_traces_client_with_duration(_Config) ->
+    TraceC = "TraceNameClientID",
+    Duration = "1000",
+    emqx_ctl:run_command(["traces", "start", TraceC, "client", "ClientID", Duration]),
+    emqx_ctl:run_command(["traces", "stop", TraceC]),
+    emqx_ctl:run_command(["traces", "delete", TraceC]).
+
+t_traces_topic(_Config) ->
+    TraceT = "TraceNameTopic",
+    emqx_ctl:run_command(["traces", "start", TraceT, "topic", "a/b"]),
+    emqx_ctl:run_command(["traces", "stop", TraceT]),
+    emqx_ctl:run_command(["traces", "delete", TraceT]).
+
+t_traces_ip(_Config) ->
+    TraceI = "TraceNameIP",
+    emqx_ctl:run_command(["traces", "start", TraceI, "ip_address", "127.0.0.1"]),
+    emqx_ctl:run_command(["traces", "stop", TraceI]),
+    emqx_ctl:run_command(["traces", "delete", TraceI]).
+
 t_listeners(_Config) ->
     %% listeners                      # List listeners
     emqx_ctl:run_command(["listeners"]),
