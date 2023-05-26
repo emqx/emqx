@@ -133,15 +133,24 @@ t_log(_Config) ->
 t_global_zone(_Config) ->
     {ok, Zones} = get_global_zone(),
     ZonesKeys = lists:map(
-        fun({K, _}) -> list_to_binary(K) end, emqx_zone_schema:zone_without_hidden()
+        fun({K, _}) -> list_to_binary(K) end, emqx_zone_schema:global_zone_with_default()
     ),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(
         emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
         emqx_utils_maps:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)
     ),
-    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
-    {ok, #{}} = update_global_zone(NewZones),
+    NewZones1 = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
+    NewZones2 = emqx_utils_maps:deep_remove([<<"mqtt">>, <<"peer_cert_as_clientid">>], NewZones1),
+    {ok, #{<<"mqtt">> := Res}} = update_global_zone(NewZones2),
+    %% Make sure peer_cert_as_clientid is not removed(fill default)
+    ?assertMatch(
+        #{
+            <<"max_qos_allowed">> := 1,
+            <<"peer_cert_as_clientid">> := <<"disabled">>
+        },
+        Res
+    ),
     ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
     %% Make sure the override config is updated, and remove the default value.
     ?assertMatch(#{<<"max_qos_allowed">> := 1}, read_conf(<<"mqtt">>)),
@@ -184,9 +193,11 @@ update_global_zone(Change) ->
 t_zones(_Config) ->
     {ok, Zones} = get_config("zones"),
     {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
-    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1}),
+    Mqtt1 = maps:remove(<<"max_subscriptions">>, OldMqtt),
+    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1#{<<"mqtt">> => Mqtt1}}),
     NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
-    ?assertEqual(OldMqtt, NewMqtt),
+    %% we remove max_subscription from global zone, so the new zone should not have it.
+    ?assertEqual(Mqtt1, NewMqtt),
     %% delete the new zones
     {ok, #{}} = update_config("zones", Zones),
     ?assertEqual(undefined, emqx_config:get_raw([new_zone, mqtt], undefined)),
