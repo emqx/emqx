@@ -23,6 +23,7 @@ DevOps
 Dialyzer
 Diffie
 EIP
+EMQ
 EMQX
 EPMD
 ERL
