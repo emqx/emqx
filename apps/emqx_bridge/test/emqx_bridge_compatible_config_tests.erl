@@ -65,15 +65,13 @@ webhook_config_test() ->
                 <<"the_name">> :=
                     #{
                         <<"method">> := get,
-                        <<"request_timeout">> := RequestTime,
                         <<"resource_opts">> := ResourceOpts,
                         <<"body">> := <<"${payload}">>
                     }
             }
         }
     } = check(Conf3),
-    ?assertEqual(60_000, RequestTime),
-    ?assertMatch(#{<<"request_timeout">> := 60_000}, ResourceOpts),
+    ?assertMatch(#{<<"request_timeout">> := infinity}, ResourceOpts),
     ok.
 
 up(#{<<"bridges">> := Bridges0} = Conf0) ->
@@ -196,7 +194,7 @@ full_webhook_v5019_hocon() ->
     "      pool_type = \"random\"\n"
     "      request_timeout = \"1m\"\n"
     "      resource_opts = {\n"
-    "        request_timeout = \"7s\"\n"
+    "        request_timeout = \"infinity\"\n"
     "      }\n"
     "      ssl {\n"
     "        ciphers = \"\"\n"

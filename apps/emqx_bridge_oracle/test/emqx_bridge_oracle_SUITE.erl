@@ -14,7 +14,7 @@
 
 -define(BRIDGE_TYPE_BIN, <<"oracle">>).
 -define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_oracle, emqx_bridge_oracle]).
--define(DATABASE, "XE").
+-define(SID, "XE").
 -define(RULE_TOPIC, "mqtt/rule").
 % -define(RULE_TOPIC_BIN, <<?RULE_TOPIC>>).
 
@@ -196,7 +196,6 @@ oracle_config(TestCase, _ConnectionType, Config) ->
         io_lib:format(
             "bridges.oracle.~s {\n"
             "  enable = true\n"
-            "  database = \"~s\"\n"
             "  sid = \"~s\"\n"
             "  server = \"~s\"\n"
             "  username = \"system\"\n"
@@ -215,8 +214,7 @@ oracle_config(TestCase, _ConnectionType, Config) ->
             "}\n",
             [
                 Name,
-                ?DATABASE,
-                ?DATABASE,
+                ?SID,
                 ServerURL,
                 sql_insert_template_for_bridge()
             ]

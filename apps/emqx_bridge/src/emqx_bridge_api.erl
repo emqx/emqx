@@ -760,7 +760,14 @@ format_bridge_info([FirstBridge | _] = Bridges) ->
     }).
 
 format_bridge_metrics(Bridges) ->
-    NodeMetrics = collect_metrics(Bridges),
+    FilteredBridges = lists:filter(
+        fun
+            ({_Node, Metric}) when is_map(Metric) -> true;
+            (_) -> false
+        end,
+        Bridges
+    ),
+    NodeMetrics = collect_metrics(FilteredBridges),
     #{
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics
@@ -919,9 +926,6 @@ fill_defaults(Type, RawConf) ->
 pack_bridge_conf(Type, RawConf) ->
     #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-%% Hide webhook's resource_opts.request_timeout from user.
-filter_raw_conf(<<"webhook">>, RawConf0) ->
-    emqx_utils_maps:deep_remove([<<"resource_opts">>, <<"request_timeout">>], RawConf0);
 filter_raw_conf(_TypeBin, RawConf) ->
     RawConf.
 
