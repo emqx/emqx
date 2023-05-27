@@ -1,0 +1,8 @@
+emqx_telemetry_schema {
+telemetry_root_doc.desc:
+"""配置 EMQX 节点向EMQ 的遥测服务器发送要测数据。
+详情请参考 https://www.emqx.io/docs/zh/v5.0/telemetry/telemetry.html。"""
+
+enable.desc:
+"""设置为 `false` 可以关闭数据发送。"""
+}

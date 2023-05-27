@@ -131,8 +131,25 @@ make_docs() {
          halt(0)."
 }
 
-assert_no_compile_time_only_deps() {
-    :
+## arg1 is the profile for which the following args (as app names) should be excluded
+assert_no_excluded_deps() {
+    local profile="$1"
+    shift 1
+    if [ "$PROFILE" != "$profile" ]; then
+        # not currently building the profile which has apps to be excluded
+        return 0
+    fi
+    local rel_dir="_build/$PROFILE/rel/emqx/lib"
+    local excluded_apps=( "$@" )
+    local found
+    for app in "${excluded_apps[@]}"; do
+        found="$($FIND "$rel_dir" -maxdepth 1 -type d -name "$app-*")"
+        if [ -n "${found}" ]; then
+            echo "ERROR: ${app} should not be included in ${PROFILE}"
+            echo "ERROR: found ${app} in ${rel_dir}"
+            exit 1
+        fi
+    done
 }
 
 just_compile() {
@@ -150,20 +167,20 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_compile_time_only_deps
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 make_elixir_rel() {
-  ./scripts/pre-compile.sh "$PROFILE"
-  export_elixir_release_vars "$PROFILE"
-  # for some reason, this has to be run outside "do"...
-  mix local.rebar --if-missing --force
-  # shellcheck disable=SC1010
-  mix do local.hex --if-missing --force, \
-      local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
-      deps.get
-  mix release --overwrite
-  assert_no_compile_time_only_deps
+    ./scripts/pre-compile.sh "$PROFILE"
+    export_elixir_release_vars "$PROFILE"
+    # for some reason, this has to be run outside "do"...
+    mix local.rebar --if-missing --force
+    # shellcheck disable=SC1010
+    mix do local.hex --if-missing --force, \
+        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
+        deps.get
+    mix release --overwrite
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup

@@ -149,7 +149,7 @@ basic_reboot_apps() ->
             ],
     case emqx_release:edition() of
         ce ->
-            CE;
+            CE ++ [emqx_telemetry];
         ee ->
             CE ++
                 [

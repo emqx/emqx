@@ -485,7 +485,7 @@ relx_apps_per_edition(ee) ->
         emqx_ft
     ];
 relx_apps_per_edition(ce) ->
-    [].
+    [emqx_telemetry].
 
 relx_overlay(ReleaseType, Edition) ->
     [
@@ -514,8 +514,8 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
     ] ++ etc_overlay(ReleaseType, Edition).
 
-etc_overlay(ReleaseType, Edition) ->
-    Templates = emqx_etc_overlay(ReleaseType, Edition),
+etc_overlay(ReleaseType, _Edition) ->
+    Templates = emqx_etc_overlay(ReleaseType),
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
@@ -529,24 +529,16 @@ etc_overlay(ReleaseType, Edition) ->
             Templates
         ).
 
-emqx_etc_overlay(ReleaseType, Edition) ->
+emqx_etc_overlay(ReleaseType) ->
     emqx_etc_overlay_per_rel(ReleaseType) ++
-        emqx_etc_overlay_per_edition(Edition) ++
-        emqx_etc_overlay_common().
+        emqx_etc_overlay().
 
 emqx_etc_overlay_per_rel(cloud) ->
     [{"{{base_dir}}/lib/emqx/etc/vm.args.cloud", "etc/vm.args"}].
 
-emqx_etc_overlay_common() ->
-    [{"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}].
-
-emqx_etc_overlay_per_edition(ce) ->
+emqx_etc_overlay() ->
     [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
-    ];
-emqx_etc_overlay_per_edition(ee) ->
-    [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx-enterprise.conf.all", "etc/emqx-enterprise.conf"},
+        {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
         {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 

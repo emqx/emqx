@@ -7,7 +7,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 PROJ_ROOT="$(pwd)"
 
 if [ -z "${1:-}" ]; then
-    SCHEMA="${PROJ_ROOT}/_build/emqx/lib/emqx_dashboard/priv/www/static/schema.json"
+    SCHEMA="${PROJ_ROOT}/_build/docgen/emqx/schema-en.json"
 else
     SCHEMA="$(realpath "$1")"
 fi

@@ -1,0 +1,8 @@
+emqx_telemetry_schema {
+telemetry_root_doc.desc:
+"""Configure telemetry data report from this EMQX node to EMQ's telemetry data collection server.
+See https://www.emqx.io/docs/en/v5.0/telemetry/telemetry.html for more details."""
+
+enable.desc:
+"""Set to `false` disable telemetry data report"""
+}

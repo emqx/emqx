@@ -232,11 +232,12 @@ render_and_load_app_config(App, Opts) ->
     try
         do_render_app_config(App, Schema, Conf, Opts)
     catch
+        throw:skip ->
+            ok;
         throw:E:St ->
             %% turn throw into error
             error({Conf, E, St})
     end.
-
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
     %% copy acl_conf must run before read_schema_configs
     copy_acl_conf(),
@@ -318,6 +319,7 @@ render_config_file(ConfigFile, Vars0) ->
     Temp =
         case file:read_file(ConfigFile) of
             {ok, T} -> T;
+            {error, enoent} -> throw(skip);
             {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
         end,
     Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],

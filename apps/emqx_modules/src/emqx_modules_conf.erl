@@ -28,9 +28,7 @@
 -export([
     topic_metrics/0,
     add_topic_metrics/1,
-    remove_topic_metrics/1,
-    is_telemetry_enabled/0,
-    set_telemetry_status/1
+    remove_topic_metrics/1
 ]).
 
 %% config handlers
@@ -45,12 +43,10 @@
 
 -spec load() -> ok.
 load() ->
-    emqx_conf:add_handler([topic_metrics], ?MODULE),
-    emqx_conf:add_handler([telemetry], ?MODULE).
+    emqx_conf:add_handler([topic_metrics], ?MODULE).
 
 -spec unload() -> ok.
 unload() ->
-    emqx_conf:remove_handler([telemetry]),
     emqx_conf:remove_handler([topic_metrics]).
 
 %%--------------------------------------------------------------------
@@ -82,18 +78,6 @@ remove_topic_metrics(Topic) ->
         {error, Reason} -> {error, Reason}
     end.
 
--spec is_telemetry_enabled() -> boolean().
-is_telemetry_enabled() ->
-    IsOfficial = emqx_telemetry:official_version(emqx_release:version()),
-    emqx_conf:get([telemetry, enable], IsOfficial).
-
--spec set_telemetry_status(boolean()) -> ok | {error, term()}.
-set_telemetry_status(Status) ->
-    case cfg_update([telemetry], set_telemetry_status, Status) of
-        {ok, _} -> ok;
-        {error, _} = Error -> Error
-    end.
-
 %%--------------------------------------------------------------------
 %%  Config Handler
 %%--------------------------------------------------------------------
@@ -119,9 +103,7 @@ pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
             {ok, RawConf -- [Topic]};
         _ ->
             {error, not_found}
-    end;
-pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
-    {ok, RawConf#{<<"enable">> => Status}}.
+    end.
 
 -spec post_config_update(
     list(atom()),
@@ -153,17 +135,6 @@ post_config_update(
     case emqx_topic_metrics:deregister(Topic) of
         ok -> ok;
         {error, Reason} -> {error, Reason}
-    end;
-post_config_update(
-    _,
-    {set_telemetry_status, Status},
-    _NewConfig,
-    _OldConfig,
-    _AppEnvs
-) ->
-    case Status of
-        true -> emqx_telemetry:enable();
-        false -> emqx_telemetry:disable()
     end.
 
 %%--------------------------------------------------------------------
