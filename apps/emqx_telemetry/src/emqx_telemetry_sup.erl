@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,31 +14,32 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_statsd_proto_v1).
+-module(emqx_telemetry_sup).
 
--behaviour(emqx_bpapi).
+-behaviour(supervisor).
 
--export([
-    introduced_in/0,
+-export([start_link/0]).
 
-    start/1,
-    stop/1,
-    restart/1
-]).
+-export([init/1]).
 
--include_lib("emqx/include/bpapi.hrl").
+-define(SERVER, ?MODULE).
+-define(CHILD(Mod), #{
+    id => Mod,
+    start => {Mod, start_link, []},
+    restart => transient,
+    shutdown => 5000,
+    type => worker,
+    modules => [Mod]
+}).
 
-introduced_in() ->
-    "5.0.0".
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
--spec start([node()]) -> emqx_rpc:multicall_result().
-start(Nodes) ->
-    rpc:multicall(Nodes, emqx_statsd, do_start, [], 5000).
-
--spec stop([node()]) -> emqx_rpc:multicall_result().
-stop(Nodes) ->
-    rpc:multicall(Nodes, emqx_statsd, do_stop, [], 5000).
-
--spec restart([node()]) -> emqx_rpc:multicall_result().
-restart(Nodes) ->
-    rpc:multicall(Nodes, emqx_statsd, do_restart, [], 5000).
+init([]) ->
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 5
+    },
+    ChildSpecs = [?CHILD(emqx_telemetry)],
+    {ok, {SupFlags, ChildSpecs}}.

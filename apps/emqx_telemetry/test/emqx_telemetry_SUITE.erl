@@ -25,12 +25,20 @@
 
 -import(proplists, [get_value/2]).
 
--define(BASE_CONF, #{
+-define(MODULES_CONF, #{
     <<"dealyed">> => <<"true">>,
     <<"max_delayed_messages">> => <<"0">>
 }).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
+
+suite() ->
+    [
+        {timetrap, {minutes, 1}},
+        {repeat, 1}
+    ].
+
+apps() -> [emqx_conf, emqx_retainer, emqx_authn, emqx_authz, emqx_modules, emqx_telemetry].
 
 init_per_suite(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
@@ -42,12 +50,9 @@ init_per_suite(Config) ->
             emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
         end
     ),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
     emqx_gateway_test_utils:load_all_gateway_apps(),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
-        fun set_special_configs/1
-    ),
+    start_apps(),
     Config.
 
 end_per_suite(_Config) ->
@@ -61,7 +66,7 @@ end_per_suite(_Config) ->
     ),
     mnesia:clear_table(cluster_rpc_commit),
     mnesia:clear_table(cluster_rpc_mfa),
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
+    stop_apps(),
     meck:unload(emqx_authz),
     ok.
 
@@ -100,13 +105,9 @@ init_per_testcase(t_get_telemetry, Config) ->
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    {ok, Retainer} = emqx_retainer:start_link(),
     {atomic, ok} = mria:clear_table(emqx_delayed),
     mock_advanced_mqtt_features(),
-    [
-        {retainer, Retainer}
-        | Config
-    ];
+    Config;
 init_per_testcase(t_authn_authz_info, Config) ->
     mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -116,13 +117,13 @@ init_per_testcase(t_authn_authz_info, Config) ->
     create_authz(postgresql),
     Config;
 init_per_testcase(t_enable, Config) ->
-    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
     mock_httpc(),
     Config;
 init_per_testcase(t_send_after_enable, Config) ->
-    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
     mock_httpc(),
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
@@ -172,12 +173,9 @@ init_per_testcase(t_uuid_restored_from_file, Config) ->
 
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
-        fun set_special_configs/1
-    ),
+    stop_apps(),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
+    start_apps(),
     Node = start_slave(n1),
     [
         {n1, Node},
@@ -205,11 +203,9 @@ end_per_testcase(t_get_telemetry, _Config) ->
     meck:unload([httpc, emqx_telemetry]),
     application:stop(emqx_gateway),
     ok;
-end_per_testcase(t_advanced_mqtt_features, Config) ->
-    Retainer = ?config(retainer, Config),
+end_per_testcase(t_advanced_mqtt_features, _Config) ->
     process_flag(trap_exit, true),
     ok = emqx_retainer:clean(),
-    exit(Retainer, kill),
     {ok, _} = emqx_auto_subscribe:update([]),
     ok = emqx_rewrite:update([]),
     {atomic, ok} = mria:clear_table(emqx_delayed),
@@ -228,9 +224,9 @@ end_per_testcase(t_authn_authz_info, _Config) ->
     ),
     ok;
 end_per_testcase(t_enable, _Config) ->
-    meck:unload([httpc, emqx_telemetry]);
+    meck:unload([httpc, emqx_telemetry_config]);
 end_per_testcase(t_send_after_enable, _Config) ->
-    meck:unload([httpc, emqx_telemetry]);
+    meck:unload([httpc, emqx_telemetry_config]);
 end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
     meck:unload(httpc),
     lists:foreach(
@@ -278,10 +274,10 @@ t_node_uuid(_) ->
     Parts = binary:split(UUID, <<"-">>, [global, trim]),
     ?assertEqual(5, length(Parts)),
     {ok, NodeUUID2} = emqx_telemetry:get_node_uuid(),
-    emqx_telemetry:disable(),
-    emqx_telemetry:enable(),
-    emqx_modules_conf:set_telemetry_status(false),
-    emqx_modules_conf:set_telemetry_status(true),
+    emqx_telemetry:stop_reporting(),
+    emqx_telemetry:start_reporting(),
+    emqx_telemetry_config:set_telemetry_status(false),
+    emqx_telemetry_config:set_telemetry_status(true),
     {ok, NodeUUID3} = emqx_telemetry:get_node_uuid(),
     {ok, NodeUUID4} = emqx_telemetry_proto_v1:get_node_uuid(node()),
     ?assertEqual(NodeUUID2, NodeUUID3),
@@ -325,12 +321,9 @@ t_uuid_saved_to_file(_Config) ->
 
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
-        fun set_special_configs/1
-    ),
+    stop_apps(),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
+    start_apps(),
     {ok, NodeUUID} = emqx_telemetry:get_node_uuid(),
     {ok, ClusterUUID} = emqx_telemetry:get_cluster_uuid(),
     ?assertEqual(
@@ -343,30 +336,35 @@ t_uuid_saved_to_file(_Config) ->
     ),
     ok.
 
-t_official_version(_) ->
-    true = emqx_telemetry:official_version("0.0.0"),
-    true = emqx_telemetry:official_version("1.1.1"),
-    true = emqx_telemetry:official_version("10.10.10"),
-    false = emqx_telemetry:official_version("0.0.0.0"),
-    false = emqx_telemetry:official_version("1.1.a"),
-    true = emqx_telemetry:official_version("0.0-alpha.1"),
-    true = emqx_telemetry:official_version("1.1-alpha.1"),
-    true = emqx_telemetry:official_version("10.10-alpha.10"),
-    false = emqx_telemetry:official_version("1.1-alpha.0"),
-    true = emqx_telemetry:official_version("1.1-beta.1"),
-    true = emqx_telemetry:official_version("1.1-rc.1"),
-    false = emqx_telemetry:official_version("1.1-alpha.a"),
-    true = emqx_telemetry:official_version("5.0.0"),
-    true = emqx_telemetry:official_version("5.0.0-alpha.1"),
-    true = emqx_telemetry:official_version("5.0.0-beta.4"),
-    true = emqx_telemetry:official_version("5.0-rc.1"),
-    true = emqx_telemetry:official_version("5.0.0-rc.1"),
-    false = emqx_telemetry:official_version("5.0.0-alpha.a"),
-    false = emqx_telemetry:official_version("5.0.0-beta.a"),
-    false = emqx_telemetry:official_version("5.0.0-rc.a"),
-    false = emqx_telemetry:official_version("5.0.0-foo"),
-    false = emqx_telemetry:official_version("5.0.0-rc.1-ccdf7920"),
-    ok.
+t_is_official_version(_) ->
+    Is = fun(V) -> is_official_version(V) end,
+    true = lists:all(Is, [
+        "0.0.0",
+        "1.1.1",
+        "10.10.10",
+        "0.0-alpha.1",
+        "1.1-alpha.1",
+        "10.10-alpha.10",
+        "1.1-rc.1",
+        "1.1-beta.1",
+        "5.0.0",
+        "5.0.0-alpha.1",
+        "5.0.0-beta.4",
+        "5.0-rc.1",
+        "5.0.0-rc.1"
+    ]),
+
+    false = lists:any(Is, [
+        "1.1-alpha.a",
+        "1.1-alpha.0",
+        "0.0.0.0",
+        "1.1.a",
+        "5.0.0-alpha.a",
+        "5.0.0-beta.a",
+        "5.0.0-rc.a",
+        "5.0.0-foo",
+        "5.0.0-rc.1-ccdf7920"
+    ]).
 
 t_get_telemetry(_Config) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
@@ -432,23 +430,25 @@ t_num_clients(_Config) ->
         {port, 1883},
         {clean_start, false}
     ]),
-    ?wait_async_action(
+    {{ok, _}, _} = ?wait_async_action(
         {ok, _} = emqtt:connect(Client),
         #{
             ?snk_kind := emqx_stats_setstat,
             count_stat := 'live_connections.count',
             value := 1
-        }
+        },
+        2000
     ),
     {ok, TelemetryData0} = emqx_telemetry:get_telemetry(),
     ?assertEqual(1, get_value(num_clients, TelemetryData0)),
-    ?wait_async_action(
+    {ok, _} = ?wait_async_action(
         ok = emqtt:disconnect(Client),
         #{
             ?snk_kind := emqx_stats_setstat,
             count_stat := 'live_connections.count',
             value := 0
-        }
+        },
+        2000
     ),
     {ok, TelemetryData1} = emqx_telemetry:get_telemetry(),
     ?assertEqual(0, get_value(num_clients, TelemetryData1)),
@@ -485,19 +485,19 @@ t_authn_authz_info(_) ->
     ).
 
 t_enable(_) ->
-    ok = emqx_telemetry:enable(),
-    ok = emqx_telemetry:disable().
+    ok = emqx_telemetry:start_reporting(),
+    ok = emqx_telemetry:stop_reporting().
 
 t_send_after_enable(_) ->
-    ok = emqx_telemetry:disable(),
+    ok = emqx_telemetry:stop_reporting(),
     ok = snabbkaffe:start_trace(),
     try
-        ok = emqx_telemetry:enable(),
+        ok = emqx_telemetry:start_reporting(),
         Timeout = 12_000,
         ?assertMatch(
             {ok, _},
             ?wait_async_action(
-                ok = emqx_telemetry:enable(),
+                ok = emqx_telemetry:start_reporting(),
                 #{?snk_kind := telemetry_data_reported},
                 Timeout
             )
@@ -818,11 +818,10 @@ start_slave(Name) ->
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
                 ekka:join(TestNode),
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-
+                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
                 ok;
             (_App) ->
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
                 ok
         end,
     Opts = #{
@@ -837,7 +836,7 @@ start_slave(Name) ->
         env_handler => Handler,
         load_apps => [gen_rpc, emqx],
         listener_ports => [],
-        apps => [emqx_conf, emqx_modules]
+        apps => [emqx, emqx_conf, emqx_retainer, emqx_modules, emqx_telemetry]
     },
 
     emqx_common_test_helpers:start_slave(Name, Opts).
@@ -861,3 +860,12 @@ leave_cluster() ->
             application:set_env(mria, db_backend, mnesia),
             ekka:leave()
     end.
+
+is_official_version(V) ->
+    emqx_telemetry_config:is_official_version(V).
+
+start_apps() ->
+    emqx_common_test_helpers:start_apps(apps(), fun set_special_configs/1).
+
+stop_apps() ->
+    emqx_common_test_helpers:stop_apps(lists:reverse(apps())).

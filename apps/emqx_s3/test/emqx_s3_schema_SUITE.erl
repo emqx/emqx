@@ -49,7 +49,7 @@ t_full_config(_Config) ->
             host := "s3.us-east-1.endpoint.com",
             min_part_size := 10485760,
             port := 443,
-            secret_access_key := "secret_access_key",
+            secret_access_key := Secret,
             transport_options :=
                 #{
                     connect_timeout := 30000,
@@ -74,7 +74,7 @@ t_full_config(_Config) ->
                             versions := ['tlsv1.2']
                         }
                 }
-        },
+        } when is_function(Secret),
         emqx_s3_schema:translate(#{
             <<"access_key_id">> => <<"access_key_id">>,
             <<"secret_access_key">> => <<"secret_access_key">>,
@@ -123,6 +123,26 @@ t_sensitive_config_hidden(_Config) ->
             },
             % NOTE: this is what Config API handler is doing
             #{obfuscate_sensitive_values => true}
+        )
+    ).
+
+t_sensitive_config_no_leak(_Config) ->
+    ?assertThrow(
+        {emqx_s3_schema, [
+            Error = #{
+                kind := validation_error,
+                path := "s3.secret_access_key",
+                reason := {expected_type, string}
+            }
+        ]} when map_size(Error) == 3,
+        emqx_s3_schema:translate(
+            #{
+                <<"bucket">> => <<"bucket">>,
+                <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+                <<"port">> => 443,
+                <<"access_key_id">> => <<"access_key_id">>,
+                <<"secret_access_key">> => #{<<"1">> => <<"secret_access_key">>}
+            }
         )
     ).
 

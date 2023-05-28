@@ -506,7 +506,17 @@ t_write_failure(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     QueryMode = ?config(query_mode, Config),
-    {ok, _} = create_bridge(Config),
+    {ok, _} = create_bridge(
+        Config,
+        #{
+            <<"resource_opts">> =>
+                #{
+                    <<"auto_restart_interval">> => <<"100ms">>,
+                    <<"resume_interval">> => <<"100ms">>,
+                    <<"health_check_interval">> => <<"100ms">>
+                }
+        }
+    ),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{
         topic => atom_to_binary(?FUNCTION_NAME),
@@ -523,7 +533,9 @@ t_write_failure(Config) ->
                         async ->
                             send_message(Config, SentData)
                     end,
-                    #{?snk_kind := buffer_worker_flush_nack},
+                    #{?snk_kind := Evt} when
+                        Evt =:= buffer_worker_flush_nack orelse
+                            Evt =:= buffer_worker_retry_inflight_failed,
                     10_000
                 )
         end),

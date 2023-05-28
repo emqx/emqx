@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,6 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(APP, emqx_statsd).
--define(STATSD, [statsd]).
--define(SERVER_PARSE_OPTS, #{default_port => 8125}).
+-module(emqx_telemetry_app).
+
+-behaviour(application).
+
+-export([start/2, stop/1]).
+
+start(_StartType, _StartArgs) ->
+    emqx_telemetry_sup:start_link().
+
+stop(_State) ->
+    ok.
+
+%% internal functions

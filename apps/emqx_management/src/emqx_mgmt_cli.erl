@@ -457,7 +457,7 @@ trace(["list"]) ->
     lists:foreach(
         fun(Trace) ->
             #{type := Type, filter := Filter, level := Level, dst := Dst} = Trace,
-            emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Type, Filter, Level, Dst])
+            emqx_ctl:print("Trace(~s=~s, level=~s, destination=~0p)~n", [Type, Filter, Level, Dst])
         end,
         emqx_trace_handler:running()
     );
@@ -514,6 +514,8 @@ trace_off(Type, Filter) ->
 
 %%--------------------------------------------------------------------
 %% @doc Trace Cluster Command
+-define(DEFAULT_TRACE_DURATION, "1800").
+
 traces(["list"]) ->
     {200, List} = emqx_mgmt_api_trace:trace(get, []),
     case List of
@@ -529,7 +531,7 @@ traces(["list"]) ->
                         log_size := LogSize
                     } = Trace,
                     emqx_ctl:print(
-                        "Trace(~s: ~s=~s, ~s, LogSize:~p)~n",
+                        "Trace(~s: ~s=~s, ~s, LogSize:~0p)~n",
                         [Name, Type, maps:get(Type, Trace), Status, LogSize]
                     )
                 end,
@@ -542,7 +544,7 @@ traces(["stop", Name]) ->
 traces(["delete", Name]) ->
     trace_cluster_del(Name);
 traces(["start", Name, Operation, Filter]) ->
-    traces(["start", Name, Operation, Filter, "900"]);
+    traces(["start", Name, Operation, Filter, ?DEFAULT_TRACE_DURATION]);
 traces(["start", Name, Operation, Filter0, DurationS]) ->
     case trace_type(Operation, Filter0) of
         {ok, Type, Filter} -> trace_cluster_on(Name, Type, Filter, DurationS);
@@ -551,22 +553,27 @@ traces(["start", Name, Operation, Filter0, DurationS]) ->
 traces(_) ->
     emqx_ctl:usage([
         {"traces list", "List all cluster traces started"},
-        {"traces start <Name> client <ClientId>", "Traces for a client in cluster"},
-        {"traces start <Name> topic <Topic>", "Traces for a topic in cluster"},
-        {"traces start <Name> ip_address <IPAddr>", "Traces for a IP in cluster"},
-        {"traces stop  <Name>", "Stop trace in cluster"},
-        {"traces delete  <Name>", "Delete trace in cluster"}
+        {"traces start <Name> client <ClientId> [<Duration>]", "Traces for a client in cluster"},
+        {"traces start <Name> topic <Topic> [<Duration>]", "Traces for a topic in cluster"},
+        {"traces start <Name> ip_address <IPAddr> [<Duration>]",
+            "Traces for a client IP in cluster\n"
+            "Trace will start immediately on all nodes, including the core and replicant,\n"
+            "and will end after <Duration> seconds. The default value for <Duration> is "
+            ?DEFAULT_TRACE_DURATION
+            " seconds."},
+        {"traces stop <Name>", "Stop trace in cluster"},
+        {"traces delete <Name>", "Delete trace in cluster"}
     ]).
 
 trace_cluster_on(Name, Type, Filter, DurationS0) ->
+    Now = emqx_trace:now_second(),
     DurationS = list_to_integer(DurationS0),
-    Now = erlang:system_time(second),
     Trace = #{
-        name => list_to_binary(Name),
-        type => atom_to_binary(Type),
-        Type => list_to_binary(Filter),
-        start_at => list_to_binary(calendar:system_time_to_rfc3339(Now)),
-        end_at => list_to_binary(calendar:system_time_to_rfc3339(Now + DurationS))
+        name => bin(Name),
+        type => Type,
+        Type => bin(Filter),
+        start_at => Now,
+        end_at => Now + DurationS
     },
     case emqx_trace:create(Trace) of
         {ok, _} ->
@@ -579,19 +586,19 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
     end.
 
 trace_cluster_del(Name) ->
-    case emqx_trace:delete(list_to_binary(Name)) of
+    case emqx_trace:delete(bin(Name)) of
         ok -> emqx_ctl:print("Del cluster_trace ~s successfully~n", [Name]);
         {error, Error} -> emqx_ctl:print("[error] Del cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
 trace_cluster_off(Name) ->
-    case emqx_trace:update(list_to_binary(Name), false) of
+    case emqx_trace:update(bin(Name), false) of
         ok -> emqx_ctl:print("Stop cluster_trace ~s successfully~n", [Name]);
         {error, Error} -> emqx_ctl:print("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
-trace_type("client", ClientId) -> {ok, clientid, list_to_binary(ClientId)};
-trace_type("topic", Topic) -> {ok, topic, list_to_binary(Topic)};
+trace_type("client", ClientId) -> {ok, clientid, bin(ClientId)};
+trace_type("topic", Topic) -> {ok, topic, bin(Topic)};
 trace_type("ip_address", IP) -> {ok, ip_address, IP};
 trace_type(_, _) -> error.
 

@@ -843,10 +843,10 @@ sysmon_vm_long_schedule.desc:
 sysmon_vm_long_schedule.label:
 """启用长调度监控"""
 
-mqtt_keepalive_backoff.desc:
+mqtt_keepalive_multiplier.desc:
 """EMQX 判定客户端保活超时使用的阈值系数。计算公式为：Keep Alive * Backoff * 2"""
 
-mqtt_keepalive_backoff.label:
+mqtt_keepalive_multiplier.label:
 """保活超时阈值系数"""
 
 force_gc_bytes.desc:

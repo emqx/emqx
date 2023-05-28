@@ -14,34 +14,14 @@
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
     Cfgs = get_all_cfgs("apps/"),
-    IsEnterprise = is_enterprise(),
-    Enterprise =
-        case IsEnterprise of
-            false -> [];
-            true -> [io_lib:nl(), "include emqx-enterprise.conf", io_lib:nl()]
-        end,
     Conf = [
         merge(BaseConf, Cfgs),
-        io_lib:nl(),
-        Enterprise
+        io_lib:nl()
     ],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
-
-    case IsEnterprise of
-        true ->
-            EnterpriseCfgs = get_all_cfgs("lib-ee"),
-            EnterpriseConf = merge(<<"">>, EnterpriseCfgs),
-            ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf);
-        false ->
-            ok
-    end,
     merge_desc_files_per_lang("en"),
     %% TODO: remove this when we have zh translation moved to dashboard package
     merge_desc_files_per_lang("zh").
-
-is_enterprise() ->
-    Profile = os:getenv("PROFILE", "emqx"),
-    nomatch =/= string:find(Profile, "enterprise").
 
 merge(BaseConf, Cfgs) ->
     Confs = [BaseConf | lists:map(fun read_conf/1, Cfgs)],

@@ -144,7 +144,7 @@ list() ->
 list(Enable) ->
     ets:match_object(?TRACE, #?TRACE{enable = Enable, _ = '_'}).
 
--spec create([{Key :: binary(), Value :: binary()}] | #{atom() => binary()}) ->
+-spec create([{Key :: binary(), Value :: any()}] | #{atom() => any()}) ->
     {ok, #?TRACE{}}
     | {error,
         {duplicate_condition, iodata()}

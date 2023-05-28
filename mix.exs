@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.6", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.7", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -102,11 +102,11 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp emqx_apps(profile_info, version) do
-    apps = umbrella_apps() ++ enterprise_apps(profile_info)
+    apps = umbrella_apps(profile_info) ++ enterprise_apps(profile_info)
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps() do
+  defp umbrella_apps(profile_info) do
     enterprise_apps = enterprise_umbrella_apps()
 
     "apps/*"
@@ -123,6 +123,15 @@ defmodule EMQXUmbrella.MixProject do
       dep_spec
       |> elem(0)
       |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
+    |> Enum.reject(fn {app, _} ->
+      case profile_info do
+        %{edition_type: :enterprise} ->
+          app == :emqx_telemetry
+
+        _ ->
+          false
+      end
     end)
   end
 
@@ -303,7 +312,6 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_bridge,
             :emqx_modules,
             :emqx_management,
-            :emqx_statsd,
             :emqx_retainer,
             :emqx_prometheus,
             :emqx_auto_subscribe,
@@ -369,7 +377,6 @@ defmodule EMQXUmbrella.MixProject do
         emqx_management: :permanent,
         emqx_dashboard: :permanent,
         emqx_retainer: :permanent,
-        emqx_statsd: :permanent,
         emqx_prometheus: :permanent,
         emqx_psk: :permanent,
         emqx_slow_subs: :permanent,
@@ -416,7 +423,9 @@ defmodule EMQXUmbrella.MixProject do
           emqx_node_rebalance: :permanent,
           emqx_ft: :permanent
         ],
-        else: []
+        else: [
+          emqx_telemetry: :permanent
+        ]
       )
   end
 
@@ -554,14 +563,6 @@ defmodule EMQXUmbrella.MixProject do
       assigns,
       Path.join(etc, "emqx.conf")
     )
-
-    if edition_type == :enterprise do
-      render_template(
-        "apps/emqx_conf/etc/emqx-enterprise.conf.all",
-        assigns,
-        Path.join(etc, "emqx-enterprise.conf")
-      )
-    end
 
     render_template(
       "rel/emqx_vars",

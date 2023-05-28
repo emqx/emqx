@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,21 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_statsd_app).
+-module(emqx_telemetry_schema).
 
--behaviour(application).
+-include_lib("hocon/include/hoconsc.hrl").
+-include_lib("typerefl/include/types.hrl").
 
--include("emqx_statsd.hrl").
+-behaviour(hocon_schema).
 
 -export([
-    start/2,
-    stop/1
+    roots/0,
+    fields/1,
+    desc/1
 ]).
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_statsd_sup:start_link(),
-    emqx_statsd_config:add_handler(),
-    {ok, Sup}.
-stop(_) ->
-    emqx_statsd_config:remove_handler(),
-    ok.
+roots() -> ["telemetry"].
+
+fields("telemetry") ->
+    [{enable, ?HOCON(boolean(), #{required => false, desc => ?DESC("enable")})}].
+
+desc("telemetry") ->
+    ?DESC("telemetry_root_doc");
+desc(_) ->
+    undefined.

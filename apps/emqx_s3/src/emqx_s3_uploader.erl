@@ -18,7 +18,9 @@
     complete/2,
 
     abort/1,
-    abort/2
+    abort/2,
+
+    shutdown/1
 ]).
 
 -export([
@@ -86,6 +88,11 @@ abort(Pid) ->
 -spec abort(pid(), timeout()) -> ok_or_error(term()).
 abort(Pid, Timeout) ->
     gen_statem:call(Pid, abort, Timeout).
+
+-spec shutdown(pid()) -> ok.
+shutdown(Pid) ->
+    _ = erlang:exit(Pid, shutdown),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks

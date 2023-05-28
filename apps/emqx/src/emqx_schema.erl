@@ -609,7 +609,7 @@ fields("mqtt") ->
             )},
         {"mqueue_priorities",
             sc(
-                hoconsc:union([map(), disabled]),
+                hoconsc:union([disabled, map()]),
                 #{
                     default => disabled,
                     desc => ?DESC(mqtt_mqueue_priorities)
@@ -657,7 +657,7 @@ fields("mqtt") ->
             )}
     ];
 fields("zone") ->
-    emqx_zone_schema:zone();
+    emqx_zone_schema:zones_without_default();
 fields("flapping_detect") ->
     [
         {"enable",

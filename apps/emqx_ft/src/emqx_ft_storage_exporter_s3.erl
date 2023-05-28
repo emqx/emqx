@@ -79,7 +79,7 @@ start_export(_Options, Transfer, Filemeta) ->
 -spec write(export_st(), iodata()) ->
     {ok, export_st()} | {error, term()}.
 write(#{pid := Pid} = ExportSt, IoData) ->
-    case emqx_s3_uploader:write(Pid, IoData) of
+    case emqx_s3_uploader:write(Pid, IoData, emqx_ft_conf:store_segment_timeout()) of
         ok ->
             {ok, ExportSt};
         {error, _Reason} = Error ->
@@ -89,12 +89,13 @@ write(#{pid := Pid} = ExportSt, IoData) ->
 -spec complete(export_st(), emqx_ft:checksum()) ->
     ok | {error, term()}.
 complete(#{pid := Pid} = _ExportSt, _Checksum) ->
-    emqx_s3_uploader:complete(Pid).
+    emqx_s3_uploader:complete(Pid, emqx_ft_conf:assemble_timeout()).
 
 -spec discard(export_st()) ->
     ok.
 discard(#{pid := Pid} = _ExportSt) ->
-    emqx_s3_uploader:abort(Pid).
+    % NOTE: will abort upload asynchronously if needed
+    emqx_s3_uploader:shutdown(Pid).
 
 -spec list(options(), query()) ->
     {ok, page(exportinfo())} | {error, term()}.

@@ -267,8 +267,12 @@ lookup_assembler([Source | Sources]) ->
 
 check_if_already_exported(Storage, Transfer) ->
     case files(Storage, #{transfer => Transfer}) of
-        {ok, #{items := [_ | _]}} -> ok;
-        _ -> {error, not_found}
+        {ok, #{items := [_ | _]}} ->
+            % NOTE: we don't know coverage here, let's just clean up locally.
+            _ = emqx_ft_storage_fs_gc:collect(Storage, Transfer, [node()]),
+            ok;
+        _ ->
+            {error, not_found}
     end.
 
 lookup_local_assembler(Transfer) ->

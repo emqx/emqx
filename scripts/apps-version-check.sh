@@ -30,6 +30,10 @@ for app in ${APPS}; do
     else
         old_app_version='not_found'
     fi
+    if [ ! -f "$src_file" ]; then
+        # app is deleted
+        continue
+    fi
     now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
 
     if [ "$old_app_version" = 'not_found' ]; then

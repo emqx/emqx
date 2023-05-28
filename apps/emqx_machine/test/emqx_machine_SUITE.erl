@@ -48,7 +48,6 @@ init_per_suite(Config) ->
         emqx_modules,
         emqx_dashboard,
         emqx_gateway,
-        emqx_statsd,
         emqx_resource,
         emqx_rule_engine,
         emqx_bridge,
