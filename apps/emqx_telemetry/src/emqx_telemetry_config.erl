@@ -53,7 +53,9 @@ set_telemetry_status(Status) ->
     end.
 
 pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
-    {ok, RawConf#{<<"enable">> => Status}}.
+    {ok, RawConf#{<<"enable">> => Status}};
+pre_config_update(_, NewConf, _OldConf) ->
+    {ok, NewConf}.
 
 post_config_update(
     _,
@@ -65,6 +67,11 @@ post_config_update(
     case Status of
         true -> emqx_telemetry:start_reporting();
         false -> emqx_telemetry:stop_reporting()
+    end;
+post_config_update(_, _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    case NewConf of
+        #{enable := true} -> emqx_telemetry:start_reporting();
+        #{enable := false} -> emqx_telemetry:stop_reporting()
     end.
 
 cfg_update(Path, Action, Params) ->
