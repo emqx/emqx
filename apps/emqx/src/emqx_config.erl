@@ -218,6 +218,9 @@ find_listener_conf(Type, Listener, KeyPath) ->
 
 -spec put(map()) -> ok.
 put(Config) ->
+    put_with_order(Config).
+
+put1(Config) ->
     maps:fold(
         fun(RootName, RootValue, _) ->
             ?MODULE:put([atom(RootName)], RootValue)
@@ -233,10 +236,8 @@ erase(RootName) ->
 
 -spec put(emqx_utils_maps:config_key_path(), term()) -> ok.
 put(KeyPath, Config) ->
-    Putter = fun(Path, Map, Value0) ->
-        Value = emqx_utils_maps:deep_put(Path, Map, Value0),
-        maybe_update_zone(KeyPath, Value0),
-        Value
+    Putter = fun(_Path, Map, Value) ->
+        maybe_update_zone(KeyPath, Map, Value)
     end,
     do_put(?CONF, Putter, KeyPath, Config).
 
@@ -329,7 +330,9 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConf).
+    ok = save_to_config_map(CheckedConf, RawConf),
+    maybe_init_default_zone(),
+    ok.
 
 %% Merge environment variable overrides on top, then merge with overrides.
 overlay_v0(SchemaMod, RawConf) when is_map(RawConf) ->
@@ -586,15 +589,6 @@ save_to_app_env(AppEnvs0) ->
 -spec save_to_config_map(config(), raw_config()) -> ok.
 save_to_config_map(Conf, RawConf) ->
     ?MODULE:put(Conf),
-    try emqx_config:get([zones]) of
-        Zones when is_map(Zones) ->
-            init_default_zone()
-    catch
-        error:{config_not_found, [zones]} ->
-            %% emqx schema is not loaded.
-            %% note, don't trust get_root_names/0
-            skip
-    end,
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
@@ -796,63 +790,121 @@ to_atom_conf_path(Path, OnFail) ->
 %%
 %% note1, this should be called as post action after emqx_config terms (zones, and GlobalDefaults)
 %%       are written in the PV storage during emqx config loading/initialization.
--spec init_default_zone() -> ok.
-init_default_zone() ->
-    Zones =
-        case ?MODULE:get([zones], #{}) of
-            #{default := _DefaultZone} = Z1 ->
-                Z1;
-            Z2 ->
-                Z2#{default => #{}}
-        end,
-    GlobalDefaults = maps:from_list([{K, ?MODULE:get([K])} || K <- zone_roots()]),
-    NewZones = maps:map(
-        fun(_ZoneName, ZoneVal) ->
-            merge_with_global_defaults(ZoneVal, GlobalDefaults)
-        end,
-        Zones
-    ),
-    ?MODULE:put([zones], NewZones).
-
-%% @TODO just use deep merge?
--spec merge_with_global_defaults(map(), map()) -> map().
-merge_with_global_defaults(Val, Defaults) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            case maps:get(K, Acc, ?CONFIG_NOT_FOUND_MAGIC) of
-                ?CONFIG_NOT_FOUND_MAGIC ->
-                    %% Use the value of global default
-                    Acc#{K => V};
-                Override ->
-                    %% Merge with overrides
-                    Acc#{K => emqx_utils_maps:deep_merge(V, Override)}
-            end
-        end,
-        Val,
-        Defaults
-    ).
-
-%% @doc Update zones in case global defaults are changed.
--spec maybe_update_zone(runtime_config_key_path(), Val :: term()) -> skip | ok.
-maybe_update_zone([], _Value) ->
-    skip;
-maybe_update_zone([RootName | _T] = Path, Value) ->
-    case lists:member(RootName, zone_roots()) of
-        false ->
+-spec maybe_init_default_zone() -> skip | ok.
+maybe_init_default_zone() ->
+    case emqx_config:get([zones], ?CONFIG_NOT_FOUND_MAGIC) of
+        ?CONFIG_NOT_FOUND_MAGIC ->
             skip;
-        true ->
-            Zones = ?MODULE:get([zones], #{}),
+        Zones0 when is_map(Zones0) ->
+            Zones =
+                case Zones0 of
+                    #{default := _DefaultZone} = Z1 ->
+                        Z1;
+                    Z2 ->
+                        Z2#{default => #{}}
+                end,
+            GLD = zone_global_defaults(),
             NewZones = maps:map(
                 fun(_ZoneName, ZoneVal) ->
-                    %% @TODO we should not overwrite if it is a user defined value
-                    emqx_utils_maps:deep_put(Path, ZoneVal, Value)
+                    merge_with_global_defaults(GLD, ZoneVal)
                 end,
                 Zones
             ),
-            ?MODULE:put([zones], NewZones),
-            ok
+            ?MODULE:put([zones], NewZones)
     end.
+
+-spec merge_with_global_defaults(map(), map()) -> map().
+merge_with_global_defaults(GlobalDefaults, ZoneVal) ->
+    emqx_utils_maps:deep_merge(GlobalDefaults, ZoneVal).
+
+%% @doc Update zones
+%%    when 1) zone updates, return *new* zones
+%%    when 2) zone global config updates, write to PT directly.
+%% Zone global defaults are always presented in the configmap (PT) when updating zone
+-spec maybe_update_zone(runtime_config_key_path(), RootValue :: map(), Val :: term()) ->
+    NewZoneVal :: map().
+maybe_update_zone([zones | T], ZonesValue, Value) ->
+    %% note, do not write to PT, return *New value* instead
+    NewZonesValue = emqx_utils_maps:deep_put(T, ZonesValue, Value),
+    ExistingZoneNames = maps:keys(?MODULE:get([zones], #{})),
+    %% Update only new zones with global defaults
+    GLD = zone_global_defaults(),
+    maps:fold(
+        fun(ZoneName, ZoneValue, Acc) ->
+            Acc#{ZoneName := merge_with_global_defaults(GLD, ZoneValue)}
+        end,
+        NewZonesValue,
+        maps:without(ExistingZoneNames, NewZonesValue)
+    );
+maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
+    NewRootValue = emqx_utils_maps:deep_put(T, RootValue, Value),
+    case is_zone_root(RootName) of
+        false ->
+            skip;
+        true ->
+            %% When updates on global default roots.
+            ExistingZones = ?MODULE:get([zones], #{}),
+            RootNameBin = atom_to_binary(RootName),
+            NewZones = maps:map(
+                fun(ZoneName, ZoneVal) ->
+                    BinPath = [<<"zones">>, atom_to_binary(ZoneName), RootNameBin],
+                    case
+                        %% look for user defined value from RAWCONF
+                        ?MODULE:get_raw(
+                            BinPath,
+                            ?CONFIG_NOT_FOUND_MAGIC
+                        )
+                    of
+                        ?CONFIG_NOT_FOUND_MAGIC ->
+                            ZoneVal#{RootName => NewRootValue};
+                        RawUserZoneRoot ->
+                            UserDefinedValues = rawconf_to_conf(
+                                emqx_schema, BinPath, RawUserZoneRoot
+                            ),
+                            ZoneVal#{
+                                RootName :=
+                                    emqx_utils_maps:deep_merge(
+                                        NewRootValue,
+                                        UserDefinedValues
+                                    )
+                            }
+                    end
+                end,
+                ExistingZones
+            ),
+            persistent_term:put(?PERSIS_KEY(?CONF, zones), NewZones)
+    end,
+    NewRootValue.
+
+zone_global_defaults() ->
+    maps:from_list([{K, ?MODULE:get([K])} || K <- zone_roots()]).
+
+-spec is_zone_root(atom) -> boolean().
+is_zone_root(Name) ->
+    lists:member(Name, zone_roots()).
 
 -spec zone_roots() -> [atom()].
 zone_roots() ->
     lists:map(fun list_to_atom/1, emqx_zone_schema:roots()).
+
+%%%
+%%% @doc During init, ensure order of puts that zone is put after the other global defaults.
+%%%
+put_with_order(#{zones := _Zones} = Conf) ->
+    put1(maps:without([zones], Conf)),
+    put1(maps:with([zones], Conf));
+put_with_order(Conf) ->
+    put1(Conf).
+
+%%
+%% @doc Helper function that converts raw conf val to runtime conf val
+%%      with the types info from schema module
+-spec rawconf_to_conf(module(), RawPath :: [binary()], RawValue :: term()) -> term().
+rawconf_to_conf(SchemaModule, RawPath, RawValue) ->
+    {_, RawUserDefinedValues} =
+        check_config(
+            SchemaModule,
+            emqx_utils_maps:deep_put(RawPath, #{}, RawValue)
+        ),
+    AtomPath = to_atom_conf_path(RawPath, {raise_error, maybe_update_zone_error}),
+    emqx_utils_maps:deep_get(AtomPath, RawUserDefinedValues).
