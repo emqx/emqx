@@ -1012,6 +1012,25 @@ prop_format_date_fun() ->
     Args3DTUS = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
     Second == apply_func(date_to_unix_ts, Args3DTUS).
 
+t_timezone_to_offset_seconds(_) ->
+    t_timezone_to_offset_seconds_helper(timezone_to_offset_seconds),
+    %% The timezone_to_second function is kept for compatibility with 4.X.
+    t_timezone_to_offset_seconds_helper(timezone_to_second).
+
+t_timezone_to_offset_seconds_helper(FunctionName) ->
+    ?assertEqual(120 * 60, apply_func(FunctionName, [<<"+02:00:00">>])),
+    ?assertEqual(-120 * 60, apply_func(FunctionName, [<<"-02:00:00">>])),
+    ?assertEqual(102, apply_func(FunctionName, [<<"+00:01:42">>])),
+    ?assertEqual(0, apply_func(FunctionName, [<<"z">>])),
+    ?assertEqual(0, apply_func(FunctionName, [<<"Z">>])),
+    ?assertEqual(42, apply_func(FunctionName, [42])),
+    ?assertEqual(0, apply_func(FunctionName, [undefined])),
+    %% Check that the following does not crash
+    apply_func(FunctionName, [<<"local">>]),
+    apply_func(FunctionName, ["local"]),
+    apply_func(FunctionName, [local]),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------
