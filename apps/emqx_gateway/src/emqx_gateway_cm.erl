@@ -33,6 +33,7 @@
 -export([
     open_session/5,
     open_session/6,
+    discard_session/2,
     kick_session/2,
     kick_session/3,
     takeover_session/2,
