@@ -15,8 +15,8 @@ endif
 
 # Dashbord version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.2.4-1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.7-beta.3
+export EMQX_DASHBOARD_VERSION ?= v1.2.5
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.7
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
 # In make 4.4+, for backward-compatibility the value from the original environment is used.

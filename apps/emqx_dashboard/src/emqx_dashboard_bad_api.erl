@@ -21,11 +21,12 @@
 -export([init/2]).
 
 init(Req0, State) ->
-    ?SLOG(warning, #{msg => "unexpected_api_access", request => Req0}),
+    RedactedReq = emqx_utils:redact(Req0),
+    ?SLOG(warning, #{msg => "unexpected_api_access", request => RedactedReq}),
     Req = cowboy_req:reply(
         404,
         #{<<"content-type">> => <<"application/json">>},
         <<"{\"code\": \"API_NOT_EXIST\", \"message\": \"Request Path Not Found\"}">>,
-        Req0
+        RedactedReq
     ),
     {ok, Req, State}.

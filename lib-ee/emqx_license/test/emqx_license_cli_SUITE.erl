@@ -53,3 +53,29 @@ t_update(_Config) ->
     _ = emqx_license_cli:license(["update", LicenseValue]),
     _ = emqx_license_cli:license(["reload"]),
     _ = emqx_license_cli:license(["update", "Invalid License Value"]).
+
+t_conf_update(_Config) ->
+    ok = persistent_term:put(
+        emqx_license_test_pubkey,
+        emqx_license_test_lib:public_key_pem()
+    ),
+    LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "123"}),
+    Conf = #{
+        <<"connection_high_watermark">> => <<"50%">>,
+        <<"connection_low_watermark">> => <<"45%">>,
+        <<"key">> => LicenseKey
+    },
+    ?assertMatch({ok, _}, emqx:update_config([license], Conf)),
+    ?assertEqual(
+        #{
+            connection_high_watermark => 0.5,
+            connection_low_watermark => 0.45,
+            key => LicenseKey
+        },
+        emqx:get_config([license])
+    ),
+    ?assertMatch(
+        #{max_connections := 123},
+        maps:from_list(emqx_license_checker:dump())
+    ),
+    ok.

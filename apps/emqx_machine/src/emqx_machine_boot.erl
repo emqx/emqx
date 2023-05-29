@@ -24,6 +24,7 @@
 -export([stop_port_apps/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
+-dialyzer({no_match, [basic_reboot_apps_edition/1]}).
 
 -ifdef(TEST).
 -export([sorted_reboot_apps/1, reboot_apps/0]).
@@ -126,39 +127,40 @@ reboot_apps() ->
     BaseRebootApps ++ ConfigApps.
 
 basic_reboot_apps() ->
-    CE =
-        ?BASIC_REBOOT_APPS ++
-            [
-                emqx_prometheus,
-                emqx_modules,
-                emqx_dashboard,
-                emqx_connector,
-                emqx_gateway,
-                emqx_resource,
-                emqx_rule_engine,
-                emqx_bridge,
-                emqx_plugin_libs,
-                emqx_management,
-                emqx_retainer,
-                emqx_exhook,
-                emqx_authn,
-                emqx_authz,
-                emqx_slow_subs,
-                emqx_auto_subscribe,
-                emqx_plugins
-            ],
-    case emqx_release:edition() of
-        ce ->
-            CE ++ [emqx_telemetry];
-        ee ->
-            CE ++
-                [
-                    emqx_s3,
-                    emqx_ft,
-                    emqx_eviction_agent,
-                    emqx_node_rebalance
-                ]
-    end.
+    ?BASIC_REBOOT_APPS ++
+        [
+            emqx_prometheus,
+            emqx_modules,
+            emqx_dashboard,
+            emqx_connector,
+            emqx_gateway,
+            emqx_resource,
+            emqx_rule_engine,
+            emqx_bridge,
+            emqx_plugin_libs,
+            emqx_management,
+            emqx_retainer,
+            emqx_exhook,
+            emqx_authn,
+            emqx_authz,
+            emqx_slow_subs,
+            emqx_auto_subscribe,
+            emqx_plugins
+        ] ++ basic_reboot_apps_edition(emqx_release:edition()).
+
+basic_reboot_apps_edition(ce) ->
+    [emqx_telemetry];
+basic_reboot_apps_edition(ee) ->
+    [
+        emqx_license,
+        emqx_s3,
+        emqx_ft,
+        emqx_eviction_agent,
+        emqx_node_rebalance
+    ];
+%% unexcepted edition, should not happen
+basic_reboot_apps_edition(_) ->
+    [].
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],

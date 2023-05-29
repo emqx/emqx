@@ -32,11 +32,12 @@
 -export([
     on_server_start/0,
     on_server_stop/0,
-    is_official_version/1
+    is_official_version/1,
+    is_official_version/0
 ]).
 
 is_enabled() ->
-    IsOfficial = ?MODULE:is_official_version(emqx_release:version()),
+    IsOfficial = ?MODULE:is_official_version(),
     emqx_conf:get([telemetry, enable], IsOfficial).
 
 on_server_start() ->
@@ -53,7 +54,9 @@ set_telemetry_status(Status) ->
     end.
 
 pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
-    {ok, RawConf#{<<"enable">> => Status}}.
+    {ok, RawConf#{<<"enable">> => Status}};
+pre_config_update(_, NewConf, _OldConf) ->
+    {ok, NewConf}.
 
 post_config_update(
     _,
@@ -65,6 +68,11 @@ post_config_update(
     case Status of
         true -> emqx_telemetry:start_reporting();
         false -> emqx_telemetry:stop_reporting()
+    end;
+post_config_update(_, _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    case maps:get(enable, NewConf, ?MODULE:is_official_version()) of
+        true -> emqx_telemetry:start_reporting();
+        false -> emqx_telemetry:stop_reporting()
     end.
 
 cfg_update(Path, Action, Params) ->
@@ -73,6 +81,9 @@ cfg_update(Path, Action, Params) ->
         {Action, Params},
         #{override_to => cluster}
     ).
+
+is_official_version() ->
+    is_official_version(emqx_release:version()).
 
 is_official_version(Version) ->
     Pt = "^\\d+\\.\\d+(?:\\.\\d+)?(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*))?$",

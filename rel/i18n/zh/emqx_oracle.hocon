@@ -12,4 +12,9 @@ emqx_oracle {
     label = "Oracle Database Sid"
   }
 
+  service_name {
+    desc = "Oracle Database 服务名称。"
+    label = "Oracle Database 服务名称"
+  }
+
 }

@@ -417,7 +417,7 @@ do_authorize(
     end.
 
 get_enabled_authzs() ->
-    lists:usort([Type || #{type := Type} <- lookup()]).
+    lists:usort([Type || #{type := Type, enable := true} <- lookup()]).
 
 %%--------------------------------------------------------------------
 %% Internal function

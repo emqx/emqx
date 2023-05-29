@@ -366,7 +366,7 @@ t_get_enabled_authzs_none_enabled(_Config) ->
     ?assertEqual([], emqx_authz:get_enabled_authzs()).
 
 t_get_enabled_authzs_some_enabled(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE4]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE4, ?SOURCE5#{<<"enable">> := false}]),
     ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
 
 t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->

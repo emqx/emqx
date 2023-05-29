@@ -106,7 +106,7 @@ get_enabled_authns() ->
     AuthnTypes = lists:usort([
         Type
      || #{authenticators := As} <- Chains,
-        #{id := Type} <- As
+        #{id := Type, enable := true} <- As
     ]),
     OverriddenListeners =
         lists:foldl(
