@@ -192,14 +192,13 @@ remove(ResId) when is_binary(ResId) ->
 %% @doc Stops a running resource_manager and optionally clears the metrics for the resource
 -spec remove(resource_id(), boolean()) -> ok | {error, Reason :: term()}.
 remove(ResId, ClearMetrics) when is_binary(ResId) ->
-    ResourceManagerPid = gproc:whereis_name(?NAME(ResId)),
     try
         safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION)
     after
         %% Ensure the supervisor has it removed, otherwise the immediate re-add will see a stale process
         %% If the 'remove' call babove had succeeded, this is mostly a no-op but still needed to avoid race condition.
         %% Otherwise this is a 'infinity' shutdown, so it may take arbitrary long.
-        emqx_resource_manager_sup:delete_child(ResourceManagerPid)
+        emqx_resource_manager_sup:delete_child(ResId)
     end.
 
 %% @doc Stops and then starts an instance that was already running

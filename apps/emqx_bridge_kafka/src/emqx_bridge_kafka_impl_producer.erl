@@ -23,6 +23,11 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+%% Allocatable resources
+-define(kafka_resource_id, kafka_resource_id).
+-define(kafka_client_id, kafka_client_id).
+-define(kafka_producers, kafka_producers).
+
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, kafka).
@@ -46,9 +51,11 @@ on_start(InstId, Config) ->
     } = Config,
     BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
     Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
     ClientId = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
+    ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
         connect_timeout => ConnTimeout,
@@ -86,6 +93,7 @@ on_start(InstId, Config) ->
     WolffProducerConfig = producers_config(BridgeName, ClientId, KafkaConfig, IsDryRun),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
+            ok = emqx_resource:allocate_resource(InstId, ?kafka_producers, Producers),
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
                 client_id => ClientId,
@@ -120,28 +128,63 @@ on_start(InstId, Config) ->
             )
     end.
 
-on_stop(_InstanceID, #{client_id := ClientID, producers := Producers, resource_id := ResourceID}) ->
-    _ = with_log_at_error(
-        fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
+on_stop(InstanceId, _State) ->
+    case emqx_resource:get_allocated_resources(InstanceId) of
         #{
-            msg => "failed_to_delete_kafka_producer",
-            client_id => ClientID
-        }
-    ),
-    _ = with_log_at_error(
-        fun() -> wolff:stop_and_delete_supervised_client(ClientID) end,
-        #{
-            msg => "failed_to_delete_kafka_client",
-            client_id => ClientID
-        }
-    ),
-    with_log_at_error(
-        fun() -> uninstall_telemetry_handlers(ResourceID) end,
-        #{
-            msg => "failed_to_uninstall_telemetry_handlers",
-            client_id => ClientID
-        }
-    ).
+            ?kafka_client_id := ClientId,
+            ?kafka_producers := Producers,
+            ?kafka_resource_id := ResourceId
+        } ->
+            _ = with_log_at_error(
+                fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
+                #{
+                    msg => "failed_to_delete_kafka_producer",
+                    client_id => ClientId
+                }
+            ),
+            _ = with_log_at_error(
+                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
+                #{
+                    msg => "failed_to_delete_kafka_client",
+                    client_id => ClientId
+                }
+            ),
+            _ = with_log_at_error(
+                fun() -> uninstall_telemetry_handlers(ResourceId) end,
+                #{
+                    msg => "failed_to_uninstall_telemetry_handlers",
+                    resource_id => ResourceId
+                }
+            ),
+            ok;
+        #{?kafka_client_id := ClientId, ?kafka_resource_id := ResourceId} ->
+            _ = with_log_at_error(
+                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
+                #{
+                    msg => "failed_to_delete_kafka_client",
+                    client_id => ClientId
+                }
+            ),
+            _ = with_log_at_error(
+                fun() -> uninstall_telemetry_handlers(ResourceId) end,
+                #{
+                    msg => "failed_to_uninstall_telemetry_handlers",
+                    resource_id => ResourceId
+                }
+            ),
+            ok;
+        #{?kafka_resource_id := ResourceId} ->
+            _ = with_log_at_error(
+                fun() -> uninstall_telemetry_handlers(ResourceId) end,
+                #{
+                    msg => "failed_to_uninstall_telemetry_handlers",
+                    resource_id => ResourceId
+                }
+            ),
+            ok;
+        _ ->
+            ok
+    end.
 
 on_query(
     _InstId,
