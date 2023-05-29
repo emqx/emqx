@@ -19,9 +19,7 @@ main(_) ->
         io_lib:nl()
     ],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
-    merge_desc_files_per_lang("en"),
-    %% TODO: remove this when we have zh translation moved to dashboard package
-    merge_desc_files_per_lang("zh").
+    merge_desc_files().
 
 merge(BaseConf, Cfgs) ->
     Confs = [BaseConf | lists:map(fun read_conf/1, Cfgs)],
@@ -80,29 +78,17 @@ try_enter_child(Dir, Files, Cfgs) ->
             get_all_cfgs(filename:join([Dir, "src"]), Cfgs)
     end.
 
-%% Desc files merge is for now done locally in emqx.git repo for all languages.
-%% When zh and other languages are moved to a separate repo,
-%% we will only merge the en files.
-%% The file for other languages will be merged in the other repo,
-%% the built as a part of the dashboard package,
-%% finally got pulled at build time as a part of the dashboard package.
-merge_desc_files_per_lang(Lang) ->
+%% Merge English descriptions.
+%% other translations are downloaded in pre-compile.sh
+merge_desc_files() ->
     BaseConf = <<"">>,
-    Cfgs0 = get_all_desc_files(Lang),
-    Conf = do_merge_desc_files_per_lang(BaseConf, Cfgs0),
-    OutputFile = case Lang of
-        "en" ->
-            %% en desc will always be in the priv dir of emqx_dashboard
-             "apps/emqx_dashboard/priv/desc.en.hocon";
-        "zh" ->
-            %% so far we inject zh desc as if it's extracted from dashboard package
-            %% TODO: remove this when we have zh translation moved to dashboard package
-            "apps/emqx_dashboard/priv/www/static/desc.zh.hocon"
-    end,
+    Cfgs0 = get_all_desc_files(),
+    Conf = do_merge_desc_files(BaseConf, Cfgs0),
+    OutputFile = "apps/emqx_dashboard/priv/desc.en.hocon",
     ok = filelib:ensure_dir(OutputFile),
     ok = file:write_file(OutputFile, Conf).
 
-do_merge_desc_files_per_lang(BaseConf, Cfgs) ->
+do_merge_desc_files(BaseConf, Cfgs) ->
     lists:foldl(
       fun(CfgFile, Acc) ->
               case filelib:is_regular(CfgFile) of
@@ -113,14 +99,7 @@ do_merge_desc_files_per_lang(BaseConf, Cfgs) ->
               end
       end, BaseConf, Cfgs).
 
-get_all_desc_files(Lang) ->
-    Dir =
-        case Lang of
-            "en" ->
-                 filename:join(["rel", "i18n"]);
-            "zh" ->
-                %% TODO: remove this when we have zh translation moved to dashboard package
-                 filename:join(["rel", "i18n", "zh"])
-        end,
+get_all_desc_files() ->
+    Dir = filename:join(["rel", "i18n"]),
     Files = filelib:wildcard("*.hocon", Dir),
     lists:map(fun(Name) -> filename:join([Dir, Name]) end, Files).

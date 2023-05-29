@@ -19,5 +19,14 @@ esac
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 ./scripts/get-dashboard.sh "$dashboard_version"
+
+# generate merged config files and English translation of the desc (desc.en.hocon)
 ./scripts/merge-config.escript
+
+# download desc (i18n) translations
+curl -L --silent --show-error \
+     --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
+    'https://raw.githubusercontent.com/emqx/emqx-i18n/main/desc.zh.hocon'
+
+# generate sbom
 ./scripts/update-bom.sh "$PROFILE_STR" ./rel
