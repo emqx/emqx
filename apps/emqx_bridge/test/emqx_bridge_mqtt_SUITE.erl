@@ -221,6 +221,12 @@ t_mqtt_conn_bridge_ingress(_) ->
         request(put, uri(["bridges", BridgeIDIngress]), ServerConf)
     ),
 
+    %% non-shared subscription, verify that only one client is subscribed
+    ?assertEqual(
+        1,
+        length(emqx:subscribers(<<?INGRESS_REMOTE_TOPIC, "/#">>))
+    ),
+
     %% we now test if the bridge works as expected
     RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
     LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
@@ -243,6 +249,48 @@ t_mqtt_conn_bridge_ingress(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
+    ok.
+
+t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
+    PoolSize = 4,
+    Ns = lists:seq(1, 10),
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<>>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"pool_size">> => PoolSize,
+            <<"ingress">> => #{
+                <<"remote">> => #{
+                    <<"topic">> => <<"$share/ingress/", ?INGRESS_REMOTE_TOPIC, "/#">>,
+                    <<"qos">> => 1
+                },
+                <<"local">> => #{
+                    <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
+                    <<"qos">> => <<"${qos}">>,
+                    <<"payload">> => <<"${clientid}">>,
+                    <<"retain">> => <<"${retain}">>
+                }
+            }
+        }
+    ),
+
+    RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
+    LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
+    ok = emqx:subscribe(LocalTopic),
+
+    _ = emqx_utils:pmap(
+        fun emqx:publish/1,
+        [emqx_message:make(RemoteTopic, <<>>) || _ <- Ns]
+    ),
+    _ = [assert_mqtt_msg_received(LocalTopic) || _ <- Ns],
+
+    ?assertEqual(
+        PoolSize,
+        length(emqx_shared_sub:subscribers(<<"ingress">>, <<?INGRESS_REMOTE_TOPIC, "/#">>))
+    ),
+
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     ok.
 
 t_mqtt_egress_bridge_ignores_clean_start(_) ->

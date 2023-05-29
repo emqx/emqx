@@ -54,8 +54,8 @@ on_start(ResourceId, Conf) ->
     }),
     BasicOpts = mk_worker_opts(ResourceId, Conf),
     BridgeOpts = BasicOpts#{
-        subscriptions => make_sub_confs(maps:get(ingress, Conf, #{}), Conf, ResourceId),
-        forwards => maps:get(egress, Conf, #{})
+        ingress => mk_ingress_config(maps:get(ingress, Conf, #{}), Conf, ResourceId),
+        egress => maps:get(egress, Conf, #{})
     },
     {ok, ClientOpts, WorkerConf} = emqx_connector_mqtt_worker:init(ResourceId, BridgeOpts),
     case emqx_resource_pool:start(ResourceId, emqx_connector_mqtt_worker, ClientOpts) of
@@ -165,12 +165,12 @@ combine_status(Statuses) ->
             disconnected
     end.
 
-make_sub_confs(Subscriptions, _Conf, _) when map_size(Subscriptions) == 0 ->
-    Subscriptions;
-make_sub_confs(Subscriptions, #{hookpoint := HookPoint}, ResourceId) ->
+mk_ingress_config(Ingress, _Conf, _) when map_size(Ingress) == 0 ->
+    Ingress;
+mk_ingress_config(Ingress, #{hookpoint := HookPoint}, ResourceId) ->
     MFA = {?MODULE, on_message_received, [HookPoint, ResourceId]},
-    Subscriptions#{on_message_received => MFA};
-make_sub_confs(_SubRemoteConf, Conf, ResourceId) ->
+    Ingress#{on_message_received => MFA};
+mk_ingress_config(_Ingress, Conf, ResourceId) ->
     error({no_hookpoint_provided, ResourceId, Conf}).
 
 mk_worker_opts(
