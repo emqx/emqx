@@ -58,7 +58,7 @@ prop_coverage_likely_incomplete() ->
         {filesize_t(), segsizes_t(), filesize_t()},
         ?FORALL(
             Fragments,
-            noshrink(segments_t(Filesize, Segsizes, Hole)),
+            noshrink(segments_t(Filesize, Segsizes, (Hole rem max(Filesize, 1)))),
             ?TIMEOUT(
                 ?COVERAGE_TIMEOUT,
                 begin
@@ -174,7 +174,7 @@ segment_t(Filesize, Segsizes, Hole) ->
     ?SUCHTHATMAYBE(
         {Offset, Size},
         segment_t(Filesize, Segsizes),
-        (Hole rem Filesize) =< Offset orelse (Hole rem Filesize) > (Offset + Size)
+        Hole =< Offset orelse Hole > (Offset + Size)
     ).
 
 segment_t(Filesize, Segsizes) ->
