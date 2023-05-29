@@ -12,4 +12,9 @@ emqx_oracle {
     label = "Oracle Database Sid"
   }
 
+  service_name {
+    desc = "Service Name for Oracle Database."
+    label = "Oracle Database Service Name"
+  }
+
 }

@@ -53,6 +53,7 @@
 ]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
+-define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
 
 %%=====================================================================
 %% Hocon schema
@@ -467,7 +468,7 @@ preprocess_request(
         path => emqx_plugin_libs_rule:preproc_tmpl(Path),
         body => maybe_preproc_tmpl(body, Req),
         headers => wrap_auth_header(preproc_headers(Headers)),
-        request_timeout => maps:get(request_timeout, Req, 30000),
+        request_timeout => maps:get(request_timeout, Req, ?DEFAULT_REQUEST_TIMEOUT_MS),
         max_retries => maps:get(max_retries, Req, 2)
     }.
 

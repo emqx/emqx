@@ -147,7 +147,7 @@ unwrap_erpc({throw, A}) ->
     {error, A};
 unwrap_erpc({error, {exception, Err, _Stack}}) ->
     {error, Err};
-unwrap_erpc({error, {exit, Err}}) ->
+unwrap_erpc({exit, Err}) ->
     {error, Err};
 unwrap_erpc({error, {erpc, Err}}) ->
     {error, Err}.

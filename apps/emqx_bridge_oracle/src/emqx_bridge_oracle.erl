@@ -20,7 +20,7 @@
 ]).
 
 -define(DEFAULT_SQL, <<
-    "insert into t_mqtt_msg(msgid, topic, qos, payload)"
+    "insert into t_mqtt_msgs(msgid, topic, qos, payload) "
     "values (${id}, ${topic}, ${qos}, ${payload})"
 >>).
 
@@ -41,7 +41,7 @@ values(_Method) ->
         name => <<"foo">>,
         server => <<"127.0.0.1:1521">>,
         pool_size => 8,
-        database => <<"ORCL">>,
+        service_name => <<"ORCL">>,
         sid => <<"ORCL">>,
         username => <<"root">>,
         password => <<"******">>,

@@ -134,8 +134,8 @@ do_node_query(
     ResultAcc
 ) ->
     case do_query(Node, QueryState) of
-        {error, {badrpc, R}} ->
-            {error, Node, {badrpc, R}};
+        {error, Error} ->
+            {error, Node, Error};
         {Rows, NQueryState = #{complete := Complete}} ->
             case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
                 {enough, NResultAcc} ->
@@ -179,8 +179,8 @@ do_cluster_query(
     ResultAcc
 ) ->
     case do_query(Node, QueryState) of
-        {error, {badrpc, R}} ->
-            {error, Node, {badrpc, R}};
+        {error, Error} ->
+            {error, Node, Error};
         {Rows, NQueryState = #{complete := Complete}} ->
             case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
                 {enough, NResultAcc} ->
@@ -275,7 +275,7 @@ do_query(Node, QueryState) when Node =:= node() ->
     do_select(Node, QueryState);
 do_query(Node, QueryState) ->
     case
-        rpc:call(
+        catch rpc:call(
             Node,
             ?MODULE,
             do_query,
@@ -284,6 +284,7 @@ do_query(Node, QueryState) ->
         )
     of
         {badrpc, _} = R -> {error, R};
+        {'EXIT', _} = R -> {error, R};
         Ret -> Ret
     end.
 
@@ -298,15 +299,24 @@ do_select(
 ) ->
     QueryState = maybe_apply_total_query(Node, QueryState0),
     Result =
-        case maps:get(continuation, QueryState, undefined) of
-            undefined ->
-                ets:select(Tab, Ms, Limit);
-            Continuation ->
-                %% XXX: Repair is necessary because we pass Continuation back
-                %% and forth through the nodes in the `do_cluster_query`
-                ets:select(ets:repair_continuation(Continuation, Ms))
+        try
+            case maps:get(continuation, QueryState, undefined) of
+                undefined ->
+                    ets:select(Tab, Ms, Limit);
+                Continuation ->
+                    %% XXX: Repair is necessary because we pass Continuation back
+                    %% and forth through the nodes in the `do_cluster_query`
+                    ets:select(ets:repair_continuation(Continuation, Ms))
+            end
+        catch
+            exit:_ = Exit ->
+                {error, Exit};
+            Type:Reason:Stack ->
+                {error, #{exception => Type, reason => Reason, stacktrace => Stack}}
         end,
     case Result of
+        {error, _} ->
+            {[], mark_complete(QueryState)};
         {Rows, '$end_of_table'} ->
             NRows = maybe_apply_fuzzy_filter(Rows, QueryState),
             {NRows, mark_complete(QueryState)};
@@ -354,7 +364,11 @@ counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->
     [{MatchHead, Conditions, _Return}] = Ms,
     CountingMs = [{MatchHead, Conditions, [true]}],
     fun(Tab) ->
-        ets:select_count(Tab, CountingMs)
+        try
+            ets:select_count(Tab, CountingMs)
+        catch
+            _Type:_Reason -> 0
+        end
     end;
 counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when FuzzyFun =/= undefined ->
     %% XXX: Calculating the total number for a fuzzy searching is very very expensive
