@@ -46,6 +46,7 @@
 -type options() :: #{
     % endpoint
     server := iodata(),
+    pool_size := pos_integer(),
     % emqtt client options
     proto_ver := v3 | v4 | v5,
     username := binary(),
@@ -66,6 +67,7 @@
 
 -type client_option() ::
     emqtt:option()
+    | {pool_size, pos_integer()}
     | {name, name()}
     | {ingress, ingress() | undefined}.
 
@@ -191,6 +193,7 @@ mk_client_options(Name, Ingress, BridgeOpts) ->
         end,
     Opts = maps:with(
         [
+            pool_size,
             proto_ver,
             username,
             password,

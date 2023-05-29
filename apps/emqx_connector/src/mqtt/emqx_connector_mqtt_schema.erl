@@ -73,6 +73,7 @@ fields("server_configs") ->
                 }
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
         {reconnect_interval, mk(string(), #{deprecated => {since, "v5.0.16"}})},
         {proto_ver,

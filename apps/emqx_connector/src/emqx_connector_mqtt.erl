@@ -177,6 +177,7 @@ mk_worker_opts(
     ResourceId,
     #{
         server := Server,
+        pool_size := PoolSize,
         proto_ver := ProtoVer,
         bridge_mode := BridgeMode,
         clean_start := CleanStart,
@@ -188,6 +189,7 @@ mk_worker_opts(
 ) ->
     Options = #{
         server => Server,
+        pool_size => PoolSize,
         %% 30s
         connect_timeout => 30,
         proto_ver => ProtoVer,
