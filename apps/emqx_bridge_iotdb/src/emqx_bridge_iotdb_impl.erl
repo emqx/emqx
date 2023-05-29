@@ -175,7 +175,7 @@ preproc_data(
 ) ->
     [
         #{
-            timestamp => emqx_plugin_libs_rule:preproc_tmpl(
+            timestamp => maybe_preproc_tmpl(
                 maps:get(<<"timestamp">>, Data, <<"now">>)
             ),
             measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
@@ -217,9 +217,7 @@ proc_data(PreProcessedData, Msg) ->
             }
         ) ->
             #{
-                timestamp => iot_timestamp(
-                    emqx_plugin_libs_rule:proc_tmpl(TimestampTkn, Msg), Nows
-                ),
+                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
                 measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Msg),
                 data_type => DataType,
                 value => proc_value(DataType, ValueTkn, Msg)
@@ -227,6 +225,11 @@ proc_data(PreProcessedData, Msg) ->
         end,
         PreProcessedData
     ).
+
+iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
+    Timestamp;
+iot_timestamp(TimestampTkn, Msg, Nows) ->
+    iot_timestamp(emqx_plugin_libs_rule:proc_tmpl(TimestampTkn, Msg), Nows).
 
 iot_timestamp(Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>

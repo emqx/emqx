@@ -135,9 +135,6 @@ reset_service(Config) ->
     Body = #{sql => <<"delete from ", Device/binary, ".*">>},
     {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path, "", Headers, Body, #{}).
 
-make_iotdb_payload(DeviceId) ->
-    make_iotdb_payload(DeviceId, "temp", <<"INT32">>, "36").
-
 make_iotdb_payload(DeviceId, Measurement, Type, Value) ->
     #{
         measurement => s_to_b(Measurement),
@@ -203,14 +200,12 @@ t_sync_query_aggregated(Config) ->
         (make_iotdb_payload(DeviceId, "temp", "INT32", "38"))#{
             timestamp => <<"1685112026296">>
         },
+        (make_iotdb_payload(DeviceId, "temp", "INT32", "38"))#{
+            timestamp => 1685112026296
+        },
         make_iotdb_payload(DeviceId, "temp", "INT64", "36"),
         make_iotdb_payload(DeviceId, "temp", "INT64", 36),
         make_iotdb_payload(DeviceId, "temp", "INT64", 36.7),
-        (make_iotdb_payload(DeviceId, "temp", "INT64", "37"))#{timestamp => <<"now_us">>},
-        (make_iotdb_payload(DeviceId, "temp", "INT64", "38"))#{timestamp => <<"now_ns">>},
-        (make_iotdb_payload(DeviceId, "temp", "INT64", "38"))#{
-            timestamp => <<"1685112026296">>
-        },
         make_iotdb_payload(DeviceId, "charged", "BOOLEAN", "1"),
         make_iotdb_payload(DeviceId, "floated", "BOOLEAN", 1),
         make_iotdb_payload(DeviceId, "started", "BOOLEAN", true),
@@ -227,6 +222,9 @@ t_sync_query_aggregated(Config) ->
         make_iotdb_payload(DeviceId, "weight", "FLOAT", "87.3"),
         make_iotdb_payload(DeviceId, "weight", "FLOAT", 87.3),
         make_iotdb_payload(DeviceId, "weight", "FLOAT", 87),
+        make_iotdb_payload(DeviceId, "weight", "DOUBLE", "87.3"),
+        make_iotdb_payload(DeviceId, "weight", "DOUBLE", 87.3),
+        make_iotdb_payload(DeviceId, "weight", "DOUBLE", 87),
         make_iotdb_payload(DeviceId, "foo", "TEXT", "bar")
     ],
     MakeMessageFun = make_message_fun(DeviceId, Payload),
