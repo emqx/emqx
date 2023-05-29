@@ -65,7 +65,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(t_openssl_client, Config) ->
-    ct:timetrap(10_000),
+    ct:timetrap(30_000),
     OriginalListeners = application:get_env(emqx, listeners),
     DataDir = ?config(data_dir, Config),
     IssuerPem = filename:join([DataDir, "ocsp-issuer.pem"]),
@@ -99,6 +99,8 @@ init_per_testcase(t_openssl_client, Config) ->
                 OCSPOpts = [ {ocsp_stapling_enabled, true}
                            , {ocsp_responder_url, "http://127.0.0.1:9877"}
                            , {ocsp_issuer_pem, IssuerPem}
+                           , {ocsp_refresh_http_timeout, 15_000}
+                           , {ocsp_refresh_interval, 1_000}
                            ],
                 Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_options, OCSPOpts}
                                                     , {ssl_options, SSLOpts2}]),

@@ -68,6 +68,7 @@ for f in \
         sasl_auth.so \
         snappyer.so \
         odbcserver \
+        ezstd_nif.so \
     ; do
     find "${REL_DIR}"/lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
 done

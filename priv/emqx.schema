@@ -166,11 +166,11 @@
              {Ip, Port}
            end,
   Options = fun(static) ->
-                 [{seeds, [list_to_atom(S) || S <- string:tokens(cuttlefish:conf_get("cluster.static.seeds", Conf, ""), ",")]}];
+                 [{seeds, [list_to_atom(S) || S <- string:tokens(cuttlefish:conf_get("cluster.static.seeds", Conf, ""), ", ")]}];
                (mcast) ->
                  {ok, Addr} = inet:parse_address(cuttlefish:conf_get("cluster.mcast.addr", Conf)),
                  {ok, Iface} = inet:parse_address(cuttlefish:conf_get("cluster.mcast.iface", Conf)),
-                 Ports = [list_to_integer(S) || S <- string:tokens(cuttlefish:conf_get("cluster.mcast.ports", Conf), ",")],
+                 Ports = [list_to_integer(S) || S <- string:tokens(cuttlefish:conf_get("cluster.mcast.ports", Conf), ", ")],
                  [{addr, Addr}, {ports, Ports}, {iface, Iface},
                   {ttl, cuttlefish:conf_get("cluster.mcast.ttl", Conf, 1)},
                   {loop, cuttlefish:conf_get("cluster.mcast.loop", Conf, true)}];
@@ -185,7 +185,7 @@
                                             {list_to_atom(Name), Value}
                                         end, Options)
                             end,
-                 [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
+                 [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ", ")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
                   {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)},
                   {ssl_options, SslOpts(Conf)}];
@@ -1286,6 +1286,12 @@ end}.
     {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Set TCP-keepalive options.
+{mapping, "zone.$name.tcp_keepalive", "emqx.zones", [
+    {default, "none"},
+    {datatype, string}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
   Ratelimit = fun(Val) ->
                 [L, D] = string:tokens(Val, ", "),
@@ -1371,6 +1377,15 @@ end}.
                    {quota, {conn_messages_routing, Ratelimit(Val)}};
                (["quota", "overall_messages_routing"], Val) ->
                    {quota, {overall_messages_routing, Ratelimit(Val)}};
+               (["tcp_keepalive"], Val) ->
+                    V = case Val of
+                            "none" ->
+                                false;
+                            _ ->
+                                [Idle, Interval, Probes] = string:tokens(Val, ", "),
+                                {list_to_integer(Idle), list_to_integer(Interval), list_to_integer(Probes)}
+                        end,
+                    {tcp_keepalive, V};
                ([Opt], Val) ->
                     {list_to_atom(Opt), Val}
             end,
@@ -2227,7 +2242,7 @@ end}.
                 end,
 
         CheckOrigin = fun(S) ->
-                        Origins = string:tokens(S, ","),
+                        Origins = string:tokens(S, ", "),
                         [ list_to_binary(string:trim(O)) || O <- Origins]
                       end,
 
@@ -2873,7 +2888,7 @@ end}.
 ]}.
 
 {translation, "emqx.alarm", fun(Conf) ->
-    [{actions, [list_to_atom(Action) || Action <- string:tokens(cuttlefish:conf_get("alarm.actions", Conf), ",")]},
+    [{actions, [list_to_atom(Action) || Action <- string:tokens(cuttlefish:conf_get("alarm.actions", Conf), ", ")]},
      {size_limit, cuttlefish:conf_get("alarm.size_limit", Conf)},
      {validity_period, cuttlefish:conf_get("alarm.validity_period", Conf)}]
 end}.

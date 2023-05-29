@@ -57,7 +57,15 @@ parse_sections([Line | Lines], Parse, Section, Sections) ->
 
 dump_sections([]) -> ok;
 dump_sections([{Name, Lines0} | Rest]) ->
-    Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
-    Lines = [[L, "\n"] || L <- Lines0],
-    ok = file:write_file(Filename, Lines),
-    dump_sections(Rest).
+    case is_skipped(Name) of
+        true ->
+            dump_sections(Rest);
+        false ->
+            Filename = filename:join(["etc", iolist_to_binary([Name, ".conf.seg"])]),
+            Lines = [[L, "\n"] || L <- Lines0],
+            ok = file:write_file(Filename, Lines),
+            dump_sections(Rest)
+    end.
+
+is_skipped(Name) ->
+    Name =:= <<"modules">>.

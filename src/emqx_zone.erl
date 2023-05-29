@@ -79,6 +79,7 @@
         , force_shutdown_policy/1
         , response_information/1
         , quota_policy/1
+        , tcp_keepalive/1
         ]).
 
 -export([ init_gc_state/1
@@ -222,6 +223,16 @@ response_information(Zone) ->
 -spec(quota_policy(zone()) -> emqx_quota:policy()).
 quota_policy(Zone) ->
     get_env(Zone, quota, []).
+
+-spec tcp_keepalive(zone()) -> false | {integer(), integer(), integer()}.
+tcp_keepalive(Zone) ->
+    case get_env(Zone, tcp_keepalive, false) of
+        {_, _, _} = V ->
+            V;
+        _ ->
+            %% failed to parse
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% APIs
