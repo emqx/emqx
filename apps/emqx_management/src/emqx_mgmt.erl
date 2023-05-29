@@ -152,6 +152,7 @@ node_info(Node) when Node =:= node() ->
           max_fds           => proplists:get_value(max_fds,
               lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
+          live_connections  => emqx_cm:get_connected_client_count(),
           node_status       => 'Running',
           uptime            => iolist_to_binary(proplists:get_value(uptime, BrokerInfo)),
           version           => iolist_to_binary(proplists:get_value(version, BrokerInfo))
