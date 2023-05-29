@@ -162,7 +162,7 @@ on_query(
     #{egress_pool_name := PoolName, egress_config := Config}
 ) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
-    handle_send_result(with_worker(PoolName, send, [Msg, Config]));
+    handle_send_result(with_egress_client(PoolName, send, [Msg, Config]));
 on_query(ResourceId, {send_message, Msg}, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
@@ -179,7 +179,7 @@ on_query_async(
 ) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
     Callback = {fun on_async_result/2, [CallbackIn]},
-    Result = with_worker(PoolName, send_async, [Msg, Callback, Config]),
+    Result = with_egress_client(PoolName, send_async, [Msg, Callback, Config]),
     case Result of
         ok ->
             ok;
@@ -196,16 +196,8 @@ on_query_async(ResourceId, {send_message, Msg}, _Callback, #{}) ->
         reason => "Egress is not configured"
     }).
 
-with_worker(ResourceId, Fun, Args) ->
-    Worker = ecpool:get_client(ResourceId),
-    case is_pid(Worker) andalso ecpool_worker:client(Worker) of
-        {ok, Client} ->
-            erlang:apply(emqx_connector_mqtt_egress, Fun, [Client | Args]);
-        {error, Reason} ->
-            {error, Reason};
-        false ->
-            {error, disconnected}
-    end.
+with_egress_client(ResourceId, Fun, Args) ->
+    ecpool:pick_and_do(ResourceId, {emqx_connector_mqtt_egress, Fun, Args}, no_handover).
 
 on_async_result(Callback, Result) ->
     apply_callback_function(Callback, handle_send_result(Result)).
@@ -233,6 +225,8 @@ classify_reply(Reply = #{reason_code := _}) ->
 
 classify_error(disconnected = Reason) ->
     {recoverable_error, Reason};
+classify_error(ecpool_empty) ->
+    {recoverable_error, disconnected};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, _} = Reason) ->
