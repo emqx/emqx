@@ -32,6 +32,14 @@ is configured, then both the data got from the rule and the MQTT messages that m
 egress_desc.label:
 """Egress Configs"""
 
+egress_pool_size.desc:
+"""Size of the pool of MQTT clients that will publish messages to the remote broker.<br/>
+        Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:egress:${node}:${n}'
+        where 'n' is the number of a client inside the pool."""
+
+egress_pool_size.label:
+"""Pool Size"""
+
 egress_local.desc:
 """The configs about receiving messages from local broker."""
 
@@ -74,6 +82,16 @@ ingress_desc.desc:
 
 ingress_desc.label:
 """Ingress Configs"""
+
+ingress_pool_size.desc:
+"""Size of the pool of MQTT clients that will ingest messages from the remote broker.<br/>
+        This value will be respected only if 'remote.topic' is a shared subscription topic filter,
+        otherwise only a single MQTT client will be used.
+        Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:ingress:${node}:${n}'
+        where 'n' is the number of a client inside the pool."""
+
+ingress_pool_size.label:
+"""Pool Size"""
 
 ingress_local.desc:
 """The configs about sending message to the local broker."""

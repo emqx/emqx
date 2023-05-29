@@ -22,9 +22,7 @@
 
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("emqx_dashboard/include/emqx_dashboard.hrl").
 
 %% output functions
 -export([inspect/3]).
@@ -259,8 +257,8 @@ t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
         ?SERVER_CONF(<<>>)#{
             <<"type">> => ?TYPE_MQTT,
             <<"name">> => BridgeName,
-            <<"pool_size">> => PoolSize,
             <<"ingress">> => #{
+                <<"pool_size">> => PoolSize,
                 <<"remote">> => #{
                     <<"topic">> => <<"$share/ingress/", ?INGRESS_REMOTE_TOPIC, "/#">>,
                     <<"qos">> => 1
@@ -305,9 +303,11 @@ t_mqtt_egress_bridge_ignores_clean_start(_) ->
     ),
 
     ResourceID = emqx_bridge_resource:resource_id(BridgeID),
+    {ok, _Group, #{state := #{egress_pool_name := EgressPoolName}}} =
+        emqx_resource_manager:lookup_cached(ResourceID),
     ClientInfo = ecpool:pick_and_do(
-        ResourceID,
-        {emqx_connector_mqtt_worker, info, []},
+        EgressPoolName,
+        {emqx_connector_mqtt_egress, info, []},
         no_handover
     ),
     ?assertMatch(

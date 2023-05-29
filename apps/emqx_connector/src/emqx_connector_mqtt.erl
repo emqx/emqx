@@ -52,34 +52,134 @@ on_start(ResourceId, Conf) ->
         connector => ResourceId,
         config => emqx_utils:redact(Conf)
     }),
-    BasicOpts = mk_worker_opts(ResourceId, Conf),
-    BridgeOpts = BasicOpts#{
-        ingress => mk_ingress_config(maps:get(ingress, Conf, #{}), Conf, ResourceId),
-        egress => maps:get(egress, Conf, #{})
-    },
-    {ok, ClientOpts, WorkerConf} = emqx_connector_mqtt_worker:init(ResourceId, BridgeOpts),
-    case emqx_resource_pool:start(ResourceId, emqx_connector_mqtt_worker, ClientOpts) of
+    case start_ingress(ResourceId, Conf) of
+        {ok, Result1} ->
+            case start_egress(ResourceId, Conf) of
+                {ok, Result2} ->
+                    {ok, maps:merge(Result1, Result2)};
+                {error, Reason} ->
+                    _ = stop_ingress(Result1),
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+start_ingress(ResourceId, Conf) ->
+    ClientOpts = mk_client_opts(ResourceId, "ingress", Conf),
+    case mk_ingress_config(ResourceId, Conf) of
+        Ingress = #{} ->
+            start_ingress(ResourceId, Ingress, ClientOpts);
+        undefined ->
+            {ok, #{}}
+    end.
+
+start_ingress(ResourceId, Ingress, ClientOpts) ->
+    PoolName = <<ResourceId/binary, ":ingress">>,
+    PoolSize = choose_ingress_pool_size(Ingress),
+    Options = [
+        {name, PoolName},
+        {pool_size, PoolSize},
+        {ingress, Ingress},
+        {client_opts, ClientOpts}
+    ],
+    case emqx_resource_pool:start(PoolName, emqx_connector_mqtt_ingress, Options) of
         ok ->
-            {ok, #{config => WorkerConf}};
+            {ok, #{ingress_pool_name => PoolName}};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
 
-on_stop(ResourceId, #{}) ->
+choose_ingress_pool_size(#{remote := #{topic := RemoteTopic}, pool_size := PoolSize}) ->
+    case emqx_topic:parse(RemoteTopic) of
+        {_Filter, #{share := _Name}} ->
+            % NOTE: this is shared subscription, many workers may subscribe
+            PoolSize;
+        {_Filter, #{}} ->
+            % NOTE: this is regular subscription, only one worker should subscribe
+            ?SLOG(warning, #{
+                msg => "ingress_pool_size_ignored",
+                reason =>
+                    "Remote topic filter is not a shared subscription, "
+                    "ingress pool will start with a single worker",
+                config_pool_size => PoolSize,
+                pool_size => 1
+            }),
+            1
+    end.
+
+start_egress(ResourceId, Conf) ->
+    % NOTE
+    % We are ignoring the user configuration here because there's currently no reliable way
+    % to ensure proper session recovery according to the MQTT spec.
+    ClientOpts = maps:put(clean_start, true, mk_client_opts(ResourceId, "egress", Conf)),
+    case mk_egress_config(Conf) of
+        Egress = #{} ->
+            start_egress(ResourceId, Egress, ClientOpts);
+        undefined ->
+            {ok, #{}}
+    end.
+
+start_egress(ResourceId, Egress, ClientOpts) ->
+    PoolName = <<ResourceId/binary, ":egress">>,
+    PoolSize = maps:get(pool_size, Egress),
+    Options = [
+        {name, PoolName},
+        {pool_size, PoolSize},
+        {client_opts, ClientOpts}
+    ],
+    case emqx_resource_pool:start(PoolName, emqx_connector_mqtt_egress, Options) of
+        ok ->
+            {ok, #{
+                egress_pool_name => PoolName,
+                egress_config => emqx_connector_mqtt_egress:config(Egress)
+            }};
+        {error, {start_pool_failed, _, Reason}} ->
+            {error, Reason}
+    end.
+
+on_stop(ResourceId, State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
         connector => ResourceId
     }),
-    emqx_resource_pool:stop(ResourceId).
+    ok = stop_ingress(State),
+    ok = stop_egress(State).
 
-on_query(ResourceId, {send_message, Msg}, #{config := Config}) ->
+stop_ingress(#{ingress_pool_name := PoolName}) ->
+    emqx_resource_pool:stop(PoolName);
+stop_ingress(#{}) ->
+    ok.
+
+stop_egress(#{egress_pool_name := PoolName}) ->
+    emqx_resource_pool:stop(PoolName);
+stop_egress(#{}) ->
+    ok.
+
+on_query(
+    ResourceId,
+    {send_message, Msg},
+    #{egress_pool_name := PoolName, egress_config := Config}
+) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
-    handle_send_result(with_worker(ResourceId, send_to_remote, [Msg, Config])).
+    handle_send_result(with_worker(PoolName, send, [Msg, Config]));
+on_query(ResourceId, {send_message, Msg}, #{}) ->
+    ?SLOG(error, #{
+        msg => "forwarding_unavailable",
+        connector => ResourceId,
+        message => Msg,
+        reason => "Egress is not configured"
+    }).
 
-on_query_async(ResourceId, {send_message, Msg}, CallbackIn, #{config := Config}) ->
+on_query_async(
+    ResourceId,
+    {send_message, Msg},
+    CallbackIn,
+    #{egress_pool_name := PoolName, egress_config := Config}
+) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
     Callback = {fun on_async_result/2, [CallbackIn]},
-    Result = with_worker(ResourceId, send_to_remote_async, [Msg, Callback, Config]),
+    Result = with_worker(PoolName, send_async, [Msg, Callback, Config]),
     case Result of
         ok ->
             ok;
@@ -87,13 +187,20 @@ on_query_async(ResourceId, {send_message, Msg}, CallbackIn, #{config := Config})
             {ok, Pid};
         {error, Reason} ->
             {error, classify_error(Reason)}
-    end.
+    end;
+on_query_async(ResourceId, {send_message, Msg}, _Callback, #{}) ->
+    ?SLOG(error, #{
+        msg => "forwarding_unavailable",
+        connector => ResourceId,
+        message => Msg,
+        reason => "Egress is not configured"
+    }).
 
 with_worker(ResourceId, Fun, Args) ->
     Worker = ecpool:get_client(ResourceId),
     case is_pid(Worker) andalso ecpool_worker:client(Worker) of
         {ok, Client} ->
-            erlang:apply(emqx_connector_mqtt_worker, Fun, [Client | Args]);
+            erlang:apply(emqx_connector_mqtt_egress, Fun, [Client | Args]);
         {error, Reason} ->
             {error, Reason};
         false ->
@@ -135,8 +242,9 @@ classify_error(shutdown = Reason) ->
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
-on_get_status(ResourceId, #{}) ->
-    Workers = [Worker || {_Name, Worker} <- ecpool:workers(ResourceId)],
+on_get_status(_ResourceId, State) ->
+    Pools = maps:to_list(maps:with([ingress_pool_name, egress_pool_name], State)),
+    Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
             combine_status(Statuses)
@@ -145,10 +253,12 @@ on_get_status(ResourceId, #{}) ->
             connecting
     end.
 
-get_status(Worker) ->
+get_status({Pool, Worker}) ->
     case ecpool_worker:client(Worker) of
-        {ok, Client} ->
-            emqx_connector_mqtt_worker:status(Client);
+        {ok, Client} when Pool == ingress_pool_name ->
+            emqx_connector_mqtt_ingress:status(Client);
+        {ok, Client} when Pool == egress_pool_name ->
+            emqx_connector_mqtt_egress:status(Client);
         {error, _} ->
             disconnected
     end.
@@ -165,56 +275,68 @@ combine_status(Statuses) ->
             disconnected
     end.
 
-mk_ingress_config(Ingress, _Conf, _) when map_size(Ingress) == 0 ->
-    Ingress;
-mk_ingress_config(Ingress, #{hookpoint := HookPoint}, ResourceId) ->
-    MFA = {?MODULE, on_message_received, [HookPoint, ResourceId]},
-    Ingress#{on_message_received => MFA};
-mk_ingress_config(_Ingress, Conf, ResourceId) ->
-    error({no_hookpoint_provided, ResourceId, Conf}).
-
-mk_worker_opts(
+mk_ingress_config(
     ResourceId,
     #{
+        ingress := Ingress = #{remote := _},
         server := Server,
-        pool_size := PoolSize,
-        proto_ver := ProtoVer,
-        bridge_mode := BridgeMode,
-        clean_start := CleanStart,
-        keepalive := KeepAlive,
-        retry_interval := RetryIntv,
-        max_inflight := MaxInflight,
-        ssl := #{enable := EnableSsl} = Ssl
-    } = Conf
+        hookpoint := HookPoint
+    }
 ) ->
-    Options = #{
+    Ingress#{
         server => Server,
-        pool_size => PoolSize,
-        %% 30s
+        on_message_received => {?MODULE, on_message_received, [HookPoint, ResourceId]}
+    };
+mk_ingress_config(ResourceId, #{ingress := #{remote := _}} = Conf) ->
+    error({no_hookpoint_provided, ResourceId, Conf});
+mk_ingress_config(_ResourceId, #{}) ->
+    undefined.
+
+mk_egress_config(#{egress := Egress = #{remote := _}}) ->
+    Egress;
+mk_egress_config(#{}) ->
+    undefined.
+
+mk_client_opts(
+    ResourceId,
+    ClientScope,
+    Config = #{
+        server := Server,
+        keepalive := KeepAlive,
+        ssl := #{enable := EnableSsl} = Ssl
+    }
+) ->
+    HostPort = emqx_connector_mqtt_schema:parse_server(Server),
+    Options = maps:with(
+        [
+            proto_ver,
+            username,
+            password,
+            clean_start,
+            retry_interval,
+            max_inflight,
+            % Opening a connection in bridge mode will form a non-standard mqtt connection message.
+            % A load balancing server (such as haproxy) is often set up before the emqx broker server.
+            % When the load balancing server enables mqtt connection packet inspection,
+            % non-standard mqtt connection packets might be filtered out by LB.
+            bridge_mode
+        ],
+        Config
+    ),
+    Options#{
+        hosts => [HostPort],
+        clientid => clientid(ResourceId, ClientScope, Config),
         connect_timeout => 30,
-        proto_ver => ProtoVer,
-        %% Opening a connection in bridge mode will form a non-standard mqtt connection message.
-        %% A load balancing server (such as haproxy) is often set up before the emqx broker server.
-        %% When the load balancing server enables mqtt connection packet inspection,
-        %% non-standard mqtt connection packets might be filtered out by LB.
-        clientid => clientid(ResourceId, Conf),
-        bridge_mode => BridgeMode,
         keepalive => ms_to_s(KeepAlive),
-        clean_start => CleanStart,
-        retry_interval => RetryIntv,
-        max_inflight => MaxInflight,
+        force_ping => true,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
-    },
-    maps:merge(
-        Options,
-        maps:with([username, password], Conf)
-    ).
+    }.
 
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Id, _Conf = #{clientid_prefix := Prefix}) when is_binary(Prefix) ->
-    iolist_to_binary([Prefix, ":", Id, ":", atom_to_list(node())]);
-clientid(Id, _Conf) ->
-    iolist_to_binary([Id, ":", atom_to_list(node())]).
+clientid(Id, ClientScope, _Conf = #{clientid_prefix := Prefix}) when is_binary(Prefix) ->
+    iolist_to_binary([Prefix, ":", Id, ":", ClientScope, ":", atom_to_list(node())]);
+clientid(Id, ClientScope, _Conf) ->
+    iolist_to_binary([Id, ":", ClientScope, ":", atom_to_list(node())]).
