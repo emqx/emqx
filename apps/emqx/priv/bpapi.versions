@@ -45,6 +45,5 @@
 {emqx_rule_engine,1}.
 {emqx_shared_sub,1}.
 {emqx_slow_subs,1}.
-{emqx_statsd,1}.
 {emqx_telemetry,1}.
 {emqx_topic_metrics,1}.

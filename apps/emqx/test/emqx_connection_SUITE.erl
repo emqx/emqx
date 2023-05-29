@@ -676,7 +676,6 @@ channel(InitFields) ->
         clientid => <<"clientid">>,
         username => <<"username">>,
         is_superuser => false,
-        peercert => undefined,
         mountpoint => undefined
     },
     Conf = emqx_cm:get_session_confs(ClientInfo, #{

@@ -51,6 +51,8 @@
     "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria, amqp_client, rabbit_common"
 ).
 -define(IGNORED_MODULES, "emqx_rpc").
+-define(FORCE_DELETED_MODULES, [emqx_statsd, emqx_statsd_proto_v1]).
+-define(FORCE_DELETED_APIS, [{emqx_statsd, 1}]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of known functions also known to do RPC:
@@ -127,11 +129,16 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
                 Val ->
                     ok;
                 undefined ->
-                    setnok(),
-                    logger:error(
-                        "API ~p v~p was removed in release ~p without being deprecated.",
-                        [API, Version, Rel2]
-                    );
+                    case lists:member({API, Version}, ?FORCE_DELETED_APIS) of
+                        true ->
+                            ok;
+                        false ->
+                            setnok(),
+                            logger:error(
+                                "API ~p v~p was removed in release ~p without being deprecated.",
+                                [API, Version, Rel2]
+                            )
+                    end;
                 _Val ->
                     setnok(),
                     logger:error(
@@ -146,16 +153,24 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
 check_api_immutability(_, _) ->
     ok.
 
+filter_calls(Calls) ->
+    F = fun({{Mf, _, _}, {Mt, _, _}}) ->
+        (not lists:member(Mf, ?FORCE_DELETED_MODULES)) andalso
+            (not lists:member(Mt, ?FORCE_DELETED_MODULES))
+    end,
+    lists:filter(F, Calls).
+
 %% Note: sets nok flag
 -spec typecheck_apis(fulldump(), fulldump()) -> ok.
 typecheck_apis(
     #{release := CallerRelease, api := CallerAPIs, signatures := CallerSigs},
     #{release := CalleeRelease, signatures := CalleeSigs}
 ) ->
-    AllCalls = lists:flatten([
+    AllCalls0 = lists:flatten([
         [Calls, Casts]
      || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)
     ]),
+    AllCalls = filter_calls(AllCalls0),
     lists:foreach(
         fun({From, To}) ->
             Caller = get_param_types(CallerSigs, From),
@@ -213,7 +228,7 @@ get_param_types(Signatures, {M, F, A}) ->
             maps:from_list(lists:zip(A, AttrTypes));
         _ ->
             logger:critical("Call ~p:~p/~p is not found in PLT~n", [M, F, Arity]),
-            error(badkey)
+            error({badkey, {M, F, A}})
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

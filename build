@@ -91,37 +91,65 @@ log() {
     echo "===< $msg"
 }
 
+prepare_erl_libs() {
+    local libs_dir="$1"
+    local erl_libs="${ERL_LIBS:-}"
+    local sep
+    if [ "${SYSTEM}" = 'windows' ]; then
+        sep=';'
+    else
+        sep=':'
+    fi
+    for app in "${libs_dir}"/*; do
+        if [ -d "${app}/ebin" ]; then
+            if [ -n "$erl_libs" ]; then
+                erl_libs="${erl_libs}${sep}${app}"
+            else
+                erl_libs="${app}"
+            fi
+        fi
+    done
+    export ERL_LIBS="$erl_libs"
+}
+
 make_docs() {
-    local libs_dir1 libs_dir2 libs_dir3 docdir
-    libs_dir1="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
-    if [ -d "_build/default/lib/" ]; then
-        libs_dir2="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
-    else
-        libs_dir2=''
-    fi
-    if [ -d "_build/$PROFILE/checkouts" ]; then
-        libs_dir3="$("$FIND" "_build/$PROFILE/checkouts/" -maxdepth 2 -name ebin -type d 2>/dev/null || true)"
-    else
-        libs_dir3=''
-    fi
     case "$(is_enterprise "$PROFILE")" in
         'yes')
-            SCHEMA_MODULE='emqx_ee_conf_schema'
+            SCHEMA_MODULE='emqx_enterprise_schema'
             ;;
         'no')
             SCHEMA_MODULE='emqx_conf_schema'
             ;;
     esac
-    docdir="_build/docgen/$PROFILE"
+    prepare_erl_libs "_build/$PROFILE/checkouts"
+    prepare_erl_libs "_build/$PROFILE/lib"
+    local docdir="_build/docgen/$PROFILE"
     mkdir -p "$docdir"
     # shellcheck disable=SC2086
-    erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
+    erl -noshell -eval \
         "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
 }
 
-assert_no_compile_time_only_deps() {
-    :
+## arg1 is the profile for which the following args (as app names) should be excluded
+assert_no_excluded_deps() {
+    local profile="$1"
+    shift 1
+    if [ "$PROFILE" != "$profile" ]; then
+        # not currently building the profile which has apps to be excluded
+        return 0
+    fi
+    local rel_dir="_build/$PROFILE/rel/emqx/lib"
+    local excluded_apps=( "$@" )
+    local found
+    for app in "${excluded_apps[@]}"; do
+        found="$($FIND "$rel_dir" -maxdepth 1 -type d -name "$app-*")"
+        if [ -n "${found}" ]; then
+            echo "ERROR: ${app} should not be included in ${PROFILE}"
+            echo "ERROR: found ${app} in ${rel_dir}"
+            exit 1
+        fi
+    done
 }
 
 just_compile() {
@@ -139,20 +167,20 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_compile_time_only_deps
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 make_elixir_rel() {
-  ./scripts/pre-compile.sh "$PROFILE"
-  export_elixir_release_vars "$PROFILE"
-  # for some reason, this has to be run outside "do"...
-  mix local.rebar --if-missing --force
-  # shellcheck disable=SC1010
-  mix do local.hex --if-missing --force, \
-      local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
-      deps.get
-  mix release --overwrite
-  assert_no_compile_time_only_deps
+    ./scripts/pre-compile.sh "$PROFILE"
+    export_elixir_release_vars "$PROFILE"
+    # for some reason, this has to be run outside "do"...
+    mix local.rebar --if-missing --force
+    # shellcheck disable=SC1010
+    mix do local.hex --if-missing --force, \
+        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
+        deps.get
+    mix release --overwrite
+    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup

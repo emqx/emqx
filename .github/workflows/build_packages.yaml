@@ -21,7 +21,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    container: ghcr.io/emqx/emqx-builder/5.0-34:1.13.4-24.3.4.2-3-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-24.3.4.2-3-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -102,9 +102,16 @@ jobs:
     - name: run emqx
       timeout-minutes: 5
       run: |
+        $ErrorActionPreference = "Stop"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
-        Start-Sleep -s 5
-        echo "EMQX started"
+        Start-Sleep -s 10
+        $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
+        if ($pingOutput = 'pong') {
+          echo "EMQX started OK"
+        } else {
+          echo "Failed to ping EMQX $pingOutput"
+          Exit 1
+        }
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
@@ -184,7 +191,7 @@ jobs:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.0-34
+          - 5.0-35
         elixir:
           - 1.13.4
         exclude:
@@ -198,7 +205,7 @@ jobs:
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.0-34
+            builder: 5.0-35
             elixir: 1.13.4
             release_with: elixir
           - profile: emqx
@@ -206,7 +213,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.0-34
+            builder: 5.0-35
             elixir: 1.13.4
             release_with: elixir
 
@@ -306,35 +313,3 @@ jobs:
         fi
         aws s3 cp --recursive packages/$PROFILE s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }}
         aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$s3dir/${{ github.ref_name }}/*"
-    - name: Push to packagecloud.io
-      env:
-        PROFILE: ${{ matrix.profile }}
-        VERSION: ${{ needs.prepare.outputs.VERSION }}
-        PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
-      run: |
-        set -eu
-        REPO=$PROFILE
-        if [ $PROFILE = 'emqx-enterprise' ]; then
-            REPO='emqx-enterprise5'
-        fi
-        function push() {
-          docker run -t --rm -e PACKAGECLOUD_TOKEN=$PACKAGECLOUD_TOKEN -v $(pwd)/$2:/w/$2 -w /w ghcr.io/emqx/package_cloud push emqx/$REPO/$1 $2
-        }
-        push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-amd64.deb"
-        push "debian/buster" "packages/$PROFILE/$PROFILE-$VERSION-debian10-arm64.deb"
-        push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-amd64.deb"
-        push "debian/bullseye" "packages/$PROFILE/$PROFILE-$VERSION-debian11-arm64.deb"
-        push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-amd64.deb"
-        push "ubuntu/bionic" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu18.04-arm64.deb"
-        push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"
-        push "ubuntu/focal" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu20.04-arm64.deb"
-        push "ubuntu/jammy" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu22.04-amd64.deb"
-        push "ubuntu/jammy" "packages/$PROFILE/$PROFILE-$VERSION-ubuntu22.04-arm64.deb"
-        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-amd64.rpm"
-        push "el/6" "packages/$PROFILE/$PROFILE-$VERSION-amzn2-arm64.rpm"
-        push "el/7" "packages/$PROFILE/$PROFILE-$VERSION-el7-amd64.rpm"
-        push "el/7" "packages/$PROFILE/$PROFILE-$VERSION-el7-arm64.rpm"
-        push "el/8" "packages/$PROFILE/$PROFILE-$VERSION-el8-amd64.rpm"
-        push "el/8" "packages/$PROFILE/$PROFILE-$VERSION-el8-arm64.rpm"
-        push "el/9" "packages/$PROFILE/$PROFILE-$VERSION-el9-amd64.rpm"
-        push "el/9" "packages/$PROFILE/$PROFILE-$VERSION-el9-arm64.rpm"

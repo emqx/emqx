@@ -805,7 +805,11 @@ with_listener(ListenerID, Fun) ->
 find_listener(ListenerID) ->
     case binary:split(ListenerID, <<":">>) of
         [BType, BName] ->
-            case emqx_config:find([listeners, BType, BName]) of
+            case
+                emqx_config:find([
+                    listeners, binary_to_existing_atom(BType), binary_to_existing_atom(BName)
+                ])
+            of
                 {ok, _} ->
                     {ok, {BType, BName}};
                 {not_found, _, _} ->

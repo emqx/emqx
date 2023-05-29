@@ -160,6 +160,7 @@ init_node(Type) ->
     ok = emqx_common_test_helpers:start_apps(?SUITE_APPS, fun load_suite_config/1),
     case Type of
         primary ->
+            ok = emqx_dashboard_desc_cache:init(),
             ok = emqx_config:put(
                 [dashboard, listeners],
                 #{http => #{enable => true, bind => 18083, proxy_header => false}}

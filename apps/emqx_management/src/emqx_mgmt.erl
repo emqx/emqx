@@ -151,7 +151,7 @@ log_path() ->
     Configs = logger:get_handler_config(),
     case get_log_path(Configs) of
         undefined ->
-            <<"log.file_handler.default.enable is false, not logging to file.">>;
+            <<"log.file.enable is false, not logging to file.">>;
         Path ->
             iolist_to_binary(filename:join(RootDir, Path))
     end.

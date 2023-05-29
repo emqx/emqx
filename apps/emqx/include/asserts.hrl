@@ -30,16 +30,32 @@
     )
 ).
 
--define(assertInclude(PATTERN, LIST),
-    ?assert(
-        lists:any(
-            fun(X__Elem_) ->
-                case X__Elem_ of
-                    PATTERN -> true;
-                    _ -> false
-                end
-            end,
-            LIST
-        )
-    )
+-define(drainMailbox(),
+    (fun F__Flush_() ->
+        receive
+            X__Msg_ -> [X__Msg_ | F__Flush_()]
+        after 0 -> []
+        end
+    end)()
+).
+
+-define(assertReceive(PATTERN),
+    ?assertReceive(PATTERN, 1000)
+).
+
+-define(assertReceive(PATTERN, TIMEOUT),
+    (fun() ->
+        receive
+            X__V = PATTERN -> X__V
+        after TIMEOUT ->
+            erlang:error(
+                {assertReceive, [
+                    {module, ?MODULE},
+                    {line, ?LINE},
+                    {expression, (??PATTERN)},
+                    {mailbox, ?drainMailbox()}
+                ]}
+            )
+        end
+    end)()
 ).

@@ -448,10 +448,12 @@ pre_config_update(_, {add_authn, GwName, Conf}, RawConf) ->
         )
     of
         undefined ->
+            CertsDir = authn_certs_dir(GwName, Conf),
+            Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf),
             {ok,
                 emqx_utils_maps:deep_merge(
                     RawConf,
-                    #{GwName => #{?AUTHN_BIN => Conf}}
+                    #{GwName => #{?AUTHN_BIN => Conf1}}
                 )};
         _ ->
             badres_authn(already_exist, GwName)
@@ -469,7 +471,9 @@ pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
         Listener ->
             case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
-                    NListener = maps:put(?AUTHN_BIN, Conf, Listener),
+                    CertsDir = authn_certs_dir(GwName, LType, LName, Conf),
+                    Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf),
+                    NListener = maps:put(?AUTHN_BIN, Conf1, Listener),
                     NGateway = #{
                         GwName =>
                             #{
@@ -490,8 +494,10 @@ pre_config_update(_, {update_authn, GwName, Conf}, RawConf) ->
     of
         undefined ->
             badres_authn(not_found, GwName);
-        _Authn ->
-            {ok, emqx_utils_maps:deep_put([GwName, ?AUTHN_BIN], RawConf, Conf)}
+        OldAuthnConf ->
+            CertsDir = authn_certs_dir(GwName, Conf),
+            Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf, OldAuthnConf),
+            {ok, emqx_utils_maps:deep_put([GwName, ?AUTHN_BIN], RawConf, Conf1)}
     end;
 pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case
@@ -507,10 +513,16 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
             case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
                     badres_listener_authn(not_found, GwName, LType, LName);
-                _Auth ->
+                OldAuthnConf ->
+                    CertsDir = authn_certs_dir(GwName, LType, LName, OldAuthnConf),
+                    Conf1 = emqx_authentication_config:convert_certs(
+                        CertsDir,
+                        Conf,
+                        OldAuthnConf
+                    ),
                     NListener = maps:put(
                         ?AUTHN_BIN,
-                        Conf,
+                        Conf1,
                         Listener
                     ),
                     {ok,
@@ -522,12 +534,36 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
             end
     end;
 pre_config_update(_, {remove_authn, GwName}, RawConf) ->
+    case
+        emqx_utils_maps:deep_get(
+            [GwName, ?AUTHN_BIN], RawConf, undefined
+        )
+    of
+        undefined ->
+            ok;
+        OldAuthnConf ->
+            CertsDir = authn_certs_dir(GwName, OldAuthnConf),
+            emqx_authentication_config:clear_certs(CertsDir, OldAuthnConf)
+    end,
     {ok,
         emqx_utils_maps:deep_remove(
             [GwName, ?AUTHN_BIN], RawConf
         )};
 pre_config_update(_, {remove_authn, GwName, {LType, LName}}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName, ?AUTHN_BIN],
+    case
+        emqx_utils_maps:deep_get(
+            Path,
+            RawConf,
+            undefined
+        )
+    of
+        undefined ->
+            ok;
+        OldAuthnConf ->
+            CertsDir = authn_certs_dir(GwName, LType, LName, OldAuthnConf),
+            emqx_authentication_config:clear_certs(CertsDir, OldAuthnConf)
+    end,
     {ok, emqx_utils_maps:deep_remove(Path, RawConf)};
 pre_config_update(_, UnknownReq, _RawConf) ->
     logger:error("Unknown configuration update request: ~0p", [UnknownReq]),
@@ -677,6 +713,18 @@ apply_to_gateway_basic_confs(_Fun, _GwName, Conf) ->
 
 certs_dir(GwName) when is_binary(GwName) ->
     GwName.
+
+authn_certs_dir(GwName, ListenerType, ListenerName, AuthnConf) ->
+    ChainName = emqx_gateway_utils:listener_chain(GwName, ListenerType, ListenerName),
+    emqx_authentication_config:certs_dir(ChainName, AuthnConf).
+
+authn_certs_dir(GwName, AuthnConf) when is_binary(GwName) ->
+    authn_certs_dir(binary_to_existing_atom(GwName), AuthnConf);
+authn_certs_dir(GwName, AuthnConf) ->
+    emqx_authentication_config:certs_dir(
+        emqx_gateway_utils:global_chain(GwName),
+        AuthnConf
+    ).
 
 convert_certs(SubDir, Conf) ->
     convert_certs(<<"dtls_options">>, SubDir, convert_certs(<<"ssl_options">>, SubDir, Conf)).

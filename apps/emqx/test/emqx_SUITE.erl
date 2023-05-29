@@ -156,6 +156,19 @@ t_cluster_nodes(_) ->
     ?assertEqual(Expected, emqx:cluster_nodes(cores)),
     ?assertEqual([], emqx:cluster_nodes(stopped)).
 
+t_get_config(_) ->
+    ?assertEqual(false, emqx:get_config([overload_protection, enable])),
+    ?assertEqual(false, emqx:get_config(["overload_protection", <<"enable">>])).
+
+t_get_config_default_1(_) ->
+    ?assertEqual(false, emqx:get_config([overload_protection, enable], undefined)),
+    ?assertEqual(false, emqx:get_config(["overload_protection", <<"enable">>], undefined)).
+
+t_get_config_default_2(_) ->
+    AtomPathRes = emqx:get_config([overload_protection, <<"_!no_@exist_">>], undefined),
+    NonAtomPathRes = emqx:get_config(["doesnotexist", <<"db_backend">>], undefined),
+    ?assertEqual(undefined, NonAtomPathRes),
+    ?assertEqual(undefined, AtomPathRes).
 %%--------------------------------------------------------------------
 %% Hook fun
 %%--------------------------------------------------------------------

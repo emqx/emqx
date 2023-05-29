@@ -76,7 +76,7 @@ handle_cast(_Msg, State) ->
 handle_info(update_resources, State) ->
     true = update_resources(),
     connection_quota_early_alarm(),
-    ?tp(debug, emqx_license_resources_updated, #{}),
+    ?tp(emqx_license_resources_updated, #{}),
     {noreply, ensure_timer(State)}.
 
 terminate(_Reason, _State) ->

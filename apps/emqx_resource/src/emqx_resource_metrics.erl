@@ -206,6 +206,8 @@ inflight_get(ID) ->
 dropped_inc(ID) ->
     dropped_inc(ID, 1).
 
+dropped_inc(_ID, 0) ->
+    ok;
 dropped_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped], #{counter_inc => Val}, #{resource_id => ID}).
 
@@ -216,6 +218,8 @@ dropped_get(ID) ->
 dropped_other_inc(ID) ->
     dropped_other_inc(ID, 1).
 
+dropped_other_inc(_ID, 0) ->
+    ok;
 dropped_other_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped_other], #{counter_inc => Val}, #{
         resource_id => ID
@@ -228,6 +232,8 @@ dropped_other_get(ID) ->
 dropped_expired_inc(ID) ->
     dropped_expired_inc(ID, 1).
 
+dropped_expired_inc(_ID, 0) ->
+    ok;
 dropped_expired_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped_expired], #{counter_inc => Val}, #{
         resource_id => ID
@@ -240,6 +246,8 @@ dropped_expired_get(ID) ->
 late_reply_inc(ID) ->
     late_reply_inc(ID, 1).
 
+late_reply_inc(_ID, 0) ->
+    ok;
 late_reply_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, late_reply], #{counter_inc => Val}, #{
         resource_id => ID
@@ -252,6 +260,8 @@ late_reply_get(ID) ->
 dropped_queue_full_inc(ID) ->
     dropped_queue_full_inc(ID, 1).
 
+dropped_queue_full_inc(_ID, 0) ->
+    ok;
 dropped_queue_full_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped_queue_full], #{counter_inc => Val}, #{
         resource_id => ID
@@ -264,6 +274,8 @@ dropped_queue_full_get(ID) ->
 dropped_resource_not_found_inc(ID) ->
     dropped_resource_not_found_inc(ID, 1).
 
+dropped_resource_not_found_inc(_ID, 0) ->
+    ok;
 dropped_resource_not_found_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped_resource_not_found], #{counter_inc => Val}, #{
         resource_id => ID
@@ -276,6 +288,8 @@ dropped_resource_not_found_get(ID) ->
 dropped_resource_stopped_inc(ID) ->
     dropped_resource_stopped_inc(ID, 1).
 
+dropped_resource_stopped_inc(_ID, 0) ->
+    ok;
 dropped_resource_stopped_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, dropped_resource_stopped], #{counter_inc => Val}, #{
         resource_id => ID
@@ -288,6 +302,8 @@ dropped_resource_stopped_get(ID) ->
 matched_inc(ID) ->
     matched_inc(ID, 1).
 
+matched_inc(_ID, 0) ->
+    ok;
 matched_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, matched], #{counter_inc => Val}, #{resource_id => ID}).
 
@@ -298,6 +314,8 @@ matched_get(ID) ->
 received_inc(ID) ->
     received_inc(ID, 1).
 
+received_inc(_ID, 0) ->
+    ok;
 received_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, received], #{counter_inc => Val}, #{resource_id => ID}).
 
@@ -308,6 +326,8 @@ received_get(ID) ->
 retried_inc(ID) ->
     retried_inc(ID, 1).
 
+retried_inc(_ID, 0) ->
+    ok;
 retried_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, retried], #{counter_inc => Val}, #{resource_id => ID}).
 
@@ -318,6 +338,8 @@ retried_get(ID) ->
 failed_inc(ID) ->
     failed_inc(ID, 1).
 
+failed_inc(_ID, 0) ->
+    ok;
 failed_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, failed], #{counter_inc => Val}, #{resource_id => ID}).
 
@@ -328,6 +350,8 @@ failed_get(ID) ->
 retried_failed_inc(ID) ->
     retried_failed_inc(ID, 1).
 
+retried_failed_inc(_ID, 0) ->
+    ok;
 retried_failed_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, retried_failed], #{counter_inc => Val}, #{
         resource_id => ID
@@ -340,6 +364,8 @@ retried_failed_get(ID) ->
 retried_success_inc(ID) ->
     retried_success_inc(ID, 1).
 
+retried_success_inc(_ID, 0) ->
+    ok;
 retried_success_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, retried_success], #{counter_inc => Val}, #{
         resource_id => ID
@@ -352,6 +378,8 @@ retried_success_get(ID) ->
 success_inc(ID) ->
     success_inc(ID, 1).
 
+success_inc(_ID, 0) ->
+    ok;
 success_inc(ID, Val) ->
     telemetry:execute([?TELEMETRY_PREFIX, success], #{counter_inc => Val}, #{resource_id => ID}).
 

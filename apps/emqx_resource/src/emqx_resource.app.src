@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_resource, [
     {description, "Manager for all external resources"},
-    {vsn, "0.1.16"},
+    {vsn, "0.1.17"},
     {registered, []},
     {mod, {emqx_resource_app, []}},
     {applications, [
@@ -9,6 +9,7 @@
         stdlib,
         gproc,
         jsx,
+        ecpool,
         emqx,
         telemetry
     ]},

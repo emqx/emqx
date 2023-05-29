@@ -22,19 +22,19 @@ get_global_zone_configs.desc:
 get_global_zone_configs.label:
 """Get the global zone configs"""
 
-update_globar_zone_configs.desc:
-"""Update globbal zone configs"""
-update_globar_zone_configs.label:
-"""Update globbal zone configs"""
+update_global_zone_configs.desc:
+"""Update global zone configs"""
+update_global_zone_configs.label:
+"""Update global zone configs"""
 
-get_node_level_limiter_congigs.desc:
+get_node_level_limiter_configs.desc:
 """Get the node-level limiter configs"""
-get_node_level_limiter_congigs.label:
+get_node_level_limiter_configs.label:
 """Get the node-level limiter configs"""
 
-update_node_level_limiter_congigs.desc:
+update_node_level_limiter_configs.desc:
 """Update the node-level limiter configs"""
-update_node_level_limiter_congigs.label:
+update_node_level_limiter_configs.label:
 """Update the node-level limiter configs"""
 
 }

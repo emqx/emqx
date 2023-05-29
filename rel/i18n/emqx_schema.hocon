@@ -796,7 +796,7 @@ fields_tcp_opts_high_watermark.desc:
 by the VM socket implementation reaches this limit."""
 
 fields_tcp_opts_high_watermark.label:
-"""TCP 高水位线"""
+"""TCP high watermark"""
 
 fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
 """The time limit between operations for the same endpoint, in milliseconds. Default: 100"""
@@ -882,11 +882,12 @@ and an MQTT message is published to the system topic <code>$SYS/sysmon/long_sche
 sysmon_vm_long_schedule.label:
 """Enable Long Schedule monitoring."""
 
-mqtt_keepalive_backoff.desc:
-"""The coefficient EMQX uses to confirm whether the keep alive duration of the client expires. Formula: Keep Alive * Backoff * 2"""
+mqtt_keepalive_multiplier.desc:
+"""Keep-Alive Timeout = Keep-Alive interval × Keep-Alive Multiplier.
+The default value 1.5 is following the MQTT 5.0 specification. This multiplier is adjustable, providing system administrators flexibility for tailoring to their specific needs. For instance, if a client's 10-second Keep-Alive interval PINGREQ gets delayed by an extra 10 seconds, changing the multiplier to 2 lets EMQX tolerate this delay."""
 
-mqtt_keepalive_backoff.label:
-"""Keep Alive Backoff"""
+mqtt_keepalive_multiplier.label:
+"""Keep Alive Multiplier"""
 
 force_gc_bytes.desc:
 """GC the process after specified number of bytes have passed through."""
@@ -1317,6 +1318,11 @@ you drop support for the insecure renegotiation, prone to MitM attacks."""
 
 common_ssl_opts_schema_secure_renegotiate.label:
 """SSL renegotiate"""
+
+common_ssl_opts_schema_log_level.desc:
+"""Log level for SSL communication. Default is 'notice'. Set to 'debug' to inspect TLS handshake messages."""
+common_ssl_opts_schema_log_level.label:
+"""SSL log level"""
 
 sysmon_vm_busy_port.desc:
 """When a port (e.g. TCP socket) is overloaded, there will be a <code>busy_port</code> warning log,

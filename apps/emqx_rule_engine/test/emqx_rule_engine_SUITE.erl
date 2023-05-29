@@ -62,6 +62,9 @@ groups() ->
             t_match_atom_and_binary,
             t_sqlselect_0,
             t_sqlselect_00,
+            t_sqlselect_with_3rd_party_impl,
+            t_sqlselect_with_3rd_party_impl2,
+            t_sqlselect_with_3rd_party_funcs_unknown,
             t_sqlselect_001,
             t_sqlselect_inject_props,
             t_sqlselect_01,
@@ -120,6 +123,8 @@ groups() ->
 %%------------------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    %% ensure module loaded
+    emqx_rule_funcs_demo:module_info(),
     application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_rule_engine, emqx_authz],
@@ -1008,6 +1013,60 @@ t_sqlselect_00(_Config) ->
                         payload => <<"">>,
                         topic => <<"t/a">>
                     }
+            }
+        )
+    ).
+
+t_sqlselect_with_3rd_party_impl(_Config) ->
+    Sql =
+        "select * from \"t/#\" where emqx_rule_funcs_demo.is_my_topic(topic)",
+    T = fun(Topic) ->
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
+                context =>
+                    #{
+                        payload => #{<<"what">> => 0},
+                        topic => Topic
+                    }
+            }
+        )
+    end,
+    ?assertMatch({ok, _}, T(<<"t/2/3/4/5">>)),
+    ?assertMatch({error, nomatch}, T(<<"t/1">>)).
+
+t_sqlselect_with_3rd_party_impl2(_Config) ->
+    Sql = fun(N) ->
+        "select emqx_rule_funcs_demo.duplicate_payload(payload," ++ integer_to_list(N) ++
+            ") as payload_list from \"t/#\""
+    end,
+    T = fun(Payload, N) ->
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql(N),
+                context =>
+                    #{
+                        payload => Payload,
+                        topic => <<"t/a">>
+                    }
+            }
+        )
+    end,
+    ?assertMatch({ok, #{<<"payload_list">> := [_, _]}}, T(<<"payload1">>, 2)),
+    ?assertMatch({ok, #{<<"payload_list">> := [_, _, _]}}, T(<<"payload1">>, 3)),
+    %% crash
+    ?assertMatch({error, {select_and_transform_error, _}}, T(<<"payload1">>, 4)).
+
+t_sqlselect_with_3rd_party_funcs_unknown(_Config) ->
+    Sql = "select emqx_rule_funcs_demo_no_such_module.foo(payload) from \"t/#\"",
+    ?assertMatch(
+        {error,
+            {select_and_transform_error,
+                {throw, #{reason := sql_function_provider_module_not_loaded}, _}}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
+                context => #{payload => <<"a">>, topic => <<"t/a">>}
             }
         )
     ).

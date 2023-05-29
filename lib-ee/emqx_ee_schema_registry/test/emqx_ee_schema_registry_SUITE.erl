@@ -353,7 +353,7 @@ cluster(Config) ->
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
-            {schema_mod, emqx_ee_conf_schema},
+            {schema_mod, emqx_enterprise_schema},
             %% need to restart schema registry app in the tests so
             %% that it re-registers the config handler that is lost
             %% when emqx_conf restarts during join.

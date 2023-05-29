@@ -1,0 +1,15 @@
+emqx_bridge_clickhouse_connector {
+
+base_url.desc:
+"""The HTTP URL to the Clickhouse server that you want to connect to (for example http://myhostname:8123)"""
+
+base_url.label:
+"""Server URL"""
+
+connect_timeout.desc:
+"""The timeout when connecting to the Clickhouse server."""
+
+connect_timeout.label:
+"""Clickhouse Timeout"""
+
+}

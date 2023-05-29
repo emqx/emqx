@@ -288,6 +288,7 @@ gcp_pubsub_config(Config) ->
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
             "    request_timeout = 500ms\n"
+            "    metrics_flush_interval = 700ms\n"
             "    worker_pool_size = 1\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
@@ -529,12 +530,14 @@ wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
     end.
 
 receive_all_events(EventName, Timeout) ->
-    receive_all_events(EventName, Timeout, []).
+    receive_all_events(EventName, Timeout, _MaxEvents = 10, _Count = 0, _Acc = []).
 
-receive_all_events(EventName, Timeout, Acc) ->
+receive_all_events(_EventName, _Timeout, MaxEvents, Count, Acc) when Count >= MaxEvents ->
+    lists:reverse(Acc);
+receive_all_events(EventName, Timeout, MaxEvents, Count, Acc) ->
     receive
         {telemetry, #{name := [_, _, EventName]} = Event} ->
-            receive_all_events(EventName, Timeout, [Event | Acc])
+            receive_all_events(EventName, Timeout, MaxEvents, Count + 1, [Event | Acc])
     after Timeout ->
         lists:reverse(Acc)
     end.
@@ -557,8 +560,9 @@ wait_n_events(_TelemetryTable, _ResourceId, NEvents, _Timeout, _EventName) when 
     ok;
 wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName) ->
     receive
-        {telemetry, #{name := [_, _, EventName]}} ->
-            wait_n_events(TelemetryTable, ResourceId, NEvents - 1, Timeout, EventName)
+        {telemetry, #{name := [_, _, EventName], measurements := #{counter_inc := Inc}} = Event} ->
+            ct:pal("telemetry event: ~p", [Event]),
+            wait_n_events(TelemetryTable, ResourceId, NEvents - Inc, Timeout, EventName)
     after Timeout ->
         RecordedEvents = ets:tab2list(TelemetryTable),
         CurrentMetrics = current_metrics(ResourceId),
@@ -575,7 +579,6 @@ t_publish_success(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
-    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     ?check_trace(
         create_bridge(Config),
@@ -604,17 +607,6 @@ t_publish_success(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
-    ExpectedInflightEvents =
-        case QueryMode of
-            sync -> 1;
-            async -> 3
-        end,
-    wait_telemetry_event(
-        TelemetryTable,
-        inflight,
-        ResourceId,
-        #{n_events => ExpectedInflightEvents, timeout => 5_000}
-    ),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -659,7 +651,6 @@ t_publish_success_local_topic(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
-    QueryMode = ?config(query_mode, Config),
     LocalTopic = <<"local/topic">>,
     {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
     assert_empty_metrics(ResourceId),
@@ -678,17 +669,6 @@ t_publish_success_local_topic(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
-    ExpectedInflightEvents =
-        case QueryMode of
-            sync -> 1;
-            async -> 3
-        end,
-    wait_telemetry_event(
-        TelemetryTable,
-        inflight,
-        ResourceId,
-        #{n_events => ExpectedInflightEvents, timeout => 5_000}
-    ),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -720,7 +700,6 @@ t_publish_templated(Config) ->
     ResourceId = ?config(resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
-    QueryMode = ?config(query_mode, Config),
     Topic = <<"t/topic">>,
     PayloadTemplate = <<
         "{\"payload\": \"${payload}\","
@@ -766,17 +745,6 @@ t_publish_templated(Config) ->
     ),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, success, ResourceId),
-    ExpectedInflightEvents =
-        case QueryMode of
-            sync -> 1;
-            async -> 3
-        end,
-    wait_telemetry_event(
-        TelemetryTable,
-        inflight,
-        ResourceId,
-        #{n_events => ExpectedInflightEvents, timeout => 5_000}
-    ),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -1113,9 +1081,6 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
         econnrefused ->
-            wait_telemetry_event(TelemetryTable, queuing, ResourceId, #{
-                timeout => 10_000, n_events => 1
-            }),
             %% even waiting, hard to avoid flakiness... simpler to just sleep
             %% a bit until stabilization.
             ct:sleep(200),
@@ -1135,8 +1100,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 CurrentMetrics
             );
         timeout ->
-            wait_until_gauge_is(inflight, 0, _Timeout = 400),
-            wait_until_gauge_is(queuing, 0, _Timeout = 400),
+            wait_until_gauge_is(inflight, 0, _Timeout = 1_000),
+            wait_until_gauge_is(queuing, 0, _Timeout = 1_000),
             assert_metrics(
                 #{
                     dropped => 0,

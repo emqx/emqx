@@ -35,7 +35,7 @@ jobs:
           - ["emqx-enterprise", "24.3.4.2-3", "amzn2", "erlang"]
           - ["emqx-enterprise", "25.1.2-3", "ubuntu20.04", "erlang"]
         builder:
-          - 5.0-34
+          - 5.0-35
         elixir:
           - '1.13.4'
 
@@ -111,8 +111,14 @@ jobs:
       timeout-minutes: 5
       run: |
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
-        Start-Sleep -s 5
-        echo "EMQX started"
+        Start-Sleep -s 10
+        $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
+        if ($pingOutput = 'pong') {
+          echo "EMQX started OK"
+        } else {
+          echo "Failed to ping EMQX $pingOutput"
+          Exit 1
+        }
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install

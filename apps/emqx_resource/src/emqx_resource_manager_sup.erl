@@ -17,6 +17,8 @@
 
 -behaviour(supervisor).
 
+-include("emqx_resource.hrl").
+
 -export([ensure_child/5, delete_child/1]).
 
 -export([start_link/0]).
@@ -36,6 +38,12 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    %% Maps resource_id() to one or more allocated resources.
+    emqx_utils_ets:new(?RESOURCE_ALLOCATION_TAB, [
+        bag,
+        public,
+        {read_concurrency, true}
+    ]),
     ChildSpecs = [
         #{
             id => emqx_resource_manager,

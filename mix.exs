@@ -55,10 +55,10 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-9", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.15.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.15.2", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.9", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.10", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.3", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.4", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.7", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -102,11 +102,11 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp emqx_apps(profile_info, version) do
-    apps = umbrella_apps() ++ enterprise_apps(profile_info)
+    apps = umbrella_apps(profile_info) ++ enterprise_apps(profile_info)
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps() do
+  defp umbrella_apps(profile_info) do
     enterprise_apps = enterprise_umbrella_apps()
 
     "apps/*"
@@ -123,6 +123,15 @@ defmodule EMQXUmbrella.MixProject do
       dep_spec
       |> elem(0)
       |> then(&MapSet.member?(enterprise_apps, &1))
+    end)
+    |> Enum.reject(fn {app, _} ->
+      case profile_info do
+        %{edition_type: :enterprise} ->
+          app == :emqx_telemetry
+
+        _ ->
+          false
+      end
     end)
   end
 
@@ -158,7 +167,6 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_gcp_pubsub,
       :emqx_bridge_cassandra,
       :emqx_bridge_opents,
-      :emqx_bridge_clickhouse,
       :emqx_bridge_dynamo,
       :emqx_bridge_hstreamdb,
       :emqx_bridge_influxdb,
@@ -176,6 +184,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_oracle,
       :emqx_bridge_oracle,
       :emqx_bridge_rabbitmq,
+      :emqx_bridge_clickhouse,
       :emqx_ft,
       :emqx_s3
     ])
@@ -303,7 +312,6 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_bridge,
             :emqx_modules,
             :emqx_management,
-            :emqx_statsd,
             :emqx_retainer,
             :emqx_prometheus,
             :emqx_auto_subscribe,
@@ -369,7 +377,6 @@ defmodule EMQXUmbrella.MixProject do
         emqx_management: :permanent,
         emqx_dashboard: :permanent,
         emqx_retainer: :permanent,
-        emqx_statsd: :permanent,
         emqx_prometheus: :permanent,
         emqx_psk: :permanent,
         emqx_slow_subs: :permanent,
@@ -386,7 +393,7 @@ defmodule EMQXUmbrella.MixProject do
       if(edition_type == :enterprise,
         do: [
           emqx_license: :permanent,
-          emqx_ee_conf: :load,
+          emqx_enterprise: :load,
           emqx_ee_connector: :permanent,
           emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
@@ -416,7 +423,9 @@ defmodule EMQXUmbrella.MixProject do
           emqx_node_rebalance: :permanent,
           emqx_ft: :permanent
         ],
-        else: []
+        else: [
+          emqx_telemetry: :permanent
+        ]
       )
   end
 
@@ -554,14 +563,6 @@ defmodule EMQXUmbrella.MixProject do
       assigns,
       Path.join(etc, "emqx.conf")
     )
-
-    if edition_type == :enterprise do
-      render_template(
-        "apps/emqx_conf/etc/emqx-enterprise.conf.all",
-        assigns,
-        Path.join(etc, "emqx-enterprise.conf")
-      )
-    end
 
     render_template(
       "rel/emqx_vars",
@@ -788,7 +789,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_schema_mod(:enterprise), do: :emqx_ee_conf_schema
+  defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
   defp bcrypt_dep() do

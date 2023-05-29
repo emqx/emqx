@@ -23,7 +23,7 @@ User can create a rule and easily ingest IoT data into ClickHouse by leveraging
 - Several APIs are provided for bridge management, which includes create bridge,
   update bridge, get bridge, stop or restart bridge and list bridges etc.
 
-  Refer to [API Docs - Bridges](https://docs.emqx.com/en/enterprise/v5.0/admin/api-docs.html#tag/Bridges)
+- Refer to [API Docs - Bridges](https://docs.emqx.com/en/enterprise/v5.0/admin/api-docs.html#tag/Bridges)
   for more detailed information.
 
 

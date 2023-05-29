@@ -18,7 +18,8 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([namespace/0, roots/0, fields/1, desc/1, zone/0, zone_without_hidden/0]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
+-export([zones_without_default/0, global_zone_with_default/0]).
 
 namespace() -> zone.
 
@@ -35,7 +36,7 @@ roots() ->
         "overload_protection"
     ].
 
-zone() ->
+zones_without_default() ->
     Fields = roots(),
     Hidden = hidden(),
     lists:map(
@@ -50,8 +51,8 @@ zone() ->
         Fields
     ).
 
-zone_without_hidden() ->
-    lists:map(fun(F) -> {F, ?HOCON(?R_REF(F), #{})} end, roots() -- hidden()).
+global_zone_with_default() ->
+    lists:map(fun(F) -> {F, ?HOCON(?R_REF(emqx_schema, F), #{})} end, roots() -- hidden()).
 
 hidden() ->
     [
@@ -69,9 +70,10 @@ fields(Name) ->
 desc(Name) ->
     emqx_schema:desc(Name).
 
-%% no default values for zone settings
+%% no default values for zone settings, don't required either.
 no_default(Sc) ->
     fun
         (default) -> undefined;
+        (required) -> false;
         (Other) -> hocon_schema:field_schema(Sc, Other)
     end.

@@ -24,9 +24,6 @@ jobs:
         profile:
           - ['emqx', 'master']
           - ['emqx-enterprise', 'release-50']
-        branch:
-          - master
-          - release-50
         otp:
           - 24.3.4.2-3
         arch:
@@ -35,7 +32,7 @@ jobs:
           - debian10
           - amzn2
         builder:
-          - 5.0-34
+          - 5.0-35
         elixir:
           - 1.13.4
 

@@ -132,7 +132,7 @@ schema("/configs/global_zone") ->
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(update_globar_zone_configs),
+            description => ?DESC(update_global_zone_configs),
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
@@ -146,7 +146,7 @@ schema("/configs/limiter") ->
         'operationId' => limiter,
         get => #{
             tags => ?TAGS,
-            description => ?DESC(get_node_level_limiter_congigs),
+            description => ?DESC(get_node_level_limiter_configs),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
@@ -154,7 +154,7 @@ schema("/configs/limiter") ->
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(update_node_level_limiter_congigs),
+            description => ?DESC(update_node_level_limiter_configs),
             'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
@@ -221,8 +221,6 @@ config(put, #{body := NewConf}, Req) ->
     case emqx_conf:update(Path, NewConf, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
-        {error, {permission_denied, Reason}} ->
-            {403, #{code => 'UPDATE_FAILED', message => Reason}};
         {error, Reason} ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
@@ -267,8 +265,6 @@ config_reset(post, _Params, Req) ->
     case emqx_conf:reset(Path, ?OPTS) of
         {ok, _} ->
             {200};
-        {error, {permission_denied, Reason}} ->
-            {403, #{code => 'REST_FAILED', message => Reason}};
         {error, no_default_value} ->
             {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
         {error, Reason} ->
@@ -360,4 +356,4 @@ global_zone_roots() ->
     lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
-    emqx_zone_schema:zone_without_hidden().
+    emqx_zone_schema:global_zone_with_default().

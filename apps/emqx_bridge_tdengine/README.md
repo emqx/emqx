@@ -13,7 +13,7 @@ User can create a rule and easily ingest IoT data into TDEngine by leveraging
 
 # Documentation
 
-- Refer to [Ingest data into TDEngine](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-tdengine.html)
+- Refer to [Ingest Data into TDEngine](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-tdengine.html)
   for how to use EMQX dashboard to ingest IoT data into TDEngine.
 
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)

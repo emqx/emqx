@@ -78,6 +78,7 @@
     validate_heap_size/1,
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
+    validate_keepalive_multiplier/1,
     non_empty_string/1,
     validations/0,
     naive_env_interpolation/1
@@ -110,7 +111,8 @@
     servers_validator/2,
     servers_sc/2,
     convert_servers/1,
-    convert_servers/2
+    convert_servers/2,
+    mqtt_converter/2
 ]).
 
 %% tombstone types
@@ -151,6 +153,8 @@
 
 -define(BIT(Bits), (1 bsl (Bits))).
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
+-define(DEFAULT_MULTIPLIER, 1.5).
+-define(DEFAULT_BACKOFF, 0.75).
 
 namespace() -> broker.
 
@@ -173,6 +177,7 @@ roots(high) ->
                 ref("mqtt"),
                 #{
                     desc => ?DESC(mqtt),
+                    converter => fun ?MODULE:mqtt_converter/2,
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
@@ -523,8 +528,19 @@ fields("mqtt") ->
             sc(
                 number(),
                 #{
-                    default => 0.75,
-                    desc => ?DESC(mqtt_keepalive_backoff)
+                    default => ?DEFAULT_BACKOFF,
+                    %% Must add required => false, zone schema has no default.
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"keepalive_multiplier",
+            sc(
+                number(),
+                #{
+                    default => ?DEFAULT_MULTIPLIER,
+                    validator => fun ?MODULE:validate_keepalive_multiplier/1,
+                    desc => ?DESC(mqtt_keepalive_multiplier)
                 }
             )},
         {"max_subscriptions",
@@ -593,7 +609,7 @@ fields("mqtt") ->
             )},
         {"mqueue_priorities",
             sc(
-                hoconsc:union([map(), disabled]),
+                hoconsc:union([disabled, map()]),
                 #{
                     default => disabled,
                     desc => ?DESC(mqtt_mqueue_priorities)
@@ -641,7 +657,7 @@ fields("mqtt") ->
             )}
     ];
 fields("zone") ->
-    emqx_zone_schema:zone();
+    emqx_zone_schema:zones_without_default();
 fields("flapping_detect") ->
     [
         {"enable",
@@ -2291,6 +2307,17 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )},
+        {"log_level",
+            sc(
+                hoconsc:enum([
+                    emergency, alert, critical, error, warning, notice, info, debug, none, all
+                ]),
+                #{
+                    default => notice,
+                    desc => ?DESC(common_ssl_opts_schema_log_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
 
         {"hibernate_after",
             sc(
@@ -2734,6 +2761,13 @@ validate_heap_size(Siz) when is_integer(Siz) ->
     end;
 validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
+
+validate_keepalive_multiplier(Multiplier) when
+    is_number(Multiplier) andalso Multiplier >= 1.0 andalso Multiplier =< 65535.0
+->
+    ok;
+validate_keepalive_multiplier(_Multiplier) ->
+    {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
 
 validate_alarm_actions(Actions) ->
     UnSupported = lists:filter(
@@ -3381,3 +3415,20 @@ ensure_default_listener(Map, ListenerType) ->
 
 cert_file(_File, client) -> undefined;
 cert_file(File, server) -> iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
+
+mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
+    case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of
+        false ->
+            %% Multiplier is provided, and it's not default value
+            Mqtt;
+        true ->
+            %% Multiplier is default value, fallback to use Backoff value
+            %% Backoff default value was half of Multiplier default value
+            %% so there is no need to compare Backoff with its default.
+            Backoff = maps:get(<<"keepalive_backoff">>, Mqtt, ?DEFAULT_BACKOFF),
+            Mqtt#{<<"keepalive_multiplier">> => Backoff * 2}
+    end;
+mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
+    Mqtt#{<<"keepalive_multiplier">> => Backoff * 2};
+mqtt_converter(Mqtt, _Opts) ->
+    Mqtt.

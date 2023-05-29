@@ -232,11 +232,12 @@ render_and_load_app_config(App, Opts) ->
     try
         do_render_app_config(App, Schema, Conf, Opts)
     catch
+        throw:skip ->
+            ok;
         throw:E:St ->
             %% turn throw into error
             error({Conf, E, St})
     end.
-
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
     %% copy acl_conf must run before read_schema_configs
     copy_acl_conf(),
@@ -257,6 +258,7 @@ start_app(App, SpecAppConfig, Opts) ->
         {ok, _} ->
             ok = ensure_dashboard_listeners_started(App),
             ok = wait_for_app_processes(App),
+            ok = perform_sanity_checks(App),
             ok;
         {error, Reason} ->
             error({failed_to_start_app, App, Reason})
@@ -268,6 +270,27 @@ wait_for_app_processes(emqx_conf) ->
     gen_server:call(emqx_cluster_rpc, dummy),
     ok;
 wait_for_app_processes(_) ->
+    ok.
+
+%% These are checks to detect inter-suite or inter-testcase flakiness
+%% early.  For example, one suite might forget one application running
+%% and stop others, and then the `application:start/2' callback is
+%% never called again for this application.
+perform_sanity_checks(emqx_rule_engine) ->
+    ensure_config_handler(emqx_rule_engine, [rule_engine, rules]),
+    ok;
+perform_sanity_checks(emqx_bridge) ->
+    ensure_config_handler(emqx_bridge, [bridges]),
+    ok;
+perform_sanity_checks(_App) ->
+    ok.
+
+ensure_config_handler(Module, ConfigPath) ->
+    #{handlers := Handlers} = sys:get_state(emqx_config_handler),
+    case emqx_utils_maps:deep_get(ConfigPath, Handlers, not_found) of
+        #{{mod} := Module} -> ok;
+        _NotFound -> error({config_handler_missing, ConfigPath, Module})
+    end,
     ok.
 
 app_conf_file(emqx_conf) -> "emqx.conf.all";
@@ -296,6 +319,7 @@ render_config_file(ConfigFile, Vars0) ->
     Temp =
         case file:read_file(ConfigFile) of
             {ok, T} -> T;
+            {error, enoent} -> throw(skip);
             {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
         end,
     Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],
@@ -842,8 +866,8 @@ setup_node(Node, Opts) when is_map(Opts) ->
             LoadSchema andalso
                 begin
                     %% to avoid sharing data between executions and/or
-                    %% nodes.  these variables might notbe in the
-                    %% config file (e.g.: emqx_ee_conf_schema).
+                    %% nodes.  these variables might not be in the
+                    %% config file (e.g.: emqx_enterprise_schema).
                     NodeDataDir = filename:join([
                         PrivDataDir,
                         node(),
