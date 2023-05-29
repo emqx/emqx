@@ -156,7 +156,7 @@ make_message_fun(Topic, Payload) ->
         #{
             topic => Topic,
             id => MsgId,
-            payload => Payload,
+            payload => emqx_utils_json:encode(Payload),
             retain => true
         }
     end.
@@ -223,7 +223,7 @@ t_sync_query_aggregated(Config) ->
         make_iotdb_payload(DeviceId, "dazzled", "BOOLEAN", "false"),
         make_iotdb_payload(DeviceId, "unplugged", "BOOLEAN", "FALSE"),
         make_iotdb_payload(DeviceId, "unraveled", "BOOLEAN", "False"),
-        make_iotdb_payload(DeviceId, "undecided", "BOOLEAN", undefined),
+        make_iotdb_payload(DeviceId, "undecided", "BOOLEAN", null),
         make_iotdb_payload(DeviceId, "weight", "FLOAT", "87.3"),
         make_iotdb_payload(DeviceId, "weight", "FLOAT", 87.3),
         make_iotdb_payload(DeviceId, "weight", "FLOAT", 87),

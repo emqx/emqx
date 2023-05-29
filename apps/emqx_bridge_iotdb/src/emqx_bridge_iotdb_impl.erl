@@ -154,21 +154,9 @@ on_query_async(InstanceId, {send_message, Message}, ReplyFunAndArgs0, State) ->
 %%--------------------------------------------------------------------
 
 make_parsed_payload(PayloadUnparsed) when is_binary(PayloadUnparsed) ->
-    emqx_utils_json:decode(PayloadUnparsed, [return_maps]);
+    emqx_utils_json:decode(PayloadUnparsed);
 make_parsed_payload(PayloadUnparsed) when is_list(PayloadUnparsed) ->
-    lists:map(fun make_parsed_payload/1, PayloadUnparsed);
-make_parsed_payload(
-    #{
-        measurement := Measurement,
-        data_type := DataType,
-        value := Value
-    } = Data
-) ->
-    Data#{
-        <<"measurement">> => Measurement,
-        <<"data_type">> => DataType,
-        <<"value">> => Value
-    }.
+    lists:map(fun make_parsed_payload/1, PayloadUnparsed).
 
 preproc_data_list(DataList) ->
     lists:foldl(
@@ -270,6 +258,7 @@ replace_var(Val, _Data) ->
     Val.
 
 convert_bool(B) when is_boolean(B) -> B;
+convert_bool(null) -> null;
 convert_bool(1) -> true;
 convert_bool(0) -> false;
 convert_bool(<<"1">>) -> true;
@@ -279,8 +268,7 @@ convert_bool(<<"True">>) -> true;
 convert_bool(<<"TRUE">>) -> true;
 convert_bool(<<"false">>) -> false;
 convert_bool(<<"False">>) -> false;
-convert_bool(<<"FALSE">>) -> false;
-convert_bool(undefined) -> null.
+convert_bool(<<"FALSE">>) -> false.
 
 convert_int(Int) when is_integer(Int) -> Int;
 convert_int(Float) when is_float(Float) -> floor(Float);
