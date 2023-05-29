@@ -575,6 +575,9 @@ try_to_existing_atom(Convert, Data, Encoding) ->
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
+is_sensitive_key(authorization) -> true;
+is_sensitive_key("authorization") -> true;
+is_sensitive_key(<<"authorization">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
