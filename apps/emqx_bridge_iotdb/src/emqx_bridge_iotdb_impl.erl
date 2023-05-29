@@ -192,7 +192,7 @@ preproc_data(
             ),
             measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
             data_type => DataType,
-            value => emqx_plugin_libs_rule:preproc_tmpl(Value)
+            value => maybe_preproc_tmpl(Value)
         }
         | Acc
     ];
@@ -206,6 +206,11 @@ preproc_data(_NoMatch, Acc) ->
         }
     ),
     Acc.
+
+maybe_preproc_tmpl(Value) when is_binary(Value) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Value);
+maybe_preproc_tmpl(Value) ->
+    Value.
 
 proc_data(PreProcessedData, Msg) ->
     NowNS = erlang:system_time(nanosecond),
