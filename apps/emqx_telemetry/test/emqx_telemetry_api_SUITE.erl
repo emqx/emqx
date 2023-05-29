@@ -30,6 +30,7 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_telemetry_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_authn, emqx_authz, emqx_telemetry],
         fun set_special_configs/1
@@ -52,32 +53,26 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_status_non_official, Config) ->
-    meck:new(emqx_telemetry, [non_strict, passthrough]),
-    meck:expect(emqx_telemetry, official_version, 1, false),
+    meck:new(emqx_telemetry_config, [non_strict, passthrough]),
+    meck:expect(emqx_telemetry_config, is_official_version, 0, false),
+    %% check non-official telemetry is disable by default
+    {ok, _} = emqx:update_config([telemetry], #{}),
     Config;
-init_per_testcase(t_status, Config) ->
-    meck:new(emqx_telemetry, [non_strict, passthrough]),
-    meck:expect(emqx_telemetry, enable, fun() -> ok end),
-    {ok, _, _} =
-        request(
-            put,
-            uri(["telemetry", "status"]),
-            #{<<"enable">> => true}
-        ),
+init_per_testcase(t_status_official, Config) ->
+    meck:new(emqx_telemetry_config, [non_strict, passthrough]),
+    meck:expect(emqx_telemetry_config, is_official_version, 0, true),
+    %% check official telemetry is enable by default
+    {ok, _} = emqx:update_config([telemetry], #{}),
     Config;
 init_per_testcase(_TestCase, Config) ->
-    {ok, _, _} =
-        request(
-            put,
-            uri(["telemetry", "status"]),
-            #{<<"enable">> => true}
-        ),
+    %% Force enable telemetry to check data.
+    {ok, _} = emqx:update_config([telemetry], #{<<"enable">> => true}),
     Config.
 
 end_per_testcase(t_status_non_official, _Config) ->
-    meck:unload(emqx_telemetry);
+    meck:unload(emqx_telemetry_config);
 end_per_testcase(t_status, _Config) ->
-    meck:unload(emqx_telemetry);
+    meck:unload(emqx_telemetry_config);
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
@@ -95,39 +90,50 @@ set_special_configs(_App) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_status(_) ->
+%% official's telemetry is enabled by default
+t_status_official(_) ->
+    check_status(true).
+
+%% non official's telemetry is disabled by default
+t_status_non_official(_) ->
+    check_status(false).
+
+check_status(Default) ->
+    ct:pal("Check telemetry status:~p~n", [emqx_telemetry_config:is_official_version()]),
+    ?assertEqual(Default, is_telemetry_process_enabled()),
     ?assertMatch(
         {ok, 200, _},
         request(
             put,
             uri(["telemetry", "status"]),
-            #{<<"enable">> => false}
+            #{<<"enable">> => (not Default)}
         )
     ),
 
     {ok, 200, Result0} =
         request(get, uri(["telemetry", "status"])),
-
     ?assertEqual(
-        #{<<"enable">> => false},
+        #{<<"enable">> => (not Default)},
         emqx_utils_json:decode(Result0)
     ),
+    ?assertEqual((not Default), is_telemetry_process_enabled()),
 
     ?assertMatch(
         {ok, 400, _},
         request(
             put,
             uri(["telemetry", "status"]),
-            #{<<"enable">> => false}
+            #{<<"enable">> => (not Default)}
         )
     ),
+    ?assertEqual((not Default), is_telemetry_process_enabled()),
 
     ?assertMatch(
         {ok, 200, _},
         request(
             put,
             uri(["telemetry", "status"]),
-            #{<<"enable">> => true}
+            #{<<"enable">> => Default}
         )
     ),
 
@@ -135,30 +141,24 @@ t_status(_) ->
         request(get, uri(["telemetry", "status"])),
 
     ?assertEqual(
-        #{<<"enable">> => true},
+        #{<<"enable">> => Default},
         emqx_utils_json:decode(Result1)
     ),
+    ?assertEqual(Default, is_telemetry_process_enabled()),
 
     ?assertMatch(
         {ok, 400, _},
         request(
             put,
             uri(["telemetry", "status"]),
-            #{<<"enable">> => true}
+            #{<<"enable">> => Default}
         )
-    ).
-
-t_status_non_official(_) ->
-    ?assertMatch(
-        {ok, 200, _},
-        request(
-            put,
-            uri(["telemetry", "status"]),
-            #{<<"enable">> => false}
-        )
-    ).
+    ),
+    ?assertEqual(Default, is_telemetry_process_enabled()),
+    ok.
 
 t_data(_) ->
+    ?assert(is_telemetry_process_enabled()),
     {ok, 200, Result} =
         request(get, uri(["telemetry", "data"])),
 
@@ -191,3 +191,23 @@ t_data(_) ->
         request(get, uri(["telemetry", "data"])),
 
     ok.
+
+%% Support emqx:update_config([telemetry], Conf).
+t_conf_update(_) ->
+    Conf = emqx:get_raw_config([telemetry]),
+    ?assert(is_telemetry_process_enabled()),
+    {ok, 200, Result1} = request(get, uri(["telemetry", "status"])),
+    ?assertEqual(#{<<"enable">> => true}, emqx_utils_json:decode(Result1)),
+    {ok, _} = emqx:update_config([telemetry], Conf#{<<"enable">> => false}),
+    {ok, 200, Result2} = request(get, uri(["telemetry", "status"])),
+    ?assertEqual(#{<<"enable">> => false}, emqx_utils_json:decode(Result2)),
+    ?assertNot(is_telemetry_process_enabled()),
+    %% reset to true
+    {ok, _} = emqx:update_config([telemetry], Conf#{<<"enable">> => true}),
+    ?assert(is_telemetry_process_enabled()),
+    ok.
+
+is_telemetry_process_enabled() ->
+    %% timer is not undefined.
+    Timer = element(6, sys:get_state(emqx_telemetry)),
+    is_reference(Timer).
