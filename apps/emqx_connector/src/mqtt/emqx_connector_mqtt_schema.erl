@@ -68,7 +68,8 @@ fields("server_configs") ->
                 hoconsc:enum([cluster_shareload]),
                 #{
                     default => cluster_shareload,
-                    desc => ?DESC("mode")
+                    desc => ?DESC("mode"),
+                    deprecated => {since, "v5.1.0 & e5.1.0"}
                 }
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
