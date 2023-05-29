@@ -64,7 +64,7 @@ redefine_roots(Roots) ->
     override(Roots, Overrides).
 
 redefine_node(Fields) ->
-    Overrides = [{"applications", #{default => <<"emqx_license">>}}],
+    Overrides = [],
     override(Fields, Overrides).
 
 override(Fields, []) ->
