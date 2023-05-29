@@ -372,6 +372,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_gateway_exproto: :permanent,
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
+        emqx_bridge_mqtt: :permanent,
         emqx_rule_engine: :permanent,
         emqx_modules: :permanent,
         emqx_management: :permanent,

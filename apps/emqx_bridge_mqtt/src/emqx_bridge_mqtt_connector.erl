@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_connector_mqtt).
+-module(emqx_bridge_mqtt_connector).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -83,7 +83,7 @@ start_ingress(ResourceId, Ingress, ClientOpts) ->
         {ingress, Ingress},
         {client_opts, ClientOpts}
     ],
-    case emqx_resource_pool:start(PoolName, emqx_connector_mqtt_ingress, Options) of
+    case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_ingress, Options) of
         ok ->
             {ok, #{ingress_pool_name => PoolName}};
         {error, {start_pool_failed, _, Reason}} ->
@@ -128,11 +128,11 @@ start_egress(ResourceId, Egress, ClientOpts) ->
         {pool_size, PoolSize},
         {client_opts, ClientOpts}
     ],
-    case emqx_resource_pool:start(PoolName, emqx_connector_mqtt_egress, Options) of
+    case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_egress, Options) of
         ok ->
             {ok, #{
                 egress_pool_name => PoolName,
-                egress_config => emqx_connector_mqtt_egress:config(Egress)
+                egress_config => emqx_bridge_mqtt_egress:config(Egress)
             }};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
@@ -197,7 +197,7 @@ on_query_async(ResourceId, {send_message, Msg}, _Callback, #{}) ->
     }).
 
 with_egress_client(ResourceId, Fun, Args) ->
-    ecpool:pick_and_do(ResourceId, {emqx_connector_mqtt_egress, Fun, Args}, no_handover).
+    ecpool:pick_and_do(ResourceId, {emqx_bridge_mqtt_egress, Fun, Args}, no_handover).
 
 on_async_result(Callback, Result) ->
     apply_callback_function(Callback, handle_send_result(Result)).
@@ -250,9 +250,9 @@ on_get_status(_ResourceId, State) ->
 get_status({Pool, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} when Pool == ingress_pool_name ->
-            emqx_connector_mqtt_ingress:status(Client);
+            emqx_bridge_mqtt_ingress:status(Client);
         {ok, Client} when Pool == egress_pool_name ->
-            emqx_connector_mqtt_egress:status(Client);
+            emqx_bridge_mqtt_egress:status(Client);
         {error, _} ->
             disconnected
     end.
@@ -300,7 +300,7 @@ mk_client_opts(
         ssl := #{enable := EnableSsl} = Ssl
     }
 ) ->
-    HostPort = emqx_connector_mqtt_schema:parse_server(Server),
+    HostPort = emqx_bridge_mqtt_connector_schema:parse_server(Server),
     Options = maps:with(
         [
             proto_ver,

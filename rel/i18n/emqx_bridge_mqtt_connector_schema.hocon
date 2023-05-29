@@ -1,4 +1,4 @@
-emqx_connector_mqtt_schema {
+emqx_bridge_mqtt_connector_schema {
 
 bridge_mode.desc:
 """If enable bridge mode.

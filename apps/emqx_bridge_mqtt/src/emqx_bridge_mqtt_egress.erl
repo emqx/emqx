@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mqtt_egress).
+-module(emqx_bridge_mqtt_egress).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -51,7 +51,7 @@
     local => #{
         topic => emqx_topic:topic()
     },
-    remote := emqx_connector_mqtt_msg:msgvars()
+    remote := emqx_bridge_mqtt_msg:msgvars()
 }.
 
 %% @doc Start an ingress bridge worker.
@@ -102,7 +102,7 @@ connect(Pid, Name) ->
 -spec config(map()) ->
     egress().
 config(#{remote := RC = #{}} = Conf) ->
-    Conf#{remote => emqx_connector_mqtt_msg:parse(RC)}.
+    Conf#{remote => emqx_bridge_mqtt_msg:parse(RC)}.
 
 -spec send(pid(), message(), egress()) ->
     ok.
@@ -118,7 +118,7 @@ send_async(Pid, MsgIn, Callback, Egress) ->
 export_msg(Msg, #{remote := Remote}) ->
     to_remote_msg(Msg, Remote).
 
--spec to_remote_msg(message(), emqx_connector_mqtt_msg:msgvars()) ->
+-spec to_remote_msg(message(), emqx_bridge_mqtt_msg:msgvars()) ->
     remote_message().
 to_remote_msg(#message{flags = Flags} = Msg, Vars) ->
     {EventMsg, _} = emqx_rule_events:eventmsg_publish(Msg),
@@ -129,7 +129,7 @@ to_remote_msg(Msg = #{}, Remote) ->
         payload := Payload,
         qos := QoS,
         retain := Retain
-    } = emqx_connector_mqtt_msg:render(Msg, Remote),
+    } = emqx_bridge_mqtt_msg:render(Msg, Remote),
     PubProps = maps:get(pub_props, Msg, #{}),
     #mqtt_msg{
         qos = QoS,

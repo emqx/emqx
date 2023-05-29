@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mqtt_msg).
+-module(emqx_bridge_mqtt_msg).
 
 -export([parse/1]).
 -export([render/2]).

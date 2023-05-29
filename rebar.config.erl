@@ -426,6 +426,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_gateway_exproto,
             emqx_exhook,
             emqx_bridge,
+            emqx_bridge_mqtt,
             emqx_rule_engine,
             emqx_modules,
             emqx_management,

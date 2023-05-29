@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mqtt_schema).
+-module(emqx_bridge_mqtt_connector_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -138,13 +138,13 @@ fields("ingress") ->
         {remote,
             mk(
                 ref(?MODULE, "ingress_remote"),
-                #{desc => ?DESC(emqx_connector_mqtt_schema, "ingress_remote")}
+                #{desc => ?DESC("ingress_remote")}
             )},
         {local,
             mk(
                 ref(?MODULE, "ingress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")
+                    desc => ?DESC("ingress_local")
                 }
             )}
     ];
@@ -211,7 +211,7 @@ fields("egress") ->
             mk(
                 ref(?MODULE, "egress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_local"),
+                    desc => ?DESC("egress_local"),
                     required => false
                 }
             )},
@@ -219,7 +219,7 @@ fields("egress") ->
             mk(
                 ref(?MODULE, "egress_remote"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_remote"),
+                    desc => ?DESC("egress_remote"),
                     required => true
                 }
             )}

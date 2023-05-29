@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mqtt_ingress).
+-module(emqx_bridge_mqtt_ingress).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -46,7 +46,7 @@
         topic := emqx_topic:topic(),
         qos => emqx_types:qos()
     },
-    local := emqx_connector_mqtt_msg:msgvars(),
+    local := emqx_bridge_mqtt_msg:msgvars(),
     on_message_received := {module(), atom(), [term()]}
 }.
 
@@ -135,7 +135,7 @@ subscribe_remote_topic(Pid, #{remote := #{topic := RemoteTopic, qos := QoS}}) ->
 config(#{remote := RC, local := LC} = Conf, BridgeName) ->
     Conf#{
         remote => parse_remote(RC, BridgeName),
-        local => emqx_connector_mqtt_msg:parse(LC)
+        local => emqx_bridge_mqtt_msg:parse(LC)
     }.
 
 parse_remote(#{qos := QoSIn} = Conf, BridgeName) ->
@@ -261,7 +261,7 @@ to_broker_msg(#{dup := Dup} = Msg, Local, Props) ->
         payload := Payload,
         qos := QoS,
         retain := Retain
-    } = emqx_connector_mqtt_msg:render(Msg, Local),
+    } = emqx_bridge_mqtt_msg:render(Msg, Local),
     PubProps = maps:get(pub_props, Msg, #{}),
     emqx_message:set_headers(
         Props#{properties => emqx_utils:pub_props_to_packet(PubProps)},

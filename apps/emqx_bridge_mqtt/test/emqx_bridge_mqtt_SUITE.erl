@@ -130,13 +130,11 @@ suite() ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    %% some testcases (may from other app) already get emqx_connector started
-    _ = application:stop(emqx_resource),
-    _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps(
         [
             emqx_rule_engine,
             emqx_bridge,
+            emqx_bridge_mqtt,
             emqx_dashboard
         ],
         fun set_special_configs/1
@@ -150,9 +148,10 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([
-        emqx_rule_engine,
+        emqx_dashboard,
+        emqx_bridge_mqtt,
         emqx_bridge,
-        emqx_dashboard
+        emqx_rule_engine
     ]),
     ok.
 
@@ -307,7 +306,7 @@ t_mqtt_egress_bridge_ignores_clean_start(_) ->
         emqx_resource_manager:lookup_cached(ResourceID),
     ClientInfo = ecpool:pick_and_do(
         EgressPoolName,
-        {emqx_connector_mqtt_egress, info, []},
+        {emqx_bridge_mqtt_egress, info, []},
         no_handover
     ),
     ?assertMatch(
