@@ -1013,11 +1013,11 @@ prop_format_date_fun() ->
     Second == apply_func(date_to_unix_ts, Args3DTUS).
 
 t_timezone_to_offset_seconds(_) ->
-    t_timezone_to_offset_seconds_helper(timezone_to_offset_seconds),
+    timezone_to_offset_seconds_helper(timezone_to_offset_seconds),
     %% The timezone_to_second function is kept for compatibility with 4.X.
-    t_timezone_to_offset_seconds_helper(timezone_to_second).
+    timezone_to_offset_seconds_helper(timezone_to_second).
 
-t_timezone_to_offset_seconds_helper(FunctionName) ->
+timezone_to_offset_seconds_helper(FunctionName) ->
     ?assertEqual(120 * 60, apply_func(FunctionName, [<<"+02:00:00">>])),
     ?assertEqual(-120 * 60, apply_func(FunctionName, [<<"-02:00:00">>])),
     ?assertEqual(102, apply_func(FunctionName, [<<"+00:01:42">>])),
