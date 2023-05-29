@@ -64,17 +64,24 @@ mkdir -p _upgrade_base
 pushd _upgrade_base
 
 otp_vsn_for() {
-    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths.eterm
+    case "$PROFILE" in
+        *-ee-*)
+            ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths-ee.eterm
+            ;;
+        *)
+            ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths.eterm
+            ;;
+    esac
 }
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     filename="$PROFILE-${tag#[e|v]}-otp$(otp_vsn_for "$tag")-$SYSTEM-$ARCH.zip"
     url="https://packages.emqx.io/$DIR/$tag/$filename"
-    echo "downloading base package from ${url} ..."
     if [ -f "$filename" ]; then
-        echo "file $filename already downloaded; skikpped"
+        echo "file $filename already downloaded; skipped"
         continue
     fi
+    curl -L -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+"
     echo "downloading base package from ${url} ..."
     curl -L -o "${filename}" "${url}"
     if [ "$SYSTEM" != "centos6" ]; then

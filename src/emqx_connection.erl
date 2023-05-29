@@ -40,7 +40,7 @@
         ]).
 
 -export([ async_set_keepalive/3
-        , async_set_keepalive/4
+        , async_set_keepalive/5
         , async_set_socket_options/2
         ]).
 
@@ -226,15 +226,24 @@ stats(#state{transport = Transport,
 %% NOTE: This API sets TCP socket options, which has nothing to do with
 %%       the MQTT layer's keepalive (PINGREQ and PINGRESP).
 async_set_keepalive(Idle, Interval, Probes) ->
-    async_set_keepalive(self(), Idle, Interval, Probes).
+    async_set_keepalive(os:type(), self(), Idle, Interval, Probes).
 
-async_set_keepalive(Pid, Idle, Interval, Probes) ->
+async_set_keepalive({unix, linux}, Pid, Idle, Interval, Probes) ->
     Options = [ {keepalive, true}
               , {raw, 6, 4, <<Idle:32/native>>}
               , {raw, 6, 5, <<Interval:32/native>>}
               , {raw, 6, 6, <<Probes:32/native>>}
               ],
-    async_set_socket_options(Pid, Options).
+    async_set_socket_options(Pid, Options);
+async_set_keepalive({unix, darwin}, Pid, Idle, Interval, Probes) ->
+    Options = [ {keepalive, true}
+              , {raw, 6, 16#10, <<Idle:32/native>>}
+              , {raw, 6, 16#101, <<Interval:32/native>>}
+              , {raw, 6, 16#102, <<Probes:32/native>>}
+              ],
+    async_set_socket_options(Pid, Options);
+async_set_keepalive(_Unsupported, _Pid, _Idle, _Interval, _Probes) ->
+    ok.
 
 %% @doc Set custom socket options.
 %% This API is made async because the call might be originated from
@@ -291,6 +300,12 @@ init_state(Transport, Socket, Options) ->
     StatsTimer = emqx_zone:stats_timer(Zone),
     IdleTimeout = emqx_zone:idle_timeout(Zone),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
+    case emqx_zone:tcp_keepalive(Zone) of
+        false ->
+            ok;
+        {Idle, Interval, Probes} ->
+            ok = async_set_keepalive(Idle, Interval, Probes)
+    end,
     #state{transport    = Transport,
            socket       = Socket,
            peername     = Peername,
@@ -769,8 +784,14 @@ handle_cast({async_set_socket_options, Opts},
                            socket    = Socket
                           }) ->
     case Transport:setopts(Socket, Opts) of
-        ok -> ?tp(info, "custom_socket_options_successfully", #{opts => Opts});
-        Err -> ?tp(error, "failed_to_set_custom_socket_optionn", #{reason => Err})
+        ok ->
+            ?tp(debug, "custom_socket_options_successfully", #{opts => Opts});
+        {error, einval} ->
+            %% socket is already closed, ignore this error
+            ok;
+        Err ->
+            %% other errors
+            ?tp(error, "failed_to_set_custom_socket_optionn", #{reason => Err})
     end,
     State;
 handle_cast(Req, State) ->
