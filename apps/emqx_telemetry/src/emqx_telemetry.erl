@@ -121,7 +121,7 @@ start_reporting() ->
 
 %% @doc Stop the reporting timer.
 %% This is an async notification which never fails.
-%% This is a no-op in enterprise eidtion.
+%% This is a no-op in enterprise edition.
 stop_reporting() ->
     gen_server:cast(?MODULE, stop_reporting).
 
