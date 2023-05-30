@@ -5,6 +5,11 @@ list_clients.desc:
 list_clients.label:
 """List clients"""
 
+kickout_clients.desc:
+"""Kick out a batch of client by client IDs"""
+kickout_clients.label:
+"""Kick out a batch of client by client IDs"""
+
 clients_info_from_id.desc:
 """Get clients info by client ID"""
 clients_info_from_id.label:

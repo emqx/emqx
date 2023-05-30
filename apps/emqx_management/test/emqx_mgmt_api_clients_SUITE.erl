@@ -167,6 +167,47 @@ t_clients(_) ->
     AfterKickoutResponse1 = emqx_mgmt_api_test_util:request_api(get, Client1Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse1).
 
+t_kickout_clients(_) ->
+    process_flag(trap_exit, true),
+
+    ClientId1 = <<"client1">>,
+    ClientId2 = <<"client2">>,
+    ClientId3 = <<"client3">>,
+
+    {ok, C1} = emqtt:start_link(#{
+        clientid => ClientId1,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 120}
+    }),
+    {ok, _} = emqtt:connect(C1),
+    {ok, C2} = emqtt:start_link(#{clientid => ClientId2}),
+    {ok, _} = emqtt:connect(C2),
+    {ok, C3} = emqtt:start_link(#{clientid => ClientId3}),
+    {ok, _} = emqtt:connect(C3),
+
+    timer:sleep(300),
+
+    %% get /clients
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
+    {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
+    ClientsResponse = emqx_utils_json:decode(Clients, [return_maps]),
+    ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
+    ClientsPage = maps:get(<<"page">>, ClientsMeta),
+    ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
+    ClientsCount = maps:get(<<"count">>, ClientsMeta),
+    ?assertEqual(ClientsPage, 1),
+    ?assertEqual(ClientsLimit, emqx_mgmt:default_row_limit()),
+    ?assertEqual(ClientsCount, 3),
+
+    %% kickout clients
+    KickoutPath = emqx_mgmt_api_test_util:api_path(["clients", "kickout", "bulk"]),
+    KickoutBody = [ClientId1, ClientId2, ClientId3],
+    {ok, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
+
+    {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
+    ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
+    ?assertMatch(#{<<"meta">> := #{<<"count">> := 0}}, ClientsResponse2).
+
 t_query_clients_with_time(_) ->
     process_flag(trap_exit, true),
 

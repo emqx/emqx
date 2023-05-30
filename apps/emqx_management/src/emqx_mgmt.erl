@@ -47,6 +47,7 @@
     lookup_client/2,
     lookup_client/3,
     kickout_client/1,
+    kickout_clients/1,
     list_authz_cache/1,
     list_client_subscriptions/1,
     client_subscriptions/2,
@@ -58,7 +59,9 @@
     clean_pem_cache_all/1,
     set_ratelimit_policy/2,
     set_quota_policy/2,
-    set_keepalive/2
+    set_keepalive/2,
+
+    do_kickout_clients/1
 ]).
 
 %% Internal functions
@@ -320,6 +323,28 @@ kickout_client(ClientId) ->
 
 kickout_client(Node, ClientId) ->
     unwrap_rpc(emqx_cm_proto_v1:kickout_client(Node, ClientId)).
+
+kickout_clients(ClientIds) when is_list(ClientIds) ->
+    F = fun(Node) ->
+        emqx_management_proto_v3:kickout_clients(Node, ClientIds)
+    end,
+    Results = lists:map(F, emqx:running_nodes()),
+    case lists:filter(fun(Res) -> Res =/= ok end, Results) of
+        [] ->
+            ok;
+        [Result | _] ->
+            unwrap_rpc(Result)
+    end.
+
+do_kickout_clients(ClientIds) when is_list(ClientIds) ->
+    F = fun(ClientId) ->
+        ChanPids = emqx_cm:lookup_channels(local, ClientId),
+        lists:foreach(
+            fun(ChanPid) -> emqx_cm:kick_session(ClientId, ChanPid) end,
+            ChanPids
+        )
+    end,
+    lists:foreach(F, ClientIds).
 
 list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).

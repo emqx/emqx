@@ -32,7 +32,9 @@
 
     call_client/3,
 
-    get_full_config/1
+    get_full_config/1,
+
+    kickout_clients/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -78,3 +80,7 @@ call_client(Node, ClientId, Req) ->
 -spec get_full_config(node()) -> map() | list() | {badrpc, _}.
 get_full_config(Node) ->
     rpc:call(Node, emqx_mgmt_api_configs, get_full_config, []).
+
+-spec kickout_clients(node(), [emqx_types:clientid()]) -> ok | {badrpc, _}.
+kickout_clients(Node, ClientIds) ->
+    rpc:call(Node, emqx_mgmt, do_kickout_clients, [ClientIds]).
