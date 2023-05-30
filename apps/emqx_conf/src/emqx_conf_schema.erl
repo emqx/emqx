@@ -1365,6 +1365,7 @@ ensure_file_handlers(Conf, _Opts) ->
     ),
     HandlersWithoutName = maps:with(FileFields, Conf),
     HandlersWithName = maps:without(FileFields, Conf),
+    %% Make sure the handler with name is high priority than the handler without name
     emqx_utils_maps:deep_merge(#{<<"default">> => HandlersWithoutName}, HandlersWithName).
 
 convert_rotation(undefined, _Opts) -> undefined;
