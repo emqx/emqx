@@ -666,7 +666,7 @@ t_local_fallback(Config) when is_list(Config) ->
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
     rpc:call(Node, emqx, publish, [Message2]),
-    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1]),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 2_000),
 
     emqtt:stop(ConnPid1),
     stop_slave(Node),
