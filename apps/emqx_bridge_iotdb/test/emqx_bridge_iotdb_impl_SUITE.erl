@@ -326,6 +326,36 @@ t_sync_query_fail(Config) ->
         end,
     emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query).
 
+t_sync_query_badpayload(Config) ->
+    DeviceId = iotdb_device(Config),
+    BadPayload = #{foo => bar},
+    IsSuccessCheck =
+        fun(Result) ->
+            ?assertEqual({error, invalid_data}, Result)
+        end,
+    emqx_bridge_testlib:t_sync_query(
+        Config,
+        make_message_fun(DeviceId, BadPayload),
+        IsSuccessCheck,
+        iotdb_bridge_on_query
+    ),
+    ok.
+
+t_async_query_badpayload(Config) ->
+    DeviceId = iotdb_device(Config),
+    BadPayload = #{foo => bar},
+    IsSuccessCheck =
+        fun(Result) ->
+            ?assertEqual({error, invalid_data}, Result)
+        end,
+    emqx_bridge_testlib:t_async_query(
+        Config,
+        make_message_fun(DeviceId, BadPayload),
+        IsSuccessCheck,
+        iotdb_bridge_on_query_async
+    ),
+    ok.
+
 t_create_via_http(Config) ->
     emqx_bridge_testlib:t_create_via_http(Config).
 

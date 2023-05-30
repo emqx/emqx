@@ -403,8 +403,6 @@ device_id(Message, State) ->
             case maps:get(payload, Message) of
                 #{<<"device_id">> := DeviceId} ->
                     DeviceId;
-                #{device_id := DeviceId} ->
-                    DeviceId;
                 _NotFound ->
                     Topic = maps:get(topic, Message),
                     case re:replace(Topic, "/", ".", [global, {return, binary}]) of

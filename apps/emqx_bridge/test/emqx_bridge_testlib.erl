@@ -116,6 +116,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(bridge_name, Config),
     BridgeConfig0 = ?config(bridge_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
+    ct:pal("creating bridge with config: ~p", [BridgeConfig]),
     emqx_bridge:create(BridgeType, Name, BridgeConfig).
 
 create_bridge_api(Config) ->
