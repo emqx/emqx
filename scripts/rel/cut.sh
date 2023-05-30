@@ -270,10 +270,6 @@ else
         *beta*)
             true
             ;;
-        e5.1.0*)
-            # the first release has no change log
-            true
-            ;;
         *)
             generate_changelog
             ;;
