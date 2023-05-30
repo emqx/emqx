@@ -97,7 +97,6 @@ jobs:
         env:
           PROFILE: ${{ steps.get_profile.outputs.PROFILE }}
         run: |
-          PROFILE=$PROFILE make -C source deps-$PROFILE
           zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v3
         with:
