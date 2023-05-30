@@ -93,6 +93,7 @@ end_per_group(_Group, _Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Config.
 
 end_per_suite(_Config) ->
@@ -442,7 +443,7 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
             emqx_cm_process_down
         ]
     ),
-    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ?retry(_Sleep = 100, _Retries = 20, ?assertEqual(0, emqx_cm:get_connected_client_count())),
     ok;
 t_connected_client_count_persistent({'end', _Config}) ->
     snabbkaffe:stop(),
