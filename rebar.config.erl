@@ -91,6 +91,7 @@ is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
 is_community_umbrella_app("apps/emqx_bridge_pgsql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_pulsar") -> false;
 is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
 is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;

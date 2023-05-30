@@ -18,6 +18,8 @@
 %% emqx_ee_bridge "unofficial" API
 -export([conn_bridge_examples/1]).
 
+-export([producer_strategy_key_validator/1]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
@@ -217,6 +219,14 @@ conn_bridge_examples(_Method) ->
             }
         }
     ].
+
+producer_strategy_key_validator(#{
+    <<"strategy">> := key_dispatch,
+    <<"message">> := #{<<"key">> := ""}
+}) ->
+    {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
+producer_strategy_key_validator(_) ->
+    ok.
 
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
