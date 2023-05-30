@@ -29,7 +29,7 @@
     info/1
 ]).
 
--export([handle_publish/4]).
+-export([handle_publish/5]).
 -export([handle_disconnect/1]).
 
 -type name() :: term().
@@ -62,7 +62,7 @@ connect(Options) ->
     WorkerId = proplists:get_value(ecpool_worker_id, Options),
     Ingress = config(proplists:get_value(ingress, Options), Name),
     ClientOpts = proplists:get_value(client_opts, Options),
-    case emqtt:start_link(mk_client_opts(WorkerId, Ingress, ClientOpts)) of
+    case emqtt:start_link(mk_client_opts(Name, WorkerId, Ingress, ClientOpts)) of
         {ok, Pid} ->
             connect(Pid, Name, Ingress);
         {error, Reason} = Error ->
@@ -74,16 +74,16 @@ connect(Options) ->
             Error
     end.
 
-mk_client_opts(WorkerId, Ingress, ClientOpts = #{clientid := ClientId}) ->
+mk_client_opts(Name, WorkerId, Ingress, ClientOpts = #{clientid := ClientId}) ->
     ClientOpts#{
         clientid := mk_clientid(WorkerId, ClientId),
-        msg_handler => mk_client_event_handler(Ingress)
+        msg_handler => mk_client_event_handler(Name, Ingress)
     }.
 
 mk_clientid(WorkerId, ClientId) ->
     iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
 
-mk_client_event_handler(Ingress = #{}) ->
+mk_client_event_handler(Name, Ingress = #{}) ->
     IngressVars = maps:with([server], Ingress),
     OnMessage = maps:get(on_message_received, Ingress, undefined),
     LocalPublish =
@@ -94,7 +94,7 @@ mk_client_event_handler(Ingress = #{}) ->
                 undefined
         end,
     #{
-        publish => {fun ?MODULE:handle_publish/4, [OnMessage, LocalPublish, IngressVars]},
+        publish => {fun ?MODULE:handle_publish/5, [Name, OnMessage, LocalPublish, IngressVars]},
         disconnected => {fun ?MODULE:handle_disconnect/1, []}
     }.
 
@@ -110,6 +110,7 @@ connect(Pid, Name, Ingress) ->
                     ?SLOG(error, #{
                         msg => "ingress_client_subscribe_failed",
                         ingress => Ingress,
+                        name => Name,
                         reason => Reason
                     }),
                     _ = catch emqtt:stop(Pid),
@@ -182,11 +183,12 @@ status(Pid) ->
 
 %%
 
-handle_publish(#{properties := Props} = MsgIn, OnMessage, LocalPublish, IngressVars) ->
+handle_publish(#{properties := Props} = MsgIn, Name, OnMessage, LocalPublish, IngressVars) ->
     Msg = import_msg(MsgIn, IngressVars),
     ?SLOG(debug, #{
-        msg => "publish_local",
-        message => Msg
+        msg => "ingress_publish_local",
+        message => Msg,
+        name => Name
     }),
     maybe_on_message_received(Msg, OnMessage),
     maybe_publish_local(Msg, LocalPublish, Props).

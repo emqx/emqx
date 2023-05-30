@@ -34,8 +34,8 @@ egress_desc.label:
 
 egress_pool_size.desc:
 """Size of the pool of MQTT clients that will publish messages to the remote broker.<br/>
-        Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:egress:${node}:${n}'
-        where 'n' is the number of a client inside the pool."""
+Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:egress:${node}:${n}'
+where 'n' is the number of a client inside the pool."""
 
 egress_pool_size.label:
 """Pool Size"""
@@ -85,10 +85,11 @@ ingress_desc.label:
 
 ingress_pool_size.desc:
 """Size of the pool of MQTT clients that will ingest messages from the remote broker.<br/>
-        This value will be respected only if 'remote.topic' is a shared subscription topic filter,
-        otherwise only a single MQTT client will be used.
-        Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:ingress:${node}:${n}'
-        where 'n' is the number of a client inside the pool."""
+This value will be respected only if 'remote.topic' is a shared subscription topic or topic-filter
+(for example `$share/name1/topic1` or `$share/name2/topic2/#`), otherwise only a single MQTT client will be used.
+Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:ingress:${node}:${n}'
+where 'n' is the number of a client inside the pool.
+NOTE: Non-shared subscription will not work well when EMQX is clustered."""
 
 ingress_pool_size.label:
 """Pool Size"""

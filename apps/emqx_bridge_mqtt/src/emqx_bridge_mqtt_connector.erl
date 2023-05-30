@@ -76,7 +76,7 @@ start_ingress(ResourceId, Conf) ->
 
 start_ingress(ResourceId, Ingress, ClientOpts) ->
     PoolName = <<ResourceId/binary, ":ingress">>,
-    PoolSize = choose_ingress_pool_size(Ingress),
+    PoolSize = choose_ingress_pool_size(ResourceId, Ingress),
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
@@ -90,7 +90,10 @@ start_ingress(ResourceId, Ingress, ClientOpts) ->
             {error, Reason}
     end.
 
-choose_ingress_pool_size(#{remote := #{topic := RemoteTopic}, pool_size := PoolSize}) ->
+choose_ingress_pool_size(
+    ResourceId,
+    #{remote := #{topic := RemoteTopic}, pool_size := PoolSize}
+) ->
     case emqx_topic:parse(RemoteTopic) of
         {_Filter, #{share := _Name}} ->
             % NOTE: this is shared subscription, many workers may subscribe
@@ -98,7 +101,8 @@ choose_ingress_pool_size(#{remote := #{topic := RemoteTopic}, pool_size := PoolS
         {_Filter, #{}} ->
             % NOTE: this is regular subscription, only one worker should subscribe
             ?SLOG(warning, #{
-                msg => "ingress_pool_size_ignored",
+                msg => "mqtt_bridge_ingress_pool_size_ignored",
+                connector => ResourceId,
                 reason =>
                     "Remote topic filter is not a shared subscription, "
                     "ingress pool will start with a single worker",
