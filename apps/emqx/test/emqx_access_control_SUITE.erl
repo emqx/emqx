@@ -120,6 +120,3 @@ clientinfo(InitProps) ->
         },
         InitProps
     ).
-
-toggle_auth(Bool) when is_boolean(Bool) ->
-    emqx_config:put_zone_conf(default, [auth, enable], Bool).
