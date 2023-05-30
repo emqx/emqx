@@ -228,7 +228,9 @@
     format_date/3,
     format_date/4,
     date_to_unix_ts/3,
-    date_to_unix_ts/4
+    date_to_unix_ts/4,
+    timezone_to_second/1,
+    timezone_to_offset_seconds/1
 ]).
 
 %% MongoDB specific date functions. These functions return a date tuple. The
@@ -1103,6 +1105,12 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     OffsetSecond = emqx_calendar:offset_second(Offset),
     OffsetDelta = erlang:convert_time_unit(OffsetSecond, second, Unit),
     date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
+
+timezone_to_second(TimeZone) ->
+    timezone_to_offset_seconds(TimeZone).
+
+timezone_to_offset_seconds(TimeZone) ->
+    emqx_calendar:offset_second(TimeZone).
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
