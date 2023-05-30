@@ -234,6 +234,8 @@ do_request_dashboard(Method, Request) ->
         ->
             {ok, Return};
         {ok, {Reason, _, _}} ->
+            {error, Reason};
+        {error, Reason} ->
             {error, Reason}
     end.
 

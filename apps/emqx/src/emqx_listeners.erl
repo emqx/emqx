@@ -57,6 +57,7 @@
 ]).
 
 -export([pre_config_update/3, post_config_update/5]).
+-export([wait_listener_stopped/1]).
 
 -export([format_bind/1]).
 

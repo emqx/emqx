@@ -21,9 +21,11 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx_dashboard.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(NAME, 'https:dashboard').
--define(HOST, "https://127.0.0.1:18084").
+-define(HOST_HTTPS, "https://127.0.0.1:18084").
+-define(HOST_HTTP, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
 -define(OVERVIEWS, [
     "alarms",
@@ -43,6 +45,76 @@ end_per_suite(_Config) -> emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 init_per_testcase(_TestCase, Config) -> Config.
 end_per_testcase(_TestCase, _Config) -> emqx_mgmt_api_test_util:end_suite([emqx_management]).
+
+t_update_conf(_Config) ->
+    Conf = #{
+        dashboard => #{
+            listeners => #{
+                https => #{bind => 18084, enable => true},
+                http => #{bind => 18083, enable => true}
+            }
+        }
+    },
+    emqx_common_test_helpers:load_config(emqx_dashboard_schema, Conf),
+    emqx_mgmt_api_test_util:init_suite([emqx_management], fun(X) -> X end),
+    Headers = emqx_dashboard_SUITE:auth_header_(),
+    {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
+        get, https_api_path(["clients"]), Headers
+    ),
+    {ok, Client2} = emqx_dashboard_SUITE:request_dashboard(
+        get, http_api_path(["clients"]), Headers
+    ),
+    Raw = emqx:get_raw_config([<<"dashboard">>]),
+    ?assertEqual(Client1, Client2),
+    ?check_trace(
+        begin
+            Raw1 = emqx_utils_maps:deep_put(
+                [<<"listeners">>, <<"https">>, <<"enable">>], Raw, false
+            ),
+            ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw1)),
+            ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
+            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
+            ok
+        end,
+        fun(ok, Trace) ->
+            %% Don't start new listener, so is empty
+            ?assertMatch([#{listeners := []}], ?of_kind(regenerate_minirest_dispatch, Trace))
+        end
+    ),
+    {ok, Client3} = emqx_dashboard_SUITE:request_dashboard(
+        get, http_api_path(["clients"]), Headers
+    ),
+    ?assertEqual(Client1, Client3),
+    ?assertMatch(
+        {error,
+            {failed_connect, [
+                _,
+                {inet, [inet], econnrefused}
+            ]}},
+        emqx_dashboard_SUITE:request_dashboard(get, https_api_path(["clients"]), Headers)
+    ),
+    %% reset
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw)),
+            ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
+            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
+            ok
+        end,
+        fun(ok, Trace) ->
+            %% start new listener('https:dashboard')
+            ?assertMatch(
+                [#{listeners := ['https:dashboard']}], ?of_kind(regenerate_minirest_dispatch, Trace)
+            )
+        end
+    ),
+    {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
+        get, https_api_path(["clients"]), Headers
+    ),
+    {ok, Client2} = emqx_dashboard_SUITE:request_dashboard(
+        get, http_api_path(["clients"]), Headers
+    ),
+    emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 t_default_ssl_cert(_Config) ->
     Conf = #{dashboard => #{listeners => #{https => #{bind => 18084, enable => true}}}},
@@ -188,7 +260,7 @@ assert_https_request() ->
     Headers = emqx_dashboard_SUITE:auth_header_(),
     lists:foreach(
         fun(Path) ->
-            ApiPath = api_path([Path]),
+            ApiPath = https_api_path([Path]),
             ?assertMatch(
                 {ok, _},
                 emqx_dashboard_SUITE:request_dashboard(get, ApiPath, Headers)
@@ -197,8 +269,11 @@ assert_https_request() ->
         ?OVERVIEWS
     ).
 
-api_path(Parts) ->
-    ?HOST ++ filename:join([?BASE_PATH | Parts]).
+https_api_path(Parts) ->
+    ?HOST_HTTPS ++ filename:join([?BASE_PATH | Parts]).
+
+http_api_path(Parts) ->
+    ?HOST_HTTP ++ filename:join([?BASE_PATH | Parts]).
 
 naive_env_interpolation(Str0) ->
     Str1 = emqx_schema:naive_env_interpolation(Str0),
