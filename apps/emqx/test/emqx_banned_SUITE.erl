@@ -145,11 +145,12 @@ t_kick(_) ->
 t_session_taken(_) ->
     erlang:process_flag(trap_exit, true),
     Topic = <<"t/banned">>,
-    ClientId2 = <<"t_session_taken">>,
+    ClientId2 = emqx_guid:to_hexstr(emqx_guid:gen()),
     MsgNum = 3,
     Connect = fun() ->
+        ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
         {ok, C} = emqtt:start_link([
-            {clientid, <<"client1">>},
+            {clientid, ClientId},
             {proto_ver, v5},
             {clean_start, false},
             {properties, #{'Session-Expiry-Interval' => 120}}
@@ -188,9 +189,9 @@ t_session_taken(_) ->
         end,
         15_000
     ),
-    Publish(),
 
     C2 = Connect(),
+    Publish(),
     ?assertEqual(MsgNum, length(receive_messages(MsgNum + 1))),
     ok = emqtt:disconnect(C2),
 
