@@ -326,7 +326,7 @@ kickout_client(Node, ClientId) ->
 
 kickout_clients(ClientIds) when is_list(ClientIds) ->
     F = fun(Node) ->
-        emqx_management_proto_v3:kickout_clients(Node, ClientIds)
+        emqx_management_proto_v4:kickout_clients(Node, ClientIds)
     end,
     Results = lists:map(F, emqx:running_nodes()),
     case lists:filter(fun(Res) -> Res =/= ok end, Results) of
