@@ -13,7 +13,7 @@ start_emqx_with_conf() {
     "$EMQX_ROOT"/bin/emqx stop
 }
 
-MINOR_VSN=$(./pkg-vsn.sh "$PROFILE" | cut -d. -f1,2)
+MAJOR_VSN=$(./pkg-vsn.sh "$PROFILE" | cut -d. -f1)
 
 if [ "$PROFILE" = "emqx" ]; then
   PREFIX="v"
@@ -21,7 +21,7 @@ else
   PREFIX="e"
 fi
 
-FILES=$(ls ./scripts/conf-test/old-confs/$PREFIX"$MINOR_VSN"*)
+FILES=$(ls ./scripts/conf-test/old-confs/"${PREFIX}${MAJOR_VSN}"*)
 
 cp "$EMQX_ROOT"/etc/emqx.conf "$EMQX_ROOT"/etc/emqx.conf.bak
 cleanup() {

@@ -149,6 +149,7 @@ After releasing, let's say, 5.1.0, the following actions should be performed to 
 
 1. Checkout 5.1.0 tag
 1. Build the code
+1. Replace api version string `"master"` in `apps/emqx/test/emqx_static_checks_data/master.bpapi` with `"5.1"`
 1. Rename `apps/emqx/test/emqx_static_checks_data/master.bpapi` to `apps/emqx/test/emqx_static_checks_data/5.1.bpapi`
 1. Add `apps/emqx/test/emqx_static_checks_data/5.1.bpapi` to the repo
 1. Delete the previous file (e.g. `5.0.bpapi`), unless there is plan to support rolling upgrade from 5.0 to 5.2
