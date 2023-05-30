@@ -274,3 +274,18 @@ subscribe_proc() ->
             2000
         end
     end.
+
+t_delayed_load_unload(_Config) ->
+    Conf = emqx:get_raw_config([delayed]),
+    Conf1 = Conf#{<<"max_delayed_messages">> => 1234},
+    ?assertMatch({ok, _}, emqx:update_config([delayed], Conf1#{<<"enable">> := true})),
+    ?assert(is_hooks_exist()),
+    ?assertEqual(1234, emqx:get_config([delayed, max_delayed_messages])),
+    ?assertMatch({ok, _}, emqx:update_config([delayed], Conf1#{<<"enable">> := false})),
+    ?assertNot(is_hooks_exist()),
+    ?assertMatch({ok, _}, emqx:update_config([delayed], Conf)),
+    ok.
+
+is_hooks_exist() ->
+    Hooks = emqx_hooks:lookup('message.publish'),
+    false =/= lists:keyfind({emqx_delayed, on_message_publish, []}, 2, Hooks).

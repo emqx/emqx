@@ -17,6 +17,7 @@
 -module(emqx_delayed).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/types.hrl").
