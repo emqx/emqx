@@ -31,11 +31,11 @@
 %% NOTE: ALso make sure to follow the instructions in end of
 %% `apps/emqx/src/bpapi/README.md'
 
-%% Community edition
+%% Opensource edition
 -define(EMQX_RELEASE_CE, "5.1.0-alpha.1").
 
 %% Enterprise edition
 -define(EMQX_RELEASE_EE, "5.1.0-alpha.1").
 
-%% the HTTP API version
+%% The HTTP API version
 -define(EMQX_API_VERSION, "5.0").
