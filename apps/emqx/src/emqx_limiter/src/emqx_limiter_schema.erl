@@ -110,7 +110,7 @@ roots() ->
     ].
 
 fields(limiter) ->
-    short_paths_fields(?MODULE) ++
+    short_paths_fields(?MODULE, ?IMPORTANCE_HIDDEN) ++
         [
             {Type,
                 ?HOCON(?R_REF(node_opts), #{
@@ -212,9 +212,17 @@ fields(Type) ->
     simple_bucket_field(Type).
 
 short_paths_fields(DesModule) ->
+    short_paths_fields(DesModule, ?DEFAULT_IMPORTANCE).
+
+short_paths_fields(DesModule, Importance) ->
     [
         {Name,
-            ?HOCON(rate(), #{desc => ?DESC(DesModule, Name), required => false, example => Example})}
+            ?HOCON(rate(), #{
+                desc => ?DESC(DesModule, Name),
+                required => false,
+                importance => Importance,
+                example => Example
+            })}
      || {Name, Example} <-
             lists:zip(short_paths(), [<<"1000/s">>, <<"1000/s">>, <<"100MB/s">>])
     ].
