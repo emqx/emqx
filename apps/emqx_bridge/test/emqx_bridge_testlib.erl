@@ -32,7 +32,7 @@ init_per_group(TestGroup, BridgeType, Config) ->
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
-    MQTTTopic = <<"mqtt/topic/", UniqueNum/binary>>,
+    MQTTTopic = <<"mqtt/topic/abc", UniqueNum/binary>>,
     [
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
