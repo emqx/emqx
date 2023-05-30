@@ -13,6 +13,7 @@
 
 %% Needed to create RabbitMQ connection
 -include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("credentials_obfuscation/include/credentials_obfuscation.hrl").
 
 -behaviour(emqx_resource).
 -behaviour(hocon_schema).
@@ -230,6 +231,17 @@ on_start(
         processed_payload_template => ProcessedTemplate,
         config => Config
     },
+    %% Initialize RabbitMQ's secret library so that the password is encrypted
+    %% in the log files.
+    case credentials_obfuscation:secret() of
+        ?PENDING_SECRET ->
+            Bytes = crypto:strong_rand_bytes(128),
+            %% The password can appear in log files if we don't do this
+            credentials_obfuscation:set_secret(Bytes);
+        _ ->
+            %% Already initialized
+            ok
+    end,
     case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
         ok ->
             {ok, State};
