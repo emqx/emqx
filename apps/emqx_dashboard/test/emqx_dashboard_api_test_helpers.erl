@@ -64,11 +64,6 @@ set_default_config(DefaultUsername, HAProxyEnabled, Opts) ->
         i18n_lang => en
     },
     emqx_config:put([dashboard], Config),
-    I18nFile = filename:join([
-        code:priv_dir(emqx_dashboard),
-        "i18n.conf"
-    ]),
-    application:set_env(emqx_dashboard, i18n_file, I18nFile),
     ok.
 
 request(Method, Url) ->

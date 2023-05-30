@@ -446,6 +446,8 @@ t_failed_creation_then_fix(Config) ->
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     %% TODO: refactor those into init/end per testcase
     ok = ?PRODUCER:on_stop(ResourceId, State),
+    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
     ok = emqx_bridge_resource:remove(BridgeId),
     delete_all_bridges(),
     ok.

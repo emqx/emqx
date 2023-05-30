@@ -27,15 +27,12 @@
 %% @doc Global ETS table to cache the description of the configuration items.
 %% The table is owned by the emqx_dashboard_sup the root supervisor of emqx_dashboard.
 %% The cache is initialized with the default language (English) and
-%% all the desc.<lang>.hocon files in the www/static directory (extracted from dashboard package).
+%% all the desc.<lang>.hocon files in the app's priv directory
 init() ->
     ok = ensure_app_loaded(emqx_dashboard),
     PrivDir = code:priv_dir(emqx_dashboard),
-    EngDesc = filename:join([PrivDir, "desc.en.hocon"]),
-    WwwStaticDir = filename:join([PrivDir, "www", "static"]),
-    OtherLangDesc0 = filelib:wildcard("desc.*.hocon", WwwStaticDir),
-    OtherLangDesc = lists:map(fun(F) -> filename:join([WwwStaticDir, F]) end, OtherLangDesc0),
-    Files = [EngDesc | OtherLangDesc],
+    Files0 = filelib:wildcard("desc.*.hocon", PrivDir),
+    Files = lists:map(fun(F) -> filename:join([PrivDir, F]) end, Files0),
     ok = emqx_utils_ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]),
     ok = lists:foreach(fun(F) -> load_desc(?MODULE, F) end, Files).
 
