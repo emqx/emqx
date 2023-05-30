@@ -403,7 +403,8 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
                 buffer_worker_retry_inflight_failed,
                 #{
                     ref => Ref,
-                    query_or_batch => QueryOrBatch
+                    query_or_batch => QueryOrBatch,
+                    result => Result
                 }
             ),
             {keep_state, Data1, {state_timeout, ResumeT, unblock}};
