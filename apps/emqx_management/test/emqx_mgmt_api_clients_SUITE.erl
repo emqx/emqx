@@ -202,7 +202,7 @@ t_kickout_clients(_) ->
     %% kickout clients
     KickoutPath = emqx_mgmt_api_test_util:api_path(["clients", "kickout", "bulk"]),
     KickoutBody = [ClientId1, ClientId2, ClientId3],
-    {ok, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
+    {ok, 204, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
 
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
