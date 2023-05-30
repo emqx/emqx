@@ -2248,6 +2248,15 @@ do_t_expiration_async_after_reply(IsBatch) ->
                             }
                         ],
                         ?of_kind(handle_async_reply_expired, Trace)
+                    ),
+                    ?assertMatch(
+                        [
+                            #{
+                                inflight_count := 1,
+                                num_inflight_messages := 1
+                            }
+                        ],
+                        ?of_kind(handle_async_reply_partially_expired, Trace)
                     );
                 single ->
                     ?assertMatch(
