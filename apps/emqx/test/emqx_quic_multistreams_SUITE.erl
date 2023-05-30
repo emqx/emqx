@@ -24,6 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -1089,6 +1090,11 @@ t_multi_streams_unsub(Config) ->
     ),
 
     emqtt:unsubscribe_via(C, SubVia, Topic),
+    ?retry(
+        _Sleep2 = 100,
+        _Attempts2 = 50,
+        false = emqx_router:has_routes(Topic)
+    ),
 
     case emqtt:publish_via(C, PubVia, Topic, #{}, <<6, 7, 8, 9>>, [{qos, PubQos}]) of
         ok when PubQos == 0 ->
@@ -1569,7 +1575,7 @@ t_multi_streams_remote_shutdown(Config) ->
 
     ok = stop_emqx(),
     %% Client should be closed
-    assert_client_die(C, 100, 50).
+    assert_client_die(C, 100, 200).
 
 t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     erlang:process_flag(trap_exit, true),
