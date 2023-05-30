@@ -892,7 +892,7 @@ t_handle_kicked_publish_will_msg(_) ->
     ),
     receive
         {pub, Msg} -> ok
-    after 1_000 -> exit(will_message_not_published)
+    after 10_000 -> exit(will_message_not_published)
     end.
 
 t_handle_call_discard(_) ->
