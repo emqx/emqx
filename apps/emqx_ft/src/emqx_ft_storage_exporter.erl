@@ -38,7 +38,7 @@
 
 -export_type([export/0]).
 
--type storage() :: emqx_ft_storage_fs:storage().
+-type storage() :: emqx_ft_storage_fs:storage() | undefined.
 -type transfer() :: emqx_ft:transfer().
 -type filemeta() :: emqx_ft:filemeta().
 -type checksum() :: emqx_ft:checksum().
