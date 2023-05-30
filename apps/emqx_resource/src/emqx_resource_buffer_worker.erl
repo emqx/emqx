@@ -247,7 +247,7 @@ running(info, Info, _St) ->
     keep_state_and_data.
 
 blocked(enter, _, #{resume_interval := ResumeT} = St0) ->
-    ?tp(buffer_worker_enter_blocked, #{}),
+    ?tp(buffer_worker_enter_blocked, #{buffer_worker => self()}),
     %% discard the old timer, new timer will be started when entering running state again
     St = cancel_flush_timer(St0),
     {keep_state, St, {state_timeout, ResumeT, unblock}};
@@ -976,7 +976,7 @@ handle_async_worker_down(Data0, Pid) ->
     {AsyncWorkerMRef, AsyncWorkers} = maps:take(Pid, AsyncWorkers0),
     Data = Data0#{async_workers := AsyncWorkers},
     mark_inflight_items_as_retriable(Data, AsyncWorkerMRef),
-    {keep_state, Data}.
+    {next_state, blocked, Data}.
 
 -spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
@@ -1563,7 +1563,7 @@ mark_inflight_items_as_retriable(Data, AsyncWorkerMRef) ->
             end
         ),
     _NumAffected = ets:select_replace(InflightTID, MatchSpec),
-    ?tp(buffer_worker_async_agent_down, #{num_affected => _NumAffected}),
+    ?tp(buffer_worker_async_agent_down, #{num_affected => _NumAffected, buffer_worker => self()}),
     ok.
 
 %% used to update a batch after dropping expired individual queries.
