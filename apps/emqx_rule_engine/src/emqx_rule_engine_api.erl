@@ -571,10 +571,17 @@ get_rule_metrics(Id) ->
             node => Node
         }
     end,
-    [
-        Format(Node, emqx_plugin_libs_proto_v1:get_metrics(Node, rule_metrics, Id))
+    AllMetrics = [
+        {Node, emqx_plugin_libs_proto_v1:get_metrics(Node, rule_metrics, Id)}
      || Node <- mria:running_nodes()
-    ].
+    ],
+    FilteredMetrics = lists:filtermap(
+        fun
+            ({Node, Metric}) when is_map(Metric) -> {true, Format(Node, Metric)};
+            (_) -> false
+        end,
+        AllMetrics
+    ).
 
 aggregate_metrics(AllMetrics) ->
     InitMetrics = ?METRICS(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
