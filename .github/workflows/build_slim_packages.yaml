@@ -8,7 +8,7 @@ on:
   push:
     branches:
       - master
-      - release-50
+      - release-51
   pull_request:
     # GitHub pull_request action is by default triggered when
     # opened reopened or synchronize,
