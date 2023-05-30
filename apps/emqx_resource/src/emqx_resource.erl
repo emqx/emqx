@@ -121,7 +121,8 @@
 
 -export_type([
     resource_id/0,
-    resource_data/0
+    resource_data/0,
+    resource_status/0
 ]).
 
 -optional_callbacks([

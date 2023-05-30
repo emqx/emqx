@@ -22,9 +22,7 @@
 
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("emqx_dashboard/include/emqx_dashboard.hrl").
 
 %% output functions
 -export([inspect/3]).
@@ -132,13 +130,11 @@ suite() ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    %% some testcases (may from other app) already get emqx_connector started
-    _ = application:stop(emqx_resource),
-    _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps(
         [
             emqx_rule_engine,
             emqx_bridge,
+            emqx_bridge_mqtt,
             emqx_dashboard
         ],
         fun set_special_configs/1
@@ -152,9 +148,10 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([
-        emqx_rule_engine,
+        emqx_dashboard,
+        emqx_bridge_mqtt,
         emqx_bridge,
-        emqx_dashboard
+        emqx_rule_engine
     ]),
     ok.
 
@@ -221,6 +218,12 @@ t_mqtt_conn_bridge_ingress(_) ->
         request(put, uri(["bridges", BridgeIDIngress]), ServerConf)
     ),
 
+    %% non-shared subscription, verify that only one client is subscribed
+    ?assertEqual(
+        1,
+        length(emqx:subscribers(<<?INGRESS_REMOTE_TOPIC, "/#">>))
+    ),
+
     %% we now test if the bridge works as expected
     RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
     LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
@@ -245,6 +248,48 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     ok.
 
+t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
+    PoolSize = 4,
+    Ns = lists:seq(1, 10),
+    BridgeName = atom_to_binary(?FUNCTION_NAME),
+    BridgeID = create_bridge(
+        ?SERVER_CONF(<<>>)#{
+            <<"type">> => ?TYPE_MQTT,
+            <<"name">> => BridgeName,
+            <<"ingress">> => #{
+                <<"pool_size">> => PoolSize,
+                <<"remote">> => #{
+                    <<"topic">> => <<"$share/ingress/", ?INGRESS_REMOTE_TOPIC, "/#">>,
+                    <<"qos">> => 1
+                },
+                <<"local">> => #{
+                    <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
+                    <<"qos">> => <<"${qos}">>,
+                    <<"payload">> => <<"${clientid}">>,
+                    <<"retain">> => <<"${retain}">>
+                }
+            }
+        }
+    ),
+
+    RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
+    LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
+    ok = emqx:subscribe(LocalTopic),
+
+    _ = emqx_utils:pmap(
+        fun emqx:publish/1,
+        [emqx_message:make(RemoteTopic, <<>>) || _ <- Ns]
+    ),
+    _ = [assert_mqtt_msg_received(LocalTopic) || _ <- Ns],
+
+    ?assertEqual(
+        PoolSize,
+        length(emqx_shared_sub:subscribers(<<"ingress">>, <<?INGRESS_REMOTE_TOPIC, "/#">>))
+    ),
+
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    ok.
+
 t_mqtt_egress_bridge_ignores_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
     BridgeID = create_bridge(
@@ -256,11 +301,17 @@ t_mqtt_egress_bridge_ignores_clean_start(_) ->
         }
     ),
 
-    {ok, _, #{state := #{name := WorkerName}}} =
-        emqx_resource:get_instance(emqx_bridge_resource:resource_id(BridgeID)),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeID),
+    {ok, _Group, #{state := #{egress_pool_name := EgressPoolName}}} =
+        emqx_resource_manager:lookup_cached(ResourceID),
+    ClientInfo = ecpool:pick_and_do(
+        EgressPoolName,
+        {emqx_bridge_mqtt_egress, info, []},
+        no_handover
+    ),
     ?assertMatch(
         #{clean_start := true},
-        maps:from_list(emqx_connector_mqtt_worker:info(WorkerName))
+        maps:from_list(ClientInfo)
     ),
 
     %% delete the bridge

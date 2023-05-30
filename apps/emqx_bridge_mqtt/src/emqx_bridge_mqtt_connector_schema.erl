@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mqtt_schema).
+-module(emqx_bridge_mqtt_connector_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -68,7 +68,8 @@ fields("server_configs") ->
                 hoconsc:enum([cluster_shareload]),
                 #{
                     default => cluster_shareload,
-                    desc => ?DESC("mode")
+                    desc => ?DESC("mode"),
+                    deprecated => {since, "v5.1.0 & e5.1.0"}
                 }
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
@@ -133,16 +134,17 @@ fields("server_configs") ->
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("ingress") ->
     [
-        {"remote",
+        {pool_size, fun ingress_pool_size/1},
+        {remote,
             mk(
                 ref(?MODULE, "ingress_remote"),
-                #{desc => ?DESC(emqx_connector_mqtt_schema, "ingress_remote")}
+                #{desc => ?DESC("ingress_remote")}
             )},
-        {"local",
+        {local,
             mk(
                 ref(?MODULE, "ingress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "ingress_local")
+                    desc => ?DESC("ingress_local")
                 }
             )}
     ];
@@ -204,19 +206,20 @@ fields("ingress_local") ->
     ];
 fields("egress") ->
     [
-        {"local",
+        {pool_size, fun egress_pool_size/1},
+        {local,
             mk(
                 ref(?MODULE, "egress_local"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_local"),
+                    desc => ?DESC("egress_local"),
                     required => false
                 }
             )},
-        {"remote",
+        {remote,
             mk(
                 ref(?MODULE, "egress_remote"),
                 #{
-                    desc => ?DESC(emqx_connector_mqtt_schema, "egress_remote"),
+                    desc => ?DESC("egress_remote"),
                     required => true
                 }
             )}
@@ -271,6 +274,16 @@ fields("egress_remote") ->
                 }
             )}
     ].
+
+ingress_pool_size(desc) ->
+    ?DESC("ingress_pool_size");
+ingress_pool_size(Prop) ->
+    emqx_connector_schema_lib:pool_size(Prop).
+
+egress_pool_size(desc) ->
+    ?DESC("egress_pool_size");
+egress_pool_size(Prop) ->
+    emqx_connector_schema_lib:pool_size(Prop).
 
 desc("server_configs") ->
     ?DESC("server_configs");

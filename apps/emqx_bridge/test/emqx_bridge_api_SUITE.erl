@@ -47,7 +47,14 @@
     <<"server">> => SERVER,
     <<"username">> => <<"user1">>,
     <<"password">> => <<"">>,
-    <<"proto_ver">> => <<"v5">>
+    <<"proto_ver">> => <<"v5">>,
+    <<"egress">> => #{
+        <<"remote">> => #{
+            <<"topic">> => <<"emqx/${topic}">>,
+            <<"qos">> => <<"${qos}">>,
+            <<"retain">> => false
+        }
+    }
 }).
 -define(MQTT_BRIDGE(SERVER), ?MQTT_BRIDGE(SERVER, <<"mqtt_egress_test_bridge">>)).
 
