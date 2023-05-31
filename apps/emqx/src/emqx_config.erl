@@ -299,14 +299,15 @@ get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
 put_raw(Config) ->
     maps:fold(
         fun(RootName, RootV, _) ->
-            ?MODULE:put_raw([RootName], RootV)
+            ?MODULE:put_raw([bin(RootName)], RootV)
         end,
         ok,
         hocon_maps:ensure_plain(Config)
     ).
 
 -spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
-put_raw(KeyPath, Config) ->
+put_raw(KeyPath0, Config) ->
+    KeyPath = [bin(K) || K <- KeyPath0],
     Putter = fun(Path, Map, Value) ->
         emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,

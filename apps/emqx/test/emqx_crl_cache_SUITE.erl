@@ -279,7 +279,7 @@ does_module_exist(Mod) ->
 
 clear_listeners() ->
     emqx_config:put([listeners], #{}),
-    emqx_config:put_raw([listeners], #{}),
+    emqx_config:put_raw([<<"listeners">>], #{}),
     ok.
 
 assert_http_get(URL) ->
