@@ -18,6 +18,8 @@
 
 -include_lib("emqx/include/emqx_hooks.hrl").
 
+-behaviour(emqx_config_handler).
+
 -define(HOOK_POINT, 'client.connected').
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
