@@ -21,10 +21,10 @@
 %% API
 -export([
     start_link/0,
-    start_link/1,
     register_der_crls/2,
     refresh/1,
-    evict/1
+    evict/1,
+    update_config/1
 ]).
 
 %% gen_server callbacks
@@ -32,13 +32,17 @@
     init/1,
     handle_call/3,
     handle_cast/2,
-    handle_info/2
+    handle_info/2,
+    terminate/2
 ]).
+
+-export([post_config_update/5]).
 
 %% internal exports
 -export([http_get/2]).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -52,6 +56,7 @@
 -endif.
 -define(DEFAULT_REFRESH_INTERVAL, timer:minutes(15)).
 -define(DEFAULT_CACHE_CAPACITY, 100).
+-define(CONF_KEY_PATH, [crl_cache]).
 
 -record(state, {
     refresh_timers = #{} :: #{binary() => timer:tref()},
@@ -73,12 +78,11 @@
 %% API
 %%--------------------------------------------------------------------
 
-start_link() ->
-    Config = gather_config(),
-    start_link(Config).
+post_config_update(?CONF_KEY_PATH, _Req, Conf, Conf, _AppEnvs) -> ok;
+post_config_update(?CONF_KEY_PATH, _Req, NewConf, _OldConf, _AppEnvs) -> update_config(NewConf).
 
-start_link(Config = #{cache_capacity := _, refresh_interval := _, http_timeout := _}) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec refresh(url()) -> ok.
 refresh(URL) ->
@@ -87,6 +91,10 @@ refresh(URL) ->
 -spec evict(url()) -> ok.
 evict(URL) ->
     gen_server:cast(?MODULE, {evict, URL}).
+
+-spec update_config(map()) -> ok.
+update_config(Conf) ->
+    gen_server:cast(?MODULE, {update_config, Conf}).
 
 %% Adds CRLs in DER format to the cache and register them for periodic
 %% refresh.
@@ -98,18 +106,18 @@ register_der_crls(URL, CRLs) when is_list(CRLs) ->
 %% gen_server behaviour
 %%--------------------------------------------------------------------
 
-init(Config) ->
-    #{
-        cache_capacity := CacheCapacity,
-        refresh_interval := RefreshIntervalMS,
-        http_timeout := HTTPTimeoutMS
-    } = Config,
-    State = #state{
-        cache_capacity = CacheCapacity,
-        refresh_interval = RefreshIntervalMS,
-        http_timeout = HTTPTimeoutMS
-    },
-    {ok, State}.
+init([]) ->
+    erlang:process_flag(trap_exit, true),
+    ok = emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
+    Conf = emqx:get_config(
+        ?CONF_KEY_PATH,
+        #{
+            capacity => ?DEFAULT_CACHE_CAPACITY,
+            refresh_interval => ?DEFAULT_REFRESH_INTERVAL,
+            http_timeout => ?HTTP_TIMEOUT
+        }
+    ),
+    {ok, update_state_config(Conf, #state{})}.
 
 handle_call(Call, _From, State) ->
     {reply, {error, {bad_call, Call}}, State}.
@@ -144,6 +152,8 @@ handle_cast({refresh, URL}, State0) ->
             }),
             {noreply, ensure_timer(URL, State0)}
     end;
+handle_cast({update_config, Conf}, State0) ->
+    {noreply, update_state_config(Conf, State0)};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -175,9 +185,24 @@ handle_info(
 handle_info(_Info, State) ->
     {noreply, State}.
 
+terminate(_, _) ->
+    emqx_config_handler:remove_handler(?CONF_KEY_PATH).
+
 %%--------------------------------------------------------------------
 %% internal functions
 %%--------------------------------------------------------------------
+
+update_state_config(Conf, State) ->
+    #{
+        capacity := CacheCapacity,
+        refresh_interval := RefreshIntervalMS,
+        http_timeout := HTTPTimeoutMS
+    } = gather_config(Conf),
+    State#state{
+        cache_capacity = CacheCapacity,
+        refresh_interval = RefreshIntervalMS,
+        http_timeout = HTTPTimeoutMS
+    }.
 
 http_get(URL, HTTPTimeout) ->
     httpc:request(
@@ -198,7 +223,7 @@ do_http_fetch_and_cache(URL, HTTPTimeoutMS) ->
                 CRLs ->
                     %% Note: must ensure it's a string and not a
                     %% binary because that's what the ssl manager uses
-                    %% when doing lookups.
+                    %% when doing lookup.
                     emqx_ssl_crl_cache:insert(to_string(URL), {der, CRLs}),
                     ?tp(crl_cache_insert, #{url => URL, crls => CRLs}),
                     {ok, CRLs}
@@ -232,25 +257,11 @@ ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
     },
     State#state{refresh_timers = RefreshTimers}.
 
--spec gather_config() ->
-    #{
-        cache_capacity := pos_integer(),
-        refresh_interval := timer:time(),
-        http_timeout := timer:time()
-    }.
-gather_config() ->
-    %% TODO: add a config handler to refresh the config when those
-    %% globals change?
-    CacheCapacity = emqx_config:get([crl_cache, capacity], ?DEFAULT_CACHE_CAPACITY),
-    RefreshIntervalMS0 = emqx_config:get([crl_cache, refresh_interval], ?DEFAULT_REFRESH_INTERVAL),
-    MinimumRefreshInverval = ?MIN_REFRESH_PERIOD,
-    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
-    HTTPTimeoutMS = emqx_config:get([crl_cache, http_timeout], ?HTTP_TIMEOUT),
-    #{
-        cache_capacity => CacheCapacity,
-        refresh_interval => RefreshIntervalMS,
-        http_timeout => HTTPTimeoutMS
-    }.
+gather_config(Conf) ->
+    RefreshIntervalMS0 = maps:get(refresh_interval, Conf),
+    MinimumRefreshInterval = ?MIN_REFRESH_PERIOD,
+    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInterval),
+    Conf#{refresh_interval => RefreshIntervalMS}.
 
 -spec handle_register_der_crls(state(), url(), [public_key:der_encoded()]) -> {noreply, state()}.
 handle_register_der_crls(State0, URL0, CRLs) ->

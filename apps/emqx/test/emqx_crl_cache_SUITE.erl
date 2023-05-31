@@ -481,6 +481,7 @@ ensure_ssl_manager_alive() ->
 t_init_empty_urls(_Config) ->
     Ref = get_crl_cache_table(),
     ?assertEqual([], ets:tab2list(Ref)),
+    emqx_config_handler:start_link(),
     ?assertMatch({ok, _}, emqx_crl_cache:start_link()),
     receive
         {http_get, _} ->
@@ -488,12 +489,34 @@ t_init_empty_urls(_Config) ->
     after 1000 -> ok
     end,
     ?assertEqual([], ets:tab2list(Ref)),
+    emqx_config_handler:stop(),
+    ok.
+
+t_update_config(_Config) ->
+    emqx_config:save_schema_mod_and_names(emqx_schema),
+    emqx_config_handler:start_link(),
+    {ok, Pid} = emqx_crl_cache:start_link(),
+    Conf = #{
+        refresh_interval => timer:minutes(5),
+        http_timeout => timer:minutes(10),
+        capacity => 123
+    },
+    ?assertMatch({ok, _}, emqx:update_config([<<"crl_cache">>], Conf)),
+    State = sys:get_state(Pid),
+    ?assertEqual(Conf, #{
+        refresh_interval => element(3, State),
+        http_timeout => element(4, State),
+        capacity => element(7, State)
+    }),
+    emqx_config:erase(<<"crl_cache">>),
+    emqx_config_handler:stop(),
     ok.
 
 t_manual_refresh(Config) ->
     CRLDer = ?config(crl_der, Config),
     Ref = get_crl_cache_table(),
     ?assertEqual([], ets:tab2list(Ref)),
+    emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     ok = snabbkaffe:start_trace(),
@@ -507,6 +530,7 @@ t_manual_refresh(Config) ->
         [{"crl.pem", [CRLDer]}],
         ets:tab2list(Ref)
     ),
+    emqx_config_handler:stop(),
     ok.
 
 t_refresh_request_error(_Config) ->
@@ -517,6 +541,7 @@ t_refresh_request_error(_Config) ->
             {ok, {{"HTTP/1.0", 404, 'Not Found'}, [], <<"not found">>}}
         end
     ),
+    emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     ?check_trace(
@@ -534,6 +559,7 @@ t_refresh_request_error(_Config) ->
         end
     ),
     ok = snabbkaffe:stop(),
+    emqx_config_handler:stop(),
     ok.
 
 t_refresh_invalid_response(_Config) ->
@@ -544,6 +570,7 @@ t_refresh_invalid_response(_Config) ->
             {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"not a crl">>}}
         end
     ),
+    emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     ?check_trace(
@@ -561,6 +588,7 @@ t_refresh_invalid_response(_Config) ->
         end
     ),
     ok = snabbkaffe:stop(),
+    emqx_config_handler:stop(),
     ok.
 
 t_refresh_http_error(_Config) ->
@@ -571,6 +599,7 @@ t_refresh_http_error(_Config) ->
             {error, timeout}
         end
     ),
+    emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     ?check_trace(
@@ -588,16 +617,20 @@ t_refresh_http_error(_Config) ->
         end
     ),
     ok = snabbkaffe:stop(),
+    emqx_config_handler:stop(),
     ok.
 
 t_unknown_messages(_Config) ->
+    emqx_config_handler:start_link(),
     {ok, Server} = emqx_crl_cache:start_link(),
     gen_server:call(Server, foo),
     gen_server:cast(Server, foo),
     Server ! foo,
+    emqx_config_handler:stop(),
     ok.
 
 t_evict(_Config) ->
+    emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     ?wait_async_action(
@@ -612,6 +645,7 @@ t_evict(_Config) ->
         #{?snk_kind := crl_cache_evict}
     ),
     ?assertEqual([], ets:tab2list(Ref)),
+    emqx_config_handler:stop(),
     ok.
 
 t_cache(Config) ->
