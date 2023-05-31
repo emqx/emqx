@@ -69,7 +69,7 @@ jobs:
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
-        ref: v0.2.1
+        ref: v0.2.2
     - uses: actions/download-artifact@v3
       with:
         name: emqx-ubuntu20.04
@@ -86,10 +86,10 @@ jobs:
         TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/1on1"
         TF_VAR_use_emqttb: 1
         TF_VAR_use_emqtt_bench: 0
-        TF_VAR_emqttb_instance_count: 5
-        TF_VAR_emqttb_instance_type: "c5.large"
-        TF_VAR_emqttb_scenario: "@pubsub_fwd -n 10_000 --pub-qos 1 --sub-qos 1"
-        TF_VAR_emqx_instance_type: "c5.2xlarge"
+        TF_VAR_emqttb_instance_count: 1
+        TF_VAR_emqttb_instance_type: "c5.2xlarge"
+        TF_VAR_emqttb_scenario: "@pubsub_fwd -n 50_000 --pub-qos 1 --sub-qos 1"
+        TF_VAR_emqx_instance_type: "c5.xlarge"
         TF_VAR_emqx_instance_count: 3
       run: |
         terraform init
@@ -151,7 +151,7 @@ jobs:
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
-        ref: v0.2.1
+        ref: v0.2.2
     - uses: actions/download-artifact@v3
       with:
         name: emqx-ubuntu20.04
@@ -169,9 +169,9 @@ jobs:
         TF_VAR_use_emqttb: 1
         TF_VAR_use_emqtt_bench: 0
         TF_VAR_emqttb_instance_count: 5
-        TF_VAR_emqttb_instance_type: "c5.2xlarge"
+        TF_VAR_emqttb_instance_type: "c5.xlarge"
         TF_VAR_emqttb_scenario: "@conn -N 200_000 --conninterval 1ms"
-        TF_VAR_emqx_instance_type: "c5.2xlarge"
+        TF_VAR_emqx_instance_type: "c5.xlarge"
         TF_VAR_emqx_instance_count: 5
       run: |
         terraform init
