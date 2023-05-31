@@ -23,35 +23,35 @@
             scheme := http | https,
             host := iolist(),
             port := inet:port_number(),
-            path := '_'
+            path := _
         },
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         pool_size := pos_integer(),
-        request := undefined | map(),
-        is_aligned := boolean(),
-        iotdb_version := binary(),
-        device_id := binary() | undefined,
-        atom() => '_'
+        request => undefined | map(),
+        is_aligned => boolean(),
+        iotdb_version => binary(),
+        device_id => binary() | undefined,
+        atom() => _
     }.
 
 -type state() ::
     #{
-        base_path := '_',
+        base_path := _,
         base_url := #{
             scheme := http | https,
             host := iolist(),
             port := inet:port_number(),
-            path := '_'
+            path := _
         },
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         pool_size := pos_integer(),
-        request := undefined | map(),
-        is_aligned := boolean(),
-        iotdb_version := binary(),
-        device_id := binary() | undefined,
-        atom() => '_'
+        request => undefined | map(),
+        is_aligned => boolean(),
+        iotdb_version => binary(),
+        device_id => binary() | undefined,
+        atom() => _
     }.
 
 -type manager_id() :: binary().
