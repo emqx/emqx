@@ -540,6 +540,7 @@ load_config(SchemaModule, Config) ->
             false -> Config
         end,
     ok = emqx_config:delete_override_conf_files(),
+    ok = copy_acl_conf(),
     ok = emqx_config:init_load(SchemaModule, ConfigBin).
 
 -spec is_all_tcp_servers_available(Servers) -> Result when
