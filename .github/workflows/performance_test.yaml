@@ -52,9 +52,10 @@ jobs:
       - prepare
     env:
       TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
-      TF_VAR_grafana_api_key: ${{ secrets.TF_EMQX_PERF_TEST_GRAFANA_API_KEY }}
-      TF_AWS_REGION: eu-north-1
+      TF_AWS_REGION: eu-west-1
       TF_VAR_test_duration: 1800
+      TF_VAR_prometheus_remote_write_url: ${{ secrets.TF_EMQX_PERF_TEST_PROMETHEUS_REMOTE_WRITE_URL }}
+      TF_VAR_prometheus_remote_write_region: eu-west-1
 
     steps:
     - name: Configure AWS Credentials
@@ -68,6 +69,7 @@ jobs:
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
+        ref: v0.2.0
     - uses: actions/download-artifact@v3
       with:
         name: emqx-ubuntu20.04
@@ -84,10 +86,10 @@ jobs:
         TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/1on1"
         TF_VAR_use_emqttb: 1
         TF_VAR_use_emqtt_bench: 0
-        TF_VAR_emqttb_instance_count: 2
+        TF_VAR_emqttb_instance_count: 5
         TF_VAR_emqttb_instance_type: "c5.large"
-        TF_VAR_emqttb_scenario: "@pub --topic 't/%n' --pubinterval 10ms --qos 1 --publatency 50ms --size 16 --num-clients 25000 @sub --topic 't/%n' --num-clients 25000"
-        TF_VAR_emqx_instance_type: "c5.xlarge"
+        TF_VAR_emqttb_scenario: "@pubsub_fwd -n 10_000 --pub-qos 1 --sub-qos 1"
+        TF_VAR_emqx_instance_type: "c5.2xlarge"
         TF_VAR_emqx_instance_count: 3
       run: |
         terraform init
@@ -103,10 +105,10 @@ jobs:
     - name: Send notification to Slack
       uses: slackapi/slack-github-action@v1.23.0
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ secrets.TF_EMQX_PERF_TEST_SLACK_URL }}
       with:
         payload: |
-          {"text": "Performance test result for 1on1 scenario (50k pub, 50k sub): ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Pub message rate*: ${{ steps.scenario_1on1.outputs.PUB_MSG_RATE }}\n*Sub message rate*: ${{ steps.scenario_1on1.outputs.SUB_MSG_RATE }}\nDropped messages: ${{ steps.scenario_1on1.outputs.MESSAGES_DROPPED }}"}
+          {"text": "Performance test result for 1on1 scenario (50k pub, 50k sub): ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Pub message rate*: `${{ steps.scenario_1on1.outputs.PUB_MSG_RATE }}`\n*Sub message rate*: `${{ steps.scenario_1on1.outputs.SUB_MSG_RATE }}`\nDropped messages: `${{ steps.scenario_1on1.outputs.MESSAGES_DROPPED }}`"}
     - name: terraform destroy
       if: always()
       working-directory: ./tf-emqx-performance-test
