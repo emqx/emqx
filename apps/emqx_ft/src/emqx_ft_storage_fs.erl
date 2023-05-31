@@ -36,7 +36,7 @@
 -export([list/3]).
 -export([pread/5]).
 -export([lookup_local_assembler/1]).
--export([assemble/3]).
+-export([assemble/4]).
 
 -export([transfers/1]).
 
@@ -211,14 +211,14 @@ pread(_Storage, _Transfer, Frag, Offset, Size) ->
             {error, Reason}
     end.
 
--spec assemble(storage(), transfer(), emqx_ft:bytes()) ->
+-spec assemble(storage(), transfer(), emqx_ft:bytes(), emqx_ft:finopts()) ->
     {async, _Assembler :: pid()} | ok | {error, _TODO}.
-assemble(Storage, Transfer, Size) ->
+assemble(Storage, Transfer, Size, Opts) ->
     LookupSources = [
         fun() -> lookup_local_assembler(Transfer) end,
         fun() -> lookup_remote_assembler(Transfer) end,
         fun() -> check_if_already_exported(Storage, Transfer) end,
-        fun() -> ensure_local_assembler(Storage, Transfer, Size) end
+        fun() -> ensure_local_assembler(Storage, Transfer, Size, Opts) end
     ],
     lookup_assembler(LookupSources).
 
@@ -295,8 +295,8 @@ lookup_remote_assembler(Transfer) ->
         _ -> {error, not_found}
     end.
 
-ensure_local_assembler(Storage, Transfer, Size) ->
-    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer, Size),
+ensure_local_assembler(Storage, Transfer, Size, Opts) ->
+    {ok, Pid} = emqx_ft_assembler_sup:ensure_child(Storage, Transfer, Size, Opts),
     {async, Pid}.
 
 -spec transfers(storage()) ->
