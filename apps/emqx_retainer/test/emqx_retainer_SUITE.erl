@@ -706,6 +706,61 @@ t_deliver_when_banned(_) ->
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/+">>),
     ok = emqtt:disconnect(C1).
 
+t_compatibility_for_deliver_rate(_) ->
+    Parser = fun(Conf) ->
+        {ok, RawConf} = hocon:binary(Conf, #{format => map}),
+        hocon_tconf:check_plain(emqx_retainer_schema, RawConf, #{
+            required => false, atom_key => false
+        })
+    end,
+    Infinity = <<"retainer.deliver_rate = \"infinity\"">>,
+    ?assertMatch(
+        #{
+            <<"retainer">> :=
+                #{
+                    <<"flow_control">> := #{
+                        <<"batch_deliver_number">> := 0,
+                        <<"batch_read_number">> := 0,
+                        <<"batch_deliver_limiter">> := #{<<"rate">> := infinity}
+                    }
+                }
+        },
+        Parser(Infinity)
+    ),
+
+    R1 = <<"retainer.deliver_rate = \"1000/s\"">>,
+    ?assertMatch(
+        #{
+            <<"retainer">> :=
+                #{
+                    <<"flow_control">> := #{
+                        <<"batch_deliver_number">> := 1000,
+                        <<"batch_read_number">> := 1000,
+                        <<"batch_deliver_limiter">> := #{<<"client">> := #{<<"rate">> := 100.0}}
+                    }
+                }
+        },
+        Parser(R1)
+    ),
+
+    R2 = <<
+        "retainer{deliver_rate = \"1000/s\"",
+        "flow_control.batch_deliver_limiter.rate = \"500/s\"}"
+    >>,
+    ?assertMatch(
+        #{
+            <<"retainer">> :=
+                #{
+                    <<"flow_control">> := #{
+                        <<"batch_deliver_number">> := 1000,
+                        <<"batch_read_number">> := 1000,
+                        <<"batch_deliver_limiter">> := #{<<"client">> := #{<<"rate">> := 100.0}}
+                    }
+                }
+        },
+        Parser(R2)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
