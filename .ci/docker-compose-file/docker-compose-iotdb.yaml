@@ -31,7 +31,7 @@ services:
       - emqx_bridge
 
   iotdb_0_13:
-    container_name: iotdb_0_13
+    container_name: iotdb013
     hostname: iotdb013
     image: apache/iotdb:0.13.4-node
     restart: always
@@ -48,7 +48,8 @@ services:
       - dn_schema_region_consensus_port=10750
       - dn_data_region_consensus_port=10760
       - dn_target_config_node_list=iotdb013:10710
-    # volumes:
+    volumes:
+      - ./iotdb013/iotdb-rest.properties:/iotdb/conf/iotdb-rest.properties
     #     - ./data:/iotdb/data
     #     - ./logs:/iotdb/logs
     expose:

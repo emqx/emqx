@@ -6,6 +6,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_bridge_iotdb.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -19,13 +20,15 @@
 
 all() ->
     [
-        {group, plain}
+        {group, plain},
+        {group, legacy}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {plain, AllTCs}
+        {plain, AllTCs},
+        {legacy, AllTCs}
     ].
 
 init_per_suite(Config) ->
@@ -44,7 +47,32 @@ init_per_group(plain = Type, Config0) ->
             [
                 {bridge_host, Host},
                 {bridge_port, Port},
-                {proxy_name, ProxyName}
+                {proxy_name, ProxyName},
+                {iotdb_version, ?VSN_1_1_X},
+                {iotdb_rest_prefix, <<"/rest/v2/">>}
+                | Config
+            ];
+        false ->
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_iotdb);
+                _ ->
+                    {skip, no_iotdb}
+            end
+    end;
+init_per_group(legacy = Type, Config0) ->
+    Host = os:getenv("IOTDB_LEGACY_HOST", "toxiproxy.emqx.net"),
+    Port = list_to_integer(os:getenv("IOTDB_LEGACY_PORT", "38080")),
+    ProxyName = "iotdb013",
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
+        true ->
+            Config = emqx_bridge_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
+            [
+                {bridge_host, Host},
+                {bridge_port, Port},
+                {proxy_name, ProxyName},
+                {iotdb_version, ?VSN_0_13_X},
+                {iotdb_rest_prefix, <<"/rest/v1/">>}
                 | Config
             ];
         false ->
@@ -59,7 +87,8 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= plain
+    Group =:= plain;
+    Group =:= legacy
 ->
     emqx_bridge_testlib:end_per_group(Config),
     ok;
@@ -89,6 +118,7 @@ bridge_config(TestCase, _TestGroup, Config) ->
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Host = ?config(bridge_host, Config),
     Port = ?config(bridge_port, Config),
+    Version = ?config(iotdb_version, Config),
     Name = <<
         (atom_to_binary(TestCase))/binary, UniqueNum/binary
     >>,
@@ -102,6 +132,7 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "     username = \"root\"\n"
             "     password = \"root\"\n"
             "  }\n"
+            "iotdb_version = \"~s\"\n"
             "  pool_size = 1\n"
             "  resource_opts = {\n"
             "     auto_restart_interval = 5000\n"
@@ -112,7 +143,8 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "}\n",
             [
                 Name,
-                ServerURL
+                ServerURL,
+                Version
             ]
         ),
     {Name, ConfigString, emqx_bridge_testlib:parse_and_check(Config, ConfigString, Name)}.
@@ -182,11 +214,13 @@ iotdb_reset(Config) ->
     iotdb_reset(Config, Device).
 
 iotdb_reset(Config, Device) ->
+    Prefix = ?config(iotdb_rest_prefix, Config),
     Body = #{sql => <<"delete from ", Device/binary, ".*">>},
-    {ok, _} = iotdb_request(Config, <<"/rest/v2/nonQuery">>, Body).
+    {ok, _} = iotdb_request(Config, <<Prefix/binary, "nonQuery">>, Body).
 
 iotdb_query(Config, Query) ->
-    Path = <<"/rest/v2/query">>,
+    Prefix = ?config(iotdb_rest_prefix, Config),
+    Path = <<Prefix/binary, "query">>,
     Opts = #{return_all => true},
     Body = #{sql => Query},
     iotdb_request(Config, Path, Body, Opts).
@@ -390,11 +424,13 @@ t_device_id(Config) ->
         emqx_resource:simple_sync_query(ResourceId, {send_message, MessageF1()})
     ),
     {ok, {{_, 200, _}, _, Res1_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
+    ct:pal("device_id result: ~p", [emqx_utils_json:decode(Res1_1)]),
     #{<<"values">> := Values1_1} = emqx_utils_json:decode(Res1_1),
-    ?assertNotEqual([], Values1_1),
+    ?assertNot(is_empty(Values1_1)),
     {ok, {{_, 200, _}, _, Res1_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
+    ct:pal("topic device result: ~p", [emqx_utils_json:decode(Res1_2)]),
     #{<<"values">> := Values1_2} = emqx_utils_json:decode(Res1_2),
-    ?assertEqual([], Values1_2),
+    ?assert(is_empty(Values1_2)),
 
     %% test without device_id in message, taking it from topic
     iotdb_reset(Config, DeviceId),
@@ -407,10 +443,10 @@ t_device_id(Config) ->
     ),
     {ok, {{_, 200, _}, _, Res2_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
     #{<<"values">> := Values2_1} = emqx_utils_json:decode(Res2_1),
-    ?assertEqual([], Values2_1),
+    ?assert(is_empty(Values2_1)),
     {ok, {{_, 200, _}, _, Res2_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
     #{<<"values">> := Values2_2} = emqx_utils_json:decode(Res2_2),
-    ?assertNotEqual([], Values2_2),
+    ?assertNot(is_empty(Values2_2)),
 
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, TopicDevice),
@@ -427,17 +463,22 @@ t_device_id(Config) ->
     %% even though we had a device_id in the message it's not being used
     {ok, {{_, 200, _}, _, Res3_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
     #{<<"values">> := Values3_1} = emqx_utils_json:decode(Res3_1),
-    ?assertEqual([], Values3_1),
+    ?assert(is_empty(Values3_1)),
     {ok, {{_, 200, _}, _, Res3_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
     #{<<"values">> := Values3_2} = emqx_utils_json:decode(Res3_2),
-    ?assertEqual([], Values3_2),
+    ?assert(is_empty(Values3_2)),
     {ok, {{_, 200, _}, _, Res3_3}} = iotdb_query(
         Config, <<"select * from ", ConfiguredDevice/binary>>
     ),
     #{<<"values">> := Values3_3} = emqx_utils_json:decode(Res3_3),
-    ?assertNotEqual([], Values3_3),
+    ?assertNot(is_empty(Values3_3)),
 
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, TopicDevice),
     iotdb_reset(Config, ConfiguredDevice),
     ok.
+
+is_empty(null) -> true;
+is_empty([]) -> true;
+is_empty([[]]) -> true;
+is_empty(_) -> false.
