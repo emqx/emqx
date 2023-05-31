@@ -165,19 +165,32 @@ sql_create_table() ->
     "CREATE TABLE mqtt_test (topic VARCHAR2(255), msgid VARCHAR2(64), payload NCLOB, retain NUMBER(1))".
 
 sql_drop_table() ->
-    "DROP TABLE mqtt_test".
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_test';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_check_table_exist() ->
+    "SELECT COUNT(*) FROM user_tables WHERE table_name = 'MQTT_TEST'".
 
 reset_table(Config) ->
     ResourceId = resource_id(Config),
-    _ = emqx_resource:simple_sync_query(ResourceId, {sql, sql_drop_table()}),
+    drop_table_if_exists(Config),
     {ok, [{proc_result, 0, _}]} = emqx_resource:simple_sync_query(
         ResourceId, {sql, sql_create_table()}
     ),
     ok.
 
-drop_table(Config) ->
+drop_table_if_exists(Config) ->
     ResourceId = resource_id(Config),
-    emqx_resource:simple_sync_query(ResourceId, {query, sql_drop_table()}),
+    {ok, [{proc_result, 0, _}]} =
+        emqx_resource:simple_sync_query(ResourceId, {query, sql_drop_table()}),
     ok.
 
 oracle_config(TestCase, _ConnectionType, Config) ->
@@ -394,6 +407,12 @@ t_batch_sync_query(Config) ->
                 emqx_bridge:send_message(BridgeId, Params),
                 ok
             end),
+            % Wait for reconnection.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 30,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 30,
@@ -527,5 +546,34 @@ t_no_sid_nor_service_name(Config0) ->
     ?assertMatch(
         {error, #{kind := validation_error}},
         create_bridge(Config)
+    ),
+    ok.
+
+t_table_removed(Config) ->
+    ResourceId = resource_id(Config),
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            drop_table_if_exists(Config),
+            MsgId = erlang:unique_integer(),
+            Params = #{
+                topic => ?config(mqtt_topic, Config),
+                id => MsgId,
+                payload => ?config(oracle_name, Config),
+                retain => true
+            },
+            Message = {send_message, Params},
+            ?assertEqual(
+                {error, {unrecoverable_error, {942, "ORA-00942: table or view does not exist\n"}}},
+                emqx_resource:simple_sync_query(ResourceId, Message)
+            ),
+            ok
+        end,
+        []
     ),
     ok.
