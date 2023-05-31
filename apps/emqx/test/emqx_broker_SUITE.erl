@@ -93,7 +93,6 @@ end_per_group(_Group, _Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
     Config.
 
 end_per_suite(_Config) ->
