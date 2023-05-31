@@ -62,8 +62,6 @@
 
 -define(METRICS, [?METRIC_SUPERUSER, ?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
--define(IS_ENABLED(Enable), ((Enable =:= true) or (Enable =:= <<"true">>))).
-
 %% Initialize authz backend.
 %% Populate the passed configuration map with necessary data,
 %% like `ResourceID`s
@@ -266,7 +264,6 @@ ensure_deleted(#{enable := false}, _) ->
 ensure_deleted(Source, #{clear_metric := ClearMetric}) ->
     TypeName = type(Source),
     ensure_resource_deleted(Source),
-    clear_certs(Source),
     ClearMetric andalso emqx_metrics_worker:clear_metrics(authz_metrics, TypeName).
 
 ensure_resource_deleted(#{type := Type} = Source) ->
@@ -530,22 +527,16 @@ write_acl_file(Source) ->
 acl_conf_file() ->
     filename:join([emqx:data_dir(), "authz", "acl.conf"]).
 
-maybe_write_certs(#{<<"type">> := Type} = Source) ->
-    case
-        emqx_tls_lib:ensure_ssl_files(
-            ssl_file_path(Type), maps:get(<<"ssl">>, Source, undefined)
-        )
-    of
-        {ok, SSL} ->
-            new_ssl_source(Source, SSL);
+maybe_write_certs(#{<<"type">> := Type, <<"ssl">> := SSL = #{}} = Source) ->
+    case emqx_tls_lib:ensure_ssl_files(ssl_file_path(Type), SSL) of
+        {ok, NSSL} ->
+            Source#{<<"ssl">> => NSSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})
-    end.
-
-clear_certs(OldSource) ->
-    OldSSL = maps:get(ssl, OldSource, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(ssl_file_path(type(OldSource)), undefined, OldSSL).
+    end;
+maybe_write_certs(#{} = Source) ->
+    Source.
 
 write_file(Filename, Bytes) ->
     ok = filelib:ensure_dir(Filename),
@@ -559,11 +550,6 @@ write_file(Filename, Bytes) ->
 
 ssl_file_path(Type) ->
     filename:join(["authz", Type]).
-
-new_ssl_source(Source, undefined) ->
-    Source;
-new_ssl_source(Source, SSL) ->
-    Source#{<<"ssl">> => SSL}.
 
 get_source_by_type(Type, Sources) ->
     {Source, _Front, _Rear} = take(Type, Sources),

@@ -488,7 +488,6 @@ pre_config_update(_Path, _Request, RawConf) ->
 post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
     start_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
-    try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
     ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
     case NewConf of
         #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
@@ -501,8 +500,7 @@ post_config_update([listeners, Type, Name], Op, _, OldConf, _AppEnvs) when
     case stop_listener(Type, Name, OldConf) of
         ok ->
             _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
-            CertsDir = certs_dir(Type, Name),
-            clear_certs(CertsDir, OldConf);
+            ok;
         Err ->
             Err
     end;
@@ -773,10 +771,6 @@ convert_certs(CertsDir, Conf) ->
             throw({bad_ssl_config, Reason})
     end.
 
-clear_certs(CertsDir, Conf) ->
-    OldSSL = get_ssl_options(Conf),
-    emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
-
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.
 
@@ -785,11 +779,6 @@ ensure_override_limiter_conf(Conf, #{<<"limiter">> := Limiter}) ->
     Conf#{<<"limiter">> => Limiter};
 ensure_override_limiter_conf(Conf, _) ->
     Conf.
-
-try_clear_ssl_files(CertsDir, NewConf, OldConf) ->
-    NewSSL = get_ssl_options(NewConf),
-    OldSSL = get_ssl_options(OldConf),
-    emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL, OldSSL).
 
 get_ssl_options(Conf) ->
     case maps:find(ssl_options, Conf) of

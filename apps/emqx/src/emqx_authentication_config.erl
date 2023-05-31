@@ -32,9 +32,7 @@
 %% Used in emqx_gateway
 -export([
     certs_dir/2,
-    convert_certs/2,
-    convert_certs/3,
-    clear_certs/2
+    convert_certs/2
 ]).
 
 -export_type([config/0]).
@@ -97,7 +95,7 @@ do_pre_config_update(_, {update_authenticator, ChainName, AuthenticatorID, Confi
     NewConfig = lists:map(
         fun(OldConfig0) ->
             case AuthenticatorID =:= authenticator_id(OldConfig0) of
-                true -> convert_certs(CertsDir, Config, OldConfig0);
+                true -> convert_certs(CertsDir, Config);
                 false -> OldConfig0
             end
         end,
@@ -162,17 +160,10 @@ do_post_config_update(
     _,
     {delete_authenticator, ChainName, AuthenticatorID},
     _NewConfig,
-    OldConfig,
+    _OldConfig,
     _AppEnvs
 ) ->
-    case emqx_authentication:delete_authenticator(ChainName, AuthenticatorID) of
-        ok ->
-            Config = get_authenticator_config(AuthenticatorID, to_list(OldConfig)),
-            CertsDir = certs_dir(ChainName, AuthenticatorID),
-            ok = clear_certs(CertsDir, Config);
-        {error, Reason} ->
-            {error, Reason}
-    end;
+    emqx_authentication:delete_authenticator(ChainName, AuthenticatorID);
 do_post_config_update(
     _,
     {update_authenticator, ChainName, AuthenticatorID, Config},
@@ -231,9 +222,7 @@ delete_authenticators(NewIds, ChainName, OldConfig) ->
                 true ->
                     ok;
                 false ->
-                    _ = emqx_authentication:delete_authenticator(ChainName, Id),
-                    CertsDir = certs_dir(ChainName, Conf),
-                    ok = clear_certs(CertsDir, Conf)
+                    emqx_authentication:delete_authenticator(ChainName, Id)
             end
         end,
         OldConfig
@@ -244,21 +233,10 @@ to_list(M) when M =:= #{} -> [];
 to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
-convert_certs(CertsDir, Config) ->
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl">>, Config, undefined)) of
-        {ok, SSL} ->
-            new_ssl_config(Config, SSL);
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
-            throw({bad_ssl_config, Reason})
-    end.
-
-convert_certs(CertsDir, NewConfig, OldConfig) ->
-    OldSSL = maps:get(<<"ssl">>, OldConfig, undefined),
+convert_certs(CertsDir, NewConfig) ->
     NewSSL = maps:get(<<"ssl">>, NewConfig, undefined),
     case emqx_tls_lib:ensure_ssl_files(CertsDir, NewSSL) of
         {ok, NewSSL1} ->
-            ok = emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL1, OldSSL),
             new_ssl_config(NewConfig, NewSSL1);
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
@@ -267,10 +245,6 @@ convert_certs(CertsDir, NewConfig, OldConfig) ->
 
 new_ssl_config(Config, undefined) -> Config;
 new_ssl_config(Config, SSL) -> Config#{<<"ssl">> => SSL}.
-
-clear_certs(CertsDir, Config) ->
-    OldSSL = maps:get(<<"ssl">>, Config, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 get_authenticator_config(AuthenticatorID, AuthenticatorsConfig) ->
     case filter_authenticator(AuthenticatorID, AuthenticatorsConfig) of
