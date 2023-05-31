@@ -111,7 +111,6 @@ stop_listeners(Listeners) ->
         begin
             case minirest:stop(Name) of
                 ok ->
-                    _ = emqx_listeners:wait_listener_stopped(Bind),
                     ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
                         Name, emqx_listeners:format_bind(Bind)
                     ]);

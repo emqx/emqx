@@ -30,7 +30,6 @@ init_suite(Apps, SetConfigs) when is_function(SetConfigs) ->
     init_suite(Apps, SetConfigs, #{}).
 
 init_suite(Apps, SetConfigs, Opts) ->
-    mria:start(),
     application:load(emqx_management),
     emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], SetConfigs, Opts),
     emqx_common_test_http:create_default_app().
@@ -40,9 +39,8 @@ end_suite() ->
 
 end_suite(Apps) ->
     emqx_common_test_http:delete_default_app(),
-    application:unload(emqx_management),
     emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]),
-    emqx_config:delete_override_conf_files(),
+    application:unload(emqx_management),
     ok.
 
 set_special_configs(emqx_dashboard) ->
