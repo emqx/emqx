@@ -110,7 +110,7 @@ roots() ->
     ].
 
 fields(limiter) ->
-    short_paths_fields(?MODULE) ++
+    short_paths_fields(?MODULE, ?IMPORTANCE_HIDDEN) ++
         [
             {Type,
                 ?HOCON(?R_REF(node_opts), #{
@@ -181,7 +181,7 @@ fields(client_opts) ->
                 boolean(),
                 #{
                     desc => ?DESC(divisible),
-                    default => false,
+                    default => true,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -190,7 +190,7 @@ fields(client_opts) ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(max_retry_time),
-                    default => <<"10s">>,
+                    default => <<"1h">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -212,9 +212,17 @@ fields(Type) ->
     simple_bucket_field(Type).
 
 short_paths_fields(DesModule) ->
+    short_paths_fields(DesModule, ?DEFAULT_IMPORTANCE).
+
+short_paths_fields(DesModule, Importance) ->
     [
         {Name,
-            ?HOCON(rate(), #{desc => ?DESC(DesModule, Name), required => false, example => Example})}
+            ?HOCON(rate(), #{
+                desc => ?DESC(DesModule, Name),
+                required => false,
+                importance => Importance,
+                example => Example
+            })}
      || {Name, Example} <-
             lists:zip(short_paths(), [<<"1000/s">>, <<"1000/s">>, <<"100MB/s">>])
     ].
@@ -280,8 +288,8 @@ default_client_config() ->
         initial => 0,
         low_watermark => 0,
         burst => 0,
-        divisible => false,
-        max_retry_time => timer:seconds(10),
+        divisible => true,
+        max_retry_time => timer:hours(1),
         failure_strategy => force
     }.
 
