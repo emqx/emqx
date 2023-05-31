@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+if [ -n "${DEBUG:-}" ]; then
+  set -x
+fi
+
 UNAME="$(uname -s)"
 
 PROJ_ROOT="$(git rev-parse --show-toplevel)"
@@ -123,6 +127,14 @@ case "${PROFILE}" in
     ee|emqx-enterprise)
         PROFILE='emqx-enterprise'
         ;;
+    ce-ex|emqx-elixir)
+        export IS_ELIXIR=yes
+        PROFILE='emqx'
+        ;;
+    ee-ex|emqx-enterprise-elixir)
+        export IS_ELIXIR=yes
+        PROFILE='emqx-enterprise'
+        ;;
     *)
         echo "Unknown profile $PROFILE"
         exit 1
@@ -131,10 +143,10 @@ esac
 export PROFILE
 
 case "${PROFILE}" in
-    emqx)
+    emqx|emqx-elixir)
         export SCHEMA_MOD='emqx_conf_schema'
         ;;
-    emqx-enterprise)
+    emqx-enterprise|emqx-enterprise-elixir)
         export SCHEMA_MOD='emqx_enterprise_schema'
         ;;
 esac
@@ -177,6 +189,17 @@ prepare_erl_libs() {
             erl_libs="${app}"
         fi
     done
+    if [ "${IS_ELIXIR:-}" = "yes" ]; then
+        local elixir_libs_root_dir
+        elixir_libs_root_dir=$(realpath "$(elixir -e ':code.lib_dir(:elixir) |> IO.puts()')"/..)
+        for app in "${elixir_libs_root_dir}"/*; do
+            if [ -n "$erl_libs" ]; then
+                erl_libs="${erl_libs}${sep}${app}"
+            else
+                erl_libs="${app}"
+            fi
+        done
+    fi
     export ERL_LIBS="$erl_libs"
 }
 
@@ -342,21 +365,45 @@ boot() {
     append_args_file
     APPS="$(apps_to_load)"
 
-    BOOT_SEQUENCE="
-        Apps=[${APPS}],
-        ok=lists:foreach(fun application:load/1, Apps),
-        io:format(user, \"~nLoaded: ~p~n\", [Apps]),
-        {ok, _} = application:ensure_all_started(emqx_machine).
-    "
+    if [ "${IS_ELIXIR:-}" = "yes" ]; then
+        BOOT_SEQUENCE='
+          apps = System.get_env("APPS") |> String.split(",") |> Enum.map(&String.to_atom/1)
+          Enum.each(apps, &Application.load/1)
+          IO.inspect(apps, label: :loaded, limit: :infinity)
+          {:ok, _} = Application.ensure_all_started(:emqx_machine)
+        '
+        if [ -n "${EPMD_ARGS:-}" ]; then
+            EPMD_ARGS_ELIXIR="--erl $EPMD_ARGS"
+        else
+            EPMD_ARGS_ELIXIR=""
+        fi
 
-    # shellcheck disable=SC2086
-    erl -name "$EMQX_NODE_NAME" \
-        $EPMD_ARGS \
-        -proto_dist ekka \
-        -args_file "$ARGS_FILE" \
-        -config "$CONF_FILE" \
-        -s emqx_restricted_shell set_prompt_func \
-        -eval "$BOOT_SEQUENCE"
+        # shellcheck disable=SC2086
+        env APPS="$APPS" iex \
+          --name "$EMQX_NODE_NAME" \
+          $EPMD_ARGS_ELIXIR \
+          --erl '-user Elixir.IEx.CLI' \
+          --erl '-proto_dist ekka' \
+          --vm-args "$ARGS_FILE" \
+          --erl-config "$CONF_FILE" \
+          -e "$BOOT_SEQUENCE"
+    else
+        BOOT_SEQUENCE="
+            Apps=[${APPS}],
+            ok=lists:foreach(fun application:load/1, Apps),
+            io:format(user, \"~nLoaded: ~p~n\", [Apps]),
+            {ok, _} = application:ensure_all_started(emqx_machine).
+        "
+
+        # shellcheck disable=SC2086
+        erl -name "$EMQX_NODE_NAME" \
+            $EPMD_ARGS \
+            -proto_dist ekka \
+            -args_file "$ARGS_FILE" \
+            -config "$CONF_FILE" \
+            -s emqx_restricted_shell set_prompt_func \
+            -eval "$BOOT_SEQUENCE"
+    fi
 }
 
 # Generate a random id
