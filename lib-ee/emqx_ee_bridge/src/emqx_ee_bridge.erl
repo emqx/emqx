@@ -186,6 +186,7 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_oracle, "config")),
                 #{
                     desc => <<"Oracle Bridge Config">>,
+                    validator => fun emqx_bridge_oracle:config_validator/1,
                     required => false
                 }
             )},

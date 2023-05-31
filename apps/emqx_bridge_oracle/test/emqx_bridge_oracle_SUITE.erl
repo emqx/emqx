@@ -517,3 +517,15 @@ t_on_get_status(Config) ->
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
     ok.
+
+t_no_sid_nor_service_name(Config0) ->
+    OracleConfig0 = ?config(oracle_config, Config0),
+    OracleConfig1 = maps:remove(<<"sid">>, OracleConfig0),
+    OracleConfig = maps:remove(<<"service_name">>, OracleConfig1),
+    NewOracleConfig = {oracle_config, OracleConfig},
+    Config = lists:keyreplace(oracle_config, 1, Config0, NewOracleConfig),
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        create_bridge(Config)
+    ),
+    ok.

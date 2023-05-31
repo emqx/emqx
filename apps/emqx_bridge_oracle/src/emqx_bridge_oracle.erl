@@ -16,7 +16,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    config_validator/1
 ]).
 
 -define(DEFAULT_SQL, <<
@@ -107,3 +108,12 @@ type_field(Type) ->
 
 name_field() ->
     {name, hoconsc:mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
+
+config_validator(#{<<"server">> := Server} = Config) when
+    not is_map(Server) andalso
+        not is_map_key(<<"sid">>, Config) andalso
+        not is_map_key(<<"service_name">>, Config)
+->
+    {error, "neither SID nor Service Name was set"};
+config_validator(_) ->
+    ok.
