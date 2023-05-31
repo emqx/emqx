@@ -31,7 +31,24 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
-t_fill_default_values(_) ->
+init_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({init, Config})
+    catch
+        error:function_clause ->
+            ok
+    end,
+    Config.
+
+end_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({'end', Config})
+    catch
+        error:function_clause ->
+            ok
+    end.
+
+t_fill_default_values(C) when is_list(C) ->
     Conf = #{
         <<"broker">> => #{
             <<"perf">> => #{},
@@ -60,7 +77,7 @@ t_fill_default_values(_) ->
     _ = emqx_utils_json:encode(WithDefaults),
     ok.
 
-t_init_load(_Config) ->
+t_init_load(C) when is_list(C) ->
     ConfFile = "./test_emqx.conf",
     ok = file:write_file(ConfFile, <<"">>),
     ExpectRootNames = lists:sort(hocon_schema:root_names(emqx_schema)),
@@ -79,7 +96,7 @@ t_init_load(_Config) ->
     ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
     ok = file:delete(DeprecatedFile).
 
-t_unknown_rook_keys(_) ->
+t_unknown_rook_keys(C) when is_list(C) ->
     ?check_trace(
         #{timetrap => 1000},
         begin
@@ -94,5 +111,48 @@ t_unknown_rook_keys(_) ->
                 ?of_kind(unknown_config_keys, Trace)
             )
         end
+    ),
+    ok.
+
+t_cluster_hocon_backup({init, C}) ->
+    C;
+t_cluster_hocon_backup({'end', _C}) ->
+    File = "backup-test.hocon",
+    Files = [File | filelib:wildcard(File ++ ".*.bak")],
+    lists:foreach(fun file:delete/1, Files);
+t_cluster_hocon_backup(C) when is_list(C) ->
+    Write = fun(Path, Content) ->
+        %% avoid name clash
+        timer:sleep(1),
+        emqx_config:backup_and_write(Path, Content)
+    end,
+    File = "backup-test.hocon",
+    %% write 12 times, 10 backups should be kept
+    %% the latest one is File itself without suffix
+    %% the oldest one is expected to be deleted
+    N = 12,
+    Inputs = lists:seq(1, N),
+    Backups = lists:seq(N - 10, N - 1),
+    InputContents = [integer_to_binary(I) || I <- Inputs],
+    BackupContents = [integer_to_binary(I) || I <- Backups],
+    lists:foreach(
+        fun(Content) ->
+            Write(File, Content)
+        end,
+        InputContents
+    ),
+    LatestContent = integer_to_binary(N),
+    ?assertEqual({ok, LatestContent}, file:read_file(File)),
+    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
+    Files = filelib:wildcard(File ++ ".*.bak"),
+    ?assert(lists:all(fun(F) -> re:run(F, Re) =/= nomatch end, Files)),
+    %% keep only the latest 10
+    ?assertEqual(10, length(Files)),
+    FilesSorted = lists:zip(lists:sort(Files), BackupContents),
+    lists:foreach(
+        fun({BackupFile, ExpectedContent}) ->
+            ?assertEqual({ok, ExpectedContent}, file:read_file(BackupFile))
+        end,
+        FilesSorted
     ),
     ok.
