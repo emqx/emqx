@@ -115,7 +115,7 @@ on_start(
         sync_timeout => SyncTimeout,
         templates => Templates,
         producers_map_pid => ProducersMapPID,
-        producers_opts => emqx_secret:wrap(ProducerOpts)
+        producers_opts => ProducerOpts
     },
 
     case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
@@ -295,7 +295,7 @@ make_producer_opts(
     #{
         tcp_opts => [{sndbuf, SendBuff}],
         ref_topic_route_interval => RefreshInterval,
-        acl_info => ACLInfo
+        acl_info => emqx_secret:wrap(ACLInfo)
     }.
 
 acl_info(<<>>, <<>>, <<>>) ->
@@ -338,7 +338,7 @@ get_producers(ClientId, {_, Topic1} = TopicKey, ProducerOpts) ->
         _ ->
             ProducerGroup = iolist_to_binary([atom_to_list(ClientId), "_", Topic1]),
             {ok, Producers0} = rocketmq:ensure_supervised_producers(
-                ClientId, ProducerGroup, Topic1, emqx_secret:unwrap(ProducerOpts)
+                ClientId, ProducerGroup, Topic1, ProducerOpts
             ),
             ets:insert(ClientId, {TopicKey, Producers0}),
             Producers0
