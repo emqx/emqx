@@ -74,6 +74,15 @@ fields(exproto_grpc_server) ->
 fields(exproto_grpc_handler) ->
     [
         {address, sc(binary(), #{required => true, desc => ?DESC(exproto_grpc_handler_address)})},
+        {service_name,
+            sc(
+                hoconsc:union(['ConnectionHandler', 'ConnectionUnaryHandler']),
+                #{
+                    required => true,
+                    default => 'ConnectionUnaryHandler',
+                    desc => ?DESC(exproto_grpc_handler_service_name)
+                }
+            )},
         {ssl_options,
             sc(
                 ref(emqx_schema, "ssl_client_opts"),

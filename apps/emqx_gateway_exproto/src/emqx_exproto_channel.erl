@@ -45,7 +45,7 @@
     %% Context
     ctx :: emqx_gateway_ctx:context(),
     %% gRPC channel options
-    gcli :: map(),
+    gcli :: emqx_exproto_gcli:grpc_client_state(),
     %% Conn info
     conninfo :: emqx_types:conninfo(),
     %% Client info from `register` function
@@ -54,10 +54,6 @@
     conn_state :: conn_state(),
     %% Subscription
     subscriptions = #{},
-    %% Request queue
-    rqueue = queue:new(),
-    %% Inflight function name
-    inflight = undefined,
     %% Keepalive
     keepalive :: maybe(emqx_keepalive:keepalive()),
     %% Timers
@@ -150,9 +146,11 @@ init(
     },
     Options
 ) ->
+    GRpcChann = maps:get(grpc_client_channel, Options),
+    ServiceName = maps:get(grpc_client_service_name, Options),
+    GRpcClient = emqx_exproto_gcli:init(ServiceName, #{channel => GRpcChann}),
+
     Ctx = maps:get(ctx, Options),
-    GRpcChann = maps:get(handler, Options),
-    PoolName = maps:get(pool_name, Options),
     IdleTimeout = emqx_gateway_utils:idle_timeout(Options),
 
     NConnInfo = default_conninfo(ConnInfo#{idle_timeout => IdleTimeout}),
@@ -170,7 +168,7 @@ init(
     },
     Channel = #channel{
         ctx = Ctx,
-        gcli = #{channel => GRpcChann, pool_name => PoolName},
+        gcli = GRpcClient,
         conninfo = NConnInfo,
         clientinfo = ClientInfo,
         conn_state = connecting,
@@ -188,9 +186,7 @@ init(
                 }
             )
     },
-    start_idle_checking_timer(
-        try_dispatch(on_socket_created, wrap(Req), Channel)
-    ).
+    dispatch(on_socket_created, Req, start_idle_checking_timer(Channel)).
 
 %% @private
 peercert(NoSsl, ConnInfo) when
@@ -239,7 +235,7 @@ start_idle_checking_timer(Channel) ->
     | {shutdown, Reason :: term(), channel()}.
 handle_in(Data, Channel) ->
     Req = #{bytes => Data},
-    {ok, try_dispatch(on_received_bytes, wrap(Req), Channel)}.
+    {ok, dispatch(on_received_bytes, Req, Channel)}.
 
 -spec handle_deliver(list(emqx_types:deliver()), channel()) ->
     {ok, channel()}
@@ -276,7 +272,7 @@ handle_deliver(
         Delivers
     ),
     Req = #{messages => Msgs},
-    {ok, try_dispatch(on_received_messages, wrap(Req), Channel)}.
+    {ok, dispatch(on_received_messages, Req, Channel)}.
 
 -spec handle_timeout(reference(), Msg :: term(), channel()) ->
     {ok, channel()}
@@ -301,10 +297,13 @@ handle_timeout(
             NChannel = remove_timer_ref(alive_timer, Channel),
             %% close connection if keepalive timeout
             Replies = [{event, disconnected}, {close, keepalive_timeout}],
-            {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
+            NChannel1 = dispatch(on_timer_timeout, Req, NChannel#channel{
+                closed_reason = keepalive_timeout
+            }),
+            {ok, Replies, NChannel1}
     end;
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
-    {shutdown, {error, {force_close, Reason}}, Channel};
+    {shutdown, Reason, Channel};
 handle_timeout(_TRef, force_close_idle, Channel) ->
     {shutdown, idle_timeout, Channel};
 handle_timeout(_TRef, Msg, Channel) ->
@@ -331,10 +330,20 @@ handle_call(
     Channel = #channel{conn_state = connected}
 ) ->
     ?SLOG(warning, #{
-        msg => "ingore_duplicated_authorized_command",
+        msg => "ingore_duplicated_authenticate_command",
         request_clientinfo => ClientInfo
     }),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
+handle_call(
+    {auth, ClientInfo, _Password},
+    _From,
+    Channel = #channel{conn_state = disconnected}
+) ->
+    ?SLOG(warning, #{
+        msg => "authenticate_command_after_socket_disconnected",
+        request_clientinfo => ClientInfo
+    }),
+    {reply, {error, ?RESP_PERMISSION_DENY, <<"Client socket disconnected">>}, Channel};
 handle_call(
     {auth, ClientInfo0, Password},
     _From,
@@ -467,10 +476,21 @@ handle_call(kick, _From, Channel) ->
     {reply, ok, [{event, disconnected}, {close, kicked}], Channel};
 handle_call(discard, _From, Channel) ->
     {shutdown, discarded, ok, Channel};
-handle_call(Req, _From, Channel) ->
+handle_call(
+    Req,
+    _From,
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = ClientInfo,
+        closed_reason = ClosedReason
+    }
+) ->
     ?SLOG(warning, #{
         msg => "unexpected_call",
-        call => Req
+        call => Req,
+        conn_state => ConnState,
+        clientid => maps:get(clientid, ClientInfo, undefined),
+        closed_reason => ClosedReason
     }),
     {reply, {error, unexpected_call}, Channel}.
 
@@ -490,32 +510,50 @@ handle_cast(Req, Channel) ->
     | {shutdown, Reason :: term(), channel()}.
 handle_info(
     {sock_closed, Reason},
-    Channel = #channel{rqueue = Queue, inflight = Inflight}
+    Channel = #channel{gcli = GClient, closed_reason = ClosedReason}
 ) ->
-    case
-        queue:len(Queue) =:= 0 andalso
-            Inflight =:= undefined
-    of
+    case emqx_exproto_gcli:is_empty(GClient) of
         true ->
-            Channel1 = ensure_disconnected({sock_closed, Reason}, Channel),
+            Channel1 = ensure_disconnected(Reason, Channel),
             {shutdown, Reason, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
-            Channel1 = Channel#channel{closed_reason = {sock_closed, Reason}},
+            Channel1 =
+                case ClosedReason of
+                    undefined ->
+                        Channel#channel{closed_reason = Reason};
+                    _ ->
+                        Channel
+                end,
             Channel2 = ensure_timer(force_timer, Channel1),
-            {ok, ensure_disconnected({sock_closed, Reason}, Channel2)}
+            {ok, ensure_disconnected(Reason, Channel2)}
     end;
-handle_info({hreply, on_socket_created, ok}, Channel) ->
-    dispatch_or_close_process(Channel#channel{inflight = undefined});
-handle_info({hreply, FunName, ok}, Channel) when
-    FunName == on_socket_closed;
-    FunName == on_received_bytes;
-    FunName == on_received_messages;
-    FunName == on_timer_timeout
+handle_info(
+    {hreply, FunName, Result},
+    Channel0 = #channel{gcli = GClient0, timers = Timers}
+) when
+    FunName =:= on_socket_created;
+    FunName =:= on_socket_closed;
+    FunName =:= on_received_bytes;
+    FunName =:= on_received_messages;
+    FunName =:= on_timer_timeout
 ->
-    dispatch_or_close_process(Channel#channel{inflight = undefined});
-handle_info({hreply, FunName, {error, Reason}}, Channel) ->
-    {shutdown, {error, {FunName, Reason}}, Channel};
+    GClient = emqx_exproto_gcli:ack(FunName, GClient0),
+    Channel = Channel0#channel{gcli = GClient},
+
+    ShutdownNow =
+        emqx_exproto_gcli:is_empty(GClient) andalso
+            maps:get(force_timer, Timers, undefined) =/= undefined,
+    case Result of
+        ok when not ShutdownNow ->
+            GClient1 = emqx_exproto_gcli:maybe_shoot(GClient),
+            {ok, Channel#channel{gcli = GClient1}};
+        ok when ShutdownNow ->
+            Channel1 = cancel_timer(force_timer, Channel),
+            {shutdown, Channel1#channel.closed_reason, Channel1};
+        {error, Reason} ->
+            {shutdown, {error, {FunName, Reason}}, Channel}
+    end;
 handle_info({subscribe, _}, Channel) ->
     {ok, Channel};
 handle_info(Info, Channel) ->
@@ -528,7 +566,8 @@ handle_info(Info, Channel) ->
 -spec terminate(any(), channel()) -> channel().
 terminate(Reason, Channel) ->
     Req = #{reason => stringfy(Reason)},
-    try_dispatch(on_socket_closed, wrap(Req), Channel).
+    %% XXX: close streams?
+    dispatch(on_socket_closed, Req, Channel).
 
 %%--------------------------------------------------------------------
 %% Sub/UnSub
@@ -705,34 +744,10 @@ interval(alive_timer, #channel{keepalive = Keepalive}) ->
 %% Dispatch
 %%--------------------------------------------------------------------
 
-wrap(Req) ->
-    Req#{conn => base64:encode(term_to_binary(self()))}.
-
-dispatch_or_close_process(
-    Channel = #channel{
-        rqueue = Queue,
-        inflight = undefined,
-        gcli = GClient
-    }
-) ->
-    case queue:out(Queue) of
-        {empty, _} ->
-            case Channel#channel.conn_state of
-                disconnected ->
-                    {shutdown, Channel#channel.closed_reason, Channel};
-                _ ->
-                    {ok, Channel}
-            end;
-        {{value, {FunName, Req}}, NQueue} ->
-            emqx_exproto_gcli:async_call(FunName, Req, GClient),
-            {ok, Channel#channel{inflight = FunName, rqueue = NQueue}}
-    end.
-
-try_dispatch(FunName, Req, Channel = #channel{inflight = undefined, gcli = GClient}) ->
-    emqx_exproto_gcli:async_call(FunName, Req, GClient),
-    Channel#channel{inflight = FunName};
-try_dispatch(FunName, Req, Channel = #channel{rqueue = Queue}) ->
-    Channel#channel{rqueue = queue:in({FunName, Req}, Queue)}.
+dispatch(FunName, Req, Channel = #channel{gcli = GClient}) ->
+    Req1 = Req#{conn => base64:encode(term_to_binary(self()))},
+    NGClient = emqx_exproto_gcli:maybe_shoot(FunName, Req1, GClient),
+    Channel#channel{gcli = NGClient}.
 
 %%--------------------------------------------------------------------
 %% Format

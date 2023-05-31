@@ -6,6 +6,15 @@ exproto.desc:
 exproto_grpc_handler_address.desc:
 """gRPC server address."""
 
+exproto_grpc_handler_service_name.desc:
+"""The service name to handle the connection events.
+In the initial version, we expected to use streams to improve the efficiency
+of requests in `ConnectionHandler`. But unfortunately, events between different
+streams are out of order. It causes the `OnSocketCreated` event to may arrive
+later than `OnReceivedBytes`.
+So we added the `ConnectionUnaryHandler` service since v5.0.25 and forced
+the use of Unary in it to avoid ordering problems."""
+
 exproto_grpc_handler_ssl.desc:
 """SSL configuration for the gRPC client."""
 

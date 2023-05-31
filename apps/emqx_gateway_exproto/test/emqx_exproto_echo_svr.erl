@@ -19,7 +19,7 @@
 -behaviour(emqx_exproto_v_1_connection_handler_bhvr).
 
 -export([
-    start/0,
+    start/1,
     stop/1
 ]).
 
@@ -27,12 +27,16 @@
     frame_connect/2,
     frame_connack/1,
     frame_publish/3,
+    frame_raw_publish/3,
     frame_puback/1,
     frame_subscribe/2,
     frame_suback/1,
     frame_unsubscribe/1,
     frame_unsuback/1,
-    frame_disconnect/0
+    frame_disconnect/0,
+    handle_in/3,
+    handle_out/2,
+    handle_out/3
 ]).
 
 -export([
@@ -45,19 +49,6 @@
 
 -define(LOG(Fmt, Args), ct:pal(Fmt, Args)).
 
--define(HTTP, #{
-    grpc_opts => #{
-        service_protos => [emqx_exproto_pb],
-        services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
-    },
-    listen_opts => #{
-        port => 9001,
-        socket_options => []
-    },
-    pool_opts => #{size => 8},
-    transport_opts => #{ssl => false}
-}).
-
 -define(CLIENT, emqx_exproto_v_1_connection_adapter_client).
 
 -define(send(Req), ?CLIENT:send(Req, #{channel => ct_test_channel})).
@@ -65,6 +56,7 @@
 -define(authenticate(Req), ?CLIENT:authenticate(Req, #{channel => ct_test_channel})).
 -define(start_timer(Req), ?CLIENT:start_timer(Req, #{channel => ct_test_channel})).
 -define(publish(Req), ?CLIENT:publish(Req, #{channel => ct_test_channel})).
+-define(raw_publish(Req), ?CLIENT:raw_publish(Req, #{channel => ct_test_channel})).
 -define(subscribe(Req), ?CLIENT:subscribe(Req, #{channel => ct_test_channel})).
 -define(unsubscribe(Req), ?CLIENT:unsubscribe(Req, #{channel => ct_test_channel})).
 
@@ -77,6 +69,7 @@
 -define(TYPE_UNSUBSCRIBE, 7).
 -define(TYPE_UNSUBACK, 8).
 -define(TYPE_DISCONNECT, 9).
+-define(TYPE_RAW_PUBLISH, 10).
 
 -define(loop_recv_and_reply_empty_success(Stream),
     ?loop_recv_and_reply_empty_success(Stream, fun(_) -> ok end)
@@ -104,9 +97,9 @@ end).
 %% APIs
 %%--------------------------------------------------------------------
 
-start() ->
+start(Scheme) ->
     application:ensure_all_started(grpc),
-    [ensure_channel(), start_server()].
+    [ensure_channel(), start_server(Scheme)].
 
 ensure_channel() ->
     case grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}) of
@@ -114,12 +107,40 @@ ensure_channel() ->
         {ok, Pid} -> {ok, Pid}
     end.
 
-start_server() ->
+start_server(Scheme) when Scheme == http; Scheme == https ->
     Services = #{
         protos => [emqx_exproto_pb],
-        services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
+        services => #{
+            'emqx.exproto.v1.ConnectionHandler' => ?MODULE,
+            'emqx.exproto.v1.ConnectionUnaryHandler' => emqx_exproto_unary_echo_svr
+        }
     },
-    Options = [],
+    CertsDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx",
+            "etc",
+            "certs"
+        ]
+    ),
+
+    Options =
+        case Scheme of
+            https ->
+                CAfile = filename:join([CertsDir, "cacert.pem"]),
+                Keyfile = filename:join([CertsDir, "key.pem"]),
+                Certfile = filename:join([CertsDir, "cert.pem"]),
+                [
+                    {ssl_options, [
+                        {cacertfile, CAfile},
+                        {certfile, Certfile},
+                        {keyfile, Keyfile}
+                    ]}
+                ];
+            _ ->
+                []
+        end,
     grpc:start_server(?MODULE, 9001, Services, Options).
 
 stop([_ChannPid, _SvrPid]) ->
@@ -249,6 +270,17 @@ handle_in(Conn, ?TYPE_PUBLISH, #{
         _ ->
             handle_out(Conn, ?TYPE_PUBACK, 1)
     end;
+handle_in(Conn, ?TYPE_RAW_PUBLISH, #{
+    <<"topic">> := Topic,
+    <<"qos">> := Qos,
+    <<"payload">> := Payload
+}) ->
+    case ?raw_publish(#{topic => Topic, qos => Qos, payload => Payload}) of
+        {ok, #{code := 'SUCCESS'}, _} ->
+            handle_out(Conn, ?TYPE_PUBACK, 0);
+        _ ->
+            handle_out(Conn, ?TYPE_PUBACK, 1)
+    end;
 handle_in(Conn, ?TYPE_SUBSCRIBE, #{<<"qos">> := Qos, <<"topic">> := Topic}) ->
     case ?subscribe(#{conn => Conn, topic => Topic, qos => Qos}) of
         {ok, #{code := 'SUCCESS'}, _} ->
@@ -275,7 +307,9 @@ handle_out(Conn, ?TYPE_SUBACK, Code) ->
 handle_out(Conn, ?TYPE_UNSUBACK, Code) ->
     ?send(#{conn => Conn, bytes => frame_unsuback(Code)});
 handle_out(Conn, ?TYPE_PUBLISH, #{qos := Qos, topic := Topic, payload := Payload}) ->
-    ?send(#{conn => Conn, bytes => frame_publish(Topic, Qos, Payload)}).
+    ?send(#{conn => Conn, bytes => frame_publish(Topic, Qos, Payload)});
+handle_out(Conn, ?TYPE_RAW_PUBLISH, #{qos := Qos, topic := Topic, payload := Payload}) ->
+    ?send(#{conn => Conn, bytes => frame_raw_publish(Topic, Qos, Payload)}).
 
 handle_out(Conn, ?TYPE_DISCONNECT) ->
     ?send(#{conn => Conn, bytes => frame_disconnect()}).
@@ -295,6 +329,14 @@ frame_connack(Code) ->
 frame_publish(Topic, Qos, Payload) ->
     emqx_utils_json:encode(#{
         type => ?TYPE_PUBLISH,
+        topic => Topic,
+        qos => Qos,
+        payload => Payload
+    }).
+
+frame_raw_publish(Topic, Qos, Payload) ->
+    emqx_utils_json:encode(#{
+        type => ?TYPE_RAW_PUBLISH,
         topic => Topic,
         qos => Qos,
         payload => Payload

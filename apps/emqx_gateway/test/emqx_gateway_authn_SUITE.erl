@@ -249,7 +249,7 @@ t_case_stomp(_) ->
 t_case_exproto(_) ->
     Mod = emqx_exproto_SUITE,
     SvrMod = emqx_exproto_echo_svr,
-    Svrs = SvrMod:start(),
+    Svrs = SvrMod:start(http),
     Login = fun(Username, Password, Expect) ->
         with_resource(
             ?FUNCTOR(Mod:open(tcp)),

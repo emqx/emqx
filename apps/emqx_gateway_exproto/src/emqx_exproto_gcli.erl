@@ -14,161 +14,197 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% the gRPC client worker for ConnectionHandler service
+%% the gRPC client agent for ConnectionHandler service
 -module(emqx_exproto_gcli).
-
--behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
 
-%% APIs
--export([async_call/3]).
+-logger_header("[ExProtoGCli]").
 
--export([start_link/2]).
-
-%% gen_server callbacks
 -export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
+    init/2,
+    maybe_shoot/1,
+    maybe_shoot/3,
+    ack/2,
+    is_empty/1
 ]).
 
--record(state, {
-    pool,
-    id,
-    streams
-}).
+-define(CONN_HANDLER_MOD, emqx_exproto_v_1_connection_handler_client).
+-define(CONN_UNARY_HANDLER_MOD, emqx_exproto_v_1_connection_unary_handler_client).
 
--define(CONN_ADAPTER_MOD, emqx_exproto_v_1_connection_handler_client).
+-type service_name() :: 'ConnectionUnaryHandler' | 'ConnectionHandler'.
+
+-type grpc_client_state() ::
+    #{
+        owner := pid(),
+        service_name := service_name(),
+        client_opts := options(),
+        queue := queue:queue(),
+        inflight := atom() | undefined,
+        streams => map(),
+        middleman => pid() | undefined
+    }.
+
+-type options() ::
+    #{channel := term()}.
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Pool, Id) ->
-    gen_server:start_link(
-        {local, emqx_utils:proc_name(?MODULE, Id)},
-        ?MODULE,
-        [Pool, Id],
-        []
-    ).
+-spec init(service_name(), options()) -> grpc_client_state().
+init(ServiceName, Options) ->
+    #{
+        owner => self(),
+        service_name => ServiceName,
+        client_opts => Options,
+        queue => queue:new(),
+        inflight => undefined
+    }.
 
--spec async_call(atom(), map(), map()) -> ok.
-async_call(
-    FunName,
-    Req = #{conn := Conn},
-    Options = #{pool_name := PoolName}
-) ->
-    case pick(PoolName, Conn) of
+-spec maybe_shoot(atom(), map(), grpc_client_state()) -> grpc_client_state().
+maybe_shoot(FunName, Req, GState = #{inflight := undefined}) ->
+    shoot(FunName, Req, GState);
+maybe_shoot(FunName, Req, GState) ->
+    enqueue(FunName, Req, GState).
+
+-spec maybe_shoot(grpc_client_state()) -> grpc_client_state().
+maybe_shoot(GState = #{inflight := undefined, queue := Q}) ->
+    case queue:is_empty(Q) of
+        true ->
+            GState;
         false ->
-            reply(self(), FunName, {error, no_available_grpc_client});
-        Pid when is_pid(Pid) ->
-            cast(Pid, {rpc, FunName, Req, Options, self()})
-    end,
-    ok.
-
-%%--------------------------------------------------------------------
-%% cast, pick
-%%--------------------------------------------------------------------
-
--compile({inline, [cast/2, pick/2]}).
-
-cast(Deliver, Msg) ->
-    gen_server:cast(Deliver, Msg).
-
--spec pick(term(), term()) -> pid() | false.
-pick(PoolName, Conn) ->
-    gproc_pool:pick_worker(PoolName, Conn).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([Pool, Id]) ->
-    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #state{pool = Pool, id = Id, streams = #{}}}.
-
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
-
-handle_cast({rpc, Fun, Req, Options, From}, State = #state{streams = Streams}) ->
-    case ensure_stream_opened(Fun, Options, Streams) of
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "request_grpc_server_failed",
-                function => {?CONN_ADAPTER_MOD, Fun, Options},
-                reason => Reason
-            }),
-            reply(From, Fun, {error, Reason}),
-            {noreply, State#state{streams = Streams#{Fun => undefined}}};
-        {ok, Stream} ->
-            case catch grpc_client:send(Stream, Req) of
-                ok ->
-                    ?SLOG(debug, #{
-                        msg => "send_grpc_request_succeed",
-                        function => {?CONN_ADAPTER_MOD, Fun},
-                        request => Req
-                    }),
-                    reply(From, Fun, ok),
-                    {noreply, State#state{streams = Streams#{Fun => Stream}}};
-                {'EXIT', {not_found, _Stk}} ->
-                    %% Not found the stream, reopen it
-                    ?SLOG(info, #{
-                        msg => "cannt_find_old_stream_ref",
-                        function => {?CONN_ADAPTER_MOD, Fun}
-                    }),
-                    handle_cast(
-                        {rpc, Fun, Req, Options, From},
-                        State#state{streams = maps:remove(Fun, Streams)}
-                    );
-                {'EXIT', {timeout, _Stk}} ->
-                    ?SLOG(error, #{
-                        msg => "send_grpc_request_timeout",
-                        function => {?CONN_ADAPTER_MOD, Fun},
-                        request => Req
-                    }),
-                    reply(From, Fun, {error, timeout}),
-                    {noreply, State#state{streams = Streams#{Fun => Stream}}};
-                {'EXIT', {Reason1, Stk}} ->
-                    ?SLOG(error, #{
-                        msg => "send_grpc_request_failed",
-                        function => {?CONN_ADAPTER_MOD, Fun},
-                        request => Req,
-                        error => Reason1,
-                        stacktrace => Stk
-                    }),
-                    reply(From, Fun, {error, Reason1}),
-                    {noreply, State#state{streams = Streams#{Fun => undefined}}}
-            end
+            {{value, {FunName, Req}}, Q1} = queue:out(Q),
+            shoot(FunName, Req, GState#{queue => Q1})
     end.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+-spec ack(atom(), grpc_client_state()) -> grpc_client_state().
+ack(FunName, GState = #{inflight := FunName}) ->
+    GState#{inflight => undefined, middleman => undefined};
+ack(_, _) ->
+    error(badarg).
 
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+-spec is_empty(grpc_client_state()) -> boolean().
+is_empty(#{queue := Q, inflight := Inflight}) ->
+    Inflight == undefined andalso queue:is_empty(Q).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-reply(Pid, Fun, Result) ->
-    Pid ! {hreply, Fun, Result},
-    ok.
+enqueue(FunName, Req, GState = #{queue := Q}) ->
+    GState#{queue => queue:in({FunName, Req}, Q)}.
 
-ensure_stream_opened(Fun, Options, Streams) ->
-    case maps:get(Fun, Streams, undefined) of
+shoot(FunName, Req, GState) ->
+    ServiceName = maps:get(service_name, GState),
+    shoot(ServiceName, FunName, Req, GState).
+
+shoot(
+    'ConnectionUnaryHandler',
+    FunName,
+    Req,
+    GState = #{owner := Owner, client_opts := Options}
+) ->
+    Pid =
+        spawn(
+            fun() ->
+                try
+                    Result = request(FunName, Req, Options),
+                    hreply(Owner, Result, FunName)
+                catch
+                    T:R:Stk ->
+                        hreply(Owner, {error, {{T, R}, Stk}}, FunName)
+                end
+            end
+        ),
+    GState#{inflight => FunName, middleman => Pid};
+shoot(
+    'ConnectionHandler',
+    FunName,
+    Req,
+    GState
+) ->
+    GState1 = streaming(FunName, Req, GState),
+    GState1#{inflight => FunName}.
+
+%%--------------------------------------------------------------------
+%% streaming
+
+streaming(
+    FunName,
+    Req,
+    GState = #{owner := Owner, client_opts := Options}
+) ->
+    Streams = maps:get(streams, GState, #{}),
+    case ensure_stream_opened(FunName, Options, Streams) of
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "request_grpc_server_failed",
+                function => {FunName, Options},
+                reason => Reason
+            }),
+            hreply(Owner, {error, Reason}, FunName),
+            {ok, GState};
+        {ok, Stream} ->
+            case catch grpc_client:send(Stream, Req) of
+                ok ->
+                    ?SLOG(debug, #{
+                        msg => "send_grpc_request_succeed",
+                        function => FunName,
+                        request => Req
+                    }),
+                    hreply(Owner, ok, FunName),
+                    GState#{streams => Streams#{FunName => Stream}};
+                {'EXIT', {not_found, _Stk}} ->
+                    %% Not found the stream, reopen it
+                    ?SLOG(info, #{
+                        msg => "cannt_find_old_stream_ref",
+                        function => FunName
+                    }),
+                    streaming(FunName, Req, GState#{streams => maps:remove(FunName, Streams)});
+                {'EXIT', {timeout, _Stk}} ->
+                    ?SLOG(error, #{
+                        msg => "send_grpc_request_timeout",
+                        function => FunName,
+                        request => Req
+                    }),
+                    hreply(Owner, {error, timeout}, FunName),
+                    GState;
+                {'EXIT', {Reason1, Stk}} ->
+                    ?SLOG(error, #{
+                        msg => "send_grpc_request_failed",
+                        function => FunName,
+                        request => Req,
+                        error => Reason1,
+                        stacktrace => Stk
+                    }),
+                    hreply(Owner, {error, Reason1}, FunName),
+                    GState
+            end
+    end.
+
+ensure_stream_opened(FunName, Options, Streams) ->
+    case maps:get(FunName, Streams, undefined) of
         undefined ->
-            case apply(?CONN_ADAPTER_MOD, Fun, [Options]) of
+            case apply(?CONN_HANDLER_MOD, FunName, [Options]) of
                 {ok, Stream} -> {ok, Stream};
                 {error, Reason} -> {error, Reason}
             end;
         Stream ->
             {ok, Stream}
     end.
+
+%%--------------------------------------------------------------------
+%% unary
+
+request(FunName, Req, Options) ->
+    case apply(?CONN_UNARY_HANDLER_MOD, FunName, [Req, Options]) of
+        {ok, _EmptySucc, _Md} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+hreply(Owner, Result, FunName) ->
+    Owner ! {hreply, FunName, Result},
+    ok.
