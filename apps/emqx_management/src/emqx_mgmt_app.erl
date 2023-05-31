@@ -31,10 +31,12 @@ start(_Type, _Args) ->
     ok = mria_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
     case emqx_mgmt_auth:init_bootstrap_file() of
         ok ->
+            emqx_conf:add_handler([api_key], emqx_mgmt_auth),
             emqx_mgmt_sup:start_link();
         {error, Reason} ->
             {error, Reason}
     end.
 
 stop(_State) ->
+    emqx_conf:remove_handler([api_key]),
     ok.

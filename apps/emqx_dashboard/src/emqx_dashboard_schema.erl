@@ -62,9 +62,8 @@ fields("dashboard") ->
                 #{
                     desc => ?DESC(bootstrap_users_file),
                     required => false,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    default => <<>>
-                    %% deprecated => {since, "5.1.0"}
+                    default => <<>>,
+                    deprecated => {since, "5.1.0"}
                 }
             )}
     ];
