@@ -20,7 +20,6 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include("emqx_dashboard.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(NAME, 'https:dashboard').
