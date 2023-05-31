@@ -36,6 +36,7 @@
 
 -export([
     clients/2,
+    kickout_clients/2,
     client/2,
     subscriptions/2,
     authz_cache/2,
@@ -88,6 +89,7 @@ api_spec() ->
 paths() ->
     [
         "/clients",
+        "/clients/kickout/bulk",
         "/clients/:clientid",
         "/clients/:clientid/authorization/cache",
         "/clients/:clientid/subscriptions",
@@ -208,6 +210,21 @@ schema("/clients") ->
                     emqx_dashboard_swagger:error_codes(
                         ['INVALID_PARAMETER'], <<"Invalid parameters">>
                     )
+            }
+        }
+    };
+schema("/clients/kickout/bulk") ->
+    #{
+        'operationId' => kickout_clients,
+        post => #{
+            description => ?DESC(kickout_clients),
+            tags => ?TAGS,
+            'requestBody' => hoconsc:mk(
+                hoconsc:array(binary()),
+                #{desc => <<"The list of Client IDs that need to be kicked out">>}
+            ),
+            responses => #{
+                204 => <<"Kick out clients successfully">>
             }
         }
     };
@@ -567,6 +584,15 @@ fields(unsubscribe) ->
 %% parameters trans
 clients(get, #{query_string := QString}) ->
     list_clients(QString).
+
+kickout_clients(post, #{body := ClientIDs}) ->
+    case emqx_mgmt:kickout_clients(ClientIDs) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
+    end.
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
