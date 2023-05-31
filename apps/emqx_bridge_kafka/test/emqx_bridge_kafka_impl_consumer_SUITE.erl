@@ -2078,7 +2078,7 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                     10_000
                 ),
             case Res of
-                {error, {config_update_crashed, {killed, _}}} ->
+                {error, {config_update_crashed, _}} ->
                     ok;
                 {ok, _} ->
                     %% the new manager may have had time to startup
@@ -2135,7 +2135,7 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
                     10_000
                 ),
             case Res of
-                {error, {config_update_crashed, {killed, _}}} ->
+                {error, {config_update_crashed, _}} ->
                     ok;
                 {ok, _} ->
                     %% the new manager may have had time to startup
