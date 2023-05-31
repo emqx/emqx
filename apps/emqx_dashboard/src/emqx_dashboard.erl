@@ -111,14 +111,15 @@ stop_listeners(Listeners) ->
         begin
             case minirest:stop(Name) of
                 ok ->
+                    _ = emqx_listeners:wait_listener_stopped(Bind),
                     ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
-                        Name, emqx_listeners:format_bind(Port)
+                        Name, emqx_listeners:format_bind(Bind)
                     ]);
                 {error, not_found} ->
-                    ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
+                    ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, bind => Bind})
             end
         end
-     || {Name, _, Port, _, _} <- listeners(Listeners)
+     || {Name, _, Bind, _, _} <- listeners(Listeners)
     ],
     ok.
 
