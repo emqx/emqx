@@ -36,7 +36,7 @@
         , on_message_publish/2
         ]).
 
--export([clean/1]).
+-export([clean/1, read_messages/1]).
 
 %% for emqx_pool task func
 -export([dispatch/2]).

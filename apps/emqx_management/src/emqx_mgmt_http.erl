@@ -144,7 +144,17 @@ authorize_appid(_Method, _Path, Req) ->
     end.
 
 -ifdef(EMQX_ENTERPRISE).
-filter(_) ->
+filter(#{module := Module} = Route) ->
+    %% true if anything goes wrong
+    try
+        case erlang:function_exported(Module, filter, 1) of
+            true -> apply(Module, filter, [Route]);
+            false -> true
+        end
+    catch _:_ ->
+        true
+    end;
+filter(_Route) ->
     true.
 -else.
 filter(#{app := emqx_modules}) -> true;
@@ -155,7 +165,6 @@ filter(#{app := App}) ->
         Plugin -> Plugin#plugin.active
     end.
 -endif.
-
 
 format(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);

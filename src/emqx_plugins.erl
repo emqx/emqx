@@ -253,13 +253,15 @@ default_plugins() ->
         %% default is true in data/load_modules. **NOT HERE**
         {emqx_retainer, false},
         {emqx_recon, false},
-        %% emqx_telemetry is not exist in enterprise.
+        %% emqx_telemetry does not exist in enterprise.
         %% {emqx_telemetry, false},
         {emqx_rule_engine, true},
         {emqx_bridge_mqtt, false},
         {emqx_schema_registry, true},
         {emqx_eviction_agent, true},
-        {emqx_node_rebalance, true}
+        {emqx_node_rebalance, true},
+        %% emqx_gcp_device is managed by emqx_modules.
+        {emqx_gcp_device, false}
     ].
 
 -endif.
