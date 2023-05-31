@@ -138,6 +138,36 @@ kafka_consumer_test() ->
 
     ok.
 
+message_key_dispatch_validations_test() ->
+    Conf0 = kafka_producer_new_hocon(),
+    Conf1 =
+        Conf0 ++
+            "\n"
+            "bridges.kafka.myproducer.kafka.message.key = \"\""
+            "\n"
+            "bridges.kafka.myproducer.kafka.partition_strategy = \"key_dispatch\"",
+    Conf = parse(Conf1),
+    ?assertMatch(
+        #{
+            <<"kafka">> :=
+                #{
+                    <<"partition_strategy">> := <<"key_dispatch">>,
+                    <<"message">> := #{<<"key">> := <<>>}
+                }
+        },
+        emqx_utils_maps:deep_get([<<"bridges">>, <<"kafka">>, <<"myproducer">>], Conf)
+    ),
+    ?assertThrow(
+        {_, [
+            #{
+                path := "bridges.kafka.myproducer.kafka",
+                reason := "Message key cannot be empty when `key_dispatch` strategy is used"
+            }
+        ]},
+        check(Conf)
+    ),
+    ok.
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================

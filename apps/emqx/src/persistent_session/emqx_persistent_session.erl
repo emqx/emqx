@@ -229,7 +229,7 @@ discard_if_present(ClientID) ->
             ok
     end.
 
--spec discard(binary(), emgx_session:session()) -> emgx_session:session().
+-spec discard(binary(), emqx_session:session()) -> emqx_session:session().
 discard(ClientID, Session) ->
     discard_opt(is_store_enabled(), ClientID, Session).
 

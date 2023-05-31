@@ -91,6 +91,7 @@ is_community_umbrella_app("apps/emqx_bridge_matrix") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mongodb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_mysql") -> false;
 is_community_umbrella_app("apps/emqx_bridge_pgsql") -> false;
+is_community_umbrella_app("apps/emqx_bridge_pulsar") -> false;
 is_community_umbrella_app("apps/emqx_bridge_redis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rocketmq") -> false;
 is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
@@ -426,6 +427,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_gateway_exproto,
             emqx_exhook,
             emqx_bridge,
+            emqx_bridge_mqtt,
             emqx_rule_engine,
             emqx_modules,
             emqx_management,

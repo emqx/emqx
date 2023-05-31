@@ -430,25 +430,25 @@ t_num_clients(_Config) ->
         {port, 1883},
         {clean_start, false}
     ]),
-    {{ok, _}, _} = ?wait_async_action(
+    {{ok, _}, {ok, _}} = ?wait_async_action(
         {ok, _} = emqtt:connect(Client),
         #{
             ?snk_kind := emqx_stats_setstat,
             count_stat := 'live_connections.count',
             value := 1
         },
-        2000
+        5_000
     ),
     {ok, TelemetryData0} = emqx_telemetry:get_telemetry(),
     ?assertEqual(1, get_value(num_clients, TelemetryData0)),
-    {ok, _} = ?wait_async_action(
+    {ok, {ok, _}} = ?wait_async_action(
         ok = emqtt:disconnect(Client),
         #{
             ?snk_kind := emqx_stats_setstat,
             count_stat := 'live_connections.count',
             value := 0
         },
-        2000
+        5_000
     ),
     {ok, TelemetryData1} = emqx_telemetry:get_telemetry(),
     ?assertEqual(0, get_value(num_clients, TelemetryData1)),

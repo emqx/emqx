@@ -1832,6 +1832,18 @@ t_async_pool_worker_death(_Config) ->
                 NumReqs,
                 lists:sum([N || #{num_affected := N} <- Events])
             ),
+
+            %% The `DOWN' signal must trigger the transition to the `blocked' state,
+            %% otherwise the request won't be retried until the buffer worker is `blocked'
+            %% for other reasons.
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := buffer_worker_async_agent_down, buffer_worker := _Pid0},
+                    #{?snk_kind := buffer_worker_enter_blocked, buffer_worker := _Pid1},
+                    _Pid0 =:= _Pid1,
+                    Trace
+                )
+            ),
             ok
         end
     ),
@@ -2248,6 +2260,15 @@ do_t_expiration_async_after_reply(IsBatch) ->
                             }
                         ],
                         ?of_kind(handle_async_reply_expired, Trace)
+                    ),
+                    ?assertMatch(
+                        [
+                            #{
+                                inflight_count := 1,
+                                num_inflight_messages := 1
+                            }
+                        ],
+                        ?of_kind(handle_async_reply_partially_expired, Trace)
                     );
                 single ->
                     ?assertMatch(

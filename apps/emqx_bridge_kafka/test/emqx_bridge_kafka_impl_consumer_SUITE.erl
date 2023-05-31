@@ -59,7 +59,9 @@ only_once_tests() ->
         t_cluster_group,
         t_node_joins_existing_cluster,
         t_cluster_node_down,
-        t_multiple_topic_mappings
+        t_multiple_topic_mappings,
+        t_resource_manager_crash_after_subscriber_started,
+        t_resource_manager_crash_before_subscriber_started
     ].
 
 init_per_suite(Config) ->
@@ -333,6 +335,7 @@ init_per_testcase(TestCase, Config) ->
 common_init_per_testcase(TestCase, Config0) ->
     ct:timetrap(timer:seconds(60)),
     delete_all_bridges(),
+    emqx_config:delete_override_conf_files(),
     KafkaTopic =
         <<
             (atom_to_binary(TestCase))/binary,
@@ -1116,6 +1119,24 @@ stop_async_publisher(Pid) ->
         ct:fail("publisher didn't die")
     end,
     ok.
+
+kill_resource_managers() ->
+    ct:pal("gonna kill resource managers"),
+    lists:foreach(
+        fun({_, Pid, _, _}) ->
+            ct:pal("terminating resource manager ~p", [Pid]),
+            Ref = monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, killed} ->
+                    ok
+            after 500 ->
+                ct:fail("pid ~p didn't die!", [Pid])
+            end,
+            ok
+        end,
+        supervisor:which_children(emqx_resource_manager_sup)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -2017,5 +2038,120 @@ t_begin_offset_earliest(Config) ->
             ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId)),
             ok
         end
+    ),
+    ok.
+
+t_resource_manager_crash_after_subscriber_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := kafka_consumer_subscriber_allocated},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := kafka_consumer_subscriber_started}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+
+            %% We avoid asserting only the `config_update_crashed'
+            %% error here because there's a race condition (just a
+            %% problem for the test assertion below) in which the
+            %% `emqx_resource_manager:create/5' call returns a failure
+            %% (not checked) and then `lookup' in that module is
+            %% delayed enough so that the manager supervisor has time
+            %% to restart the manager process and for the latter to
+            %% startup successfully.  Occurs frequently in CI...
+
+            {Res, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := kafka_consumer_subcriber_and_client_stopped},
+                    10_000
+                ),
+            case Res of
+                {error, {config_update_crashed, {killed, _}}} ->
+                    ok;
+                {ok, _} ->
+                    %% the new manager may have had time to startup
+                    %% before the resource status cache is read...
+                    ok;
+                _ ->
+                    ct:fail("unexpected result: ~p", [Res])
+            end,
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?retry(
+                _Sleep = 50,
+                _Attempts = 50,
+                ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_resource_manager_crash_before_subscriber_started(Config) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := kafka_consumer_client_started},
+                #{?snk_kind := will_kill_resource_manager}
+            ),
+            ?force_ordering(
+                #{?snk_kind := resource_manager_killed},
+                #{?snk_kind := kafka_consumer_about_to_start_subscriber}
+            ),
+            spawn_link(fun() ->
+                ?tp(will_kill_resource_manager, #{}),
+                kill_resource_managers(),
+                ?tp(resource_manager_killed, #{}),
+                ok
+            end),
+
+            %% even if the resource manager is dead, we can still
+            %% clear the allocated resources.
+
+            %% We avoid asserting only the `config_update_crashed'
+            %% error here because there's a race condition (just a
+            %% problem for the test assertion below) in which the
+            %% `emqx_resource_manager:create/5' call returns a failure
+            %% (not checked) and then `lookup' in that module is
+            %% delayed enough so that the manager supervisor has time
+            %% to restart the manager process and for the latter to
+            %% startup successfully.  Occurs frequently in CI...
+            {Res, {ok, _}} =
+                ?wait_async_action(
+                    create_bridge(Config),
+                    #{?snk_kind := kafka_consumer_just_client_stopped},
+                    10_000
+                ),
+            case Res of
+                {error, {config_update_crashed, {killed, _}}} ->
+                    ok;
+                {ok, _} ->
+                    %% the new manager may have had time to startup
+                    %% before the resource status cache is read...
+                    ok;
+                _ ->
+                    ct:fail("unexpected result: ~p", [Res])
+            end,
+            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?retry(
+                _Sleep = 50,
+                _Attempts = 50,
+                ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
+            ),
+            ok
+        end,
+        []
     ),
     ok.

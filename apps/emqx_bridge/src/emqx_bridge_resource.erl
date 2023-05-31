@@ -58,14 +58,14 @@
 ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
-bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
+bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http;
 bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
 -else.
-bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
-bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
+bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http.
 -endif.

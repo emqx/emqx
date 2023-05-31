@@ -82,7 +82,7 @@ check_license_watermark(Conf) ->
 %% @doc The default license key.
 %% This default license has 1000 connections limit.
 %% It is issued on 2023-01-09 and valid for 5 years (1825 days)
-%% NOTE: when updating a new key, the schema doc in emqx_license_schema_i18n.conf
+%% NOTE: when updating a new key, the schema doc in emqx_license_schema.hocon
 %% should be updated accordingly
 default_license() ->
     <<

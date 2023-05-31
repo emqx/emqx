@@ -541,7 +541,9 @@ t_write_failure(Config) ->
         end),
         fun(Trace0) ->
             ct:pal("trace: ~p", [Trace0]),
-            Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
+            Trace = ?of_kind(
+                [buffer_worker_flush_nack, buffer_worker_retry_inflight_failed], Trace0
+            ),
             [#{result := Result} | _] = Trace,
             case Result of
                 {async_return, {error, {resource_error, _}}} ->
@@ -606,11 +608,12 @@ t_missing_data(Config) ->
     %% to ecql driver
     ?check_trace(
         begin
-            ?wait_async_action(
-                send_message(Config, #{}),
-                #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
-                10_000
-            ),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    send_message(Config, #{}),
+                    #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
+                    30_000
+                ),
             ok
         end,
         fun(Trace0) ->

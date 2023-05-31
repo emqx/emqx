@@ -60,6 +60,10 @@
     sync_timeout := emqx_schema:duration_ms()
 }.
 
+%% Allocatable resources
+-define(pulsar_client_id, pulsar_client_id).
+-define(pulsar_producers, pulsar_producers).
+
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
@@ -81,7 +85,7 @@ on_start(InstanceId, Config) ->
     } = Config,
     Servers = format_servers(Servers0),
     ClientId = make_client_id(InstanceId, BridgeName),
-    ok = emqx_resource:allocate_resource(InstanceId, pulsar_client_id, ClientId),
+    ok = emqx_resource:allocate_resource(InstanceId, ?pulsar_client_id, ClientId),
     SSLOpts = emqx_tls_lib:to_client_opts(SSL),
     ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(5)),
     ClientOpts = #{
@@ -119,7 +123,7 @@ on_start(InstanceId, Config) ->
 -spec on_stop(resource_id(), state()) -> ok.
 on_stop(InstanceId, _State) ->
     case emqx_resource:get_allocated_resources(InstanceId) of
-        #{pulsar_client_id := ClientId, pulsar_producers := Producers} ->
+        #{?pulsar_client_id := ClientId, ?pulsar_producers := Producers} ->
             stop_producers(ClientId, Producers),
             stop_client(ClientId),
             ?tp(pulsar_bridge_stopped, #{
@@ -128,7 +132,7 @@ on_stop(InstanceId, _State) ->
                 pulsar_producers => Producers
             }),
             ok;
-        #{pulsar_client_id := ClientId} ->
+        #{?pulsar_client_id := ClientId} ->
             stop_client(ClientId),
             ?tp(pulsar_bridge_stopped, #{
                 instance_id => InstanceId,
@@ -340,7 +344,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
     ?tp(pulsar_producer_about_to_start_producers, #{producer_name => ProducerName}),
     try pulsar:ensure_supervised_producers(ClientId, PulsarTopic, ProducerOpts) of
         {ok, Producers} ->
-            ok = emqx_resource:allocate_resource(InstanceId, pulsar_producers, Producers),
+            ok = emqx_resource:allocate_resource(InstanceId, ?pulsar_producers, Producers),
             ?tp(pulsar_producer_producers_allocated, #{}),
             State = #{
                 pulsar_client_id => ClientId,

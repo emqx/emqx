@@ -121,7 +121,8 @@
 
 -export_type([
     resource_id/0,
-    resource_data/0
+    resource_data/0,
+    resource_status/0
 ]).
 
 -optional_callbacks([
@@ -533,7 +534,7 @@ clean_allocated_resources(ResourceId, ResourceMod) ->
         true ->
             %% The resource entries in the ETS table are erased inside
             %% `call_stop' if the call is successful.
-            ok = emqx_resource:call_stop(ResourceId, ResourceMod, _ResourceState = undefined),
+            ok = call_stop(ResourceId, ResourceMod, _ResourceState = undefined),
             ok;
         false ->
             ok

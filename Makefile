@@ -15,7 +15,7 @@ endif
 
 # Dashbord version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.2.5
+export EMQX_DASHBOARD_VERSION ?= v1.2.5-1
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.7
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
@@ -104,7 +104,7 @@ APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct: $(REBAR) merge-config
+$1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
 		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
@@ -127,7 +127,7 @@ endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
 .PHONY: ct-suite
-ct-suite: $(REBAR) merge-config
+ct-suite: $(REBAR) merge-config clean-test-cluster-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
@@ -294,3 +294,7 @@ fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'
 	@$(SCRIPTS)/erlfmt -w 'rebar.config.erl'
 	@mix format
+
+.PHONY: clean-test-cluster-config
+clean-test-cluster-config:
+	@rm -f apps/emqx_conf/data/configs/cluster.hocon || true

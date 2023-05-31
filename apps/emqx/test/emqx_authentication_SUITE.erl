@@ -98,6 +98,8 @@ init_per_suite(Config) ->
     LogLevel = emqx_logger:get_primary_log_level(),
     ok = emqx_logger:set_log_level(debug),
     application:set_env(ekka, strict_mode, true),
+    emqx_config:erase_all(),
+    emqx_common_test_helpers:stop_apps([]),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     [{log_level, LogLevel} | Config].

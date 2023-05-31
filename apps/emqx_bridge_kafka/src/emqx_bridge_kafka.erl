@@ -247,7 +247,8 @@ fields(producer_opts) ->
         {kafka,
             mk(ref(producer_kafka_opts), #{
                 required => true,
-                desc => ?DESC(producer_kafka_opts)
+                desc => ?DESC(producer_kafka_opts),
+                validator => fun producer_strategy_key_validator/1
             })}
     ];
 fields(producer_kafka_opts) ->
@@ -459,3 +460,11 @@ consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
         false ->
             {error, "Kafka topics must not be repeated in a bridge"}
     end.
+
+producer_strategy_key_validator(#{
+    <<"partition_strategy">> := key_dispatch,
+    <<"message">> := #{<<"key">> := ""}
+}) ->
+    {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
+producer_strategy_key_validator(_) ->
+    ok.

@@ -94,6 +94,26 @@ t_crud_rule_api(_Config) ->
     ct:pal("RMetrics : ~p", [Metrics]),
     ?assertMatch(#{id := RuleId, metrics := _, node_metrics := _}, Metrics),
 
+    %% simulating a node joining a cluster and lagging the configuration replication; in
+    %% such cases, when fetching metrics, a rule may exist in the cluster but not on the
+    %% new node.  We just check that it doesn't provoke a crash.
+    emqx_common_test_helpers:with_mock(
+        emqx_metrics_worker,
+        get_metrics,
+        fun(HandlerName, MetricId) ->
+            %% change the metric id to some unknown id.
+            meck:passthrough([HandlerName, <<"unknown-", MetricId/binary>>])
+        end,
+        fun() ->
+            {200, Metrics1} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{
+                bindings => #{id => RuleId}
+            }),
+            ct:pal("RMetrics : ~p", [Metrics1]),
+            ?assertMatch(#{id := RuleId, metrics := _, node_metrics := _}, Metrics1),
+            ok
+        end
+    ),
+
     {200, Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
         bindings => #{id => RuleId},
         body => ?SIMPLE_RULE(RuleId)#{<<"sql">> => <<"select * from \"t/b\"">>}

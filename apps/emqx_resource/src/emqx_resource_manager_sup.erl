@@ -26,12 +26,12 @@
 -export([init/1]).
 
 ensure_child(ResId, Group, ResourceType, Config, Opts) ->
-    _ = supervisor:start_child(?MODULE, [ResId, Group, ResourceType, Config, Opts]),
+    _ = supervisor:start_child(?MODULE, child_spec(ResId, Group, ResourceType, Config, Opts)),
     ok.
 
-delete_child(Pid) ->
-    _ = supervisor:terminate_child(?MODULE, Pid),
-    _ = supervisor:delete_child(?MODULE, Pid),
+delete_child(ResId) ->
+    _ = supervisor:terminate_child(?MODULE, ResId),
+    _ = supervisor:delete_child(?MODULE, ResId),
     ok.
 
 start_link() ->
@@ -44,18 +44,19 @@ init([]) ->
         public,
         {read_concurrency, true}
     ]),
-    ChildSpecs = [
-        #{
-            id => emqx_resource_manager,
-            start => {emqx_resource_manager, start_link, []},
-            restart => transient,
-            %% never force kill a resource manager.
-            %% becasue otherwise it may lead to release leak,
-            %% resource_manager's terminate callback calls resource on_stop
-            shutdown => infinity,
-            type => worker,
-            modules => [emqx_resource_manager]
-        }
-    ],
-    SupFlags = #{strategy => simple_one_for_one, intensity => 10, period => 10},
+    ChildSpecs = [],
+    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     {ok, {SupFlags, ChildSpecs}}.
+
+child_spec(ResId, Group, ResourceType, Config, Opts) ->
+    #{
+        id => ResId,
+        start => {emqx_resource_manager, start_link, [ResId, Group, ResourceType, Config, Opts]},
+        restart => transient,
+        %% never force kill a resource manager.
+        %% becasue otherwise it may lead to release leak,
+        %% resource_manager's terminate callback calls resource on_stop
+        shutdown => infinity,
+        type => worker,
+        modules => [emqx_resource_manager]
+    }.

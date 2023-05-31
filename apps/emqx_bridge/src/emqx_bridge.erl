@@ -227,9 +227,13 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
         diff_confs(NewConf, OldConf),
     %% The config update will be failed if any task in `perform_bridge_changes` failed.
     Result = perform_bridge_changes([
-        {fun emqx_bridge_resource:remove/4, Removed},
-        {fun emqx_bridge_resource:create/4, Added},
-        {fun emqx_bridge_resource:update/4, Updated}
+        #{action => fun emqx_bridge_resource:remove/4, data => Removed},
+        #{
+            action => fun emqx_bridge_resource:create/4,
+            data => Added,
+            on_exception_fn => fun emqx_bridge_resource:remove/4
+        },
+        #{action => fun emqx_bridge_resource:update/4, data => Updated}
     ]),
     ok = unload_hook(),
     ok = load_hook(NewConf),
@@ -345,7 +349,8 @@ perform_bridge_changes(Tasks) ->
 
 perform_bridge_changes([], Result) ->
     Result;
-perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
+perform_bridge_changes([#{action := Action, data := MapConfs} = Task | Tasks], Result0) ->
+    OnException = maps:get(on_exception_fn, Task, fun(_Type, _Name, _Conf, _Opts) -> ok end),
     Result = maps:fold(
         fun
             ({_Type, _Name}, _Conf, {error, Reason}) ->
@@ -359,9 +364,21 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
                 end;
             ({Type, Name}, Conf, _) ->
                 ResOpts = emqx_resource:fetch_creation_opts(Conf),
-                case Action(Type, Name, Conf, ResOpts) of
+                try Action(Type, Name, Conf, ResOpts) of
                     {error, Reason} -> {error, Reason};
                     Return -> Return
+                catch
+                    Kind:Error:Stacktrace ->
+                        ?SLOG(error, #{
+                            msg => "bridge_config_update_exception",
+                            kind => Kind,
+                            error => Error,
+                            type => Type,
+                            name => Name,
+                            stacktrace => Stacktrace
+                        }),
+                        OnException(Type, Name, Conf, ResOpts),
+                        erlang:raise(Kind, Error, Stacktrace)
                 end
         end,
         Result0,
