@@ -17,6 +17,8 @@
 
 -behaviour(application).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([start/2, stop/1]).
 
 -export([
@@ -34,6 +36,7 @@ start(_StartType, _StartArgs) ->
     ok = emqx_bridge:load_hook(),
     ok = emqx_config_handler:add_handler(?LEAF_NODE_HDLR_PATH, ?MODULE),
     ok = emqx_config_handler:add_handler(?TOP_LELVE_HDLR_PATH, emqx_bridge),
+    ?tp(emqx_bridge_app_started, #{}),
     {ok, Sup}.
 
 stop(_State) ->

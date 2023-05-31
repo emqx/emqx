@@ -885,14 +885,24 @@ t_handle_kicked_publish_will_msg(_) ->
     Self = self(),
     ok = meck:expect(emqx_broker, publish, fun(M) -> Self ! {pub, M} end),
 
-    Msg = emqx_message:make(test, <<"will_topic">>, <<"will_payload">>),
+    ClientId = test,
+    WillTopic = <<"will_topic">>,
+    WillPayload = <<"will_payload">>,
+    Msg = emqx_message:make(ClientId, WillTopic, WillPayload),
 
     {shutdown, kicked, ok, ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), _} = emqx_channel:handle_call(
         kick, channel(#{will_msg => Msg})
     ),
     receive
-        {pub, Msg} -> ok
-    after 10_000 -> exit(will_message_not_published)
+        {pub, RecMsg} ->
+            ?assertEqual(ClientId, RecMsg#message.from, #{msg => Msg}),
+            ?assertEqual(WillTopic, RecMsg#message.topic, #{msg => Msg}),
+            ?assertEqual(WillPayload, RecMsg#message.payload, #{msg => Msg}),
+            ok
+    after 5_000 ->
+        ct:pal("expected message: ~p", [Msg]),
+        ct:pal("~p mailbox: ~p", [?LINE, process_info(self(), messages)]),
+        exit(will_message_not_published)
     end.
 
 t_handle_call_discard(_) ->

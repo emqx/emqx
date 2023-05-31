@@ -1064,9 +1064,17 @@ t_cluster(Config) ->
     ?check_trace(
         begin
             Nodes = [N1, N2 | _] = start_cluster(Cluster),
+            %% wait until bridge app supervisor is up; by that point,
+            %% `emqx_config_handler:add_handler' has been called and the node should be
+            %% ready to create bridges.
+            NumNodes = length(Nodes),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := emqx_bridge_app_started}),
+                15_000
+            ),
             {ok, SRef0} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := pulsar_producer_bridge_started}),
-                length(Nodes),
+                NumNodes,
                 15_000
             ),
             {ok, _} = erpc:call(N1, fun() -> create_bridge(Config) end),
