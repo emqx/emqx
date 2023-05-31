@@ -19,6 +19,8 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_router.hrl").
+
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
@@ -79,11 +81,6 @@
 -endif.
 
 -define(BROKER, ?MODULE).
-
-%% ETS tables for PubSub
--define(SUBOPTION, emqx_suboption).
--define(SUBSCRIBER, emqx_subscriber).
--define(SUBSCRIPTION, emqx_subscription).
 
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).

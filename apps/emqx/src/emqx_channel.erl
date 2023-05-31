@@ -1866,6 +1866,9 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Sub Authorization
 
+%% TODO: not only check topic filter. Qos chould be checked too.
+%% Not implemented yet:
+%% MQTT-3.1.1 [MQTT-3.8.4-6] and MQTT-5.0 [MQTT-3.8.4-7]
 check_sub_authzs(TopicFilters, Channel) ->
     check_sub_authzs(TopicFilters, Channel, []).
 

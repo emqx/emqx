@@ -1,5 +1,5 @@
-%%-------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,11 +13,19 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--ifndef(EMQX_CM_HRL).
--define(EMQX_CM_HRL, true).
 
--define(T_KICK, 5_000).
--define(T_GET_INFO, 5_000).
--define(T_TAKEOVER, 15_000).
+-ifndef(EMQX_ROUTER_HRL).
+-define(EMQX_ROUTER_HRL, true).
+
+%% ETS table for message routing
+-define(ROUTE_TAB, emqx_route).
+
+%% Mnesia table for message routing
+-define(ROUTING_NODE, emqx_routing_node).
+
+%% ETS tables for PubSub
+-define(SUBOPTION, emqx_suboption).
+-define(SUBSCRIBER, emqx_subscriber).
+-define(SUBSCRIPTION, emqx_subscription).
 
 -endif.

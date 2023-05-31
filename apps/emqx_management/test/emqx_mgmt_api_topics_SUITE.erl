@@ -18,10 +18,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
--define(ROUTE_TAB, emqx_route).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

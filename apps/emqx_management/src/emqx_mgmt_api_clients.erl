@@ -20,6 +20,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -include_lib("emqx/include/logger.hrl").
@@ -57,7 +58,6 @@
 %% for batch operation
 -export([do_subscribe/3]).
 
--define(CLIENT_QTAB, emqx_channel_info).
 -define(TAGS, [<<"Clients">>]).
 
 -define(CLIENT_QSCHEMA, [
@@ -666,7 +666,7 @@ list_clients(QString) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    ?CLIENT_QTAB,
+                    ?CHAN_INFO_TAB,
                     QString,
                     ?CLIENT_QSCHEMA,
                     fun ?MODULE:qs2ms/2,
@@ -678,7 +678,7 @@ list_clients(QString) ->
                         QStringWithoutNode = maps:without([<<"node">>], QString),
                         emqx_mgmt_api:node_query(
                             Node1,
-                            ?CLIENT_QTAB,
+                            ?CHAN_INFO_TAB,
                             QStringWithoutNode,
                             ?CLIENT_QSCHEMA,
                             fun ?MODULE:qs2ms/2,
@@ -753,7 +753,7 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     %% We use emqx_channel instead of emqx_channel_info (used by the emqx_mgmt:lookup_client/2),
     %% as the emqx_channel_info table will only be populated after the hook `client.connected`
     %% has returned. So if one want to subscribe topics in this hook, it will fail.
-    case ets:lookup(emqx_channel, ClientID) of
+    case ets:lookup(?CHAN_TAB, ClientID) of
         [] ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->

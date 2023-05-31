@@ -20,6 +20,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_cm.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -117,14 +118,6 @@
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
-
--include("emqx_cm.hrl").
-
-%% Tables for channel management.
--define(CHAN_TAB, emqx_channel).
--define(CHAN_CONN_TAB, emqx_channel_conn).
--define(CHAN_INFO_TAB, emqx_channel_info).
--define(CHAN_LIVE_TAB, emqx_channel_live).
 
 -define(CHAN_STATS, [
     {?CHAN_TAB, 'channels.count', 'channels.max'},
@@ -669,12 +662,12 @@ lookup_client({username, Username}) ->
     MatchSpec = [
         {{'_', #{clientinfo => #{username => '$1'}}, '_'}, [{'=:=', '$1', Username}], ['$_']}
     ],
-    ets:select(emqx_channel_info, MatchSpec);
+    ets:select(?CHAN_INFO_TAB, MatchSpec);
 lookup_client({clientid, ClientId}) ->
     [
         Rec
-     || Key <- ets:lookup(emqx_channel, ClientId),
-        Rec <- ets:lookup(emqx_channel_info, Key)
+     || Key <- ets:lookup(?CHAN_TAB, ClientId),
+        Rec <- ets:lookup(?CHAN_INFO_TAB, Key)
     ].
 
 %% @private

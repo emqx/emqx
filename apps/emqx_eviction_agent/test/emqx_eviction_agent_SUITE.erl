@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 
 -import(
     emqx_eviction_agent_test_helpers,
@@ -295,7 +296,7 @@ t_session_serialization(_Config) ->
     ?assertMatch(
         #{data := [#{clientid := <<"client_with_session">>}]},
         emqx_mgmt_api:cluster_query(
-            emqx_channel_info,
+            ?CHAN_INFO_TAB,
             #{},
             [],
             fun emqx_mgmt_api_clients:qs2ms/2,
