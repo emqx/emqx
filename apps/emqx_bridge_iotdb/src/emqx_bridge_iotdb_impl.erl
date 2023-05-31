@@ -153,10 +153,17 @@ on_query_async(InstanceId, {send_message, Message}, ReplyFunAndArgs0, State) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-make_parsed_payload(PayloadUnparsed) when is_binary(PayloadUnparsed) ->
-    emqx_utils_json:decode(PayloadUnparsed);
-make_parsed_payload(PayloadUnparsed) when is_list(PayloadUnparsed) ->
-    lists:map(fun make_parsed_payload/1, PayloadUnparsed).
+get_payload(#{payload := Payload}) ->
+    Payload;
+get_payload(#{<<"payload">> := Payload}) ->
+    Payload.
+
+parse_payload(ParsedPayload) when is_map(ParsedPayload) ->
+    ParsedPayload;
+parse_payload(UnparsedPayload) when is_binary(UnparsedPayload) ->
+    emqx_utils_json:decode(UnparsedPayload);
+parse_payload(UnparsedPayloads) when is_list(UnparsedPayloads) ->
+    lists:map(fun parse_payload/1, UnparsedPayloads).
 
 preproc_data_list(DataList) ->
     lists:foldl(
@@ -297,16 +304,16 @@ convert_float(Str) when is_binary(Str) ->
 convert_float(undefined) ->
     null.
 
-make_iotdb_insert_request(MessageUnparsedPayload, State) ->
-    Message = maps:update_with(payload, fun make_parsed_payload/1, MessageUnparsedPayload),
+make_iotdb_insert_request(Message, State) ->
+    Payloads = to_list(parse_payload(get_payload(Message))),
     IsAligned = maps:get(is_aligned, State, false),
-    DeviceId = device_id(Message, State),
     IotDBVsn = maps:get(iotdb_version, State, ?VSN_1_1_X),
-    Payload = make_list(maps:get(payload, Message)),
-    case preproc_data_list(Payload) of
-        [] ->
+    case {device_id(Message, Payloads, State), preproc_data_list(Payloads)} of
+        {undefined, _} ->
+            {error, device_id_missing};
+        {_, []} ->
             {error, invalid_data};
-        PreProcessedData ->
+        {DeviceId, PreProcessedData} ->
             DataList = proc_data(PreProcessedData, Message),
             InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
             Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IotDBVsn),
@@ -394,22 +401,14 @@ iotdb_field_key(data_types, ?VSN_1_0_X) ->
 iotdb_field_key(data_types, ?VSN_0_13_X) ->
     <<"dataTypes">>.
 
-make_list(List) when is_list(List) -> List;
-make_list(Data) -> [Data].
+to_list(List) when is_list(List) -> List;
+to_list(Data) -> [Data].
 
-device_id(Message, State) ->
+device_id(Message, Payloads, State) ->
     case maps:get(device_id, State, undefined) of
         undefined ->
-            case maps:get(payload, Message) of
-                #{<<"device_id">> := DeviceId} ->
-                    DeviceId;
-                _NotFound ->
-                    Topic = maps:get(topic, Message),
-                    case re:replace(Topic, "/", ".", [global, {return, binary}]) of
-                        <<"root.", _/binary>> = Device -> Device;
-                        Device -> <<"root.", Device/binary>>
-                    end
-            end;
+            %% [FIXME] there could be conflicting device-ids in the Payloads
+            maps:get(<<"device_id">>, hd(Payloads), undefined);
         DeviceId ->
             DeviceIdTkn = emqx_plugin_libs_rule:preproc_tmpl(DeviceId),
             emqx_plugin_libs_rule:proc_tmpl(DeviceIdTkn, Message)

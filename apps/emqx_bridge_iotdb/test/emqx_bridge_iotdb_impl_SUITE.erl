@@ -231,6 +231,11 @@ is_success_check({ok, 200, _, Body}) ->
 is_code(Code, #{<<"code">> := Code}) -> true;
 is_code(_, _) -> false.
 
+is_error_check(Reason) ->
+    fun(Result) ->
+        ?assertEqual({error, Reason}, Result)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -364,33 +369,37 @@ t_sync_query_fail(Config) ->
         end,
     emqx_bridge_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, iotdb_bridge_on_query).
 
-t_sync_query_badpayload(Config) ->
-    BadPayload = #{foo => bar},
-    IsSuccessCheck =
-        fun(Result) ->
-            ?assertEqual({error, invalid_data}, Result)
-        end,
+t_sync_device_id_missing(Config) ->
     emqx_bridge_testlib:t_sync_query(
         Config,
-        make_message_fun(iotdb_topic(Config), BadPayload),
-        IsSuccessCheck,
+        make_message_fun(iotdb_topic(Config), #{foo => bar}),
+        is_error_check(device_id_missing),
         iotdb_bridge_on_query
-    ),
-    ok.
+    ).
 
-t_async_query_badpayload(Config) ->
-    BadPayload = #{foo => bar},
-    IsSuccessCheck =
-        fun(Result) ->
-            ?assertEqual({error, invalid_data}, Result)
-        end,
+t_sync_invalid_data(Config) ->
+    emqx_bridge_testlib:t_sync_query(
+        Config,
+        make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
+        is_error_check(invalid_data),
+        iotdb_bridge_on_query
+    ).
+
+t_async_device_id_missing(Config) ->
     emqx_bridge_testlib:t_async_query(
         Config,
-        make_message_fun(iotdb_topic(Config), BadPayload),
-        IsSuccessCheck,
+        make_message_fun(iotdb_topic(Config), #{foo => bar}),
+        is_error_check(device_id_missing),
         iotdb_bridge_on_query_async
-    ),
-    ok.
+    ).
+
+t_async_invalid_data(Config) ->
+    emqx_bridge_testlib:t_async_query(
+        Config,
+        make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
+        is_error_check(invalid_data),
+        iotdb_bridge_on_query_async
+    ).
 
 t_create_via_http(Config) ->
     emqx_bridge_testlib:t_create_via_http(Config).
@@ -413,13 +422,10 @@ t_device_id(Config) ->
     ConfiguredDevice = <<"root.someOtherDevice234">>,
     DeviceId = <<"root.deviceFooBar123">>,
     Topic = <<"some/random/topic">>,
-    TopicDevice = topic_to_iotdb_device(Topic),
     iotdb_reset(Config, DeviceId),
-    iotdb_reset(Config, TopicDevice),
     iotdb_reset(Config, ConfiguredDevice),
     Payload1 = make_iotdb_payload(DeviceId, "test", "BOOLEAN", true),
     MessageF1 = make_message_fun(Topic, Payload1),
-    ?assertNotEqual(DeviceId, TopicDevice),
     is_success_check(
         emqx_resource:simple_sync_query(ResourceId, {send_message, MessageF1()})
     ),
@@ -427,29 +433,8 @@ t_device_id(Config) ->
     ct:pal("device_id result: ~p", [emqx_utils_json:decode(Res1_1)]),
     #{<<"values">> := Values1_1} = emqx_utils_json:decode(Res1_1),
     ?assertNot(is_empty(Values1_1)),
-    {ok, {{_, 200, _}, _, Res1_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
-    ct:pal("topic device result: ~p", [emqx_utils_json:decode(Res1_2)]),
-    #{<<"values">> := Values1_2} = emqx_utils_json:decode(Res1_2),
-    ?assert(is_empty(Values1_2)),
-
-    %% test without device_id in message, taking it from topic
-    iotdb_reset(Config, DeviceId),
-    iotdb_reset(Config, TopicDevice),
-    iotdb_reset(Config, ConfiguredDevice),
-    Payload2 = maps:remove(device_id, make_iotdb_payload(DeviceId, "root", "BOOLEAN", true)),
-    MessageF2 = make_message_fun(Topic, Payload2),
-    is_success_check(
-        emqx_resource:simple_sync_query(ResourceId, {send_message, MessageF2()})
-    ),
-    {ok, {{_, 200, _}, _, Res2_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
-    #{<<"values">> := Values2_1} = emqx_utils_json:decode(Res2_1),
-    ?assert(is_empty(Values2_1)),
-    {ok, {{_, 200, _}, _, Res2_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
-    #{<<"values">> := Values2_2} = emqx_utils_json:decode(Res2_2),
-    ?assertNot(is_empty(Values2_2)),
 
     iotdb_reset(Config, DeviceId),
-    iotdb_reset(Config, TopicDevice),
     iotdb_reset(Config, ConfiguredDevice),
 
     %% reconfigure bridge with device_id
@@ -461,20 +446,16 @@ t_device_id(Config) ->
     ),
 
     %% even though we had a device_id in the message it's not being used
-    {ok, {{_, 200, _}, _, Res3_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
-    #{<<"values">> := Values3_1} = emqx_utils_json:decode(Res3_1),
-    ?assert(is_empty(Values3_1)),
-    {ok, {{_, 200, _}, _, Res3_2}} = iotdb_query(Config, <<"select * from ", TopicDevice/binary>>),
-    #{<<"values">> := Values3_2} = emqx_utils_json:decode(Res3_2),
-    ?assert(is_empty(Values3_2)),
-    {ok, {{_, 200, _}, _, Res3_3}} = iotdb_query(
+    {ok, {{_, 200, _}, _, Res2_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
+    #{<<"values">> := Values2_1} = emqx_utils_json:decode(Res2_1),
+    ?assert(is_empty(Values2_1)),
+    {ok, {{_, 200, _}, _, Res2_2}} = iotdb_query(
         Config, <<"select * from ", ConfiguredDevice/binary>>
     ),
-    #{<<"values">> := Values3_3} = emqx_utils_json:decode(Res3_3),
-    ?assertNot(is_empty(Values3_3)),
+    #{<<"values">> := Values2_2} = emqx_utils_json:decode(Res2_2),
+    ?assertNot(is_empty(Values2_2)),
 
     iotdb_reset(Config, DeviceId),
-    iotdb_reset(Config, TopicDevice),
     iotdb_reset(Config, ConfiguredDevice),
     ok.
 
