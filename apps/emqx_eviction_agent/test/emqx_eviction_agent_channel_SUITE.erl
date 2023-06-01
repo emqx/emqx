@@ -55,7 +55,7 @@ t_start_no_session(_Config) ->
     Opts = #{
         clientinfo => #{
             clientid => ?CLIENT_ID,
-            zone => internal
+            zone => default
         },
         conninfo => #{
             clientid => ?CLIENT_ID,
@@ -76,7 +76,7 @@ t_start_no_expire(_Config) ->
     Opts = #{
         clientinfo => #{
             clientid => ?CLIENT_ID,
-            zone => internal
+            zone => default
         },
         conninfo => #{
             clientid => ?CLIENT_ID,
@@ -97,7 +97,7 @@ t_start_infinite_expire(_Config) ->
     Opts = #{
         clientinfo => #{
             clientid => ?CLIENT_ID,
-            zone => internal
+            zone => default
         },
         conninfo => #{
             clientid => ?CLIENT_ID,
