@@ -724,6 +724,12 @@ start_slave(Name, Opts) when is_map(Opts) ->
     Node = node_name(Name),
     put_peer_mod(Node, SlaveMod),
     Cookie = atom_to_list(erlang:get_cookie()),
+    PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
+    NodeDataDir = filename:join([
+        PrivDataDir,
+        Node,
+        integer_to_list(erlang:unique_integer())
+    ]),
     DoStart =
         fun() ->
             case SlaveMod of
@@ -738,7 +744,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
                             {erl_flags, erl_flags()},
                             {env, [
                                 {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
-                                {"EMQX_NODE__COOKIE", Cookie}
+                                {"EMQX_NODE__COOKIE", Cookie},
+                                {"EMQX_NODE__DATA_DIR", NodeDataDir}
                             ]}
                         ]
                     );
@@ -843,7 +850,12 @@ setup_node(Node, Opts) when is_map(Opts) ->
         integer_to_list(erlang:unique_integer()),
         "mnesia"
     ]),
-    erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]),
+    case erpc:call(Node, application, get_env, [mnesia, dir, undefined]) of
+        undefined ->
+            erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]);
+        _ ->
+            ok
+    end,
 
     %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
     %% in emqx_common_test_helpers:start_apps(...)
@@ -875,11 +887,9 @@ setup_node(Node, Opts) when is_map(Opts) ->
                         integer_to_list(erlang:unique_integer())
                     ]),
                     Cookie = atom_to_list(erlang:get_cookie()),
-                    os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
-                    os:putenv("EMQX_NODE__COOKIE", Cookie),
+                    set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
+                    set_env_once("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
-                    os:unsetenv("EMQX_NODE__DATA_DIR"),
-                    os:unsetenv("EMQX_NODE__COOKIE"),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 
@@ -929,6 +939,15 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ok.
 
 %% Helpers
+
+set_env_once(Var, Value) ->
+    case os:getenv(Var) of
+        false ->
+            os:putenv(Var, Value);
+        _ ->
+            ok
+    end,
+    ok.
 
 put_peer_mod(Node, SlaveMod) ->
     put({?MODULE, Node}, SlaveMod),
@@ -1289,6 +1308,7 @@ call_janitor() ->
 call_janitor(Timeout) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:stop(Janitor, Timeout),
+    erase({?MODULE, janitor_proc}),
     ok.
 
 get_or_spawn_janitor() ->
