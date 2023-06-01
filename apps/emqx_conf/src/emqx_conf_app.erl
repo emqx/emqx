@@ -111,7 +111,8 @@ sync_cluster_conf() ->
         [] ->
             %% The first core nodes is self.
             ?SLOG(debug, #{
-                msg => "skip_sync_cluster_conf", reason => "Running single node"
+                msg => "skip_sync_cluster_conf",
+                reason => "This is a single node, or the first node in the cluster"
             }),
             {ok, ?DEFAULT_INIT_TXN_ID};
         Nodes ->
@@ -202,7 +203,9 @@ sync_cluster_conf3(Ready) ->
             ),
             ?SLOG(warning, #{
                 msg => "all_available_nodes_running_newer_version",
-                hint => "Booting this node without syncing cluster config from peer core nodes",
+                hint =>
+                    "Booting this node without syncing cluster config from peer core nodes "
+                    "because other nodes are running a newer version",
                 peer_nodes => NodesAndVersions
             }),
             {ok, ?DEFAULT_INIT_TXN_ID};
