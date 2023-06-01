@@ -567,18 +567,7 @@ trans_description(Spec, Hocon, Options) ->
             Spec;
         Desc ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
-            maybe_add_summary_from_label(Spec#{description => Desc1}, Hocon, Options)
-    end.
-
-maybe_add_summary_from_label(Spec, Hocon, Options) ->
-    Label =
-        case desc_struct(Hocon) of
-            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, undefined, Options);
-            _ -> undefined
-        end,
-    case Label of
-        undefined -> Spec;
-        _ -> Spec#{summary => Label}
+            Spec#{description => Desc1}
     end.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
@@ -1012,7 +1001,10 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
             HoconType = hocon_schema:field_schema(Hocon, type),
             Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
             SchemaToSpec = schema_converter(Options),
-            Init = trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options),
+            Init = maps:remove(
+                summary,
+                trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options)
+            ),
             {Prop, Refs1} = SchemaToSpec(HoconType, Module),
             NewRequiredAcc =
                 case is_required(Hocon) of
