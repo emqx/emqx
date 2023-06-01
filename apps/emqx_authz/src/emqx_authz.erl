@@ -363,10 +363,7 @@ authorize(
             emqx_metrics:inc(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
-            X = authorize_non_superuser(Client, PubSub, Topic, DefaultResult, Sources),
-            io:format("www:~p~n", [{Client, PubSub, Topic, DefaultResult, Sources}]),
-            io:format("res:~p~n", [X]),
-            X
+            authorize_non_superuser(Client, PubSub, Topic, DefaultResult, Sources)
     end.
 
 authorize_non_superuser(

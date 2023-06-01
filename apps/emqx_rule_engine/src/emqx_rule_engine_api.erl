@@ -351,11 +351,11 @@ param_path_id() ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
         Id ->
             Params = filter_out_request_body(add_metadata(Params0)),
-            ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
             case emqx_rule_engine:get_rule(Id) of
                 {ok, _Rule} ->
                     {400, #{code => 'BAD_REQUEST', message => <<"rule id already exists">>}};
                 not_found ->
+                    ConfPath = ?RULE_PATH(Id),
                     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
                             {201, format_rule_info_resp(Rule)};
@@ -395,7 +395,7 @@ param_path_id() ->
     end;
 '/rules/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
     Params = filter_out_request_body(Params0),
-    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    ConfPath = ?RULE_PATH(Id),
     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
             {200, format_rule_info_resp(Rule)};
@@ -410,7 +410,7 @@ param_path_id() ->
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
     case emqx_rule_engine:get_rule(Id) of
         {ok, _Rule} ->
-            ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+            ConfPath = ?RULE_PATH(Id),
             case emqx_conf:remove(ConfPath, #{override_to => cluster}) of
                 {ok, _} ->
                     {204};

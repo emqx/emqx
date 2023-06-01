@@ -26,8 +26,7 @@
 -export([start_link/0]).
 
 -export([
-    post_config_update/5,
-    config_key_path/0
+    post_config_update/5
 ]).
 
 %% Rule Management
@@ -99,13 +98,8 @@
 ]).
 
 -define(RATE_METRICS, ['matched']).
--define(KEY_PATH, [rule_engine, rules]).
--define(RULE_PATH(RULE), [rule_engine, rules, RULE]).
 
 -type action_name() :: binary() | #{function := binary()}.
-
-config_key_path() ->
-    ?KEY_PATH.
 
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
@@ -258,7 +252,7 @@ ensure_action_removed(RuleId, ActionName) ->
         #{<<"actions">> := Acts} = Conf ->
             NewActs = [AName || AName <- Acts, FilterFunc(AName, ActionName)],
             {ok, _} = emqx_conf:update(
-                emqx_rule_engine:config_key_path() ++ [RuleId],
+                ?RULE_PATH(RuleId),
                 Conf#{<<"actions">> => NewActs},
                 #{override_to => cluster}
             ),
