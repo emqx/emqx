@@ -107,7 +107,7 @@ vsn_compare("v" ++ Vsn) ->
 vsn_compare("e" ++ Vsn) ->
     vsn_compare(?EMQX_RELEASE_EE, Vsn).
 
-%% @priv Compare the second argument with the first argument, return
+%% @private Compare the second argument with the first argument, return
 %% 'newer' 'older' or 'same' semver comparison result.
 vsn_compare(Vsn1, Vsn2) ->
     ParsedVsn1 = parse_vsn(Vsn1),
@@ -121,7 +121,7 @@ vsn_compare(Vsn1, Vsn2) ->
             older
     end.
 
-%% @priv Parse the version string to a tuple.
+%% @private Parse the version string to a tuple.
 %% Return {{Major, Minor, Patch}, Suffix}.
 %% Where Suffix is either an empty string or a tuple like {"rc", 1}.
 %% NOTE: taking the nature ordering of the suffix:

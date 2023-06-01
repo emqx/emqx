@@ -118,7 +118,7 @@ sync_cluster_conf() ->
             sync_cluster_conf2(Nodes)
     end.
 
-%% @priv Some core nodes are running, try to sync the cluster config from them.
+%% @private Some core nodes are running, try to sync the cluster config from them.
 sync_cluster_conf2(Nodes) ->
     {Results, Failed} = emqx_conf_proto_v2:get_override_config_file(Nodes),
     {Ready, NotReady0} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
@@ -177,7 +177,7 @@ sync_cluster_conf2(Nodes) ->
             sync_cluster_conf3(Ready)
     end.
 
-%% @priv Filter out the nodes which are running a newer version than this node.
+%% @private Filter out the nodes which are running a newer version than this node.
 sync_cluster_conf3(Ready) ->
     NotNewer = fun({ok, #{release := RemoteRelease}}) ->
         try
@@ -210,7 +210,7 @@ sync_cluster_conf3(Ready) ->
             sync_cluster_conf4(Ready2)
     end.
 
-%% @priv Some core nodes are running and replied with their configs successfully.
+%% @private Some core nodes are running and replied with their configs successfully.
 %% Try to sort the results and save the first one for local use.
 sync_cluster_conf4(Ready) ->
     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),

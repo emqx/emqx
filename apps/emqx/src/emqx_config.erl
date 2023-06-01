@@ -617,7 +617,7 @@ save_to_override_conf(false, RawConf, _Opts) ->
             backup_and_write(FileName, hocon_pp:do(RawConf, #{}))
     end.
 
-%% @priv This is the same human-readable timestamp format as
+%% @private This is the same human-readable timestamp format as
 %% hocon-cli generated app.<time>.config file name.
 now_time() ->
     Ts = os:system_time(millisecond),
