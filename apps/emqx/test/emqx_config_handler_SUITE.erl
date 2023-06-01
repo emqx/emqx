@@ -174,7 +174,7 @@ t_sub_key_update_remove(_Config) ->
 
     %% remove
     ?assertEqual(
-        {ok, #{post_config_update => #{emqx_config_handler_SUITE => ok}}},
+        {ok, #{post_config_update => #{?MODULE => ok}}},
         emqx:remove_config(KeyPath)
     ),
     ?assertError(
@@ -183,18 +183,6 @@ t_sub_key_update_remove(_Config) ->
     OSKey = maps:keys(emqx:get_raw_config([sysmon, os])),
     ?assertEqual(false, lists:member(<<"cpu_check_interval">>, OSKey)),
     ?assert(length(OSKey) > 0),
-
-    ?assertEqual(
-        {ok, #{
-            config => 60000,
-            post_config_update => #{?MODULE => ok},
-            raw_config => <<"60s">>
-        }},
-        emqx:reset_config(KeyPath, Opts)
-    ),
-    OSKey1 = maps:keys(emqx:get_raw_config([sysmon, os])),
-    ?assertEqual(true, lists:member(<<"cpu_check_interval">>, OSKey1)),
-    ?assert(length(OSKey1) > 1),
 
     ok = emqx_config_handler:remove_handler(KeyPath),
     ok = emqx_config_handler:remove_handler(KeyPath2),
@@ -290,44 +278,6 @@ t_get_raw_cluster_override_conf(_Config) ->
     NewInfo = emqx_config_handler:info(),
     ?assertEqual(OldPid, NewPid),
     ?assertEqual(OldInfo, NewInfo),
-    ok.
-
-t_save_config_failed(_Config) ->
-    ok.
-
-t_update_sub(_Config) ->
-    PathKey = [sysmon],
-    Opts = #{rawconf_with_defaults => true},
-    ok = emqx_config_handler:add_handler(PathKey, ?MODULE),
-    %% update sub key
-    #{<<"os">> := OS1} = emqx:get_raw_config(PathKey),
-    {ok, Res} = emqx:update_config(PathKey ++ [os, cpu_check_interval], <<"120s">>, Opts),
-    ?assertEqual(
-        #{
-            config => 120000,
-            post_config_update => #{},
-            raw_config => <<"120s">>
-        },
-        Res
-    ),
-    ?assertMatch(#{os := #{cpu_check_interval := 120000}}, emqx:get_config(PathKey)),
-    #{<<"os">> := OS2} = emqx:get_raw_config(PathKey),
-    ?assertEqual(lists:sort(maps:keys(OS1)), lists:sort(maps:keys(OS2))),
-
-    %% update sub key
-    SubKey = PathKey ++ [os, cpu_high_watermark],
-    ?assertEqual(
-        {ok, #{
-            config => 0.81,
-            post_config_update => #{},
-            raw_config => <<"81%">>
-        }},
-        emqx:update_config(SubKey, "81%", Opts)
-    ),
-    ?assertEqual(0.81, emqx:get_config(SubKey)),
-    ?assertEqual("81%", emqx:get_raw_config(SubKey)),
-
-    ok = emqx_config_handler:remove_handler(PathKey),
     ok.
 
 pre_config_update([sysmon], UpdateReq, _RawConf) ->

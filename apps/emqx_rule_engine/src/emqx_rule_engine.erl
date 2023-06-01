@@ -255,11 +255,11 @@ ensure_action_removed(RuleId, ActionName) ->
     case emqx:get_raw_config([rule_engine, rules, RuleId], not_found) of
         not_found ->
             ok;
-        #{<<"actions">> := Acts} ->
+        #{<<"actions">> := Acts} = Conf ->
             NewActs = [AName || AName <- Acts, FilterFunc(AName, ActionName)],
             {ok, _} = emqx_conf:update(
-                emqx_rule_engine:config_key_path() ++ [RuleId, actions],
-                NewActs,
+                emqx_rule_engine:config_key_path() ++ [RuleId],
+                Conf#{<<"actions">> => NewActs},
                 #{override_to => cluster}
             ),
             ok
@@ -380,7 +380,7 @@ init([]) ->
         {write_concurrency, true},
         {read_concurrency, true}
     ]),
-    ok = emqx_config_handler:add_handler(
+    ok = emqx_conf:add_handler(
         [rule_engine, jq_implementation_module],
         emqx_rule_engine_schema
     ),
