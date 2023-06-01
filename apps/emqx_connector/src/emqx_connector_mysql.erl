@@ -124,6 +124,7 @@ on_start(
             ]
         ),
     State = parse_prepare_sql(Config),
+    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             {ok, init_prepare(State#{pool_name => InstId})};
@@ -140,12 +141,17 @@ maybe_add_password_opt(undefined, Options) ->
 maybe_add_password_opt(Password, Options) ->
     [{password, Password} | Options].
 
-on_stop(InstId, #{pool_name := PoolName}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mysql_connector",
         connector => InstId
     }),
-    emqx_resource_pool:stop(PoolName).
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{pool_name := PoolName} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
+    end.
 
 on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
     on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);

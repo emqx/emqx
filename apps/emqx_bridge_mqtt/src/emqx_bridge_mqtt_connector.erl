@@ -83,6 +83,7 @@ start_ingress(ResourceId, Ingress, ClientOpts) ->
         {ingress, Ingress},
         {client_opts, ClientOpts}
     ],
+    ok = emqx_resource:allocate_resource(ResourceId, ingress_pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_ingress, Options) of
         ok ->
             {ok, #{ingress_pool_name => PoolName}};
@@ -132,6 +133,7 @@ start_egress(ResourceId, Egress, ClientOpts) ->
         {pool_size, PoolSize},
         {client_opts, ClientOpts}
     ],
+    ok = emqx_resource:allocate_resource(ResourceId, egress_pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_egress, Options) of
         ok ->
             {ok, #{
@@ -142,13 +144,14 @@ start_egress(ResourceId, Egress, ClientOpts) ->
             {error, Reason}
     end.
 
-on_stop(ResourceId, State) ->
+on_stop(ResourceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
         connector => ResourceId
     }),
-    ok = stop_ingress(State),
-    ok = stop_egress(State).
+    Allocated = emqx_resource:get_allocated_resources(ResourceId),
+    ok = stop_ingress(Allocated),
+    ok = stop_egress(Allocated).
 
 stop_ingress(#{ingress_pool_name := PoolName}) ->
     emqx_resource_pool:stop(PoolName);

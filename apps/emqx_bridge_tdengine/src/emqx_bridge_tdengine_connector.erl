@@ -108,6 +108,7 @@ on_start(
 
     Prepares = parse_prepare_sql(Config),
     State = Prepares#{pool_name => InstanceId, query_opts => query_opts(Config)},
+    ok = emqx_resource:allocate_resource(InstanceId, pool_name, InstanceId),
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -115,12 +116,17 @@ on_start(
             Error
     end.
 
-on_stop(InstanceId, #{pool_name := PoolName}) ->
+on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_tdengine_connector",
         connector => InstanceId
     }),
-    emqx_resource_pool:stop(PoolName).
+    case emqx_resource:get_allocated_resources(InstanceId) of
+        #{pool_name := PoolName} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
+    end.
 
 on_query(InstanceId, {query, SQL}, State) ->
     do_query(InstanceId, SQL, State);

@@ -25,7 +25,8 @@ wrap_auth_headers_test_() ->
             meck:expect(ehttpc_sup, start_pool, 2, {ok, foo}),
             meck:expect(ehttpc, request, fun(_, _, Req, _, _) -> {ok, 200, Req} end),
             meck:expect(ehttpc_pool, pick_worker, 1, self()),
-            [ehttpc_sup, ehttpc, ehttpc_pool]
+            meck:expect(emqx_resource, allocate_resource, 3, ok),
+            [ehttpc_sup, ehttpc, ehttpc_pool, emqx_resource]
         end,
         fun meck:unload/1, fun(_) ->
             Config = #{

@@ -160,6 +160,8 @@ on_start(
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
     State = #{pool_name => InstId, type => Type},
+    ok = emqx_resource:allocate_resource(InstId, type, Type),
+    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case Type of
         cluster ->
             case eredis_cluster:start_pool(InstId, Opts ++ [{options, Options}]) of
@@ -177,14 +179,18 @@ on_start(
             end
     end.
 
-on_stop(InstId, #{pool_name := PoolName, type := Type}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_redis_connector",
         connector => InstId
     }),
-    case Type of
-        cluster -> eredis_cluster:stop_pool(PoolName);
-        _ -> emqx_resource_pool:stop(PoolName)
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{pool_name := PoolName, type := cluster} ->
+            eredis_cluster:stop_pool(PoolName);
+        #{pool_name := PoolName, type := _} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
     end.
 
 on_query(InstId, {cmd, _} = Query, State) ->
