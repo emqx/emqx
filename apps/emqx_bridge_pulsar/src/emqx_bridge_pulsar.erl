@@ -154,8 +154,7 @@ fields(producer_resource_opts) ->
         health_check_interval,
         resume_interval,
         start_after_created,
-        start_timeout,
-        auto_restart_interval
+        start_timeout
     ],
     lists:filtermap(
         fun

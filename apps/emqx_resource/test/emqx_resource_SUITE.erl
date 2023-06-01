@@ -2887,7 +2887,7 @@ do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
                     ResourceConfig,
-                    #{auto_restart_interval => 100, health_check_interval => 100}
+                    #{health_check_interval => 100}
                 ),
                 #{?snk_kind := resource_activate_alarm, resource_id := ?ID}
             ),

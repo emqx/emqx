@@ -503,7 +503,6 @@ t_write_timeout(Config) ->
         Config,
         #{
             <<"resource_opts">> => #{
-                <<"auto_restart_interval">> => <<"100ms">>,
                 <<"resume_interval">> => <<"100ms">>,
                 <<"health_check_interval">> => <<"100ms">>
             }

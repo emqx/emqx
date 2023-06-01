@@ -756,10 +756,8 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
                 <<"query_mode">> => <<"sync">>,
                 %% using a long time so we can test recovery
                 <<"request_timeout">> => <<"15s">>,
-                %% to make it check the healthy quickly
-                <<"health_check_interval">> => <<"0.5s">>,
-                %% to make it reconnect quickly
-                <<"auto_restart_interval">> => <<"1s">>
+                %% to make it check the healthy and reconnect quickly
+                <<"health_check_interval">> => <<"0.5s">>
             }
         }
     ),
@@ -866,10 +864,8 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
                 <<"query_mode">> => <<"async">>,
                 %% using a long time so we can test recovery
                 <<"request_timeout">> => <<"15s">>,
-                %% to make it check the healthy quickly
-                <<"health_check_interval">> => <<"0.5s">>,
-                %% to make it reconnect quickly
-                <<"auto_restart_interval">> => <<"1s">>
+                %% to make it check the healthy and reconnect quickly
+                <<"health_check_interval">> => <<"0.5s">>
             }
         }
     ),

@@ -1,11 +1,5 @@
 emqx_resource_schema {
 
-auto_restart_interval.desc:
-"""The auto restart interval after the resource is disconnected."""
-
-auto_restart_interval.label:
-"""Auto Restart Interval"""
-
 batch_size.desc:
 """Maximum batch count. If equal to 1, there's effectively no batching."""
 
