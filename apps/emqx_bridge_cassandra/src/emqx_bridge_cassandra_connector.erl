@@ -132,6 +132,7 @@ on_start(
                 []
         end,
     State = parse_prepare_cql(Config),
+    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
@@ -143,12 +144,17 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{pool_name := PoolName}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_cassandra_connector",
         connector => InstId
     }),
-    emqx_resource_pool:stop(PoolName).
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{pool_name := PoolName} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
+    end.
 
 -type request() ::
     % emqx_bridge.erl

@@ -215,6 +215,7 @@ on_start(
         sql_templates => parse_sql_template(Config),
         resource_opts => ResourceOpts
     },
+    ok = emqx_resource:allocate_resource(InstanceId, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -231,7 +232,12 @@ on_stop(ResourceId, _State) ->
         msg => "stopping_sqlserver_connector",
         connector => ResourceId
     }),
-    emqx_resource_pool:stop(ResourceId).
+    case emqx_resource:get_allocated_resources(InstanceId) of
+        #{pool_name := PoolName} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
+    end.
 
 -spec on_query(
     resource_id(),
