@@ -33,21 +33,23 @@ unload() ->
     emqx_ctl:unregister_command(?CLUSTER_CALL),
     emqx_ctl:unregister_command(?CONF).
 
-conf(["print", "--only-keys"]) ->
+conf(["show", "--keys-only"]) ->
     print(emqx_config:get_root_names());
-conf(["print"]) ->
+conf(["show"]) ->
     print_hocon(get_config());
-conf(["print", Key]) ->
+conf(["show", Key]) ->
     print_hocon(get_config(Key));
 conf(["load", Path]) ->
     load_config(Path);
 conf(_) ->
     emqx_ctl:usage(
         [
+            %% TODO add reload
             %{"conf reload", "reload etc/emqx.conf on local node"},
-            {"conf print --only-keys", "print all keys"},
-            {"conf print", "print all running configures"},
-            {"conf print <key>", "print a specific configuration"}
+            {"conf show --keys-only", "print all keys"},
+            {"conf show", "print all running configures"},
+            {"conf show <key>", "print a specific configuration"},
+            {"conf load <path>", "load a hocon file to all nodes"}
         ]
     ).
 
@@ -137,6 +139,6 @@ load_config(Path) ->
                 Conf
             );
         {error, Reason} ->
-            emqx_ctl:print("load ~ts failed: ~p~n", [Path, Reason]),
-            {error, Reason}
+            emqx_ctl:print("load ~ts failed~n~p~n", [Path, Reason]),
+            {error, bad_hocon_file}
     end.

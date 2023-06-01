@@ -202,7 +202,28 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
     NewConfig = to_list(NewConfig0),
     OldIds = lists:map(fun authenticator_id/1, OldConfig),
     NewIds = lists:map(fun authenticator_id/1, NewConfig),
-    %% delete authenticators that are not in the new config
+    ok = delete_authenticators(NewIds, ChainName, OldConfig),
+    ok = create_or_update_authenticators(OldIds, ChainName, NewConfig),
+    ok = emqx_authentication:reorder_authenticator(ChainName, NewIds),
+    ok.
+
+%% create new authenticators and update existing ones
+create_or_update_authenticators(OldIds, ChainName, NewConfig) ->
+    lists:foreach(
+        fun(Conf) ->
+            Id = authenticator_id(Conf),
+            case lists:member(Id, OldIds) of
+                true ->
+                    emqx_authentication:update_authenticator(ChainName, Id, Conf);
+                false ->
+                    emqx_authentication:create_authenticator(ChainName, Conf)
+            end
+        end,
+        NewConfig
+    ).
+
+%% delete authenticators that are not in the new config
+delete_authenticators(NewIds, ChainName, OldConfig) ->
     lists:foreach(
         fun(Conf) ->
             Id = authenticator_id(Conf),
@@ -216,19 +237,6 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
             end
         end,
         OldConfig
-    ),
-    %% create new authenticators and update existing ones
-    lists:foreach(
-        fun(Conf) ->
-            Id = authenticator_id(Conf),
-            case lists:member(Id, OldIds) of
-                true ->
-                    emqx_authentication:update_authenticator(ChainName, Id, Conf);
-                false ->
-                    emqx_authentication:create_authenticator(ChainName, Conf)
-            end
-        end,
-        NewConfig
     ).
 
 to_list(undefined) -> [];

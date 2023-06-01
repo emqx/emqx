@@ -60,7 +60,8 @@
     update_authenticator/3,
     lookup_authenticator/2,
     list_authenticators/1,
-    move_authenticator/3
+    move_authenticator/3,
+    reorder_authenticator/2
 ]).
 
 %% APIs for observer built_in_database
@@ -401,6 +402,12 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
+-spec reorder_authenticator(chain_name(), [authenticator_id()]) -> ok.
+reorder_authenticator(_ChainName, []) ->
+    ok;
+reorder_authenticator(ChainName, AuthenticatorIDs) ->
+    call({reorder_authenticator, ChainName, AuthenticatorIDs}).
+
 -spec import_users(chain_name(), authenticator_id(), {binary(), binary()}) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
@@ -490,6 +497,12 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
 handle_call({move_authenticator, ChainName, AuthenticatorID, Position}, _From, State) ->
     UpdateFun = fun(Chain) ->
         handle_move_authenticator(Chain, AuthenticatorID, Position)
+    end,
+    Reply = with_chain(ChainName, UpdateFun),
+    reply(Reply, State);
+handle_call({reorder_authenticator, ChainName, AuthenticatorIDs}, _From, State) ->
+    UpdateFun = fun(Chain) ->
+        handle_reorder_authenticator(Chain, AuthenticatorIDs)
     end,
     Reply = with_chain(ChainName, UpdateFun),
     reply(Reply, State);
@@ -597,6 +610,24 @@ handle_move_authenticator(Chain, AuthenticatorID, Position) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+handle_reorder_authenticator(Chain, AuthenticatorIDs) ->
+    #chain{authenticators = Authenticators} = Chain,
+    NAuthenticators =
+        lists:filtermap(
+            fun(ID) ->
+                case lists:keyfind(ID, #authenticator.id, Authenticators) of
+                    false ->
+                        ?SLOG(error, #{msg => "authenticator_not_found", id => ID}),
+                        false;
+                    Authenticator ->
+                        {true, Authenticator}
+                end
+            end,
+            AuthenticatorIDs
+        ),
+    NewChain = Chain#chain{authenticators = NAuthenticators},
+    {ok, ok, NewChain}.
 
 handle_create_authenticator(Chain, Config, Providers) ->
     #chain{name = Name, authenticators = Authenticators} = Chain,

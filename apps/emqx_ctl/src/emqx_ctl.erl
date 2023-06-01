@@ -135,7 +135,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
 
 -spec lookup_command(cmd()) -> [{module(), atom()}].
 lookup_command(Cmd) when is_atom(Cmd) ->
-    case is_init() of
+    case is_initialized() of
         true ->
             case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
                 [El] -> El;
@@ -150,7 +150,7 @@ get_commands() ->
     [{Cmd, M, F} || {{_Seq, Cmd}, {M, F}, _Opts} <- ets:tab2list(?CMD_TAB)].
 
 help() ->
-    case is_init() of
+    case is_initialized() of
         true ->
             case ets:tab2list(?CMD_TAB) of
                 [] ->
@@ -290,5 +290,5 @@ safe_to_existing_atom(Str) ->
             undefined
     end.
 
-is_init() ->
+is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
