@@ -369,6 +369,7 @@ schema("/clients/:clientid/keepalive") ->
         put => #{
             description => ?DESC(set_keepalive_seconds),
             tags => ?TAGS,
+            hidden => true,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),
             responses => #{
