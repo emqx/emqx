@@ -536,6 +536,7 @@ init_prop(Keys, Init, Type) ->
 
 format_prop(deprecated, Value) when is_boolean(Value) -> Value;
 format_prop(deprecated, _) -> true;
+format_prop(default, []) -> [];
 format_prop(_, Schema) -> to_bin(Schema).
 
 trans_required(Spec, true, _) -> Spec#{required => true};
