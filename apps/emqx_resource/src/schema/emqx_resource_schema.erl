@@ -135,7 +135,7 @@ query_mode(_) -> undefined.
 
 request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
 request_timeout(desc) -> ?DESC("request_timeout");
-request_timeout(default) -> <<"15s">>;
+request_timeout(default) -> ?DEFAULT_REQUEST_TIMEOUT_RAW;
 request_timeout(_) -> undefined.
 
 enable_batch(type) -> boolean();
