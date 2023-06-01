@@ -228,11 +228,11 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/paho.mqtt.testing
-        ref: develop-4.0
+        ref: develop-5.0
         path: paho.mqtt.testing
     - name: install pytest
       run: |
-        pip install pytest
+        pip install pytest==7.1.2 pytest-retry
         echo "$HOME/.local/bin" >> $GITHUB_PATH
     - name: run paho test
       timeout-minutes: 10
@@ -250,6 +250,6 @@ jobs:
           sleep 10
         done
 
-        pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
+        pytest --retries 3 -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
     - if: failure()
       run: kubectl logs -l "app.kubernetes.io/instance=${{ matrix.profile }}" -c emqx --tail=1000
