@@ -965,7 +965,7 @@ to_bin(X) ->
 
 parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
     {Props, Required, Refs} = parse_object_loop(PropList, Module, Options),
-    Object = #{<<"type">> => object, <<"properties">> => Props},
+    Object = #{<<"type">> => object, <<"properties">> => fix_empty_props(Props)},
     case Required of
         [] -> {Object, Refs};
         _ -> {maps:put(required, Required, Object), Refs}
@@ -1034,6 +1034,11 @@ is_hidden(Hocon) ->
 
 is_required(Hocon) ->
     hocon_schema:field_schema(Hocon, required) =:= true.
+
+fix_empty_props([]) ->
+    #{};
+fix_empty_props(Props) ->
+    Props.
 
 content(ApiSpec) ->
     content(ApiSpec, undefined).
