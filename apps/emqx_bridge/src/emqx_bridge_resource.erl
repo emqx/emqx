@@ -327,8 +327,8 @@ parse_confs(
                 Reason1 = emqx_utils:readable_error_msg(Reason),
                 invalid_data(<<"Invalid URL: ", Url1/binary, ", details: ", Reason1/binary>>)
         end,
-    RequestTimeout = emqx_utils_maps:deep_get(
-        [resource_opts, request_timeout],
+    RequestTTL = emqx_utils_maps:deep_get(
+        [resource_opts, request_ttl],
         Conf
     ),
     Conf#{
@@ -339,7 +339,7 @@ parse_confs(
                 method => Method,
                 body => maps:get(body, Conf, undefined),
                 headers => Headers,
-                request_timeout => RequestTimeout,
+                request_ttl => RequestTTL,
                 max_retries => Retry
             }
     };

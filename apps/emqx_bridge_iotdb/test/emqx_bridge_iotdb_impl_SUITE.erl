@@ -102,7 +102,7 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "  pool_size = 1\n"
             "  resource_opts = {\n"
             "     health_check_interval = 5000\n"
-            "     request_timeout = 30000\n"
+            "     request_ttl = 30000\n"
             "     query_mode = \"async\"\n"
             "     worker_pool_size = 1\n"
             "  }\n"

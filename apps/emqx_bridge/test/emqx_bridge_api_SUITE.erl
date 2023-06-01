@@ -1300,7 +1300,7 @@ t_metrics(Config) ->
     ),
     ok.
 
-%% request_timeout in bridge root should match request_timeout in
+%% request_timeout in bridge root should match request_ttl in
 %% resource_opts.
 t_inconsistent_webhook_request_timeouts(Config) ->
     Port = ?config(port, Config),
@@ -1311,7 +1311,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
             ?HTTP_BRIDGE(URL1, Name),
             #{
                 <<"request_timeout">> => <<"1s">>,
-                <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
+                <<"resource_opts">> => #{<<"request_ttl">> => <<"2s">>}
             }
         ),
     %% root request_timeout is deprecated for bridge.
@@ -1326,8 +1326,8 @@ t_inconsistent_webhook_request_timeouts(Config) ->
             Config
         ),
     ?assertNot(maps:is_key(<<"request_timeout">>, Response)),
-    ?assertMatch(#{<<"request_timeout">> := <<"2s">>}, ResourceOpts),
-    validate_resource_request_timeout(proplists:get_value(group, Config), 2000, Name),
+    ?assertMatch(#{<<"request_ttl">> := <<"2s">>}, ResourceOpts),
+    validate_resource_request_ttl(proplists:get_value(group, Config), 2000, Name),
     ok.
 
 t_cluster_later_join_metrics(Config) ->
@@ -1368,7 +1368,7 @@ t_cluster_later_join_metrics(Config) ->
     ),
     ok.
 
-validate_resource_request_timeout(single, Timeout, Name) ->
+validate_resource_request_ttl(single, Timeout, Name) ->
     SentData = #{payload => <<"Hello EMQX">>, timestamp => 1668602148000},
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     ResId = emqx_bridge_resource:resource_id(<<"webhook">>, Name),
@@ -1388,7 +1388,7 @@ validate_resource_request_timeout(single, Timeout, Name) ->
             ok
         end
     );
-validate_resource_request_timeout(_Cluster, _Timeout, _Name) ->
+validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
     ignore.
 
 %%

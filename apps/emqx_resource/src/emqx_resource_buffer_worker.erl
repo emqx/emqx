@@ -76,7 +76,7 @@
 -type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
--type request_timeout() :: infinity | timer:time().
+-type request_ttl() :: infinity | timer:time().
 -type health_check_interval() :: timer:time().
 -type state() :: blocked | running.
 -type inflight_key() :: integer().
@@ -187,10 +187,10 @@ init({Id, Index, Opts}) ->
     InflightWinSize = maps:get(inflight_window, Opts, ?DEFAULT_INFLIGHT),
     InflightTID = inflight_new(InflightWinSize),
     HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
-    RequestTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
+    RequestTTL = maps:get(request_ttl, Opts, ?DEFAULT_REQUEST_TTL),
     BatchTime0 = maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
-    BatchTime = adjust_batch_time(Id, RequestTimeout, BatchTime0),
-    DefaultResumeInterval = default_resume_interval(RequestTimeout, HealthCheckInterval),
+    BatchTime = adjust_batch_time(Id, RequestTTL, BatchTime0),
+    DefaultResumeInterval = default_resume_interval(RequestTTL, HealthCheckInterval),
     ResumeInterval = maps:get(resume_interval, Opts, DefaultResumeInterval),
     MetricsFlushInterval = maps:get(metrics_flush_interval, Opts, ?DEFAULT_METRICS_FLUSH_INTERVAL),
     Data0 = #{
@@ -1733,7 +1733,7 @@ now_() ->
 ensure_timeout_query_opts(#{timeout := _} = Opts, _SyncOrAsync) ->
     Opts;
 ensure_timeout_query_opts(#{} = Opts0, sync) ->
-    Opts0#{timeout => ?DEFAULT_REQUEST_TIMEOUT};
+    Opts0#{timeout => ?DEFAULT_REQUEST_TTL};
 ensure_timeout_query_opts(#{} = Opts0, async) ->
     Opts0#{timeout => infinity}.
 
@@ -1760,14 +1760,14 @@ do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt)) -> ?QUERY(ReplyTo, [], Sent, 
 -endif.
 
 %% To avoid message loss due to misconfigurations, we adjust
-%% `batch_time' based on `request_timeout'.  If `batch_time' >
-%% `request_timeout', all requests will timeout before being sent if
+%% `batch_time' based on `request_ttl'.  If `batch_time' >
+%% `request_ttl', all requests will timeout before being sent if
 %% the message rate is low.  Even worse if `pool_size' is high.
-%% We cap `batch_time' at `request_timeout div 2' as a rule of thumb.
-adjust_batch_time(_Id, _RequestTimeout = infinity, BatchTime0) ->
+%% We cap `batch_time' at `request_ttl div 2' as a rule of thumb.
+adjust_batch_time(_Id, _RequestTTL = infinity, BatchTime0) ->
     BatchTime0;
-adjust_batch_time(Id, RequestTimeout, BatchTime0) ->
-    BatchTime = max(0, min(BatchTime0, RequestTimeout div 2)),
+adjust_batch_time(Id, RequestTTL, BatchTime0) ->
+    BatchTime = max(0, min(BatchTime0, RequestTTL div 2)),
     case BatchTime =:= BatchTime0 of
         false ->
             ?SLOG(info, #{
@@ -1811,11 +1811,11 @@ replayq_opts(Id, Index, Opts) ->
 %% timeout is <= resume interval and the buffer worker is ever
 %% blocked, than all queued requests will basically fail without being
 %% attempted.
--spec default_resume_interval(request_timeout(), health_check_interval()) -> timer:time().
-default_resume_interval(_RequestTimeout = infinity, HealthCheckInterval) ->
+-spec default_resume_interval(request_ttl(), health_check_interval()) -> timer:time().
+default_resume_interval(_RequestTTL = infinity, HealthCheckInterval) ->
     max(1, HealthCheckInterval);
-default_resume_interval(RequestTimeout, HealthCheckInterval) ->
-    max(1, min(HealthCheckInterval, RequestTimeout div 3)).
+default_resume_interval(RequestTTL, HealthCheckInterval) ->
+    max(1, min(HealthCheckInterval, RequestTTL div 3)).
 
 -spec reply_call(reference(), term()) -> ok.
 reply_call(Alias, Response) ->

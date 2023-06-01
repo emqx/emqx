@@ -218,7 +218,7 @@ cassa_config(BridgeType, Config) ->
             "  password = ~p\n"
             "  cql = ~p\n"
             "  resource_opts = {\n"
-            "    request_timeout = 500ms\n"
+            "    request_ttl = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"
@@ -635,7 +635,7 @@ t_bad_sql_parameter(Config) ->
             Config,
             #{
                 <<"resource_opts">> => #{
-                    <<"request_timeout">> => 500,
+                    <<"request_ttl">> => 500,
                     <<"resume_interval">> => 100,
                     <<"health_check_interval">> => 100
                 }

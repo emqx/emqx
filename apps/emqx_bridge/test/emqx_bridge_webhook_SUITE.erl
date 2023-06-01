@@ -167,7 +167,7 @@ bridge_async_config(#{port := Port} = Config) ->
     ConnectTimeout = maps:get(connect_timeout, Config, 1),
     RequestTimeout = maps:get(request_timeout, Config, 10000),
     ResumeInterval = maps:get(resume_interval, Config, "1s"),
-    ResourceRequestTimeout = maps:get(resource_request_timeout, Config, "infinity"),
+    ResourceRequestTTL = maps:get(resource_request_ttl, Config, "infinity"),
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
         "  url = \"http://localhost:~p\"\n"
@@ -185,7 +185,7 @@ bridge_async_config(#{port := Port} = Config) ->
         "    health_check_interval = \"15s\"\n"
         "    max_buffer_bytes = \"1GB\"\n"
         "    query_mode = \"~s\"\n"
-        "    request_timeout = \"~p\"\n"
+        "    request_ttl = \"~p\"\n"
         "    resume_interval = \"~s\"\n"
         "    start_after_created = \"true\"\n"
         "    start_timeout = \"5s\"\n"
@@ -203,7 +203,7 @@ bridge_async_config(#{port := Port} = Config) ->
             PoolSize,
             RequestTimeout,
             QueryMode,
-            ResourceRequestTimeout,
+            ResourceRequestTTL,
             ResumeInterval
         ]
     ),
@@ -246,7 +246,7 @@ t_send_async_connection_timeout(_Config) ->
         query_mode => "async",
         connect_timeout => ResponseDelayMS * 2,
         request_timeout => 10000,
-        resource_request_timeout => "infinity"
+        resource_request_ttl => "infinity"
     }),
     NumberOfMessagesToSend = 10,
     [
@@ -268,7 +268,7 @@ t_async_free_retries(_Config) ->
         query_mode => "sync",
         connect_timeout => 1_000,
         request_timeout => 10_000,
-        resource_request_timeout => "10000s"
+        resource_request_ttl => "10000s"
     }),
     %% Fail 5 times then succeed.
     Context = #{error_attempts => 5},
@@ -294,7 +294,7 @@ t_async_common_retries(_Config) ->
         resume_interval => "100ms",
         connect_timeout => 1_000,
         request_timeout => 10_000,
-        resource_request_timeout => "10000s"
+        resource_request_ttl => "10000s"
     }),
     %% Keeps failing until connector gives up.
     Context = #{error_attempts => infinity},

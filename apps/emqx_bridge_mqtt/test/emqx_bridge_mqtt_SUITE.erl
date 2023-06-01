@@ -755,7 +755,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
                 <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"sync">>,
                 %% using a long time so we can test recovery
-                <<"request_timeout">> => <<"15s">>,
+                <<"request_ttl">> => <<"15s">>,
                 %% to make it check the healthy and reconnect quickly
                 <<"health_check_interval">> => <<"0.5s">>
             }
@@ -863,7 +863,7 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
                 <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"async">>,
                 %% using a long time so we can test recovery
-                <<"request_timeout">> => <<"15s">>,
+                <<"request_ttl">> => <<"15s">>,
                 %% to make it check the healthy and reconnect quickly
                 <<"health_check_interval">> => <<"0.5s">>
             }

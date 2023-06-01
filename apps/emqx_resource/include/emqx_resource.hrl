@@ -86,8 +86,8 @@
 -define(DEFAULT_BUFFER_BYTES, 256 * 1024 * 1024).
 -define(DEFAULT_BUFFER_BYTES_RAW, <<"256MB">>).
 
--define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(45)).
--define(DEFAULT_REQUEST_TIMEOUT_RAW, <<"45s">>).
+-define(DEFAULT_REQUEST_TTL, timer:seconds(45)).
+-define(DEFAULT_REQUEST_TTL_RAW, <<"45s">>).
 
 %% count
 -define(DEFAULT_BATCH_SIZE, 1).

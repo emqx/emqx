@@ -53,7 +53,7 @@ fields("creation_opts") ->
         {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
-        {request_timeout, fun request_timeout/1},
+        {request_ttl, fun request_ttl/1},
         {inflight_window, fun inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
@@ -133,10 +133,11 @@ query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
 
-request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
-request_timeout(desc) -> ?DESC("request_timeout");
-request_timeout(default) -> ?DEFAULT_REQUEST_TIMEOUT_RAW;
-request_timeout(_) -> undefined.
+request_ttl(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
+request_ttl(aliases) -> [request_timeout];
+request_ttl(desc) -> ?DESC("request_ttl");
+request_ttl(default) -> ?DEFAULT_REQUEST_TTL_RAW;
+request_ttl(_) -> undefined.
 
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;
