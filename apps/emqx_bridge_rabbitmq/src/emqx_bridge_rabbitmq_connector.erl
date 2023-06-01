@@ -262,13 +262,13 @@ on_start(
 -spec on_stop(resource_id(), resource_state()) -> term().
 on_stop(
     ResourceID,
-    #{poolname := PoolName} = _State
+    _State
 ) ->
     ?SLOG(info, #{
         msg => "stopping RabbitMQ connector",
         connector => ResourceID
     }),
-    case emqx_resource:get_allocated_resources(InstanceId) of
+    case emqx_resource:get_allocated_resources(ResourceID) of
         #{pool_name := PoolName} ->
             stop_clients_and_pool(PoolName);
         _ ->
