@@ -388,7 +388,11 @@ do_install_package(FileName, Bin) ->
                 end,
                 Filtered
             ),
-            {error, #{error := Reason}} = hd(Filtered),
+            Reason =
+                case hd(Filtered) of
+                    {error, #{error := Reason0}} -> Reason0;
+                    {error, #{reason := Reason0}} -> Reason0
+                end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
                 message => iolist_to_binary([Reason, ":", FileName])
