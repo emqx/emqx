@@ -59,7 +59,7 @@ fields("prometheus") ->
             ?HOCON(
                 list({string(), string()}),
                 #{
-                    default => #{},
+                    default => [],
                     required => false,
                     converter => fun ?MODULE:convert_headers/1,
                     desc => ?DESC(headers)
@@ -149,6 +149,8 @@ fields("prometheus") ->
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
 
+convert_headers(<<>>) ->
+    [];
 convert_headers(Headers) when is_map(Headers) ->
     maps:fold(
         fun(K, V, Acc) ->
