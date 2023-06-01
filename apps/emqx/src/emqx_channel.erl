@@ -484,13 +484,13 @@ handle_in(
             {ok, Channel}
     end;
 handle_in(
-    Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
+    SubPkt = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
-    case emqx_packet:check(Packet) of
+    case emqx_packet:check(SubPkt) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
-            TopicFilters1 = put_subid_in_subopts(Properties, TopicFilters0),
+            TopicFilters1 = enrich_subopts_subid(Properties, TopicFilters0),
             TupleTopicFilters0 = check_sub_authzs(TopicFilters1, Channel),
             HasAuthzDeny = lists:any(
                 fun({_TopicFilter, ReasonCode}) ->
@@ -503,7 +503,10 @@ handle_in(
                 true ->
                     handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
-                    TopicFilters2 = [TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
+                    TopicFilters2 = [
+                        TopicFilter
+                     || {TopicFilter, ?RC_SUCCESS} <- TupleTopicFilters0
+                    ],
                     TopicFilters3 = run_hooks(
                         'client.subscribe',
                         [ClientInfo, Properties],
@@ -1879,7 +1882,7 @@ check_sub_authzs(
 ) ->
     case emqx_access_control:authorize(ClientInfo, subscribe, Topic) of
         allow ->
-            check_sub_authzs(More, Channel, [{TopicFilter, 0} | Acc]);
+            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
         deny ->
             check_sub_authzs(More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
     end;
@@ -1895,9 +1898,9 @@ check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = ClientInfo}) ->
 %%--------------------------------------------------------------------
 %% Enrich SubId
 
-put_subid_in_subopts(#{'Subscription-Identifier' := SubId}, TopicFilters) ->
+enrich_subopts_subid(#{'Subscription-Identifier' := SubId}, TopicFilters) ->
     [{Topic, SubOpts#{subid => SubId}} || {Topic, SubOpts} <- TopicFilters];
-put_subid_in_subopts(_Properties, TopicFilters) ->
+enrich_subopts_subid(_Properties, TopicFilters) ->
     TopicFilters.
 
 %%--------------------------------------------------------------------
