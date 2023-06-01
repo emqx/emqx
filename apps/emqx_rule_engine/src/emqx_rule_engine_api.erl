@@ -515,13 +515,13 @@ format_datetime(Timestamp, Unit) ->
 format_action(Actions) ->
     [do_format_action(Act) || Act <- Actions].
 
+do_format_action({bridge, BridgeType, BridgeName, _ResId}) ->
+    emqx_bridge_resource:bridge_id(BridgeType, BridgeName);
 do_format_action(#{mod := Mod, func := Func, args := Args}) ->
     #{
         function => printable_function_name(Mod, Func),
         args => maps:remove(preprocessed_tmpl, Args)
-    };
-do_format_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
-    BridgeChannelId.
+    }.
 
 printable_function_name(emqx_rule_actions, Func) ->
     Func;

@@ -42,7 +42,10 @@
     list/0
 ]).
 
--export([send_message/2]).
+-export([
+    send_message/2,
+    send_message/4
+]).
 
 -export([config_key_path/0]).
 
@@ -199,14 +202,17 @@ send_to_matched_egress_bridges(Topic, Msg) ->
 send_message(BridgeId, Message) ->
     {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    send_message(BridgeType, BridgeName, ResId, Message).
+
+send_message(BridgeType, BridgeName, ResId, Message) ->
     case emqx:get_config([bridges, BridgeType, BridgeName], not_found) of
         not_found ->
-            {error, {bridge_not_found, BridgeId}};
+            {error, bridge_not_found};
         #{enable := true} = Config ->
             QueryOpts = query_opts(Config),
             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
-            {error, {bridge_stopped, BridgeId}}
+            {error, bridge_stopped}
     end.
 
 query_opts(Config) ->

@@ -17,7 +17,6 @@
 -module(emqx_rule_runtime).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 
@@ -49,8 +48,6 @@
 -define(ephemeral_alias(TYPE, NAME),
     iolist_to_binary(io_lib:format("_v_~ts_~p_~p", [TYPE, NAME, erlang:system_time()]))
 ).
-
--define(ActionMaxRetry, 3).
 
 %%------------------------------------------------------------------------------
 %% Apply rules
@@ -348,10 +345,14 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             })
     end.
 
-do_handle_action(BridgeId, Selected, _Envs) when is_binary(BridgeId) ->
-    ?TRACE("BRIDGE", "bridge_action", #{bridge_id => BridgeId}),
-    case emqx_bridge:send_message(BridgeId, Selected) of
-        {error, {Err, _}} when Err == bridge_not_found; Err == bridge_stopped ->
+do_handle_action({bridge, BridgeType, BridgeName, ResId}, Selected, _Envs) ->
+    ?TRACE(
+        "BRIDGE",
+        "bridge_action",
+        #{bridge_id => emqx_bridge_resource:bridge_id(BridgeType, BridgeName)}
+    ),
+    case emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected) of
+        {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
             throw(out_of_service);
         Result ->
             Result
