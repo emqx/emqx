@@ -114,7 +114,7 @@ create_session_trie(Type) ->
 insert(Topic) when is_binary(Topic) ->
     insert(Topic, ?TRIE).
 
--spec insert_session(emqx_topic:topic()) -> ok.
+-spec insert_session(emqx_types:topic()) -> ok.
 insert_session(Topic) when is_binary(Topic) ->
     insert(Topic, session_trie()).
 
@@ -132,7 +132,7 @@ delete(Topic) when is_binary(Topic) ->
     delete(Topic, ?TRIE).
 
 %% @doc Delete a topic filter from the trie.
--spec delete_session(emqx_topic:topic()) -> ok.
+-spec delete_session(emqx_types:topic()) -> ok.
 delete_session(Topic) when is_binary(Topic) ->
     delete(Topic, session_trie()).
 
@@ -148,7 +148,7 @@ delete(Topic, Trie) when is_binary(Topic) ->
 match(Topic) when is_binary(Topic) ->
     match(Topic, ?TRIE).
 
--spec match_session(emqx_topic:topic()) -> list(emqx_topic:topic()).
+-spec match_session(emqx_types:topic()) -> list(emqx_types:topic()).
 match_session(Topic) when is_binary(Topic) ->
     match(Topic, session_trie()).
 

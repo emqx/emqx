@@ -16,6 +16,8 @@
 
 -module(emqx_topic).
 
+-include("emqx_mqtt.hrl").
+
 %% APIs
 -export([
     match/2,
@@ -33,18 +35,9 @@
     parse/2
 ]).
 
--export_type([
-    group/0,
-    topic/0,
-    word/0
-]).
-
--type group() :: binary().
--type topic() :: binary().
--type word() :: '' | '+' | '#' | binary().
--type words() :: list(word()).
-
--define(MAX_TOPIC_LEN, 65535).
+-type topic() :: emqx_types:topic().
+-type word() :: emqx_types:word().
+-type words() :: emqx_types:words().
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -142,6 +135,7 @@ prepend(Parent0, W) ->
         _ -> <<Parent/binary, $/, (bin(W))/binary>>
     end.
 
+-spec bin(word()) -> binary().
 bin('') -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
@@ -163,6 +157,7 @@ tokens(Topic) ->
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- tokens(Topic)].
 
+-spec word(binary()) -> word().
 word(<<>>) -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
@@ -185,7 +180,7 @@ feed_var(Var, Val, [Var | Words], Acc) ->
 feed_var(Var, Val, [W | Words], Acc) ->
     feed_var(Var, Val, Words, [W | Acc]).
 
--spec join(list(binary())) -> binary().
+-spec join(list(word())) -> binary().
 join([]) ->
     <<>>;
 join([W]) ->

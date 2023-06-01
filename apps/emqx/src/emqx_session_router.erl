@@ -57,9 +57,7 @@
     code_change/3
 ]).
 
--type group() :: binary().
-
--type dest() :: node() | {group(), node()}.
+-type dest() :: node() | {emqx_types:group(), node()}.
 
 -define(ROUTE_RAM_TAB, emqx_session_route_ram).
 -define(ROUTE_DISC_TAB, emqx_session_route_disc).
@@ -114,7 +112,7 @@ start_link(Pool, Id) ->
 %% Route APIs
 %%--------------------------------------------------------------------
 
--spec do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}.
+-spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, SessionID) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = SessionID},
     case lists:member(Route, lookup_routes(Topic)) of
@@ -135,7 +133,7 @@ do_add_route(Topic, SessionID) when is_binary(Topic) ->
     end.
 
 %% @doc Match routes
--spec match_routes(emqx_topic:topic()) -> [emqx_types:route()].
+-spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
     case match_trie(Topic) of
         [] -> lookup_routes(Topic);
@@ -153,7 +151,7 @@ match_trie(Topic) ->
 delete_routes(SessionID, Subscriptions) ->
     cast(pick(SessionID), {delete_routes, SessionID, Subscriptions}).
 
--spec do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}.
+-spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, SessionID) ->
     Route = #route{topic = Topic, dest = SessionID},
     case emqx_topic:wildcard(Topic) of
@@ -165,7 +163,7 @@ do_delete_route(Topic, SessionID) ->
     end.
 
 %% @doc Print routes to a topic
--spec print_routes(emqx_topic:topic()) -> ok.
+-spec print_routes(emqx_types:topic()) -> ok.
 print_routes(Topic) ->
     lists:foreach(
         fun(#route{topic = To, dest = SessionID}) ->

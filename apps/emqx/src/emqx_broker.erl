@@ -103,10 +103,10 @@ start_link(Pool, Id) ->
 create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
-    %% SubOption: {Topic, SubPid} -> SubOption
+    %% SubOption: {TopicFilter, SubPid} -> SubOption
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
-    %% Subscription: SubPid -> Topic1, Topic2, Topic3, ...
+    %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
     %% duplicate_bag: o(1) insert
     ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 

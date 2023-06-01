@@ -75,11 +75,10 @@
 
 -export_type([mqueue/0, options/0]).
 
--type topic() :: emqx_types:topic().
 -type priority() :: infinity | integer().
 -type pq() :: emqx_pqueue:q().
 -type count() :: non_neg_integer().
--type p_table() :: ?NO_PRIORITY_TABLE | #{topic() := priority()}.
+-type p_table() :: ?NO_PRIORITY_TABLE | #{emqx_types:topic() := priority()}.
 -type options() :: #{
     max_len := count(),
     priorities => p_table(),
