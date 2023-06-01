@@ -71,7 +71,7 @@ jobs:
         ./rebar3 xref
         ./rebar3 dialyzer
         ./rebar3 eunit -v
-        ./rebar3 ct -v --readable=true
+        ./rebar3 ct --name 'test@127.0.0.1' -v --readable=true
         ./rebar3 proper -d test/props
     - uses: actions/upload-artifact@v3
       if: failure()
