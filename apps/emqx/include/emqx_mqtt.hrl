@@ -669,6 +669,11 @@ end).
     end
 ).
 
+-define(SHARE_EMPTY_FILTER, share_subscription_topic_cannot_be_empty).
+-define(SHARE_EMPTY_GROUP, share_subscription_group_name_cannot_be_empty).
+-define(SHARE_RECURSIVELY, '$share_cannot_be_used_as_real_topic_filter').
+-define(SHARE_NAME_INVALID_CHAR, share_subscription_group_name_cannot_include_wildcard).
+
 -define(FRAME_PARSE_ERROR, frame_parse_error).
 -define(FRAME_SERIALIZE_ERROR, frame_serialize_error).
 -define(THROW_FRAME_ERROR(Reason), erlang:throw({?FRAME_PARSE_ERROR, Reason})).

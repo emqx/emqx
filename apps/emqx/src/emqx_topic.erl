@@ -90,11 +90,15 @@ validate({Type, Topic}) when Type =:= name; Type =:= filter ->
 
 -spec validate(name | filter, topic()) -> true.
 validate(_, <<>>) ->
+    %% MQTT-5.0 [MQTT-4.7.3-1]
     error(empty_topic);
 validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) ->
+    %% MQTT-5.0 [MQTT-4.7.3-3]
     error(topic_too_long);
-validate(filter, Topic) when is_binary(Topic) ->
-    validate2(words(Topic));
+validate(filter, SharedFilter = <<"$share/", _Rest/binary>>) ->
+    validate_share(SharedFilter);
+validate(filter, Filter) when is_binary(Filter) ->
+    validate2(words(Filter));
 validate(name, Topic) when is_binary(Topic) ->
     Words = words(Topic),
     validate2(Words) andalso
@@ -121,6 +125,32 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
     error('topic_invalid_char');
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
+
+validate_share(<<"$share/", Rest/binary>>) when
+    Rest =:= <<>> orelse Rest =:= <<"/">>
+->
+    %% MQTT-5.0 [MQTT-4.8.2-1]
+    error(?SHARE_EMPTY_FILTER);
+validate_share(<<"$share/", Rest/binary>>) ->
+    case binary:split(Rest, <<"/">>) of
+        %% MQTT-5.0 [MQTT-4.8.2-1]
+        [<<>>, _] ->
+            error(?SHARE_EMPTY_GROUP);
+        %% MQTT-5.0 [MQTT-4.7.3-1]
+        [_, <<>>] ->
+            error(?SHARE_EMPTY_FILTER);
+        [ShareName, Filter] ->
+            validate_share(ShareName, Filter)
+    end.
+
+validate_share(_, <<"$share/", _Rest/binary>>) ->
+    error(?SHARE_RECURSIVELY);
+validate_share(ShareName, Filter) ->
+    case binary:match(ShareName, [<<"+">>, <<"#">>]) of
+        %% MQTT-5.0 [MQTT-4.8.2-2]
+        nomatch -> validate2(words(Filter));
+        _ -> error(?SHARE_NAME_INVALID_CHAR)
+    end.
 
 %% @doc Prepend a topic prefix.
 %% Ensured to have only one / between prefix and suffix.
