@@ -19,6 +19,7 @@
 -include("emqx_exproto.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -428,7 +429,8 @@ handle_call(
         clientinfo = ClientInfo
     }
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
+    Action = ?AUTHZ_SUBSCRIBE(Qos),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, TopicFilter) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
@@ -464,7 +466,8 @@ handle_call(
                 }
     }
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
+    Action = ?AUTHZ_PUBLISH(Qos),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->

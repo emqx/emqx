@@ -16,7 +16,7 @@
 
 -module(emqx_authz_cache).
 
--include("emqx.hrl").
+-include("emqx_access_control.hrl").
 
 -export([
     list_authz_cache/0,
@@ -159,8 +159,7 @@ dump_authz_cache() ->
 map_authz_cache(Fun) ->
     [
         Fun(R)
-     || R = {{SubPub, _T}, _Authz} <- erlang:get(),
-        SubPub =:= publish orelse SubPub =:= subscribe
+     || R = {{?authz_action, _T}, _Authz} <- erlang:get()
     ].
 foreach_authz_cache(Fun) ->
     _ = map_authz_cache(Fun),

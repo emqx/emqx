@@ -31,7 +31,10 @@
     parse_sql/3,
     render_deep/2,
     render_str/2,
-    render_sql_params/2
+    render_sql_params/2,
+    client_vars/1,
+    vars_for_rule_query/2,
+    parse_rule_from_row/2
 ]).
 
 -export([
@@ -42,6 +45,8 @@
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
 }).
+
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -171,6 +176,24 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
+-define(RAW_RULE_KEYS, [<<"permission">>, <<"action">>, <<"topic">>, <<"qos">>, <<"retain">>]).
+
+parse_rule_from_row(ColumnNames, Row) ->
+    RuleRaw = maps:with(?RAW_RULE_KEYS, maps:from_list(lists:zip(ColumnNames, to_list(Row)))),
+    case emqx_authz_rule_raw:parse_rule(RuleRaw) of
+        {ok, {Permission, Action, Topics}} ->
+            emqx_authz_rule:compile({Permission, all, Action, Topics});
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
+    Client#{
+        action => PubSub,
+        qos => Qos,
+        retain => maps:get(retain, Action, false)
+    }.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -208,3 +231,8 @@ handle_sql_var(_Name, Value) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
+
+to_list(Tuple) when is_tuple(Tuple) ->
+    tuple_to_list(Tuple);
+to_list(List) when is_list(List) ->
+    List.

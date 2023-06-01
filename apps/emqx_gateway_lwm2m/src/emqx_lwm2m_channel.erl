@@ -17,7 +17,9 @@
 -module(emqx_lwm2m_channel).
 
 -include("emqx_lwm2m.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
 
 %% API
@@ -644,7 +646,8 @@ with_context(Ctx, ClientInfo) ->
     end.
 
 with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
+    Action = publish_action(Msg),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
             _ = emqx_broker:publish(Msg),
             ok;
@@ -660,7 +663,8 @@ with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
         clientid := ClientId,
         endpoint_name := EndpointName
     } = ClientInfo,
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
+    Action = subscribe_action(Opts),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
             run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
             ?SLOG(debug, #{
@@ -680,6 +684,14 @@ with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
     end;
 with_context(metrics, Name, Ctx, _ClientInfo) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
+
+publish_action(#message{qos = QoS, flags = Flags}) ->
+    Retain = maps:get(retain, Flags, false),
+    ?AUTHZ_PUBLISH(QoS, Retain).
+
+subscribe_action(Opts) ->
+    QoS = maps:get(qos, Opts, 0),
+    ?AUTHZ_SUBSCRIBE(QoS).
 
 %%--------------------------------------------------------------------
 %% Call Chain

@@ -96,7 +96,7 @@ t_api(_) ->
             <<"hasnext">> := false
         }
     } = emqx_utils_json:decode(Request1),
-    ?assertEqual(3, length(Rules1)),
+    ?assertEqual(?USERNAME_RULES_EXAMPLE_COUNT, length(Rules1)),
 
     {ok, 200, Request1_1} =
         request(
@@ -204,7 +204,7 @@ t_api(_) ->
     } =
         emqx_utils_json:decode(Request4),
     #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = emqx_utils_json:decode(Request5),
-    ?assertEqual(3, length(Rules3)),
+    ?assertEqual(?CLIENTID_RULES_EXAMPLE_COUNT, length(Rules3)),
 
     {ok, 204, _} =
         request(
@@ -253,7 +253,7 @@ t_api(_) ->
             []
         ),
     #{<<"rules">> := Rules5} = emqx_utils_json:decode(Request7),
-    ?assertEqual(3, length(Rules5)),
+    ?assertEqual(?ALL_RULES_EXAMPLE_COUNT, length(Rules5)),
 
     {ok, 204, _} =
         request(

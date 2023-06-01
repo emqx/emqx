@@ -28,10 +28,10 @@
 -define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
 
 groups() ->
-    [].
+    emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
     ok = stop_apps([emqx_resource]),
@@ -57,12 +57,18 @@ set_special_configs(emqx_authz) ->
 set_special_configs(_) ->
     ok.
 
+init_per_group(Group, Config) ->
+    [{test_case, emqx_authz_test_lib:get_case(Group, cases())} | Config].
+end_per_group(_Group, _Config) ->
+    ok.
+
 init_per_testcase(_TestCase, Config) ->
     {ok, _} = mc_worker_api:connect(mongo_config()),
     ok = emqx_authz_test_lib:reset_authorizers(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = reset_samples(),
     ok = mc_worker_api:disconnect(?MONGO_CLIENT).
 
@@ -70,232 +76,312 @@ end_per_testcase(_TestCase, _Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_topic_rules(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+t_run_case(Config) ->
+    Case = ?config(test_case, Config),
+    ok = setup_source_data(Case),
+    ok = setup_authz_source(Case),
+    ok = emqx_authz_test_lib:run_checks(Case).
 
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
+%%------------------------------------------------------------------------------
+%% Cases
+%%------------------------------------------------------------------------------
 
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2),
-
-    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, fun setup_client_samples/2).
-
-t_complex_filter(_) ->
-    %% atom and string values also supported
-    ClientInfo = #{
-        clientid => clientid,
-        username => "username",
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    Samples = [
+cases() ->
+    [
         #{
-            <<"x">> => #{
-                <<"u">> => <<"username">>,
-                <<"c">> => [#{<<"c">> => <<"clientid">>}],
-                <<"y">> => 1
-            },
-            <<"permission">> => <<"allow">>,
-            <<"action">> => <<"publish">>,
-            <<"topics">> => [<<"t">>]
-        }
-    ],
-
-    ok = setup_samples(Samples),
-    ok = setup_config(
-        #{
-            <<"filter">> => #{
-                <<"x">> => #{
-                    <<"u">> => <<"${username}">>,
-                    <<"c">> => [#{<<"c">> => <<"${clientid}">>}],
-                    <<"y">> => 1
+            name => base_publish,
+            records => [
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"subscribe">>,
+                    <<"topic">> => <<"b">>,
+                    <<"permission">> => <<"allow">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"all">>,
+                    <<"topics">> => [<<"c">>, <<"d">>],
+                    <<"permission">> => <<"allow">>
                 }
-            }
+            ],
+            filter => #{<<"username">> => <<"${username}">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"a">>},
+
+                {deny, ?AUTHZ_PUBLISH, <<"b">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"b">>},
+
+                {allow, ?AUTHZ_PUBLISH, <<"c">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"c">>},
+                {allow, ?AUTHZ_PUBLISH, <<"d">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"d">>}
+            ]
+        },
+        #{
+            name => filter_works,
+            records => [
+                #{
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            filter => #{<<"username">> => <<"${username}">>},
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => invalid_rich_rules,
+            features => [rich_actions],
+            records => [
+                #{
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"qos">> => <<"1,2,3">>
+                },
+                #{
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"retain">> => <<"yes">>
+                }
+            ],
+            filter => #{},
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => invalid_rules,
+            records => [
+                #{
+                    <<"action">> => <<"publis">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            filter => #{},
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => rule_by_clientid_cn_dn_peerhost,
+            records => [
+                #{
+                    <<"cn">> => <<"cn">>,
+                    <<"dn">> => <<"dn">>,
+                    <<"clientid">> => <<"clientid">>,
+                    <<"peerhost">> => <<"127.0.0.1">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            client_info => #{
+                cn => <<"cn">>,
+                dn => <<"dn">>
+            },
+            filter => #{
+                <<"cn">> => <<"${cert_common_name}">>,
+                <<"dn">> => <<"${cert_subject}">>,
+                <<"clientid">> => <<"${clientid}">>,
+                <<"peerhost">> => <<"${peerhost}">>
+            },
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => topics_literal_wildcard_variable,
+            records => [
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topics">> => [
+                        <<"t/${username}">>,
+                        <<"t/${clientid}">>,
+                        <<"t1/#">>,
+                        <<"t2/+">>,
+                        <<"eq t3/${username}">>
+                    ]
+                }
+            ],
+            filter => #{<<"username">> => <<"${username}">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"t/username">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t/clientid">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t1/a/b">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t2/a">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t3/${username}">>},
+                {deny, ?AUTHZ_PUBLISH, <<"t3/username">>}
+            ]
+        },
+        #{
+            name => qos_retain_in_query_result,
+            features => [rich_actions],
+            records => [
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"a">>,
+                    <<"qos">> => 1,
+                    <<"retain">> => true
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"b">>,
+                    <<"qos">> => <<"1">>,
+                    <<"retain">> => <<"true">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"c">>,
+                    <<"qos">> => <<"1,2">>,
+                    <<"retain">> => 1
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"d">>,
+                    <<"qos">> => [1, 2],
+                    <<"retain">> => <<"1">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"e">>,
+                    <<"qos">> => [1, 2],
+                    <<"retain">> => <<"all">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"topic">> => <<"f">>,
+                    <<"qos">> => null,
+                    <<"retain">> => null
+                }
+            ],
+            filter => #{<<"username">> => <<"${username}">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"a">>},
+                {deny, ?AUTHZ_PUBLISH(1, false), <<"a">>},
+
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"b">>},
+                {deny, ?AUTHZ_PUBLISH(1, false), <<"b">>},
+                {deny, ?AUTHZ_PUBLISH(2, false), <<"b">>},
+
+                {allow, ?AUTHZ_PUBLISH(2, true), <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(2, false), <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(0, true), <<"c">>},
+
+                {allow, ?AUTHZ_PUBLISH(2, true), <<"d">>},
+                {deny, ?AUTHZ_PUBLISH(0, true), <<"d">>},
+
+                {allow, ?AUTHZ_PUBLISH(1, false), <<"e">>},
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"e">>},
+                {deny, ?AUTHZ_PUBLISH(0, false), <<"e">>},
+
+                {allow, ?AUTHZ_PUBLISH, <<"f">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"f">>}
+            ]
+        },
+        #{
+            name => nonbin_values_in_client_info,
+            records => [
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"clientid">> => <<"clientid">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            client_info => #{
+                username => "username",
+                clientid => clientid
+            },
+            filter => #{<<"username">> => <<"${username}">>, <<"clientid">> => <<"${clientid}">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => invalid_query,
+            records => [
+                #{
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            filter => #{<<"$in">> => #{<<"a">> => 1}},
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => complex_query,
+            records => [
+                #{
+                    <<"a">> => #{<<"u">> => <<"clientid">>, <<"c">> => [<<"cn">>, <<"dn">>]},
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>
+                }
+            ],
+            client_info => #{
+                cn => <<"cn">>,
+                dn => <<"dn">>
+            },
+            filter => #{
+                <<"a">> => #{
+                    <<"u">> => <<"${clientid}">>,
+                    <<"c">> => [<<"${cert_common_name}">>, <<"${cert_subject}">>]
+                }
+            },
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
         }
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [{allow, publish, <<"t">>}]
-    ).
-
-t_mongo_error(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    ok = setup_samples([]),
-    ok = setup_config(
-        #{<<"filter">> => #{<<"$badoperator">> => <<"$badoperator">>}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [{deny, publish, <<"t">>}]
-    ).
-
-t_lookups(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        cn => <<"cn">>,
-        dn => <<"dn">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    ByClientid = #{
-        <<"clientid">> => <<"clientid">>,
-        <<"topics">> => [<<"a">>],
-        <<"action">> => <<"all">>,
-        <<"permission">> => <<"allow">>
-    },
-
-    ok = setup_samples([ByClientid]),
-    ok = setup_config(
-        #{<<"filter">> => #{<<"clientid">> => <<"${clientid}">>}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByPeerhost = #{
-        <<"peerhost">> => <<"127.0.0.1">>,
-        <<"topics">> => [<<"a">>],
-        <<"action">> => <<"all">>,
-        <<"permission">> => <<"allow">>
-    },
-
-    ok = setup_samples([ByPeerhost]),
-    ok = setup_config(
-        #{<<"filter">> => #{<<"peerhost">> => <<"${peerhost}">>}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByCN = #{
-        <<"CN">> => <<"cn">>,
-        <<"topics">> => [<<"a">>],
-        <<"action">> => <<"all">>,
-        <<"permission">> => <<"allow">>
-    },
-
-    ok = setup_samples([ByCN]),
-    ok = setup_config(
-        #{<<"filter">> => #{<<"CN">> => ?PH_CERT_CN_NAME}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByDN = #{
-        <<"DN">> => <<"dn">>,
-        <<"topics">> => [<<"a">>],
-        <<"action">> => <<"all">>,
-        <<"permission">> => <<"allow">>
-    },
-
-    ok = setup_samples([ByDN]),
-    ok = setup_config(
-        #{<<"filter">> => #{<<"DN">> => ?PH_CERT_SUBJECT}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ).
-
-t_bad_filter(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        cn => <<"cn">>,
-        dn => <<"dn">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    ok = setup_config(
-        #{<<"filter">> => #{<<"$in">> => #{<<"a">> => 1}}}
-    ),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {deny, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ).
+    ].
 
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-populate_records(AclRecords, AdditionalData) ->
-    [maps:merge(Record, AdditionalData) || Record <- AclRecords].
-
-setup_samples(AclRecords) ->
-    ok = reset_samples(),
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, AclRecords),
-    ok.
-
-setup_client_samples(ClientInfo, Samples) ->
-    #{username := Username} = ClientInfo,
-    Records = lists:map(
-        fun(Sample) ->
-            #{
-                topics := Topics,
-                permission := Permission,
-                action := Action
-            } = Sample,
-
-            #{
-                <<"topics">> => Topics,
-                <<"permission">> => Permission,
-                <<"action">> => Action,
-                <<"username">> => Username
-            }
-        end,
-        Samples
-    ),
-    setup_samples(Records),
-    setup_config(#{<<"filter">> => #{<<"username">> => <<"${username}">>}}).
-
 reset_samples() ->
     {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),
     ok.
+
+setup_source_data(#{records := Records}) ->
+    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, Records),
+    ok.
+
+setup_authz_source(#{filter := Filter}) ->
+    setup_config(
+        #{
+            <<"filter">> => Filter
+        }
+    ).
 
 setup_config(SpecialParams) ->
     emqx_authz_test_lib:setup_config(

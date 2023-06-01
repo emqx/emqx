@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -1099,10 +1100,11 @@ convert_topic_id_to_name(
     end.
 
 check_pub_authz(
-    {TopicName, _Flags, _Data},
+    {TopicName, #mqtt_sn_flags{qos = QoS, retain = Retain}, _Data},
     #channel{ctx = Ctx, clientinfo = ClientInfo}
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, TopicName) of
+    Action = ?AUTHZ_PUBLISH(QoS, Retain),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, TopicName) of
         allow -> ok;
         deny -> {error, ?SN_RC2_NOT_AUTHORIZE}
     end.
@@ -1251,10 +1253,11 @@ preproc_subs_type(
     {error, ?SN_RC_NOT_SUPPORTED}.
 
 check_subscribe_authz(
-    {_TopicId, TopicName, _QoS},
+    {_TopicId, TopicName, QoS},
     Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicName) of
+    Action = ?AUTHZ_SUBSCRIBE(QoS),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, TopicName) of
         allow ->
             {ok, Channel};
         _ ->

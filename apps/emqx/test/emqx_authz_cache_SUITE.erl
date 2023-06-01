@@ -43,8 +43,6 @@ t_clean_authz_cache(_) ->
     ct:sleep(100),
     ClientPid =
         case emqx_cm:lookup_channels(<<"emqx_c">>) of
-            [Pid] when is_pid(Pid) ->
-                Pid;
             Pids when is_list(Pids) ->
                 lists:last(Pids);
             _ ->

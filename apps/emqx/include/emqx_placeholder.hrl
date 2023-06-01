@@ -21,7 +21,7 @@
 
 -define(PH(Type), <<"${", Type/binary, "}">>).
 
-%% action: publish/subscribe/all
+%% action: publish/subscribe
 -define(PH_ACTION, <<"${action}">>).
 
 %% cert
@@ -79,6 +79,7 @@
 -define(PH_REASON, <<"${reason}">>).
 
 -define(PH_ENDPOINT_NAME, <<"${endpoint_name}">>).
+-define(PH_RETAIN, <<"${retain}">>).
 
 %% sync change these place holder with binary def.
 -define(PH_S_ACTION, "${action}").
@@ -113,5 +114,6 @@
 -define(PH_S_NODE, "${node}").
 -define(PH_S_REASON, "${reason}").
 -define(PH_S_ENDPOINT_NAME, "${endpoint_name}").
+-define(PH_S_RETAIN, "${retain}").
 
 -endif.

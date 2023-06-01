@@ -89,15 +89,15 @@ t_clients(_) ->
     AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
-    %% get /clients/:clientid/authorization/cache should has no authz cache
+    %% get /clients/:clientid/authorization/cache should have no authz cache
     Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path([
         "clients",
         binary_to_list(ClientId1),
         "authorization",
         "cache"
     ]),
-    {ok, Client1AuthzCache} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
-    ?assertEqual("[]", Client1AuthzCache),
+    {ok, Client1AuthzCache0} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
+    ?assertEqual("[]", Client1AuthzCache0),
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos, nl => 1, rh => 1},
@@ -166,6 +166,35 @@ t_clients(_) ->
     timer:sleep(300),
     AfterKickoutResponse1 = emqx_mgmt_api_test_util:request_api(get, Client1Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse1).
+
+t_authz_cache(_) ->
+    ClientId = <<"client_authz">>,
+
+    {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 0),
+
+    ClientAuthzCachePath = emqx_mgmt_api_test_util:api_path([
+        "clients",
+        binary_to_list(ClientId),
+        "authorization",
+        "cache"
+    ]),
+    {ok, ClientAuthzCache} = emqx_mgmt_api_test_util:request_api(get, ClientAuthzCachePath),
+    ?assertMatch(
+        [
+            #{
+                <<"access">> :=
+                    #{<<"action_type">> := <<"subscribe">>, <<"qos">> := 1},
+                <<"result">> := <<"allow">>,
+                <<"topic">> := <<"topic/1">>,
+                <<"updated_time">> := _
+            }
+        ],
+        emqx_utils_json:decode(ClientAuthzCache, [return_maps])
+    ),
+
+    ok = emqtt:stop(C).
 
 t_kickout_clients(_) ->
     process_flag(trap_exit, true),

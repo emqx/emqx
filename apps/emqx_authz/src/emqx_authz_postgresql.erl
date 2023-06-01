@@ -21,6 +21,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-include_lib("epgsql/include/epgsql.hrl").
+
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
@@ -77,7 +79,7 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(
     Client,
-    PubSub,
+    Action,
     Topic,
     #{
         annotations := #{
@@ -86,14 +88,15 @@ authorize(
         }
     }
 ) ->
-    RenderedParams = emqx_authz_utils:render_sql_params(Placeholders, Client),
+    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    RenderedParams = emqx_authz_utils:render_sql_params(Placeholders, Vars),
     case
         emqx_resource:simple_sync_query(ResourceID, {prepared_query, ResourceID, RenderedParams})
     of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->
-            do_authorize(Client, PubSub, Topic, Columns, Rows);
+            do_authorize(Client, Action, Topic, column_names(Columns), Rows);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_postgresql_error",
@@ -104,33 +107,29 @@ authorize(
             nomatch
     end.
 
-do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
+do_authorize(_Client, _Action, _Topic, _ColumnNames, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
-    case
+do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
+    try
         emqx_authz_rule:match(
-            Client,
-            PubSub,
-            Topic,
-            emqx_authz_rule:compile(format_result(Columns, Row))
+            Client, Action, Topic, emqx_authz_utils:parse_rule_from_row(ColumnNames, Row)
         )
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
+        nomatch -> do_authorize(Client, Action, Topic, ColumnNames, Tail)
+    catch
+        error:Reason:Stack ->
+            ?SLOG(error, #{
+                msg => "match_rule_error",
+                reason => Reason,
+                rule => Row,
+                stack => Stack
+            }),
+            do_authorize(Client, Action, Topic, ColumnNames, Tail)
     end.
 
-format_result(Columns, Row) ->
-    Permission = lists:nth(index(<<"permission">>, 2, Columns), erlang:tuple_to_list(Row)),
-    Action = lists:nth(index(<<"action">>, 2, Columns), erlang:tuple_to_list(Row)),
-    Topic = lists:nth(index(<<"topic">>, 2, Columns), erlang:tuple_to_list(Row)),
-    {Permission, all, Action, [Topic]}.
-
-index(Key, N, TupleList) when is_integer(N) ->
-    Tuple = lists:keyfind(Key, N, TupleList),
-    index(Tuple, TupleList, 1);
-index(_Tuple, [], _Index) ->
-    {error, not_found};
-index(Tuple, [Tuple | _TupleList], Index) ->
-    Index;
-index(Tuple, [_ | TupleList], Index) ->
-    index(Tuple, TupleList, Index + 1).
+column_names(Columns) ->
+    lists:map(
+        fun(#column{name = Name}) -> Name end,
+        Columns
+    ).

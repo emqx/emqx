@@ -18,6 +18,7 @@
 -module(emqx_coap_pubsub_handler).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include("emqx_coap.hrl").
 
 -export([handle_request/4]).
@@ -50,14 +51,16 @@ handle_method(get, Topic, Msg, Ctx, CInfo) ->
             reply({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
 handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) ->
-    case emqx_coap_channel:validator(publish, Topic, Ctx, CInfo) of
+    PublishOpts = get_publish_opts(Msg),
+    Qos = get_publish_qos(Msg, PublishOpts),
+    Action = ?AUTHZ_PUBLISH(Qos, get_publish_retain(PublishOpts)),
+    case emqx_coap_channel:validator(Action, Topic, Ctx, CInfo) of
         allow ->
             #{clientid := ClientId} = CInfo,
             MountTopic = mount(CInfo, Topic),
-            QOS = get_publish_qos(Msg),
             %% TODO: Append message metadata into headers
-            MQTTMsg = emqx_message:make(ClientId, QOS, MountTopic, Payload),
-            MQTTMsg2 = apply_publish_opts(Msg, MQTTMsg),
+            MQTTMsg = emqx_message:make(ClientId, Qos, MountTopic, Payload),
+            MQTTMsg2 = apply_publish_opts(PublishOpts, MQTTMsg),
             _ = emqx_broker:publish(MQTTMsg2),
             reply({ok, changed}, Msg);
         _ ->
@@ -104,48 +107,70 @@ type_to_qos(coap, #coap_message{type = Type}) ->
             ?QOS_1
     end.
 
-get_publish_qos(Msg) ->
-    case emqx_coap_message:get_option(uri_query, Msg) of
-        #{<<"qos">> := QOS} ->
-            erlang:binary_to_integer(QOS);
-        _ ->
-            CfgType = emqx_conf:get([gateway, coap, publish_qos], ?QOS_0),
-            type_to_qos(CfgType, Msg)
-    end.
-
-apply_publish_opts(Msg, MQTTMsg) ->
+get_publish_opts(Msg) ->
     case emqx_coap_message:get_option(uri_query, Msg) of
         undefined ->
-            MQTTMsg;
+            #{};
         Qs ->
             maps:fold(
                 fun
                     (<<"retain">>, V, Acc) ->
                         Val = V =:= <<"true">>,
-                        emqx_message:set_flag(retain, Val, Acc);
+                        Acc#{retain => Val};
                     (<<"expiry">>, V, Acc) ->
                         Val = erlang:binary_to_integer(V),
-                        Props = emqx_message:get_header(properties, Acc),
-                        emqx_message:set_header(
-                            properties,
-                            Props#{'Message-Expiry-Interval' => Val},
-                            Acc
-                        );
+                        Acc#{expiry_interval => Val};
+                    (<<"qos">>, V, Acc) ->
+                        Val = erlang:binary_to_integer(V),
+                        Acc#{qos => Val};
                     (_, _, Acc) ->
                         Acc
                 end,
-                MQTTMsg,
+                #{},
                 Qs
             )
     end.
 
+get_publish_qos(Msg, PublishOpts) ->
+    case PublishOpts of
+        #{qos := Qos} ->
+            Qos;
+        _ ->
+            CfgType = emqx_conf:get([gateway, coap, publish_qos], ?QOS_0),
+            type_to_qos(CfgType, Msg)
+    end.
+
+get_publish_retain(PublishOpts) ->
+    maps:get(retain, PublishOpts, false).
+
+apply_publish_opts(Opts, MQTTMsg) ->
+    maps:fold(
+        fun
+            (retain, Val, Acc) ->
+                emqx_message:set_flag(retain, Val, Acc);
+            (expiry, Val, Acc) ->
+                Props = emqx_message:get_header(properties, Acc),
+                emqx_message:set_header(
+                    properties,
+                    Props#{'Message-Expiry-Interval' => Val},
+                    Acc
+                );
+            (_, _, Acc) ->
+                Acc
+        end,
+        MQTTMsg,
+        Opts
+    ).
+
 subscribe(#coap_message{token = <<>>} = Msg, _, _, _) ->
     reply({error, bad_request}, <<"observe without token">>, Msg);
 subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
-    case emqx_coap_channel:validator(subscribe, Topic, Ctx, CInfo) of
+    #{qos := Qos} = SubOpts = get_sub_opts(Msg),
+    Action = ?AUTHZ_SUBSCRIBE(Qos),
+    case emqx_coap_channel:validator(Action, Topic, Ctx, CInfo) of
         allow ->
             #{clientid := ClientId} = CInfo,
-            SubOpts = get_sub_opts(Msg),
+
             MountTopic = mount(CInfo, Topic),
             emqx_broker:subscribe(MountTopic, ClientId, SubOpts),
             run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]),

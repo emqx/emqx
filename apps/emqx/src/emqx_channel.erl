@@ -20,6 +20,7 @@
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_access_control.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 
@@ -491,7 +492,7 @@ handle_in(
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = enrich_subopts_subid(Properties, TopicFilters0),
-            TupleTopicFilters0 = check_sub_authzs(TopicFilters1, Channel),
+            TupleTopicFilters0 = check_sub_authzs(SubPkt, TopicFilters1, Channel),
             HasAuthzDeny = lists:any(
                 fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
@@ -1839,13 +1840,33 @@ check_pub_alias(_Packet, _Channel) ->
     ok.
 
 %%--------------------------------------------------------------------
+%% Athorization action
+
+authz_action(#mqtt_packet{
+    header = #mqtt_packet_header{qos = QoS, retain = Retain}, variable = #mqtt_packet_publish{}
+}) ->
+    ?AUTHZ_PUBLISH(QoS, Retain);
+authz_action(#mqtt_packet{
+    header = #mqtt_packet_header{qos = QoS}, variable = #mqtt_packet_subscribe{}
+}) ->
+    ?AUTHZ_SUBSCRIBE(QoS);
+%% Will message
+authz_action(#message{qos = QoS, flags = #{retain := Retain}}) ->
+    ?AUTHZ_PUBLISH(QoS, Retain);
+authz_action(#message{qos = QoS}) ->
+    ?AUTHZ_PUBLISH(QoS).
+
+%%--------------------------------------------------------------------
 %% Check Pub Authorization
 
 check_pub_authz(
-    #mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
+    #mqtt_packet{
+        variable = #mqtt_packet_publish{topic_name = Topic}
+    } = Packet,
     #channel{clientinfo = ClientInfo}
 ) ->
-    case emqx_access_control:authorize(ClientInfo, publish, Topic) of
+    Action = authz_action(Packet),
+    case emqx_access_control:authorize(ClientInfo, Action, Topic) of
         allow -> ok;
         deny -> {error, ?RC_NOT_AUTHORIZED}
     end.
@@ -1868,24 +1889,23 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Sub Authorization
 
-%% TODO: not only check topic filter. Qos chould be checked too.
-%% Not implemented yet:
-%% MQTT-3.1.1 [MQTT-3.8.4-6] and MQTT-5.0 [MQTT-3.8.4-7]
-check_sub_authzs(TopicFilters, Channel) ->
-    check_sub_authzs(TopicFilters, Channel, []).
+check_sub_authzs(Packet, TopicFilters, Channel) ->
+    Action = authz_action(Packet),
+    check_sub_authzs(Action, TopicFilters, Channel, []).
 
 check_sub_authzs(
+    Action,
     [TopicFilter = {Topic, _} | More],
     Channel = #channel{clientinfo = ClientInfo},
     Acc
 ) ->
-    case emqx_access_control:authorize(ClientInfo, subscribe, Topic) of
+    case emqx_access_control:authorize(ClientInfo, Action, Topic) of
         allow ->
-            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
+            check_sub_authzs(Action, More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
         deny ->
-            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            check_sub_authzs(Action, More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
     end;
-check_sub_authzs([], _Channel, Acc) ->
+check_sub_authzs(_Action, [], _Channel, Acc) ->
     lists:reverse(Acc).
 
 %%--------------------------------------------------------------------
@@ -2149,7 +2169,8 @@ publish_will_msg(
     ClientInfo = #{mountpoint := MountPoint},
     Msg = #message{topic = Topic}
 ) ->
-    PublishingDisallowed = emqx_access_control:authorize(ClientInfo, publish, Topic) =/= allow,
+    Action = authz_action(Msg),
+    PublishingDisallowed = emqx_access_control:authorize(ClientInfo, Action, Topic) =/= allow,
     ClientBanned = emqx_banned:check(ClientInfo),
     case PublishingDisallowed orelse ClientBanned of
         true ->
