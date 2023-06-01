@@ -220,6 +220,8 @@ do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
             case is_unrecoverable_error(Reason) of
                 true ->
                     {error, {unrecoverable_error, Reason}};
+                false when Reason =:= ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
                 false ->
                     Result
             end;
