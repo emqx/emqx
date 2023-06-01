@@ -381,7 +381,7 @@ complete_transfer(Storage, Transfer, Size) ->
     complete_transfer(Storage, Transfer, Size, 100).
 
 complete_transfer(Storage, Transfer, Size, Timeout) ->
-    case emqx_ft_storage_fs:assemble(Storage, Transfer, Size) of
+    case emqx_ft_storage_fs:assemble(Storage, Transfer, Size, #{}) of
         ok ->
             ok;
         {async, Pid} ->
