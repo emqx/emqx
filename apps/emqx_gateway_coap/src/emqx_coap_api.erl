@@ -46,7 +46,7 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    emqx_gateway_utils:make_deprecated_paths([?PREFIX ++ "/request"]).
+    [?PREFIX ++ "/request"].
 
 schema(?PREFIX ++ "/request") ->
     #{
@@ -65,9 +65,7 @@ schema(?PREFIX ++ "/request") ->
                 )
             }
         }
-    };
-schema(Path) ->
-    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+    }.
 
 request(post, #{body := Body, bindings := Bindings}) ->
     ClientId = maps:get(clientid, Bindings, undefined),

@@ -55,10 +55,10 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
 paths() ->
-    emqx_gateway_utils:make_deprecated_paths([
+    [
         "/gateways/:name/authentication/import_users",
         "/gateways/:name/listeners/:id/authentication/import_users"
-    ]).
+    ].
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -147,9 +147,7 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
-    };
-schema(Path) ->
-    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+    }.
 
 %%--------------------------------------------------------------------
 %% params defines
