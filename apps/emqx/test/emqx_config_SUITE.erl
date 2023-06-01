@@ -96,7 +96,7 @@ t_init_load(C) when is_list(C) ->
     ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
     ok = file:delete(DeprecatedFile).
 
-t_unknown_rook_keys(C) when is_list(C) ->
+t_unknown_root_keys(C) when is_list(C) ->
     ?check_trace(
         #{timetrap => 1000},
         begin
