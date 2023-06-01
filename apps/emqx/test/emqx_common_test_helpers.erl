@@ -277,7 +277,7 @@ wait_for_app_processes(_) ->
 %% and stop others, and then the `application:start/2' callback is
 %% never called again for this application.
 perform_sanity_checks(emqx_rule_engine) ->
-    ensure_config_handler(emqx_rule_engine, [rule_engine, rules]),
+    ensure_config_handler(emqx_rule_engine, [rule_engine, rules, '?']),
     ok;
 perform_sanity_checks(emqx_bridge) ->
     ensure_config_handler(emqx_bridge, [bridges]),
@@ -289,7 +289,7 @@ ensure_config_handler(Module, ConfigPath) ->
     #{handlers := Handlers} = sys:get_state(emqx_config_handler),
     case emqx_utils_maps:deep_get(ConfigPath, Handlers, not_found) of
         #{{mod} := Module} -> ok;
-        _NotFound -> error({config_handler_missing, ConfigPath, Module})
+        NotFound -> error({config_handler_missing, ConfigPath, Module, NotFound})
     end,
     ok.
 

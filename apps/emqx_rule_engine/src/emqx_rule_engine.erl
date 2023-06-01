@@ -99,11 +99,13 @@
 ]).
 
 -define(RATE_METRICS, ['matched']).
+-define(KEY_PATH, [rule_engine, rules]).
+-define(RULE_PATH(RULE), [rule_engine, rules, RULE]).
 
 -type action_name() :: binary() | #{function := binary()}.
 
 config_key_path() ->
-    [rule_engine, rules].
+    ?KEY_PATH.
 
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
@@ -112,7 +114,13 @@ start_link() ->
 %%------------------------------------------------------------------------------
 %% The config handler for emqx_rule_engine
 %%------------------------------------------------------------------------------
-post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs) ->
+    create_rule(NewRule#{id => bin(RuleId)});
+post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs) ->
+    delete_rule(bin(RuleId));
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs) ->
+    update_rule(NewRule#{id => bin(RuleId)});
+post_config_update([rule_engine], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_utils_maps:diff_maps(NewRules, OldRules),
     try
@@ -134,7 +142,7 @@ post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
             end,
             Added
         ),
-        {ok, get_rules()}
+        ok
     catch
         throw:#{kind := _} = Error ->
             {error, Error}
