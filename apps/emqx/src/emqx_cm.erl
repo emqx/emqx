@@ -176,11 +176,13 @@ insert_channel_info(ClientId, Info, Stats) ->
 %% Note that: It should be called on a lock transaction
 register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
     Chan = {ClientId, ChanPid},
+    %% cast (for process monitor) before inserting ets tables
+    cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
-    cast({registered, Chan}).
+    ok.
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
