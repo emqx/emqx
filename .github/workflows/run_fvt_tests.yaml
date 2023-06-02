@@ -17,7 +17,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-24.3.4.2-3-debian11
+    container: ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-debian11
 
     steps:
       - uses: actions/checkout@v3
@@ -50,17 +50,17 @@ jobs:
         os:
           - ["debian11", "debian:11-slim"]
         builder:
-          - 5.0-35
+          - 5.1-0
         otp:
-          - 24.3.4.2-3
+          - 25.3.2-1
         elixir:
-          - 1.13.4
+          - 1.14.5
         arch:
           - amd64
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -123,11 +123,11 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         builder:
-        - 5.0-35
+        - 5.1-0
         otp:
-        - 24.3.4.2-3
+        - 25.3.2-1
         elixir:
-        - 1.13.4
+        - 1.14.5
         arch:
         - amd64
       # - emqx-enterprise # TODO test enterprise
@@ -135,7 +135,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/download-artifact@v3
       with:
         name: source

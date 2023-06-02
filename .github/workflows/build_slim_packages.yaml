@@ -30,14 +30,14 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "24.3.4.2-3", "el7", "erlang"]
-          - ["emqx", "25.1.2-3", "ubuntu22.04", "elixir"]
-          - ["emqx-enterprise", "24.3.4.2-3", "amzn2", "erlang"]
-          - ["emqx-enterprise", "25.1.2-3", "ubuntu20.04", "erlang"]
+          - ["emqx", "25.3.2-1", "el7", "erlang"]
+          - ["emqx", "25.3.2-1", "ubuntu22.04", "elixir"]
+          - ["emqx-enterprise", "25.3.2-1", "amzn2", "erlang"]
+          - ["emqx-enterprise", "25.3.2-1", "ubuntu20.04", "erlang"]
         builder:
-          - 5.0-35
+          - 5.1-0
         elixir:
-          - '1.13.4'
+          - '1.14.5'
 
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
@@ -92,7 +92,7 @@ jobs:
         profile:
           - emqx
         otp:
-          - 25.1.2
+          - 25.3.2
     steps:
     - uses: actions/checkout@v3
     - uses: ilammy/msvc-dev-cmd@v1.12.0
@@ -138,7 +138,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.3.4.2-3
+        - 25.3.2-1
         os:
         - macos-11
         - macos-12-arm64
