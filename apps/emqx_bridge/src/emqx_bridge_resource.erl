@@ -247,18 +247,16 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpPath = emqx_utils:safe_filename(?TEST_ID_PREFIX ++ emqx_utils:gen_id(8)),
+    TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    TmpPath = emqx_utils:safe_filename(TmpName),
     Conf = emqx_utils_maps:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->
             {error, Reason};
         {ok, ConfNew} ->
             try
-                ParseConf = parse_confs(bin(Type), TmpPath, ConfNew),
-                Res = emqx_resource:create_dry_run_local(
-                    bridge_to_resource_type(Type), ParseConf
-                ),
-                Res
+                ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
+                emqx_resource:create_dry_run_local(bridge_to_resource_type(Type), ParseConf)
             catch
                 %% validation errors
                 throw:Reason ->

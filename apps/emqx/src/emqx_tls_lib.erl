@@ -32,6 +32,7 @@
     ensure_ssl_files/3,
     drop_invalid_certs/1,
     pem_dir/1,
+    is_managed_ssl_file/1,
     is_valid_pem_file/1,
     is_pem/1
 ]).
@@ -400,7 +401,7 @@ save_pem_file(Dir, KeyPath, Pem, DryRun) ->
 %% the filename is prefixed by the option name without the 'file' part
 %% and suffixed with the first 8 byets the PEM content's md5 checksum.
 %% e.g. key-1234567890abcdef, cert-1234567890abcdef, and cacert-1234567890abcdef
-is_generated_file(Filename) ->
+is_managed_ssl_file(Filename) ->
     case string:split(filename:basename(Filename), "-") of
         [_Name, Suffix] -> is_hex_str(Suffix);
         _ -> false

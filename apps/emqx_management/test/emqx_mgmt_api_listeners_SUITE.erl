@@ -237,6 +237,7 @@ t_clear_certs(Config) when is_list(Config) ->
         [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
     ),
     _ = request(put, NewPath, [], UpdateConf),
+    _ = emqx_tls_certfile_gc:force(),
     ListResult2 = list_pem_dir("ssl", "clear"),
 
     %% make sure the old cret file is deleted
@@ -259,7 +260,8 @@ t_clear_certs(Config) when is_list(Config) ->
 
     %% remove, check all cert files are deleted
     _ = delete(NewPath),
-    ?assertMatch({error, not_dir}, list_pem_dir("ssl", "clear")),
+    _ = emqx_tls_certfile_gc:force(),
+    ?assertMatch({error, enoent}, list_pem_dir("ssl", "clear")),
     ok.
 
 get_tcp_listeners(Node) ->
@@ -431,12 +433,7 @@ is_running(Id) ->
 list_pem_dir(Type, Name) ->
     ListenerDir = emqx_listeners:certs_dir(Type, Name),
     Dir = filename:join([emqx:mutable_certs_dir(), ListenerDir]),
-    case filelib:is_dir(Dir) of
-        true ->
-            file:list_dir(Dir);
-        _ ->
-            {error, not_dir}
-    end.
+    file:list_dir(Dir).
 
 data_file(Name) ->
     Dir = code:lib_dir(emqx, test),
