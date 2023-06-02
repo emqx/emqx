@@ -1056,7 +1056,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"idle_timeout",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
@@ -1073,7 +1073,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"handshake_idle_timeout",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => <<"10s">>,
                     desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
@@ -1090,7 +1090,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"keep_alive_interval",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval),

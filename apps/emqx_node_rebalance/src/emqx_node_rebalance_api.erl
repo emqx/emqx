@@ -356,7 +356,7 @@ fields(rebalance_start) ->
     [
         {"wait_health_check",
             mk(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     desc => ?DESC(wait_health_check),
                     required => false
@@ -414,7 +414,7 @@ fields(rebalance_start) ->
             )},
         {"wait_takeover",
             mk(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     desc => ?DESC(wait_takeover),
                     required => false

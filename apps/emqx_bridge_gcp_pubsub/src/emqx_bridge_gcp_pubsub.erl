@@ -47,7 +47,7 @@ fields(bridge_config) ->
     [
         {connect_timeout,
             sc(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"15s">>,
                     desc => ?DESC("connect_timeout")
@@ -80,7 +80,7 @@ fields(bridge_config) ->
             )},
         {request_timeout,
             sc(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     required => false,
                     deprecated => {since, "e5.0.1"},

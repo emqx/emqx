@@ -107,7 +107,7 @@ request_body() ->
     [
         {token, mk(binary(), #{desc => ?DESC(token)})},
         {method, mk(enum([get, put, post, delete]), #{desc => ?DESC(method)})},
-        {timeout, mk(emqx_schema:duration_ms(), #{desc => ?DESC(timeout)})},
+        {timeout, mk(emqx_schema:timeout_duration_ms(), #{desc => ?DESC(timeout)})},
         {content_type,
             mk(
                 enum(['text/plain', 'application/json', 'application/octet-stream']),

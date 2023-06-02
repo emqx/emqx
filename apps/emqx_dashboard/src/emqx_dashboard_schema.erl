@@ -38,7 +38,7 @@ fields("dashboard") ->
         {default_password, fun default_password/1},
         {sample_interval,
             ?HOCON(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"10s">>,
                     desc => ?DESC(sample_interval),

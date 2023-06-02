@@ -528,7 +528,7 @@ fields("node") ->
             )},
         {"crash_dump_seconds",
             sc(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS",
                     default => <<"30s">>,
@@ -550,7 +550,7 @@ fields("node") ->
             )},
         {"dist_net_ticktime",
             sc(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "vm_args.-kernel net_ticktime",
                     default => <<"2m">>,
@@ -821,7 +821,7 @@ fields("rpc") ->
             )},
         {"socket_keepalive_idle",
             sc(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "gen_rpc.socket_keepalive_idle",
                     default => <<"15m">>,
@@ -830,7 +830,7 @@ fields("rpc") ->
             )},
         {"socket_keepalive_interval",
             sc(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "gen_rpc.socket_keepalive_interval",
                     default => <<"75s">>,
@@ -972,7 +972,7 @@ fields("log_overload_kill") ->
             )},
         {"restart_after",
             sc(
-                hoconsc:union([emqx_schema:duration_ms(), infinity]),
+                hoconsc:union([emqx_schema:timeout_duration_ms(), infinity]),
                 #{
                     default => <<"5s">>,
                     desc => ?DESC("log_overload_kill_restart_after")

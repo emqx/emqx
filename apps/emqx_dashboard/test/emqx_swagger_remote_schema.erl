@@ -32,7 +32,7 @@ fields("root") ->
             )},
         {default_username, fun default_username/1},
         {default_password, fun default_password/1},
-        {sample_interval, mk(emqx_schema:duration_s(), #{default => <<"10s">>})},
+        {sample_interval, mk(emqx_schema:timeout_duration_s(), #{default => <<"10s">>})},
         {token_expired_time, mk(emqx_schema:duration(), #{default => <<"30m">>})}
     ];
 fields("ref1") ->

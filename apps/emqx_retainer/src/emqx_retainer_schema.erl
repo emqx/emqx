@@ -45,13 +45,14 @@ fields("retainer") ->
         {enable, sc(boolean(), enable, true)},
         {msg_expiry_interval,
             sc(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_ms(),
                 msg_expiry_interval,
                 <<"0s">>
             )},
         {msg_clear_interval,
             sc(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 msg_clear_interval,
                 <<"0s">>
             )},

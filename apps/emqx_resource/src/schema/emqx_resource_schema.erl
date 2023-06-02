@@ -76,18 +76,18 @@ worker_pool_size(default) -> ?WORKER_POOL_SIZE;
 worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
 
-resume_interval(type) -> emqx_schema:duration_ms();
+resume_interval(type) -> emqx_schema:timeout_duration_ms();
 resume_interval(importance) -> ?IMPORTANCE_HIDDEN;
 resume_interval(desc) -> ?DESC("resume_interval");
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
 
-metrics_flush_interval(type) -> emqx_schema:duration_ms();
+metrics_flush_interval(type) -> emqx_schema:timeout_duration_ms();
 metrics_flush_interval(importance) -> ?IMPORTANCE_HIDDEN;
 metrics_flush_interval(required) -> false;
 metrics_flush_interval(_) -> undefined.
 
-health_check_interval(type) -> emqx_schema:duration_ms();
+health_check_interval(type) -> emqx_schema:timeout_duration_ms();
 health_check_interval(desc) -> ?DESC("health_check_interval");
 health_check_interval(default) -> ?HEALTHCHECK_INTERVAL_RAW;
 health_check_interval(required) -> false;
@@ -115,7 +115,7 @@ start_after_created(default) -> ?START_AFTER_CREATED_RAW;
 start_after_created(required) -> false;
 start_after_created(_) -> undefined.
 
-start_timeout(type) -> emqx_schema:duration_ms();
+start_timeout(type) -> emqx_schema:timeout_duration_ms();
 start_timeout(desc) -> ?DESC("start_timeout");
 start_timeout(default) -> ?START_TIMEOUT_RAW;
 start_timeout(required) -> false;
@@ -133,7 +133,7 @@ query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
 
-request_ttl(type) -> hoconsc:union([emqx_schema:duration_ms(), infinity]);
+request_ttl(type) -> hoconsc:union([emqx_schema:timeout_duration_ms(), infinity]);
 request_ttl(aliases) -> [request_timeout];
 request_ttl(desc) -> ?DESC("request_ttl");
 request_ttl(default) -> ?DEFAULT_REQUEST_TTL_RAW;
@@ -166,7 +166,7 @@ batch_size(default) -> ?DEFAULT_BATCH_SIZE;
 batch_size(required) -> false;
 batch_size(_) -> undefined.
 
-batch_time(type) -> emqx_schema:duration_ms();
+batch_time(type) -> emqx_schema:timeout_duration_ms();
 batch_time(desc) -> ?DESC("batch_time");
 batch_time(default) -> ?DEFAULT_BATCH_TIME_RAW;
 batch_time(required) -> false;
@@ -196,6 +196,10 @@ desc("creation_opts") -> ?DESC("creation_opts").
 
 get_value_with_unit(Value) when is_integer(Value) ->
     <<(erlang:integer_to_binary(Value))/binary, "ms">>;
+get_value_with_unit(Value) when is_list(Value) ->
+    %% Must ensure it's a binary, otherwise formatting the error
+    %% message will fail.
+    list_to_binary(Value);
 get_value_with_unit(Value) ->
     Value.
 

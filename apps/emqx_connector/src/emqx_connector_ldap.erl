@@ -201,5 +201,5 @@ port(type) -> integer();
 port(default) -> 389;
 port(_) -> undefined.
 
-duration(type) -> emqx_schema:duration_ms();
+duration(type) -> emqx_schema:timeout_duration_ms();
 duration(_) -> undefined.

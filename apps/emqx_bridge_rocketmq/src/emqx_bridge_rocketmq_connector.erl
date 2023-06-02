@@ -58,12 +58,12 @@ fields(config) ->
             mk(binary(), #{default => <<>>, desc => ?DESC(security_token), sensitive => true})},
         {sync_timeout,
             mk(
-                emqx_schema:duration(),
+                emqx_schema:timeout_duration(),
                 #{default => <<"3s">>, desc => ?DESC(sync_timeout)}
             )},
         {refresh_interval,
             mk(
-                emqx_schema:duration(),
+                emqx_schema:timeout_duration(),
                 #{default => <<"3s">>, desc => ?DESC(refresh_interval)}
             )},
         {send_buffer,
