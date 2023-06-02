@@ -53,9 +53,14 @@
 callback_mode() -> async_if_possible.
 
 on_start(InstId, Config) ->
+    %% pool would be handled by influxdb client
+    %% so there is no need to allocate pool here
+    %% ehttpc for influxdb-v1/v2,
+    %% ecpool for influxdb-udp
+    %% See: influxdb:start_client/1
     start_client(InstId, Config).
 
-on_stop(_InstId, #{client := Client}) ->
+on_stop(InstId, #{client := Client}) ->
     influxdb:stop_client(Client).
 
 on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, client := Client}) ->
