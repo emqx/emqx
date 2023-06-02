@@ -72,7 +72,7 @@ on_start(InstanceId, Config) ->
                 instance_id => InstanceId,
                 request => maps:get(request, State, <<>>)
             }),
-            ?tp(iotdb_bridge_started, #{}),
+            ?tp(iotdb_bridge_started, #{instance_id => InstanceId}),
             {ok, maps:merge(Config, State)};
         {error, Reason} ->
             ?SLOG(error, #{
@@ -104,83 +104,108 @@ on_get_status(InstanceId, State) ->
     | {ok, pos_integer(), [term()]}
     | {error, term()}.
 on_query(InstanceId, {send_message, Message}, State) ->
+    ?tp(iotdb_bridge_on_query, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
         msg => "iotdb_bridge_on_query_called",
         instance_id => InstanceId,
         send_message => Message,
         state => emqx_utils:redact(State)
     }),
-    IoTDBPayload = make_iotdb_insert_request(Message, State),
-    handle_response(
-        emqx_connector_http:on_query(
-            InstanceId, {send_message, IoTDBPayload}, State
-        )
-    ).
+    case make_iotdb_insert_request(Message, State) of
+        {ok, IoTDBPayload} ->
+            handle_response(
+                emqx_connector_http:on_query(
+                    InstanceId, {send_message, IoTDBPayload}, State
+                )
+            );
+        Error ->
+            Error
+    end.
 
 -spec on_query_async(manager_id(), {send_message, map()}, {function(), [term()]}, state()) ->
-    {ok, pid()}.
+    {ok, pid()} | {error, empty_request}.
 on_query_async(InstanceId, {send_message, Message}, ReplyFunAndArgs0, State) ->
+    ?tp(iotdb_bridge_on_query_async, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
         msg => "iotdb_bridge_on_query_async_called",
         instance_id => InstanceId,
         send_message => Message,
         state => emqx_utils:redact(State)
     }),
-    IoTDBPayload = make_iotdb_insert_request(Message, State),
-    ReplyFunAndArgs =
-        {
-            fun(Result) ->
-                Response = handle_response(Result),
-                emqx_resource:apply_reply_fun(ReplyFunAndArgs0, Response)
-            end,
-            []
-        },
-    emqx_connector_http:on_query_async(
-        InstanceId, {send_message, IoTDBPayload}, ReplyFunAndArgs, State
-    ).
+    case make_iotdb_insert_request(Message, State) of
+        {ok, IoTDBPayload} ->
+            ReplyFunAndArgs =
+                {
+                    fun(Result) ->
+                        Response = handle_response(Result),
+                        emqx_resource:apply_reply_fun(ReplyFunAndArgs0, Response)
+                    end,
+                    []
+                },
+            emqx_connector_http:on_query_async(
+                InstanceId, {send_message, IoTDBPayload}, ReplyFunAndArgs, State
+            );
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-make_parsed_payload(PayloadUnparsed) when is_binary(PayloadUnparsed) ->
-    emqx_utils_json:decode(PayloadUnparsed, [return_maps]);
-make_parsed_payload(PayloadUnparsed) when is_list(PayloadUnparsed) ->
-    lists:map(fun make_parsed_payload/1, PayloadUnparsed);
-make_parsed_payload(
-    #{
-        measurement := Measurement,
-        data_type := DataType,
-        value := Value
-    } = Data
-) ->
-    Data#{
-        <<"measurement">> => Measurement,
-        <<"data_type">> => DataType,
-        <<"value">> => Value
-    }.
+get_payload(#{payload := Payload}) ->
+    Payload;
+get_payload(#{<<"payload">> := Payload}) ->
+    Payload.
+
+parse_payload(ParsedPayload) when is_map(ParsedPayload) ->
+    ParsedPayload;
+parse_payload(UnparsedPayload) when is_binary(UnparsedPayload) ->
+    emqx_utils_json:decode(UnparsedPayload);
+parse_payload(UnparsedPayloads) when is_list(UnparsedPayloads) ->
+    lists:map(fun parse_payload/1, UnparsedPayloads).
+
+preproc_data_list(DataList) ->
+    lists:foldl(
+        fun preproc_data/2,
+        [],
+        DataList
+    ).
 
 preproc_data(
     #{
         <<"measurement">> := Measurement,
         <<"data_type">> := DataType,
         <<"value">> := Value
-    } = Data
+    } = Data,
+    Acc
 ) ->
-    #{
-        timestamp => emqx_plugin_libs_rule:preproc_tmpl(
-            maps:get(<<"timestamp">>, Data, <<"now">>)
-        ),
-        measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
-        data_type => DataType,
-        value => emqx_plugin_libs_rule:preproc_tmpl(Value)
-    }.
+    [
+        #{
+            timestamp => maybe_preproc_tmpl(
+                maps:get(<<"timestamp">>, Data, <<"now">>)
+            ),
+            measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
+            data_type => DataType,
+            value => maybe_preproc_tmpl(Value)
+        }
+        | Acc
+    ];
+preproc_data(_NoMatch, Acc) ->
+    ?SLOG(
+        warning,
+        #{
+            msg => "iotdb_bridge_preproc_data_failed",
+            required_fields => ['measurement', 'data_type', 'value'],
+            received => _NoMatch
+        }
+    ),
+    Acc.
 
-preproc_data_list(DataList) ->
-    lists:map(
-        fun preproc_data/1,
-        DataList
-    ).
+maybe_preproc_tmpl(Value) when is_binary(Value) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Value);
+maybe_preproc_tmpl(Value) ->
+    Value.
 
 proc_data(PreProcessedData, Msg) ->
     NowNS = erlang:system_time(nanosecond),
@@ -199,9 +224,7 @@ proc_data(PreProcessedData, Msg) ->
             }
         ) ->
             #{
-                timestamp => iot_timestamp(
-                    emqx_plugin_libs_rule:proc_tmpl(TimestampTkn, Msg), Nows
-                ),
+                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
                 measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Msg),
                 data_type => DataType,
                 value => proc_value(DataType, ValueTkn, Msg)
@@ -209,6 +232,11 @@ proc_data(PreProcessedData, Msg) ->
         end,
         PreProcessedData
     ).
+
+iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
+    Timestamp;
+iot_timestamp(TimestampTkn, Msg, Nows) ->
+    iot_timestamp(emqx_plugin_libs_rule:proc_tmpl(TimestampTkn, Msg), Nows).
 
 iot_timestamp(Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>
@@ -240,6 +268,7 @@ replace_var(Val, _Data) ->
     Val.
 
 convert_bool(B) when is_boolean(B) -> B;
+convert_bool(null) -> null;
 convert_bool(1) -> true;
 convert_bool(0) -> false;
 convert_bool(<<"1">>) -> true;
@@ -249,8 +278,7 @@ convert_bool(<<"True">>) -> true;
 convert_bool(<<"TRUE">>) -> true;
 convert_bool(<<"false">>) -> false;
 convert_bool(<<"False">>) -> false;
-convert_bool(<<"FALSE">>) -> false;
-convert_bool(undefined) -> null.
+convert_bool(<<"FALSE">>) -> false.
 
 convert_int(Int) when is_integer(Int) -> Int;
 convert_int(Float) when is_float(Float) -> floor(Float);
@@ -276,24 +304,29 @@ convert_float(Str) when is_binary(Str) ->
 convert_float(undefined) ->
     null.
 
-make_iotdb_insert_request(MessageUnparsedPayload, State) ->
-    Message = maps:update_with(payload, fun make_parsed_payload/1, MessageUnparsedPayload),
+make_iotdb_insert_request(Message, State) ->
+    Payloads = to_list(parse_payload(get_payload(Message))),
     IsAligned = maps:get(is_aligned, State, false),
-    DeviceId = device_id(Message, State),
     IotDBVsn = maps:get(iotdb_version, State, ?VSN_1_1_X),
-    Payload = make_list(maps:get(payload, Message)),
-    PreProcessedData = preproc_data_list(Payload),
-    DataList = proc_data(PreProcessedData, Message),
-    InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
-    Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IotDBVsn),
-    maps:merge(Rows, #{
-        iotdb_field_key(is_aligned, IotDBVsn) => IsAligned,
-        iotdb_field_key(device_id, IotDBVsn) => DeviceId
-    }).
+    case {device_id(Message, Payloads, State), preproc_data_list(Payloads)} of
+        {undefined, _} ->
+            {error, device_id_missing};
+        {_, []} ->
+            {error, invalid_data};
+        {DeviceId, PreProcessedData} ->
+            DataList = proc_data(PreProcessedData, Message),
+            InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
+            Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IotDBVsn),
+            {ok,
+                maps:merge(Rows, #{
+                    iotdb_field_key(is_aligned, IotDBVsn) => IsAligned,
+                    iotdb_field_key(device_id, IotDBVsn) => DeviceId
+                })}
+    end.
 
-replace_dtypes(Rows, IotDBVsn) ->
-    {Types, Map} = maps:take(dtypes, Rows),
-    Map#{iotdb_field_key(data_types, IotDBVsn) => Types}.
+replace_dtypes(Rows0, IotDBVsn) ->
+    {Types, Rows} = maps:take(dtypes, Rows0),
+    Rows#{iotdb_field_key(data_types, IotDBVsn) => Types}.
 
 aggregate_rows(DataList, InitAcc) ->
     lists:foldr(
@@ -368,24 +401,14 @@ iotdb_field_key(data_types, ?VSN_1_0_X) ->
 iotdb_field_key(data_types, ?VSN_0_13_X) ->
     <<"dataTypes">>.
 
-make_list(List) when is_list(List) -> List;
-make_list(Data) -> [Data].
+to_list(List) when is_list(List) -> List;
+to_list(Data) -> [Data].
 
-device_id(Message, State) ->
+device_id(Message, Payloads, State) ->
     case maps:get(device_id, State, undefined) of
         undefined ->
-            case maps:get(payload, Message) of
-                #{<<"device_id">> := DeviceId} ->
-                    DeviceId;
-                #{device_id := DeviceId} ->
-                    DeviceId;
-                _NotFound ->
-                    Topic = maps:get(topic, Message),
-                    case re:replace(Topic, "/", ".", [global, {return, binary}]) of
-                        <<"root.", _/binary>> = Device -> Device;
-                        Device -> <<"root.", Device/binary>>
-                    end
-            end;
+            %% [FIXME] there could be conflicting device-ids in the Payloads
+            maps:get(<<"device_id">>, hd(Payloads), undefined);
         DeviceId ->
             DeviceIdTkn = emqx_plugin_libs_rule:preproc_tmpl(DeviceId),
             emqx_plugin_libs_rule:proc_tmpl(DeviceIdTkn, Message)

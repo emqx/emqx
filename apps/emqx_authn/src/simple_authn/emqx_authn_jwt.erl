@@ -158,12 +158,15 @@ verify_claims(type) ->
 verify_claims(desc) ->
     ?DESC(?FUNCTION_NAME);
 verify_claims(default) ->
-    #{};
+    [];
 verify_claims(validator) ->
     [fun do_check_verify_claims/1];
 verify_claims(converter) ->
-    fun(VerifyClaims) ->
-        [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)]
+    fun
+        (VerifyClaims) when is_map(VerifyClaims) ->
+            [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)];
+        (VerifyClaims) ->
+            VerifyClaims
     end;
 verify_claims(required) ->
     false;

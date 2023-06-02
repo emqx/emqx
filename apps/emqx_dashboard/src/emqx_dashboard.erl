@@ -59,6 +59,11 @@ start_listeners(Listeners) ->
                     scheme => basic,
                     description =>
                         <<"Authorize with [API Keys](https://www.emqx.io/docs/en/v5.0/admin/api.html#api-keys)">>
+                },
+                'bearerAuth' => #{
+                    type => http,
+                    scheme => bearer,
+                    description => <<"Authorize with Bearer Token">>
                 }
             }
         }

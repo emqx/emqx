@@ -39,7 +39,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_channel_SUITE:set_test_listener_confs(),
+    emqx_common_test_helpers:start_apps([]),
     ok = meck:new(
         [emqx_hooks, emqx_metrics, emqx_broker],
         [passthrough, no_history, no_link]
