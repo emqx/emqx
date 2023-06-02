@@ -18,13 +18,13 @@ else
 fi
 
 apk update && apk add git curl
-git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
-pip install pytest==6.2.5
+git clone -b develop-5.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
+pip install pytest==7.1.2 pytest-retry
 
-pytest -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "$TARGET_HOST"
+pytest --retries 3 -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "$TARGET_HOST"
 RESULT=$?
 
-pytest -v /paho.mqtt.testing/interoperability/test_client --host "$TARGET_HOST"
+pytest --retries 3 -v /paho.mqtt.testing/interoperability/test_client --host "$TARGET_HOST"
 RESULT=$(( RESULT + $? ))
 
 # pytest -v /paho.mqtt.testing/interoperability/test_cluster --host1 "node1.emqx.io" --host2 "node2.emqx.io"

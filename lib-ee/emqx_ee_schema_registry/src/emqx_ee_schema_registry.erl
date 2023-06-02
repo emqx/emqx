@@ -104,38 +104,32 @@ list_schemas() ->
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_config_handler' API
 %%-------------------------------------------------------------------------------------------------
-
+%% remove
 post_config_update(
-    [?CONF_KEY_ROOT, schemas] = _Path,
-    _Cmd,
-    NewConf = #{schemas := NewSchemas},
-    OldConf = #{},
+    [?CONF_KEY_ROOT, schemas, Name],
+    '$remove',
+    _NewSchemas,
+    _OldSchemas,
     _AppEnvs
 ) ->
-    OldSchemas = maps:get(schemas, OldConf, #{}),
-    #{
-        added := Added,
-        changed := Changed0,
-        removed := Removed
-    } = emqx_utils_maps:diff_maps(NewSchemas, OldSchemas),
-    Changed = maps:map(fun(_N, {_Old, New}) -> New end, Changed0),
-    RemovedNames = maps:keys(Removed),
-    case RemovedNames of
-        [] ->
-            ok;
-        _ ->
-            async_delete_serdes(RemovedNames)
-    end,
-    SchemasToBuild = maps:to_list(maps:merge(Changed, Added)),
-    case build_serdes(SchemasToBuild) of
+    async_delete_serdes([Name]),
+    ok;
+%% add or update
+post_config_update(
+    [?CONF_KEY_ROOT, schemas, NewName],
+    _Cmd,
+    NewSchemas,
+    %% undefined or OldSchemas
+    _,
+    _AppEnvs
+) ->
+    case build_serdes([{NewName, NewSchemas}]) of
         ok ->
-            {ok, NewConf};
+            {ok, #{NewName => NewSchemas}};
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
-    end;
-post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
-    {ok, NewConf}.
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% `gen_server' API

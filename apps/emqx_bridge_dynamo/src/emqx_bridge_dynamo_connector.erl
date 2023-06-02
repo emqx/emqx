@@ -170,7 +170,12 @@ do_query(
                 query => Query,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         _ ->
             ?tp(
                 dynamo_connector_query_return,

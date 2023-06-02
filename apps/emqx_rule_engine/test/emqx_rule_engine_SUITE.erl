@@ -472,19 +472,17 @@ t_ensure_action_removed(_) ->
     Id = <<"t_ensure_action_removed">>,
     GetSelectedData = <<"emqx_rule_sqltester:get_selected_data">>,
     emqx:update_config(
-        [rule_engine, rules],
+        [rule_engine, rules, Id],
         #{
-            Id => #{
-                <<"actions">> => [
-                    #{<<"function">> => GetSelectedData},
-                    #{<<"function">> => <<"console">>},
-                    #{<<"function">> => <<"republish">>},
-                    <<"mysql:foo">>,
-                    <<"mqtt:bar">>
-                ],
-                <<"description">> => <<"">>,
-                <<"sql">> => <<"SELECT * FROM \"t/#\"">>
-            }
+            <<"actions">> => [
+                #{<<"function">> => GetSelectedData},
+                #{<<"function">> => <<"console">>},
+                #{<<"function">> => <<"republish">>},
+                <<"mysql:foo">>,
+                <<"mqtt:bar">>
+            ],
+            <<"description">> => <<"">>,
+            <<"sql">> => <<"SELECT * FROM \"t/#\"">>
         }
     ),
     ?assertMatch(

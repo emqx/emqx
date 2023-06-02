@@ -322,7 +322,8 @@ validate_name(Name) ->
 
 %% API CallBack Begin
 list_plugins(get, _) ->
-    {Plugins, []} = emqx_mgmt_api_plugins_proto_v1:get_plugins(),
+    Nodes = emqx:running_nodes(),
+    {Plugins, []} = emqx_mgmt_api_plugins_proto_v2:get_plugins(Nodes),
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
@@ -373,7 +374,8 @@ upload_install(post, #{}) ->
 
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
+    Nodes = emqx:running_nodes(),
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v2:install_package(Nodes, FileName, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {200};
@@ -386,7 +388,11 @@ do_install_package(FileName, Bin) ->
                 end,
                 Filtered
             ),
-            {error, #{error := Reason}} = hd(Filtered),
+            Reason =
+                case hd(Filtered) of
+                    {error, #{error := Reason0}} -> Reason0;
+                    {error, #{reason := Reason0}} -> Reason0
+                end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
                 message => iolist_to_binary([Reason, ":", FileName])
@@ -394,17 +400,18 @@ do_install_package(FileName, Bin) ->
     end.
 
 plugin(get, #{bindings := #{name := Name}}) ->
-    {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
+    Nodes = emqx:running_nodes(),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v2:describe_package(Nodes, Name),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => Name}}
     end;
 plugin(delete, #{bindings := #{name := Name}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v1:delete_package(Name),
+    Res = emqx_mgmt_api_plugins_proto_v2:delete_package(Name),
     return(204, Res).
 
 update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v1:ensure_action(Name, Action),
+    Res = emqx_mgmt_api_plugins_proto_v2:ensure_action(Name, Action),
     return(204, Res).
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->

@@ -222,7 +222,12 @@ on_sql_query(InstId, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
                 sql => NameOrSQL,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         Result ->
             ?tp(
                 oracle_connector_query_return,

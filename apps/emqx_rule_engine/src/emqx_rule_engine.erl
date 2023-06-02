@@ -26,8 +26,7 @@
 -export([start_link/0]).
 
 -export([
-    post_config_update/5,
-    config_key_path/0
+    post_config_update/5
 ]).
 
 %% Rule Management
@@ -102,9 +101,6 @@
 
 -type action_name() :: binary() | #{function := binary()}.
 
-config_key_path() ->
-    [rule_engine, rules].
-
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
     gen_server:start_link({local, ?RULE_ENGINE}, ?MODULE, [], []).
@@ -112,7 +108,13 @@ start_link() ->
 %%------------------------------------------------------------------------------
 %% The config handler for emqx_rule_engine
 %%------------------------------------------------------------------------------
-post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs) ->
+    create_rule(NewRule#{id => bin(RuleId)});
+post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs) ->
+    delete_rule(bin(RuleId));
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs) ->
+    update_rule(NewRule#{id => bin(RuleId)});
+post_config_update([rule_engine], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_utils_maps:diff_maps(NewRules, OldRules),
     try
@@ -134,7 +136,7 @@ post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
             end,
             Added
         ),
-        {ok, get_rules()}
+        ok
     catch
         throw:#{kind := _} = Error ->
             {error, Error}
@@ -247,11 +249,11 @@ ensure_action_removed(RuleId, ActionName) ->
     case emqx:get_raw_config([rule_engine, rules, RuleId], not_found) of
         not_found ->
             ok;
-        #{<<"actions">> := Acts} ->
+        #{<<"actions">> := Acts} = Conf ->
             NewActs = [AName || AName <- Acts, FilterFunc(AName, ActionName)],
             {ok, _} = emqx_conf:update(
-                emqx_rule_engine:config_key_path() ++ [RuleId, actions],
-                NewActs,
+                ?RULE_PATH(RuleId),
+                Conf#{<<"actions">> => NewActs},
                 #{override_to => cluster}
             ),
             ok
@@ -372,7 +374,7 @@ init([]) ->
         {write_concurrency, true},
         {read_concurrency, true}
     ]),
-    ok = emqx_config_handler:add_handler(
+    ok = emqx_conf:add_handler(
         [rule_engine, jq_implementation_module],
         emqx_rule_engine_schema
     ),

@@ -23,14 +23,31 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_config:erase_all(),
+    ok.
+
 t_run_gc(_) ->
-    ok = emqx_config:put([node, global_gc_interval], 1000),
+    Conf0 = #{
+        node => #{
+            cookie => <<"cookie">>,
+            data_dir => <<"data">>,
+            global_gc_interval => 1000
+        }
+    },
+    emqx_common_test_helpers:load_config(emqx_conf_schema, Conf0),
+    ?assertEqual({ok, 1000}, application:get_env(emqx_machine, global_gc_interval)),
     {ok, _} = emqx_global_gc:start_link(),
     ok = timer:sleep(1500),
     {ok, MilliSecs} = emqx_global_gc:run(),
-    ct:print("Global GC: ~w(ms)~n", [MilliSecs]),
+    ct:pal("Global GC: ~w(ms)~n", [MilliSecs]),
     emqx_global_gc:stop(),
-    ok = emqx_config:put([node, global_gc_interval], disabled),
+    Conf1 = emqx_utils_maps:deep_put([node, global_gc_interval], Conf0, disabled),
+    emqx_common_test_helpers:load_config(emqx_conf_schema, Conf1),
     {ok, Pid} = emqx_global_gc:start_link(),
     ?assertMatch(#{timer := undefined}, sys:get_state(Pid)),
+    ?assertEqual({ok, disabled}, application:get_env(emqx_machine, global_gc_interval)),
     ok.

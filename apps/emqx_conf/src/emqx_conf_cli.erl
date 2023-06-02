@@ -18,16 +18,40 @@
 -export([
     load/0,
     admins/1,
+    conf/1,
     unload/0
 ]).
 
--define(CMD, cluster_call).
+-define(CLUSTER_CALL, cluster_call).
+-define(CONF, conf).
 
 load() ->
-    emqx_ctl:register_command(?CMD, {?MODULE, admins}, []).
+    emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, []),
+    emqx_ctl:register_command(?CONF, {?MODULE, conf}, []).
 
 unload() ->
-    emqx_ctl:unregister_command(?CMD).
+    emqx_ctl:unregister_command(?CLUSTER_CALL),
+    emqx_ctl:unregister_command(?CONF).
+
+conf(["show", "--keys-only"]) ->
+    print(emqx_config:get_root_names());
+conf(["show"]) ->
+    print_hocon(get_config());
+conf(["show", Key]) ->
+    print_hocon(get_config(Key));
+conf(["load", Path]) ->
+    load_config(Path);
+conf(_) ->
+    emqx_ctl:usage(
+        [
+            %% TODO add reload
+            %{"conf reload", "reload etc/emqx.conf on local node"},
+            {"conf show --keys-only", "print all keys"},
+            {"conf show", "print all running configures"},
+            {"conf show <key>", "print a specific configuration"},
+            {"conf load <path>", "load a hocon file to all nodes"}
+        ]
+    ).
 
 admins(["status"]) ->
     status();
@@ -43,7 +67,7 @@ admins(["skip", Node0]) ->
     status();
 admins(["tnxid", TnxId0]) ->
     TnxId = list_to_integer(TnxId0),
-    emqx_ctl:print("~p~n", [emqx_cluster_rpc:query(TnxId)]);
+    print(emqx_cluster_rpc:query(TnxId));
 admins(["fast_forward"]) ->
     status(),
     Nodes = mria:running_nodes(),
@@ -91,3 +115,30 @@ status() ->
         Status
     ),
     emqx_ctl:print("-----------------------------------------------\n").
+
+print(Json) ->
+    emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
+
+print_hocon(Hocon) ->
+    emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]).
+
+get_config() -> emqx_config:fill_defaults(emqx:get_raw_config([])).
+get_config(Key) -> emqx_config:fill_defaults(#{Key => emqx:get_raw_config([Key])}).
+
+-define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
+load_config(Path) ->
+    case hocon:files([Path]) of
+        {ok, Conf} ->
+            maps:foreach(
+                fun(Key, Value) ->
+                    case emqx_conf:update([Key], Value, ?OPTIONS) of
+                        {ok, _} -> emqx_ctl:print("load ~ts ok~n", [Key]);
+                        {error, Reason} -> emqx_ctl:print("load ~ts failed: ~p~n", [Key, Reason])
+                    end
+                end,
+                Conf
+            );
+        {error, Reason} ->
+            emqx_ctl:print("load ~ts failed~n~p~n", [Path, Reason]),
+            {error, bad_hocon_file}
+    end.

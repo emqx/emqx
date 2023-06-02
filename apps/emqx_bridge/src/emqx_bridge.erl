@@ -39,7 +39,8 @@
     disable_enable/3,
     remove/2,
     check_deps_and_remove/3,
-    list/0
+    list/0,
+    reload_hook/1
 ]).
 
 -export([
@@ -132,6 +133,10 @@ safe_load_bridge(Type, Name, Conf, Opts) ->
                 stacktrace => ST
             })
     end.
+
+reload_hook(Bridges) ->
+    ok = unload_hook(),
+    ok = load_hook(Bridges).
 
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),

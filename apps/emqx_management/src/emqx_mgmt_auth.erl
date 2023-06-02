@@ -20,6 +20,7 @@
 %% API
 -export([mnesia/1]).
 -boot_mnesia({mnesia, [boot]}).
+-behaviour(emqx_config_handler).
 
 -export([
     create/4,
@@ -31,6 +32,7 @@
 ]).
 
 -export([authorize/3]).
+-export([post_config_update/5]).
 
 %% Internal exports (RPC)
 -export([
@@ -64,6 +66,17 @@ mnesia(boot) ->
         {record_name, ?APP},
         {attributes, record_info(fields, ?APP)}
     ]).
+
+post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
+    #{bootstrap_file := File} = NewConf,
+    case init_bootstrap_file(File) of
+        ok ->
+            ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file_ok", file => File});
+        {error, Reason} ->
+            Msg = "init_bootstrap_api_keys_from_file_failed",
+            ?SLOG(error, #{msg => Msg, reason => Reason, file => File})
+    end,
+    ok.
 
 -spec init_bootstrap_file() -> ok | {error, _}.
 init_bootstrap_file() ->
@@ -230,13 +243,7 @@ generate_api_secret() ->
     emqx_base62:encode(Random).
 
 bootstrap_file() ->
-    case emqx:get_config([api_key, bootstrap_file], <<>>) of
-        %% For compatible remove until 5.1.0
-        <<>> ->
-            emqx:get_config([dashboard, bootstrap_users_file], <<>>);
-        File ->
-            File
-    end.
+    emqx:get_config([api_key, bootstrap_file], <<>>).
 
 init_bootstrap_file(<<>>) ->
     ok;

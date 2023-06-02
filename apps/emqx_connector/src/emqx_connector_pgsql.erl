@@ -241,7 +241,12 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
                 sql => NameOrSQL,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         Result ->
             ?tp(
                 pgsql_connector_query_return,

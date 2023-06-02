@@ -12,6 +12,11 @@ else
     SCHEMA="$(realpath "$1")"
 fi
 
+if ! [ -f "$SCHEMA" ]; then
+  echo "Schema file $SCHEMA does not exist; did you forget to run 'make emqx{,-enterprise}' ?"
+  exit 1
+fi
+
 set +e
 docker run --rm -i --name spellcheck \
     -v "${PROJ_ROOT}"/scripts/spellcheck/dicts:/dicts \

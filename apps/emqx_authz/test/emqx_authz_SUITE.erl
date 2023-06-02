@@ -272,8 +272,79 @@ t_update_source(_) ->
         ],
         emqx_conf:get([authorization, sources], [])
     ),
+    ?assertMatch(
+        [
+            #{type := http, enable := false},
+            #{type := mongodb, enable := false},
+            #{type := mysql, enable := false},
+            #{type := postgresql, enable := false},
+            #{type := redis, enable := false},
+            #{type := file, enable := false}
+        ],
+        emqx_authz:lookup()
+    ),
 
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []).
+
+t_replace_all(_) ->
+    RootKey = [<<"authorization">>],
+    Conf = emqx:get_raw_config(RootKey),
+    emqx_authz_utils:update_config(RootKey, Conf#{
+        <<"sources">> => [
+            ?SOURCE6, ?SOURCE5, ?SOURCE4, ?SOURCE3, ?SOURCE2, ?SOURCE1
+        ]
+    }),
+    %% config
+    ?assertMatch(
+        [
+            #{type := file, enable := true},
+            #{type := redis, enable := true},
+            #{type := postgresql, enable := true},
+            #{type := mysql, enable := true},
+            #{type := mongodb, enable := true},
+            #{type := http, enable := true}
+        ],
+        emqx_conf:get([authorization, sources], [])
+    ),
+    %% hooks status
+    ?assertMatch(
+        [
+            #{type := file, enable := true},
+            #{type := redis, enable := true},
+            #{type := postgresql, enable := true},
+            #{type := mysql, enable := true},
+            #{type := mongodb, enable := true},
+            #{type := http, enable := true}
+        ],
+        emqx_authz:lookup()
+    ),
+    Ids = [http, mongodb, mysql, postgresql, redis, file],
+    %% metrics
+    lists:foreach(
+        fun(Id) ->
+            ?assert(emqx_metrics_worker:has_metrics(authz_metrics, Id), Id)
+        end,
+        Ids
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_authz_utils:update_config(
+            RootKey,
+            Conf#{<<"sources">> => [?SOURCE1#{<<"enable">> => false}]}
+        )
+    ),
+    %% hooks status
+    ?assertMatch([#{type := http, enable := false}], emqx_authz:lookup()),
+    %% metrics
+    ?assert(emqx_metrics_worker:has_metrics(authz_metrics, http)),
+    lists:foreach(
+        fun(Id) ->
+            ?assertNot(emqx_metrics_worker:has_metrics(authz_metrics, Id), Id)
+        end,
+        Ids -- [http]
+    ),
+    ok.
 
 t_delete_source(_) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE1]),

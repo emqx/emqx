@@ -464,7 +464,12 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
         sql => SQL,
         reason => ClickhouseErrorResult
     }),
-    {error, ClickhouseErrorResult}.
+    case ClickhouseErrorResult of
+        {error, ecpool_empty} ->
+            {error, {recoverable_error, ecpool_empty}};
+        _ ->
+            {error, ClickhouseErrorResult}
+    end.
 
 snabbkaffe_log_return(_Result) ->
     ?tp(

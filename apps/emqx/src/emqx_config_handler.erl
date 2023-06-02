@@ -31,8 +31,7 @@
     remove_handler/1,
     update_config/3,
     get_raw_cluster_override_conf/0,
-    info/0,
-    merge_to_old_config/2
+    info/0
 ]).
 
 %% gen_server callbacks
@@ -332,31 +331,16 @@ do_post_config_update(
     SubOldConf = get_sub_config(ConfKey, OldConf),
     SubNewConf = get_sub_config(ConfKey, NewConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
-    case
-        do_post_config_update(
-            SubConfKeyPath,
-            SubHandlers,
-            SubOldConf,
-            SubNewConf,
-            AppEnvs,
-            UpdateArgs,
-            Result,
-            ConfKeyPath
-        )
-    of
-        {ok, Result1} ->
-            call_post_config_update(
-                Handlers,
-                OldConf,
-                NewConf,
-                AppEnvs,
-                up_req(UpdateArgs),
-                Result1,
-                ConfKeyPath
-            );
-        Error ->
-            Error
-    end.
+    do_post_config_update(
+        SubConfKeyPath,
+        SubHandlers,
+        SubOldConf,
+        SubNewConf,
+        AppEnvs,
+        UpdateArgs,
+        Result,
+        ConfKeyPath
+    ).
 
 get_sub_handlers(ConfKey, Handlers) ->
     case maps:find(ConfKey, Handlers) of

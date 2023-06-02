@@ -161,6 +161,10 @@ t_invalid_topic_format(Config) ->
     ),
     ?assertRCName(
         unspecified_error,
+        emqtt:publish(C, <<"$file/fileid/fin/42/xyz">>, <<>>, 1)
+    ),
+    ?assertRCName(
+        unspecified_error,
         emqtt:publish(C, <<"$file/">>, <<>>, 1)
     ),
     ?assertRCName(
@@ -390,9 +394,18 @@ t_invalid_checksum(Config) ->
         with_offsets(Data)
     ),
 
+    % Send `fin` w/o checksum, should fail since filemeta checksum is invalid
+    FinTopic = mk_fin_topic(FileId, Filesize),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
+        emqtt:publish(C, FinTopic, <<>>, 1)
+    ),
+
+    % Send `fin` with the correct checksum
+    Checksum = binary:encode_hex(sha256(Data)),
+    ?assertRCName(
+        success,
+        emqtt:publish(C, <<FinTopic/binary, "/", Checksum/binary>>, <<>>, 1)
     ).
 
 t_corrupted_segment_retry(Config) ->
@@ -507,7 +520,7 @@ t_assemble_crash(Config) ->
     C = ?config(client, Config),
 
     meck:new(emqx_ft_storage_fs),
-    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _, _) -> meck:exception(error, oops) end),
+    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _, _, _) -> meck:exception(error, oops) end),
 
     ?assertRCName(
         unspecified_error,

@@ -47,7 +47,8 @@ groups() ->
     [
         {copy_plugin, [sequence], [
             group_t_copy_plugin_to_a_new_node,
-            group_t_copy_plugin_to_a_new_node_single_node
+            group_t_copy_plugin_to_a_new_node_single_node,
+            group_t_cluster_leave
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
@@ -673,6 +674,86 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     ?assertMatch(
         {ok, #{running_status := running, config_status := enabled}},
         rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
+    ),
+    ok.
+
+group_t_cluster_leave({init, Config}) ->
+    PrivDataDir = ?config(priv_dir, Config),
+    ToInstallDir = filename:join(PrivDataDir, "plugins_copy_to"),
+    file:del_dir_r(ToInstallDir),
+    ok = filelib:ensure_path(ToInstallDir),
+    #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    Cluster =
+        emqx_common_test_helpers:emqx_cluster(
+            [core, core],
+            #{
+                apps => [emqx_conf, emqx_plugins],
+                env => [
+                    {emqx, init_config_load_done, false},
+                    {emqx, boot_modules, []}
+                ],
+                env_handler => fun
+                    (emqx_plugins) ->
+                        ok = emqx_plugins:put_config(install_dir, ToInstallDir),
+                        %% this is to simulate an user setting the state
+                        %% via environment variables before starting the node
+                        ok = emqx_plugins:put_config(
+                            states,
+                            [#{name_vsn => NameVsn, enable => true}]
+                        ),
+                        ok;
+                    (_) ->
+                        ok
+                end,
+                priv_data_dir => PrivDataDir,
+                schema_mod => emqx_conf_schema,
+                peer_mod => slave,
+                load_schema => true
+            }
+        ),
+    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    [
+        {to_install_dir, ToInstallDir},
+        {cluster, Cluster},
+        {nodes, Nodes},
+        {name_vsn, NameVsn},
+        {plugin_name, PluginName}
+        | Config
+    ];
+group_t_cluster_leave({'end', Config}) ->
+    Nodes = proplists:get_value(nodes, Config),
+    [ok = emqx_common_test_helpers:stop_slave(N) || N <- Nodes],
+    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
+    ok;
+group_t_cluster_leave(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = erpc:call(N1, emqx_plugins, ensure_installed, [NameVsn]),
+    ok = erpc:call(N1, emqx_plugins, ensure_started, [NameVsn]),
+    ok = erpc:call(N1, emqx_plugins, ensure_enabled, [NameVsn]),
+    Params = unused,
+    %% 2 nodes running
+    ?assertMatch(
+        {200, [#{running_status := [#{status := running}, #{status := running}]}]},
+        erpc:call(N1, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+    ?assertMatch(
+        {200, [#{running_status := [#{status := running}, #{status := running}]}]},
+        erpc:call(N2, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+
+    %% Now, one node leaves the cluster.
+    ok = erpc:call(N2, ekka, leave, []),
+
+    %% Each node will no longer ask the plugin status to the other.
+    ?assertMatch(
+        {200, [#{running_status := [#{node := N1, status := running}]}]},
+        erpc:call(N1, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+    ?assertMatch(
+        {200, [#{running_status := [#{node := N2, status := running}]}]},
+        erpc:call(N2, emqx_mgmt_api_plugins, list_plugins, [get, Params])
     ),
     ok.
 
