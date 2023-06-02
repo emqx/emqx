@@ -240,11 +240,11 @@ find_references(Root) ->
         Config
     ).
 
-is_file_reference([<<"keyfile">> | _]) -> true;
-is_file_reference([<<"certfile">> | _]) -> true;
-is_file_reference([<<"cacertfile">> | _]) -> true;
-is_file_reference([<<"issuer_pem">>, <<"ocsp">> | _]) -> true;
-is_file_reference(_) -> false.
+is_file_reference(Stack) ->
+    lists:any(
+        fun(KP) -> lists:prefix(lists:reverse(KP), Stack) end,
+        emqx_tls_lib:ssl_file_conf_keypaths()
+    ).
 
 is_string(Value) ->
     is_list(Value) orelse is_binary(Value).

@@ -31,6 +31,7 @@
     ensure_ssl_files/2,
     ensure_ssl_files/3,
     drop_invalid_certs/1,
+    ssl_file_conf_keypaths/0,
     pem_dir/1,
     is_managed_ssl_file/1,
     is_valid_pem_file/1,
@@ -370,6 +371,10 @@ is_valid_string(Binary) when is_binary(Binary) ->
         String when is_list(String) -> is_valid_string(String);
         _Otherwise -> false
     end.
+
+-spec ssl_file_conf_keypaths() -> [_ConfKeypath :: [binary()]].
+ssl_file_conf_keypaths() ->
+    ?SSL_FILE_OPT_PATHS.
 
 %% Check if it is a valid PEM formatted key.
 is_pem(MaybePem) ->
