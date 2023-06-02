@@ -306,7 +306,7 @@ t_observe(Config) ->
     test_recv_mqtt_response(RespTopic),
 
     %% step2, call observe API
-    ?assertMatch({204, []}, call_deprecated_send_api(Epn, "observe", "path=/3/0/1&enable=false")),
+    ?assertMatch({204, []}, call_send_api(Epn, "observe", "path=/3/0/1&enable=false")),
     timer:sleep(100),
     #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
     ?assertEqual(con, Type),
@@ -327,9 +327,6 @@ call_lookup_api(ClientId, Path, Action) ->
 
 call_send_api(ClientId, Cmd, Query) ->
     call_send_api(ClientId, Cmd, Query, "gateways/lwm2m/clients").
-
-call_deprecated_send_api(ClientId, Cmd, Query) ->
-    call_send_api(ClientId, Cmd, Query, "gateway/lwm2m/clients").
 
 call_send_api(ClientId, Cmd, Query, API) ->
     ApiPath = emqx_mgmt_api_test_util:api_path([API, ClientId, Cmd]),

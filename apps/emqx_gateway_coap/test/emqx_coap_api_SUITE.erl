@@ -97,8 +97,6 @@ t_send_request_api(_) ->
         ?assertEqual(Payload, RPayload)
     end,
     Test("gateways/coap/clients/client1/request"),
-    timer:sleep(100),
-    Test("gateway/coap/clients/client1/request"),
     erlang:exit(ClientId, kill),
     ok.
 
