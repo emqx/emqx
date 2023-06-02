@@ -86,8 +86,7 @@ groups() ->
     SingleOnlyTests = [
         t_broken_bpapi_vsn,
         t_old_bpapi_vsn,
-        t_bridges_probe,
-        t_auto_restart_interval
+        t_bridges_probe
     ],
     ClusterLaterJoinOnlyTCs = [t_cluster_later_join_metrics],
     [
@@ -558,89 +557,6 @@ t_http_crud_apis(Config) ->
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), Config).
-
-t_auto_restart_interval(Config) ->
-    Port = ?config(port, Config),
-    %% assert we there's no bridges at first
-    {ok, 200, []} = request_json(get, uri(["bridges"]), Config),
-
-    meck:new(emqx_resource, [passthrough]),
-    meck:expect(emqx_resource, call_start, fun(_, _, _) -> {error, fake_error} end),
-
-    %% then we add a webhook bridge, using POST
-    %% POST /bridges/ will create a bridge
-    URL1 = ?URL(Port, "path1"),
-    Name = ?BRIDGE_NAME,
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
-    BridgeParams = ?HTTP_BRIDGE(URL1, Name)#{
-        <<"resource_opts">> => #{<<"auto_restart_interval">> => "1s"}
-    },
-    ?check_trace(
-        begin
-            ?assertMatch(
-                {ok, 201, #{
-                    <<"type">> := ?BRIDGE_TYPE_HTTP,
-                    <<"name">> := Name,
-                    <<"enable">> := true,
-                    <<"status">> := _,
-                    <<"node_status">> := [_ | _],
-                    <<"url">> := URL1
-                }},
-                request_json(
-                    post,
-                    uri(["bridges"]),
-                    BridgeParams,
-                    Config
-                )
-            ),
-            {ok, _} = ?block_until(#{?snk_kind := resource_disconnected_enter}),
-            {ok, _} = ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500)
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(resource_auto_reconnect, Trace0),
-            ?assertMatch([#{}], Trace),
-            ok
-        end
-    ),
-    %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), Config),
-    {ok, 200, []} = request_json(get, uri(["bridges"]), Config),
-
-    %% auto_retry_interval=infinity
-    BridgeParams1 = BridgeParams#{
-        <<"resource_opts">> => #{<<"auto_restart_interval">> => "infinity"}
-    },
-    ?check_trace(
-        begin
-            ?assertMatch(
-                {ok, 201, #{
-                    <<"type">> := ?BRIDGE_TYPE_HTTP,
-                    <<"name">> := Name,
-                    <<"enable">> := true,
-                    <<"status">> := _,
-                    <<"node_status">> := [_ | _],
-                    <<"url">> := URL1
-                }},
-                request_json(
-                    post,
-                    uri(["bridges"]),
-                    BridgeParams1,
-                    Config
-                )
-            ),
-            {ok, _} = ?block_until(#{?snk_kind := resource_disconnected_enter}),
-            ?assertEqual(timeout, ?block_until(#{?snk_kind := resource_auto_reconnect}, 1500))
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(resource_auto_reconnect, Trace0),
-            ?assertMatch([], Trace),
-            ok
-        end
-    ),
-    %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), Config),
-    {ok, 200, []} = request_json(get, uri(["bridges"]), Config),
-    meck:unload(emqx_resource).
 
 t_http_bridges_local_topic(Config) ->
     Port = ?config(port, Config),
@@ -1384,7 +1300,7 @@ t_metrics(Config) ->
     ),
     ok.
 
-%% request_timeout in bridge root should match request_timeout in
+%% request_timeout in bridge root should match request_ttl in
 %% resource_opts.
 t_inconsistent_webhook_request_timeouts(Config) ->
     Port = ?config(port, Config),
@@ -1395,7 +1311,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
             ?HTTP_BRIDGE(URL1, Name),
             #{
                 <<"request_timeout">> => <<"1s">>,
-                <<"resource_opts">> => #{<<"request_timeout">> => <<"2s">>}
+                <<"resource_opts">> => #{<<"request_ttl">> => <<"2s">>}
             }
         ),
     %% root request_timeout is deprecated for bridge.
@@ -1410,8 +1326,8 @@ t_inconsistent_webhook_request_timeouts(Config) ->
             Config
         ),
     ?assertNot(maps:is_key(<<"request_timeout">>, Response)),
-    ?assertMatch(#{<<"request_timeout">> := <<"2s">>}, ResourceOpts),
-    validate_resource_request_timeout(proplists:get_value(group, Config), 2000, Name),
+    ?assertMatch(#{<<"request_ttl">> := <<"2s">>}, ResourceOpts),
+    validate_resource_request_ttl(proplists:get_value(group, Config), 2000, Name),
     ok.
 
 t_cluster_later_join_metrics(Config) ->
@@ -1452,7 +1368,7 @@ t_cluster_later_join_metrics(Config) ->
     ),
     ok.
 
-validate_resource_request_timeout(single, Timeout, Name) ->
+validate_resource_request_ttl(single, Timeout, Name) ->
     SentData = #{payload => <<"Hello EMQX">>, timestamp => 1668602148000},
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     ResId = emqx_bridge_resource:resource_id(<<"webhook">>, Name),
@@ -1472,7 +1388,7 @@ validate_resource_request_timeout(single, Timeout, Name) ->
             ok
         end
     );
-validate_resource_request_timeout(_Cluster, _Timeout, _Name) ->
+validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
     ignore.
 
 %%

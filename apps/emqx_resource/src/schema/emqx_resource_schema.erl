@@ -26,8 +26,6 @@
 %% range interval in ms
 -define(HEALTH_CHECK_INTERVAL_RANGE_MIN, 1).
 -define(HEALTH_CHECK_INTERVAL_RANGE_MAX, 3_600_000).
--define(AUTO_RESTART_INTERVAL_RANGE_MIN, 1).
--define(AUTO_RESTART_INTERVAL_RANGE_MAX, 3_600_000).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -55,7 +53,7 @@ fields("creation_opts") ->
         {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
-        {request_timeout, fun request_timeout/1},
+        {request_ttl, fun request_ttl/1},
         {inflight_window, fun inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
@@ -124,28 +122,10 @@ start_timeout(required) -> false;
 start_timeout(_) -> undefined.
 
 auto_restart_interval(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
-auto_restart_interval(desc) -> ?DESC("auto_restart_interval");
-auto_restart_interval(default) -> ?AUTO_RESTART_INTERVAL_RAW;
+auto_restart_interval(default) -> <<"15s">>;
 auto_restart_interval(required) -> false;
-auto_restart_interval(validator) -> fun auto_restart_interval_range/1;
+auto_restart_interval(deprecated) -> {since, "5.1.0"};
 auto_restart_interval(_) -> undefined.
-
-auto_restart_interval_range(infinity) ->
-    ok;
-auto_restart_interval_range(AutoRestartInterval) when
-    is_integer(AutoRestartInterval) andalso
-        AutoRestartInterval >= ?AUTO_RESTART_INTERVAL_RANGE_MIN andalso
-        AutoRestartInterval =< ?AUTO_RESTART_INTERVAL_RANGE_MAX
-->
-    ok;
-auto_restart_interval_range(AutoRestartInterval) ->
-    Message = get_out_of_range_msg(
-        <<"Auto Restart Interval">>,
-        AutoRestartInterval,
-        ?AUTO_RESTART_INTERVAL_RANGE_MIN,
-        ?AUTO_RESTART_INTERVAL_RANGE_MAX
-    ),
-    {error, Message}.
 
 query_mode(type) -> enum([sync, async]);
 query_mode(desc) -> ?DESC("query_mode");
@@ -153,10 +133,11 @@ query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
 
-request_timeout(type) -> hoconsc:union([infinity, emqx_schema:duration_ms()]);
-request_timeout(desc) -> ?DESC("request_timeout");
-request_timeout(default) -> <<"15s">>;
-request_timeout(_) -> undefined.
+request_ttl(type) -> hoconsc:union([emqx_schema:duration_ms(), infinity]);
+request_ttl(aliases) -> [request_timeout];
+request_ttl(desc) -> ?DESC("request_ttl");
+request_ttl(default) -> ?DEFAULT_REQUEST_TTL_RAW;
+request_ttl(_) -> undefined.
 
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;

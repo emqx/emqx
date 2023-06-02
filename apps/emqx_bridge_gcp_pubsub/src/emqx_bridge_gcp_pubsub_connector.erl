@@ -32,7 +32,7 @@
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
     pubsub_topic := binary(),
-    resource_opts := #{request_timeout := emqx_schema:duration_ms(), any() => term()},
+    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
     service_account_json := service_account_json(),
     any() => term()
 }.
@@ -44,7 +44,7 @@
     pool_name := binary(),
     project_id := binary(),
     pubsub_topic := binary(),
-    request_timeout := timer:time()
+    request_ttl := infinity | timer:time()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
@@ -69,7 +69,7 @@ on_start(
         payload_template := PayloadTemplate,
         pool_size := PoolSize,
         pubsub_topic := PubSubTopic,
-        resource_opts := #{request_timeout := RequestTimeout}
+        resource_opts := #{request_ttl := RequestTTL}
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -108,7 +108,7 @@ on_start(
         pool_name => ResourceId,
         project_id => ProjectId,
         pubsub_topic => PubSubTopic,
-        request_timeout => RequestTimeout
+        request_ttl => RequestTTL
     },
     ?tp(
         gcp_pubsub_on_start_before_starting_pool,
@@ -344,7 +344,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
     #{
         pool_name := PoolName,
         max_retries := MaxRetries,
-        request_timeout := RequestTimeout
+        request_ttl := RequestTTL
     } = State,
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
@@ -371,7 +371,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
             PoolName,
             Method,
             Request,
-            RequestTimeout,
+            RequestTTL,
             MaxRetries
         )
     of
@@ -467,7 +467,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
 do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
     #{
         pool_name := PoolName,
-        request_timeout := RequestTimeout
+        request_ttl := RequestTTL
     } = State,
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
@@ -494,7 +494,7 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
         Worker,
         Method,
         Request,
-        RequestTimeout,
+        RequestTTL,
         {fun ?MODULE:reply_delegator/3, [ResourceId, ReplyFunAndArgs]}
     ),
     {ok, Worker}.

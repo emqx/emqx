@@ -55,8 +55,8 @@
     default_port => ?SQLSERVER_DEFAULT_PORT
 }).
 
--define(REQUEST_TIMEOUT(RESOURCE_OPTS),
-    maps:get(request_timeout, RESOURCE_OPTS, ?DEFAULT_REQUEST_TIMEOUT)
+-define(REQUEST_TTL(RESOURCE_OPTS),
+    maps:get(request_ttl, RESOURCE_OPTS, ?DEFAULT_REQUEST_TTL)
 ).
 
 -define(BATCH_INSERT_TEMP, batch_insert_temp).
@@ -394,7 +394,7 @@ worker_do_insert(
 ) ->
     LogMeta = #{connector => ResourceId, state => State},
     try
-        case execute(Conn, SQL, ?REQUEST_TIMEOUT(ResourceOpts)) of
+        case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
             {selected, Rows, _} ->
                 {ok, Rows};
             {updated, _} ->

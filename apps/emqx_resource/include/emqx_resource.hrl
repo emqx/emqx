@@ -51,8 +51,10 @@
     health_check_timeout => integer(),
     %% use start_timeout instead
     wait_for_resource_ready => integer(),
-    %% use auto_restart_interval instead
+    %% use health_check_interval instead
     auto_retry_interval => integer(),
+    %% use health_check_interval instead
+    auto_restart_interval => pos_integer() | infinity,
     %%======================================= Deprecated Opts END
     worker_pool_size => non_neg_integer(),
     %% use `integer()` compatibility to release 5.0.0 bpapi
@@ -64,9 +66,6 @@
     %% after it is created. But note that a `started` resource is not guaranteed
     %% to be `connected`.
     start_after_created => boolean(),
-    %% If the resource disconnected, we can set to retry starting the resource
-    %% periodically.
-    auto_restart_interval => pos_integer() | infinity,
     batch_size => pos_integer(),
     batch_time => pos_integer(),
     max_buffer_bytes => pos_integer(),
@@ -87,7 +86,8 @@
 -define(DEFAULT_BUFFER_BYTES, 256 * 1024 * 1024).
 -define(DEFAULT_BUFFER_BYTES_RAW, <<"256MB">>).
 
--define(DEFAULT_REQUEST_TIMEOUT, timer:seconds(15)).
+-define(DEFAULT_REQUEST_TTL, timer:seconds(45)).
+-define(DEFAULT_REQUEST_TTL_RAW, <<"45s">>).
 
 %% count
 -define(DEFAULT_BATCH_SIZE, 1).
@@ -114,10 +114,6 @@
 %% boolean
 -define(START_AFTER_CREATED, true).
 -define(START_AFTER_CREATED_RAW, <<"true">>).
-
-%% milliseconds
--define(AUTO_RESTART_INTERVAL, 60000).
--define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
 
 -define(TEST_ID_PREFIX, "_probe_:").
 -define(RES_METRICS, resource_metrics).

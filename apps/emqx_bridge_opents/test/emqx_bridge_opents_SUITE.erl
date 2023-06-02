@@ -127,7 +127,7 @@ opents_config(BridgeType, Config) ->
             "  enable = true\n"
             "  server = ~p\n"
             "  resource_opts = {\n"
-            "    request_timeout = 500ms\n"
+            "    request_ttl = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = sync\n"
             "  }\n"
@@ -298,7 +298,7 @@ t_write_timeout(Config) ->
         Config,
         #{
             <<"resource_opts">> => #{
-                <<"request_timeout">> => 500,
+                <<"request_ttl">> => 500,
                 <<"resume_interval">> => 100,
                 <<"health_check_interval">> => 100
             }

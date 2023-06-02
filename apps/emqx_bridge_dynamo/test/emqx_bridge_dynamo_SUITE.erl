@@ -170,7 +170,7 @@ dynamo_config(BridgeType, Config) ->
             "  aws_access_key_id = ~p\n"
             "  aws_secret_access_key = ~p\n"
             "  resource_opts = {\n"
-            "    request_timeout = 500ms\n"
+            "    request_ttl = 500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"

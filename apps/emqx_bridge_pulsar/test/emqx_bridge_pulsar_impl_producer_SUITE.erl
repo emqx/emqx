@@ -1040,7 +1040,7 @@ t_resource_manager_crash_before_producers_started(Config) ->
             end),
             %% even if the resource manager is dead, we can still
             %% clear the allocated resources.
-            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+            {{error, {config_update_crashed, _}}, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
                     #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},

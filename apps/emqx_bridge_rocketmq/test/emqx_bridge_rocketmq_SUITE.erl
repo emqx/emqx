@@ -149,7 +149,7 @@ rocketmq_config(BridgeType, Config) ->
             "  secret_key = ~p\n"
             "  topic = ~p\n"
             "  resource_opts = {\n"
-            "    request_timeout = 1500ms\n"
+            "    request_ttl = 1500ms\n"
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "  }\n"

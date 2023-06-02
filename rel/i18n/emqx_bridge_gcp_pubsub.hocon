@@ -64,12 +64,6 @@ pubsub_topic.desc:
 pubsub_topic.label:
 """GCP PubSub Topic"""
 
-request_timeout.desc:
-"""Deprecated: Configure the request timeout in the buffer settings."""
-
-request_timeout.label:
-"""Request Timeout"""
-
 service_account_json.desc:
 """JSON containing the GCP Service Account credentials to be used with PubSub.
 When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""

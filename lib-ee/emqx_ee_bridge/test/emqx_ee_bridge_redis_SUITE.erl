@@ -554,7 +554,7 @@ resource_configs(#{query_mode := QueryMode}) ->
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"start_timeout">> => <<"15s">>,
             <<"batch_time">> => <<"4s">>,
-            <<"request_timeout">> => <<"30s">>
+            <<"request_ttl">> => <<"30s">>
         }
     }.
 
