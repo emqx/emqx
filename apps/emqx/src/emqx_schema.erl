@@ -301,6 +301,8 @@ fields("persistent_session_store") ->
                 boolean(),
                 #{
                     default => false,
+                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
+                    aliases => [enable],
                     desc => ?DESC(persistent_session_store_enabled)
                 }
             )},
@@ -1989,6 +1991,8 @@ base_listener(Bind) ->
                 boolean(),
                 #{
                     default => true,
+                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
+                    aliases => [enable],
                     desc => ?DESC(fields_listener_enabled)
                 }
             )},
