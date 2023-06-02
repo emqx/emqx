@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - name: download jmeter
       timeout-minutes: 3
       env:
@@ -59,7 +59,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -155,7 +155,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -261,7 +261,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -363,7 +363,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
@@ -462,7 +462,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/checkout@v3
     - uses: actions/download-artifact@v3
       with:
