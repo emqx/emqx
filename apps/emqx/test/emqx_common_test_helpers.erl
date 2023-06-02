@@ -347,6 +347,7 @@ stop_apps(Apps, Opts) ->
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, init_config_load_done),
+    application:unset_env(emqx, boot_modules),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
     case Opts of
         #{erase_all_configs := false} ->

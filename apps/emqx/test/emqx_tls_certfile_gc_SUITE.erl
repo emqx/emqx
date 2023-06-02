@@ -326,8 +326,7 @@ t_gc_active(_Config) ->
             emqx_tls_certfile_gc:run()
         )
     after
-        emqx_common_test_helpers:stop_apps([]),
-        emqx_common_test_helpers:boot_modules(all)
+        emqx_common_test_helpers:stop_apps([])
     end.
 
 orphans() ->
