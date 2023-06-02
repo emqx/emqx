@@ -523,7 +523,7 @@ t_no_sid_nor_service_name(Config0) ->
     NewOracleConfig = {oracle_config, OracleConfig},
     Config = lists:keyreplace(oracle_config, 1, Config0, NewOracleConfig),
     ?assertMatch(
-        {error, #{kind := validation_error}},
+        {error, #{kind := validation_error, reason := "neither SID nor Service Name was set"}},
         create_bridge(Config)
     ),
     ok.
