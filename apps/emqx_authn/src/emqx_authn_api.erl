@@ -31,6 +31,7 @@
 -define(NOT_FOUND, 'NOT_FOUND').
 -define(ALREADY_EXISTS, 'ALREADY_EXISTS').
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
+-define(CONFIG, emqx_authentication_config).
 
 % Swagger
 
@@ -833,12 +834,12 @@ with_chain(ListenerID, Fun) ->
 create_authenticator(ConfKeyPath, ChainName, Config) ->
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{
-            post_config_update := #{emqx_authentication := #{id := ID}},
+            post_config_update := #{?CONFIG := #{id := ID}},
             raw_config := AuthenticatorsConfig
         }} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
-        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->
             serialize_error(Reason)
@@ -1017,7 +1018,7 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
     of
         {ok, _} ->
             {204};
-        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->
             serialize_error(Reason)
@@ -1027,7 +1028,7 @@ delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
             {204};
-        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->
             serialize_error(Reason)
@@ -1044,7 +1045,7 @@ move_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
             of
                 {ok, _} ->
                     {204};
-                {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+                {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
                     serialize_error(Reason);
                 {error, Reason} ->
                     serialize_error(Reason)
