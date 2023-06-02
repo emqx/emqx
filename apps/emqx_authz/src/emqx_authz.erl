@@ -101,6 +101,7 @@ init() ->
     ok = register_metrics(),
     ok = init_metrics(client_info_source()),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
+    emqx_conf:add_handler(?ROOT_KEY, ?MODULE),
     Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
     NSources = create_sources(Sources),
@@ -109,6 +110,7 @@ init() ->
 deinit() ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authorize}),
     emqx_conf:remove_handler(?CONF_KEY_PATH),
+    emqx_conf:remove_handler(?ROOT_KEY),
     emqx_authz_utils:cleanup_resources().
 
 lookup() ->
@@ -139,13 +141,28 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(_, Cmd, Sources) ->
-    try do_pre_config_update(Cmd, Sources) of
+pre_config_update(Path, Cmd, Sources) ->
+    try do_pre_config_update(Path, Cmd, Sources) of
         {error, Reason} -> {error, Reason};
         NSources -> {ok, NSources}
     catch
         _:Reason -> {error, Reason}
     end.
+
+do_pre_config_update(?CONF_KEY_PATH, Cmd, Sources) ->
+    do_pre_config_update(Cmd, Sources);
+do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
+    do_pre_config_replace(NewConf, OldConf).
+
+%% override the entire config when updating the root key
+%% emqx_conf:update(?ROOT_KEY, Conf);
+do_pre_config_replace(Conf, Conf) ->
+    Conf;
+do_pre_config_replace(NewConf, OldConf) ->
+    #{<<"sources">> := NewSources} = NewConf,
+    #{<<"sources">> := OldSources} = OldConf,
+    NewSources1 = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
+    NewConf#{<<"sources">> := NewSources1}.
 
 do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);
@@ -179,47 +196,53 @@ do_pre_config_update({Op, Source}, Sources) ->
 
 post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
     ok;
-post_config_update(_, Cmd, NewSources, _OldSource, _AppEnvs) ->
-    Actions = do_post_config_update(Cmd, NewSources),
+post_config_update(Path, Cmd, NewSources, _OldSource, _AppEnvs) ->
+    Actions = do_post_config_update(Path, Cmd, NewSources),
     ok = update_authz_chain(Actions),
     ok = emqx_authz_cache:drain_cache().
 
-do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
-    InitedSources = lookup(),
-    do_move(Cmd, InitedSources);
-do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
-    InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
-    %% create metrics
+do_post_config_update(?CONF_KEY_PATH, {?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
+    do_move(Cmd, lookup());
+do_post_config_update(?CONF_KEY_PATH, {?CMD_PREPEND, RawNewSource}, Sources) ->
     TypeName = type(RawNewSource),
-    ok = emqx_metrics_worker:create_metrics(
-        authz_metrics,
-        TypeName,
-        [total, allow, deny, nomatch],
-        [total]
-    ),
-    [InitedNewSource] ++ lookup();
-do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
-    InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
-    lookup() ++ [InitedNewSource];
-do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
+    NewSources = create_sources([get_source_by_type(TypeName, Sources)]),
+    NewSources ++ lookup();
+do_post_config_update(?CONF_KEY_PATH, {?CMD_APPEND, RawNewSource}, Sources) ->
+    NewSources = create_sources([get_source_by_type(type(RawNewSource), Sources)]),
+    lookup() ++ NewSources;
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
     OldSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldSources),
     NewSource = get_source_by_type(type(RawNewSource), Sources),
     InitedSources = update_source(type(RawNewSource), OldSource, NewSource),
     Front ++ [InitedSources] ++ Rear;
-do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
-    %% delete metrics
-    ok = emqx_metrics_worker:clear_metrics(authz_metrics, Type),
-    ok = ensure_resource_deleted(OldSource),
-    clear_certs(OldSource),
+    ok = ensure_deleted(OldSource, #{clear_metric => true}),
     Front ++ Rear;
-do_post_config_update({?CMD_REPLACE, _RawNewSources}, Sources) ->
-    %% overwrite the entire config!
-    OldInitedSources = lookup(),
-    lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
-    lists:foreach(fun clear_certs/1, OldInitedSources),
+do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
+    overwrite_entire_sources(Sources);
+do_post_config_update(?ROOT_KEY, Conf, Conf) ->
+    #{sources := Sources} = Conf,
+    Sources;
+do_post_config_update(?ROOT_KEY, _Conf, NewConf) ->
+    #{sources := NewSources} = NewConf,
+    overwrite_entire_sources(NewSources).
+
+overwrite_entire_sources(Sources) ->
+    PrevSources = lookup(),
+    NewSourcesTypes = lists:map(fun type/1, Sources),
+    EnsureDelete = fun(S) ->
+        TypeName = type(S),
+        Opts =
+            case lists:member(TypeName, NewSourcesTypes) of
+                true -> #{clear_metric => false};
+                false -> #{clear_metric => true}
+            end,
+        ensure_deleted(S, Opts)
+    end,
+    lists:foreach(EnsureDelete, PrevSources),
     create_sources(Sources).
 
 %% @doc do source move
@@ -238,8 +261,14 @@ do_move({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2.
 
-ensure_resource_deleted(#{enable := false}) ->
+ensure_deleted(#{enable := false}, _) ->
     ok;
+ensure_deleted(Source, #{clear_metric := ClearMetric}) ->
+    TypeName = type(Source),
+    ensure_resource_deleted(Source),
+    clear_certs(Source),
+    ClearMetric andalso emqx_metrics_worker:clear_metrics(authz_metrics, TypeName).
+
 ensure_resource_deleted(#{type := Type} = Source) ->
     Module = authz_module(Type),
     Module:destroy(Source).
@@ -287,12 +316,18 @@ update_source(Type, OldSource, NewSource) ->
 
 init_metrics(Source) ->
     TypeName = type(Source),
-    emqx_metrics_worker:create_metrics(
-        authz_metrics,
-        TypeName,
-        [total, allow, deny, nomatch],
-        [total]
-    ).
+    case emqx_metrics_worker:has_metrics(authz_metrics, TypeName) of
+        %% Don't reset the metrics if it already exists
+        true ->
+            ok;
+        false ->
+            emqx_metrics_worker:create_metrics(
+                authz_metrics,
+                TypeName,
+                [total, allow, deny, nomatch],
+                [total]
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% AuthZ callbacks
@@ -487,7 +522,9 @@ write_acl_file(#{<<"rules">> := Rules} = Source0) ->
     ok = check_acl_file_rules(AclPath, Rules),
     ok = write_file(AclPath, Rules),
     Source1 = maps:remove(<<"rules">>, Source0),
-    maps:put(<<"path">>, AclPath, Source1).
+    maps:put(<<"path">>, AclPath, Source1);
+write_acl_file(Source) ->
+    Source.
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->

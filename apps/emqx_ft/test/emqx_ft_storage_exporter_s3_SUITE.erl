@@ -110,9 +110,13 @@ t_upload_error(Config) ->
     Name = "cool_name",
     Data = <<"data"/utf8>>,
 
-    {ok, _} = emqx_conf:update(
-        [file_transfer, storage, local, exporter, s3, bucket], <<"invalid-bucket">>, #{}
+    Conf = emqx_conf:get_raw([file_transfer], #{}),
+    Conf1 = emqx_utils_maps:deep_put(
+        [<<"storage">>, <<"local">>, <<"exporter">>, <<"s3">>, <<"bucket">>],
+        Conf,
+        <<"invalid-bucket">>
     ),
+    {ok, _} = emqx_conf:update([file_transfer], Conf1, #{}),
 
     ?assertEqual(
         {error, unspecified_error},

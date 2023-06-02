@@ -69,10 +69,32 @@ pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
             {ok, ConfNew}
     end.
 
-post_config_update(Path, '$remove', _, OldConf, _AppEnvs) ->
-    _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf);
-post_config_update(Path, _Req, NewConf, OldConf, _AppEnvs) ->
+post_config_update([bridges, BridgeType, BridgeName] = Path, '$remove', _, OldConf, _AppEnvs) ->
+    _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf),
+    ok = emqx_bridge_resource:remove(BridgeType, BridgeName),
+    Bridges = emqx_utils_maps:deep_remove([BridgeType, BridgeName], emqx:get_config([bridges])),
+    emqx_bridge:reload_hook(Bridges),
+    ?tp(bridge_post_config_update_done, #{}),
+    ok;
+post_config_update([bridges, BridgeType, BridgeName] = Path, _Req, NewConf, undefined, _AppEnvs) ->
+    _ = emqx_connector_ssl:try_clear_certs(filename:join(Path), NewConf, undefined),
+    ResOpts = emqx_resource:fetch_creation_opts(NewConf),
+    ok = emqx_bridge_resource:create(BridgeType, BridgeName, NewConf, ResOpts),
+    Bridges = emqx_utils_maps:deep_put(
+        [BridgeType, BridgeName], emqx:get_config([bridges]), NewConf
+    ),
+    emqx_bridge:reload_hook(Bridges),
+    ?tp(bridge_post_config_update_done, #{}),
+    ok;
+post_config_update([bridges, BridgeType, BridgeName] = Path, _Req, NewConf, OldConf, _AppEnvs) ->
     _ = emqx_connector_ssl:try_clear_certs(filename:join(Path), NewConf, OldConf),
+    ResOpts = emqx_resource:fetch_creation_opts(NewConf),
+    ok = emqx_bridge_resource:update(BridgeType, BridgeName, {OldConf, NewConf}, ResOpts),
+    Bridges = emqx_utils_maps:deep_put(
+        [BridgeType, BridgeName], emqx:get_config([bridges]), NewConf
+    ),
+    emqx_bridge:reload_hook(Bridges),
+    ?tp(bridge_post_config_update_done, #{}),
     ok.
 
 %% internal functions

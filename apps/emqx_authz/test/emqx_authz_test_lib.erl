@@ -25,20 +25,25 @@
 -define(DEFAULT_CHECK_AVAIL_TIMEOUT, 1000).
 
 reset_authorizers() ->
-    reset_authorizers(deny, false).
+    reset_authorizers(deny, false, []).
 
 restore_authorizers() ->
-    reset_authorizers(allow, true).
+    reset_authorizers(allow, true, []).
 
-reset_authorizers(Nomatch, ChacheEnabled) ->
+reset_authorizers(Nomatch, CacheEnabled, Source) ->
     {ok, _} = emqx:update_config(
         [authorization],
         #{
             <<"no_match">> => atom_to_binary(Nomatch),
-            <<"cache">> => #{<<"enable">> => atom_to_binary(ChacheEnabled)},
-            <<"sources">> => []
+            <<"cache">> => #{<<"enable">> => atom_to_binary(CacheEnabled)},
+            <<"sources">> => Source
         }
     ),
+    ok.
+%% Don't reset sources
+reset_authorizers(Nomatch, CacheEnabled) ->
+    {ok, _} = emqx:update_config([<<"authorization">>, <<"no_match">>], Nomatch),
+    {ok, _} = emqx:update_config([<<"authorization">>, <<"cache">>, <<"enable">>], CacheEnabled),
     ok.
 
 setup_config(BaseConfig, SpecialParams) ->
