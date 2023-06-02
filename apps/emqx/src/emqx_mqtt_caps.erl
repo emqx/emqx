@@ -84,7 +84,7 @@ check_pub(Zone, Flags) when is_map(Flags) ->
             error ->
                 Flags
         end,
-        get_caps(?PUBCAP_KEYS, Zone)
+        emqx_config:get_zone_conf(Zone, [mqtt])
     ).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when
@@ -107,7 +107,7 @@ do_check_pub(_Flags, _Caps) ->
 ) ->
     ok_or_error(emqx_types:reason_code()).
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
-    Caps = get_caps(?SUBCAP_KEYS, Zone),
+    Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
     Flags = #{
         topic_levels => emqx_topic:levels(Topic),
         is_wildcard => emqx_topic:wildcard(Topic),
