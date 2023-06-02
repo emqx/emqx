@@ -344,9 +344,7 @@ fields(bytes) ->
                     description => ?DESC(max_response_bytes),
                     in => query,
                     required => false,
-                    default => 1000,
-                    minimum => 0,
-                    maximum => ?MAX_SINT32
+                    default => 1000
                 }
             )}
     ];

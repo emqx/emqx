@@ -203,8 +203,9 @@ oracle_config(TestCase, _ConnectionType, Config) ->
             "  pool_size = 1\n"
             "  sql = \"~s\"\n"
             "  resource_opts = {\n"
-            "     auto_restart_interval = 5000\n"
-            "     request_timeout = 30000\n"
+            "     auto_restart_interval = \"5s\"\n"
+            "     health_check_interval = \"5s\"\n"
+            "     request_timeout = \"30s\"\n"
             "     query_mode = \"async\"\n"
             "     enable_batch = true\n"
             "     batch_size = 3\n"
@@ -232,6 +233,11 @@ resource_id(Config) ->
     Type = ?BRIDGE_TYPE_BIN,
     Name = ?config(oracle_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
+
+bridge_id(Config) ->
+    Type = ?BRIDGE_TYPE_BIN,
+    Name = ?config(oracle_name, Config),
+    emqx_bridge_resource:bridge_id(Type, Name).
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
@@ -361,6 +367,7 @@ t_batch_sync_query(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     ResourceId = resource_id(Config),
+    BridgeId = bridge_id(Config),
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
@@ -380,12 +387,12 @@ t_batch_sync_query(Config) ->
             % Send 3 async messages while resource is down. When it comes back, these messages
             % will be delivered in sync way. If we try to send sync messages directly, it will
             % be sent async as callback_mode is set to async_if_possible.
-            Message = {send_message, Params},
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
                 ct:sleep(1000),
-                emqx_resource:query(ResourceId, Message),
-                emqx_resource:query(ResourceId, Message),
-                emqx_resource:query(ResourceId, Message)
+                emqx_bridge:send_message(BridgeId, Params),
+                emqx_bridge:send_message(BridgeId, Params),
+                emqx_bridge:send_message(BridgeId, Params),
+                ok
             end),
             ?retry(
                 _Sleep = 1_000,

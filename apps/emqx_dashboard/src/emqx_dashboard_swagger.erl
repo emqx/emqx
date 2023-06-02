@@ -536,6 +536,7 @@ init_prop(Keys, Init, Type) ->
 
 format_prop(deprecated, Value) when is_boolean(Value) -> Value;
 format_prop(deprecated, _) -> true;
+format_prop(default, []) -> [];
 format_prop(_, Schema) -> to_bin(Schema).
 
 trans_required(Spec, true, _) -> Spec#{required => true};
@@ -567,18 +568,7 @@ trans_description(Spec, Hocon, Options) ->
             Spec;
         Desc ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
-            maybe_add_summary_from_label(Spec#{description => Desc1}, Hocon, Options)
-    end.
-
-maybe_add_summary_from_label(Spec, Hocon, Options) ->
-    Label =
-        case desc_struct(Hocon) of
-            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, undefined, Options);
-            _ -> undefined
-        end,
-    case Label of
-        undefined -> Spec;
-        _ -> Spec#{summary => Label}
+            Spec#{description => Desc1}
     end.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
@@ -970,13 +960,13 @@ to_bin(List) when is_list(List) ->
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin({Type, Args}) ->
-    unicode:characters_to_binary(io_lib:format("~ts(~p)", [Type, Args]));
+    unicode:characters_to_binary(io_lib:format("~ts-~p", [Type, Args]));
 to_bin(X) ->
     X.
 
 parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
     {Props, Required, Refs} = parse_object_loop(PropList, Module, Options),
-    Object = #{<<"type">> => object, <<"properties">> => Props},
+    Object = #{<<"type">> => object, <<"properties">> => fix_empty_props(Props)},
     case Required of
         [] -> {Object, Refs};
         _ -> {maps:put(required, Required, Object), Refs}
@@ -1012,7 +1002,10 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
             HoconType = hocon_schema:field_schema(Hocon, type),
             Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
             SchemaToSpec = schema_converter(Options),
-            Init = trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options),
+            Init = maps:remove(
+                summary,
+                trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options)
+            ),
             {Prop, Refs1} = SchemaToSpec(HoconType, Module),
             NewRequiredAcc =
                 case is_required(Hocon) of
@@ -1039,8 +1032,14 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
 %% return true if the field has 'importance' set to 'hidden'
 is_hidden(Hocon) ->
     hocon_schema:is_hidden(Hocon, #{include_importance_up_from => ?IMPORTANCE_LOW}).
+
 is_required(Hocon) ->
     hocon_schema:field_schema(Hocon, required) =:= true.
+
+fix_empty_props([]) ->
+    #{};
+fix_empty_props(Props) ->
+    Props.
 
 content(ApiSpec) ->
     content(ApiSpec, undefined).

@@ -756,8 +756,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
             throw(Other)
     end,
     pong = net_adm:ping(Node),
-    setup_node(Node, Opts),
     ok = snabbkaffe:forward_trace(Node),
+    setup_node(Node, Opts),
     Node.
 
 %% Node stopping

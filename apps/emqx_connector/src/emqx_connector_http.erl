@@ -219,18 +219,24 @@ on_start(
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
+    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case ehttpc_sup:start_pool(InstId, PoolOpts) of
         {ok, _} -> {ok, State};
         {error, {already_started, _}} -> {ok, State};
         {error, Reason} -> {error, Reason}
     end.
 
-on_stop(InstId, #{pool_name := PoolName}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_http_connector",
         connector => InstId
     }),
-    ehttpc_sup:stop_pool(PoolName).
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{pool_name := PoolName} ->
+            ehttpc_sup:stop_pool(PoolName);
+        _ ->
+            ok
+    end.
 
 on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of

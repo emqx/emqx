@@ -112,7 +112,10 @@ validate_name(Name0, Opts) ->
             case lists:all(fun is_id_char/1, Name) of
                 true ->
                     case maps:get(atom_name, Opts, true) of
-                        true -> list_to_existing_atom(Name);
+                        % NOTE
+                        % Rule may be created before bridge, thus not `list_to_existing_atom/1`,
+                        % also it is infrequent user input anyway.
+                        true -> list_to_atom(Name);
                         false -> Name0
                     end;
                 false ->

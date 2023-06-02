@@ -183,6 +183,7 @@ on_start(
         {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}
     ],
     Collection = maps:get(collection, Config, <<"mqtt">>),
+    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
         ok ->
             {ok, #{
@@ -194,12 +195,17 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{pool_name := PoolName}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mongodb_connector",
         connector => InstId
     }),
-    emqx_resource_pool:stop(PoolName).
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{pool_name := PoolName} ->
+            emqx_resource_pool:stop(PoolName);
+        _ ->
+            ok
+    end.
 
 on_query(
     InstId,

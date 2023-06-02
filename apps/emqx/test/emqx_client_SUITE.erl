@@ -383,7 +383,7 @@ t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
 
 t_peercert_preserved_before_connected(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt], #{}),
+    ok = emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], false),
     ok = emqx_hooks:add(
         'client.connect',
         {?MODULE, on_hook, ['client.connect', self()]},

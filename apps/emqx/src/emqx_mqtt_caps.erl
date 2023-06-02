@@ -41,8 +41,6 @@
     exclusive_subscription => boolean()
 }.
 
--define(MAX_TOPIC_LEVELS, 65535).
-
 -define(PUBCAP_KEYS, [
     max_topic_levels,
     max_qos_allowed,
@@ -154,8 +152,5 @@ get_caps(Zone) ->
 get_caps(Keys, Zone) ->
     maps:with(
         Keys,
-        maps:merge(
-            emqx_config:get([mqtt]),
-            emqx_config:get_zone_conf(Zone, [mqtt])
-        )
+        emqx_config:get_zone_conf(Zone, [mqtt])
     ).

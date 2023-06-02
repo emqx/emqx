@@ -1062,10 +1062,15 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         fun(Trace) ->
             case Error of
                 econnrefused ->
-                    ?assertMatch(
-                        [#{reason := Error, connector := ResourceId} | _],
-                        ?of_kind(gcp_pubsub_request_failed, Trace)
-                    );
+                    case ?of_kind(gcp_pubsub_request_failed, Trace) of
+                        [#{reason := Error, connector := ResourceId} | _] ->
+                            ok;
+                        [#{reason := {closed, _Msg}, connector := ResourceId} | _] ->
+                            %% _Msg = "The connection was lost."
+                            ok;
+                        Trace0 ->
+                            error({unexpected_trace, Trace0})
+                    end;
                 timeout ->
                     ?assertMatch(
                         [_, _ | _],

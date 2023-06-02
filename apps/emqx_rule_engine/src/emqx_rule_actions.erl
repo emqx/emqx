@@ -146,20 +146,24 @@ get_action_mod_func(ActionFunc) when is_binary(ActionFunc) ->
         try binary_to_existing_atom(Bin) of
             Atom -> Atom
         catch
-            error:badarg -> error({unknown_action_function, ActionFunc})
+            error:badarg -> validation_error(unknown_action_function)
         end
     end,
     case string:split(ActionFunc, ":", all) of
         [Func1] -> {emqx_rule_actions, ToAtom(Func1)};
         [Mod1, Func1] -> {ToAtom(Mod1), ToAtom(Func1)};
-        _ -> error({invalid_action_function, ActionFunc})
+        _ -> validation_error(invalid_action_function)
     end.
 
 assert_function_supported(Mod, Func) ->
     case erlang:function_exported(Mod, Func, 3) of
         true -> ok;
-        false -> error({action_function_not_supported, Func})
+        false -> validation_error(action_function_not_supported)
     end.
+
+-spec validation_error(any()) -> no_return().
+validation_error(Reason) ->
+    throw(#{kind => validation_error, reason => Reason}).
 
 pre_process_args(Mod, Func, Args) ->
     case erlang:function_exported(Mod, pre_process_action_args, 2) of

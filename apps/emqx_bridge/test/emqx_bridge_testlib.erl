@@ -32,7 +32,7 @@ init_per_group(TestGroup, BridgeType, Config) ->
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
-    MQTTTopic = <<"mqtt/topic/", UniqueNum/binary>>,
+    MQTTTopic = <<"mqtt/topic/abc", UniqueNum/binary>>,
     [
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
@@ -116,6 +116,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(bridge_name, Config),
     BridgeConfig0 = ?config(bridge_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
+    ct:pal("creating bridge with config: ~p", [BridgeConfig]),
     emqx_bridge:create(BridgeType, Name, BridgeConfig).
 
 create_bridge_api(Config) ->
@@ -203,7 +204,7 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_sync_query(Config, MakeMessageFun, IsSuccessCheck) ->
+t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
@@ -217,11 +218,13 @@ t_sync_query(Config, MakeMessageFun, IsSuccessCheck) ->
             IsSuccessCheck(emqx_resource:simple_sync_query(ResourceId, Message)),
             ok
         end,
-        []
+        fun(Trace) ->
+            ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
+        end
     ),
     ok.
 
-t_async_query(Config, MakeMessageFun, IsSuccessCheck) ->
+t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ResourceId = resource_id(Config),
     ReplyFun =
         fun(Pid, Result) ->
@@ -236,10 +239,21 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck) ->
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
             Message = {send_message, MakeMessageFun()},
-            emqx_resource:query(ResourceId, Message, #{async_reply_fun => {ReplyFun, [self()]}}),
+            ?assertMatch(
+                {ok, {ok, _}},
+                ?wait_async_action(
+                    emqx_resource:query(ResourceId, Message, #{
+                        async_reply_fun => {ReplyFun, [self()]}
+                    }),
+                    #{?snk_kind := TracePoint, instance_id := ResourceId},
+                    5_000
+                )
+            ),
             ok
         end,
-        []
+        fun(Trace) ->
+            ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
+        end
     ),
     receive
         {result, Result} -> IsSuccessCheck(Result)
@@ -318,7 +332,7 @@ t_start_stop(Config, StopTracePoint) ->
         end,
         fun(Trace) ->
             %% one for each probe, one for real
-            ?assertMatch([_, _, _], ?of_kind(StopTracePoint, Trace)),
+            ?assertMatch([_, _, #{instance_id := ResourceId}], ?of_kind(StopTracePoint, Trace)),
             ok
         end
     ),

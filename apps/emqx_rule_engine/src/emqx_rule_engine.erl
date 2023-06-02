@@ -36,7 +36,6 @@
 
 -export([
     create_rule/1,
-    insert_rule/1,
     update_rule/1,
     delete_rule/1,
     get_rule/1
@@ -116,25 +115,30 @@ start_link() ->
 post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_utils_maps:diff_maps(NewRules, OldRules),
-    maps_foreach(
-        fun({Id, {_Old, New}}) ->
-            {ok, _} = update_rule(New#{id => bin(Id)})
-        end,
-        Updated
-    ),
-    maps_foreach(
-        fun({Id, _Rule}) ->
-            ok = delete_rule(bin(Id))
-        end,
-        Removed
-    ),
-    maps_foreach(
-        fun({Id, Rule}) ->
-            {ok, _} = create_rule(Rule#{id => bin(Id)})
-        end,
-        Added
-    ),
-    {ok, get_rules()}.
+    try
+        maps_foreach(
+            fun({Id, {_Old, New}}) ->
+                {ok, _} = update_rule(New#{id => bin(Id)})
+            end,
+            Updated
+        ),
+        maps_foreach(
+            fun({Id, _Rule}) ->
+                ok = delete_rule(bin(Id))
+            end,
+            Removed
+        ),
+        maps_foreach(
+            fun({Id, Rule}) ->
+                {ok, _} = create_rule(Rule#{id => bin(Id)})
+            end,
+            Added
+        ),
+        {ok, get_rules()}
+    catch
+        throw:#{kind := _} = Error ->
+            {error, Error}
+    end.
 
 %%------------------------------------------------------------------------------
 %% APIs for rules
@@ -154,7 +158,7 @@ load_rules() ->
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params) ->
-    create_rule(Params, now_ms()).
+    create_rule(Params, maps:get(created_at, Params, now_ms())).
 
 create_rule(Params = #{id := RuleId}, CreatedAt) when is_binary(RuleId) ->
     case get_rule(RuleId) of
@@ -451,8 +455,9 @@ parse_actions(Actions) ->
 
 do_parse_action(Action) when is_map(Action) ->
     emqx_rule_actions:parse_action(Action);
-do_parse_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
-    BridgeChannelId.
+do_parse_action(BridgeId) when is_binary(BridgeId) ->
+    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}.
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
@@ -484,7 +489,8 @@ contains_actions(Actions, Mod0, Func0) ->
     ).
 
 forwards_to_bridge(Actions, BridgeId) ->
-    lists:any(fun(A) -> A =:= BridgeId end, Actions).
+    Action = do_parse_action(BridgeId),
+    lists:any(fun(A) -> A =:= Action end, Actions).
 
 references_ingress_bridge(Froms, BridgeId) ->
     lists:member(
@@ -506,4 +512,7 @@ get_referenced_hookpoints(Froms) ->
     ].
 
 get_egress_bridges(Actions) ->
-    lists:filter(fun is_binary/1, Actions).
+    [
+        emqx_bridge_resource:bridge_id(BridgeType, BridgeName)
+     || {bridge, BridgeType, BridgeName, _ResId} <- Actions
+    ].

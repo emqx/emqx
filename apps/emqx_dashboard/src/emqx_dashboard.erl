@@ -59,6 +59,11 @@ start_listeners(Listeners) ->
                     scheme => basic,
                     description =>
                         <<"Authorize with [API Keys](https://www.emqx.io/docs/en/v5.0/admin/api.html#api-keys)">>
+                },
+                'bearerAuth' => #{
+                    type => http,
+                    scheme => bearer,
+                    description => <<"Authorize with Bearer Token">>
                 }
             }
         }
@@ -111,7 +116,6 @@ stop_listeners(Listeners) ->
         begin
             case minirest:stop(Name) of
                 ok ->
-                    _ = emqx_listeners:wait_listener_stopped(Bind),
                     ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
                         Name, emqx_listeners:format_bind(Bind)
                     ]);
