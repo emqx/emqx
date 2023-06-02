@@ -24,20 +24,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    ok = emqx_common_test_helpers:start_apps([emqx_management]),
-    emqx_common_test_helpers:start_apps([] ++ [emqx_dashboard], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
     Config.
 
 end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_management] ++ [emqx_dashboard]),
-    emqx_config:delete_override_conf_files(),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(_App) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
 
 t_status(_Config) ->
     emqx_ctl:run_command([]),

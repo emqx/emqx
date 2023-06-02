@@ -115,14 +115,6 @@ end_per_testcase(_TestCase, _Config) ->
     delete_all_bridges(),
     ok.
 
-set_special_configs(emqx_management) ->
-    Listeners = #{http => #{port => 8081}},
-    Config = #{
-        listeners => Listeners,
-        applications => [#{id => "admin", secret => "public"}]
-    },
-    emqx_config:put([emqx_management], Config),
-    ok;
 set_special_configs(emqx_dashboard) ->
     emqx_dashboard_api_test_helpers:set_default_config(),
     ok;
