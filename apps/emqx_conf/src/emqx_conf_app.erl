@@ -210,9 +210,13 @@ sync_data_from_node(Node) ->
         {ok, DataBin} ->
             case zip:unzip(DataBin, [{cwd, emqx:data_dir()}]) of
                 {ok, []} ->
-                    ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ignore"});
+                    ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_empty_response"});
                 {ok, Files} ->
-                    ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ok", files => Files})
+                    ?SLOG(debug, #{
+                        node => Node,
+                        msg => "sync_data_from_node_non_empty_response",
+                        files => Files
+                    })
             end,
             ok;
         Error ->
