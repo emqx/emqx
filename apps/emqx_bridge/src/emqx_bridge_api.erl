@@ -233,7 +233,6 @@ info_example_basic(mqtt) ->
 mqtt_main_example() ->
     #{
         enable => true,
-        mode => cluster_shareload,
         server => <<"127.0.0.1:1883">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,

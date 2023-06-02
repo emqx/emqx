@@ -68,7 +68,6 @@ up(#{<<"connector">> := Connector} = Config) ->
         Cn(password, <<>>),
         Cn(clean_start, true),
         Cn(keepalive, <<"60s">>),
-        Cn(mode, <<"cluster_shareload">>),
         Cn(proto_ver, <<"v4">>),
         Cn(server, undefined),
         Cn(retry_interval, <<"15s">>),
