@@ -786,7 +786,7 @@ ssl_opts(Opts) ->
 tcp_opts(Opts) ->
     maps:to_list(
         maps:without(
-            [active_n],
+            [active_n, keepalive],
             maps:get(tcp_options, Opts, #{})
         )
     ).

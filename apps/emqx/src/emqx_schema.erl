@@ -95,7 +95,9 @@
     non_empty_string/1,
     validations/0,
     naive_env_interpolation/1,
-    validate_server_ssl_opts/1
+    validate_server_ssl_opts/1,
+    validate_tcp_keepalive/1,
+    parse_tcp_keepalive/1
 ]).
 
 -export([qos/0]).
@@ -1388,6 +1390,15 @@ fields("tcp_opts") ->
                 #{
                     default => true,
                     desc => ?DESC(fields_tcp_opts_reuseaddr)
+                }
+            )},
+        {"keepalive",
+            sc(
+                string(),
+                #{
+                    default => <<"none">>,
+                    desc => ?DESC(fields_tcp_opts_keepalive),
+                    validator => fun validate_tcp_keepalive/1
                 }
             )}
     ];
@@ -2840,6 +2851,44 @@ validate_alarm_actions(Actions) ->
     case UnSupported of
         [] -> ok;
         Error -> {error, Error}
+    end.
+
+validate_tcp_keepalive(Value) ->
+    case iolist_to_binary(Value) of
+        <<"none">> ->
+            ok;
+        _ ->
+            _ = parse_tcp_keepalive(Value),
+            ok
+    end.
+
+%% @doc This function is used as value validator and also run-time parser.
+parse_tcp_keepalive(Str) ->
+    try
+        [Idle, Interval, Probes] = binary:split(iolist_to_binary(Str), <<",">>, [global]),
+        %% use 10 times the Linux defaults as range limit
+        IdleInt = parse_ka_int(Idle, "Idle", 1, 7200_0),
+        IntervalInt = parse_ka_int(Interval, "Interval", 1, 75_0),
+        ProbesInt = parse_ka_int(Probes, "Probes", 1, 9_0),
+        {IdleInt, IntervalInt, ProbesInt}
+    catch
+        error:_ ->
+            throw(#{
+                reason => "Not comma separated positive integers of 'Idle,Interval,Probes' format",
+                value => Str
+            })
+    end.
+
+parse_ka_int(Bin, Name, Min, Max) ->
+    I = binary_to_integer(string:trim(Bin)),
+    case I >= Min andalso I =< Max of
+        true ->
+            I;
+        false ->
+            Msg = io_lib:format("TCP-Keepalive '~s' value must be in the rage of [~p, ~p].", [
+                Name, Min, Max
+            ]),
+            throw(#{reason => lists:flatten(Msg), value => I})
     end.
 
 user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
