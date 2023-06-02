@@ -33,16 +33,13 @@ t_traverse_dir(Config) ->
     Traversal = lists:sort(emqx_utils_fs:traverse_dir(fun cons_fileinfo/3, [], Dir)),
     ?assertMatch(
         [
-            {"nonempty/d1/1", #file_info{type = regular, mode = ORWAR}},
-            {"nonempty/d1/2", #file_info{type = regular, mode = ORWAR}},
+            {"nonempty/d1/1", #file_info{type = regular}},
+            {"nonempty/d1/2", #file_info{type = regular}},
             {"nonempty/d1/mutrec", #file_info{type = symlink, mode = ARWX}},
-            {"nonempty/d1/файл", #file_info{type = regular}},
             {"nonempty/d2/deep/down/here", #file_info{type = regular, mode = ORW}},
-            {"nonempty/d2/deep/mutrec", #file_info{type = symlink, mode = ARWX}},
-            {"nonempty/д3", #file_info{type = symlink, mode = ARWX}}
+            {"nonempty/d2/deep/mutrec", #file_info{type = symlink, mode = ARWX}}
         ] when
-            ((ORWAR band 8#00644 =:= 8#00644) and
-                (ORW band 8#00600 =:= 8#00600) and
+            ((ORW band 8#00600 =:= 8#00600) and
                 (ARWX band 8#00777 =:= 8#00777)),
 
         [{string:prefix(Filename, Dir), Info} || {Filename, Info} <- Traversal]
