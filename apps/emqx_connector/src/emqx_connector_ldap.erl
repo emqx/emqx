@@ -135,11 +135,16 @@ on_query(InstId, {search, Base, Filter, Attributes}, #{pool_name := PoolName} = 
                 request => Request,
                 connector => InstId,
                 reason => Reason
-            });
+            }),
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         _ ->
-            ok
-    end,
-    Result.
+            Result
+    end.
 
 on_get_status(_InstId, _State) -> connected.
 

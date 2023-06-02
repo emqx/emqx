@@ -480,6 +480,8 @@ prepare_cql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Co
 
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
+handle_result({error, ecpool_empty}) ->
+    {error, {recoverable_error, ecpool_empty}};
 handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result(Res) ->

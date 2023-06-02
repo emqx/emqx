@@ -233,6 +233,8 @@ on_query(
                 connector => InstId
             }),
             {error, Reason};
+        {error, ecpool_empty} ->
+            {error, {recoverable_error, ecpool_empty}};
         {{true, _Info}, _Document} ->
             ok
     end;
@@ -261,7 +263,12 @@ on_query(
                 reason => Reason,
                 connector => InstId
             }),
-            {error, Reason};
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    {error, Reason}
+            end;
         {ok, Cursor} when is_pid(Cursor) ->
             {ok, mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)};
         Result ->

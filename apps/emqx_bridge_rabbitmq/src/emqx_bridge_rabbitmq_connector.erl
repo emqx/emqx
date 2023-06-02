@@ -431,11 +431,12 @@ on_query(
         state => emqx_utils:redact(State)
     }),
     MessageData = format_data(PayloadTemplate, Data),
-    ecpool:pick_and_do(
+    Res = ecpool:pick_and_do(
         PoolName,
         {?MODULE, publish_messages, [Config, [MessageData]]},
         no_handover
-    ).
+    ),
+    handle_result(Res).
 
 %% emqx_resource callback that is called when a batch query is received
 
@@ -467,11 +468,12 @@ on_batch_query(
      || Data <- MessagesToInsert
     ],
     %% Publish the messages
-    ecpool:pick_and_do(
+    Res = ecpool:pick_and_do(
         PoolName,
         {?MODULE, publish_messages, [Config, FormattedMessages]},
         no_handover
-    ).
+    ),
+    handle_result(Res).
 
 publish_messages(
     {_Connection, Channel},
@@ -543,3 +545,8 @@ format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Msg).
+
+handle_result({error, ecpool_empty}) ->
+    {error, {recoverable_error, ecpool_empty}};
+handle_result(Res) ->
+    Res.

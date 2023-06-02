@@ -336,6 +336,7 @@ conn_str([{_, _} | Opts], Acc) ->
 ) ->
     {ok, list()}
     | {error, {recoverable_error, term()}}
+    | {error, {unrecoverable_error, term()}}
     | {error, term()}.
 do_query(
     ResourceId,
@@ -374,7 +375,12 @@ do_query(
                 query => Query,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         _ ->
             ?tp(
                 sqlserver_connector_query_return,
