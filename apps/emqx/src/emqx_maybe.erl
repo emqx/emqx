@@ -45,8 +45,8 @@ define(Term, _) ->
     Term.
 
 %% @doc Apply a function to a maybe argument.
--spec apply(fun((A) -> maybe(A)), maybe(A)) ->
-    maybe(A).
+-spec apply(fun((A) -> B), maybe(A)) ->
+    maybe(B).
 apply(_Fun, undefined) ->
     undefined;
 apply(Fun, Term) when is_function(Fun) ->

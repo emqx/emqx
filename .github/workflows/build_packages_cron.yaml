@@ -25,16 +25,16 @@ jobs:
           - ['emqx', 'master']
           - ['emqx-enterprise', 'release-51']
         otp:
-          - 24.3.4.2-3
+          - 25.3.2-1
         arch:
           - amd64
         os:
           - debian10
           - amzn2
         builder:
-          - 5.0-35
+          - 5.1-0
         elixir:
-          - 1.13.4
+          - 1.14.5
 
     defaults:
       run:
@@ -92,7 +92,7 @@ jobs:
         branch:
           - master
         otp:
-          - 24.3.4.2-3
+          - 25.3.2-1
         os:
           - macos-12
           - macos-12-arm64

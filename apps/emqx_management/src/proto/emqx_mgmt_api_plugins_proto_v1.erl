@@ -19,6 +19,8 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
+
     get_plugins/0,
     install_package/2,
     describe_package/1,
@@ -30,6 +32,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "5.1.0".
 
 -spec get_plugins() -> emqx_rpc:multicall_result().
 get_plugins() ->

@@ -29,19 +29,18 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_management]).
 
 t_bootstrap_file(_) ->
     TestPath = <<"/api/v5/status">>,
     Bin = <<"test-1:secret-1\ntest-2:secret-2">>,
     File = "./bootstrap_api_keys.txt",
     ok = file:write_file(File, Bin),
-    emqx:update_config([api_key, bootstrap_file], File),
-    ok = emqx_mgmt_auth:init_bootstrap_file(),
+    update_file(File),
     ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
     ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-2">>)),
     ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-1">>)),
@@ -49,38 +48,32 @@ t_bootstrap_file(_) ->
     %% relaunch to check if the table is changed.
     Bin1 = <<"test-1:new-secret-1\ntest-2:new-secret-2">>,
     ok = file:write_file(File, Bin1),
-    ok = emqx_mgmt_auth:init_bootstrap_file(),
+    update_file(File),
     ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
     ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-2">>)),
     ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"new-secret-1">>)),
     ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"new-secret-2">>)),
 
-    %% Compatibility
-    Bin2 = <<"test-3:new-secret-3\ntest-4:new-secret-4">>,
-    ok = file:write_file(File, Bin2),
-    emqx:update_config([api_key, bootstrap_file], <<>>),
-    emqx:update_config([dashboard, bootstrap_users_file], File),
-    ok = emqx_mgmt_auth:init_bootstrap_file(),
-    ?assertMatch(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"new-secret-1">>)),
-    ?assertMatch(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"new-secret-2">>)),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-3">>, <<"new-secret-3">>)),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-4">>, <<"new-secret-4">>)),
-
-    %% not found
-    NotFoundFile = "./bootstrap_apps_not_exist.txt",
-    emqx:update_config([api_key, bootstrap_file], NotFoundFile),
-    ?assertMatch({error, "No such file or directory"}, emqx_mgmt_auth:init_bootstrap_file()),
+    %% not error when bootstrap_file is empty
+    update_file(<<>>),
+    update_file("./bootstrap_apps_not_exist.txt"),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-2">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"new-secret-1">>)),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"new-secret-2">>)),
 
     %% bad format
     BadBin = <<"test-1:secret-11\ntest-2 secret-12">>,
     ok = file:write_file(File, BadBin),
-    emqx:update_config([api_key, bootstrap_file], File),
+    update_file(File),
     ?assertMatch({error, #{reason := "invalid_format"}}, emqx_mgmt_auth:init_bootstrap_file()),
     ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-11">>)),
     ?assertMatch({error, _}, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
-    emqx:update_config([api_key, bootstrap_file], <<>>),
-    emqx:update_config([dashboard, bootstrap_users_file], <<>>),
+    update_file(<<>>),
     ok.
+
+update_file(File) ->
+    ?assertMatch({ok, _}, emqx:update_config([<<"api_key">>], #{<<"bootstrap_file">> => File})).
 
 t_create(_Config) ->
     Name = <<"EMQX-API-KEY-1">>,

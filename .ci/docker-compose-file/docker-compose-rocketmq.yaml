@@ -23,6 +23,7 @@ services:
       - ./rocketmq/logs:/opt/logs
       - ./rocketmq/store:/opt/store
       - ./rocketmq/conf/broker.conf:/etc/rocketmq/broker.conf
+      - ./rocketmq/conf/plain_acl.yml:/home/rocketmq/rocketmq-4.9.4/conf/plain_acl.yml
     environment:
         NAMESRV_ADDR: "rocketmq_namesrv:9876"
         JAVA_OPTS: " -Duser.home=/opt -Drocketmq.broker.diskSpaceWarningLevelRatio=0.99"

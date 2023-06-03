@@ -160,7 +160,6 @@ t_update_ssl_conf(Config) ->
         <<"bridge_mode">> => false,
         <<"clean_start">> => true,
         <<"keepalive">> => <<"60s">>,
-        <<"mode">> => <<"cluster_shareload">>,
         <<"proto_ver">> => <<"v4">>,
         <<"server">> => <<"127.0.0.1:1883">>,
         <<"ssl">> =>

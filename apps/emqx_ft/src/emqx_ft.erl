@@ -45,7 +45,8 @@
     offset/0,
     filemeta/0,
     segment/0,
-    checksum/0
+    checksum/0,
+    finopts/0
 ]).
 
 %% Number of bytes
@@ -79,6 +80,10 @@
 }.
 
 -type segment() :: {offset(), _Content :: binary()}.
+
+-type finopts() :: #{
+    checksum => checksum()
+}.
 
 %%--------------------------------------------------------------------
 %% API for app
@@ -170,8 +175,8 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
                 [{size, FinalSizeBin}, {{maybe, checksum}, ChecksumBin}],
-                fun([FinalSize, Checksum]) ->
-                    on_fin(PacketId, Msg, Transfer, FinalSize, Checksum)
+                fun([FinalSize, FinalChecksum]) ->
+                    on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum)
                 end
             );
         [<<"abort">>] ->
@@ -251,13 +256,13 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
         end
     end).
 
-on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
+on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum) ->
     ?tp(info, "file_transfer_fin", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
         transfer => Transfer,
         final_size => FinalSize,
-        checksum => Checksum
+        checksum => FinalChecksum
     }),
     %% TODO: handle checksum? Do we need it?
     FinPacketKey = {self(), PacketId},
@@ -265,7 +270,7 @@ on_fin(PacketId, Msg, Transfer, FinalSize, Checksum) ->
         ?MODULE:on_complete("assemble", FinPacketKey, Transfer, Result)
     end,
     with_responder(FinPacketKey, Callback, emqx_ft_conf:assemble_timeout(), fun() ->
-        case assemble(Transfer, FinalSize) of
+        case assemble(Transfer, FinalSize, FinalChecksum) of
             %% Assembling completed, ack through the responder right away
             ok ->
                 emqx_ft_responder:ack(FinPacketKey, ok);
@@ -314,9 +319,10 @@ store_segment(Transfer, Segment) ->
             {error, {internal_error, E}}
     end.
 
-assemble(Transfer, FinalSize) ->
+assemble(Transfer, FinalSize, FinalChecksum) ->
     try
-        emqx_ft_storage:assemble(Transfer, FinalSize)
+        FinOpts = [{checksum, FinalChecksum} || FinalChecksum /= undefined],
+        emqx_ft_storage:assemble(Transfer, FinalSize, maps:from_list(FinOpts))
     catch
         C:E:S ->
             ?tp(error, "start_assemble_failed", #{
@@ -397,8 +403,8 @@ do_validate([{checksum, Checksum} | Rest], Parsed) ->
         {error, _Reason} ->
             {error, {invalid_checksum, Checksum}}
     end;
-do_validate([{integrity, Payload, Checksum} | Rest], Parsed) ->
-    case crypto:hash(sha256, Payload) of
+do_validate([{integrity, Payload, {Algo, Checksum}} | Rest], Parsed) ->
+    case crypto:hash(Algo, Payload) of
         Checksum ->
             do_validate(Rest, [Payload | Parsed]);
         Mismatch ->
@@ -411,7 +417,7 @@ do_validate([{{maybe, T}, Value} | Rest], Parsed) ->
 
 parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:= 64 ->
     try
-        {ok, binary:decode_hex(Checksum)}
+        {ok, {sha256, binary:decode_hex(Checksum)}}
     catch
         error:badarg ->
             {error, invalid_checksum}

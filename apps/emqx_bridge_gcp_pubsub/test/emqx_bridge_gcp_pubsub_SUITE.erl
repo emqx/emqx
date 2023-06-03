@@ -287,7 +287,7 @@ gcp_pubsub_config(Config) ->
             "  pool_size = 1\n"
             "  pipelining = ~b\n"
             "  resource_opts = {\n"
-            "    request_timeout = 500ms\n"
+            "    request_ttl = 500ms\n"
             "    metrics_flush_interval = 700ms\n"
             "    worker_pool_size = 1\n"
             "    query_mode = ~s\n"
@@ -627,7 +627,7 @@ t_publish_success_infinity_timeout(Config) ->
     ServiceAccountJSON = ?config(service_account_json, Config),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config, #{
-        <<"resource_opts">> => #{<<"request_timeout">> => <<"infinity">>}
+        <<"resource_opts">> => #{<<"request_ttl">> => <<"infinity">>}
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),

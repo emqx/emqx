@@ -174,7 +174,7 @@ t_authenticator(Config) when is_list(Config) ->
     register_provider(AuthNType1, ?MODULE),
     ID1 = <<"password_based:built_in_database">>,
 
-    % CRUD of authencaticator
+    % CRUD of authenticator
     ?assertMatch(
         {ok, #{id := ID1, state := #{mark := 1}}},
         ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)
@@ -296,7 +296,10 @@ t_update_config({init, Config}) ->
         | Config
     ];
 t_update_config(Config) when is_list(Config) ->
-    emqx_config_handler:add_handler([?CONF_ROOT], emqx_authentication),
+    emqx_config_handler:add_handler([?CONF_ROOT], emqx_authentication_config),
+    ok = emqx_config_handler:add_handler(
+        [listeners, '?', '?', ?CONF_ROOT], emqx_authentication_config
+    ),
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
@@ -354,6 +357,10 @@ t_update_config(Config) when is_list(Config) ->
     ),
 
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(Global)),
+
+    [Raw2, Raw1] = emqx:get_raw_config([?CONF_ROOT]),
+    ?assertMatch({ok, _}, update_config([?CONF_ROOT], [Raw1, Raw2])),
+    ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(Global)),
 
     ?assertMatch({ok, _}, update_config([?CONF_ROOT], {delete_authenticator, Global, ID1})),
     ?assertEqual(
@@ -417,9 +424,14 @@ t_update_config(Config) when is_list(Config) ->
         {ok, _},
         update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, ?CMD_MOVE_FRONT})
     ),
-
     ?assertMatch(
         {ok, [#{id := ID2}, #{id := ID1}]},
+        ?AUTHN:list_authenticators(ListenerID)
+    ),
+    [LRaw2, LRaw1] = emqx:get_raw_config(ConfKeyPath),
+    ?assertMatch({ok, _}, update_config(ConfKeyPath, [LRaw1, LRaw2])),
+    ?assertMatch(
+        {ok, [#{id := ID1}, #{id := ID2}]},
         ?AUTHN:list_authenticators(ListenerID)
     ),
 

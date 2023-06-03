@@ -55,8 +55,8 @@
     default_port => ?SQLSERVER_DEFAULT_PORT
 }).
 
--define(REQUEST_TIMEOUT(RESOURCE_OPTS),
-    maps:get(request_timeout, RESOURCE_OPTS, ?DEFAULT_REQUEST_TIMEOUT)
+-define(REQUEST_TTL(RESOURCE_OPTS),
+    maps:get(request_ttl, RESOURCE_OPTS, ?DEFAULT_REQUEST_TTL)
 ).
 
 -define(BATCH_INSERT_TEMP, batch_insert_temp).
@@ -336,6 +336,7 @@ conn_str([{_, _} | Opts], Acc) ->
 ) ->
     {ok, list()}
     | {error, {recoverable_error, term()}}
+    | {error, {unrecoverable_error, term()}}
     | {error, term()}.
 do_query(
     ResourceId,
@@ -374,7 +375,12 @@ do_query(
                 query => Query,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         _ ->
             ?tp(
                 sqlserver_connector_query_return,
@@ -388,7 +394,7 @@ worker_do_insert(
 ) ->
     LogMeta = #{connector => ResourceId, state => State},
     try
-        case execute(Conn, SQL, ?REQUEST_TIMEOUT(ResourceOpts)) of
+        case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
             {selected, Rows, _} ->
                 {ok, Rows};
             {updated, _} ->

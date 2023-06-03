@@ -448,10 +448,8 @@ try_read_cache(ResId) ->
     end.
 
 retry_actions(Data) ->
-    case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
+    case maps:get(health_check_interval, Data#data.opts, ?HEALTHCHECK_INTERVAL) of
         undefined ->
-            [];
-        infinity ->
             [];
         RetryInterval ->
             [{state_timeout, RetryInterval, auto_retry}]

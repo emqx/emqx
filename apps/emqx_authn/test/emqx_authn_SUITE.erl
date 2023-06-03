@@ -200,6 +200,127 @@ t_union_selector_errors(Config) when is_list(Config) ->
     ),
     ok.
 
+t_update_conf({init, Config}) ->
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn]),
+    {ok, _} = emqx:update_config([authentication], []),
+    Config;
+t_update_conf({'end', _Config}) ->
+    {ok, _} = emqx:update_config([authentication], []),
+    emqx_common_test_helpers:stop_apps([emqx_authn, emqx_conf]),
+    ok;
+t_update_conf(Config) when is_list(Config) ->
+    Authn1 = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"clientid">>,
+        <<"enable">> => true
+    },
+    Authn2 = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"http">>,
+        <<"method">> => <<"post">>,
+        <<"url">> => <<"http://127.0.0.1:18083">>,
+        <<"headers">> => #{
+            <<"content-type">> => <<"application/json">>
+        },
+        <<"enable">> => true
+    },
+    Authn3 = #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => false,
+        <<"algorithm">> => <<"hmac-based">>,
+        <<"secret">> => <<"mysecret">>,
+        <<"secret_base64_encoded">> => false,
+        <<"verify_claims">> => #{<<"username">> => <<"${username}">>},
+        <<"enable">> => true
+    },
+    Chain = 'mqtt:global',
+    {ok, _} = emqx:update_config([authentication], [Authn1]),
+    ?assertMatch(
+        {ok, #{
+            authenticators := [
+                #{
+                    enable := true,
+                    id := <<"password_based:built_in_database">>,
+                    provider := emqx_authn_mnesia
+                }
+            ]
+        }},
+        emqx_authentication:lookup_chain(Chain)
+    ),
+
+    {ok, _} = emqx:update_config([authentication], [Authn1, Authn2, Authn3]),
+    ?assertMatch(
+        {ok, #{
+            authenticators := [
+                #{
+                    enable := true,
+                    id := <<"password_based:built_in_database">>,
+                    provider := emqx_authn_mnesia
+                },
+                #{
+                    enable := true,
+                    id := <<"password_based:http">>,
+                    provider := emqx_authn_http
+                },
+                #{
+                    enable := true,
+                    id := <<"jwt">>,
+                    provider := emqx_authn_jwt
+                }
+            ]
+        }},
+        emqx_authentication:lookup_chain(Chain)
+    ),
+    {ok, _} = emqx:update_config([authentication], [Authn2, Authn1]),
+    ?assertMatch(
+        {ok, #{
+            authenticators := [
+                #{
+                    enable := true,
+                    id := <<"password_based:http">>,
+                    provider := emqx_authn_http
+                },
+                #{
+                    enable := true,
+                    id := <<"password_based:built_in_database">>,
+                    provider := emqx_authn_mnesia
+                }
+            ]
+        }},
+        emqx_authentication:lookup_chain(Chain)
+    ),
+
+    {ok, _} = emqx:update_config([authentication], [Authn3, Authn2, Authn1]),
+    ?assertMatch(
+        {ok, #{
+            authenticators := [
+                #{
+                    enable := true,
+                    id := <<"jwt">>,
+                    provider := emqx_authn_jwt
+                },
+                #{
+                    enable := true,
+                    id := <<"password_based:http">>,
+                    provider := emqx_authn_http
+                },
+                #{
+                    enable := true,
+                    id := <<"password_based:built_in_database">>,
+                    provider := emqx_authn_mnesia
+                }
+            ]
+        }},
+        emqx_authentication:lookup_chain(Chain)
+    ),
+    {ok, _} = emqx:update_config([authentication], []),
+    ?assertMatch(
+        {error, {not_found, {chain, Chain}}},
+        emqx_authentication:lookup_chain(Chain)
+    ),
+    ok.
+
 parse(Bytes) ->
     {ok, Frame, <<>>, {none, _}} = emqx_frame:parse(Bytes),
     Frame.

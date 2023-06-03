@@ -57,7 +57,6 @@ values(_Method, Type) ->
         resource_opts => #{
             worker_pool_size => 8,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
             query_mode => async,

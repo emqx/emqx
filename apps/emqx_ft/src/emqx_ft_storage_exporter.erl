@@ -24,7 +24,7 @@
 %% Export API
 -export([start_export/3]).
 -export([write/2]).
--export([complete/1]).
+-export([complete/2]).
 -export([discard/1]).
 
 %% Listing API
@@ -117,12 +117,19 @@ write(#{mod := ExporterMod, st := ExportSt, hash := Hash} = Export, Content) ->
             Error
     end.
 
--spec complete(export()) ->
+-spec complete(export(), emqx_ft:finopts()) ->
     ok | {error, _Reason}.
-complete(#{mod := ExporterMod, st := ExportSt, hash := Hash, filemeta := Filemeta}) ->
-    case verify_checksum(Hash, Filemeta) of
-        {ok, Checksum} ->
-            ExporterMod:complete(ExportSt, Checksum);
+complete(#{mod := ExporterMod, st := ExportSt, hash := Hash, filemeta := Filemeta}, Opts) ->
+    Checksum = emqx_maybe:define(
+        % NOTE
+        % Checksum in `Opts` takes precedence over one in `Filemeta` according to the spec.
+        % We do not care if they differ.
+        maps:get(checksum, Opts, undefined),
+        maps:get(checksum, Filemeta, undefined)
+    ),
+    case verify_checksum(Hash, Checksum) of
+        {ok, ExportChecksum} ->
+            ExporterMod:complete(ExportSt, ExportChecksum);
         {error, _} = Error ->
             _ = ExporterMod:discard(ExportSt),
             Error
@@ -183,13 +190,13 @@ init_checksum(#{}) ->
 update_checksum(Ctx, IoData) ->
     crypto:hash_update(Ctx, IoData).
 
-verify_checksum(Ctx, #{checksum := {Algo, Digest} = Checksum}) ->
+verify_checksum(Ctx, {Algo, Digest} = Checksum) ->
     case crypto:hash_final(Ctx) of
         Digest ->
             {ok, Checksum};
         Mismatch ->
             {error, {checksum, Algo, binary:encode_hex(Mismatch)}}
     end;
-verify_checksum(Ctx, #{}) ->
+verify_checksum(Ctx, undefined) ->
     Digest = crypto:hash_final(Ctx),
     {ok, {sha256, Digest}}.

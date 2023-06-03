@@ -142,7 +142,12 @@ do_query(InstanceId, Query, #{pool_name := PoolName} = State) ->
                 query => Query,
                 reason => Reason
             }),
-            Result;
+            case Reason of
+                ecpool_empty ->
+                    {error, {recoverable_error, Reason}};
+                _ ->
+                    Result
+            end;
         _ ->
             ?tp(
                 opents_connector_query_return,

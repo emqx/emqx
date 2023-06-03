@@ -203,11 +203,9 @@ oracle_config(TestCase, _ConnectionType, Config) ->
             "  pool_size = 1\n"
             "  sql = \"~s\"\n"
             "  resource_opts = {\n"
-            "     auto_restart_interval = \"5s\"\n"
             "     health_check_interval = \"5s\"\n"
-            "     request_timeout = \"30s\"\n"
+            "     request_ttl = \"30s\"\n"
             "     query_mode = \"async\"\n"
-            "     enable_batch = true\n"
             "     batch_size = 3\n"
             "     batch_time = \"3s\"\n"
             "     worker_pool_size = 1\n"
@@ -515,5 +513,17 @@ t_on_get_status(Config) ->
         _Sleep = 1_000,
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    ok.
+
+t_no_sid_nor_service_name(Config0) ->
+    OracleConfig0 = ?config(oracle_config, Config0),
+    OracleConfig1 = maps:remove(<<"sid">>, OracleConfig0),
+    OracleConfig = maps:remove(<<"service_name">>, OracleConfig1),
+    NewOracleConfig = {oracle_config, OracleConfig},
+    Config = lists:keyreplace(oracle_config, 1, Config0, NewOracleConfig),
+    ?assertMatch(
+        {error, #{kind := validation_error, reason := "neither SID nor Service Name was set"}},
+        create_bridge(Config)
     ),
     ok.

@@ -20,7 +20,7 @@
     [
         store_filemeta/2,
         store_segment/2,
-        assemble/2,
+        assemble/3,
 
         files/0,
         files/1,
@@ -88,7 +88,7 @@
     ok | {async, pid()} | {error, term()}.
 -callback store_segment(storage(), emqx_ft:transfer(), emqx_ft:segment()) ->
     ok | {async, pid()} | {error, term()}.
--callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes()) ->
+-callback assemble(storage(), emqx_ft:transfer(), _Size :: emqx_ft:bytes(), emqx_ft:finopts()) ->
     ok | {async, pid()} | {error, term()}.
 
 -callback files(storage(), query(Cursor)) ->
@@ -114,10 +114,10 @@ store_filemeta(Transfer, FileMeta) ->
 store_segment(Transfer, Segment) ->
     dispatch(store_segment, [Transfer, Segment]).
 
--spec assemble(emqx_ft:transfer(), emqx_ft:bytes()) ->
+-spec assemble(emqx_ft:transfer(), emqx_ft:bytes(), emqx_ft:finopts()) ->
     ok | {async, pid()} | {error, term()}.
-assemble(Transfer, Size) ->
-    dispatch(assemble, [Transfer, Size]).
+assemble(Transfer, Size, FinOpts) ->
+    dispatch(assemble, [Transfer, Size, FinOpts]).
 
 -spec files() ->
     {ok, page(file_info(), _)} | {error, term()}.

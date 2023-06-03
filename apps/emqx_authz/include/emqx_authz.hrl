@@ -43,6 +43,7 @@
 -define(CMD_MOVE_BEFORE(Before), {before, Before}).
 -define(CMD_MOVE_AFTER(After), {'after', After}).
 
+-define(ROOT_KEY, [authorization]).
 -define(CONF_KEY_PATH, [authorization, sources]).
 
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9_]+\\}").

@@ -39,7 +39,8 @@
     disable_enable/3,
     remove/2,
     check_deps_and_remove/3,
-    list/0
+    list/0,
+    reload_hook/1
 ]).
 
 -export([
@@ -133,6 +134,10 @@ safe_load_bridge(Type, Name, Conf, Opts) ->
             })
     end.
 
+reload_hook(Bridges) ->
+    ok = unload_hook(),
+    ok = load_hook(Bridges).
+
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),
     load_hook(Bridges).
@@ -216,9 +221,9 @@ send_message(BridgeType, BridgeName, ResId, Message) ->
     end.
 
 query_opts(Config) ->
-    case emqx_utils_maps:deep_get([resource_opts, request_timeout], Config, false) of
+    case emqx_utils_maps:deep_get([resource_opts, request_ttl], Config, false) of
         Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
-            %% request_timeout is configured
+            %% request_ttl is configured
             #{timeout => Timeout};
         _ ->
             %% emqx_resource has a default value (15s)

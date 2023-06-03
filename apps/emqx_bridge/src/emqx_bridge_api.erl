@@ -218,7 +218,6 @@ info_example_basic(webhook) ->
         resource_opts => #{
             worker_pool_size => 1,
             health_check_interval => 15000,
-            auto_restart_interval => 15000,
             query_mode => async,
             inflight_window => 100,
             max_buffer_bytes => 100 * 1024 * 1024
@@ -233,7 +232,6 @@ info_example_basic(mqtt) ->
 mqtt_main_example() ->
     #{
         enable => true,
-        mode => cluster_shareload,
         server => <<"127.0.0.1:1883">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,
@@ -244,7 +242,6 @@ mqtt_main_example() ->
         max_inflight => 100,
         resource_opts => #{
             health_check_interval => <<"15s">>,
-            auto_restart_interval => <<"60s">>,
             query_mode => sync,
             max_buffer_bytes => 100 * 1024 * 1024
         },

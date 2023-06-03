@@ -49,8 +49,8 @@ t_reg_unreg_command(_) ->
             emqx_ctl:unregister_command(cmd1),
             emqx_ctl:unregister_command(cmd2),
             ct:sleep(100),
-            ?assertEqual([], emqx_ctl:lookup_command(cmd1)),
-            ?assertEqual([], emqx_ctl:lookup_command(cmd2)),
+            ?assertEqual({error, cmd_not_found}, emqx_ctl:lookup_command(cmd1)),
+            ?assertEqual({error, cmd_not_found}, emqx_ctl:lookup_command(cmd2)),
             ?assertEqual([], emqx_ctl:get_commands())
         end
     ).

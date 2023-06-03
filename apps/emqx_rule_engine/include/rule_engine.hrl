@@ -121,3 +121,6 @@
             false
     end)
 ).
+
+-define(KEY_PATH, [rule_engine, rules]).
+-define(RULE_PATH(RULE), [rule_engine, rules, RULE]).

@@ -128,16 +128,21 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                     }),
                     {error, Reason}
             end;
-        [] ->
+        Error ->
             help(),
-            {error, cmd_not_found}
+            Error
     end.
 
 -spec lookup_command(cmd()) -> [{module(), atom()}].
 lookup_command(Cmd) when is_atom(Cmd) ->
-    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
-        [El] -> El;
-        [] -> []
+    case is_initialized() of
+        true ->
+            case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
+                [El] -> El;
+                [] -> {error, cmd_not_found}
+            end;
+        false ->
+            {error, cmd_is_initializing}
     end.
 
 -spec get_commands() -> list({cmd(), module(), atom()}).
@@ -145,18 +150,23 @@ get_commands() ->
     [{Cmd, M, F} || {{_Seq, Cmd}, {M, F}, _Opts} <- ets:tab2list(?CMD_TAB)].
 
 help() ->
-    case ets:tab2list(?CMD_TAB) of
-        [] ->
-            print("No commands available.~n");
-        Cmds ->
-            print("Usage: ~ts~n", ["emqx ctl"]),
-            lists:foreach(
-                fun({_, {Mod, Cmd}, _}) ->
-                    print("~110..-s~n", [""]),
-                    apply(Mod, Cmd, [usage])
-                end,
-                Cmds
-            )
+    case is_initialized() of
+        true ->
+            case ets:tab2list(?CMD_TAB) of
+                [] ->
+                    print("No commands available.~n");
+                Cmds ->
+                    print("Usage: ~ts~n", ["emqx ctl"]),
+                    lists:foreach(
+                        fun({_, {Mod, Cmd}, _}) ->
+                            print("~110..-s~n", [""]),
+                            apply(Mod, Cmd, [usage])
+                        end,
+                        Cmds
+                    )
+            end;
+        false ->
+            print("Command table is initializing.~n")
     end.
 
 -spec print(io:format()) -> ok.
@@ -279,3 +289,6 @@ safe_to_existing_atom(Str) ->
         _:badarg ->
             undefined
     end.
+
+is_initialized() ->
+    ets:info(?CMD_TAB) =/= undefined.

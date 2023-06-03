@@ -33,8 +33,9 @@ init_per_suite(Config) ->
     _ = emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
-end_per_suite(Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+end_per_suite(_Config) ->
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
+    ok.
 
 t_object(_Config) ->
     Spec = #{

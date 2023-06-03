@@ -365,7 +365,7 @@ report_telemetry(State0 = #state{url = URL}) ->
     {State, Data} = get_telemetry(State0),
     case emqx_utils_json:safe_encode(Data) of
         {ok, Bin} ->
-            httpc_request(post, URL, [], Bin),
+            ok = httpc_request(post, URL, [], Bin),
             ?tp(debug, telemetry_data_reported, #{});
         {error, Reason} ->
             %% debug? why?
@@ -376,7 +376,8 @@ report_telemetry(State0 = #state{url = URL}) ->
 httpc_request(Method, URL, Headers, Body) ->
     HTTPOptions = [{timeout, 10_000}, {ssl, [{verify, verify_none}]}],
     Options = [],
-    httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
+    _ = httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options),
+    ok.
 
 parse_os_release(FileContent) ->
     lists:foldl(

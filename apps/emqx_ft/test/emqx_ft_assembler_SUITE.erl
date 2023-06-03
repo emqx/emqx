@@ -178,7 +178,7 @@ complete_assemble(Storage, Transfer, Size) ->
     complete_assemble(Storage, Transfer, Size, 1000).
 
 complete_assemble(Storage, Transfer, Size, Timeout) ->
-    {async, Pid} = emqx_ft_storage_fs:assemble(Storage, Transfer, Size),
+    {async, Pid} = emqx_ft_storage_fs:assemble(Storage, Transfer, Size, #{}),
     MRef = erlang:monitor(process, Pid),
     Pid ! kickoff,
     receive

@@ -607,21 +607,25 @@ t_fail_rollback(Config) ->
     SerdeType = ?config(serde_type, Config),
     OkSchema = emqx_utils_maps:binary_key_map(schema_params(SerdeType)),
     BrokenSchema = OkSchema#{<<"source">> := <<"{}">>},
-    %% hopefully, for this small map, the key order is used.
-    Serdes = #{
-        <<"a">> => OkSchema,
-        <<"z">> => BrokenSchema
-    },
+
     ?assertMatch(
-        {error, _},
+        {ok, _},
         emqx_conf:update(
-            [?CONF_KEY_ROOT, schemas],
-            Serdes,
+            [?CONF_KEY_ROOT, schemas, <<"a">>],
+            OkSchema,
             #{}
         )
     ),
-    %% no serdes should be in the table
-    ?assertEqual({error, not_found}, emqx_ee_schema_registry:get_serde(<<"a">>)),
+    ?assertMatch(
+        {error, _},
+        emqx_conf:update(
+            [?CONF_KEY_ROOT, schemas, <<"z">>],
+            BrokenSchema,
+            #{}
+        )
+    ),
+    ?assertMatch({ok, #{name := <<"a">>}}, emqx_ee_schema_registry:get_serde(<<"a">>)),
+    %% no z serdes should be in the table
     ?assertEqual({error, not_found}, emqx_ee_schema_registry:get_serde(<<"z">>)),
     ok.
 

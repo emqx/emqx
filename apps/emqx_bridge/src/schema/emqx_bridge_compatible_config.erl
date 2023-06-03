@@ -68,7 +68,6 @@ up(#{<<"connector">> := Connector} = Config) ->
         Cn(password, <<>>),
         Cn(clean_start, true),
         Cn(keepalive, <<"60s">>),
-        Cn(mode, <<"cluster_shareload">>),
         Cn(proto_ver, <<"v4">>),
         Cn(server, undefined),
         Cn(retry_interval, <<"15s">>),
@@ -87,7 +86,6 @@ default_ssl() ->
 default_resource_opts() ->
     #{
         <<"inflight_window">> => 100,
-        <<"auto_restart_interval">> => <<"60s">>,
         <<"health_check_interval">> => <<"15s">>,
         <<"max_buffer_bytes">> => <<"1GB">>,
         <<"query_mode">> => <<"sync">>,

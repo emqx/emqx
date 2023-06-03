@@ -280,25 +280,28 @@ get_default_value([RootName | _] = KeyPath) ->
     end.
 
 -spec get_raw(emqx_utils_maps:config_key_path()) -> term().
-get_raw([Root | T]) when is_atom(Root) -> get_raw([bin(Root) | T]);
-get_raw(KeyPath) -> do_get_raw(KeyPath).
+get_raw([Root | _] = KeyPath) when is_binary(Root) -> do_get_raw(KeyPath);
+get_raw([Root | T]) -> get_raw([bin(Root) | T]);
+get_raw([]) -> do_get_raw([]).
 
 -spec get_raw(emqx_utils_maps:config_key_path(), term()) -> term().
-get_raw([Root | T], Default) when is_atom(Root) -> get_raw([bin(Root) | T], Default);
-get_raw(KeyPath, Default) -> do_get_raw(KeyPath, Default).
+get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPath, Default);
+get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
+get_raw([], Default) -> do_get_raw([], Default).
 
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
     maps:fold(
         fun(RootName, RootV, _) ->
-            ?MODULE:put_raw([RootName], RootV)
+            ?MODULE:put_raw([bin(RootName)], RootV)
         end,
         ok,
         hocon_maps:ensure_plain(Config)
     ).
 
 -spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
-put_raw(KeyPath, Config) ->
+put_raw(KeyPath0, Config) ->
+    KeyPath = [bin(K) || K <- KeyPath0],
     Putter = fun(Path, Map, Value) ->
         emqx_utils_maps:deep_force_put(Path, Map, Value)
     end,

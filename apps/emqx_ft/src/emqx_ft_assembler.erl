@@ -16,7 +16,7 @@
 
 -module(emqx_ft_assembler).
 
--export([start_link/3]).
+-export([start_link/4]).
 
 -behaviour(gen_statem).
 -export([callback_mode/0]).
@@ -29,6 +29,7 @@
 -type stdata() :: #{
     storage := emqx_ft_storage_fs:storage(),
     transfer := emqx_ft:transfer(),
+    finopts := emqx_ft:finopts(),
     assembly := emqx_ft_assembly:t(),
     export => emqx_ft_storage_exporter:export()
 }.
@@ -38,8 +39,8 @@
 
 %%
 
-start_link(Storage, Transfer, Size) ->
-    gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer, Size}, []).
+start_link(Storage, Transfer, Size, Opts) ->
+    gen_statem:start_link(?REF(Transfer), ?MODULE, {Storage, Transfer, Size, Opts}, []).
 
 where(Transfer) ->
     gproc:where(?NAME(Transfer)).
@@ -60,11 +61,12 @@ callback_mode() ->
     handle_event_function.
 
 -spec init(_Args) -> {ok, state(), stdata()}.
-init({Storage, Transfer, Size}) ->
+init({Storage, Transfer, Size, Opts}) ->
     _ = erlang:process_flag(trap_exit, true),
     St = #{
         storage => Storage,
         transfer => Transfer,
+        finopts => Opts,
         assembly => emqx_ft_assembly:new(Size)
     },
     {ok, idle, St}.
@@ -164,8 +166,8 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #{export :=
     end;
 handle_event(internal, _, {assemble, []}, St = #{}) ->
     {next_state, complete, St, ?internal([])};
-handle_event(internal, _, complete, St = #{export := Export}) ->
-    Result = emqx_ft_storage_exporter:complete(Export),
+handle_event(internal, _, complete, St = #{export := Export, finopts := Opts}) ->
+    Result = emqx_ft_storage_exporter:complete(Export, Opts),
     _ = maybe_garbage_collect(Result, St),
     {stop, {shutdown, Result}, maps:remove(export, St)}.
 

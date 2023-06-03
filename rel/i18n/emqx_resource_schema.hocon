@@ -1,11 +1,5 @@
 emqx_resource_schema {
 
-auto_restart_interval.desc:
-"""The auto restart interval after the resource is disconnected."""
-
-auto_restart_interval.label:
-"""Auto Restart Interval"""
-
 batch_size.desc:
 """Maximum batch count. If equal to 1, there's effectively no batching."""
 
@@ -76,11 +70,11 @@ query_mode.desc:
 query_mode.label:
 """Query mode"""
 
-request_timeout.desc:
+request_ttl.desc:
 """Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""
 
-request_timeout.label:
-"""Request Expiry"""
+request_ttl.label:
+"""Request TTL"""
 
 resource_opts.desc:
 """Resource options."""

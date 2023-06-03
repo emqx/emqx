@@ -71,7 +71,7 @@ webhook_config_test() ->
             }
         }
     } = check(Conf3),
-    ?assertMatch(#{<<"request_timeout">> := infinity}, ResourceOpts),
+    ?assertMatch(#{<<"request_ttl">> := infinity}, ResourceOpts),
     ok.
 
 up(#{<<"bridges">> := Bridges0} = Conf0) ->

@@ -17,7 +17,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-35:1.13.4-24.3.4.2-3-debian11
+    container: ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-debian11
 
     steps:
       - uses: actions/checkout@v3
@@ -50,17 +50,17 @@ jobs:
         os:
           - ["debian11", "debian:11-slim"]
         builder:
-          - 5.0-35
+          - 5.1-0
         otp:
-          - 24.3.4.2-3
+          - 25.3.2-1
         elixir:
-          - 1.13.4
+          - 1.14.5
         arch:
           - amd64
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -123,11 +123,11 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         builder:
-        - 5.0-35
+        - 5.1-0
         otp:
-        - 24.3.4.2-3
+        - 25.3.2-1
         elixir:
-        - 1.13.4
+        - 1.14.5
         arch:
         - amd64
       # - emqx-enterprise # TODO test enterprise
@@ -135,7 +135,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@v1.15.2
       with:
-        otp-version: 24.3.4.6
+        otp-version: 25.3.2
     - uses: actions/download-artifact@v3
       with:
         name: source
@@ -228,11 +228,11 @@ jobs:
     - uses: actions/checkout@v3
       with:
         repository: emqx/paho.mqtt.testing
-        ref: develop-4.0
+        ref: develop-5.0
         path: paho.mqtt.testing
     - name: install pytest
       run: |
-        pip install pytest
+        pip install pytest==7.1.2 pytest-retry
         echo "$HOME/.local/bin" >> $GITHUB_PATH
     - name: run paho test
       timeout-minutes: 10
@@ -250,6 +250,6 @@ jobs:
           sleep 10
         done
 
-        pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
+        pytest --retries 3 -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
     - if: failure()
       run: kubectl logs -l "app.kubernetes.io/instance=${{ matrix.profile }}" -c emqx --tail=1000
