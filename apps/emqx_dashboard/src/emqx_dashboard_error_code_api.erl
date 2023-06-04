@@ -63,7 +63,7 @@ schema("/error_codes/:code") ->
         'operationId' => error_code,
         get => #{
             security => [],
-            description => ?DESC(error_codes_u),
+            description => ?DESC(error_codes),
             tags => [<<"Error Codes">>],
             parameters => [
                 {code,

@@ -6,9 +6,9 @@ get_conf_node.label:
 """Get all the configurations for node."""
 
 node_name.desc:
-"""Node's name: If you do not fill in the fields, this node will be used by default."""
+"""Node's name. If not specified, the configs on the node which receives the HTTP request will be returned."""
 node_name.label:
-"""Node's name."""
+"""Node's name"""
 
 rest_conf_query.desc:
 """Reset the config entry specified by the query string parameter `conf_path`.<br/>

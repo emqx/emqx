@@ -11,12 +11,12 @@ get_node_info.label:
 """Get node info"""
 
 get_node_metrics.desc:
-"""Get node metrics"""
+"""Get node run-time counter metrics. Such as received or sent bytes or messages, the number of succeeded or failed authentications or authorizations, etc."""
 get_node_metrics.label:
 """Get node metrics"""
 
 get_node_stats.desc:
-"""Get node stats"""
+"""Get node run-time stats. Such as the number of topics, connections, etc."""
 get_node_stats.label:
 """Get node stats"""
 
