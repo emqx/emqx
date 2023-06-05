@@ -143,7 +143,7 @@ fields("cluster") ->
             )},
         {"discovery_strategy",
             sc(
-                hoconsc:enum([manual, static, mcast, dns, etcd, k8s]),
+                hoconsc:enum([manual, static, dns, etcd, k8s, mcast]),
                 #{
                     default => manual,
                     desc => ?DESC(cluster_discovery_strategy),
@@ -198,7 +198,7 @@ fields("cluster") ->
         {"mcast",
             sc(
                 ?R_REF(cluster_mcast),
-                #{}
+                #{importance => ?IMPORTANCE_HIDDEN}
             )},
         {"dns",
             sc(
