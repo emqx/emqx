@@ -43,8 +43,18 @@ runs:
         echo "OTP_SOURCE_PATH=$OTP_SOURCE_PATH" >> $GITHUB_OUTPUT
         echo "OTP_INSTALL_PATH=$OTP_INSTALL_PATH" >> $GITHUB_OUTPUT
         mkdir -p "$OTP_SOURCE_PATH" "$OTP_INSTALL_PATH"
+        # we need this to skip using cache for self-hosted runners
+        case ${{ inputs.os }} in
+          *arm64)
+            echo "SELF_HOSTED=true" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "SELF_HOSTED=false" >> $GITHUB_OUTPUT
+            ;;
+        esac
     - uses: actions/cache@v3
       id: cache
+      if: steps.prepare.outputs.SELF_HOSTED != 'true'
       with:
         path: ${{ steps.prepare.outputs.OTP_INSTALL_PATH }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
@@ -52,6 +62,17 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        SELF_HOSTED="${{ steps.prepare.outputs.SELF_HOSTED}}"
+        # when it's self-hosted, it never hits the cache,
+        # skip rebuild if it's self-hosted and the install path already has a 'bin'
+        if [ "$SELF_HOSTED" = 'true' ]; then
+          if [ -d "$OTP_INSTALL_PATH/bin" ]; then
+            echo "Skip rebuilding OTP, found $OTP_INSTALL_PATH"
+            exit 0
+          fi
+        fi
+        ## when it's not self-hosted, or the install path is not found,
+        ## build otp from source code.
         OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
         OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
         if [ -d "$OTP_SOURCE_PATH" ]; then
