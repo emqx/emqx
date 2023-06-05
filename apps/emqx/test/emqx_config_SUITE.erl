@@ -37,9 +37,8 @@ init_per_testcase(TestCase, Config) ->
         ?MODULE:TestCase({init, Config})
     catch
         error:function_clause ->
-            ok
-    end,
-    Config.
+            Config
+    end.
 
 end_per_testcase(TestCase, Config) ->
     try
@@ -236,7 +235,7 @@ t_init_zones_with_user_defined_default_zone(Config) when is_list(Config) ->
     %% Then others are defaults
     ?assertEqual(ExpectedOthers, Others).
 
-t_init_zones_with_user_defined_other_zone(Config) ->
+t_init_zones_with_user_defined_other_zone(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given user defined config for default zone
     ConfFile = prepare_conf_file(
