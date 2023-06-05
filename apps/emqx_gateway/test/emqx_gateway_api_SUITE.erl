@@ -107,9 +107,9 @@ t_gateway(_) ->
         StompGw
     ),
     {204, _} = request(put, "/gateways/stomp", #{enable => true}),
-    {200, #{enable := true}} = request(get, "/gateway/stomp"),
+    {200, #{enable := true}} = request(get, "/gateways/stomp"),
     {204, _} = request(put, "/gateways/stomp", #{enable => false}),
-    {200, #{enable := false}} = request(get, "/gateway/stomp"),
+    {200, #{enable := false}} = request(get, "/gateways/stomp"),
     {404, _} = request(put, "/gateways/undefined", #{}),
     {400, _} = request(put, "/gateways/stomp", #{bad_key => "foo"}),
     ok.
@@ -121,27 +121,14 @@ t_gateway_fail(_) ->
     {400, _} = request(put, "/gateways/coap", #{}),
     ok.
 
-t_deprecated_gateway(_) ->
-    {200, Gateways} = request(get, "/gateway"),
-    lists:foreach(fun assert_gw_unloaded/1, Gateways),
-    {404, NotFoundReq} = request(get, "/gateway/uname_gateway"),
-    assert_not_found(NotFoundReq),
-    {204, _} = request(put, "/gateway/stomp", #{}),
-    {200, StompGw} = request(get, "/gateway/stomp"),
-    assert_fields_exist(
-        [name, status, enable, created_at, started_at],
-        StompGw
-    ),
-    ok.
-
 t_gateway_enable(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {200, #{enable := Enable}} = request(get, "/gateway/stomp"),
+    {200, #{enable := Enable}} = request(get, "/gateways/stomp"),
     NotEnable = not Enable,
     {204, _} = request(put, "/gateways/stomp/enable/" ++ atom_to_list(NotEnable), undefined),
-    {200, #{enable := NotEnable}} = request(get, "/gateway/stomp"),
+    {200, #{enable := NotEnable}} = request(get, "/gateways/stomp"),
     {204, _} = request(put, "/gateways/stomp/enable/" ++ atom_to_list(Enable), undefined),
-    {200, #{enable := Enable}} = request(get, "/gateway/stomp"),
+    {200, #{enable := Enable}} = request(get, "/gateways/stomp"),
     {404, _} = request(put, "/gateways/undefined/enable/true", undefined),
     {404, _} = request(put, "/gateways/not_a_known_atom/enable/true", undefined),
     {404, _} = request(put, "/gateways/coap/enable/true", undefined),

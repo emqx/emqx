@@ -40,9 +40,9 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
-    emqx_gateway_utils:make_deprecated_paths([
+    [
         ?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")
-    ]).
+    ].
 
 schema(?PATH("/lookup")) ->
     #{
@@ -127,9 +127,7 @@ schema(?PATH("/write")) ->
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
             }
         }
-    };
-schema(Path) ->
-    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+    }.
 
 fields(resource) ->
     [
