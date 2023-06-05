@@ -83,13 +83,13 @@ do_assert_confs(Key, Expected, Effected) ->
 
 maybe_unconvert_listeners(Conf) when is_map(Conf) ->
     case maps:take(<<"listeners">>, Conf) of
-        error ->
-            Conf;
-        {Ls, Conf1} ->
+        {Ls, Conf1} when is_list(Ls) ->
             Conf1#{
                 <<"listeners">> =>
                     emqx_gateway_conf:unconvert_listeners(Ls)
-            }
+            };
+        _ ->
+            Conf
     end;
 maybe_unconvert_listeners(Conf) ->
     Conf.
