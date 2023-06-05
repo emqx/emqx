@@ -62,19 +62,19 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        SELF_HOSTED="${{ steps.prepare.outputs.SELF_HOSTED}}"
+        OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
+        OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
+        SELF_HOSTED="${{ steps.prepare.outputs.SELF_HOSTED }}"
         # when it's self-hosted, it never hits the cache,
         # skip rebuild if it's self-hosted and the install path already has a 'bin'
         if [ "$SELF_HOSTED" = 'true' ]; then
-          if [ -d "$OTP_INSTALL_PATH/bin" ]; then
+          if [ -n "$OTP_INSTALL_PATH" && -d "$OTP_INSTALL_PATH/bin" ]; then
             echo "Skip rebuilding OTP, found $OTP_INSTALL_PATH"
             exit 0
           fi
         fi
         ## when it's not self-hosted, or the install path is not found,
         ## build otp from source code.
-        OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
-        OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
         if [ -d "$OTP_SOURCE_PATH" ]; then
           rm -rf "$OTP_SOURCE_PATH"
         fi
@@ -108,6 +108,10 @@ runs:
       shell: bash
       run: |
         export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
+        # inspec erl in PATH
+        which erl
+        # inspec erl command banner
+        erl -s init stop
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
