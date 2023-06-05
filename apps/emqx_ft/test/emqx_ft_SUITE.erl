@@ -270,7 +270,8 @@ t_nasty_filenames(_Config) ->
     Filenames = [
         {<<"nasty1">>, "146%"},
         {<<"nasty2">>, "🌚"},
-        {<<"nasty3">>, "中文.txt"}
+        {<<"nasty3">>, "中文.txt"},
+        {<<"nasty4">>, _254Bytes = string:join(lists:duplicate(255 div 5, "LONG"), ".")}
     ],
     ok = lists:foreach(
         fun({ClientId, Filename}) ->

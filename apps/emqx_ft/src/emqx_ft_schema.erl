@@ -145,7 +145,7 @@ fields(local_storage_segments) ->
     [
         {root,
             mk(
-                binary(),
+                string(),
                 #{
                     desc => ?DESC("local_storage_segments_root"),
                     required => false
@@ -182,7 +182,7 @@ fields(local_storage_exporter) ->
     [
         {root,
             mk(
-                binary(),
+                string(),
                 #{
                     desc => ?DESC("local_storage_exporter_root"),
                     required => false

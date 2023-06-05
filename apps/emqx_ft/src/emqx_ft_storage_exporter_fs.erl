@@ -452,8 +452,7 @@ mk_manifest_filename(Filename) when is_binary(Filename) ->
     <<Filename/binary, ?MANIFEST>>.
 
 mk_temp_absfilepath(Options, Transfer, Filename) ->
-    Unique = erlang:unique_integer([positive]),
-    TempFilename = integer_to_list(Unique) ++ "." ++ Filename,
+    TempFilename = emqx_ft_fs_util:mk_temp_filename(Filename),
     filename:join(mk_absdir(Options, Transfer, temporary), TempFilename).
 
 mk_absdir(Options, _Transfer, temporary) ->
