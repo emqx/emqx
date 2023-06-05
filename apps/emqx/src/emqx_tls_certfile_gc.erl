@@ -138,7 +138,7 @@ handle_info({timeout, TRef, collect}, St = #{next_gc_timer := TRef}) ->
         #{},
         collect(St, #{evhandler => {fun log_event/2, []}})
     ),
-    {noreply, start_timer(StNext)}.
+    {noreply, restart_timer(StNext)}.
 
 start_timer(St = #{gc_interval := Interval}) ->
     TRef = erlang:start_timer(Interval, self(), collect),
@@ -228,7 +228,7 @@ find_references(Root) ->
     Config = emqx_config:get_raw([Root]),
     fold_config(
         fun(Stack, Value, Acc) ->
-            case is_file_reference(Stack) andalso is_string(Value) of
+            case is_file_reference(Stack) andalso is_binary(Value) of
                 true ->
                     Filename = emqx_schema:naive_env_interpolation(Value),
                     {stop, [emqx_utils_fs:canonicalize(Filename) | Acc]};
@@ -246,9 +246,6 @@ is_file_reference(Stack) ->
         emqx_tls_lib:ssl_file_conf_keypaths()
     ).
 
-is_string(Value) ->
-    is_list(Value) orelse is_binary(Value).
-
 %%
 
 fold_config(FoldFun, AccIn, Config) ->
@@ -264,8 +261,6 @@ fold_config(FoldFun, AccIn, Stack, Config) when is_map(Config) ->
     );
 fold_config(FoldFun, Acc, Stack, []) ->
     fold_confval(FoldFun, Acc, Stack, []);
-fold_config(FoldFun, Acc, Stack, String = [C | _]) when is_integer(C), C >= 0, C < 16#10FFFF ->
-    fold_confval(FoldFun, Acc, Stack, String);
 fold_config(FoldFun, Acc, Stack, Config) when is_list(Config) ->
     fold_confarray(FoldFun, Acc, Stack, 1, Config);
 fold_config(FoldFun, Acc, Stack, Config) ->
