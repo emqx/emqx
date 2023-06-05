@@ -242,7 +242,6 @@ on_start(
             %% Already initialized
             ok
     end,
-    ok = emqx_resource:allocate_resource(InstanceID, pool_name, InstanceID),
     case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -268,12 +267,7 @@ on_stop(
         msg => "stopping RabbitMQ connector",
         connector => ResourceID
     }),
-    case emqx_resource:get_allocated_resources(ResourceID) of
-        #{pool_name := PoolName} ->
-            stop_clients_and_pool(PoolName);
-        _ ->
-            ok
-    end.
+    stop_clients_and_pool(ResourceID).
 
 stop_clients_and_pool(PoolName) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],

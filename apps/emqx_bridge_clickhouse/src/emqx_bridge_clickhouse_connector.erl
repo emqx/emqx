@@ -158,7 +158,6 @@ on_start(
             templates => Templates,
             connect_timeout => ConnectTimeout
         },
-        ok = emqx_resource:allocate_resource(InstanceID, pool_name, InstanceID),
         case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
             ok ->
                 {ok, State};
@@ -280,12 +279,7 @@ on_stop(InstanceID, _State) ->
         msg => "stopping clickouse connector",
         connector => InstanceID
     }),
-    case emqx_resource:get_allocated_resources(InstanceID) of
-        #{pool_name := PoolName} ->
-            emqx_resource_pool:stop(PoolName);
-        _ ->
-            ok
-    end.
+    emqx_resource_pool:stop(InstanceID).
 
 %% -------------------------------------------------------------------
 %% on_get_status emqx_resouce callback and related functions

@@ -104,7 +104,6 @@ on_start(
         table => Table,
         templates => Templates
     },
-    ok = emqx_resource:allocate_resource(InstanceId, pool_name, InstanceId),
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -117,12 +116,7 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_dynamo_connector",
         connector => InstanceId
     }),
-    case emqx_resource:get_allocated_resources(InstanceId) of
-        #{pool_name := PoolName} ->
-            emqx_resource_pool:stop(PoolName);
-        _ ->
-            ok
-    end.
+    emqx_resource_pool:stop(InstanceId).
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, State).
