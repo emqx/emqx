@@ -44,7 +44,7 @@ init_per_testcase(TC, Config) ->
     TCAbsDir = filename:join(?config(priv_dir, Config), TC),
     ok = application:set_env(emqx, data_dir, TCAbsDir),
     ok = snabbkaffe:start_trace(),
-    [{tc_name, TC}, {tc_absdir, TCAbsDir} | Config].
+    [{tc_name, atom_to_list(TC)}, {tc_absdir, TCAbsDir} | Config].
 
 end_per_testcase(_TC, Config) ->
     ok = snabbkaffe:stop(),
@@ -313,6 +313,60 @@ t_gc_spares_recreated_certfiles(_Config) ->
     ?assertMatch(
         {ok, []},
         emqx_tls_certfile_gc:run()
+    ),
+
+    ok = proc_lib:stop(Pid).
+
+t_gc_spares_symlinked_datadir(Config) ->
+    {ok, Pid} = emqx_tls_certfile_gc:start_link(),
+
+    % Create a certfiles set and a server that references it
+    SSL = #{
+        <<"keyfile">> => key(),
+        <<"certfile">> => cert(),
+        <<"ocsp">> => #{<<"issuer_pem">> => cert()}
+    },
+    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files("srv", SSL),
+    SSL1Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL1)),
+
+    ok = load_config(#{
+        <<"servers">> => #{<<"srv">> => #{<<"ssl">> => SSL1}}
+    }),
+
+    % Change the emqx data_dir to a symlink
+    TCAbsDir = ?config(tc_absdir, Config),
+    TCAbsLink = filename:join(?config(priv_dir, Config), ?config(tc_name, Config) ++ ".symlink"),
+    ok = file:make_symlink(TCAbsDir, TCAbsLink),
+    ok = application:set_env(emqx, data_dir, TCAbsLink),
+
+    % Make a hardlink to the SSL1 keyfile, that looks like a managed SSL file
+    SSL1KeyfileHardlink = filename:join([
+        filename:dirname(SSL1Keyfile),
+        "hardlink",
+        filename:basename(SSL1Keyfile)
+    ]),
+    ok = filelib:ensure_dir(SSL1KeyfileHardlink),
+    ok = file:make_link(SSL1Keyfile, SSL1KeyfileHardlink),
+
+    % Nothing should have been collected
+    ?assertMatch(
+        {ok, []},
+        emqx_tls_certfile_gc:force()
+    ),
+
+    ok = put_config([<<"servers">>, <<"srv">>, <<"ssl">>], #{}),
+
+    % Everything should have been collected, including the hardlink
+    ?assertMatch(
+        {ok, [
+            {collect, _SSL1Dir, ok},
+            {collect, _SSL1Certfile, ok},
+            {collect, _SSL1KeyfileHardlinkDir, ok},
+            {collect, _SSL1KeyfileHardlink, ok},
+            {collect, _SSL1Keyfile, ok},
+            {collect, _SSL1IssuerPEM, ok}
+        ]},
+        emqx_tls_certfile_gc:force()
     ),
 
     ok = proc_lib:stop(Pid).

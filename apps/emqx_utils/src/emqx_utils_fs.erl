@@ -19,6 +19,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -export([traverse_dir/3]).
+-export([read_info/1]).
 -export([canonicalize/1]).
 
 -type fileinfo() :: #file_info{}.
@@ -56,6 +57,8 @@ traverse_dir(FoldFun, Acc, AbsPath, {ok, Info}) ->
 traverse_dir(FoldFun, Acc, AbsPath, {error, Reason}) ->
     FoldFun(AbsPath, {error, Reason}, Acc).
 
+-spec read_info(file:name()) ->
+    {ok, fileinfo()} | {error, file:posix() | badarg}.
 read_info(AbsPath) ->
     file:read_link_info(AbsPath, [{time, posix}, raw]).
 

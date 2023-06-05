@@ -63,10 +63,13 @@
 -define(HAS_OWNER_WRITE(Mode), ((Mode band 8#00200) > 0)).
 
 -type filename() :: string().
+-type basename() :: string().
 -type fileinfo() :: #file_info{}.
+-type fileref() :: {basename(), fileinfo()}.
+-type orphans() :: #{fileref() => [filename()]}.
 
 -type st() :: #{
-    orphans => #{filename() => fileinfo()},
+    orphans => orphans(),
     gc_interval => pos_integer(),
     next_gc_timer => reference()
 }.
@@ -149,7 +152,7 @@ restart_timer(St = #{next_gc_timer := TRef}) ->
     start_timer(St).
 
 log_event({collect, Filename, ok}, _) ->
-    ?tp(debug, "tls_certfile_gc_collected", #{filename => Filename});
+    ?tp(info, "tls_certfile_gc_collected", #{filename => Filename});
 log_event({collect, Filename, {error, Reason}}, _) ->
     ?tp(warning, "tls_certfile_gc_collect_error", #{filename => Filename, reason => Reason}).
 
@@ -163,30 +166,45 @@ collect(St, Opts) ->
     OrphansLast = maps:get(orphans, St, #{}),
     Convicts = convicts(Orphans, OrphansLast),
     Result = collect_files(Convicts, RootDir, Opts),
-    {ok, Result, St#{orphans => maps:without(Convicts, Orphans)}}.
+    {ok, Result, St#{orphans => Orphans}}.
 
+-spec orphans() ->
+    orphans().
 orphans() ->
     Dir = emqx_utils_fs:canonicalize(emqx:mutable_certs_dir()),
     orphans(Dir).
 
+-spec orphans(_Dir :: filename()) ->
+    orphans().
 orphans(Dir) ->
+    % NOTE
+    % Orphans are files located under directory `Dir` that are not referenced by any
+    % configuration fragment defining TLS-related options.
     Certfiles = find_managed_files(fun is_managed_file/2, Dir),
     lists:foldl(
         fun(Root, Acc) ->
-            References = find_references(Root),
+            % NOTE
+            % In situations where there's an ambiguity in `Certfiles` (e.g. a fileref
+            % pointing to more than one file), we'll spare _all of them_ from marking
+            % as orphans.
+            References = find_config_references(Root),
             maps:without(References, Acc)
         end,
         Certfiles,
         emqx_config:get_root_names()
     ).
 
+-spec convicts(orphans(), orphans()) ->
+    [filename()].
 convicts(Orphans, OrphansLast) ->
+    % NOTE
+    % Convicts are files that are orphans both in `Orphans` and `OrphansLast`.
     maps:fold(
-        fun(AbsPath, #file_info{mtime = MTime, inode = Inode}, Acc) ->
-            case maps:get(AbsPath, Orphans, undefined) of
-                #file_info{mtime = MTime, inode = Inode} ->
+        fun(FileRef, Filenames, Acc) ->
+            case maps:get(FileRef, Orphans, []) of
+                Filenames ->
                     % Certfile was not changed / recreated in the meantime
-                    [AbsPath | Acc];
+                    Filenames ++ Acc;
                 _ ->
                     % Certfile was changed / created / recreated in the meantime
                     Acc
@@ -196,13 +214,18 @@ convicts(Orphans, OrphansLast) ->
         OrphansLast
     ).
 
+-spec find_managed_files(Filter, _Dir :: filename()) -> orphans() when
+    Filter :: fun((_Abs :: filename(), fileinfo()) -> boolean()).
 find_managed_files(Filter, Dir) ->
     emqx_utils_fs:traverse_dir(
         fun
             (AbsPath, Info = #file_info{}, Acc) ->
                 case Filter(AbsPath, Info) of
-                    true -> Acc#{AbsPath => Info};
-                    false -> Acc
+                    true ->
+                        FileRef = mk_fileref(AbsPath, Info),
+                        Acc#{FileRef => [AbsPath | maps:get(FileRef, Acc, [])]};
+                    false ->
+                        Acc
                 end;
             (AbsPath, {error, Reason}, Acc) ->
                 ?SLOG(notice, "filesystem_object_inaccessible", #{
@@ -224,14 +247,16 @@ is_managed_file(AbsPath, #file_info{type = Type, mode = Mode}) ->
         ?HAS_OWNER_WRITE(Mode) andalso
         emqx_tls_lib:is_managed_ssl_file(AbsPath).
 
-find_references(Root) ->
+-spec find_config_references(Root :: binary()) ->
+    [fileref() | {basename(), {error, _}}].
+find_config_references(Root) ->
     Config = emqx_config:get_raw([Root]),
     fold_config(
         fun(Stack, Value, Acc) ->
             case is_file_reference(Stack) andalso is_binary(Value) of
                 true ->
                     Filename = emqx_schema:naive_env_interpolation(Value),
-                    {stop, [emqx_utils_fs:canonicalize(Filename) | Acc]};
+                    {stop, [mk_fileref(Filename) | Acc]};
                 false ->
                     {cont, Acc}
             end
@@ -245,6 +270,27 @@ is_file_reference(Stack) ->
         fun(KP) -> lists:prefix(lists:reverse(KP), Stack) end,
         emqx_tls_lib:ssl_file_conf_keypaths()
     ).
+
+mk_fileref(AbsPath) ->
+    case emqx_utils_fs:read_info(AbsPath) of
+        {ok, Info} ->
+            mk_fileref(AbsPath, Info);
+        {error, _} = Error ->
+            % NOTE
+            % Such broken fileref will not be regarded as live reference. However, there
+            % are some edge cases where this _might be wrong_, e.g. one of the `AbsPath`
+            % components is a symlink w/o read permission.
+            {filename:basename(AbsPath), Error}
+    end.
+
+mk_fileref(AbsPath, Info = #file_info{}) ->
+    % NOTE
+    % This structure helps to tell if two file paths refer to the same file, without the
+    % need to reimplement `realpath` or something similar. It is not perfect because false
+    % positives are always possible, due to:
+    % * On Windows, inode is always 0.
+    % * On Unix, files can be hardlinked and have the same basename.
+    {filename:basename(AbsPath), Info#file_info{atime = undefined}}.
 
 %%
 
