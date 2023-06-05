@@ -45,7 +45,9 @@
     limited_atom/0,
     limited_latin_atom/0,
     printable_utf8/0,
-    printable_codepoint/0
+    printable_codepoint/0,
+    raw_duration/0,
+    large_raw_duration/0
 ]).
 
 %% Generic Types
@@ -628,6 +630,20 @@ printable_codepoint() ->
         {2, range(16#00A0, 16#D7FF)},
         {1, range(16#E000, 16#FFFD)}
     ]).
+
+raw_duration() ->
+    ?LET(
+        {Value, Unit},
+        {pos_integer(), oneof([<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>])},
+        <<(integer_to_binary(Value))/binary, Unit/binary>>
+    ).
+
+large_raw_duration() ->
+    ?LET(
+        {Value, Unit},
+        {range(1_000_000, inf), oneof([<<"d">>, <<"h">>, <<"m">>])},
+        <<(integer_to_binary(Value))/binary, Unit/binary>>
+    ).
 
 %%--------------------------------------------------------------------
 %% Iterators

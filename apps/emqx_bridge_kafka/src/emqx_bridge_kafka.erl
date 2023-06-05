@@ -165,20 +165,20 @@ fields("config") ->
                 }
             )},
         {connect_timeout,
-            mk(emqx_schema:duration_ms(), #{
+            mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"5s">>,
                 desc => ?DESC(connect_timeout)
             })},
         {min_metadata_refresh_interval,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"3s">>,
                     desc => ?DESC(min_metadata_refresh_interval)
                 }
             )},
         {metadata_request_timeout,
-            mk(emqx_schema:duration_ms(), #{
+            mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"5s">>,
                 desc => ?DESC(metadata_request_timeout)
             })},

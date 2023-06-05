@@ -68,6 +68,7 @@ fields(s3) ->
             )},
         {url_expire_time,
             mk(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_s(),
                 #{
                     default => "1h",

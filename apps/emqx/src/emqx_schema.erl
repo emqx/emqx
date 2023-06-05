@@ -30,9 +30,19 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("logger.hrl").
 
+-define(MAX_INT_TIMEOUT_MS, 4294967295).
+%% floor(?MAX_INT_TIMEOUT_MS / 1000).
+-define(MAX_INT_TIMEOUT_S, 4294967).
+
 -type duration() :: integer().
 -type duration_s() :: integer().
 -type duration_ms() :: integer().
+%% ?MAX_INT_TIMEOUT is defined loosely in some OTP modules like
+%% `erpc', `rpc' `gen' and `peer', despite affecting `receive' blocks
+%% as well.  It's `2^32 - 1'.
+-type timeout_duration() :: 0..?MAX_INT_TIMEOUT_MS.
+-type timeout_duration_s() :: 0..?MAX_INT_TIMEOUT_S.
+-type timeout_duration_ms() :: 0..?MAX_INT_TIMEOUT_MS.
 -type bytesize() :: integer().
 -type wordsize() :: bytesize().
 -type percent() :: float().
@@ -56,6 +66,9 @@
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
+-typerefl_from_string({timeout_duration/0, emqx_schema, to_timeout_duration}).
+-typerefl_from_string({timeout_duration_s/0, emqx_schema, to_timeout_duration_s}).
+-typerefl_from_string({timeout_duration_ms/0, emqx_schema, to_timeout_duration_ms}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({wordsize/0, emqx_schema, to_wordsize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
@@ -91,6 +104,9 @@
     to_duration/1,
     to_duration_s/1,
     to_duration_ms/1,
+    to_timeout_duration/1,
+    to_timeout_duration_s/1,
+    to_timeout_duration_ms/1,
     mk_duration/2,
     to_bytesize/1,
     to_wordsize/1,
@@ -127,6 +143,9 @@
     duration/0,
     duration_s/0,
     duration_ms/0,
+    timeout_duration/0,
+    timeout_duration_s/0,
+    timeout_duration_ms/0,
     bytesize/0,
     wordsize/0,
     percent/0,
@@ -1037,7 +1056,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"idle_timeout",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
@@ -1054,7 +1073,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"handshake_idle_timeout",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => <<"10s">>,
                     desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
@@ -1071,7 +1090,7 @@ fields("mqtt_quic_listener") ->
             )},
         {"keep_alive_interval",
             sc(
-                duration_ms(),
+                timeout_duration_ms(),
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval),
@@ -2635,6 +2654,37 @@ to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_number(I) -> {ok, ceiling(I)};
         _ -> {error, Str}
+    end.
+
+-spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
+    Input :: string() | binary().
+to_timeout_duration(Str) ->
+    do_to_timeout_duration(Str, fun to_duration/1, ?MAX_INT_TIMEOUT_MS, "ms").
+
+-spec to_timeout_duration_ms(Input) -> {ok, timeout_duration_ms()} | {error, Input} when
+    Input :: string() | binary().
+to_timeout_duration_ms(Str) ->
+    do_to_timeout_duration(Str, fun to_duration_ms/1, ?MAX_INT_TIMEOUT_MS, "ms").
+
+-spec to_timeout_duration_s(Input) -> {ok, timeout_duration_s()} | {error, Input} when
+    Input :: string() | binary().
+to_timeout_duration_s(Str) ->
+    do_to_timeout_duration(Str, fun to_duration_s/1, ?MAX_INT_TIMEOUT_S, "s").
+
+do_to_timeout_duration(Str, Fn, Max, Unit) ->
+    case Fn(Str) of
+        {ok, I} ->
+            case I =< Max of
+                true ->
+                    {ok, I};
+                false ->
+                    Msg = lists:flatten(
+                        io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
+                    ),
+                    throw(Msg)
+            end;
+        Err ->
+            Err
     end.
 
 to_bytesize(Str) ->

@@ -48,7 +48,7 @@ fields("prometheus") ->
             )},
         {interval,
             ?HOCON(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"15s">>,
                     required => true,

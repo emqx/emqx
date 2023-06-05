@@ -63,7 +63,7 @@ fields(server) ->
                 example => <<"http://127.0.0.1:9000">>
             })},
         {request_timeout,
-            ?HOCON(emqx_schema:duration(), #{
+            ?HOCON(emqx_schema:timeout_duration(), #{
                 default => <<"5s">>,
                 desc => ?DESC(request_timeout)
             })},
@@ -74,7 +74,7 @@ fields(server) ->
                 default => #{<<"keepalive">> => true, <<"nodelay">> => true}
             })},
         {auto_reconnect,
-            ?HOCON(hoconsc:union([false, emqx_schema:duration()]), #{
+            ?HOCON(hoconsc:union([false, emqx_schema:timeout_duration()]), #{
                 default => <<"60s">>,
                 desc => ?DESC(auto_reconnect)
             })},
