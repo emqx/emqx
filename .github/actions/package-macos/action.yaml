@@ -67,8 +67,8 @@ runs:
         SELF_HOSTED="${{ steps.prepare.outputs.SELF_HOSTED }}"
         # when it's self-hosted, it never hits the cache,
         # skip rebuild if it's self-hosted and the install path already has a 'bin'
-        if [ "$SELF_HOSTED" = 'true' ]; then
-          if [ -n "$OTP_INSTALL_PATH" && -d "$OTP_INSTALL_PATH/bin" ]; then
+        if [ "${SELF_HOSTED:-false}" = 'true' ]; then
+          if [ -n "$OTP_INSTALL_PATH" ] && [ -d "$OTP_INSTALL_PATH/bin" ]; then
             echo "Skip rebuilding OTP, found $OTP_INSTALL_PATH"
             exit 0
           fi
@@ -81,10 +81,13 @@ runs:
         git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
         cd "$OTP_SOURCE_PATH"
         if [ "$(arch)" = arm64 ]; then
+            export CFLAGS="-I$(brew --prefix unixodbc)/include"
             export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
-            export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+            WITH_ODBC="--with-odbc=$(brew --prefix unixodbc)"
+        else
+            WITH_ODBC=""
         fi
-        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
+        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) ${WITH_ODBC} --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
         make -j$(nproc)
         rm -rf "$OTP_INSTALL_PATH"
         make install
