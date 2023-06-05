@@ -351,6 +351,10 @@ to_bin(Bin) when is_binary(Bin) ->
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom).
 
+handle_result({error, {recoverable_error, _Error}} = Res) ->
+    Res;
+handle_result({error, {unrecoverable_error, _Error}} = Res) ->
+    Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
 handle_result({error, Error}) ->
@@ -359,6 +363,8 @@ handle_result({error, socket, closed} = Error) ->
     {error, {recoverable_error, Error}};
 handle_result({error, Type, Reason}) ->
     {error, {unrecoverable_error, {Type, Reason}}};
+handle_result({ok, [{proc_result, RetCode, Reason}]}) when RetCode =/= 0 ->
+    {error, {unrecoverable_error, {RetCode, Reason}}};
 handle_result(Res) ->
     Res.
 
