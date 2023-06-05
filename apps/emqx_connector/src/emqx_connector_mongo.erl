@@ -108,7 +108,7 @@ fields(topology) ->
         {wait_queue_timeout_ms, duration("wait_queue_timeout")},
         {heartbeat_frequency_ms,
             hoconsc:mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"200s">>,
                     desc => ?DESC("heartbeat_period")
@@ -422,7 +422,7 @@ r_mode(_) -> undefined.
 
 duration(Desc) ->
     #{
-        type => emqx_schema:duration_ms(),
+        type => emqx_schema:timeout_duration_ms(),
         required => false,
         desc => ?DESC(Desc)
     }.

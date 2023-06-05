@@ -46,7 +46,7 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    emqx_gateway_utils:make_deprecated_paths([?PREFIX ++ "/request"]).
+    [?PREFIX ++ "/request"].
 
 schema(?PREFIX ++ "/request") ->
     #{
@@ -65,9 +65,7 @@ schema(?PREFIX ++ "/request") ->
                 )
             }
         }
-    };
-schema(Path) ->
-    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+    }.
 
 request(post, #{body := Body, bindings := Bindings}) ->
     ClientId = maps:get(clientid, Bindings, undefined),
@@ -107,7 +105,7 @@ request_body() ->
     [
         {token, mk(binary(), #{desc => ?DESC(token)})},
         {method, mk(enum([get, put, post, delete]), #{desc => ?DESC(method)})},
-        {timeout, mk(emqx_schema:duration_ms(), #{desc => ?DESC(timeout)})},
+        {timeout, mk(emqx_schema:timeout_duration_ms(), #{desc => ?DESC(timeout)})},
         {content_type,
             mk(
                 enum(['text/plain', 'application/json', 'application/octet-stream']),

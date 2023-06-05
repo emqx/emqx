@@ -809,3 +809,31 @@ set_envs([{_Name, _Value} | _] = Envs) ->
 
 unset_envs([{_Name, _Value} | _] = Envs) ->
     lists:map(fun({Name, _}) -> os:unsetenv(Name) end, Envs).
+
+timeout_types_test_() ->
+    [
+        ?_assertEqual(
+            {ok, 4294967295},
+            typerefl:from_string(emqx_schema:timeout_duration(), <<"4294967295ms">>)
+        ),
+        ?_assertEqual(
+            {ok, 4294967295},
+            typerefl:from_string(emqx_schema:timeout_duration_ms(), <<"4294967295ms">>)
+        ),
+        ?_assertEqual(
+            {ok, 4294967},
+            typerefl:from_string(emqx_schema:timeout_duration_s(), <<"4294967000ms">>)
+        ),
+        ?_assertThrow(
+            "timeout value too large (max: 4294967295 ms)",
+            typerefl:from_string(emqx_schema:timeout_duration(), <<"4294967296ms">>)
+        ),
+        ?_assertThrow(
+            "timeout value too large (max: 4294967295 ms)",
+            typerefl:from_string(emqx_schema:timeout_duration_ms(), <<"4294967296ms">>)
+        ),
+        ?_assertThrow(
+            "timeout value too large (max: 4294967 s)",
+            typerefl:from_string(emqx_schema:timeout_duration_s(), <<"4294967001ms">>)
+        )
+    ].

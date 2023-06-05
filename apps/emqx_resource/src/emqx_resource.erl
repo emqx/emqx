@@ -85,6 +85,7 @@
     allocate_resource/3,
     has_allocated_resources/1,
     get_allocated_resources/1,
+    get_allocated_resources_list/1,
     forget_allocated_resources/1
 ]).
 
@@ -518,6 +519,10 @@ has_allocated_resources(InstanceId) ->
 get_allocated_resources(InstanceId) ->
     Objects = ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId),
     maps:from_list([{K, V} || {_InstanceId, K, V} <- Objects]).
+
+-spec get_allocated_resources_list(resource_id()) -> list(tuple()).
+get_allocated_resources_list(InstanceId) ->
+    ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId).
 
 -spec forget_allocated_resources(resource_id()) -> ok.
 forget_allocated_resources(InstanceId) ->

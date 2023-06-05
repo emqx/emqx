@@ -819,6 +819,12 @@ typename_to_spec("duration_s()", _Mod) ->
     #{type => string, example => <<"1h">>};
 typename_to_spec("duration_ms()", _Mod) ->
     #{type => string, example => <<"32s">>};
+typename_to_spec("timeout_duration()", _Mod) ->
+    #{type => string, example => <<"12m">>};
+typename_to_spec("timeout_duration_s()", _Mod) ->
+    #{type => string, example => <<"1h">>};
+typename_to_spec("timeout_duration_ms()", _Mod) ->
+    #{type => string, example => <<"32s">>};
 typename_to_spec("percent()", _Mod) ->
     #{type => number, example => <<"12%">>};
 typename_to_spec("file()", _Mod) ->

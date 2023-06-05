@@ -30,12 +30,14 @@ fields("slow_subs") ->
         {enable, sc(boolean(), false, enable)},
         {threshold,
             sc(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_ms(),
                 <<"500ms">>,
                 threshold
             )},
         {expire_interval,
             sc(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_ms(),
                 <<"300s">>,
                 expire_interval

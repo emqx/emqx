@@ -93,7 +93,7 @@ fields(config) ->
             )},
         {connect_timeout,
             hoconsc:mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"15s">>,
                     desc => ?DESC("connect_timeout")

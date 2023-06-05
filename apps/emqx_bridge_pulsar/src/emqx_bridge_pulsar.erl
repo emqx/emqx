@@ -62,7 +62,7 @@ fields(config) ->
             )},
         {connect_timeout,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"5s">>,
                     desc => ?DESC("connect_timeout")
@@ -86,11 +86,12 @@ fields(producer_opts) ->
                 default => <<"1MB">>, desc => ?DESC("producer_send_buffer")
             })},
         {sync_timeout,
-            mk(emqx_schema:duration_ms(), #{
+            mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"3s">>, desc => ?DESC("producer_sync_timeout")
             })},
         {retention_period,
             mk(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 hoconsc:union([infinity, emqx_schema:duration_ms()]),
                 #{default => infinity, desc => ?DESC("producer_retention_period")}
             )},

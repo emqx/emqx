@@ -187,7 +187,7 @@ fields(client_opts) ->
             )},
         {max_retry_time,
             ?HOCON(
-                emqx_schema:duration(),
+                emqx_schema:timeout_duration(),
                 #{
                     desc => ?DESC(max_retry_time),
                     default => <<"1h">>,

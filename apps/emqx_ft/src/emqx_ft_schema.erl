@@ -66,7 +66,7 @@ fields(file_transfer) ->
             )},
         {init_timeout,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     desc => ?DESC("init_timeout"),
                     required => false,
@@ -75,7 +75,7 @@ fields(file_transfer) ->
             )},
         {store_segment_timeout,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     desc => ?DESC("store_segment_timeout"),
                     required => false,
@@ -84,7 +84,7 @@ fields(file_transfer) ->
             )},
         {assemble_timeout,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     desc => ?DESC("assemble_timeout"),
                     required => false,
@@ -195,7 +195,7 @@ fields(local_storage_segments_gc) ->
     [
         {interval,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     desc => ?DESC("storage_gc_interval"),
                     required => false,
@@ -204,6 +204,7 @@ fields(local_storage_segments_gc) ->
             )},
         {maximum_segments_ttl,
             mk(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_s(),
                 #{
                     desc => ?DESC("storage_gc_max_segments_ttl"),
@@ -213,6 +214,7 @@ fields(local_storage_segments_gc) ->
             )},
         {minimum_segments_ttl,
             mk(
+                %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_s(),
                 #{
                     desc => ?DESC("storage_gc_min_segments_ttl"),

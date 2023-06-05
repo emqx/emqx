@@ -573,7 +573,7 @@ schema("/object") ->
         {per_page, mk(range(1, 100), #{required => true, desc => <<"good per page desc">>})},
         {timeout,
             mk(
-                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                hoconsc:union([infinity, emqx_schema:timeout_duration_s()]),
                 #{default => 5, required => true}
             )},
         {inner_ref, mk(hoconsc:ref(?MODULE, good_ref), #{})}
@@ -584,7 +584,7 @@ schema("/nest/object") ->
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
         {timeout,
             mk(
-                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                hoconsc:union([infinity, emqx_schema:timeout_duration_s()]),
                 #{default => 5, required => true}
             )},
         {nest_object, [
@@ -613,13 +613,14 @@ schema("/ref/array/with/key") ->
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
         {timeout,
             mk(
-                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                hoconsc:union([infinity, emqx_schema:timeout_duration_s()]),
                 #{default => 5, required => true}
             )},
         {assert, mk(float(), #{desc => <<"money">>})},
         {number_ex, mk(number(), #{desc => <<"number example">>})},
         {percent_ex, mk(emqx_schema:percent(), #{desc => <<"percent example">>})},
-        {duration_ms_ex, mk(emqx_schema:duration_ms(), #{desc => <<"duration ms example">>})},
+        {duration_ms_ex,
+            mk(emqx_schema:timeout_duration_ms(), #{desc => <<"duration ms example">>})},
         {atom_ex, mk(atom(), #{desc => <<"atom ex">>})},
         {array_refs, mk(hoconsc:array(hoconsc:ref(?MODULE, good_ref)), #{})}
     ]);

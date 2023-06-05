@@ -63,11 +63,11 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    emqx_gateway_utils:make_deprecated_paths([
+    [
         "/gateways",
         "/gateways/:name",
         "/gateways/:name/enable/:enable"
-    ]).
+    ].
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -240,9 +240,7 @@ schema("/gateways/:name/enable/:enable") ->
                         )
                     }
             }
-    };
-schema(Path) ->
-    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+    }.
 
 %%--------------------------------------------------------------------
 %% params defines

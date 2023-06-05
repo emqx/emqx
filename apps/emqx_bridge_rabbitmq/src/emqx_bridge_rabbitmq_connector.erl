@@ -84,7 +84,7 @@ fields(config) ->
             )},
         {timeout,
             hoconsc:mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"5s">>,
                     desc => ?DESC("timeout")
@@ -100,7 +100,7 @@ fields(config) ->
             )},
         {publish_confirmation_timeout,
             hoconsc:mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC("timeout")
@@ -117,7 +117,7 @@ fields(config) ->
             )},
         {heartbeat,
             hoconsc:mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC("heartbeat")

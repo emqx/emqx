@@ -67,7 +67,7 @@ fields(config) ->
     [
         {connect_timeout,
             sc(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"15s">>,
                     desc => ?DESC("connect_timeout")
@@ -80,7 +80,7 @@ fields(config) ->
             )},
         {retry_interval,
             sc(
-                emqx_schema:duration(),
+                emqx_schema:timeout_duration(),
                 #{deprecated => {since, "5.0.4"}}
             )},
         {pool_type,
@@ -138,7 +138,7 @@ fields("request") ->
             )},
         {request_timeout,
             sc(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     required => false,
                     desc => ?DESC("request_timeout")

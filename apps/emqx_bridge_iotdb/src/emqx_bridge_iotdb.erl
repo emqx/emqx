@@ -144,7 +144,7 @@ request_config() ->
             )},
         {request_timeout,
             mk(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"15s">>,
                     desc => ?DESC("config_request_timeout")

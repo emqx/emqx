@@ -216,7 +216,7 @@ rule_engine_settings() ->
             ?HOCON(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
         {jq_function_default_timeout,
             ?HOCON(
-                emqx_schema:duration_ms(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"10s">>,
                     desc => ?DESC("rule_engine_jq_function_default_timeout")
