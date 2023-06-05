@@ -145,7 +145,7 @@ on_stop(InstanceId, _State) ->
             ({_, _Topic, Producer}) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
-        emqx_resource:lookup_allocated_resources(InstanceId)
+        emqx_resource:get_allocated_resources_list(InstanceId)
     ).
 
 on_query(InstanceId, Query, State) ->
