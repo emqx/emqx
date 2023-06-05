@@ -81,7 +81,7 @@ runs:
         git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
         cd "$OTP_SOURCE_PATH"
         if [ "$(arch)" = arm64 ]; then
-            export CFLAGS="-I$(brew --prefix unixodbc)/include"
+            export CFLAGS="-O2 -g -I$(brew --prefix unixodbc)/include"
             export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
             WITH_ODBC="--with-odbc=$(brew --prefix unixodbc)"
         else
@@ -92,8 +92,8 @@ runs:
         rm -rf "$OTP_INSTALL_PATH"
         make install
         if [ "$(arch)" = arm64 ]; then
+            unset CFLAGS
             unset LDFLAGS
-            unset CC
         fi
     - name: build
       env:
