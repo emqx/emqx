@@ -45,9 +45,31 @@ t_traverse_dir(Config) ->
         [{string:prefix(Filename, Dir), Info} || {Filename, Info} <- Traversal]
     ).
 
+t_traverse_symlink(Config) ->
+    Dir = filename:join([?config(data_dir, Config), "nonempty", "d1", "mutrec"]),
+    ?assertMatch(
+        [{Dir, #file_info{type = symlink}}],
+        emqx_utils_fs:traverse_dir(fun cons_fileinfo/3, [], Dir)
+    ).
+
+t_traverse_symlink_subdir(Config) ->
+    Dir = filename:join([?config(data_dir, Config), "nonempty", "d2", "deep", "mutrec", "."]),
+    Traversal = lists:sort(emqx_utils_fs:traverse_dir(fun cons_fileinfo/3, [], Dir)),
+    ?assertMatch(
+        [
+            {"nonempty/d2/deep/mutrec/1", #file_info{type = regular}},
+            {"nonempty/d2/deep/mutrec/2", #file_info{type = regular}},
+            {"nonempty/d2/deep/mutrec/mutrec", #file_info{type = symlink}}
+        ],
+        [
+            {string:prefix(Filename, ?config(data_dir, Config)), Info}
+         || {Filename, Info} <- Traversal
+        ]
+    ).
+
 t_traverse_empty(Config) ->
     Dir = filename:join(?config(data_dir, Config), "empty"),
-    ok = file:make_dir(Dir),
+    _ = file:make_dir(Dir),
     ?assertEqual(
         [],
         emqx_utils_fs:traverse_dir(fun cons_fileinfo/3, [], Dir)
