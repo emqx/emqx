@@ -267,14 +267,8 @@ fold_config(FoldFun, Acc, Stack, Config) ->
     fold_confval(FoldFun, Acc, Stack, Config).
 
 fold_confarray(FoldFun, AccIn, StackIn, I, [H | T]) ->
-    Stack = [I | StackIn],
-    case FoldFun(Stack, H, AccIn) of
-        {cont, Acc} ->
-            AccOut = fold_config(FoldFun, Acc, Stack, H),
-            fold_confarray(FoldFun, AccOut, StackIn, I + 1, T);
-        {stop, Acc} ->
-            fold_confarray(FoldFun, Acc, StackIn, I + 1, T)
-    end;
+    Acc = fold_subconf(FoldFun, AccIn, [I | StackIn], H),
+    fold_confarray(FoldFun, Acc, StackIn, I + 1, T);
 fold_confarray(_FoldFun, Acc, _Stack, _, []) ->
     Acc.
 
