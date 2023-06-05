@@ -734,6 +734,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
         fun() ->
             case SlaveMod of
                 ct_slave ->
+                    ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
                     ct_slave:start(
                         Node,
                         [
@@ -852,8 +853,10 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ]),
     case erpc:call(Node, application, get_env, [mnesia, dir, undefined]) of
         undefined ->
+            ct:pal("~p: setting mnesia dir: ~p", [Node, MnesiaDataDir]),
             erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]);
-        _ ->
+        PreviousMnesiaDir ->
+            ct:pal("~p: mnesia dir already set: ~p", [Node, PreviousMnesiaDir]),
             ok
     end,
 
@@ -944,7 +947,7 @@ set_env_once(Var, Value) ->
     case os:getenv(Var) of
         false ->
             os:putenv(Var, Value);
-        _ ->
+        _OldValue ->
             ok
     end,
     ok.
