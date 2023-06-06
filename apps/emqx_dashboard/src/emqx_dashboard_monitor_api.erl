@@ -172,6 +172,11 @@ swagger_desc(topics) ->
     >>;
 swagger_desc(connections) ->
     <<
+        "Sessions at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
+swagger_desc(live_connections) ->
+    <<
         "Connections at the time of sampling."
         " Can only represent the approximate state"
     >>;

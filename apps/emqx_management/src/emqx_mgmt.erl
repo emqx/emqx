@@ -142,6 +142,7 @@ node_info() ->
             max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))
         ),
         connections => ets:info(?CHAN_TAB, size),
+        live_connections => ets:info(?CHAN_LIVE_TAB, size),
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),

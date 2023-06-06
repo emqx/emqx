@@ -90,6 +90,20 @@ t_monitor_current_api(_) ->
     ],
     ok.
 
+t_monitor_current_api_live_connections(_) ->
+    process_flag(trap_exit, true),
+    ClientId = <<"live_conn_tests">>,
+    {ok, C} = emqtt:start_link([{clean_start, false}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqtt:disconnect(C),
+    {ok, Rate} = request(["monitor_current"]),
+    ?assertEqual(0, maps:get(<<"live_connections">>, Rate)),
+    ?assertEqual(1, maps:get(<<"connections">>, Rate)),
+    %% clears
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C1),
+    ok = emqtt:disconnect(C1).
+
 t_monitor_reset(_) ->
     restart_monitor(),
     {ok, Rate} = request(["monitor_current"]),

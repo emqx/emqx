@@ -60,6 +60,11 @@ t_nodes_api(_) ->
     Edition = maps:get(<<"edition">>, LocalNodeInfo),
     ?assertEqual(emqx_release:edition_longstr(), Edition),
 
+    Conns = maps:get(<<"connections">>, LocalNodeInfo),
+    ?assertEqual(0, Conns),
+    LiveConns = maps:get(<<"live_connections">>, LocalNodeInfo),
+    ?assertEqual(0, LiveConns),
+
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
     NodeNameResponse =
