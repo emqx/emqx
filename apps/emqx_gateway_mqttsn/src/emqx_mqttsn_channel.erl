@@ -1111,15 +1111,16 @@ check_pub_authz(
 
 convert_pub_to_msg(
     {TopicName, Flags, Data},
-    Channel = #channel{clientinfo = #{clientid := ClientId}}
+    Channel = #channel{clientinfo = #{clientid := ClientId, mountpoint := Mountpoint}}
 ) ->
     #mqtt_sn_flags{qos = QoS, dup = Dup, retain = Retain} = Flags,
     NewQoS = get_corrected_qos(QoS),
+    NTopicName = emqx_mountpoint:mount(Mountpoint, TopicName),
     Message = put_message_headers(
         emqx_message:make(
             ClientId,
             NewQoS,
-            TopicName,
+            NTopicName,
             Data,
             #{dup => Dup, retain => Retain},
             #{}
