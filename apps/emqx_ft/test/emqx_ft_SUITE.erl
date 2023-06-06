@@ -261,6 +261,7 @@ t_nasty_clientids_fileids(_Config) ->
         fun({ClientId, FileId}) ->
             ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "justfile", ClientId),
             [Export] = list_files(ClientId),
+            ?assertMatch(#{meta := #{name := "justfile"}}, Export),
             ?assertEqual({ok, ClientId}, read_export(Export))
         end,
         Transfers
@@ -271,13 +272,14 @@ t_nasty_filenames(_Config) ->
         {<<"nasty1">>, "146%"},
         {<<"nasty2">>, "🌚"},
         {<<"nasty3">>, "中文.txt"},
-        {<<"nasty4">>, _254Bytes = string:join(lists:duplicate(255 div 5, "LONG"), ".")}
+        {<<"nasty4">>, _239Bytes = string:join(lists:duplicate(240 div 5, "LONG"), ".")}
     ],
     ok = lists:foreach(
         fun({ClientId, Filename}) ->
             FileId = unicode:characters_to_binary(Filename),
             ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Filename, FileId),
             [Export] = list_files(ClientId),
+            ?assertMatch(#{meta := #{name := Filename}}, Export),
             ?assertEqual({ok, FileId}, read_export(Export))
         end,
         Filenames

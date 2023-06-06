@@ -128,7 +128,17 @@ complete(
     Filemeta = FilemetaIn#{checksum => Checksum},
     ok = file:close(Handle),
     _ = filelib:ensure_dir(ResultFilepath),
-    _ = file:write_file(mk_manifest_filename(ResultFilepath), encode_filemeta(Filemeta)),
+    ManifestFilepath = mk_manifest_filename(ResultFilepath),
+    case file:write_file(ManifestFilepath, encode_filemeta(Filemeta)) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, "filemeta_write_failed", #{
+                path => ManifestFilepath,
+                meta => Filemeta,
+                reason => Reason
+            })
+    end,
     file:rename(Filepath, ResultFilepath).
 
 -spec discard(export_st()) ->

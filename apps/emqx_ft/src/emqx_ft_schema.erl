@@ -42,7 +42,9 @@
 %% on most filesystems. Even though, say, S3 does not have such limitations, it's
 %% still useful to have a limit on the filename length, to avoid having to deal with
 %% limits in the storage backends.
--define(MAX_FILENAME_BYTELEN, 255).
+%% Usual realistic limit is 255 bytes actually, but we leave some room for backends
+%% to spare.
+-define(MAX_FILENAME_BYTELEN, 240).
 
 -import(hoconsc, [ref/2, mk/2]).
 
