@@ -125,5 +125,6 @@ on_gateway_unload(
     },
     _GwState
 ) ->
+    emqx_mqttsn_registry:clean_predefined_topics(GwName, maps:get(predefined, Config, [])),
     Listeners = normalize_config(Config),
     stop_listeners(GwName, Listeners).

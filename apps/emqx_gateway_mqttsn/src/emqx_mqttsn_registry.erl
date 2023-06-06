@@ -26,7 +26,8 @@
 
 -export([
     register_topic/3,
-    unregister_topic/2
+    unregister_topic/2,
+    clean_predefined_topics/2
 ]).
 
 -export([
@@ -117,6 +118,16 @@ lookup_element(Tab, Key, Pos) ->
 -spec unregister_topic(registry(), emqx_types:clientid()) -> ok.
 unregister_topic({_, Pid}, ClientId) ->
     gen_server:call(Pid, {unregister, ClientId}).
+
+-spec clean_predefined_topics(atom(), list()) -> ok.
+clean_predefined_topics(InstaId, PredefTopics) when is_list(PredefTopics) ->
+    Tab = name(InstaId),
+    F = fun(#{id := TopicId, topic := TopicName0}) ->
+        TopicName = iolist_to_binary(TopicName0),
+        mria:dirty_delete(Tab, {predef, TopicId}),
+        mria:dirty_delete(Tab, {predef, TopicName})
+    end,
+    lists:foreach(F, PredefTopics).
 
 lookup_name(Pid) ->
     gen_server:call(Pid, name).
