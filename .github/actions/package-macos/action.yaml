@@ -43,8 +43,18 @@ runs:
         echo "OTP_SOURCE_PATH=$OTP_SOURCE_PATH" >> $GITHUB_OUTPUT
         echo "OTP_INSTALL_PATH=$OTP_INSTALL_PATH" >> $GITHUB_OUTPUT
         mkdir -p "$OTP_SOURCE_PATH" "$OTP_INSTALL_PATH"
+        # we need this to skip using cache for self-hosted runners
+        case ${{ inputs.os }} in
+          *arm64)
+            echo "SELF_HOSTED=true" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "SELF_HOSTED=false" >> $GITHUB_OUTPUT
+            ;;
+        esac
     - uses: actions/cache@v3
       id: cache
+      if: steps.prepare.outputs.SELF_HOSTED != 'true'
       with:
         path: ${{ steps.prepare.outputs.OTP_INSTALL_PATH }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
@@ -54,22 +64,36 @@ runs:
       run: |
         OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
         OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
+        SELF_HOSTED="${{ steps.prepare.outputs.SELF_HOSTED }}"
+        # when it's self-hosted, it never hits the cache,
+        # skip rebuild if it's self-hosted and the install path already has a 'bin'
+        if [ "${SELF_HOSTED:-false}" = 'true' ]; then
+          if [ -n "$OTP_INSTALL_PATH" ] && [ -d "$OTP_INSTALL_PATH/bin" ]; then
+            echo "Skip rebuilding OTP, found $OTP_INSTALL_PATH"
+            exit 0
+          fi
+        fi
+        ## when it's not self-hosted, or the install path is not found,
+        ## build otp from source code.
         if [ -d "$OTP_SOURCE_PATH" ]; then
           rm -rf "$OTP_SOURCE_PATH"
         fi
         git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git "$OTP_SOURCE_PATH"
         cd "$OTP_SOURCE_PATH"
         if [ "$(arch)" = arm64 ]; then
+            export CFLAGS="-O2 -g -I$(brew --prefix unixodbc)/include"
             export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
-            export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+            WITH_ODBC="--with-odbc=$(brew --prefix unixodbc)"
+        else
+            WITH_ODBC=""
         fi
-        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
+        ./configure --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl@1.1) ${WITH_ODBC} --disable-hipe --disable-jit --prefix="$OTP_INSTALL_PATH"
         make -j$(nproc)
         rm -rf "$OTP_INSTALL_PATH"
         make install
         if [ "$(arch)" = arm64 ]; then
+            unset CFLAGS
             unset LDFLAGS
-            unset CC
         fi
     - name: build
       env:
@@ -87,6 +111,10 @@ runs:
       shell: bash
       run: |
         export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
+        # inspec erl in PATH
+        which erl
+        # inspec erl command banner
+        erl -s init stop
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
