@@ -41,7 +41,6 @@ fields(mqttsn) ->
                     desc => ?DESC(mqttsn_broadcast)
                 }
             )},
-        %% TODO: rename
         {enable_qos3,
             sc(
                 boolean(),
