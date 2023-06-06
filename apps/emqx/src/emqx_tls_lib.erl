@@ -389,7 +389,7 @@ is_pem(MaybePem) ->
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
 save_pem_file(Dir, KeyPath, Pem, DryRun) ->
-    Path = pem_file_name(Dir, KeyPath, Pem),
+    Path = pem_file_name(Dir, KeyPath),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
             {ok, Path};
@@ -412,9 +412,8 @@ is_managed_ssl_file(Filename) ->
         _ -> false
     end.
 
-pem_file_name(Dir, KeyPath, Pem) ->
-    <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
-    Suffix = binary:encode_hex(CK),
+pem_file_name(Dir, KeyPath) ->
+    Suffix = binary:encode_hex(crypto:strong_rand_bytes(8)),
     Segments = lists:map(fun ensure_bin/1, KeyPath),
     Filename0 = iolist_to_binary(lists:join(<<"_">>, Segments)),
     Filename1 = binary:replace(Filename0, <<"file">>, <<>>),
