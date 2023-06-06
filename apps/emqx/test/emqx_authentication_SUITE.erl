@@ -26,7 +26,6 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("typerefl/include/types.hrl").
 -include("emqx_authentication.hrl").
 
 -define(AUTHN, emqx_authentication).
@@ -474,52 +473,6 @@ t_restart({'end', _Config}) ->
     ?AUTHN:deregister_providers([{password_based, built_in_database}]),
     ok.
 
-t_convert_certs({_, Config}) ->
-    Config;
-t_convert_certs(Config) when is_list(Config) ->
-    Global = <<"mqtt:global">>,
-    Certs = certs([
-        {<<"keyfile">>, "key.pem"},
-        {<<"certfile">>, "cert.pem"},
-        {<<"cacertfile">>, "cacert.pem"}
-    ]),
-
-    CertsDir = certs_dir(Config, [Global, <<"password_based:built_in_database">>]),
-    #{<<"ssl">> := NCerts} = convert_certs(CertsDir, #{<<"ssl">> => Certs}),
-
-    Certs2 = certs([
-        {<<"keyfile">>, "key.pem"},
-        {<<"certfile">>, "cert.pem"}
-    ]),
-
-    #{<<"ssl">> := NCerts2} = convert_certs(
-        CertsDir,
-        #{<<"ssl">> => Certs2},
-        #{<<"ssl">> => NCerts}
-    ),
-
-    ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
-    ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
-
-    Certs3 = certs([
-        {<<"keyfile">>, "client-key.pem"},
-        {<<"certfile">>, "client-cert.pem"},
-        {<<"cacertfile">>, "cacert.pem"}
-    ]),
-
-    #{<<"ssl">> := NCerts3} = convert_certs(
-        CertsDir,
-        #{<<"ssl">> => Certs3},
-        #{<<"ssl">> => NCerts2}
-    ),
-
-    ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
-    ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)),
-
-    ?assertEqual(true, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))),
-    clear_certs(CertsDir, #{<<"ssl">> => NCerts3}),
-    ?assertEqual(false, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))).
-
 t_combine_authn_and_callback({init, Config}) ->
     [
         {listener_id, 'tcp:default'},
@@ -627,18 +580,3 @@ certs(Certs) ->
 
 register_provider(Type, Module) ->
     ok = ?AUTHN:register_providers([{Type, Module}]).
-
-certs_dir(CtConfig, Path) ->
-    DataDir = proplists:get_value(data_dir, CtConfig),
-    Dir = filename:join([DataDir | Path]),
-    filelib:ensure_dir(Dir),
-    Dir.
-
-convert_certs(CertsDir, SslConfig) ->
-    emqx_authentication_config:convert_certs(CertsDir, SslConfig).
-
-convert_certs(CertsDir, New, Old) ->
-    emqx_authentication_config:convert_certs(CertsDir, New, Old).
-
-clear_certs(CertsDir, SslConfig) ->
-    emqx_authentication_config:clear_certs(CertsDir, SslConfig).

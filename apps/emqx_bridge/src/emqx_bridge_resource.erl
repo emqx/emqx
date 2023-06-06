@@ -247,25 +247,22 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpPath0 = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
-    TmpPath = emqx_utils:safe_filename(TmpPath0),
+    TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    TmpPath = emqx_utils:safe_filename(TmpName),
     Conf = emqx_utils_maps:safe_atom_key_map(Conf0),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->
             {error, Reason};
         {ok, ConfNew} ->
             try
-                ParseConf = parse_confs(bin(Type), TmpPath, ConfNew),
-                Res = emqx_resource:create_dry_run_local(
-                    bridge_to_resource_type(Type), ParseConf
-                ),
-                Res
+                ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
+                emqx_resource:create_dry_run_local(bridge_to_resource_type(Type), ParseConf)
             catch
                 %% validation errors
                 throw:Reason ->
                     {error, Reason}
             after
-                _ = maybe_clear_certs(TmpPath, ConfNew)
+                _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
             end
     end.
 
@@ -284,27 +281,6 @@ remove(Type, Name, _Conf, _Opts) ->
         {error, not_found} -> ok;
         {error, Reason} -> {error, Reason}
     end.
-
-maybe_clear_certs(TmpPath, #{ssl := SslConf} = Conf) ->
-    %% don't remove the cert files if they are in use
-    case is_tmp_path_conf(TmpPath, SslConf) of
-        true -> emqx_connector_ssl:clear_certs(TmpPath, Conf);
-        false -> ok
-    end;
-maybe_clear_certs(_TmpPath, _ConfWithoutSsl) ->
-    ok.
-
-is_tmp_path_conf(TmpPath, #{certfile := Certfile}) ->
-    is_tmp_path(TmpPath, Certfile);
-is_tmp_path_conf(TmpPath, #{keyfile := Keyfile}) ->
-    is_tmp_path(TmpPath, Keyfile);
-is_tmp_path_conf(TmpPath, #{cacertfile := CaCertfile}) ->
-    is_tmp_path(TmpPath, CaCertfile);
-is_tmp_path_conf(_TmpPath, _Conf) ->
-    false.
-
-is_tmp_path(TmpPath, File) ->
-    string:str(str(File), str(TmpPath)) > 0.
 
 %% convert bridge configs to what the connector modules want
 parse_confs(
@@ -411,9 +387,6 @@ parse_url(Url) ->
         [Url] ->
             invalid_data(<<"Missing scheme in URL: ", Url/binary>>)
     end.
-
-str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
-str(Str) when is_list(Str) -> Str.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

@@ -33,21 +33,12 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% ensure dependent apps stopped
-    emqx_common_test_helpers:stop_apps([]),
-    ?check_trace(
-        ?wait_async_action(
-            emqx_common_test_helpers:start_apps([]),
-            #{?snk_kind := listener_started, bind := 1883},
-            timer:seconds(100)
-        ),
-        fun(Trace) ->
-            ct:pal("listener start statuses: ~p", [
-                ?of_kind([listener_started, listener_not_started], Trace)
-            ]),
-            %% more than one listener
-            ?assertMatch([_ | _], ?of_kind(listener_started, Trace))
-        end
+    ok = emqx_common_test_helpers:start_apps([]),
+    Listeners = emqx_listeners:list(),
+    ct:pal("emqx_listeners:list() = ~p~n", [Listeners]),
+    ?assertMatch(
+        [_ | _],
+        [ID || {ID, #{running := true}} <- Listeners]
     ),
     Config.
 

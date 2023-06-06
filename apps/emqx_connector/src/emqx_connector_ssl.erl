@@ -19,9 +19,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([
-    convert_certs/2,
-    clear_certs/2,
-    try_clear_certs/3
+    convert_certs/2
 ]).
 
 convert_certs(RltvDir, #{<<"ssl">> := SSL} = Config) ->
@@ -31,26 +29,6 @@ convert_certs(RltvDir, #{ssl := SSL} = Config) ->
 %% for bridges use connector name
 convert_certs(_RltvDir, Config) ->
     {ok, Config}.
-
-clear_certs(RltvDir, Config) ->
-    clear_certs2(RltvDir, normalize_key_to_bin(Config)).
-
-clear_certs2(RltvDir, #{<<"ssl">> := OldSSL} = _Config) ->
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
-clear_certs2(_RltvDir, _) ->
-    ok.
-
-try_clear_certs(RltvDir, NewConf, OldConf) ->
-    try_clear_certs2(
-        RltvDir,
-        normalize_key_to_bin(NewConf),
-        normalize_key_to_bin(OldConf)
-    ).
-
-try_clear_certs2(RltvDir, NewConf, OldConf) ->
-    NewSSL = try_map_get(<<"ssl">>, NewConf, undefined),
-    OldSSL = try_map_get(<<"ssl">>, OldConf, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, NewSSL, OldSSL).
 
 new_ssl_config(RltvDir, Config, SSL) ->
     case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of
@@ -70,13 +48,3 @@ new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
     Config#{<<"ssl">> => NewSSL};
 new_ssl_config(Config, _NewSSL) ->
     Config.
-
-normalize_key_to_bin(undefined) ->
-    undefined;
-normalize_key_to_bin(Map) when is_map(Map) ->
-    emqx_utils_maps:binary_key_map(Map).
-
-try_map_get(Key, Map, Default) when is_map(Map) ->
-    maps:get(Key, Map, Default);
-try_map_get(_Key, undefined, Default) ->
-    Default.

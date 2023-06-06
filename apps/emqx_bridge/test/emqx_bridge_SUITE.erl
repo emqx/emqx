@@ -156,6 +156,7 @@ setup_fake_telemetry_data() ->
 
 t_update_ssl_conf(Config) ->
     Path = proplists:get_value(config_path, Config),
+    CertDir = filename:join([emqx:mutable_certs_dir() | Path]),
     EnableSSLConf = #{
         <<"bridge_mode">> => false,
         <<"clean_start">> => true,
@@ -172,21 +173,12 @@ t_update_ssl_conf(Config) ->
             }
     },
     {ok, _} = emqx:update_config(Path, EnableSSLConf),
-    {ok, Certs} = list_pem_dir(Path),
-    ?assertMatch([_, _, _], Certs),
+    ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
     NoSSLConf = EnableSSLConf#{<<"ssl">> := #{<<"enable">> => false}},
     {ok, _} = emqx:update_config(Path, NoSSLConf),
-    ?assertMatch({error, not_dir}, list_pem_dir(Path)),
+    {ok, _} = emqx_tls_certfile_gc:force(),
+    ?assertMatch({error, enoent}, file:list_dir(CertDir)),
     ok.
-
-list_pem_dir(Path) ->
-    Dir = filename:join([emqx:mutable_certs_dir() | Path]),
-    case filelib:is_dir(Dir) of
-        true ->
-            file:list_dir(Dir);
-        _ ->
-            {error, not_dir}
-    end.
 
 data_file(Name) ->
     Dir = code:lib_dir(emqx_bridge, test),
