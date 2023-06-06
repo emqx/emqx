@@ -275,7 +275,7 @@ roots(low) ->
         {"flapping_detect",
             sc(
                 ref("flapping_detect"),
-                #{importance => ?IMPORTANCE_HIDDEN}
+                #{importance => ?DEFAULT_IMPORTANCE}
             )},
         {"persistent_session_store",
             sc(
@@ -685,15 +685,14 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
         {"window_time",
             sc(
-                hoconsc:union([disabled, duration()]),
+                duration(),
                 #{
-                    default => disabled,
+                    default => "1m",
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(flapping_detect_window_time)
                 }

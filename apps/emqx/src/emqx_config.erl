@@ -707,7 +707,10 @@ do_put(Type, Putter, [], DeepValue) ->
 do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
-    persistent_term:put(?PERSIS_KEY(Type, RootName), NewValue).
+    Key = ?PERSIS_KEY(Type, RootName),
+    persistent_term:put(Key, NewValue),
+    post_save_config_hook(Key, NewValue),
+    ok.
 
 do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
     emqx_utils_maps:deep_get(AtomKeyPath, Map, Default);
@@ -829,15 +832,12 @@ merge_with_global_defaults(GlobalDefaults, ZoneVal) ->
 maybe_update_zone([zones | T], ZonesValue, Value) ->
     %% note, do not write to PT, return *New value* instead
     NewZonesValue = emqx_utils_maps:deep_put(T, ZonesValue, Value),
-    ExistingZoneNames = maps:keys(?MODULE:get([zones], #{})),
-    %% Update only new zones with global defaults
     GLD = zone_global_defaults(),
-    maps:fold(
-        fun(ZoneName, ZoneValue, Acc) ->
-            Acc#{ZoneName := merge_with_global_defaults(GLD, ZoneValue)}
+    maps:map(
+        fun(_ZoneName, ZoneValue) ->
+            merge_with_global_defaults(GLD, ZoneValue)
         end,
-        NewZonesValue,
-        maps:without(ExistingZoneNames, NewZonesValue)
+        NewZonesValue
     );
 maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
     NewRootValue = emqx_utils_maps:deep_put(T, RootValue, Value),
@@ -911,3 +911,11 @@ rawconf_to_conf(SchemaModule, RawPath, RawValue) ->
         ),
     AtomPath = to_atom_conf_path(RawPath, {raise_error, maybe_update_zone_error}),
     emqx_utils_maps:deep_get(AtomPath, RawUserDefinedValues).
+
+%% When the global zone change, the zones is updated with the new global zone.
+%% The zones config has no config_handler callback, so we need to update via this hook
+post_save_config_hook(?PERSIS_KEY(?CONF, zones), _Zones) ->
+    emqx_flapping:update_config(),
+    ok;
+post_save_config_hook(_Key, _NewValue) ->
+    ok.
