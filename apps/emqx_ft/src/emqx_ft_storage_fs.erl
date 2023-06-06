@@ -445,16 +445,8 @@ write_file_atomic(Storage, Transfer, Filepath, Content) when is_binary(Content) 
     end.
 
 mk_temp_filepath(Storage, Transfer, Filename) ->
-    Unique = erlang:unique_integer([positive]),
-    filename:join(get_subdir(Storage, Transfer, temporary), mk_filename([Unique, ".", Filename])).
-
-mk_filename(Comps) ->
-    lists:append(lists:map(fun mk_filename_component/1, Comps)).
-
-mk_filename_component(I) when is_integer(I) -> integer_to_list(I);
-mk_filename_component(A) when is_atom(A) -> atom_to_list(A);
-mk_filename_component(B) when is_binary(B) -> unicode:characters_to_list(B);
-mk_filename_component(S) when is_list(S) -> S.
+    TempFilename = emqx_ft_fs_util:mk_temp_filename(Filename),
+    filename:join(get_subdir(Storage, Transfer, temporary), TempFilename).
 
 write_contents(Filepath, Content) ->
     file:write_file(Filepath, Content).

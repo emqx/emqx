@@ -87,7 +87,7 @@ t_update_config(_Config) ->
         )
     ),
     ?assertEqual(
-        <<"/tmp/path">>,
+        "/tmp/path",
         emqx_config:get([file_transfer, storage, local, segments, root])
     ),
     ?assertEqual(
@@ -150,7 +150,7 @@ t_disable_restore_config(Config) ->
     ),
     ok = emqtt:stop(Client),
     % Restore local storage backend
-    Root = iolist_to_binary(emqx_ft_test_helpers:root(Config, node(), [segments])),
+    Root = emqx_ft_test_helpers:root(Config, node(), [segments]),
     ?assertMatch(
         {ok, _},
         emqx_conf:update(
@@ -177,7 +177,7 @@ t_disable_restore_config(Config) ->
                 [
                     #{
                         ?snk_kind := garbage_collection,
-                        storage := #{segments := #{root := Root}}
+                        storage := #{segments := #{gc := #{interval := 1000}}}
                     }
                 ],
                 ?of_kind(garbage_collection, Trace)
