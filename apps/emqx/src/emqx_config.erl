@@ -831,13 +831,14 @@ merge_with_global_defaults(GlobalDefaults, ZoneVal) ->
     NewZoneVal :: map().
 maybe_update_zone([zones | T], ZonesValue, Value) ->
     %% note, do not write to PT, return *New value* instead
-    NewZonesValue = emqx_utils_maps:deep_put(T, ZonesValue, Value),
     GLD = zone_global_defaults(),
+    NewZonesValue0 = emqx_utils_maps:deep_put(T, ZonesValue, Value),
+    NewZonesValue1 = emqx_utils_maps:deep_merge(#{default => GLD}, NewZonesValue0),
     maps:map(
         fun(_ZoneName, ZoneValue) ->
             merge_with_global_defaults(GLD, ZoneValue)
         end,
-        NewZonesValue
+        NewZonesValue1
     );
 maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
     NewRootValue = emqx_utils_maps:deep_put(T, RootValue, Value),

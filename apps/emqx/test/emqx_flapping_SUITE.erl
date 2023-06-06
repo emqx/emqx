@@ -26,16 +26,16 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    emqx_config:put_zone_conf(
-        default,
+    %% update global default config
+    {ok, _} = emqx:update_config(
         [flapping_detect],
         #{
-            enable => true,
-            max_count => 3,
+            <<"enable">> => true,
+            <<"max_count">> => 3,
             % 0.1s
-            window_time => 100,
+            <<"window_time">> => 100,
             %% 2s
-            ban_time => 2000
+            <<"ban_time">> => "2s"
         }
     ),
     Config.
@@ -53,6 +53,7 @@ t_detect_check(_) ->
         clientid => <<"client007">>,
         peerhost => {127, 0, 0, 1}
     },
+    ct:pal("www:~p~n", [emqx_flapping:get_policy(default)]),
     false = emqx_flapping:detect(ClientInfo),
     false = emqx_banned:check(ClientInfo),
     false = emqx_flapping:detect(ClientInfo),
@@ -115,8 +116,23 @@ t_conf_update(_) ->
     emqx_config:put_zone_conf(new_zone, [flapping_detect], #{}),
     ?assertEqual(Global, get_policy(new_zone)),
 
-    emqx_config:put_zone_conf(new_zone_1, [flapping_detect], #{window_time => 100}),
-    ?assertEqual(Global#{window_time := 100}, emqx_flapping:get_policy(new_zone_1)),
+    emqx_config:put_zone_conf(zone_1, [flapping_detect], #{window_time => 100}),
+    ?assertEqual(Global#{window_time := 100}, emqx_flapping:get_policy(zone_1)),
+
+    Zones = #{
+        <<"zone_1">> => #{<<"flapping_detect">> => #{<<"window_time">> => 123}},
+        <<"zone_2">> => #{<<"flapping_detect">> => #{<<"window_time">> => 456}}
+    },
+    ?assertMatch({ok, _}, emqx:update_config([zones], Zones)),
+    %% new_zone is already deleted
+    ?assertError({config_not_found, _}, get_policy(new_zone)),
+    %% update zone(zone_1) has default.
+    ?assertEqual(Global#{window_time := 123}, emqx_flapping:get_policy(zone_1)),
+    %% create zone(zone_2) has default
+    ?assertEqual(Global#{window_time := 456}, emqx_flapping:get_policy(zone_2)),
+    %% reset to default(empty) andalso get default from global
+    ?assertMatch({ok, _}, emqx:update_config([zones], #{})),
+    ?assertEqual(Global, emqx:get_config([zones, default, flapping_detect])),
     ok.
 
 get_policy(Zone) ->
