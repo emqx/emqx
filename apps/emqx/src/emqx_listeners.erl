@@ -527,17 +527,25 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
 
 create_listener(Type, Name, NewConf) ->
     Res = start_listener(Type, Name, NewConf),
-    recreate_authenticator(Res, Type, Name, NewConf).
+    recreate_authenticators(Res, Type, Name, NewConf).
 
-recreate_authenticator(ok, Type, Name, Conf) ->
+recreate_authenticators(ok, Type, Name, Conf) ->
     Chain = listener_id(Type, Name),
     _ = emqx_authentication:delete_chain(Chain),
-    case maps:get(authentication, Conf, []) of
-        [] -> ok;
-        AuthN -> emqx_authentication:create_authenticator(Chain, AuthN)
-    end;
-recreate_authenticator(Error, _Type, _Name, _NewConf) ->
+    do_create_authneticators(Chain, maps:get(authentication, Conf, []));
+recreate_authenticators(Error, _Type, _Name, _NewConf) ->
     Error.
+
+do_create_authneticators(Chain, [AuthN | T]) ->
+    case emqx_authentication:create_authenticator(Chain, AuthN) of
+        {ok, _} ->
+            do_create_authneticators(Chain, T);
+        Error ->
+            _ = emqx_authentication:delete_chain(Chain),
+            Error
+    end;
+do_create_authneticators(_Chain, []) ->
+    ok.
 
 remove_listener(Type, Name, OldConf) ->
     ok = unregister_ocsp_stapling_refresh(Type, Name),
@@ -553,7 +561,7 @@ update_listener(Type, Name, {OldConf, NewConf}) ->
     try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
     ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
     Res = restart_listener(Type, Name, {OldConf, NewConf}),
-    recreate_authenticator(Res, Type, Name, NewConf).
+    recreate_authenticators(Res, Type, Name, NewConf).
 
 perform_listener_changes([]) ->
     ok;
