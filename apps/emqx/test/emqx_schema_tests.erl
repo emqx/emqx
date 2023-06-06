@@ -106,6 +106,67 @@ bad_cipher_test() ->
     ),
     ok.
 
+fail_if_no_peer_cert_test_() ->
+    Sc = #{
+        roots => [mqtt_ssl_listener],
+        fields => #{mqtt_ssl_listener => emqx_schema:fields("mqtt_ssl_listener")}
+    },
+    Opts = #{atom_key => false, required => false},
+    OptsAtomKey = #{atom_key => true, required => false},
+    InvalidConf = #{
+        <<"bind">> => <<"0.0.0.0:9883">>,
+        <<"ssl_options">> => #{
+            <<"fail_if_no_peer_cert">> => true,
+            <<"verify">> => <<"verify_none">>
+        }
+    },
+    InvalidListener = #{<<"mqtt_ssl_listener">> => InvalidConf},
+    ValidListener = #{
+        <<"mqtt_ssl_listener">> => InvalidConf#{
+            <<"ssl_options">> =>
+                #{
+                    <<"fail_if_no_peer_cert">> => true,
+                    <<"verify">> => <<"verify_peer">>
+                }
+        }
+    },
+    ValidListener1 = #{
+        <<"mqtt_ssl_listener">> => InvalidConf#{
+            <<"ssl_options">> =>
+                #{
+                    <<"fail_if_no_peer_cert">> => false,
+                    <<"verify">> => <<"verify_none">>
+                }
+        }
+    },
+    Reason = "verify must be verify_peer when fail_if_no_peer_cert is true",
+    [
+        ?_assertThrow(
+            {_Sc, [#{kind := validation_error, reason := Reason}]},
+            hocon_tconf:check_plain(Sc, InvalidListener, Opts)
+        ),
+        ?_assertThrow(
+            {_Sc, [#{kind := validation_error, reason := Reason}]},
+            hocon_tconf:check_plain(Sc, InvalidListener, OptsAtomKey)
+        ),
+        ?_assertMatch(
+            #{mqtt_ssl_listener := #{}},
+            hocon_tconf:check_plain(Sc, ValidListener, OptsAtomKey)
+        ),
+        ?_assertMatch(
+            #{mqtt_ssl_listener := #{}},
+            hocon_tconf:check_plain(Sc, ValidListener1, OptsAtomKey)
+        ),
+        ?_assertMatch(
+            #{<<"mqtt_ssl_listener">> := #{}},
+            hocon_tconf:check_plain(Sc, ValidListener, Opts)
+        ),
+        ?_assertMatch(
+            #{<<"mqtt_ssl_listener">> := #{}},
+            hocon_tconf:check_plain(Sc, ValidListener1, Opts)
+        )
+    ].
+
 validate(Schema, Data0) ->
     Sc = #{
         roots => [ssl_opts],

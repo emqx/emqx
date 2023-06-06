@@ -120,7 +120,10 @@ fields(ssl_listener) ->
             {ssl_options,
                 sc(
                     hoconsc:ref(emqx_schema, "listener_ssl_opts"),
-                    #{desc => ?DESC(ssl_listener_options)}
+                    #{
+                        desc => ?DESC(ssl_listener_options),
+                        validator => fun emqx_schema:validate_server_ssl_opts/1
+                    }
                 )}
         ];
 fields(udp_listener) ->
@@ -132,7 +135,13 @@ fields(udp_listener) ->
 fields(dtls_listener) ->
     [{acceptors, sc(integer(), #{default => 16, desc => ?DESC(dtls_listener_acceptors)})}] ++
         fields(udp_listener) ++
-        [{dtls_options, sc(ref(dtls_opts), #{desc => ?DESC(dtls_listener_dtls_opts)})}];
+        [
+            {dtls_options,
+                sc(ref(dtls_opts), #{
+                    desc => ?DESC(dtls_listener_dtls_opts),
+                    validator => fun emqx_schema:validate_server_ssl_opts/1
+                })}
+        ];
 fields(udp_opts) ->
     [
         {active_n,
