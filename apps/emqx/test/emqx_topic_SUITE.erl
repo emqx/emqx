@@ -199,7 +199,10 @@ t_join(_) ->
     ?assertEqual(<<"+//#">>, join(['+', '', '#'])),
     ?assertEqual(<<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+'])),
     ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
-    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))).
+    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))),
+    %% MQTT-5.0 [MQTT-4.7.1-1]
+    ?assertError('topic_invalid_#', join(['+', <<"a">>, '#', <<"b">>, '', '+'])),
+    ?assertError('topic_invalid_#', join(['+', <<"c">>, <<"#">>, <<"d">>, '', '+'])).
 
 t_systop(_) ->
     SysTop1 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]),

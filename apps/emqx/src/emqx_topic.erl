@@ -39,6 +39,11 @@
 -type word() :: emqx_types:word().
 -type words() :: emqx_types:words().
 
+%% Guards
+-define(MULTI_LEVEL_WILDCARD_NOT_LAST(C, REST),
+    ((C =:= '#' orelse C =:= <<"#">>) andalso REST =/= [])
+).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -110,7 +115,8 @@ validate2([]) ->
 % end with '#'
 validate2(['#']) ->
     true;
-validate2(['#' | Words]) when length(Words) > 0 ->
+%% MQTT-5.0 [MQTT-4.7.1-1]
+validate2([C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
     error('topic_invalid_#');
 validate2(['' | Words]) ->
     validate2(Words);
@@ -213,20 +219,16 @@ feed_var(Var, Val, [W | Words], Acc) ->
 -spec join(list(word())) -> binary().
 join([]) ->
     <<>>;
-join([W]) ->
-    bin(W);
-join(Words) ->
-    {_, Bin} = lists:foldr(
-        fun
-            (W, {true, Tail}) ->
-                {false, <<W/binary, Tail/binary>>};
-            (W, {false, Tail}) ->
-                {false, <<W/binary, "/", Tail/binary>>}
-        end,
-        {true, <<>>},
-        [bin(W) || W <- Words]
-    ),
-    Bin.
+join([Word | Words]) ->
+    do_join(bin(Word), Words).
+
+do_join(TopicAcc, []) ->
+    TopicAcc;
+%% MQTT-5.0 [MQTT-4.7.1-1]
+do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
+    error('topic_invalid_#');
+do_join(TopicAcc, [Word | Words]) ->
+    do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
 
 -spec parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}.
 parse(TopicFilter) when is_binary(TopicFilter) ->
