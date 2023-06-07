@@ -301,8 +301,8 @@ feedvar(Override, Packet, ConnInfo, ClientInfo) ->
     },
     maps:map(
         fun(_K, V) ->
-            Tokens = emqx_plugin_libs_rule:preproc_tmpl(V),
-            emqx_plugin_libs_rule:proc_tmpl(Tokens, Envs)
+            Tokens = emqx_placeholder:preproc_tmpl(V),
+            emqx_placeholder:proc_tmpl(Tokens, Envs)
         end,
         Override
     ).

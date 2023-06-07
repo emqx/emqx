@@ -126,8 +126,8 @@ on_query(InstanceId, {query, SQL}, State) ->
     do_query(InstanceId, SQL, State);
 on_query(InstanceId, {Key, Data}, #{insert_tokens := InsertTksMap} = State) ->
     case maps:find(Key, InsertTksMap) of
-        {ok, Tokens} ->
-            SQL = emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Data),
+        {ok, Tokens} when is_map(Data) ->
+            SQL = emqx_placeholder:proc_sql_param_str(Tokens, Data),
             do_query(InstanceId, SQL, State);
         _ ->
             {error, {unrecoverable_error, invalid_request}}
@@ -136,7 +136,7 @@ on_query(InstanceId, {Key, Data}, #{insert_tokens := InsertTksMap} = State) ->
 %% aggregate the batch queries to one SQL is a heavy job, we should put it in the worker process
 on_batch_query(
     InstanceId,
-    [{Key, _} | _] = BatchReq,
+    [{Key, _Data = #{}} | _] = BatchReq,
     #{batch_tokens := BatchTksMap, query_opts := Opts} = State
 ) ->
     case maps:find(Key, BatchTksMap) of
@@ -231,8 +231,8 @@ do_batch_insert(Conn, Tokens, BatchReqs, Opts) ->
 aggregate_query({InsertPartTks, ParamsPartTks}, BatchReqs) ->
     lists:foldl(
         fun({_, Data}, Acc) ->
-            InsertPart = emqx_plugin_libs_rule:proc_sql_param_str(InsertPartTks, Data),
-            ParamsPart = emqx_plugin_libs_rule:proc_sql_param_str(ParamsPartTks, Data),
+            InsertPart = emqx_placeholder:proc_sql_param_str(InsertPartTks, Data),
+            ParamsPart = emqx_placeholder:proc_sql_param_str(ParamsPartTks, Data),
             Values = maps:get(InsertPart, Acc, []),
             maps:put(InsertPart, [ParamsPart | Values], Acc)
         end,
@@ -260,12 +260,12 @@ parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
         {ok, select} ->
             parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
         {ok, insert} ->
-            InsertTks = emqx_plugin_libs_rule:preproc_tmpl(H),
+            InsertTks = emqx_placeholder:preproc_tmpl(H),
             H1 = string:trim(H, trailing, ";"),
             case split_insert_sql(H1) of
                 [_InsertStr, InsertPart, _ValuesStr, ParamsPart] ->
-                    InsertPartTks = emqx_plugin_libs_rule:preproc_tmpl(InsertPart),
-                    ParamsPartTks = emqx_plugin_libs_rule:preproc_tmpl(ParamsPart),
+                    InsertPartTks = emqx_placeholder:preproc_tmpl(InsertPart),
+                    ParamsPartTks = emqx_placeholder:preproc_tmpl(ParamsPart),
                     parse_batch_prepare_sql(
                         T,
                         InsertTksMap#{Key => InsertTks},

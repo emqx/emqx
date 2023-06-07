@@ -344,7 +344,7 @@ parse_prepare_sql(Config) ->
     parse_prepare_sql(maps:to_list(SQL), #{}, #{}, #{}, #{}).
 
 parse_prepare_sql([{Key, H} | _] = L, Prepares, Tokens, BatchInserts, BatchTks) ->
-    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H),
+    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H),
     parse_batch_prepare_sql(
         L, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}, BatchInserts, BatchTks
     );
@@ -363,7 +363,7 @@ parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks
         {ok, insert} ->
             case emqx_plugin_libs_rule:split_insert_sql(H) of
                 {ok, {InsertSQL, Params}} ->
-                    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(Params),
+                    ParamsTks = emqx_placeholder:preproc_tmpl(Params),
                     parse_prepare_sql(
                         T,
                         Prepares,
@@ -389,7 +389,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
         undefined ->
             {SQLOrData, Params};
         Tokens ->
-            {TypeOrKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+            {TypeOrKey, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
     end.
 
 on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->

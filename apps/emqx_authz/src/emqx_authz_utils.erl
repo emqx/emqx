@@ -188,21 +188,19 @@ convert_client_var({dn, DN}) -> {cert_subject, DN};
 convert_client_var({protocol, Proto}) -> {proto_name, Proto};
 convert_client_var(Other) -> Other.
 
-urlencode_var({var, _} = Var, Value) ->
-    emqx_http_lib:uri_encode(handle_var(Var, Value));
 urlencode_var(Var, Value) ->
-    handle_var(Var, Value).
+    emqx_http_lib:uri_encode(handle_var(Var, Value)).
 
-handle_var({var, _Name}, undefined) ->
+handle_var(_Name, undefined) ->
     <<>>;
-handle_var({var, <<"peerhost">>}, IpAddr) ->
+handle_var([<<"peerhost">>], IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_var(_Name, Value) ->
     emqx_placeholder:bin(Value).
 
-handle_sql_var({var, _Name}, undefined) ->
+handle_sql_var(_Name, undefined) ->
     <<>>;
-handle_sql_var({var, <<"peerhost">>}, IpAddr) ->
+handle_sql_var([<<"peerhost">>], IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_sql_var(_Name, Value) ->
     emqx_placeholder:sql_data(Value).

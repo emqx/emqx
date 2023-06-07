@@ -225,7 +225,7 @@ on_start(
         {pool_size, PoolSize},
         {pool, InstanceID}
     ],
-    ProcessedTemplate = emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
+    ProcessedTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate),
     State = #{
         poolname => InstanceID,
         processed_payload_template => ProcessedTemplate,
@@ -547,7 +547,7 @@ is_send_message_atom(_) ->
 format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
-    emqx_plugin_libs_rule:proc_tmpl(Tokens, Msg).
+    emqx_placeholder:proc_tmpl(Tokens, Msg).
 
 handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};

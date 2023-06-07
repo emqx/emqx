@@ -168,7 +168,7 @@ on_batch_query(
                     {error, {unrecoverable_error, batch_prepare_not_implemented}};
                 TokenList ->
                     {_, Datas} = lists:unzip(BatchReq),
-                    Datas2 = [emqx_plugin_libs_rule:proc_sql(TokenList, Data) || Data <- Datas],
+                    Datas2 = [emqx_placeholder:proc_sql(TokenList, Data) || Data <- Datas],
                     St = maps:get(BinKey, Sts),
                     case
                         on_sql_query(InstId, PoolName, execute_batch, ?SYNC_QUERY_MODE, St, Datas2)
@@ -204,7 +204,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{
                 undefined ->
                     {SQLOrData, Params};
                 Sql ->
-                    {Sql, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+                    {Sql, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
             end
     end.
 
@@ -305,7 +305,7 @@ parse_prepare_sql(Config) ->
     parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
 
 parse_prepare_sql([{Key, H} | T], Prepares, Tokens) ->
-    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H, ':n'),
+    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H, ':n'),
     parse_prepare_sql(
         T, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}
     );

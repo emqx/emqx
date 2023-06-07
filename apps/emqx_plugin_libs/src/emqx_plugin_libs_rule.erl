@@ -19,17 +19,6 @@
 
 %% preprocess and process template string with place holders
 -export([
-    preproc_tmpl/1,
-    proc_tmpl/2,
-    proc_tmpl/3,
-    preproc_cmd/1,
-    proc_cmd/2,
-    proc_cmd/3,
-    preproc_sql/1,
-    preproc_sql/2,
-    proc_sql/2,
-    proc_sql_param_str/2,
-    proc_cql_param_str/2,
     split_insert_sql/1,
     detect_sql_type/1,
     proc_batch_sql/3,
@@ -61,67 +50,14 @@
 ]).
 
 -export([
-    now_ms/0,
     can_topic_match_oneof/2
 ]).
-
--export_type([tmpl_token/0]).
 
 -compile({no_auto_import, [float/1]}).
 
 -type uri_string() :: iodata().
 
 -type tmpl_token() :: list({var, binary()} | {str, binary()}).
-
--type tmpl_cmd() :: list(tmpl_token()).
-
--type prepare_statement_key() :: binary().
-
-%% preprocess template string with place holders
--spec preproc_tmpl(binary()) -> tmpl_token().
-preproc_tmpl(Str) ->
-    emqx_placeholder:preproc_tmpl(Str).
-
--spec proc_tmpl(tmpl_token(), map()) -> binary().
-proc_tmpl(Tokens, Data) ->
-    emqx_placeholder:proc_tmpl(Tokens, Data).
-
--spec proc_tmpl(tmpl_token(), map(), map()) -> binary() | list().
-proc_tmpl(Tokens, Data, Opts) ->
-    emqx_placeholder:proc_tmpl(Tokens, Data, Opts).
-
--spec preproc_cmd(binary()) -> tmpl_cmd().
-preproc_cmd(Str) ->
-    emqx_placeholder:preproc_cmd(Str).
-
--spec proc_cmd([tmpl_token()], map()) -> binary() | list().
-proc_cmd(Tokens, Data) ->
-    emqx_placeholder:proc_cmd(Tokens, Data).
--spec proc_cmd([tmpl_token()], map(), map()) -> list().
-proc_cmd(Tokens, Data, Opts) ->
-    emqx_placeholder:proc_cmd(Tokens, Data, Opts).
-
-%% preprocess SQL with place holders
--spec preproc_sql(Sql :: binary()) -> {prepare_statement_key(), tmpl_token()}.
-preproc_sql(Sql) ->
-    emqx_placeholder:preproc_sql(Sql).
-
--spec preproc_sql(Sql :: binary(), ReplaceWith :: '?' | '$n' | ':n') ->
-    {prepare_statement_key(), tmpl_token()}.
-preproc_sql(Sql, ReplaceWith) ->
-    emqx_placeholder:preproc_sql(Sql, ReplaceWith).
-
--spec proc_sql(tmpl_token(), map()) -> list().
-proc_sql(Tokens, Data) ->
-    emqx_placeholder:proc_sql(Tokens, Data).
-
--spec proc_sql_param_str(tmpl_token(), map()) -> binary().
-proc_sql_param_str(Tokens, Data) ->
-    emqx_placeholder:proc_sql_param_str(Tokens, Data).
-
--spec proc_cql_param_str(tmpl_token(), map()) -> binary().
-proc_cql_param_str(Tokens, Data) ->
-    emqx_placeholder:proc_cql_param_str(Tokens, Data).
 
 %% SQL = <<"INSERT INTO \"abc\" (c1,c2,c3) VALUES (${1}, ${1}, ${1})">>
 -spec split_insert_sql(binary()) -> {ok, {InsertSQL, Params}} | {error, atom()} when
@@ -169,7 +105,7 @@ detect_sql_type(SQL) ->
 proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
     ValuesPart = erlang:iolist_to_binary(
         lists:join($,, [
-            proc_sql_param_str(Tokens, Msg)
+            emqx_placeholder:proc_sql_param_str(Tokens, Msg)
          || {_, Msg} <- BatchReqs
         ])
     ),
@@ -352,9 +288,6 @@ number_to_list(Int) when is_integer(Int) ->
     integer_to_list(Int);
 number_to_list(Float) when is_float(Float) ->
     float_to_list(Float, [{decimals, 10}, compact]).
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 can_topic_match_oneof(Topic, Filters) ->
     lists:any(

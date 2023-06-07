@@ -225,21 +225,19 @@ without_password(Credential, [Name | Rest]) ->
             without_password(Credential, Rest)
     end.
 
-urlencode_var({var, _} = Var, Value) ->
-    emqx_http_lib:uri_encode(handle_var(Var, Value));
 urlencode_var(Var, Value) ->
-    handle_var(Var, Value).
+    emqx_http_lib:uri_encode(handle_var(Var, Value)).
 
-handle_var({var, _Name}, undefined) ->
+handle_var(_Name, undefined) ->
     <<>>;
-handle_var({var, <<"peerhost">>}, PeerHost) ->
+handle_var([<<"peerhost">>], PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_var(_, Value) ->
     emqx_placeholder:bin(Value).
 
-handle_sql_var({var, _Name}, undefined) ->
+handle_sql_var(_Name, undefined) ->
     <<>>;
-handle_sql_var({var, <<"peerhost">>}, PeerHost) ->
+handle_sql_var([<<"peerhost">>], PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->
     emqx_placeholder:sql_data(Value).

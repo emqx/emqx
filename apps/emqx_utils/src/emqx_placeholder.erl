@@ -46,7 +46,7 @@
     quote_mysql/1
 ]).
 
--include_lib("emqx/include/emqx_placeholder.hrl").
+-define(PH_VAR_THIS, '$this').
 
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
 
@@ -55,7 +55,7 @@
 %% Space and CRLF
 -define(EX_WITHE_CHARS, "\\s").
 
--type tmpl_token() :: list({var, binary()} | {str, binary()}).
+-type tmpl_token() :: list({var, ?PH_VAR_THIS | [binary()]} | {str, binary()}).
 
 -type tmpl_cmd() :: list(tmpl_token()).
 
@@ -123,11 +123,11 @@ proc_tmpl(Tokens, Data, Opts = #{return := rawlist}) ->
             ({str, Str}) ->
                 Str;
             ({var, Phld}) when is_function(Trans, 1) ->
-                Trans(get_phld_var(Phld, Data));
+                Trans(lookup_var(Phld, Data));
             ({var, Phld}) when is_function(Trans, 2) ->
-                Trans(Phld, get_phld_var(Phld, Data));
+                Trans(Phld, lookup_var(Phld, Data));
             ({var, Phld}) ->
-                get_phld_var(Phld, Data)
+                lookup_var(Phld, Data)
         end,
         Tokens
     ).
@@ -264,12 +264,34 @@ quote_mysql(Str) when is_binary(Str) ->
 quote_mysql(Str) ->
     quote_escape(Str, fun escape_mysql/1).
 
+lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
+    Value;
+lookup_var([Prop | Rest], Data) ->
+    case lookup(Prop, Data) of
+        {ok, Value} ->
+            lookup_var(Rest, Value);
+        {error, _} ->
+            undefined
+    end.
+
+lookup(Prop, Data) when is_binary(Prop) ->
+    case maps:get(Prop, Data, undefined) of
+        undefined ->
+            try
+                {ok, maps:get(binary_to_existing_atom(Prop, utf8), Data)}
+            catch
+                error:{badkey, _} ->
+                    {error, undefined};
+                error:badarg ->
+                    {error, undefined}
+            end;
+        Value ->
+            {ok, Value}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-get_phld_var(Phld, Data) ->
-    emqx_rule_maps:nested_get(Phld, Data).
 
 preproc_var_re(#{placeholders := PHs, strip_double_quote := true}) ->
     Res = [ph_to_re(PH) || PH <- PHs],
@@ -340,9 +362,8 @@ parse_nested(<<".", R/binary>>) ->
     parse_nested(R);
 parse_nested(Attr) ->
     case string:split(Attr, <<".">>, all) of
-        [<<>>] -> {var, ?PH_VAR_THIS};
-        [Attr] -> {var, Attr};
-        Nested -> {path, [{key, P} || P <- Nested]}
+        [<<>>] -> ?PH_VAR_THIS;
+        Nested -> Nested
     end.
 
 unwrap(<<"\"${", Val/binary>>, _StripDoubleQuote = true) ->

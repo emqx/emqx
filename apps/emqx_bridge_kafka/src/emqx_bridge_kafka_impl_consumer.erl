@@ -68,7 +68,7 @@
     resource_id := resource_id(),
     topic_mapping := #{
         kafka_topic() := #{
-            payload_template := emqx_plugin_libs_rule:tmpl_token(),
+            payload_template := emqx_placeholder:tmpl_token(),
             mqtt_topic => emqx_types:topic(),
             qos => emqx_types:qos()
         }
@@ -82,7 +82,7 @@
     resource_id := resource_id(),
     topic_mapping := #{
         kafka_topic() := #{
-            payload_template := emqx_plugin_libs_rule:tmpl_token(),
+            payload_template := emqx_placeholder:tmpl_token(),
             mqtt_topic => emqx_types:topic(),
             qos => emqx_types:qos()
         }
@@ -536,7 +536,7 @@ convert_topic_mapping(TopicMappingList) ->
                 qos := QoS,
                 payload_template := PayloadTemplate0
             } = Fields,
-            PayloadTemplate = emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate0),
+            PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
             Acc#{
                 KafkaTopic => #{
                     payload_template => PayloadTemplate,
@@ -559,7 +559,7 @@ render(FullMessage, PayloadTemplate) ->
                 emqx_plugin_libs_rule:bin(X)
         end
     },
-    emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, FullMessage, Opts).
+    emqx_placeholder:proc_tmpl(PayloadTemplate, FullMessage, Opts).
 
 encode(Value, none) ->
     Value;

@@ -185,7 +185,7 @@ preproc_data(
             timestamp => maybe_preproc_tmpl(
                 maps:get(<<"timestamp">>, Data, <<"now">>)
             ),
-            measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
+            measurement => emqx_placeholder:preproc_tmpl(Measurement),
             data_type => DataType,
             value => maybe_preproc_tmpl(Value)
         }
@@ -203,7 +203,7 @@ preproc_data(_NoMatch, Acc) ->
     Acc.
 
 maybe_preproc_tmpl(Value) when is_binary(Value) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Value);
+    emqx_placeholder:preproc_tmpl(Value);
 maybe_preproc_tmpl(Value) ->
     Value.
 
@@ -225,7 +225,7 @@ proc_data(PreProcessedData, Msg) ->
         ) ->
             #{
                 timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
-                measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Msg),
+                measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
                 data_type => DataType,
                 value => proc_value(DataType, ValueTkn, Msg)
             }
@@ -236,7 +236,7 @@ proc_data(PreProcessedData, Msg) ->
 iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
     Timestamp;
 iot_timestamp(TimestampTkn, Msg, Nows) ->
-    iot_timestamp(emqx_plugin_libs_rule:proc_tmpl(TimestampTkn, Msg), Nows).
+    iot_timestamp(emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
 
 iot_timestamp(Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>
@@ -250,7 +250,7 @@ iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
     binary_to_integer(Timestamp).
 
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
-    case emqx_plugin_libs_rule:proc_tmpl(ValueTkn, Msg) of
+    case emqx_placeholder:proc_tmpl(ValueTkn, Msg) of
         <<"undefined">> -> null;
         Val -> Val
     end;
@@ -262,7 +262,7 @@ proc_value(Int, ValueTkn, Msg) when Int =:= <<"FLOAT">>; Int =:= <<"DOUBLE">> ->
     convert_float(replace_var(ValueTkn, Msg)).
 
 replace_var(Tokens, Data) when is_list(Tokens) ->
-    [Val] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
+    [Val] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
     Val;
 replace_var(Val, _Data) ->
     Val.
@@ -410,8 +410,8 @@ device_id(Message, Payloads, State) ->
             %% [FIXME] there could be conflicting device-ids in the Payloads
             maps:get(<<"device_id">>, hd(Payloads), undefined);
         DeviceId ->
-            DeviceIdTkn = emqx_plugin_libs_rule:preproc_tmpl(DeviceId),
-            emqx_plugin_libs_rule:proc_tmpl(DeviceIdTkn, Message)
+            DeviceIdTkn = emqx_placeholder:preproc_tmpl(DeviceId),
+            emqx_placeholder:proc_tmpl(DeviceIdTkn, Message)
     end.
 
 handle_response({ok, 200, _Headers, Body} = Resp) ->

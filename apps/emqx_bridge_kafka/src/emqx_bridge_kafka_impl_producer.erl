@@ -240,7 +240,7 @@ compile_message_template(T) ->
     }.
 
 preproc_tmpl(Tmpl) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Tmpl).
+    emqx_placeholder:preproc_tmpl(Tmpl).
 
 render_message(
     #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate}, Message
@@ -259,7 +259,7 @@ render(Template, Message) ->
         end,
         return => full_binary
     },
-    emqx_plugin_libs_rule:proc_tmpl(Template, Message, Opts).
+    emqx_placeholder:proc_tmpl(Template, Message, Opts).
 
 render_timestamp(Template, Message) ->
     try

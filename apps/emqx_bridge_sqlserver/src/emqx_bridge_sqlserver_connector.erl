@@ -455,9 +455,7 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
                             Key =>
                                 #{
                                     ?BATCH_INSERT_PART => InsertSQL,
-                                    ?BATCH_PARAMS_TOKENS => emqx_plugin_libs_rule:preproc_tmpl(
-                                        Params
-                                    )
+                                    ?BATCH_PARAMS_TOKENS => emqx_placeholder:preproc_tmpl(Params)
                                 }
                         }
                     );
@@ -478,7 +476,7 @@ parse_sql_template([], BatchInsertTks) ->
 apply_template(
     {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates
 ) ->
-    %% TODO: fix emqx_plugin_libs_rule:proc_tmpl/2
+    %% TODO: fix emqx_placeholder:proc_tmpl/2
     %% it won't add single quotes for string
     apply_template([Query], Templates);
 %% batch inserts
