@@ -22,8 +22,7 @@
     on_query_async/4,
     on_batch_query/3,
     on_batch_query_async/4,
-    on_get_status/2,
-    is_buffer_supported/0
+    on_get_status/2
 ]).
 -export([reply_delegator/3]).
 
@@ -55,8 +54,6 @@
 %%-------------------------------------------------------------------------------------------------
 %% emqx_resource API
 %%-------------------------------------------------------------------------------------------------
-
-is_buffer_supported() -> false.
 
 callback_mode() -> async_if_possible.
 

@@ -147,7 +147,7 @@ fields("config_producer") ->
 fields("config_consumer") ->
     fields(kafka_consumer);
 fields(kafka_producer) ->
-    fields("config") ++ fields(resource_opts) ++ fields(producer_opts);
+    fields("config") ++ fields(producer_opts);
 fields(kafka_consumer) ->
     fields("config") ++ fields(consumer_opts);
 fields("config") ->
@@ -295,34 +295,20 @@ fields(producer_kafka_opts) ->
                 required => false,
                 desc => ?DESC(producer_buffer)
             })},
-        {query_mode_sync_timeout,
-            mk(
-                emqx_schema:duration_ms(),
-                #{
-                    default => <<"5s">>,
-                    desc => ?DESC(query_mode_sync_timeout)
-                }
-            )}
-    ];
-fields(resource_opts) ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, resource_opts_fields),
-                #{
-                    required => false,
-                    desc => ?DESC(resource_opts)
-                }
-            )}
-    ];
-fields(resource_opts_fields) ->
-    [
         {query_mode,
             mk(
                 enum([async, sync]),
                 #{
                     default => async,
                     desc => ?DESC(query_mode)
+                }
+            )},
+        {query_mode_sync_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(query_mode_sync_timeout)
                 }
             )}
     ];
@@ -440,8 +426,7 @@ struct_names() ->
         producer_opts,
         consumer_opts,
         consumer_kafka_opts,
-        consumer_topic_mapping,
-        resource_opts_fields
+        consumer_topic_mapping
     ].
 
 %% -------------------------------------------------------------------------------------------------

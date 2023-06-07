@@ -4,10 +4,11 @@
 -module(emqx_bridge_kafka_impl_producer).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([
-    is_buffer_supported/0,
+    query_mode/1,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -32,7 +33,10 @@
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, kafka).
 
-is_buffer_supported() -> true.
+query_mode(#{kafka := #{query_mode := sync}}) ->
+    simple_sync;
+query_mode(_) ->
+    simple_async.
 
 callback_mode() -> async_if_possible.
 

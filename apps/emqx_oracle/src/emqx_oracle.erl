@@ -18,7 +18,6 @@
 %% callbacks for behaviour emqx_resource
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -67,8 +66,6 @@
 % request can be lost if worker crashes. Thus, it's better to force requests to
 % be sync for now.
 callback_mode() -> always_sync.
-
-is_buffer_supported() -> false.
 
 -spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
 on_start(

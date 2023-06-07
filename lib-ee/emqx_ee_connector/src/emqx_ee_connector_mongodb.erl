@@ -15,7 +15,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -27,8 +26,6 @@
 %%========================================================================================
 
 callback_mode() -> emqx_connector_mongo:callback_mode().
-
-is_buffer_supported() -> false.
 
 on_start(InstanceId, Config) ->
     case emqx_connector_mongo:on_start(InstanceId, Config) of

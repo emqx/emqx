@@ -17,7 +17,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -48,8 +47,6 @@ fields(config) ->
 %%========================================================================================
 
 callback_mode() -> always_sync.
-
-is_buffer_supported() -> false.
 
 on_start(
     InstanceId,
