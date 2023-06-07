@@ -91,7 +91,7 @@
 -export([ensure_atom_conf_path/2]).
 
 -ifdef(TEST).
--export([erase_all/0]).
+-export([erase_all/0, backup_and_write/2]).
 -endif.
 
 -include("logger.hrl").
@@ -105,6 +105,7 @@
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 
 -define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
+-define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
 -export_type([
     update_request/0,
@@ -597,43 +598,94 @@ save_to_config_map(Conf, RawConf) ->
 -spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
 save_to_override_conf(_, undefined, _) ->
     ok;
-%% TODO: Remove deprecated override conf file when 5.1
 save_to_override_conf(true, RawConf, Opts) ->
     case deprecated_conf_file(Opts) of
         undefined ->
             ok;
         FileName ->
-            ok = filelib:ensure_dir(FileName),
-            case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_write_override_file",
-                        filename => FileName,
-                        reason => Reason
-                    }),
-                    {error, Reason}
-            end
+            backup_and_write(FileName, hocon_pp:do(RawConf, #{}))
     end;
 save_to_override_conf(false, RawConf, _Opts) ->
     case cluster_hocon_file() of
         undefined ->
             ok;
         FileName ->
-            ok = filelib:ensure_dir(FileName),
-            case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
+            backup_and_write(FileName, hocon_pp:do(RawConf, #{}))
+    end.
+
+%% @private This is the same human-readable timestamp format as
+%% hocon-cli generated app.<time>.config file name.
+now_time() ->
+    Ts = os:system_time(millisecond),
+    {{Y, M, D}, {HH, MM, SS}} = calendar:system_time_to_local_time(Ts, millisecond),
+    Res = io_lib:format(
+        "~0p.~2..0b.~2..0b.~2..0b.~2..0b.~2..0b.~3..0b",
+        [Y, M, D, HH, MM, SS, Ts rem 1000]
+    ),
+    lists:flatten(Res).
+
+%% @private Backup the current config to a file with a timestamp suffix and
+%% then save the new config to the config file.
+backup_and_write(Path, Content) ->
+    %% this may fail, but we don't care
+    %% e.g. read-only file system
+    _ = filelib:ensure_dir(Path),
+    TmpFile = Path ++ ".tmp",
+    case file:write_file(TmpFile, Content) of
+        ok ->
+            backup_and_replace(Path, TmpFile);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_save_conf_file",
+                hint =>
+                    "The updated cluster config is note saved on this node, please check the file system.",
+                filename => TmpFile,
+                reason => Reason
+            }),
+            %% e.g. read-only, it's not the end of the world
+            ok
+    end.
+
+backup_and_replace(Path, TmpPath) ->
+    Backup = Path ++ "." ++ now_time() ++ ".bak",
+    case file:rename(Path, Backup) of
+        ok ->
+            ok = file:rename(TmpPath, Path),
+            ok = prune_backup_files(Path);
+        {error, enoent} ->
+            %% not created yet
+            ok = file:rename(TmpPath, Path);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_backup_conf_file",
+                filename => Backup,
+                reason => Reason
+            }),
+            ok
+    end.
+
+prune_backup_files(Path) ->
+    Files0 = filelib:wildcard(Path ++ ".*"),
+    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
+    Files = lists:filter(fun(F) -> re:run(F, Re) =/= nomatch end, Files0),
+    Sorted = lists:reverse(lists:sort(Files)),
+    {_Keeps, Deletes} = lists:split(min(?MAX_KEEP_BACKUP_CONFIGS, length(Sorted)), Sorted),
+    lists:foreach(
+        fun(F) ->
+            case file:delete(F) of
                 ok ->
                     ok;
                 {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_save_conf_file",
-                        filename => FileName,
+                    ?SLOG(warning, #{
+                        msg => "failed_to_delete_backup_conf_file",
+                        filename => F,
                         reason => Reason
                     }),
-                    {error, Reason}
+                    ok
             end
-    end.
+        end,
+        Deletes
+    ).
 
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),

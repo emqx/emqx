@@ -575,7 +575,7 @@ maybe_init_tnx_id(Node, TnxId) ->
     {atomic, _} = transaction(fun ?MODULE:commit/2, [Node, TnxId]),
     ok.
 
-%% @priv Cannot proceed until emqx app is ready.
+%% @private Cannot proceed until emqx app is ready.
 %% Otherwise the committed transaction catch up may fail.
 wait_for_emqx_ready() ->
     %% wait 10 seconds for emqx to start

@@ -32,7 +32,23 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
-t_fill_default_values(_) ->
+init_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({init, Config})
+    catch
+        error:function_clause ->
+            Config
+    end.
+
+end_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({'end', Config})
+    catch
+        error:function_clause ->
+            ok
+    end.
+
+t_fill_default_values(C) when is_list(C) ->
     Conf = #{
         <<"broker">> => #{
             <<"perf">> => #{},
@@ -61,7 +77,7 @@ t_fill_default_values(_) ->
     _ = emqx_utils_json:encode(WithDefaults),
     ok.
 
-t_init_load(_Config) ->
+t_init_load(C) when is_list(C) ->
     ConfFile = "./test_emqx.conf",
     ok = file:write_file(ConfFile, <<"">>),
     ExpectRootNames = lists:sort(hocon_schema:root_names(emqx_schema)),
@@ -80,7 +96,7 @@ t_init_load(_Config) ->
     ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
     ok = file:delete(DeprecatedFile).
 
-t_unknown_rook_keys(_) ->
+t_unknown_root_keys(C) when is_list(C) ->
     ?check_trace(
         #{timetrap => 1000},
         begin
@@ -98,7 +114,50 @@ t_unknown_rook_keys(_) ->
     ),
     ok.
 
-t_init_load_emqx_schema(Config) ->
+t_cluster_hocon_backup({init, C}) ->
+    C;
+t_cluster_hocon_backup({'end', _C}) ->
+    File = "backup-test.hocon",
+    Files = [File | filelib:wildcard(File ++ ".*.bak")],
+    lists:foreach(fun file:delete/1, Files);
+t_cluster_hocon_backup(C) when is_list(C) ->
+    Write = fun(Path, Content) ->
+        %% avoid name clash
+        timer:sleep(1),
+        emqx_config:backup_and_write(Path, Content)
+    end,
+    File = "backup-test.hocon",
+    %% write 12 times, 10 backups should be kept
+    %% the latest one is File itself without suffix
+    %% the oldest one is expected to be deleted
+    N = 12,
+    Inputs = lists:seq(1, N),
+    Backups = lists:seq(N - 10, N - 1),
+    InputContents = [integer_to_binary(I) || I <- Inputs],
+    BackupContents = [integer_to_binary(I) || I <- Backups],
+    lists:foreach(
+        fun(Content) ->
+            Write(File, Content)
+        end,
+        InputContents
+    ),
+    LatestContent = integer_to_binary(N),
+    ?assertEqual({ok, LatestContent}, file:read_file(File)),
+    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
+    Files = filelib:wildcard(File ++ ".*.bak"),
+    ?assert(lists:all(fun(F) -> re:run(F, Re) =/= nomatch end, Files)),
+    %% keep only the latest 10
+    ?assertEqual(10, length(Files)),
+    FilesSorted = lists:zip(lists:sort(Files), BackupContents),
+    lists:foreach(
+        fun({BackupFile, ExpectedContent}) ->
+            ?assertEqual({ok, ExpectedContent}, file:read_file(BackupFile))
+        end,
+        FilesSorted
+    ),
+    ok.
+
+t_init_load_emqx_schema(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
@@ -127,7 +186,7 @@ t_init_load_emqx_schema(Config) ->
         Default
     ).
 
-t_init_zones_load_emqx_schema_no_default_for_none_existing(Config) ->
+t_init_zones_load_emqx_schema_no_default_for_none_existing(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
@@ -140,7 +199,7 @@ t_init_zones_load_emqx_schema_no_default_for_none_existing(Config) ->
         emqx_config:get([zones, no_exists])
     ).
 
-t_init_zones_load_other_schema(Config) ->
+t_init_zones_load_other_schema(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
@@ -159,7 +218,7 @@ t_init_zones_load_other_schema(Config) ->
         emqx_config:get([zones, default])
     ).
 
-t_init_zones_with_user_defined_default_zone(Config) ->
+t_init_zones_with_user_defined_default_zone(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given user defined config for default zone
     ConfFile = prepare_conf_file(
@@ -176,7 +235,7 @@ t_init_zones_with_user_defined_default_zone(Config) ->
     %% Then others are defaults
     ?assertEqual(ExpectedOthers, Others).
 
-t_init_zones_with_user_defined_other_zone(Config) ->
+t_init_zones_with_user_defined_other_zone(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given user defined config for default zone
     ConfFile = prepare_conf_file(
@@ -196,7 +255,7 @@ t_init_zones_with_user_defined_other_zone(Config) ->
     %% Then default zone still have the defaults
     ?assertEqual(zone_global_defaults(), emqx_config:get([zones, default])).
 
-t_init_zones_with_cust_root_mqtt(Config) ->
+t_init_zones_with_cust_root_mqtt(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given config file with mqtt user overrides
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"mqtt.retry_interval=10m">>, Config),
@@ -211,7 +270,7 @@ t_init_zones_with_cust_root_mqtt(Config) ->
         emqx_config:get([zones, default, mqtt])
     ).
 
-t_default_zone_is_updated_after_global_defaults_updated(Config) ->
+t_default_zone_is_updated_after_global_defaults_updated(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty emqx conf
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
@@ -227,7 +286,7 @@ t_default_zone_is_updated_after_global_defaults_updated(Config) ->
         emqx_config:get([zones, default, mqtt])
     ).
 
-t_myzone_is_updated_after_global_defaults_updated(Config) ->
+t_myzone_is_updated_after_global_defaults_updated(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given emqx conf file with user override in myzone (none default zone)
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"zones.myzone.mqtt.max_inflight=32">>, Config),
@@ -251,7 +310,7 @@ t_myzone_is_updated_after_global_defaults_updated(Config) ->
         emqx_config:get([zones, default, mqtt])
     ).
 
-t_zone_no_user_defined_overrides(Config) ->
+t_zone_no_user_defined_overrides(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given emqx conf file with user specified myzone
     ConfFile = prepare_conf_file(
@@ -268,7 +327,7 @@ t_zone_no_user_defined_overrides(Config) ->
     %% Then user defined value from config is not overwritten
     ?assertMatch(600000, emqx_config:get([zones, myzone, mqtt, retry_interval])).
 
-t_zone_no_user_defined_overrides_internal_represent(Config) ->
+t_zone_no_user_defined_overrides_internal_represent(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given emqx conf file with user specified myzone
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"zones.myzone.mqtt.max_inflight=1">>, Config),
@@ -281,7 +340,7 @@ t_zone_no_user_defined_overrides_internal_represent(Config) ->
     ?assertMatch(2, emqx_config:get([zones, default, mqtt, max_inflight])),
     ?assertMatch(1, emqx_config:get([zones, myzone, mqtt, max_inflight])).
 
-t_update_global_defaults_no_updates_on_user_overrides(Config) ->
+t_update_global_defaults_no_updates_on_user_overrides(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given default zone config in conf file.
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"zones.default.mqtt.max_inflight=1">>, Config),
@@ -293,7 +352,7 @@ t_update_global_defaults_no_updates_on_user_overrides(Config) ->
     %% Then the value is not reflected in default `zone'
     ?assertMatch(1, emqx_config:get([zones, default, mqtt, max_inflight])).
 
-t_zone_update_with_new_zone(Config) ->
+t_zone_update_with_new_zone(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given loaded an empty conf file
     ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
@@ -308,7 +367,7 @@ t_zone_update_with_new_zone(Config) ->
         emqx_config:get([zones, myzone, mqtt])
     ).
 
-t_init_zone_with_global_defaults(_Config) ->
+t_init_zone_with_global_defaults(Config) when is_list(Config) ->
     %% Given uninitialized empty config
     emqx_config:erase_all(),
     Zones = #{myzone => #{mqtt => #{max_inflight => 3}}},

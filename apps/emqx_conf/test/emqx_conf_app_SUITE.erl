@@ -98,6 +98,34 @@ t_copy_deprecated_data_dir(_Config) ->
         stop_cluster(Nodes)
     end.
 
+t_no_copy_from_newer_version_node(_Config) ->
+    net_kernel:start(['master2@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Cluster = cluster([cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})]),
+    OKs = [ok, ok, ok],
+    [First | Rest] = Nodes = start_cluster(Cluster),
+    try
+        File = "/configs/cluster.hocon",
+        assert_config_load_done(Nodes),
+        rpc:call(First, ?MODULE, create_data_dir, [File]),
+        {OKs, []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
+        {OKs, []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
+        {OKs, []} = rpc:multicall(Nodes, meck, new, [
+            emqx_release, [passthrough, no_history, no_link, non_strict]
+        ]),
+        %% 99.9.9 is always newer than the current version
+        {OKs, []} = rpc:multicall(Nodes, meck, expect, [
+            emqx_release, version_with_prefix, 0, "e99.9.9"
+        ]),
+        ok = rpc:call(First, application, start, [emqx_conf]),
+        {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
+        ok = assert_no_cluster_conf_copied(Rest, File),
+        stop_cluster(Nodes),
+        ok
+    after
+        stop_cluster(Nodes)
+    end.
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
@@ -157,6 +185,17 @@ assert_data_copy_done([First0 | Rest], File) ->
         end,
         Rest
     ).
+
+assert_no_cluster_conf_copied([], _) ->
+    ok;
+assert_no_cluster_conf_copied([Node | Nodes], File) ->
+    NodeStr = atom_to_list(Node),
+    ?assertEqual(
+        {error, enoent},
+        file:read_file(NodeStr ++ File),
+        #{node => Node}
+    ),
+    assert_no_cluster_conf_copied(Nodes, File).
 
 assert_config_load_done(Nodes) ->
     lists:foreach(
