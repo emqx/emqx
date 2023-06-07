@@ -811,4 +811,7 @@ delete_all_bridges() ->
     %% a bunch of orphan test bridges...
     lists:foreach(fun emqx_resource:remove/1, emqx_resource:list_instances()),
     emqx_config:put([bridges], #{}),
+    %% Attempt to avoid flakiness with kerberos, like:
+    %% Failed to store credentials: Internal credentials cache error (filename: /tmp/krb5cc_1001)
+    lists:foreach(fun(Cache) -> ok = file:delete(Cache) end, filelib:wildcard("/tmp/krb5cc_*")),
     ok.
