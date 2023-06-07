@@ -34,7 +34,7 @@
     server_reference => emqx_eviction_agent:server_reference(),
     conn_evict_rate => pos_integer(),
     sess_evict_rate => pos_integer(),
-    wait_takeover => pos_integer(),
+    wait_takeover => number(),
     migrate_to => emqx_node_rebalance_evacuation:migrate_to()
 }.
 
@@ -50,7 +50,7 @@ save(
     (is_binary(ServerReference) orelse ServerReference =:= undefined) andalso
         is_integer(ConnEvictRate) andalso ConnEvictRate > 0 andalso
         is_integer(SessEvictRate) andalso SessEvictRate > 0 andalso
-        is_integer(WaitTakeover) andalso WaitTakeover >= 0
+        is_number(WaitTakeover) andalso WaitTakeover >= 0
 ->
     Filepath = evacuation_filepath(),
     case filelib:ensure_dir(Filepath) of

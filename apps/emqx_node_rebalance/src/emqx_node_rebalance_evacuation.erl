@@ -53,10 +53,11 @@
     server_reference => emqx_eviction_agent:server_reference(),
     conn_evict_rate => pos_integer(),
     sess_evict_rate => pos_integer(),
-    wait_takeover => pos_integer(),
-    migrate_to => migrate_to()
+    wait_takeover => number(),
+    migrate_to => migrate_to(),
+    wait_health_check => number()
 }.
--type start_error() :: already_started | eviction_agent_busy.
+-type start_error() :: already_started.
 -type stats() :: #{
     initial_conns := non_neg_integer(),
     initial_sessions := non_neg_integer(),
@@ -97,7 +98,7 @@ available_nodes(Nodes) when is_list(Nodes) ->
 
 callback_mode() -> handle_event_function.
 
-%% states: disabled, evicting_conns, waiting_takeover, evicting_sessions, prohibiting
+%% states: disabled, waiting_health_check, evicting_conns, waiting_takeover, evicting_sessions, prohibiting
 
 init([]) ->
     case emqx_node_rebalance_evacuation_persist:read(default_opts()) of
@@ -119,25 +120,20 @@ init([]) ->
 %% start
 handle_event(
     {call, From},
-    {start, #{server_reference := ServerReference} = Opts},
+    {start, #{wait_health_check := WaitHealthCheck} = Opts},
     disabled,
     #{} = Data
 ) ->
-    case emqx_eviction_agent:enable(?MODULE, ServerReference) of
-        ok ->
-            NewData = init_data(Data, Opts),
-            ok = emqx_node_rebalance_evacuation_persist:save(Opts),
-            ?SLOG(warning, #{
-                msg => "node_evacuation_started",
-                opts => Opts
-            }),
-            {next_state, evicting_conns, NewData, [
-                {state_timeout, 0, evict_conns},
-                {reply, From, ok}
-            ]};
-        {error, eviction_agent_busy} ->
-            {keep_state_and_data, [{reply, From, {error, eviction_agent_busy}}]}
-    end;
+    ?SLOG(warning, #{
+        msg => "node_evacuation_started",
+        opts => Opts
+    }),
+    NewData = init_data(Data, Opts),
+    ok = emqx_node_rebalance_evacuation_persist:save(Opts),
+    {next_state, waiting_health_check, NewData, [
+        {state_timeout, seconds(WaitHealthCheck), start_eviction},
+        {reply, From, ok}
+    ]};
 handle_event({call, From}, {start, _Opts}, _State, #{}) ->
     {keep_state_and_data, [{reply, From, {error, already_started}}]};
 %% stop
@@ -167,6 +163,27 @@ handle_event({call, From}, status, State, #{migrate_to := MigrateTo} = Data) ->
     {keep_state_and_data, [
         {reply, From, {enabled, Stats#{state => State, migrate_to => migrate_to(MigrateTo)}}}
     ]};
+%% start eviction
+handle_event(
+    state_timeout,
+    start_eviction,
+    waiting_health_check,
+    #{server_reference := ServerReference} = Data
+) ->
+    case emqx_eviction_agent:enable(?MODULE, ServerReference) of
+        ok ->
+            ?tp(debug, eviction_agent_started, #{
+                data => Data
+            }),
+            {next_state, evicting_conns, Data, [
+                {state_timeout, 0, evict_conns}
+            ]};
+        {error, eviction_agent_busy} ->
+            ?tp(warning, eviction_agent_busy, #{
+                data => Data
+            }),
+            {next_state, disabled, deinit(Data)}
+    end;
 %% conn eviction
 handle_event(
     state_timeout,
@@ -270,12 +287,14 @@ default_opts() ->
         conn_evict_rate => ?DEFAULT_CONN_EVICT_RATE,
         sess_evict_rate => ?DEFAULT_SESS_EVICT_RATE,
         wait_takeover => ?DEFAULT_WAIT_TAKEOVER,
+        wait_health_check => ?DEFAULT_WAIT_HEALTH_CHECK,
         migrate_to => undefined
     }.
 
 init_data(Data0, Opts) ->
     Data1 = maps:merge(Data0, Opts),
-    {enabled, #{connections := ConnCount, sessions := SessCount}} = emqx_eviction_agent:status(),
+    ConnCount = emqx_eviction_agent:connection_count(),
+    SessCount = emqx_eviction_agent:session_count(),
     Data1#{
         initial_conns => ConnCount,
         current_conns => ConnCount,
@@ -305,4 +324,7 @@ is_node_available() ->
     node().
 
 all_nodes() ->
-    mria_mnesia:running_nodes() -- [node()].
+    mria:running_nodes() -- [node()].
+
+seconds(Sec) ->
+    round(timer:seconds(Sec)).

@@ -69,6 +69,7 @@ t_start_evacuation_validation(Config) ->
         #{sess_evict_rate => <<"sess">>},
         #{redirect_to => 123},
         #{wait_takeover => <<"wait">>},
+        #{wait_health_check => <<"wait">>},
         #{migrate_to => []},
         #{migrate_to => <<"migrate_to">>},
         #{migrate_to => [<<"bad_node">>]},
@@ -103,6 +104,7 @@ t_start_evacuation_validation(Config) ->
                 conn_evict_rate => 10,
                 sess_evict_rate => 10,
                 wait_takeover => 10,
+                wait_health_check => 10,
                 redirect_to => <<"srv">>,
                 migrate_to => [atom_to_binary(RecipientNode)]
             }

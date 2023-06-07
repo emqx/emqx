@@ -202,10 +202,10 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     }}.
 
 '/load_rebalance/availability_check'(get, #{}) ->
-    case emqx_eviction_agent:status() of
+    case emqx_node_rebalance_status:local_status() of
         disabled ->
             {200, #{}};
-        {enabled, _Stats} ->
+        _ ->
             error_response(503, ?NODE_EVACUATING, <<"Node Evacuating">>)
     end.
 
@@ -434,6 +434,14 @@ fields(rebalance_start) ->
     ];
 fields(rebalance_evacuation_start) ->
     [
+        {"wait_health_check",
+            mk(
+                emqx_schema:timeout_duration_s(),
+                #{
+                    desc => ?DESC(wait_health_check),
+                    required => false
+                }
+            )},
         {"conn_evict_rate",
             mk(
                 pos_integer(),
@@ -714,6 +722,7 @@ rebalance_example() ->
 
 rebalance_evacuation_example() ->
     #{
+        wait_health_check => 10,
         conn_evict_rate => 100,
         sess_evict_rate => 100,
         redirect_to => <<"othernode:1883">>,
