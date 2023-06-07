@@ -417,10 +417,7 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            SSLOpts = maps:merge(
-                maps:with([certfile, keyfile], Opts),
-                maps:get(ssl_options, Opts, #{})
-            ),
+            SSLOpts = maps:get(ssl_options, Opts, #{}),
             ListenOpts =
                 [
                     {certfile, emqx_schema:naive_env_interpolation(maps:get(certfile, SSLOpts))},
