@@ -17,6 +17,7 @@
 -module(emqx_mgmt_api_topics).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -101,10 +102,10 @@ fields(topic) ->
 %%%==============================================================================================
 %% parameters trans
 topics(get, #{query_string := Qs}) ->
-    do_list(generate_topic(Qs)).
+    do_list(Qs).
 
 topic(get, #{bindings := Bindings}) ->
-    lookup(generate_topic(Bindings)).
+    lookup(Bindings).
 
 %%%==============================================================================================
 %% api apply
@@ -139,13 +140,6 @@ lookup(#{topic := Topic}) ->
 
 %%%==============================================================================================
 %% internal
-generate_topic(Params = #{<<"topic">> := Topic}) ->
-    Params#{<<"topic">> => Topic};
-generate_topic(Params = #{topic := Topic}) ->
-    Params#{topic => Topic};
-generate_topic(Params) ->
-    Params.
-
 -spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
 qs2ms(_Tab, {Qs, _}) ->
     #{
@@ -160,9 +154,9 @@ gen_match_spec([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
 gen_match_spec([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
     gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]).
 
-format(#route{topic = Topic, dest = {_, Node}}) ->
-    #{topic => Topic, node => Node};
-format(#route{topic = Topic, dest = Node}) ->
+format(#route{topic = Topic, dest = {Group, Node}}) ->
+    #{topic => ?SHARE(Group, Topic), node => Node};
+format(#route{topic = Topic, dest = Node}) when is_atom(Node) ->
     #{topic => Topic, node => Node}.
 
 topic_param(In) ->

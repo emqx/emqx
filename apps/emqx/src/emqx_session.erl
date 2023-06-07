@@ -259,7 +259,7 @@ destroy(Session) ->
 
 -spec subscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -279,7 +279,7 @@ subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
 
 -spec unsubscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -409,6 +409,16 @@ enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
             [Msg | enrich_delivers(ClientInfo, Rest, UpgradeQoS, Session)]
     end.
 
+enrich_deliver(
+    ClientInfo,
+    {deliver, Topic, Msg = #message{headers = #{redispatch_to := {Group, Topic}}}},
+    UpgradeQoS,
+    Session
+) ->
+    %% Only QoS_1 and QoS_2 messages added `redispatch_to` header
+    %% For QoS 0 message, send it as regular dispatch
+    Deliver = {deliver, emqx_topic:make_shared_record(Group, Topic), Msg},
+    enrich_deliver(ClientInfo, Deliver, UpgradeQoS, Session);
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
     SubOpts = ?IMPL(Session):get_subscription(Topic, Session),
     enrich_message(ClientInfo, Msg, SubOpts, UpgradeQoS).

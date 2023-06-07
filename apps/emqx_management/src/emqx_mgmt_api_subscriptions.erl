@@ -20,6 +20,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -37,8 +38,6 @@
     run_fuzzy_filter/2,
     format/2
 ]).
-
--define(SUBS_QTABLE, emqx_suboption).
 
 -define(SUBS_QSCHEMA, [
     {<<"clientid">>, binary},
@@ -146,7 +145,7 @@ subscriptions(get, #{query_string := QString}) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    ?SUBS_QTABLE,
+                    ?SUBOPTION,
                     QString,
                     ?SUBS_QSCHEMA,
                     fun ?MODULE:qs2ms/2,
@@ -157,7 +156,7 @@ subscriptions(get, #{query_string := QString}) ->
                     {ok, Node1} ->
                         emqx_mgmt_api:node_query(
                             Node1,
-                            ?SUBS_QTABLE,
+                            ?SUBOPTION,
                             QString,
                             ?SUBS_QSCHEMA,
                             fun ?MODULE:qs2ms/2,
@@ -177,22 +176,15 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(WhichNode, {{Topic, _Subscriber}, Options}) ->
+format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
     maps:merge(
         #{
-            topic => get_topic(Topic, Options),
-            clientid => maps:get(subid, Options, null),
+            topic => emqx_topic:maybe_format_share(Topic),
+            clientid => maps:get(subid, SubOpts, null),
             node => WhichNode
         },
-        maps:with([qos, nl, rap, rh], Options)
+        maps:with([qos, nl, rap, rh], SubOpts)
     ).
-
-get_topic(Topic, #{share := <<"$queue">> = Group}) ->
-    emqx_topic:join([Group, Topic]);
-get_topic(Topic, #{share := Group}) ->
-    emqx_topic:join([<<"$share">>, Group, Topic]);
-get_topic(Topic, _) ->
-    Topic.
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
@@ -213,10 +205,18 @@ gen_match_spec([{Key, '=:=', Value} | More], MtchHead) ->
 
 update_ms(clientid, X, {{Topic, Pid}, Opts}) ->
     {{Topic, Pid}, Opts#{subid => X}};
-update_ms(topic, X, {{_Topic, Pid}, Opts}) ->
+update_ms(topic, X, {{Topic, Pid}, Opts}) when
+    is_record(Topic, share)
+->
+    {{#share{group = '_', topic = X}, Pid}, Opts};
+update_ms(topic, X, {{Topic, Pid}, Opts}) when
+    is_binary(Topic) orelse Topic =:= '_'
+->
     {{X, Pid}, Opts};
-update_ms(share_group, X, {{Topic, Pid}, Opts}) ->
-    {{Topic, Pid}, Opts#{share => X}};
+update_ms(share_group, X, {{Topic, Pid}, Opts}) when
+    not is_record(Topic, share)
+->
+    {{#share{group = X, topic = Topic}, Pid}, Opts};
 update_ms(qos, X, {{Topic, Pid}, Opts}) ->
     {{Topic, Pid}, Opts#{qos => X}}.
 
@@ -227,5 +227,6 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {{Topic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
-    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
+run_fuzzy_filter(E = {{SubedTopic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
+    {Filter, _SubOpts} = emqx_topic:parse(TopicFilter),
+    emqx_topic:match(SubedTopic, Filter) andalso run_fuzzy_filter(E, Fuzzy).

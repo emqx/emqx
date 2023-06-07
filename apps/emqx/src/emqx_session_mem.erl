@@ -314,7 +314,7 @@ unsubscribe(
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
--spec get_subscription(emqx_types:topic(), session()) ->
+-spec get_subscription(emqx_types:topic() | emqx_types:share(), session()) ->
     emqx_types:subopts() | undefined.
 get_subscription(Topic, #session{subscriptions = Subs}) ->
     maps:get(Topic, Subs, undefined).

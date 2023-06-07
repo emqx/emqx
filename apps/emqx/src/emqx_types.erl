@@ -41,6 +41,10 @@
 ]).
 
 -export_type([
+    share/0
+]).
+
+-export_type([
     socktype/0,
     sockstate/0,
     conninfo/0,
@@ -136,10 +140,13 @@
 
 -type subid() :: binary() | atom().
 
--type group() :: binary() | undefined.
+%% '_' for match spec
+-type group() :: binary() | '_'.
 -type topic() :: binary().
 -type word() :: '' | '+' | '#' | binary().
 -type words() :: list(word()).
+
+-type share() :: #share{}.
 
 -type socktype() :: tcp | udp | ssl | proxy | atom().
 -type sockstate() :: idle | running | blocked | closed.
