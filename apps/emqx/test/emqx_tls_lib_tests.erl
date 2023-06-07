@@ -206,6 +206,24 @@ ssl_file_replace_test() ->
     ?assert(filelib:is_regular(IssuerPem2)),
     ok.
 
+ssl_file_deterministic_names_test() ->
+    SSL0 = #{
+        <<"keyfile">> => test_key(),
+        <<"certfile">> => test_key()
+    },
+    Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
+    Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
+    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files(Dir0, SSL0),
+    ?assertEqual(
+        {ok, SSLFiles0},
+        emqx_tls_lib:ensure_ssl_files(Dir0, SSL0)
+    ),
+    ?assertNotEqual(
+        {ok, SSLFiles0},
+        emqx_tls_lib:ensure_ssl_files(Dir1, SSL0)
+    ),
+    _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
+
 bin(X) -> iolist_to_binary(X).
 
 test_key() ->
