@@ -189,48 +189,13 @@ terminate(_Reason, State) ->
 %% Helper fns
 %%-----------------------------------------------------------------------------------------
 
--spec do_generate_jwt(state()) -> jwt().
-do_generate_jwt(
-    #{
-        expiration := ExpirationMS,
-        iss := Iss,
-        sub := Sub,
-        aud := Aud,
-        kid := KId,
-        alg := Alg,
-        jwk := JWK
-    } = _State
-) ->
-    Headers = #{
-        <<"alg">> => Alg,
-        <<"kid">> => KId
-    },
-    Now = erlang:system_time(seconds),
-    ExpirationS = erlang:convert_time_unit(ExpirationMS, millisecond, second),
-    Claims = #{
-        <<"iss">> => Iss,
-        <<"sub">> => Sub,
-        <<"aud">> => Aud,
-        <<"iat">> => Now,
-        <<"exp">> => Now + ExpirationS
-    },
-    JWT0 = jose_jwt:sign(JWK, Headers, Claims),
-    {_, JWT} = jose_jws:compact(JWT0),
-    JWT.
-
 -spec generate_and_store_jwt(state()) -> state().
 generate_and_store_jwt(State0) ->
-    JWT = do_generate_jwt(State0),
-    store_jwt(State0, JWT),
+    JWTConfig = maps:without([jwt, refresh_timer], State0),
+    JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
     ?tp(connector_jwt_worker_refresh, #{jwt => JWT}),
     State1 = State0#{jwt := JWT},
     ensure_timer(State1).
-
--spec store_jwt(state(), jwt()) -> ok.
-store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
-    true = ets:insert(TId, {{ResourceId, jwt}, JWT}),
-    ?tp(connector_jwt_worker_token_stored, #{resource_id => ResourceId}),
-    ok.
 
 -spec ensure_timer(state()) -> state().
 ensure_timer(
