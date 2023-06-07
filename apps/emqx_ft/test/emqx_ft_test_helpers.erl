@@ -55,17 +55,24 @@ local_storage(Config) ->
 local_storage(Config, Opts) ->
     #{
         <<"local">> => #{
+            <<"enable">> => true,
             <<"segments">> => #{<<"root">> => root(Config, node(), [segments])},
             <<"exporter">> => exporter(Config, Opts)
         }
     }.
 
 exporter(Config, #{exporter := local}) ->
-    #{<<"local">> => #{<<"root">> => root(Config, node(), [exports])}};
+    #{
+        <<"local">> => #{
+            <<"enable">> => true,
+            <<"root">> => root(Config, node(), [exports])
+        }
+    };
 exporter(_Config, #{exporter := s3, bucket_name := BucketName}) ->
     BaseConfig = emqx_s3_test_helpers:base_raw_config(tcp),
     #{
         <<"s3">> => BaseConfig#{
+            <<"enable">> => true,
             <<"bucket">> => list_to_binary(BucketName),
             <<"host">> => ?S3_HOST,
             <<"port">> => ?S3_PORT
