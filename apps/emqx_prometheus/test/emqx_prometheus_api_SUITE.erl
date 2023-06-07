@@ -104,16 +104,35 @@ t_stats_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "application/json"}, Auth],
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
+    {ok, JsonString} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
 
-    Data = emqx_utils_json:decode(Response, [return_maps]),
-    ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
+    FromJson = emqx_utils_json:decode(JsonString, [return_maps]),
+    ?assertMatch(#{<<"emqx_client_connected">> := _, <<"emqx_delivery_dropped">> := _}, FromJson),
 
-    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    JsonCount = lists:foldl(
+        fun
+            (Value, Count) when is_list(Value) ->
+                Count + length(Value);
+            (_Value, Count) ->
+                Count + 1
+        end,
+        0,
+        maps:values(FromJson)
+    ),
+
+    {ok, Text} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+
+    ?assertEqual(
+        JsonCount,
+        length([
+            Line
+         || Line <- string:tokens(Text, "\n"),
+            re:run(Line, "^#") == nomatch
+        ])
+    ),
 
     ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
-
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

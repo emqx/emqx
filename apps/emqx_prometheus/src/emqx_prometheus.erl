@@ -24,8 +24,6 @@
 
 -include("emqx_prometheus.hrl").
 
--include_lib("prometheus/include/prometheus.hrl").
--include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -import(
@@ -172,31 +170,9 @@ collect_mf(_Registry, Callback) ->
 
 %% @private
 collect(<<"json">>) ->
-    Metrics = emqx_metrics:all(),
-    Stats = emqx_stats:getstats(),
-    VMData = emqx_vm_data(),
-    #{
-        stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats()]),
-        metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
-        packets => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]),
-        messages => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]),
-        delivery => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_delivery()]),
-        client => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_client()]),
-        session => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_session()])
-    };
+    emqx_prometheus_json_format:format();
 collect(<<"prometheus">>) ->
     prometheus_text_format:format().
-
-%% @private
-collect_stats(Name, Stats) ->
-    R = collect_metrics(Name, Stats),
-    case R#'Metric'.gauge of
-        undefined ->
-            {_, Val} = R#'Metric'.counter,
-            {Name, Val};
-        {_, Val} ->
-            {Name, Val}
-    end.
 
 collect_metrics(Name, Metrics) ->
     emqx_collect(Name, Metrics).
