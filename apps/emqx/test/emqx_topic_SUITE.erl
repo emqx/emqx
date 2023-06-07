@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 -import(
@@ -130,14 +131,35 @@ t_validate(_) ->
     true = validate({filter, <<"x">>}),
     true = validate({name, <<"x//y">>}),
     true = validate({filter, <<"sport/tennis/#">>}),
+    %% MQTT-5.0 [MQTT-4.7.3-1]
     ?assertError(empty_topic, validate({name, <<>>})),
+    ?assertError(empty_topic, validate({filter, <<>>})),
     ?assertError(topic_name_error, validate({name, <<"abc/#">>})),
     ?assertError(topic_too_long, validate({name, long_topic()})),
-    ?assertError('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
     ?assertError(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
     ?assertError(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
     ?assertError(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
-    ?assertError('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
+    %% MQTT-5.0 [MQTT-4.7.1-1]
+    ?assertError('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})),
+    %% MQTT-5.0 [MQTT-4.8.2-1]
+    ?assertError(?SHARE_EMPTY_FILTER, validate({filter, <<"$share/">>})),
+    ?assertError(?SHARE_EMPTY_FILTER, validate({filter, <<"$share//">>})),
+    ?assertError(?SHARE_EMPTY_GROUP, validate({filter, <<"$share//t">>})),
+    ?assertError(?SHARE_EMPTY_GROUP, validate({filter, <<"$share//test">>})),
+    %% MQTT-5.0 [MQTT-4.7.3-1] for shared-sub
+    ?assertError(?SHARE_EMPTY_FILTER, validate({filter, <<"$share/g/">>})),
+    ?assertError(?SHARE_EMPTY_FILTER, validate({filter, <<"$share/g2/">>})),
+    %% MQTT-5.0 [MQTT-4.8.2-2]
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/p+q/1">>})),
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/m+/1">>})),
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/+n/1">>})),
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/x#y/1">>})),
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/x#/1">>})),
+    ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/#y/1">>})),
+    %% share recursively
+    ?assertError(?SHARE_RECURSIVELY, validate({filter, <<"$share/g1/$share/t">>})),
+    true = validate({filter, <<"$share/g1/topic/$share">>}).
 
 t_sigle_level_validate(_) ->
     true = validate({filter, <<"+">>}),
@@ -177,7 +199,10 @@ t_join(_) ->
     ?assertEqual(<<"+//#">>, join(['+', '', '#'])),
     ?assertEqual(<<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+'])),
     ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
-    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))).
+    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))),
+    %% MQTT-5.0 [MQTT-4.7.1-1]
+    ?assertError('topic_invalid_#', join(['+', <<"a">>, '#', <<"b">>, '', '+'])),
+    ?assertError('topic_invalid_#', join(['+', <<"c">>, <<"#">>, <<"d">>, '', '+'])).
 
 t_systop(_) ->
     SysTop1 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]),

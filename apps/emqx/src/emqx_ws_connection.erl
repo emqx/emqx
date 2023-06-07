@@ -18,6 +18,7 @@
 -module(emqx_ws_connection).
 
 -include("emqx.hrl").
+-include("emqx_cm.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
@@ -1034,7 +1035,7 @@ check_max_connection(Type, Listener) ->
             allow;
         Max ->
             MatchSpec = [{{'_', emqx_ws_connection}, [], [true]}],
-            Curr = ets:select_count(emqx_channel_conn, MatchSpec),
+            Curr = ets:select_count(?CHAN_CONN_TAB, MatchSpec),
             case Curr >= Max of
                 false ->
                     allow;

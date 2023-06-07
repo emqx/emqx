@@ -22,6 +22,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("mria/include/mria.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -68,8 +69,6 @@
 -type group() :: binary().
 
 -type dest() :: node() | {group(), node()}.
-
--define(ROUTE_TAB, emqx_route).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap

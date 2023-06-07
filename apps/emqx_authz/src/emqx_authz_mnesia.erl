@@ -33,7 +33,7 @@
 -type clientid() :: {clientid, binary()}.
 -type who() :: username() | clientid() | all.
 
--type rule() :: {emqx_authz_rule:permission(), emqx_authz_rule:action(), emqx_topic:topic()}.
+-type rule() :: {emqx_authz_rule:permission(), emqx_authz_rule:action(), emqx_types:topic()}.
 -type rules() :: [rule()].
 
 -record(emqx_acl, {

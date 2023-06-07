@@ -19,6 +19,8 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_router.hrl").
+
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
@@ -80,11 +82,6 @@
 
 -define(BROKER, ?MODULE).
 
-%% ETS tables for PubSub
--define(SUBOPTION, emqx_suboption).
--define(SUBSCRIBER, emqx_subscriber).
--define(SUBSCRIPTION, emqx_subscription).
-
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
@@ -106,10 +103,10 @@ start_link(Pool, Id) ->
 create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
-    %% SubOption: {Topic, SubPid} -> SubOption
+    %% SubOption: {TopicFilter, SubPid} -> SubOption
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
-    %% Subscription: SubPid -> Topic1, Topic2, Topic3, ...
+    %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
     %% duplicate_bag: o(1) insert
     ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 

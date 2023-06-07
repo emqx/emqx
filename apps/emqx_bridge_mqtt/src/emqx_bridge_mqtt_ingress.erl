@@ -43,7 +43,7 @@
 -type ingress() :: #{
     server := string(),
     remote := #{
-        topic := emqx_topic:topic(),
+        topic := emqx_types:topic(),
         qos => emqx_types:qos()
     },
     local := emqx_bridge_mqtt_msg:msgvars(),

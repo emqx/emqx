@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("quicer/include/quicer.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -1465,7 +1466,7 @@ t_multi_streams_emqx_ctrl_kill(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
+    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
     exit(TransPid, kill),
 
     %% Client should be closed
@@ -1518,7 +1519,7 @@ t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(emqx_channel, ClientId),
+    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
 
     emqx_connection:stop(TransPid),
     %% Client exit normal.

@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_router.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -54,8 +55,6 @@
 
 -record(routing_node, {name, const = unused}).
 
--define(ROUTE, emqx_route).
--define(ROUTING_NODE, emqx_routing_node).
 -define(LOCK, {?MODULE, cleanup_routes}).
 
 -dialyzer({nowarn_function, [cleanup_routes/1]}).
@@ -185,7 +184,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 stats_fun() ->
-    case ets:info(?ROUTE, size) of
+    case ets:info(?ROUTE_TAB, size) of
         undefined ->
             ok;
         Size ->
@@ -198,6 +197,6 @@ cleanup_routes(Node) ->
         #route{_ = '_', dest = {'_', Node}}
     ],
     [
-        mnesia:delete_object(?ROUTE, Route, write)
-     || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE, Pat, write)
+        mnesia:delete_object(?ROUTE_TAB, Route, write)
+     || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
     ].

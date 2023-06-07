@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -200,10 +201,10 @@ t_open_session_race_condition(_) ->
         end,
     Winner = WaitForDowns(Pids),
 
-    ?assertMatch([_], ets:lookup(emqx_channel, ClientId)),
+    ?assertMatch([_], ets:lookup(?CHAN_TAB, ClientId)),
     ?assertEqual([Winner], emqx_cm:lookup_channels(ClientId)),
-    ?assertMatch([_], ets:lookup(emqx_channel_conn, {ClientId, Winner})),
-    ?assertMatch([_], ets:lookup(emqx_channel_registry, ClientId)),
+    ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, {ClientId, Winner})),
+    ?assertMatch([_], ets:lookup(?CHAN_REG_TAB, ClientId)),
 
     exit(Winner, kill),
     receive
