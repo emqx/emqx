@@ -48,8 +48,8 @@
 -type start_opts() :: #{
     conn_evict_rate => pos_integer(),
     sess_evict_rate => pos_integer(),
-    wait_health_check => pos_integer(),
-    wait_takeover => pos_integer(),
+    wait_health_check => number(),
+    wait_takeover => number(),
     abs_conn_threshold => pos_integer(),
     rel_conn_threshold => number(),
     abs_sess_threshold => pos_integer(),
@@ -438,7 +438,7 @@ is_node_available() ->
     node().
 
 all_nodes() ->
-    mria_mnesia:running_nodes().
+    emqx:running_nodes().
 
 seconds(Sec) ->
     round(timer:seconds(Sec)).
