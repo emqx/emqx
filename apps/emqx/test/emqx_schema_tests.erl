@@ -886,15 +886,27 @@ timeout_types_test_() ->
             typerefl:from_string(emqx_schema:timeout_duration_s(), <<"4294967000ms">>)
         ),
         ?_assertThrow(
-            "timeout value too large (max: 4294967295 ms)",
+            #{
+                kind := validation_error,
+                message := "timeout value too large (max: 4294967295 ms)",
+                schema_module := emqx_schema
+            },
             typerefl:from_string(emqx_schema:timeout_duration(), <<"4294967296ms">>)
         ),
         ?_assertThrow(
-            "timeout value too large (max: 4294967295 ms)",
+            #{
+                kind := validation_error,
+                message := "timeout value too large (max: 4294967295 ms)",
+                schema_module := emqx_schema
+            },
             typerefl:from_string(emqx_schema:timeout_duration_ms(), <<"4294967296ms">>)
         ),
         ?_assertThrow(
-            "timeout value too large (max: 4294967 s)",
+            #{
+                kind := validation_error,
+                message := "timeout value too large (max: 4294967 s)",
+                schema_module := emqx_schema
+            },
             typerefl:from_string(emqx_schema:timeout_duration_s(), <<"4294967001ms">>)
         )
     ].

@@ -2706,7 +2706,11 @@ do_to_timeout_duration(Str, Fn, Max, Unit) ->
                     Msg = lists:flatten(
                         io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
                     ),
-                    throw(Msg)
+                    throw(#{
+                        schema_module => ?MODULE,
+                        message => Msg,
+                        kind => validation_error
+                    })
             end;
         Err ->
             Err
