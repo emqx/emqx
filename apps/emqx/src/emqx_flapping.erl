@@ -50,6 +50,12 @@
     started_at :: pos_integer(),
     detect_cnt :: integer()
 }).
+-define(DEFAULT_POLICY, #{
+    enable => false,
+    max_count => 15,
+    window_time => 60000,
+    ban_time => 5 * 6000
+}).
 
 -opaque flapping() :: #flapping{}.
 
@@ -91,8 +97,9 @@ detect(ClientId, PeerHost, #{enable := true, max_count := Threshold} = Policy) -
 detect(_ClientId, _PeerHost, #{enable := false}) ->
     false.
 
+%% with default, if we delete Zone at running time. we should not crash.
 get_policy(Zone) ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect]).
+    emqx_config:get_zone_conf(Zone, [flapping_detect], ?DEFAULT_POLICY).
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
 
@@ -201,11 +208,14 @@ start_timers() ->
 
 update_timer(Timers) ->
     maps:map(
-        fun(ZoneName, #{flapping_detect := FlappingDetect}) ->
+        fun(ZoneName, #{flapping_detect := FlappingDetect = #{enable := Enable}}) ->
             case maps:get(ZoneName, Timers, undefined) of
-                undefined -> start_timer(FlappingDetect, ZoneName);
-                %% Don't reset this timer, it will be updated after next timeout.
-                TRef -> TRef
+                undefined ->
+                    start_timer(FlappingDetect, ZoneName);
+                TRef when Enable -> TRef;
+                TRef ->
+                    erlang:cancel_timer(TRef),
+                    undefined
             end
         end,
         emqx:get_config([zones], #{})

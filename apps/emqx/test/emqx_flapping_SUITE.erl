@@ -53,7 +53,6 @@ t_detect_check(_) ->
         clientid => <<"client007">>,
         peerhost => {127, 0, 0, 1}
     },
-    ct:pal("www:~p~n", [emqx_flapping:get_policy(default)]),
     false = emqx_flapping:detect(ClientInfo),
     false = emqx_banned:check(ClientInfo),
     false = emqx_flapping:detect(ClientInfo),
@@ -133,7 +132,34 @@ t_conf_update(_) ->
     %% reset to default(empty) andalso get default from global
     ?assertMatch({ok, _}, emqx:update_config([zones], #{})),
     ?assertEqual(Global, emqx:get_config([zones, default, flapping_detect])),
+    ?assertError({config_not_found, _}, get_policy(zone_1)),
+    ?assertError({config_not_found, _}, get_policy(zone_2)),
+    ok.
+
+t_conf_update_timer(_Config) ->
+    _ = emqx_flapping:start_link(),
+    validate_timer([default]),
+    {ok, _} =
+        emqx:update_config([zones], #{
+            <<"timer_1">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
+            <<"timer_2">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
+            <<"timer_3">> => #{<<"flapping_detect">> => #{<<"enable">> => false}}
+        }),
+    validate_timer([timer_1, timer_2, timer_3, default]),
+    ok.
+
+validate_timer(Names) ->
+    Zones = emqx:get_config([zones]),
+    ?assertEqual(lists:sort(Names), lists:sort(maps:keys(Zones))),
+    Timers = sys:get_state(emqx_flapping),
+    maps:foreach(
+        fun(Name, #{flapping_detect := #{enable := Enable}}) ->
+            ?assertEqual(Enable, is_reference(maps:get(Name, Timers)), Timers)
+        end,
+        Zones
+    ),
+    ?assertEqual(maps:keys(Zones), maps:keys(Timers)),
     ok.
 
 get_policy(Zone) ->
-    emqx_flapping:get_policy(Zone).
+    emqx_config:get_zone_conf(Zone, [flapping_detect]).

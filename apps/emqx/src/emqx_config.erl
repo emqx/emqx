@@ -637,11 +637,13 @@ save_to_override_conf(false, RawConf, _Opts) ->
 
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),
+    ok = emqx_config_zones:add_handler(),
     emqx_sys_mon:add_handler(),
     ok.
 
 remove_handlers() ->
     ok = emqx_config_logger:remove_handler(),
+    ok = emqx_config_zones:remove_handler(),
     emqx_sys_mon:remove_handler(),
     ok.
 
@@ -914,7 +916,8 @@ rawconf_to_conf(SchemaModule, RawPath, RawValue) ->
     emqx_utils_maps:deep_get(AtomPath, RawUserDefinedValues).
 
 %% When the global zone change, the zones is updated with the new global zone.
-%% The zones config has no config_handler callback, so we need to update via this hook
+%% The global zone's keys is too many,
+%% so we don't choose to write a global zone change emqx_config_handler callback to hook
 post_save_config_hook(?PERSIS_KEY(?CONF, zones), _Zones) ->
     emqx_flapping:update_config(),
     ok;
