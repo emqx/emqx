@@ -97,9 +97,17 @@ detect(ClientId, PeerHost, #{enable := true, max_count := Threshold} = Policy) -
 detect(_ClientId, _PeerHost, #{enable := false}) ->
     false.
 
-%% with default, if we delete Zone at running time. we should not crash.
 get_policy(Zone) ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect], ?DEFAULT_POLICY).
+    Flapping = [flapping_detect],
+    case emqx_config:get_zone_conf(Zone, Flapping, undefined) of
+        undefined ->
+            %% If zone has be deleted at running time,
+            %% we don't crash the connection and disable flapping detect.
+            Policy = emqx_config:get(Flapping),
+            Policy#{enable => false};
+        Policy ->
+            Policy
+    end.
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
 

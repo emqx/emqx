@@ -161,5 +161,15 @@ validate_timer(Names) ->
     ?assertEqual(maps:keys(Zones), maps:keys(Timers)),
     ok.
 
+t_window_compatibility_check(_Conf) ->
+    Flapping = emqx:get_config([flapping_detect]),
+    ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {window_time = disable}">>),
+    ?assertMatch(#{window_time := 60000, enable := false}, emqx:get_config([flapping_detect])),
+    %% reset
+    FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
+    ok = emqx_config:init_load(emqx_schema, FlappingBin),
+    ?assertEqual(Flapping, emqx:get_config([flapping_detect])),
+    ok.
+
 get_policy(Zone) ->
     emqx_config:get_zone_conf(Zone, [flapping_detect]).

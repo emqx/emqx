@@ -711,7 +711,7 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
     Key = ?PERSIS_KEY(Type, RootName),
     persistent_term:put(Key, NewValue),
-    post_save_config_hook(Key, NewValue),
+    put_config_post_change_actions(Key, NewValue),
     ok.
 
 do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
@@ -918,8 +918,8 @@ rawconf_to_conf(SchemaModule, RawPath, RawValue) ->
 %% When the global zone change, the zones is updated with the new global zone.
 %% The global zone's keys is too many,
 %% so we don't choose to write a global zone change emqx_config_handler callback to hook
-post_save_config_hook(?PERSIS_KEY(?CONF, zones), _Zones) ->
+put_config_post_change_actions(?PERSIS_KEY(?CONF, zones), _Zones) ->
     emqx_flapping:update_config(),
     ok;
-post_save_config_hook(_Key, _NewValue) ->
+put_config_post_change_actions(_Key, _NewValue) ->
     ok.
