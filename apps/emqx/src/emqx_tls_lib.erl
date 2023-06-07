@@ -389,7 +389,7 @@ is_pem(MaybePem) ->
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
 save_pem_file(Dir, KeyPath, Pem, DryRun) ->
-    Path = pem_file_name(Dir, KeyPath),
+    Path = pem_file_name(Dir, KeyPath, Pem),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
             {ok, Path};
@@ -412,11 +412,14 @@ is_managed_ssl_file(Filename) ->
         _ -> false
     end.
 
-pem_file_name(Dir, KeyPath) ->
-    Suffix = binary:encode_hex(crypto:strong_rand_bytes(8)),
+pem_file_name(Dir, KeyPath, Pem) ->
+    % NOTE
+    % Wee need to have the same filename on every cluster node.
     Segments = lists:map(fun ensure_bin/1, KeyPath),
     Filename0 = iolist_to_binary(lists:join(<<"_">>, Segments)),
     Filename1 = binary:replace(Filename0, <<"file">>, <<>>),
+    Fingerprint = crypto:hash(md5, [Dir, Filename1, Pem]),
+    Suffix = binary:encode_hex(binary:part(Fingerprint, 0, 8)),
     Filename = <<Filename1/binary, "-", Suffix/binary>>,
     filename:join([pem_dir(Dir), Filename]).
 
