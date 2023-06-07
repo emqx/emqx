@@ -176,7 +176,7 @@ t_refresh(_Config) ->
             {{ok, _Pid}, {ok, _Event}} =
                 ?wait_async_action(
                     emqx_connector_jwt_worker:start_link(Config),
-                    #{?snk_kind := connector_jwt_worker_token_stored},
+                    #{?snk_kind := emqx_connector_jwt_token_stored},
                     5_000
                 ),
             {ok, FirstJWT} = emqx_connector_jwt:lookup_jwt(Table, ResourceId),
@@ -209,7 +209,7 @@ t_refresh(_Config) ->
         fun({FirstJWT, SecondJWT, ThirdJWT}, Trace) ->
             ?assertMatch(
                 [_, _, _ | _],
-                ?of_kind(connector_jwt_worker_token_stored, Trace)
+                ?of_kind(emqx_connector_jwt_token_stored, Trace)
             ),
             ?assertNotEqual(FirstJWT, SecondJWT),
             ?assertNotEqual(SecondJWT, ThirdJWT),

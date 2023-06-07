@@ -277,6 +277,48 @@ t_load_unload_gateway(_) ->
         {config_not_found, [<<"gateway">>, stomp]},
         emqx:get_raw_config([gateway, stomp])
     ),
+    %% test update([gateway], Conf)
+    Raw0 = emqx:get_raw_config([gateway]),
+    #{<<"listeners">> := StompConfL1} = StompConf1,
+    StompConf11 = StompConf1#{
+        <<"listeners">> => emqx_gateway_conf:unconvert_listeners(StompConfL1)
+    },
+    #{<<"listeners">> := StompConfL2} = StompConf2,
+    StompConf22 = StompConf2#{
+        <<"listeners">> => emqx_gateway_conf:unconvert_listeners(StompConfL2)
+    },
+    Raw1 = Raw0#{<<"stomp">> => StompConf11},
+    Raw2 = Raw0#{<<"stomp">> => StompConf22},
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
+    ?assertMatch(
+        #{
+            config := #{
+                authentication := #{backend := built_in_database, enable := true},
+                listeners := #{tcp := #{default := #{bind := 61613}}},
+                mountpoint := <<"t/">>,
+                idle_timeout := 10000
+            }
+        },
+        emqx_gateway:lookup('stomp')
+    ),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw2)),
+    assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
+    ?assertMatch(
+        #{
+            config :=
+                #{
+                    authentication := #{backend := built_in_database, enable := true},
+                    listeners := #{tcp := #{default := #{bind := 61613}}},
+                    idle_timeout := 20000,
+                    mountpoint := <<"t2/">>
+                }
+        },
+        emqx_gateway:lookup('stomp')
+    ),
+    %% reset
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
+    ?assertEqual(undefined, emqx_gateway:lookup('stomp')),
     ok.
 
 t_load_remove_authn(_) ->
@@ -310,6 +352,40 @@ t_load_remove_authn(_) ->
         {config_not_found, [<<"gateway">>, stomp, authentication]},
         emqx:get_raw_config([gateway, stomp, authentication])
     ),
+    %% test update([gateway], Conf)
+    Raw0 = emqx:get_raw_config([gateway]),
+    #{<<"listeners">> := StompConfL} = StompConf,
+    StompConf1 = StompConf#{
+        <<"listeners">> => emqx_gateway_conf:unconvert_listeners(StompConfL),
+        <<"authentication">> => ?CONF_STOMP_AUTHN_1
+    },
+    Raw1 = maps:put(<<"stomp">>, StompConf1, Raw0),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
+    ?assertMatch(
+        #{
+            stomp :=
+                #{
+                    authn := <<"password_based:built_in_database">>,
+                    listeners := [#{authn := <<"undefined">>, type := tcp}],
+                    num_clients := 0
+                }
+        },
+        emqx_gateway:get_basic_usage_info()
+    ),
+    %% reset(remove authn)
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
+    ?assertMatch(
+        #{
+            stomp :=
+                #{
+                    authn := <<"undefined">>,
+                    listeners := [#{authn := <<"undefined">>, type := tcp}],
+                    num_clients := 0
+                }
+        },
+        emqx_gateway:get_basic_usage_info()
+    ),
     ok.
 
 t_load_remove_listeners(_) ->
@@ -324,6 +400,7 @@ t_load_remove_listeners(_) ->
         {<<"tcp">>, <<"default">>},
         ?CONF_STOMP_LISTENER_1
     ),
+
     assert_confs(
         maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_1)),
         emqx:get_raw_config([gateway, stomp])
@@ -354,6 +431,59 @@ t_load_remove_listeners(_) ->
         error,
         {config_not_found, [<<"gateway">>, stomp, listeners, tcp, default]},
         emqx:get_raw_config([gateway, stomp, listeners, tcp, default])
+    ),
+    %% test update([gateway], Conf)
+    Raw0 = emqx:get_raw_config([gateway]),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"stomp">>, <<"listeners">>, <<"tcp">>, <<"default">>], Raw0, ?CONF_STOMP_LISTENER_1
+    ),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    assert_confs(
+        maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_1)),
+        emqx:get_raw_config([gateway, stomp])
+    ),
+    ?assertMatch(
+        #{
+            stomp :=
+                #{
+                    authn := <<"password_based:built_in_database">>,
+                    listeners := [#{authn := <<"undefined">>, type := tcp}],
+                    num_clients := 0
+                }
+        },
+        emqx_gateway:get_basic_usage_info()
+    ),
+    Raw2 = emqx_utils_maps:deep_put(
+        [<<"stomp">>, <<"listeners">>, <<"tcp">>, <<"default">>], Raw0, ?CONF_STOMP_LISTENER_2
+    ),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw2)),
+    assert_confs(
+        maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_2)),
+        emqx:get_raw_config([gateway, stomp])
+    ),
+    ?assertMatch(
+        #{
+            stomp :=
+                #{
+                    authn := <<"password_based:built_in_database">>,
+                    listeners := [#{authn := <<"undefined">>, type := tcp}],
+                    num_clients := 0
+                }
+        },
+        emqx_gateway:get_basic_usage_info()
+    ),
+    %% reset(remove listener)
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
+    ?assertMatch(
+        #{
+            stomp :=
+                #{
+                    authn := <<"password_based:built_in_database">>,
+                    listeners := [],
+                    num_clients := 0
+                }
+        },
+        emqx_gateway:get_basic_usage_info()
     ),
     ok.
 
@@ -417,6 +547,7 @@ t_load_gateway_with_certs_content(_) ->
         [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),
+    assert_ssl_confs_files_exist(SslConf),
     ok = emqx_gateway_conf:unload_gateway(<<"stomp">>),
     assert_ssl_confs_files_deleted(SslConf),
     ?assertException(
@@ -424,6 +555,25 @@ t_load_gateway_with_certs_content(_) ->
         {config_not_found, [<<"gateway">>, stomp]},
         emqx:get_raw_config([gateway, stomp])
     ),
+    %% test update([gateway], Conf)
+    Raw0 = emqx:get_raw_config([gateway]),
+    #{<<"listeners">> := StompConfL} = StompConf,
+    StompConf1 = StompConf#{
+        <<"listeners">> => emqx_gateway_conf:unconvert_listeners(StompConfL)
+    },
+    Raw1 = emqx_utils_maps:deep_put([<<"stomp">>], Raw0, StompConf1),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    assert_ssl_confs_files_exist(SslConf),
+    ?assertEqual(
+        SslConf,
+        emqx_utils_maps:deep_get(
+            [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
+            emqx:get_raw_config([gateway, stomp])
+        )
+    ),
+    %% reset
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
+    assert_ssl_confs_files_deleted(SslConf),
     ok.
 
 %% TODO: Comment out this test case for now, because emqx_tls_lib
@@ -475,6 +625,7 @@ t_add_listener_with_certs_content(_) ->
         [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),
+    assert_ssl_confs_files_exist(SslConf),
     ok = emqx_gateway_conf:remove_listener(
         <<"stomp">>, {<<"ssl">>, <<"default">>}
     ),
@@ -492,6 +643,34 @@ t_add_listener_with_certs_content(_) ->
         {config_not_found, [<<"gateway">>, stomp, listeners, ssl, default]},
         emqx:get_raw_config([gateway, stomp, listeners, ssl, default])
     ),
+
+    %% test update([gateway], Conf)
+    Raw0 = emqx:get_raw_config([gateway]),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"stomp">>, <<"listeners">>, <<"ssl">>, <<"default">>], Raw0, ?CONF_STOMP_LISTENER_SSL
+    ),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    SslConf1 = emqx_utils_maps:deep_get(
+        [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
+        emqx:get_raw_config([gateway, stomp])
+    ),
+    assert_ssl_confs_files_exist(SslConf1),
+    %% update
+    Raw2 = emqx_utils_maps:deep_put(
+        [<<"stomp">>, <<"listeners">>, <<"ssl">>, <<"default">>], Raw0, ?CONF_STOMP_LISTENER_SSL_2
+    ),
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw2)),
+    SslConf2 =
+        emqx_utils_maps:deep_get(
+            [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
+            emqx:get_raw_config([gateway, stomp])
+        ),
+    assert_ssl_confs_files_exist(SslConf2),
+    %% reset
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
+    assert_ssl_confs_files_deleted(SslConf),
+    assert_ssl_confs_files_deleted(SslConf1),
+    assert_ssl_confs_files_deleted(SslConf2),
     ok.
 
 assert_ssl_confs_files_deleted(SslConf) when is_map(SslConf) ->
@@ -501,6 +680,15 @@ assert_ssl_confs_files_deleted(SslConf) when is_map(SslConf) ->
         fun(K) ->
             Path = maps:get(K, SslConf),
             {error, enoent} = file:read_file(Path)
+        end,
+        Ks
+    ).
+assert_ssl_confs_files_exist(SslConf) when is_map(SslConf) ->
+    Ks = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
+    lists:foreach(
+        fun(K) ->
+            Path = maps:get(K, SslConf),
+            {ok, _} = file:read_file(Path)
         end,
         Ks
     ).

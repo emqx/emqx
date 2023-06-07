@@ -33,7 +33,7 @@
 ]).
 
 -include("bpapi.hrl").
--include("src/emqx_cm.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 
 introduced_in() ->
     "5.0.0".

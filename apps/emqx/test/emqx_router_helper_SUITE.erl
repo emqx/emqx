@@ -20,11 +20,11 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ROUTER_HELPER, emqx_router_helper).
--define(ROUTE_TAB, emqx_route).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -82,9 +82,9 @@ t_monitor(_) ->
     emqx_router_helper:monitor(undefined).
 
 t_mnesia(_) ->
-    ?ROUTER_HELPER ! {mnesia_table_event, {delete, {emqx_routing_node, node()}, undefined}},
+    ?ROUTER_HELPER ! {mnesia_table_event, {delete, {?ROUTING_NODE, node()}, undefined}},
     ?ROUTER_HELPER ! {mnesia_table_event, testing},
-    ?ROUTER_HELPER ! {mnesia_table_event, {write, {emqx_routing_node, node()}, undefined}},
+    ?ROUTER_HELPER ! {mnesia_table_event, {write, {?ROUTING_NODE, node()}, undefined}},
     ?ROUTER_HELPER ! {membership, testing},
     ?ROUTER_HELPER ! {membership, {mnesia, down, node()}},
     ct:sleep(200).

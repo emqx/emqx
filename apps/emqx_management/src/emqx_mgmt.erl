@@ -17,6 +17,8 @@
 -module(emqx_mgmt).
 
 -include("emqx_mgmt.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
+
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -139,7 +141,7 @@ node_info() ->
         max_fds => proplists:get_value(
             max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))
         ),
-        connections => ets:info(emqx_channel, size),
+        connections => ets:info(?CHAN_TAB, size),
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
@@ -487,7 +489,7 @@ subscribe([], _ClientId, _TopicTables) ->
 -spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
-    case ets:lookup(emqx_channel, ClientId) of
+    case ets:lookup(?CHAN_TAB, ClientId) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
@@ -514,7 +516,7 @@ unsubscribe([], _ClientId, _Topic) ->
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
-    case ets:lookup(emqx_channel, ClientId) of
+    case ets:lookup(?CHAN_TAB, ClientId) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
@@ -537,7 +539,7 @@ unsubscribe_batch([], _ClientId, _Topics) ->
 -spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, _}.
 do_unsubscribe_batch(ClientId, Topics) ->
-    case ets:lookup(emqx_channel, ClientId) of
+    case ets:lookup(?CHAN_TAB, ClientId) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic) || Topic <- Topics]}
     end.

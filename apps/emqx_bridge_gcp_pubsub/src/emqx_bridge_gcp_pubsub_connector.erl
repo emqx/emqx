@@ -6,6 +6,7 @@
 
 -behaviour(emqx_resource).
 
+-include_lib("jose/include/jose_jwk.hrl").
 -include_lib("emqx_connector/include/emqx_connector_tables.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -26,7 +27,6 @@
 ]).
 -export([reply_delegator/3]).
 
--type jwt_worker() :: binary().
 -type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
@@ -38,7 +38,7 @@
 }.
 -type state() :: #{
     connect_timeout := timer:time(),
-    jwt_worker_id := jwt_worker(),
+    jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
     payload_template := emqx_plugin_libs_rule:tmpl_token(),
     pool_name := binary(),
@@ -97,12 +97,12 @@ on_start(
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
     #{
-        jwt_worker_id := JWTWorkerId,
+        jwt_config := JWTConfig,
         project_id := ProjectId
-    } = ensure_jwt_worker(ResourceId, Config),
+    } = parse_jwt_config(ResourceId, Config),
     State = #{
         connect_timeout => ConnectTimeout,
-        jwt_worker_id => JWTWorkerId,
+        jwt_config => JWTConfig,
         max_retries => MaxRetries,
         payload_template => emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
         pool_name => ResourceId,
@@ -136,14 +136,13 @@ on_start(
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
 on_stop(
     ResourceId,
-    _State = #{jwt_worker_id := JWTWorkerId}
+    _State = #{jwt_config := JWTConfig}
 ) ->
-    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId, jwt_worker_id => JWTWorkerId}),
+    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId, jwt_config => JWTConfig}),
     ?SLOG(info, #{
         msg => "stopping_gcp_pubsub_bridge",
         connector => ResourceId
     }),
-    emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
     emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
     ehttpc_sup:stop_pool(ResourceId).
 
@@ -228,12 +227,12 @@ on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
--spec ensure_jwt_worker(resource_id(), config()) ->
+-spec parse_jwt_config(resource_id(), config()) ->
     #{
-        jwt_worker_id := jwt_worker(),
+        jwt_config := emqx_connector_jwt:jwt_config(),
         project_id := binary()
     }.
-ensure_jwt_worker(ResourceId, #{
+parse_jwt_config(ResourceId, #{
     service_account_json := ServiceAccountJSON
 }) ->
     #{
@@ -246,8 +245,32 @@ ensure_jwt_worker(ResourceId, #{
     Aud = <<"https://pubsub.googleapis.com/">>,
     ExpirationMS = timer:hours(1),
     Alg = <<"RS256">>,
-    Config = #{
-        private_key => PrivateKeyPEM,
+    JWK =
+        try jose_jwk:from_pem(PrivateKeyPEM) of
+            JWK0 = #jose_jwk{} ->
+                %% Don't wrap the JWK with `emqx_secret:wrap' here;
+                %% this is stored in mnesia and synchronized among the
+                %% nodes, and will easily become a bad fun.
+                JWK0;
+            [] ->
+                ?tp(error, gcp_pubsub_connector_startup_error, #{error => empty_key}),
+                throw("empty private in service account json");
+            {error, Reason} ->
+                Error = {invalid_private_key, Reason},
+                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                throw("invalid private key in service account json");
+            Error0 ->
+                Error = {invalid_private_key, Error0},
+                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                throw("invalid private key in service account json")
+        catch
+            Kind:Reason ->
+                Error = {Kind, Reason},
+                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                throw("invalid private key in service account json")
+        end,
+    JWTConfig = #{
+        jwk => emqx_secret:wrap(JWK),
         resource_id => ResourceId,
         expiration => ExpirationMS,
         table => ?JWT_TABLE,
@@ -257,46 +280,8 @@ ensure_jwt_worker(ResourceId, #{
         kid => KId,
         alg => Alg
     },
-
-    JWTWorkerId = <<"gcp_pubsub_jwt_worker:", ResourceId/binary>>,
-    Worker =
-        case emqx_connector_jwt_sup:ensure_worker_present(JWTWorkerId, Config) of
-            {ok, Worker0} ->
-                Worker0;
-            Error ->
-                ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
-                    connector => ResourceId,
-                    reason => Error
-                }),
-                _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
-                throw(failed_to_start_jwt_worker)
-        end,
-    MRef = monitor(process, Worker),
-    Ref = emqx_connector_jwt_worker:ensure_jwt(Worker),
-
-    %% to ensure that this resource and its actions will be ready to
-    %% serve when started, we must ensure that the first JWT has been
-    %% produced by the worker.
-    receive
-        {Ref, token_created} ->
-            ?tp(gcp_pubsub_bridge_jwt_created, #{resource_id => ResourceId}),
-            demonitor(MRef, [flush]),
-            ok;
-        {'DOWN', MRef, process, Worker, Reason} ->
-            ?tp(error, "gcp_pubsub_bridge_jwt_worker_failed_to_start", #{
-                connector => ResourceId,
-                reason => Reason
-            }),
-            _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
-            throw(failed_to_start_jwt_worker)
-    after 10_000 ->
-        ?tp(warning, "gcp_pubsub_bridge_jwt_timeout", #{connector => ResourceId}),
-        demonitor(MRef, [flush]),
-        _ = emqx_connector_jwt_sup:ensure_worker_deleted(JWTWorkerId),
-        throw(timeout_creating_jwt)
-    end,
     #{
-        jwt_worker_id => JWTWorkerId,
+        jwt_config => JWTConfig,
         project_id => ProjectId
     }.
 
@@ -322,14 +307,10 @@ publish_path(
 ) ->
     <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
 
--spec get_jwt_authorization_header(resource_id()) -> [{binary(), binary()}].
-get_jwt_authorization_header(ResourceId) ->
-    case emqx_connector_jwt:lookup_jwt(?JWT_TABLE, ResourceId) of
-        %% Since we synchronize the JWT creation during resource start
-        %% (see `on_start/2'), this will be always be populated.
-        {ok, JWT} ->
-            [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}]
-    end.
+-spec get_jwt_authorization_header(emqx_connector_jwt:jwt_config()) -> [{binary(), binary()}].
+get_jwt_authorization_header(JWTConfig) ->
+    JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
+    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
 
 -spec do_send_requests_sync(
     state(),
@@ -342,6 +323,7 @@ get_jwt_authorization_header(ResourceId) ->
     | {error, term()}.
 do_send_requests_sync(State, Requests, ResourceId) ->
     #{
+        jwt_config := JWTConfig,
         pool_name := PoolName,
         max_retries := MaxRetries,
         request_ttl := RequestTTL
@@ -354,7 +336,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
             requests => Requests
         }
     ),
-    Headers = get_jwt_authorization_header(ResourceId),
+    Headers = get_jwt_authorization_header(JWTConfig),
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->
@@ -466,6 +448,7 @@ do_send_requests_sync(State, Requests, ResourceId) ->
 ) -> {ok, pid()}.
 do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
     #{
+        jwt_config := JWTConfig,
         pool_name := PoolName,
         request_ttl := RequestTTL
     } = State,
@@ -477,7 +460,7 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
             requests => Requests
         }
     ),
-    Headers = get_jwt_authorization_header(ResourceId),
+    Headers = get_jwt_authorization_header(JWTConfig),
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->

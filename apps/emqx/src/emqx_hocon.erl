@@ -100,7 +100,16 @@ no_stacktrace(Map) ->
 %% it's maybe too much when reporting to the user
 -spec compact_errors(any(), Stacktrace :: list()) -> {error, any()}.
 compact_errors({SchemaModule, Errors}, Stacktrace) ->
-    compact_errors(SchemaModule, Errors, Stacktrace).
+    compact_errors(SchemaModule, Errors, Stacktrace);
+compact_errors(ErrorContext0, _Stacktrace) when is_map(ErrorContext0) ->
+    case ErrorContext0 of
+        #{exception := #{schema_module := _Mod, message := _Msg} = Detail} ->
+            Error0 = maps:remove(exception, ErrorContext0),
+            Error = maps:merge(Error0, Detail),
+            {error, Error};
+        _ ->
+            {error, ErrorContext0}
+    end.
 
 compact_errors(SchemaModule, [Error0 | More], _Stacktrace) when is_map(Error0) ->
     Error1 =

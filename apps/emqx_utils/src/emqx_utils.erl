@@ -55,7 +55,8 @@
     safe_to_existing_atom/1,
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
-    safe_filename/1
+    safe_filename/1,
+    diff_lists/3
 ]).
 
 -export([
@@ -753,3 +754,152 @@ safe_filename(Filename) when is_binary(Filename) ->
     binary:replace(Filename, <<":">>, <<"-">>, [global]);
 safe_filename(Filename) when is_list(Filename) ->
     lists:flatten(string:replace(Filename, ":", "-", all)).
+
+%% @doc Compares two lists of maps and returns the differences between them in a
+%% map containing four keys – 'removed', 'added', 'identical', and 'changed' –
+%% each holding a list of maps. Elements are compared using key function KeyFunc
+%% to extract the comparison key used for matching.
+%%
+%% The return value is a map with the following keys and the list of maps as its values:
+%% * 'removed' – a list of maps that were present in the Old list, but not found in the New list.
+%% * 'added' – a list of maps that were present in the New list, but not found in the Old list.
+%% * 'identical' – a list of maps that were present in both lists and have the same comparison key value.
+%% * 'changed' – a list of pairs of maps representing the changes between maps present in the New and Old lists.
+%% The first map in the pair represents the map in the Old list, and the second map
+%% represents the potential modification in the New list.
+
+%% The KeyFunc parameter is a function that extracts the comparison key used
+%% for matching from each map. The function should return a comparable term,
+%% such as an atom, a number, or a string. This is used to determine if each
+%% element is the same in both lists.
+
+-spec diff_lists(list(T), list(T), Func) ->
+    #{
+        added := list(T),
+        identical := list(T),
+        removed := list(T),
+        changed := list({Old :: T, New :: T})
+    }
+when
+    Func :: fun((T) -> any()),
+    T :: any().
+
+diff_lists(New, Old, KeyFunc) when is_list(New) andalso is_list(Old) ->
+    Removed =
+        lists:foldl(
+            fun(E, RemovedAcc) ->
+                case search(KeyFunc(E), KeyFunc, New) of
+                    false -> [E | RemovedAcc];
+                    _ -> RemovedAcc
+                end
+            end,
+            [],
+            Old
+        ),
+    {Added, Identical, Changed} =
+        lists:foldl(
+            fun(E, Acc) ->
+                {Added0, Identical0, Changed0} = Acc,
+                case search(KeyFunc(E), KeyFunc, Old) of
+                    false ->
+                        {[E | Added0], Identical0, Changed0};
+                    E ->
+                        {Added0, [E | Identical0], Changed0};
+                    E1 ->
+                        {Added0, Identical0, [{E1, E} | Changed0]}
+                end
+            end,
+            {[], [], []},
+            New
+        ),
+    #{
+        removed => lists:reverse(Removed),
+        added => lists:reverse(Added),
+        identical => lists:reverse(Identical),
+        changed => lists:reverse(Changed)
+    }.
+
+search(_ExpectValue, _KeyFunc, []) ->
+    false;
+search(ExpectValue, KeyFunc, [Item | List]) ->
+    case KeyFunc(Item) =:= ExpectValue of
+        true -> Item;
+        false -> search(ExpectValue, KeyFunc, List)
+    end.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+diff_lists_test() ->
+    KeyFunc = fun(#{name := Name}) -> Name end,
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [],
+            identical => [],
+            changed => []
+        },
+        diff_lists([], [], KeyFunc)
+    ),
+    %% test removed list
+    ?assertEqual(
+        #{
+            removed => [#{name => a, value => 1}],
+            added => [],
+            identical => [],
+            changed => []
+        },
+        diff_lists([], [#{name => a, value => 1}], KeyFunc)
+    ),
+    %% test added list
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [#{name => a, value => 1}],
+            identical => [],
+            changed => []
+        },
+        diff_lists([#{name => a, value => 1}], [], KeyFunc)
+    ),
+    %% test identical list
+    ?assertEqual(
+        #{
+            removed => [],
+            added => [],
+            identical => [#{name => a, value => 1}],
+            changed => []
+        },
+        diff_lists([#{name => a, value => 1}], [#{name => a, value => 1}], KeyFunc)
+    ),
+    Old = [
+        #{name => a, value => 1},
+        #{name => b, value => 4},
+        #{name => e, value => 2},
+        #{name => d, value => 4}
+    ],
+    New = [
+        #{name => a, value => 1},
+        #{name => b, value => 2},
+        #{name => e, value => 2},
+        #{name => c, value => 3}
+    ],
+    Diff = diff_lists(New, Old, KeyFunc),
+    ?assertEqual(
+        #{
+            added => [
+                #{name => c, value => 3}
+            ],
+            identical => [
+                #{name => a, value => 1},
+                #{name => e, value => 2}
+            ],
+            removed => [
+                #{name => d, value => 4}
+            ],
+            changed => [{#{name => b, value => 4}, #{name => b, value => 2}}]
+        },
+        Diff
+    ),
+    ok.
+
+-endif.

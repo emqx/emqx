@@ -17,6 +17,7 @@
 -module(emqx_mgmt_api_topics).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -111,7 +112,7 @@ do_list(Params) ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            emqx_route,
+            ?ROUTE_TAB,
             Params,
             ?TOPICS_QUERY_SCHEMA,
             fun ?MODULE:qs2ms/2,

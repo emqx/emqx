@@ -723,7 +723,8 @@ examples_listener() ->
                                 buffer => <<"10KB">>,
                                 high_watermark => <<"1MB">>,
                                 nodelay => false,
-                                reuseaddr => true
+                                reuseaddr => true,
+                                keepalive => "none"
                             }
                     }
             },

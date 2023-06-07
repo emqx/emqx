@@ -24,6 +24,7 @@
 -record(state, {subscriber}).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -50,7 +51,7 @@ unsubscribe(Topic) ->
     gen_server:call(?MODULE, {unsubscribe, Topic}).
 
 get_subscrbied_topics() ->
-    [Topic || {_Client, Topic} <- ets:tab2list(emqx_subscription)].
+    [Topic || {_Client, Topic} <- ets:tab2list(?SUBSCRIPTION)].
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).

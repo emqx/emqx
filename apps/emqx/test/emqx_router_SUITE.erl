@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -127,5 +128,5 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(
         fun mnesia:clear_table/1,
-        [emqx_route, emqx_trie, emqx_trie_node]
+        [?ROUTE_TAB, ?TRIE, emqx_trie_node]
     ).

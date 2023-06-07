@@ -975,6 +975,18 @@ fields_tcp_opts_nodelay.desc:
 fields_tcp_opts_nodelay.label:
 """TCP_NODELAY"""
 
+fields_tcp_opts_keepalive.desc:
+"""Enable TCP keepalive for MQTT connections over TCP or SSL.
+The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
+ - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
+ - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
+ - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
+For example "240,30,5" means: EMQX should start sending TCP keepalive probes after the connection is in idle for 240 seconds, and the probes are sent every 30 seconds until a response is received from the MQTT client, if it misses 5 consecutive responses, EMQX should close the connection.
+Default: 'none'"""
+
+fields_tcp_opts_keepalive.label:
+"""TCP keepalive options"""
+
 sysmon_top_db_username.desc:
 """Username of the PostgreSQL database"""
 

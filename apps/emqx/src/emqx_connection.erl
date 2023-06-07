@@ -49,7 +49,7 @@
 
 -export([
     async_set_keepalive/3,
-    async_set_keepalive/4,
+    async_set_keepalive/5,
     async_set_socket_options/2
 ]).
 
@@ -273,16 +273,30 @@ stats(#state{
 %% NOTE: This API sets TCP socket options, which has nothing to do with
 %%       the MQTT layer's keepalive (PINGREQ and PINGRESP).
 async_set_keepalive(Idle, Interval, Probes) ->
-    async_set_keepalive(self(), Idle, Interval, Probes).
+    async_set_keepalive(os:type(), self(), Idle, Interval, Probes).
 
-async_set_keepalive(Pid, Idle, Interval, Probes) ->
+async_set_keepalive({unix, linux}, Pid, Idle, Interval, Probes) ->
     Options = [
         {keepalive, true},
         {raw, 6, 4, <<Idle:32/native>>},
         {raw, 6, 5, <<Interval:32/native>>},
         {raw, 6, 6, <<Probes:32/native>>}
     ],
-    async_set_socket_options(Pid, Options).
+    async_set_socket_options(Pid, Options);
+async_set_keepalive({unix, darwin}, Pid, Idle, Interval, Probes) ->
+    Options = [
+        {keepalive, true},
+        {raw, 6, 16#10, <<Idle:32/native>>},
+        {raw, 6, 16#101, <<Interval:32/native>>},
+        {raw, 6, 16#102, <<Probes:32/native>>}
+    ],
+    async_set_socket_options(Pid, Options);
+async_set_keepalive(OS, _Pid, _Idle, _Interval, _Probes) ->
+    ?SLOG(warning, #{
+        msg => "Unsupported operation: set TCP keepalive",
+        os => OS
+    }),
+    ok.
 
 %% @doc Set custom socket options.
 %% This API is made async because the call might be originated from
@@ -353,6 +367,9 @@ init_state(
             false -> disabled
         end,
     IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+
+    set_tcp_keepalive(Listener),
+
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{
         transport = Transport,
@@ -948,8 +965,15 @@ handle_cast(
     }
 ) ->
     case Transport:setopts(Socket, Opts) of
-        ok -> ?tp(info, "custom_socket_options_successfully", #{opts => Opts});
-        Err -> ?tp(error, "failed_to_set_custom_socket_optionn", #{reason => Err})
+        ok ->
+            ?tp(debug, "custom_socket_options_successfully", #{opts => Opts});
+        {error, einval} ->
+            %% socket is already closed, ignore this error
+            ?tp(debug, "socket already closed", #{reason => socket_already_closed}),
+            ok;
+        Err ->
+            %% other errors
+            ?tp(error, "failed_to_set_custom_socket_option", #{reason => Err})
     end,
     State;
 handle_cast(Req, State) ->
@@ -1198,6 +1222,19 @@ stop(Reason, Reply, State) ->
 inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
     ok.
+
+set_tcp_keepalive({quic, _Listener}) ->
+    ok;
+set_tcp_keepalive({Type, Id}) ->
+    Conf = emqx_config:get_listener_conf(Type, Id, [tcp_options, keepalive], <<"none">>),
+    case iolist_to_binary(Conf) of
+        <<"none">> ->
+            ok;
+        Value ->
+            %% the value is already validated by schema, so we do not validate it again.
+            {Idle, Interval, Probes} = emqx_schema:parse_tcp_keepalive(Value),
+            async_set_keepalive(Idle, Interval, Probes)
+    end.
 
 %%--------------------------------------------------------------------
 %% For CT tests

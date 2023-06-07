@@ -16,6 +16,8 @@
 
 -module(emqx_topic).
 
+-include("emqx_mqtt.hrl").
+
 %% APIs
 -export([
     match/2,
@@ -33,18 +35,14 @@
     parse/2
 ]).
 
--export_type([
-    group/0,
-    topic/0,
-    word/0
-]).
+-type topic() :: emqx_types:topic().
+-type word() :: emqx_types:word().
+-type words() :: emqx_types:words().
 
--type group() :: binary().
--type topic() :: binary().
--type word() :: '' | '+' | '#' | binary().
--type words() :: list(word()).
-
--define(MAX_TOPIC_LEN, 65535).
+%% Guards
+-define(MULTI_LEVEL_WILDCARD_NOT_LAST(C, REST),
+    ((C =:= '#' orelse C =:= <<"#">>) andalso REST =/= [])
+).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -97,11 +95,15 @@ validate({Type, Topic}) when Type =:= name; Type =:= filter ->
 
 -spec validate(name | filter, topic()) -> true.
 validate(_, <<>>) ->
+    %% MQTT-5.0 [MQTT-4.7.3-1]
     error(empty_topic);
 validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) ->
+    %% MQTT-5.0 [MQTT-4.7.3-3]
     error(topic_too_long);
-validate(filter, Topic) when is_binary(Topic) ->
-    validate2(words(Topic));
+validate(filter, SharedFilter = <<"$share/", _Rest/binary>>) ->
+    validate_share(SharedFilter);
+validate(filter, Filter) when is_binary(Filter) ->
+    validate2(words(Filter));
 validate(name, Topic) when is_binary(Topic) ->
     Words = words(Topic),
     validate2(Words) andalso
@@ -113,7 +115,8 @@ validate2([]) ->
 % end with '#'
 validate2(['#']) ->
     true;
-validate2(['#' | Words]) when length(Words) > 0 ->
+%% MQTT-5.0 [MQTT-4.7.1-1]
+validate2([C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
     error('topic_invalid_#');
 validate2(['' | Words]) ->
     validate2(Words);
@@ -129,6 +132,32 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
+validate_share(<<"$share/", Rest/binary>>) when
+    Rest =:= <<>> orelse Rest =:= <<"/">>
+->
+    %% MQTT-5.0 [MQTT-4.8.2-1]
+    error(?SHARE_EMPTY_FILTER);
+validate_share(<<"$share/", Rest/binary>>) ->
+    case binary:split(Rest, <<"/">>) of
+        %% MQTT-5.0 [MQTT-4.8.2-1]
+        [<<>>, _] ->
+            error(?SHARE_EMPTY_GROUP);
+        %% MQTT-5.0 [MQTT-4.7.3-1]
+        [_, <<>>] ->
+            error(?SHARE_EMPTY_FILTER);
+        [ShareName, Filter] ->
+            validate_share(ShareName, Filter)
+    end.
+
+validate_share(_, <<"$share/", _Rest/binary>>) ->
+    error(?SHARE_RECURSIVELY);
+validate_share(ShareName, Filter) ->
+    case binary:match(ShareName, [<<"+">>, <<"#">>]) of
+        %% MQTT-5.0 [MQTT-4.8.2-2]
+        nomatch -> validate2(words(Filter));
+        _ -> error(?SHARE_NAME_INVALID_CHAR)
+    end.
+
 %% @doc Prepend a topic prefix.
 %% Ensured to have only one / between prefix and suffix.
 prepend(undefined, W) ->
@@ -142,6 +171,7 @@ prepend(Parent0, W) ->
         _ -> <<Parent/binary, $/, (bin(W))/binary>>
     end.
 
+-spec bin(word()) -> binary().
 bin('') -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
@@ -163,6 +193,7 @@ tokens(Topic) ->
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- tokens(Topic)].
 
+-spec word(binary()) -> word().
 word(<<>>) -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
@@ -185,23 +216,19 @@ feed_var(Var, Val, [Var | Words], Acc) ->
 feed_var(Var, Val, [W | Words], Acc) ->
     feed_var(Var, Val, Words, [W | Acc]).
 
--spec join(list(binary())) -> binary().
+-spec join(list(word())) -> binary().
 join([]) ->
     <<>>;
-join([W]) ->
-    bin(W);
-join(Words) ->
-    {_, Bin} = lists:foldr(
-        fun
-            (W, {true, Tail}) ->
-                {false, <<W/binary, Tail/binary>>};
-            (W, {false, Tail}) ->
-                {false, <<W/binary, "/", Tail/binary>>}
-        end,
-        {true, <<>>},
-        [bin(W) || W <- Words]
-    ),
-    Bin.
+join([Word | Words]) ->
+    do_join(bin(Word), Words).
+
+do_join(TopicAcc, []) ->
+    TopicAcc;
+%% MQTT-5.0 [MQTT-4.7.1-1]
+do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
+    error('topic_invalid_#');
+do_join(TopicAcc, [Word | Words]) ->
+    do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
 
 -spec parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}.
 parse(TopicFilter) when is_binary(TopicFilter) ->
