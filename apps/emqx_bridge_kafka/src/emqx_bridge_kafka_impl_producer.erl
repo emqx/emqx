@@ -43,7 +43,11 @@ on_start(InstId, Config) ->
         bootstrap_hosts := Hosts0,
         bridge_name := BridgeName,
         connect_timeout := ConnTimeout,
-        kafka := KafkaConfig = #{message := MessageTemplate, topic := KafkaTopic},
+        kafka := KafkaConfig = #{
+            message := MessageTemplate,
+            topic := KafkaTopic,
+            query_mode_sync_timeout := QueryModeSyncTimeout
+        },
         metadata_request_timeout := MetaReqTimeout,
         min_metadata_refresh_interval := MinMetaRefreshInterval,
         socket_opts := SocketOpts,
@@ -99,7 +103,8 @@ on_start(InstId, Config) ->
                 client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
-                resource_id => ResourceId
+                resource_id => ResourceId,
+                query_mode_sync_timeout => QueryModeSyncTimeout
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -189,14 +194,15 @@ on_stop(InstanceId, _State) ->
 on_query(
     _InstId,
     {send_message, Message},
-    #{message_template := Template, producers := Producers}
+    #{
+        message_template := Template,
+        producers := Producers,
+        query_mode_sync_timeout := SyncTimeout
+    }
 ) ->
     KafkaMessage = render_message(Template, Message),
-    %% TODO: this function is not used so far,
-    %% timeout should be configurable
-    %% or the on_query/3 should be on_query/4 instead.
     try
-        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], 5000),
+        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
         ok
     catch
         error:{producer_down, _} = Reason ->

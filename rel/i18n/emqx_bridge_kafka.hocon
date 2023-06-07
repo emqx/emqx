@@ -358,4 +358,28 @@ compression.desc:
 compression.label:
 """Compression"""
 
+query_mode.desc:
+"""Query mode. Optional 'sync/async', default 'async'."""
+
+query_mode.label:
+"""Query mode"""
+
+resource_opts.desc:
+"""Resource options."""
+
+resource_opts.label:
+"""Resource Options"""
+
+resource_opts_fields.desc:
+"""Resource options."""
+
+resource_opts_fields.label:
+"""Resource Options"""
+
+query_mode_sync_timeout.desc:
+"""This parameter defines the timeout limit for synchronous queries. It applies only when the bridge query mode is configured to 'sync'."""
+
+query_mode_sync_timeout.label:
+"""Synchronous Query Timeout"""
+
 }

@@ -276,13 +276,13 @@ query(ResId, Request) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, #{query_mode := QM, mod := Module}} ->
+        {ok, _Group, #{query_mode := QM, mod := Module} = Config} ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
                 {true, _} ->
                     %% only Kafka producer so far
                     Opts1 = Opts#{is_buffer_supported => true},
-                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
+                    do_query_built_in_buffer(QM, ResId, Request, Opts1);
                 {false, sync} ->
                     emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
                 {false, async} ->
@@ -291,6 +291,11 @@ query(ResId, Request, Opts) ->
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
+
+do_query_built_in_buffer(async, ResId, Request, Opts1) ->
+    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
+do_query_built_in_buffer(sync, ResId, Request, _Opts1) ->
+    emqx_resource_buffer_worker:simple_sync_query(ResId, Request).
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
 simple_sync_query(ResId, Request) ->
