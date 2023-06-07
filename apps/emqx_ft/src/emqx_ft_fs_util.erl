@@ -29,6 +29,8 @@
 
 -export([fold/4]).
 
+-export([mk_temp_filename/1]).
+
 -type foldfun(Acc) ::
     fun(
         (
@@ -178,3 +180,24 @@ fold(FoldFun, Acc, It) ->
         none ->
             Acc
     end.
+
+-spec mk_temp_filename(file:filename()) ->
+    file:filename().
+mk_temp_filename(Filename) ->
+    % NOTE
+    % Using only the first 200 characters of the filename to avoid making filenames
+    % exceeding 255 bytes in UTF-8. It's actually too conservative, `Suffix` can be
+    % at most 16 bytes.
+    Unique = erlang:unique_integer([positive]),
+    Suffix = binary:encode_hex(<<Unique:64>>),
+    mk_filename([string:slice(Filename, 0, 200), ".", Suffix]).
+
+mk_filename(Comps) ->
+    lists:append(lists:map(fun mk_filename_component/1, Comps)).
+
+mk_filename_component(A) when is_atom(A) ->
+    atom_to_list(A);
+mk_filename_component(B) when is_binary(B) ->
+    unicode:characters_to_list(B);
+mk_filename_component(S) when is_list(S) ->
+    S.

@@ -16,7 +16,7 @@
 
 -module(emqx_gateway).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 %% Gateway APIs
 -export([

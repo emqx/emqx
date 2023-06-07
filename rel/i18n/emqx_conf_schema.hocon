@@ -755,7 +755,9 @@ cluster_discovery_strategy.desc:
 - static: Configure static nodes list by setting <code>seeds</code> in config file.<br/>
 - dns: Use DNS A record to discover peer nodes.<br/>
 - etcd: Use etcd to discover peer nodes.<br/>
-- k8s: Use Kubernetes API to discover peer pods."""
+- k8s: Use Kubernetes API to discover peer pods.
+- mcast: Deprecated since 5.1, will be removed in 5.2.
+  This supports discovery via UDP multicast."""
 
 cluster_discovery_strategy.label:
 """Cluster Discovery Strategy"""

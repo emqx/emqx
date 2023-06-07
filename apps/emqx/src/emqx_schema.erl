@@ -94,7 +94,8 @@
     validate_keepalive_multiplier/1,
     non_empty_string/1,
     validations/0,
-    naive_env_interpolation/1
+    naive_env_interpolation/1,
+    validate_server_ssl_opts/1
 ]).
 
 -export([qos/0]).
@@ -958,7 +959,7 @@ fields("mqtt_wss_listener") ->
             {"ssl_options",
                 sc(
                     ref("listener_wss_opts"),
-                    #{}
+                    #{validator => fun validate_server_ssl_opts/1}
                 )},
             {"websocket",
                 sc(
@@ -2426,8 +2427,21 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             ]
         ].
 
+validate_server_ssl_opts(#{<<"fail_if_no_peer_cert">> := true, <<"verify">> := Verify}) ->
+    validate_verify(Verify);
+validate_server_ssl_opts(#{fail_if_no_peer_cert := true, verify := Verify}) ->
+    validate_verify(Verify);
+validate_server_ssl_opts(_SSLOpts) ->
+    ok.
+
+validate_verify(verify_peer) ->
+    ok;
+validate_verify(_) ->
+    {error, "verify must be verify_peer when fail_if_no_peer_cert is true"}.
+
 mqtt_ssl_listener_ssl_options_validator(Conf) ->
     Checks = [
+        fun validate_server_ssl_opts/1,
         fun ocsp_outer_validator/1,
         fun crl_outer_validator/1
     ],
