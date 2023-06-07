@@ -84,7 +84,7 @@ check_pub(Zone, Flags) when is_map(Flags) ->
             error ->
                 Flags
         end,
-        get_caps(?PUBCAP_KEYS, Zone)
+        emqx_config:get_zone_conf(Zone, [mqtt])
     ).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when
@@ -107,24 +107,13 @@ do_check_pub(_Flags, _Caps) ->
 ) ->
     ok_or_error(emqx_types:reason_code()).
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
-    Caps = get_caps(?SUBCAP_KEYS, Zone),
-    Flags = lists:foldl(
-        fun
-            (max_topic_levels, Map) ->
-                Map#{topic_levels => emqx_topic:levels(Topic)};
-            (wildcard_subscription, Map) ->
-                Map#{is_wildcard => emqx_topic:wildcard(Topic)};
-            (shared_subscription, Map) ->
-                Map#{is_shared => maps:is_key(share, SubOpts)};
-            (exclusive_subscription, Map) ->
-                Map#{is_exclusive => maps:get(is_exclusive, SubOpts, false)};
-            %% Ignore
-            (_Key, Map) ->
-                Map
-        end,
-        #{},
-        maps:keys(Caps)
-    ),
+    Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
+    Flags = #{
+        topic_levels => emqx_topic:levels(Topic),
+        is_wildcard => emqx_topic:wildcard(Topic),
+        is_shared => maps:is_key(share, SubOpts),
+        is_exclusive => maps:get(is_exclusive, SubOpts, false)
+    },
     do_check_sub(Flags, Caps, ClientInfo, Topic).
 
 do_check_sub(#{topic_levels := Levels}, #{max_topic_levels := Limit}, _, _) when
