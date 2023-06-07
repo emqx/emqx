@@ -277,7 +277,7 @@ roots(low) ->
             sc(
                 ref("flapping_detect"),
                 #{
-                    importance => ?DEFAULT_IMPORTANCE,
+                    importance => ?IMPORTANCE_MEDIUM,
                     converter => fun flapping_detect_converter/2
                 }
             )},

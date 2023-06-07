@@ -50,12 +50,6 @@
     started_at :: pos_integer(),
     detect_cnt :: integer()
 }).
--define(DEFAULT_POLICY, #{
-    enable => false,
-    max_count => 15,
-    window_time => 60000,
-    ban_time => 5 * 6000
-}).
 
 -opaque flapping() :: #flapping{}.
 
