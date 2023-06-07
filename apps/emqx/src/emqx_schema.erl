@@ -33,7 +33,7 @@
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
 -define(MAX_INT_TIMEOUT_S, 4294967).
--define(DEFAULT_WINDOW_TIME, "1m").
+-define(DEFAULT_WINDOW_TIME, <<"1m">>).
 
 -type duration() :: integer().
 -type duration_s() :: integer().
