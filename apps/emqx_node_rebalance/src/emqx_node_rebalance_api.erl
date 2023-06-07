@@ -258,11 +258,11 @@ wrap_rpc(Node, RPCResult) ->
             {200, #{}};
         {error, Reason} ->
             error_response(
-                400, ?BAD_REQUEST, io_lib:format("error on node ~p: ~p", [Node, Reason])
+                400, ?BAD_REQUEST, binfmt("error on node ~p: ~p", [Node, Reason])
             );
         {badrpc, Reason} ->
             error_response(
-                503, ?RPC_ERROR, io_lib:format("RPC error on node ~p: ~p", [Node, Reason])
+                503, ?RPC_ERROR, binfmt("RPC error on node ~p: ~p", [Node, Reason])
             )
     end.
 
@@ -299,9 +299,9 @@ with_nodes_at_key(Key, Params, Fun) ->
         {ok, Params1} ->
             Fun(Params1);
         {error, {unavailable, Nodes}} ->
-            error_response(400, ?NOT_FOUND, io_lib:format("Nodes unavailable: ~p", [Nodes]));
+            error_response(400, ?NOT_FOUND, binfmt("Nodes unavailable: ~p", [Nodes]));
         {error, {invalid, Nodes}} ->
-            error_response(400, ?BAD_REQUEST, io_lib:format("Invalid nodes: ~p", [Nodes]))
+            error_response(400, ?BAD_REQUEST, binfmt("Invalid nodes: ~p", [Nodes]))
     end.
 
 parse_node(Bin) when is_binary(Bin) ->
@@ -330,6 +330,8 @@ without(Keys, Props) ->
         end,
         Props
     ).
+
+binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
 %%------------------------------------------------------------------------------
 %% Schema
