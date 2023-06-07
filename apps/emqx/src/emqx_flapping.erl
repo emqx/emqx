@@ -214,7 +214,7 @@ update_timer(Timers) ->
                     start_timer(FlappingDetect, ZoneName);
                 TRef when Enable -> TRef;
                 TRef ->
-                    erlang:cancel_timer(TRef),
+                    _ = erlang:cancel_timer(TRef),
                     undefined
             end
         end,
