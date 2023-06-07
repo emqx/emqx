@@ -63,3 +63,24 @@ unescape_filename_test_() ->
         ?_assertEqual(Input, emqx_ft_fs_util:unescape_filename(Filename))
      || {Filename, Input} <- ?NAMES
     ].
+
+mk_temp_filename_test_() ->
+    [
+        ?_assertMatch(
+            "." ++ Suffix when length(Suffix) == 16,
+            emqx_ft_fs_util:mk_temp_filename(<<>>)
+        ),
+        ?_assertMatch(
+            "file.name." ++ Suffix when length(Suffix) == 16,
+            emqx_ft_fs_util:mk_temp_filename("file.name")
+        ),
+        ?_assertMatch(
+            "safe.🦺." ++ Suffix when length(Suffix) == 16,
+            emqx_ft_fs_util:mk_temp_filename(<<"safe.🦺"/utf8>>)
+        ),
+        ?_assertEqual(
+            % FilenameSlice + Dot + Suffix
+            200 + 1 + 16,
+            length(emqx_ft_fs_util:mk_temp_filename(lists:duplicate(63, "LONG")))
+        )
+    ].

@@ -99,7 +99,7 @@ choose_ingress_pool_size(
         {_Filter, #{share := _Name}} ->
             % NOTE: this is shared subscription, many workers may subscribe
             PoolSize;
-        {_Filter, #{}} ->
+        {_Filter, #{}} when PoolSize > 1 ->
             % NOTE: this is regular subscription, only one worker should subscribe
             ?SLOG(warning, #{
                 msg => "mqtt_bridge_ingress_pool_size_ignored",
@@ -110,6 +110,8 @@ choose_ingress_pool_size(
                 config_pool_size => PoolSize,
                 pool_size => 1
             }),
+            1;
+        {_Filter, #{}} when PoolSize == 1 ->
             1
     end.
 
