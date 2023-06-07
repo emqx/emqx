@@ -33,6 +33,7 @@
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
 -define(MAX_INT_TIMEOUT_S, 4294967).
+-define(DEFAULT_WINDOW_TIME, <<"1m">>).
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -277,7 +278,10 @@ roots(low) ->
         {"flapping_detect",
             sc(
                 ref("flapping_detect"),
-                #{importance => ?IMPORTANCE_HIDDEN}
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    converter => fun flapping_detect_converter/2
+                }
             )},
         {"persistent_session_store",
             sc(
@@ -687,15 +691,14 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
         {"window_time",
             sc(
-                hoconsc:union([disabled, duration()]),
+                duration(),
                 #{
-                    default => disabled,
+                    default => ?DEFAULT_WINDOW_TIME,
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(flapping_detect_window_time)
                 }
@@ -3549,3 +3552,9 @@ mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
     Mqtt#{<<"keepalive_multiplier">> => Backoff * 2};
 mqtt_converter(Mqtt, _Opts) ->
     Mqtt.
+
+%% For backward compatibility with window_time is disable
+flapping_detect_converter(Conf = #{<<"window_time">> := <<"disable">>}, _Opts) ->
+    Conf#{<<"window_time">> => ?DEFAULT_WINDOW_TIME, <<"enable">> => false};
+flapping_detect_converter(Conf, _Opts) ->
+    Conf.

@@ -403,7 +403,7 @@ zone_global_defaults() ->
         conn_congestion =>
             #{enable_alarm => true, min_alarm_sustain_duration => 60000},
         flapping_detect =>
-            #{ban_time => 300000, max_count => 15, window_time => disabled},
+            #{ban_time => 300000, max_count => 15, window_time => 60000, enable => false},
         force_gc =>
             #{bytes => 16777216, count => 16000, enable => true},
         force_shutdown =>

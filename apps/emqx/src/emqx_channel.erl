@@ -1635,10 +1635,9 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 %%--------------------------------------------------------------------
 %% Flapping
 
-count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
-    is_integer(emqx_config:get_zone_conf(Zone, [flapping_detect, window_time])) andalso
-        emqx_flapping:detect(ClientInfo),
-    {ok, Channel}.
+count_flapping_event(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
+    _ = emqx_flapping:detect(ClientInfo),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Authenticate
