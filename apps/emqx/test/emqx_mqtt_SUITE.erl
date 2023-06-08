@@ -219,13 +219,15 @@ t_async_set_keepalive('end', _Config) ->
 t_async_set_keepalive(_) ->
     case os:type() of
         {unix, darwin} ->
-            %% Mac OSX don't support the feature
-            ok;
+            do_async_set_keepalive(16#10, 16#101, 16#102);
+        {unix, linux} ->
+            do_async_set_keepalive(4, 5, 6);
         _ ->
-            do_async_set_keepalive()
+            %% don't support the feature on other OS
+            ok
     end.
 
-do_async_set_keepalive() ->
+do_async_set_keepalive(OptKeepIdle, OptKeepInterval, OptKeepCount) ->
     ClientID = <<"client-tcp-keepalive">>,
     {ok, Client} = emqtt:start_link([
         {host, "localhost"},
@@ -247,19 +249,19 @@ do_async_set_keepalive() ->
     Transport = maps:get(transport, State),
     Socket = maps:get(socket, State),
     ?assert(is_port(Socket)),
-    Opts = [{raw, 6, 4, 4}, {raw, 6, 5, 4}, {raw, 6, 6, 4}],
+    Opts = [{raw, 6, OptKeepIdle, 4}, {raw, 6, OptKeepInterval, 4}, {raw, 6, OptKeepCount, 4}],
     {ok, [
-        {raw, 6, 4, <<Idle:32/native>>},
-        {raw, 6, 5, <<Interval:32/native>>},
-        {raw, 6, 6, <<Probes:32/native>>}
+        {raw, 6, OptKeepIdle, <<Idle:32/native>>},
+        {raw, 6, OptKeepInterval, <<Interval:32/native>>},
+        {raw, 6, OptKeepCount, <<Probes:32/native>>}
     ]} = Transport:getopts(Socket, Opts),
     ct:pal("Idle=~p, Interval=~p, Probes=~p", [Idle, Interval, Probes]),
-    emqx_connection:async_set_keepalive(Pid, Idle + 1, Interval + 1, Probes + 1),
+    emqx_connection:async_set_keepalive(os:type(), Pid, Idle + 1, Interval + 1, Probes + 1),
     {ok, _} = ?block_until(#{?snk_kind := "custom_socket_options_successfully"}, 1000),
     {ok, [
-        {raw, 6, 4, <<NewIdle:32/native>>},
-        {raw, 6, 5, <<NewInterval:32/native>>},
-        {raw, 6, 6, <<NewProbes:32/native>>}
+        {raw, 6, OptKeepIdle, <<NewIdle:32/native>>},
+        {raw, 6, OptKeepInterval, <<NewInterval:32/native>>},
+        {raw, 6, OptKeepCount, <<NewProbes:32/native>>}
     ]} = Transport:getopts(Socket, Opts),
     ?assertEqual(NewIdle, Idle + 1),
     ?assertEqual(NewInterval, Interval + 1),

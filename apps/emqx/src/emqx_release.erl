@@ -21,7 +21,10 @@
     edition_vsn_prefix/0,
     edition_longstr/0,
     description/0,
-    version/0
+    version/0,
+    version_with_prefix/0,
+    vsn_compare/1,
+    vsn_compare/2
 ]).
 
 -include("emqx_release.hrl").
@@ -68,6 +71,10 @@ edition_vsn_prefix() ->
 edition_longstr() ->
     maps:get(edition(), ?EMQX_REL_NAME).
 
+%% @doc Return the release version with prefix.
+version_with_prefix() ->
+    edition_vsn_prefix() ++ version().
+
 %% @doc Return the release version.
 version() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
@@ -92,3 +99,47 @@ version() ->
 
 build_vsn() ->
     maps:get(edition(), ?EMQX_REL_VSNS).
+
+%% @doc Compare the given version with the current running version,
+%% return 'newer' 'older' or 'same'.
+vsn_compare("v" ++ Vsn) ->
+    vsn_compare(?EMQX_RELEASE_CE, Vsn);
+vsn_compare("e" ++ Vsn) ->
+    vsn_compare(?EMQX_RELEASE_EE, Vsn).
+
+%% @private Compare the second argument with the first argument, return
+%% 'newer' 'older' or 'same' semver comparison result.
+vsn_compare(Vsn1, Vsn2) ->
+    ParsedVsn1 = parse_vsn(Vsn1),
+    ParsedVsn2 = parse_vsn(Vsn2),
+    case ParsedVsn1 =:= ParsedVsn2 of
+        true ->
+            same;
+        false when ParsedVsn1 < ParsedVsn2 ->
+            newer;
+        false ->
+            older
+    end.
+
+%% @private Parse the version string to a tuple.
+%% Return {{Major, Minor, Patch}, Suffix}.
+%% Where Suffix is either an empty string or a tuple like {"rc", 1}.
+%% NOTE: taking the nature ordering of the suffix:
+%% {"alpha", _} < {"beta", _} < {"rc", _} < ""
+parse_vsn(Vsn) ->
+    try
+        [V1, V2, V3 | Suffix0] = string:tokens(Vsn, ".-"),
+        Suffix =
+            case Suffix0 of
+                "" ->
+                    %% For the case like "5.1.0"
+                    "";
+                [ReleaseStage, Number] ->
+                    %% For the case like "5.1.0-rc.1"
+                    {ReleaseStage, list_to_integer(Number)}
+            end,
+        {{list_to_integer(V1), list_to_integer(V2), list_to_integer(V3)}, Suffix}
+    catch
+        _:_ ->
+            erlang:error({invalid_version_string, Vsn})
+    end.

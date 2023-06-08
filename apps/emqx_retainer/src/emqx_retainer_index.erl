@@ -31,7 +31,7 @@
 -type index() :: list(pos_integer()).
 
 %% @doc Index key is a term that can be effectively searched in the index table.
--type index_key() :: {index(), {emqx_topic:words(), emqx_topic:words()}}.
+-type index_key() :: {index(), {emqx_types:words(), emqx_types:words()}}.
 
 -type match_pattern_part() :: term().
 
@@ -42,7 +42,7 @@
 %% @doc Given words of a concrete topic (`Tokens') and a list of `Indices',
 %% constructs index keys for the topic and each of the indices.
 %% `Fun' is called with each of these keys.
--spec foreach_index_key(fun((index_key()) -> any()), list(index()), emqx_topic:words()) -> ok.
+-spec foreach_index_key(fun((index_key()) -> any()), list(index()), emqx_types:words()) -> ok.
 foreach_index_key(_Fun, [], _Tokens) ->
     ok;
 foreach_index_key(Fun, [Index | Indices], Tokens) ->
@@ -59,7 +59,7 @@ foreach_index_key(Fun, [Index | Indices], Tokens) ->
 %% returns `{[2, 3], {[<<"b">>, <<"c">>], [<<"a">>, <<"d">>]}}' term.
 %%
 %% @see foreach_index_key/3
--spec to_index_key(index(), emqx_topic:words()) -> index_key().
+-spec to_index_key(index(), emqx_types:words()) -> index_key().
 to_index_key(Index, Tokens) ->
     {Index, split_index_tokens(Index, Tokens, 1, [], [])}.
 
@@ -73,7 +73,7 @@ to_index_key(Index, Tokens) ->
 %%
 %% @see foreach_index_key/3
 %% @see to_index_key/2
--spec index_score(index(), emqx_topic:words()) -> non_neg_integer().
+-spec index_score(index(), emqx_types:words()) -> non_neg_integer().
 index_score(Index, Tokens) ->
     index_score(Index, Tokens, 1, 0).
 
@@ -92,7 +92,7 @@ select_index(Tokens, Indices) ->
 %%
 %% E.g. for `[2, 3]' index and <code>['+', <<"b">>, '+', <<"d">>]</code> wildcard topic
 %% returns <code>{[2, 3], {[<<"b">>, '_'], ['_', <<"d">>]}}</code> pattern.
--spec condition(index(), emqx_topic:words()) -> match_pattern_part().
+-spec condition(index(), emqx_types:words()) -> match_pattern_part().
 condition(Index, Tokens) ->
     {Index, condition(Index, Tokens, 1, [], [])}.
 
@@ -100,7 +100,7 @@ condition(Index, Tokens) ->
 %%
 %% E.g. for <code>['+', <<"b">>, '+', <<"d">>, '#']</code> wildcard topic
 %% returns <code>['_', <<"b">>, '_', <<"d">> | '_']</code> pattern.
--spec condition(emqx_topic:words()) -> match_pattern_part().
+-spec condition(emqx_types:words()) -> match_pattern_part().
 condition(Tokens) ->
     Tokens1 = [
         case W =:= '+' of
@@ -118,7 +118,7 @@ condition(Tokens) ->
 %%
 %% E.g given `{[2, 3], {[<<"b">>, <<"c">>], [<<"a">>, <<"d">>]}}' index key
 %% returns `[<<"a">>, <<"b">>, <<"c">>, <<"d">>]' topic.
--spec restore_topic(index_key()) -> emqx_topic:words().
+-spec restore_topic(index_key()) -> emqx_types:words().
 restore_topic({Index, {IndexTokens, OtherTokens}}) ->
     restore_topic(Index, IndexTokens, OtherTokens, 1, []).
 

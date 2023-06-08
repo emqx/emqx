@@ -55,8 +55,9 @@ single_config_tests() ->
         t_not_of_service_account_type,
         t_json_missing_fields,
         t_invalid_private_key,
-        t_jwt_worker_start_timeout,
-        t_failed_to_start_jwt_worker,
+        t_truncated_private_key,
+        t_jose_error_tuple,
+        t_jose_other_error,
         t_stop,
         t_get_status_ok,
         t_get_status_down,
@@ -580,14 +581,7 @@ t_publish_success(Config) ->
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
-    ?check_trace(
-        create_bridge(Config),
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
-            ?assertMatch([_], ?of_kind(gcp_pubsub_bridge_jwt_created, Trace)),
-            ok
-        end
-    ),
+    ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     assert_empty_metrics(ResourceId),
@@ -686,14 +680,7 @@ t_publish_success_local_topic(Config) ->
     ok.
 
 t_create_via_http(Config) ->
-    ?check_trace(
-        create_bridge_http(Config),
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
-            ?assertMatch([_, _], ?of_kind(gcp_pubsub_bridge_jwt_created, Trace)),
-            ok
-        end
-    ),
+    ?assertMatch({ok, _}, create_bridge_http(Config)),
     ok.
 
 t_publish_templated(Config) ->
@@ -705,16 +692,12 @@ t_publish_templated(Config) ->
         "{\"payload\": \"${payload}\","
         " \"pub_props\": ${pub_props}}"
     >>,
-    ?check_trace(
+    ?assertMatch(
+        {ok, _},
         create_bridge(
             Config,
             #{<<"payload_template">> => PayloadTemplate}
-        ),
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
-            ?assertMatch([_], ?of_kind(gcp_pubsub_bridge_jwt_created, Trace)),
-            ok
-        end
+        )
     ),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
@@ -908,7 +891,7 @@ t_invalid_private_key(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := "gcp_pubsub_bridge_jwt_worker_failed_to_start"},
+                    #{?snk_kind := gcp_pubsub_connector_startup_error},
                     20_000
                 ),
             Res
@@ -916,28 +899,18 @@ t_invalid_private_key(Config) ->
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
-                [#{reason := Reason}] when
-                    Reason =:= noproc orelse
-                        Reason =:= {shutdown, {error, empty_key}},
-                ?of_kind("gcp_pubsub_bridge_jwt_worker_failed_to_start", Trace)
-            ),
-            ?assertMatch(
                 [#{error := empty_key}],
-                ?of_kind(connector_jwt_worker_startup_error, Trace)
+                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
             ),
             ok
         end
     ),
     ok.
 
-t_jwt_worker_start_timeout(Config) ->
-    InvalidPrivateKeyPEM = <<"xxxxxx">>,
+t_truncated_private_key(Config) ->
+    InvalidPrivateKeyPEM = <<"-----BEGIN PRIVATE KEY-----\nMIIEvQI...">>,
     ?check_trace(
         begin
-            ?force_ordering(
-                #{?snk_kind := will_never_happen},
-                #{?snk_kind := connector_jwt_worker_make_key}
-            ),
             {Res, {ok, _Event}} =
                 ?wait_async_action(
                     create_bridge(
@@ -947,14 +920,71 @@ t_jwt_worker_start_timeout(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := "gcp_pubsub_bridge_jwt_timeout"},
+                    #{?snk_kind := gcp_pubsub_connector_startup_error},
                     20_000
                 ),
             Res
         end,
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
-            ?assertMatch([_], ?of_kind("gcp_pubsub_bridge_jwt_timeout", Trace)),
+            ?assertMatch(
+                [#{error := {error, function_clause}}],
+                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_jose_error_tuple(Config) ->
+    ?check_trace(
+        begin
+            {Res, {ok, _Event}} =
+                ?wait_async_action(
+                    emqx_common_test_helpers:with_mock(
+                        jose_jwk,
+                        from_pem,
+                        fun(_PrivateKeyPEM) -> {error, some_error} end,
+                        fun() -> create_bridge(Config) end
+                    ),
+                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    20_000
+                ),
+            Res
+        end,
+        fun(Res, Trace) ->
+            ?assertMatch({ok, _}, Res),
+            ?assertMatch(
+                [#{error := {invalid_private_key, some_error}}],
+                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_jose_other_error(Config) ->
+    ?check_trace(
+        begin
+            {Res, {ok, _Event}} =
+                ?wait_async_action(
+                    emqx_common_test_helpers:with_mock(
+                        jose_jwk,
+                        from_pem,
+                        fun(_PrivateKeyPEM) -> {unknown, error} end,
+                        fun() -> create_bridge(Config) end
+                    ),
+                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    20_000
+                ),
+            Res
+        end,
+        fun(Res, Trace) ->
+            ?assertMatch({ok, _}, Res),
+            ?assertMatch(
+                [#{error := {invalid_private_key, {unknown, error}}}],
+                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+            ),
             ok
         end
     ),
@@ -1306,26 +1336,6 @@ t_unrecoverable_error(Config) ->
             success => 0
         },
         ResourceId
-    ),
-    ok.
-
-t_failed_to_start_jwt_worker(Config) ->
-    ?check_trace(
-        emqx_common_test_helpers:with_mock(
-            emqx_connector_jwt_sup,
-            ensure_worker_present,
-            fun(_JWTWorkerId, _Config) -> {error, restarting} end,
-            fun() ->
-                ?assertMatch({ok, _}, create_bridge(Config))
-            end
-        ),
-        fun(Trace) ->
-            ?assertMatch(
-                [#{reason := {error, restarting}}],
-                ?of_kind("gcp_pubsub_bridge_jwt_worker_failed_to_start", Trace)
-            ),
-            ok
-        end
     ),
     ok.
 

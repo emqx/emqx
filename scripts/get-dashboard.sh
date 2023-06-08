@@ -8,10 +8,10 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 VERSION="${1}"
 case "$VERSION" in
     v*)
-        RELEASE_ASSET_FILE="emqx-dashboard.zip"
+        RELEASE_ASSET_FILE="emqx-dashboard-$VERSION.zip"
         ;;
     e*)
-        RELEASE_ASSET_FILE="emqx-enterprise-dashboard.zip"
+        RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
         ;;
     *)
         echo "Unknown version $VERSION"

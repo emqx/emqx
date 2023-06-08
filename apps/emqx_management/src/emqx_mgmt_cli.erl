@@ -17,6 +17,8 @@
 -module(emqx_mgmt_cli).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -168,7 +170,7 @@ sort_map_list_field(Field, Map) ->
 %% @doc Query clients
 
 clients(["list"]) ->
-    dump(emqx_channel, client);
+    dump(?CHAN_TAB, client);
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
@@ -182,7 +184,7 @@ clients(_) ->
     ]).
 
 if_client(ClientId, Fun) ->
-    case ets:lookup(emqx_channel, (bin(ClientId))) of
+    case ets:lookup(?CHAN_TAB, (bin(ClientId))) of
         [] -> emqx_ctl:print("Not Found.~n");
         [Channel] -> Fun({client, Channel})
     end.
@@ -191,9 +193,9 @@ if_client(ClientId, Fun) ->
 %% @doc Topics Command
 
 topics(["list"]) ->
-    dump(emqx_route, emqx_topic);
+    dump(?ROUTE_TAB, emqx_topic);
 topics(["show", Topic]) ->
-    Routes = ets:lookup(emqx_route, bin(Topic)),
+    Routes = ets:lookup(?ROUTE_TAB, bin(Topic)),
     [print({emqx_topic, Route}) || Route <- Routes];
 topics(_) ->
     emqx_ctl:usage([
@@ -204,23 +206,23 @@ topics(_) ->
 subscriptions(["list"]) ->
     lists:foreach(
         fun(Suboption) ->
-            print({emqx_suboption, Suboption})
+            print({?SUBOPTION, Suboption})
         end,
-        ets:tab2list(emqx_suboption)
+        ets:tab2list(?SUBOPTION)
     );
 subscriptions(["show", ClientId]) ->
     case ets:lookup(emqx_subid, bin(ClientId)) of
         [] ->
             emqx_ctl:print("Not Found.~n");
         [{_, Pid}] ->
-            case ets:match_object(emqx_suboption, {{'_', Pid}, '_'}) of
+            case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
-                Suboption -> [print({emqx_suboption, Sub}) || Sub <- Suboption]
+                Suboption -> [print({?SUBOPTION, Sub}) || Sub <- Suboption]
             end
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
-        case ets:lookup(emqx_channel, bin(ClientId)) of
+        case ets:lookup(?CHAN_TAB, bin(ClientId)) of
             [] ->
                 emqx_ctl:print("Error: Channel not found!");
             [{_, Pid}] ->
@@ -230,7 +232,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
         end
     end);
 subscriptions(["del", ClientId, Topic]) ->
-    case ets:lookup(emqx_channel, bin(ClientId)) of
+    case ets:lookup(?CHAN_TAB, bin(ClientId)) of
         [] ->
             emqx_ctl:print("Error: Channel not found!");
         [{_, Pid}] ->
@@ -841,7 +843,7 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print({emqx_suboption, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
+print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
     SubId = maps:get(subid, Options),
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),

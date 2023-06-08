@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -117,7 +118,7 @@ load_meck(ClientId) ->
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     ChanInfo = #{conninfo := ConnInfo} = emqx_cm:get_chan_info(ClientId),
     NChanInfo = ChanInfo#{conninfo := ConnInfo#{conn_mod := fake_conn_mod}},
-    true = ets:update_element(emqx_channel_info, {ClientId, ChanPid}, {2, NChanInfo}).
+    true = ets:update_element(?CHAN_INFO_TAB, {ClientId, ChanPid}, {2, NChanInfo}).
 
 unload_meck(_ClientId) ->
     meck:unload(fake_conn_mod).

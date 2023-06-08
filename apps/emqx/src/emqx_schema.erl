@@ -33,6 +33,7 @@
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
 -define(MAX_INT_TIMEOUT_S, 4294967).
+-define(DEFAULT_WINDOW_TIME, <<"1m">>).
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -94,7 +95,10 @@
     validate_keepalive_multiplier/1,
     non_empty_string/1,
     validations/0,
-    naive_env_interpolation/1
+    naive_env_interpolation/1,
+    validate_server_ssl_opts/1,
+    validate_tcp_keepalive/1,
+    parse_tcp_keepalive/1
 ]).
 
 -export([qos/0]).
@@ -274,7 +278,10 @@ roots(low) ->
         {"flapping_detect",
             sc(
                 ref("flapping_detect"),
-                #{importance => ?IMPORTANCE_HIDDEN}
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    converter => fun flapping_detect_converter/2
+                }
             )},
         {"persistent_session_store",
             sc(
@@ -684,15 +691,14 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    deprecated => {since, "5.0.23"},
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
         {"window_time",
             sc(
-                hoconsc:union([disabled, duration()]),
+                duration(),
                 #{
-                    default => disabled,
+                    default => ?DEFAULT_WINDOW_TIME,
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(flapping_detect_window_time)
                 }
@@ -958,7 +964,7 @@ fields("mqtt_wss_listener") ->
             {"ssl_options",
                 sc(
                     ref("listener_wss_opts"),
-                    #{}
+                    #{validator => fun validate_server_ssl_opts/1}
                 )},
             {"websocket",
                 sc(
@@ -1387,6 +1393,15 @@ fields("tcp_opts") ->
                 #{
                     default => true,
                     desc => ?DESC(fields_tcp_opts_reuseaddr)
+                }
+            )},
+        {"keepalive",
+            sc(
+                string(),
+                #{
+                    default => <<"none">>,
+                    desc => ?DESC(fields_tcp_opts_keepalive),
+                    validator => fun validate_tcp_keepalive/1
                 }
             )}
     ];
@@ -2426,8 +2441,21 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             ]
         ].
 
+validate_server_ssl_opts(#{<<"fail_if_no_peer_cert">> := true, <<"verify">> := Verify}) ->
+    validate_verify(Verify);
+validate_server_ssl_opts(#{fail_if_no_peer_cert := true, verify := Verify}) ->
+    validate_verify(Verify);
+validate_server_ssl_opts(_SSLOpts) ->
+    ok.
+
+validate_verify(verify_peer) ->
+    ok;
+validate_verify(_) ->
+    {error, "verify must be verify_peer when fail_if_no_peer_cert is true"}.
+
 mqtt_ssl_listener_ssl_options_validator(Conf) ->
     Checks = [
+        fun validate_server_ssl_opts/1,
         fun ocsp_outer_validator/1,
         fun crl_outer_validator/1
     ],
@@ -2681,7 +2709,11 @@ do_to_timeout_duration(Str, Fn, Max, Unit) ->
                     Msg = lists:flatten(
                         io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
                     ),
-                    throw(Msg)
+                    throw(#{
+                        schema_module => ?MODULE,
+                        message => Msg,
+                        kind => validation_error
+                    })
             end;
         Err ->
             Err
@@ -2826,6 +2858,44 @@ validate_alarm_actions(Actions) ->
     case UnSupported of
         [] -> ok;
         Error -> {error, Error}
+    end.
+
+validate_tcp_keepalive(Value) ->
+    case iolist_to_binary(Value) of
+        <<"none">> ->
+            ok;
+        _ ->
+            _ = parse_tcp_keepalive(Value),
+            ok
+    end.
+
+%% @doc This function is used as value validator and also run-time parser.
+parse_tcp_keepalive(Str) ->
+    try
+        [Idle, Interval, Probes] = binary:split(iolist_to_binary(Str), <<",">>, [global]),
+        %% use 10 times the Linux defaults as range limit
+        IdleInt = parse_ka_int(Idle, "Idle", 1, 7200_0),
+        IntervalInt = parse_ka_int(Interval, "Interval", 1, 75_0),
+        ProbesInt = parse_ka_int(Probes, "Probes", 1, 9_0),
+        {IdleInt, IntervalInt, ProbesInt}
+    catch
+        error:_ ->
+            throw(#{
+                reason => "Not comma separated positive integers of 'Idle,Interval,Probes' format",
+                value => Str
+            })
+    end.
+
+parse_ka_int(Bin, Name, Min, Max) ->
+    I = binary_to_integer(string:trim(Bin)),
+    case I >= Min andalso I =< Max of
+        true ->
+            I;
+        false ->
+            Msg = io_lib:format("TCP-Keepalive '~s' value must be in the rage of [~p, ~p].", [
+                Name, Min, Max
+            ]),
+            throw(#{reason => lists:flatten(Msg), value => I})
     end.
 
 user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
@@ -3482,3 +3552,9 @@ mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
     Mqtt#{<<"keepalive_multiplier">> => Backoff * 2};
 mqtt_converter(Mqtt, _Opts) ->
     Mqtt.
+
+%% For backward compatibility with window_time is disable
+flapping_detect_converter(Conf = #{<<"window_time">> := <<"disable">>}, _Opts) ->
+    Conf#{<<"window_time">> => ?DEFAULT_WINDOW_TIME, <<"enable">> => false};
+flapping_detect_converter(Conf, _Opts) ->
+    Conf.

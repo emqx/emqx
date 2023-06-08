@@ -49,7 +49,7 @@
 
 -type egress() :: #{
     local => #{
-        topic => emqx_topic:topic()
+        topic => emqx_types:topic()
     },
     remote := emqx_bridge_mqtt_msg:msgvars()
 }.

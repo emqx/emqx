@@ -29,8 +29,14 @@
 -export_type([
     zone/0,
     pubsub/0,
-    topic/0,
     subid/0
+]).
+
+-export_type([
+    group/0,
+    topic/0,
+    word/0,
+    words/0
 ]).
 
 -export_type([
@@ -122,8 +128,12 @@
 
 -type zone() :: atom().
 -type pubsub() :: publish | subscribe.
--type topic() :: emqx_topic:topic().
 -type subid() :: binary() | atom().
+
+-type group() :: binary() | undefined.
+-type topic() :: binary().
+-type word() :: '' | '+' | '#' | binary().
+-type words() :: list(word()).
 
 -type socktype() :: tcp | udp | ssl | proxy | atom().
 -type sockstate() :: idle | running | blocked | closed.
@@ -230,7 +240,6 @@
     | {share, topic(), deliver_result()}
 ].
 -type route() :: #route{}.
--type group() :: emqx_topic:group().
 -type route_entry() :: {topic(), node()} | {topic, group()}.
 -type command() :: #command{}.
 

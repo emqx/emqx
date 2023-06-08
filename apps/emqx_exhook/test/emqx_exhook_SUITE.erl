@@ -196,9 +196,9 @@ t_error_update_conf(_) ->
     Path = [exhook, servers],
     Name = <<"error_update">>,
     ErrorCfg = #{<<"name">> => Name},
-    {error, _} = emqx_exhook_mgr:update_config(Path, {update, Name, ErrorCfg}),
-    {error, _} = emqx_exhook_mgr:update_config(Path, {move, Name, top, <<>>}),
-    {error, _} = emqx_exhook_mgr:update_config(Path, {enable, Name, true}),
+    {error, not_found} = emqx_exhook_mgr:update_config(Path, {update, Name, ErrorCfg}),
+    {error, not_found} = emqx_exhook_mgr:update_config(Path, {move, Name, top}),
+    {error, not_found} = emqx_exhook_mgr:update_config(Path, {enable, Name, true}),
 
     ErrorAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>},
     {ok, _} = emqx_exhook_mgr:update_config(Path, {add, ErrorAnd}),
@@ -210,11 +210,36 @@ t_error_update_conf(_) ->
     },
     {ok, _} = emqx_exhook_mgr:update_config(Path, {update, Name, DisableAnd}),
 
-    {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"error">>}),
-    {error, not_found} = emqx_exhook_mgr:update_config(
-        Path, {delete, <<"delete_not_exists">>}
-    ),
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, Name}),
+    {error, not_found} = emqx_exhook_mgr:update_config(Path, {delete, Name}),
     ok.
+
+t_update_conf(_Config) ->
+    Path = [exhook],
+    Conf = #{<<"servers">> := Servers} = emqx_config:get_raw(Path),
+    ?assert(length(Servers) > 1),
+    Servers1 = shuffle(Servers),
+    ReOrderedConf = Conf#{<<"servers">> => Servers1},
+    validate_servers(Path, ReOrderedConf, Servers1),
+    [_ | Servers2] = Servers,
+    DeletedConf = Conf#{<<"servers">> => Servers2},
+    validate_servers(Path, DeletedConf, Servers2),
+    [L1, L2 | Servers3] = Servers,
+    UpdateL2 = L2#{<<"pool_size">> => 1, <<"request_timeout">> => 1000},
+    UpdatedServers = [L1, UpdateL2 | Servers3],
+    UpdatedConf = Conf#{<<"servers">> => UpdatedServers},
+    validate_servers(Path, UpdatedConf, UpdatedServers),
+    %% reset
+    validate_servers(Path, Conf, Servers),
+    ok.
+
+validate_servers(Path, ReOrderConf, Servers1) ->
+    {ok, _} = emqx_exhook_mgr:update_config(Path, ReOrderConf),
+    ?assertEqual(ReOrderConf, emqx_config:get_raw(Path)),
+    List = emqx_exhook_mgr:list(),
+    ExpectL = lists:map(fun(#{<<"name">> := Name}) -> Name end, Servers1),
+    L1 = lists:map(fun(#{name := Name}) -> Name end, List),
+    ?assertEqual(ExpectL, L1).
 
 t_error_server_info(_) ->
     not_found = emqx_exhook_mgr:server_info(<<"not_exists">>),
@@ -483,6 +508,10 @@ data_file(Name) ->
 cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
 
-%% FIXME: this creats inter-test dependency
+%% FIXME: this creates inter-test dependency
 stop_apps(Apps) ->
     emqx_common_test_helpers:stop_apps(Apps, #{erase_all_configs => false}).
+
+shuffle(List) ->
+    Sorted = lists:sort(lists:map(fun(L) -> {rand:uniform(), L} end, List)),
+    lists:map(fun({_, L}) -> L end, Sorted).

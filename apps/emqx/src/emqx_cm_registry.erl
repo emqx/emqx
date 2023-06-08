@@ -20,6 +20,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_cm.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 
@@ -50,7 +51,6 @@
 ]).
 
 -define(REGISTRY, ?MODULE).
--define(TAB, emqx_channel_registry).
 -define(LOCK, {?MODULE, cleanup_down}).
 
 -record(channel, {chid, pid}).
@@ -78,7 +78,7 @@ register_channel(ClientId) when is_binary(ClientId) ->
     register_channel({ClientId, self()});
 register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mria:dirty_write(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_write(?CHAN_REG_TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -91,14 +91,14 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
     unregister_channel({ClientId, self()});
 unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mria:dirty_delete_object(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
 %% @doc Lookup the global channels.
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) ->
-    [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(?TAB, ClientId)].
+    [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(?CHAN_REG_TAB, ClientId)].
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.
@@ -109,7 +109,7 @@ record(ClientId, ChanPid) ->
 
 init([]) ->
     mria_config:set_dirty_shard(?CM_SHARD, true),
-    ok = mria:create_table(?TAB, [
+    ok = mria:create_table(?CHAN_REG_TAB, [
         {type, bag},
         {rlog_shard, ?CM_SHARD},
         {storage, ram_copies},
@@ -166,7 +166,7 @@ cleanup_channels(Node) ->
 
 do_cleanup_channels(Node) ->
     Pat = [{#channel{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
-    lists:foreach(fun delete_channel/1, mnesia:select(?TAB, Pat, write)).
+    lists:foreach(fun delete_channel/1, mnesia:select(?CHAN_REG_TAB, Pat, write)).
 
 delete_channel(Chan) ->
-    mnesia:delete_object(?TAB, Chan, write).
+    mnesia:delete_object(?CHAN_REG_TAB, Chan, write).

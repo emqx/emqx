@@ -111,12 +111,12 @@ on_start(
             Error
     end.
 
-on_stop(InstanceId, #{pool_name := PoolName}) ->
+on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_dynamo_connector",
         connector => InstanceId
     }),
-    emqx_resource_pool:stop(PoolName).
+    emqx_resource_pool:stop(InstanceId).
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, State).

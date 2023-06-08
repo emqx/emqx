@@ -26,15 +26,16 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    emqx_config:put_zone_conf(
-        default,
+    %% update global default config
+    {ok, _} = emqx:update_config(
         [flapping_detect],
         #{
-            max_count => 3,
+            <<"enable">> => true,
+            <<"max_count">> => 3,
             % 0.1s
-            window_time => 100,
+            <<"window_time">> => 100,
             %% 2s
-            ban_time => 2000
+            <<"ban_time">> => "2s"
         }
     ),
     Config.
@@ -102,20 +103,73 @@ t_expired_detecting(_) ->
         )
     ).
 
-t_conf_without_window_time(_) ->
-    %% enable is deprecated, so we need to make sure it won't be used.
+t_conf_update(_) ->
     Global = emqx_config:get([flapping_detect]),
-    ?assertNot(maps:is_key(enable, Global)),
-    %% zones don't have default value, so we need to make sure fallback to global conf.
-    %% this new_zone will fallback to global conf.
+    #{
+        ban_time := _BanTime,
+        enable := _Enable,
+        max_count := _MaxCount,
+        window_time := _WindowTime
+    } = Global,
+
     emqx_config:put_zone_conf(new_zone, [flapping_detect], #{}),
     ?assertEqual(Global, get_policy(new_zone)),
 
-    emqx_config:put_zone_conf(new_zone_1, [flapping_detect], #{window_time => 100}),
-    ?assertEqual(100, emqx_flapping:get_policy(window_time, new_zone_1)),
-    ?assertEqual(maps:get(ban_time, Global), emqx_flapping:get_policy(ban_time, new_zone_1)),
-    ?assertEqual(maps:get(max_count, Global), emqx_flapping:get_policy(max_count, new_zone_1)),
+    emqx_config:put_zone_conf(zone_1, [flapping_detect], #{window_time => 100}),
+    ?assertEqual(Global#{window_time := 100}, emqx_flapping:get_policy(zone_1)),
+
+    Zones = #{
+        <<"zone_1">> => #{<<"flapping_detect">> => #{<<"window_time">> => 123}},
+        <<"zone_2">> => #{<<"flapping_detect">> => #{<<"window_time">> => 456}}
+    },
+    ?assertMatch({ok, _}, emqx:update_config([zones], Zones)),
+    %% new_zone is already deleted
+    ?assertError({config_not_found, _}, get_policy(new_zone)),
+    %% update zone(zone_1) has default.
+    ?assertEqual(Global#{window_time := 123}, emqx_flapping:get_policy(zone_1)),
+    %% create zone(zone_2) has default
+    ?assertEqual(Global#{window_time := 456}, emqx_flapping:get_policy(zone_2)),
+    %% reset to default(empty) andalso get default from global
+    ?assertMatch({ok, _}, emqx:update_config([zones], #{})),
+    ?assertEqual(Global, emqx:get_config([zones, default, flapping_detect])),
+    ?assertError({config_not_found, _}, get_policy(zone_1)),
+    ?assertError({config_not_found, _}, get_policy(zone_2)),
+    ok.
+
+t_conf_update_timer(_Config) ->
+    _ = emqx_flapping:start_link(),
+    validate_timer([default]),
+    {ok, _} =
+        emqx:update_config([zones], #{
+            <<"timer_1">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
+            <<"timer_2">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
+            <<"timer_3">> => #{<<"flapping_detect">> => #{<<"enable">> => false}}
+        }),
+    validate_timer([timer_1, timer_2, timer_3, default]),
+    ok.
+
+validate_timer(Names) ->
+    Zones = emqx:get_config([zones]),
+    ?assertEqual(lists:sort(Names), lists:sort(maps:keys(Zones))),
+    Timers = sys:get_state(emqx_flapping),
+    maps:foreach(
+        fun(Name, #{flapping_detect := #{enable := Enable}}) ->
+            ?assertEqual(Enable, is_reference(maps:get(Name, Timers)), Timers)
+        end,
+        Zones
+    ),
+    ?assertEqual(maps:keys(Zones), maps:keys(Timers)),
+    ok.
+
+t_window_compatibility_check(_Conf) ->
+    Flapping = emqx:get_config([flapping_detect]),
+    ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {window_time = disable}">>),
+    ?assertMatch(#{window_time := 60000, enable := false}, emqx:get_config([flapping_detect])),
+    %% reset
+    FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
+    ok = emqx_config:init_load(emqx_schema, FlappingBin),
+    ?assertEqual(Flapping, emqx:get_config([flapping_detect])),
     ok.
 
 get_policy(Zone) ->
-    emqx_flapping:get_policy([window_time, ban_time, max_count], Zone).
+    emqx_config:get_zone_conf(Zone, [flapping_detect]).

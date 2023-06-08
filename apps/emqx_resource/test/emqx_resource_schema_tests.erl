@@ -67,7 +67,7 @@ health_check_interval_validator_test_() ->
                 parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"3_600_000ms">>))
             )},
         ?_assertThrow(
-            #{exception := "timeout value too large" ++ _},
+            #{exception := #{message := "timeout value too large" ++ _}},
             parse_and_check_webhook_bridge(
                 webhook_bridge_health_check_hocon(<<"150000000000000s">>)
             )

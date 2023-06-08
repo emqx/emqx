@@ -401,6 +401,7 @@ getstats(Key) ->
     end.
 
 stats(connections) -> emqx_stats:getstat('connections.count');
+stats(live_connections) -> emqx_stats:getstat('live_connections.count');
 stats(topics) -> emqx_stats:getstat('topics.count');
 stats(subscriptions) -> emqx_stats:getstat('subscriptions.count');
 stats(received) -> emqx_metrics:val('messages.received');

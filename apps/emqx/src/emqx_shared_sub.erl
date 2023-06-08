@@ -97,7 +97,7 @@
 -define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 -define(SUBSCRIBER_DOWN, noproc).
 
--type redispatch_to() :: ?REDISPATCH_TO(emqx_topic:group(), emqx_topic:topic()).
+-type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
 -record(state, {pmon}).
 
@@ -156,7 +156,7 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             end
     end.
 
--spec strategy(emqx_topic:group()) -> strategy().
+-spec strategy(emqx_types:group()) -> strategy().
 strategy(Group) ->
     try
         emqx:get_config([

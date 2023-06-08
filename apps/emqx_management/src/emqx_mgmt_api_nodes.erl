@@ -153,6 +153,11 @@ fields(node_info) ->
         {connections,
             mk(
                 non_neg_integer(),
+                #{desc => <<"Number of clients session in this node">>, example => 0}
+            )},
+        {live_connections,
+            mk(
+                non_neg_integer(),
                 #{desc => <<"Number of clients currently connected to this node">>, example => 0}
             )},
         {load1,

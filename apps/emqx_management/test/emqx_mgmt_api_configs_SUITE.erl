@@ -209,7 +209,7 @@ t_zones(_Config) ->
     ?assertEqual(Mqtt1, NewMqtt),
     %% delete the new zones
     {ok, #{}} = update_config("zones", Zones),
-    ?assertEqual(undefined, emqx_config:get_raw([new_zone, mqtt], undefined)),
+    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
     ok.
 
 t_dashboard(_Config) ->

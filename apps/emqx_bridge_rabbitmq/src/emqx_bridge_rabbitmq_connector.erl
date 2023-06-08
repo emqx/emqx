@@ -261,12 +261,15 @@ on_start(
 -spec on_stop(resource_id(), resource_state()) -> term().
 on_stop(
     ResourceID,
-    #{poolname := PoolName} = _State
+    _State
 ) ->
     ?SLOG(info, #{
         msg => "stopping RabbitMQ connector",
         connector => ResourceID
     }),
+    stop_clients_and_pool(ResourceID).
+
+stop_clients_and_pool(PoolName) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     Clients = [
         begin

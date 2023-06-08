@@ -22,13 +22,13 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--export([start_link/0, stop/0]).
+-export([start_link/0, update_config/0, stop/0]).
 
 %% API
 -export([detect/1]).
 
 -ifdef(TEST).
--export([get_policy/2]).
+-export([get_policy/1]).
 -endif.
 
 %% gen_server callbacks
@@ -59,12 +59,17 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+update_config() ->
+    gen_server:cast(?MODULE, update_config).
+
 stop() -> gen_server:stop(?MODULE).
 
 %% @doc Detect flapping when a MQTT client disconnected.
 -spec detect(emqx_types:clientinfo()) -> boolean().
 detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone}) ->
-    Policy = #{max_count := Threshold} = get_policy([max_count, window_time, ban_time], Zone),
+    detect(ClientId, PeerHost, get_policy(Zone)).
+
+detect(ClientId, PeerHost, #{enable := true, max_count := Threshold} = Policy) ->
     %% The initial flapping record sets the detect_cnt to 0.
     InitVal = #flapping{
         clientid = ClientId,
@@ -82,24 +87,21 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone}) ->
                 [] ->
                     false
             end
-    end.
+    end;
+detect(_ClientId, _PeerHost, #{enable := false}) ->
+    false.
 
-get_policy(Keys, Zone) when is_list(Keys) ->
-    RootKey = flapping_detect,
-    Conf = emqx_config:get_zone_conf(Zone, [RootKey]),
-    lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Conf) of
-                {ok, V} -> Acc#{Key => V};
-                error -> Acc#{Key => emqx_config:get([RootKey, Key])}
-            end
-        end,
-        #{},
-        Keys
-    );
-get_policy(Key, Zone) ->
-    #{Key := Conf} = get_policy([Key], Zone),
-    Conf.
+get_policy(Zone) ->
+    Flapping = [flapping_detect],
+    case emqx_config:get_zone_conf(Zone, Flapping, undefined) of
+        undefined ->
+            %% If zone has be deleted at running time,
+            %% we don't crash the connection and disable flapping detect.
+            Policy = emqx_config:get(Flapping),
+            Policy#{enable => false};
+        Policy ->
+            Policy
+    end.
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
 
@@ -115,8 +117,8 @@ init([]) ->
         {read_concurrency, true},
         {write_concurrency, true}
     ]),
-    start_timers(),
-    {ok, #{}, hibernate}.
+    Timers = start_timers(),
+    {ok, Timers, hibernate}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -169,17 +171,20 @@ handle_cast(
             )
     end,
     {noreply, State};
+handle_cast(update_config, State) ->
+    NState = update_timer(State),
+    {noreply, NState};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
-    Timestamp =
-        erlang:system_time(millisecond) - get_policy(window_time, Zone),
+    Policy = #{window_time := WindowTime} = get_policy(Zone),
+    Timestamp = erlang:system_time(millisecond) - WindowTime,
     MatchSpec = [{{'_', '_', '_', '$1', '_'}, [{'<', '$1', Timestamp}], [true]}],
     ets:select_delete(?FLAPPING_TAB, MatchSpec),
-    _ = start_timer(Zone),
-    {noreply, State, hibernate};
+    Timer = start_timer(Policy, Zone),
+    {noreply, State#{Zone => Timer}, hibernate};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -190,18 +195,30 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-start_timer(Zone) ->
-    case get_policy(window_time, Zone) of
-        WindowTime when is_integer(WindowTime) ->
-            emqx_utils:start_timer(WindowTime, {garbage_collect, Zone});
-        disabled ->
-            ok
-    end.
+start_timer(#{enable := true, window_time := WindowTime}, Zone) ->
+    emqx_utils:start_timer(WindowTime, {garbage_collect, Zone});
+start_timer(_Policy, _Zone) ->
+    undefined.
 
 start_timers() ->
-    maps:foreach(
-        fun(Zone, _ZoneConf) ->
-            start_timer(Zone)
+    maps:map(
+        fun(ZoneName, #{flapping_detect := FlappingDetect}) ->
+            start_timer(FlappingDetect, ZoneName)
+        end,
+        emqx:get_config([zones], #{})
+    ).
+
+update_timer(Timers) ->
+    maps:map(
+        fun(ZoneName, #{flapping_detect := FlappingDetect = #{enable := Enable}}) ->
+            case maps:get(ZoneName, Timers, undefined) of
+                undefined ->
+                    start_timer(FlappingDetect, ZoneName);
+                TRef when Enable -> TRef;
+                TRef ->
+                    _ = erlang:cancel_timer(TRef),
+                    undefined
+            end
         end,
         emqx:get_config([zones], #{})
     ).
