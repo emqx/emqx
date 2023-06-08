@@ -457,6 +457,17 @@ bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B.
 
+atom(Bin) when is_binary(Bin), size(Bin) > 255 ->
+    erlang:throw(
+        iolist_to_binary(
+            io_lib:format(
+                "Name is is too long."
+                " Please provide a shorter name (<= 255 bytes)."
+                " The name that is too long: \"~s\"",
+                [Bin]
+            )
+        )
+    );
 atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8);
 atom(Str) when is_list(Str) ->

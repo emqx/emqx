@@ -421,6 +421,26 @@ t_http_crud_apis(Config) ->
     ),
 
     %% Test bad updates
+    %% ================
+
+    %% Add bridge with a name that is too long
+    %% We only support bridge names up to 255 characters
+    LongName = list_to_binary(lists:duplicate(256, $a)),
+    NameTooLongRequestResult = request_json(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, LongName),
+        Config
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        NameTooLongRequestResult
+    ),
+    {ok, 400, #{<<"message">> := NameTooLongMessage}} = NameTooLongRequestResult,
+    %% Use regex to check that the message contains the name
+    Match = re:run(NameTooLongMessage, LongName),
+    ?assertMatch({match, _}, Match),
+    %% Add bridge without the URL field
     {ok, 400, PutFail1} = request_json(
         put,
         uri(["bridges", BridgeID]),

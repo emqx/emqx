@@ -602,7 +602,7 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
-        {error, #{kind := validation_error} = Reason} ->
+        {error, Reason} when is_map(Reason) ->
             ?BAD_REQUEST(map_to_json(Reason))
     end.
 
