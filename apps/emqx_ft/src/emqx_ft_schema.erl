@@ -288,12 +288,7 @@ validator(filename) ->
     ];
 validator(backend) ->
     fun(Config) ->
-        Enabled = maps:filter(
-            fun(_, Backend) ->
-                maps:get(enable, Backend, false) or maps:get(<<"enable">>, Backend, false)
-            end,
-            Config
-        ),
+        Enabled = maps:filter(fun(_, #{<<"enable">> := E}) -> E end, Config),
         case maps:to_list(Enabled) of
             [{_Type, _BackendConfig}] ->
                 ok;
@@ -334,12 +329,9 @@ ref(Ref) ->
 
 translate(Conf) ->
     [Root] = roots(),
-    maps:get(
-        Root,
-        hocon_tconf:check_plain(
-            ?MODULE, #{atom_to_binary(Root) => Conf}, #{atom_key => true}, [Root]
-        )
-    ).
+    RootRaw = atom_to_binary(Root),
+    ConfChecked = hocon_tconf:check_plain(?MODULE, #{RootRaw => Conf}, #{}, [Root]),
+    emqx_utils_maps:unsafe_atom_key_map(maps:get(RootRaw, ConfChecked)).
 
 -spec backend(emqx_config:config()) ->
     {_Type :: atom(), emqx_config:config()}.
