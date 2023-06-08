@@ -47,6 +47,8 @@ fields(config) ->
 %% `emqx_resource' API
 %%========================================================================================
 
+-define(HTTP_CONNECT_TIMEOUT, 1000).
+
 callback_mode() -> always_sync.
 
 is_buffer_supported() -> false.
@@ -171,7 +173,7 @@ opentsdb_connectivity(Server) ->
             <<"https://", _/binary>> -> Server;
             _ -> "http://" ++ Server
         end,
-    emqx_plugin_libs_rule:http_connectivity(SvrUrl).
+    emqx_connector_lib:http_connectivity(SvrUrl, ?HTTP_CONNECT_TIMEOUT).
 
 format_opentsdb_msg(Msg) ->
     maps:with(

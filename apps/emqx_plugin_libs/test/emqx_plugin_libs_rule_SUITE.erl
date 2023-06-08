@@ -21,25 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(PORT, 9876).
-
 all() -> emqx_common_test_helpers:all(?MODULE).
-
-t_http_connectivity(_) ->
-    {ok, Socket} = gen_tcp:listen(?PORT, []),
-    ok = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:" ++ integer_to_list(?PORT), 1000
-    ),
-    gen_tcp:close(Socket),
-    {error, _} = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:" ++ integer_to_list(?PORT), 1000
-    ).
-
-t_tcp_connectivity(_) ->
-    {ok, Socket} = gen_tcp:listen(?PORT, []),
-    ok = emqx_plugin_libs_rule:tcp_connectivity("127.0.0.1", ?PORT, 1000),
-    gen_tcp:close(Socket),
-    {error, _} = emqx_plugin_libs_rule:tcp_connectivity("127.0.0.1", ?PORT, 1000).
 
 t_atom_key(_) ->
     _ = erlang,
