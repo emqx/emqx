@@ -294,14 +294,11 @@ health_check(ResId) ->
 
 %% @doc Function called from the supervisor to actually start the server
 start_link(ResId, Group, ResourceType, Config, Opts) ->
-    QueryMode =
-        case erlang:function_exported(ResourceType, query_mode, 1) of
-            true ->
-                ResourceType:query_mode(Config);
-            false ->
-                maps:get(query_mode, Opts, sync)
-        end,
-
+    QueryMode = emqx_resource:query_mode(
+        ResourceType,
+        Config,
+        Opts
+    ),
     Data = #data{
         id = ResId,
         group = Group,
