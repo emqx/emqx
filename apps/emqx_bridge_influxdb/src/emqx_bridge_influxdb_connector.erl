@@ -637,7 +637,7 @@ value_type(Val) ->
     Val.
 
 key_filter(undefined) -> undefined;
-key_filter(Value) -> emqx_plugin_libs_rule:bin(Value).
+key_filter(Value) -> emqx_utils_conv:bin(Value).
 
 data_filter(undefined) -> undefined;
 data_filter(Int) when is_integer(Int) -> Int;
@@ -645,7 +645,7 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-bin(Data) -> emqx_plugin_libs_rule:bin(Data).
+bin(Data) -> emqx_utils_conv:bin(Data).
 
 %% helper funcs
 log_error_points(InstId, Errs) ->

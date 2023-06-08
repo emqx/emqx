@@ -112,7 +112,7 @@ proc_tmpl(Tokens, Data) ->
 
 -spec proc_tmpl(tmpl_token(), map(), proc_tmpl_opts()) -> binary() | list().
 proc_tmpl(Tokens, Data, Opts = #{return := full_binary}) ->
-    Trans = maps:get(var_trans, Opts, fun emqx_plugin_libs_rule:bin/1),
+    Trans = maps:get(var_trans, Opts, fun emqx_utils_conv:bin/1),
     list_to_binary(
         proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Trans})
     );
@@ -243,7 +243,7 @@ sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 sql_data(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 
 -spec bin(term()) -> binary().
-bin(Val) -> emqx_plugin_libs_rule:bin(Val).
+bin(Val) -> emqx_utils_conv:bin(Val).
 
 -spec quote_sql(_Value) -> iolist().
 quote_sql(Str) ->

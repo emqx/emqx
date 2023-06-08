@@ -44,7 +44,7 @@
 %% Internal exports used to execute code with ecpool worker
 -export([do_get_status/1, worker_do_insert/3]).
 
--import(emqx_plugin_libs_rule, [str/1]).
+-import(emqx_utils_conv, [str/1]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -define(ACTION_SEND_MESSAGE, send_message).

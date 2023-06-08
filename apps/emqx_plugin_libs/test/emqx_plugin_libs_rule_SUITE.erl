@@ -28,11 +28,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 t_http_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
     ok = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:" ++ emqx_plugin_libs_rule:str(?PORT), 1000
+        "http://127.0.0.1:" ++ integer_to_list(?PORT), 1000
     ),
     gen_tcp:close(Socket),
     {error, _} = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:" ++ emqx_plugin_libs_rule:str(?PORT), 1000
+        "http://127.0.0.1:" ++ integer_to_list(?PORT), 1000
     ).
 
 t_tcp_connectivity(_) ->
@@ -40,25 +40,6 @@ t_tcp_connectivity(_) ->
     ok = emqx_plugin_libs_rule:tcp_connectivity("127.0.0.1", ?PORT, 1000),
     gen_tcp:close(Socket),
     {error, _} = emqx_plugin_libs_rule:tcp_connectivity("127.0.0.1", ?PORT, 1000).
-
-t_str(_) ->
-    ?assertEqual("abc", emqx_plugin_libs_rule:str("abc")),
-    ?assertEqual("abc", emqx_plugin_libs_rule:str(abc)),
-    ?assertEqual("{\"a\":1}", emqx_plugin_libs_rule:str(#{a => 1})),
-    ?assertEqual("1", emqx_plugin_libs_rule:str(1)),
-    ?assertEqual("2.0", emqx_plugin_libs_rule:str(2.0)),
-    ?assertEqual("true", emqx_plugin_libs_rule:str(true)),
-    ?assertError(_, emqx_plugin_libs_rule:str({a, v})).
-
-t_bin(_) ->
-    ?assertEqual(<<"abc">>, emqx_plugin_libs_rule:bin("abc")),
-    ?assertEqual(<<"abc">>, emqx_plugin_libs_rule:bin(abc)),
-    ?assertEqual(<<"{\"a\":1}">>, emqx_plugin_libs_rule:bin(#{a => 1})),
-    ?assertEqual(<<"[{\"a\":1}]">>, emqx_plugin_libs_rule:bin([#{a => 1}])),
-    ?assertEqual(<<"1">>, emqx_plugin_libs_rule:bin(1)),
-    ?assertEqual(<<"2.0">>, emqx_plugin_libs_rule:bin(2.0)),
-    ?assertEqual(<<"true">>, emqx_plugin_libs_rule:bin(true)),
-    ?assertError(_, emqx_plugin_libs_rule:bin({a, v})).
 
 t_atom_key(_) ->
     _ = erlang,

@@ -255,7 +255,7 @@ render(Template, Message) ->
     Opts = #{
         var_trans => fun
             (undefined) -> <<"">>;
-            (X) -> emqx_plugin_libs_rule:bin(X)
+            (X) -> emqx_utils_conv:bin(X)
         end,
         return => full_binary
     },

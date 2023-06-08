@@ -27,8 +27,6 @@
 
 %% type converting
 -export([
-    str/1,
-    bin/1,
     bool/1,
     int/1,
     float/1,
@@ -36,7 +34,6 @@
     map/1,
     utf8_bin/1,
     utf8_str/1,
-    number_to_binary/1,
     atom_key/1,
     unsafe_atom_key/1
 ]).
@@ -172,39 +169,15 @@ tcp_connectivity(Host, Port, Timeout) ->
             {error, Reason}
     end.
 
-str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
-str(Num) when is_number(Num) -> number_to_list(Num);
-str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-str(Map) when is_map(Map) -> binary_to_list(emqx_utils_json:encode(Map));
-str(List) when is_list(List) ->
-    case io_lib:printable_list(List) of
-        true -> List;
-        false -> binary_to_list(emqx_utils_json:encode(List))
-    end;
-str(Data) ->
-    error({invalid_str, Data}).
-
 utf8_bin(Str) when is_binary(Str); is_list(Str) ->
     unicode:characters_to_binary(Str);
 utf8_bin(Str) ->
-    unicode:characters_to_binary(bin(Str)).
+    unicode:characters_to_binary(emqx_utils_conv:bin(Str)).
 
 utf8_str(Str) when is_binary(Str); is_list(Str) ->
     unicode:characters_to_list(Str);
 utf8_str(Str) ->
-    unicode:characters_to_list(str(Str)).
-
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Num) when is_number(Num) -> number_to_binary(Num);
-bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-bin(Map) when is_map(Map) -> emqx_utils_json:encode(Map);
-bin(List) when is_list(List) ->
-    case io_lib:printable_list(List) of
-        true -> list_to_binary(List);
-        false -> emqx_utils_json:encode(List)
-    end;
-bin(Data) ->
-    error({invalid_bin, Data}).
+    unicode:characters_to_list(emqx_utils_conv:str(Str)).
 
 int(List) when is_list(List) ->
     try
@@ -274,13 +247,3 @@ bool(Bool) when
     false;
 bool(Bool) ->
     error({invalid_boolean, Bool}).
-
-number_to_binary(Int) when is_integer(Int) ->
-    integer_to_binary(Int);
-number_to_binary(Float) when is_float(Float) ->
-    float_to_binary(Float, [{decimals, 10}, compact]).
-
-number_to_list(Int) when is_integer(Int) ->
-    integer_to_list(Int);
-number_to_list(Float) when is_float(Float) ->
-    float_to_list(Float, [{decimals, 10}, compact]).

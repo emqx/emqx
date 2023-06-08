@@ -556,7 +556,7 @@ render(FullMessage, PayloadTemplate) ->
             (undefined) ->
                 <<>>;
             (X) ->
-                emqx_plugin_libs_rule:bin(X)
+                emqx_utils_conv:bin(X)
         end
     },
     emqx_placeholder:proc_tmpl(PayloadTemplate, FullMessage, Opts).

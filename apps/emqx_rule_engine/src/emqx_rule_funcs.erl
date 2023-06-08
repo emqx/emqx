@@ -17,7 +17,6 @@
 -module(emqx_rule_funcs).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -265,8 +264,6 @@
         map_get/2
     ]}
 ).
-
--define(is_var(X), is_binary(X)).
 
 %% @doc "msgid()" Func
 msgid() ->
@@ -631,29 +628,42 @@ do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"little">>) ->
 %%------------------------------------------------------------------------------
 
 str(Data) ->
-    emqx_plugin_libs_rule:bin(Data).
+    emqx_utils_conv:bin(Data).
 
+str_utf8(Data) when is_binary(Data); is_list(Data) ->
+    unicode:characters_to_binary(Data);
 str_utf8(Data) ->
-    emqx_plugin_libs_rule:utf8_bin(Data).
+    unicode:characters_to_binary(str(Data)).
 
 bool(Data) ->
-    emqx_plugin_libs_rule:bool(Data).
+    emqx_utils_conv:bool(Data).
 
 int(Data) ->
-    emqx_plugin_libs_rule:int(Data).
+    emqx_utils_conv:int(Data).
 
 float(Data) ->
-    emqx_plugin_libs_rule:float(Data).
+    emqx_utils_conv:float(Data).
 
 float(Data, Decimals) when Decimals > 0 ->
-    Data1 = ?MODULE:float(Data),
+    Data1 = emqx_utils_conv:float(Data),
     list_to_float(float_to_list(Data1, [{decimals, Decimals}])).
 
 float2str(Float, Precision) ->
-    emqx_plugin_libs_rule:float2str(Float, Precision).
+    float_to_binary(Float, [{decimals, Precision}, compact]).
 
+map(Bin) when is_binary(Bin) ->
+    case emqx_utils_json:decode(Bin) of
+        Map = #{} ->
+            Map;
+        _ ->
+            error(badarg, [Bin])
+    end;
+map(List) when is_list(List) ->
+    maps:from_list(List);
+map(Map = #{}) ->
+    Map;
 map(Data) ->
-    emqx_plugin_libs_rule:map(Data).
+    error(badarg, [Data]).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
     emqx_utils:bin_to_hexstr(Bin, upper).
@@ -895,7 +905,7 @@ mget(Key, Map, Default) ->
             Val;
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
-            BinKey = emqx_plugin_libs_rule:bin(Key),
+            BinKey = emqx_utils_conv:bin(Key),
             case maps:find(BinKey, Map) of
                 {ok, Val} -> Val;
                 error -> Default
@@ -922,7 +932,7 @@ mput(Key, Val, Map) ->
             maps:put(Key, Val, Map);
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
-            BinKey = emqx_plugin_libs_rule:bin(Key),
+            BinKey = emqx_utils_conv:bin(Key),
             case maps:find(BinKey, Map) of
                 {ok, _} -> maps:put(BinKey, Val, Map);
                 error -> maps:put(Key, Val, Map)
@@ -1053,7 +1063,7 @@ unix_ts_to_rfc3339(Epoch) ->
     unix_ts_to_rfc3339(Epoch, <<"second">>).
 
 unix_ts_to_rfc3339(Epoch, Unit) when is_integer(Epoch) ->
-    emqx_plugin_libs_rule:bin(
+    emqx_utils_conv:bin(
         calendar:system_time_to_rfc3339(
             Epoch, [{unit, time_unit(Unit)}]
         )
@@ -1090,7 +1100,7 @@ format_date(TimeUnit, Offset, FormatString) ->
 
 format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
     Unit = time_unit(TimeUnit),
-    emqx_plugin_libs_rule:bin(
+    emqx_utils_conv:bin(
         lists:concat(
             emqx_calendar:format(TimeEpoch, Unit, Offset, FormatString)
         )
