@@ -224,6 +224,71 @@ ssl_file_deterministic_names_test() ->
     ),
     _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
 
+to_client_opts_test() ->
+    VersionsAll = [tlsv1, 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
+    Versions13Only = ['tlsv1.3'],
+    Options = #{
+        enable => true,
+        verify => "Verify",
+        server_name_indication => "SNI",
+        ciphers => "Ciphers",
+        depth => "depth",
+        password => "password",
+        versions => VersionsAll,
+        secure_renegotiate => "secure_renegotiate",
+        reuse_sessions => "reuse_sessions"
+    },
+    Expected1 = lists:usort(maps:keys(Options) -- [enable]),
+    ?assertEqual(
+        Expected1, lists:usort(proplists:get_keys(emqx_tls_lib:to_client_opts(tls, Options)))
+    ),
+    Expected2 =
+        lists:usort(
+            maps:keys(Options) --
+                [enable, reuse_sessions, secure_renegotiate]
+        ),
+    ?assertEqual(
+        Expected2,
+        lists:usort(
+            proplists:get_keys(
+                emqx_tls_lib:to_client_opts(tls, Options#{versions := Versions13Only})
+            )
+        )
+    ),
+    Expected3 = lists:usort(maps:keys(Options) -- [enable, depth, password]),
+    ?assertEqual(
+        Expected3,
+        lists:usort(
+            proplists:get_keys(
+                emqx_tls_lib:to_client_opts(tls, Options#{depth := undefined, password := ""})
+            )
+        )
+    ).
+
+to_server_opts_test() ->
+    VersionsAll = [tlsv1, 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
+    Versions13Only = ['tlsv1.3'],
+    Options = #{
+        verify => "Verify",
+        ciphers => "Ciphers",
+        versions => VersionsAll,
+        user_lookup_fun => "funfunfun",
+        client_renegotiation => "client_renegotiation"
+    },
+    Expected1 = lists:usort(maps:keys(Options)),
+    ?assertEqual(
+        Expected1, lists:usort(proplists:get_keys(emqx_tls_lib:to_server_opts(tls, Options)))
+    ),
+    Expected2 = lists:usort(maps:keys(Options) -- [user_lookup_fun, client_renegotiation]),
+    ?assertEqual(
+        Expected2,
+        lists:usort(
+            proplists:get_keys(
+                emqx_tls_lib:to_server_opts(tls, Options#{versions := Versions13Only})
+            )
+        )
+    ).
+
 bin(X) -> iolist_to_binary(X).
 
 test_key() ->
