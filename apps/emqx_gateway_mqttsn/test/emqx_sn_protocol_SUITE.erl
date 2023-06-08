@@ -134,6 +134,7 @@ restart_mqttsn_with_neg_qos_off() ->
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"enable_qos3">> => <<"false">>}
+    ).
 
 restart_mqttsn_with_mountpoint(Mp) ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
