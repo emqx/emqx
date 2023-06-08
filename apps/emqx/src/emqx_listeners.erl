@@ -552,13 +552,12 @@ remove_listener(Type, Name, OldConf) ->
     case stop_listener(Type, Name, OldConf) of
         ok ->
             _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
-            clear_certs(certs_dir(Type, Name), OldConf);
+            ok;
         Err ->
             Err
     end.
 
 update_listener(Type, Name, {OldConf, NewConf}) ->
-    try_clear_ssl_files(certs_dir(Type, Name), NewConf, OldConf),
     ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
     Res = restart_listener(Type, Name, {OldConf, NewConf}),
     recreate_authenticators(Res, Type, Name, NewConf).
@@ -867,10 +866,6 @@ convert_certs(Type, Name, Conf) ->
             throw({bad_ssl_config, Reason})
     end.
 
-clear_certs(CertsDir, Conf) ->
-    OldSSL = get_ssl_options(Conf),
-    emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
-
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.
 
@@ -879,11 +874,6 @@ ensure_override_limiter_conf(Conf, #{<<"limiter">> := Limiter}) ->
     Conf#{<<"limiter">> => Limiter};
 ensure_override_limiter_conf(Conf, _) ->
     Conf.
-
-try_clear_ssl_files(CertsDir, NewConf, OldConf) ->
-    NewSSL = get_ssl_options(NewConf),
-    OldSSL = get_ssl_options(OldConf),
-    emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL, OldSSL).
 
 get_ssl_options(Conf = #{}) ->
     case maps:find(ssl_options, Conf) of

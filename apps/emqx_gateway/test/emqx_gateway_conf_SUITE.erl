@@ -674,6 +674,7 @@ t_add_listener_with_certs_content(_) ->
     ok.
 
 assert_ssl_confs_files_deleted(SslConf) when is_map(SslConf) ->
+    {ok, _} = emqx_tls_certfile_gc:force(),
     Ks = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
     lists:foreach(
         fun(K) ->

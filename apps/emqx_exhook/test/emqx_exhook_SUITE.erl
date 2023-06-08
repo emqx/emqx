@@ -385,13 +385,10 @@ t_stop_timeout(_) ->
 t_ssl_clear(_) ->
     SvrName = <<"ssl_test">>,
     SSLConf = #{
-        <<"cacertfile">> => cert_file("cafile"),
-
-        <<"certfile">> => cert_file("certfile"),
-
         <<"enable">> => true,
+        <<"cacertfile">> => cert_file("cafile"),
+        <<"certfile">> => cert_file("certfile"),
         <<"keyfile">> => cert_file("keyfile"),
-
         <<"verify">> => <<"verify_peer">>
     },
     AddConf = #{
@@ -402,7 +399,6 @@ t_ssl_clear(_) ->
         <<"pool_size">> => 16,
         <<"request_timeout">> => <<"5s">>,
         <<"ssl">> => SSLConf,
-
         <<"url">> => <<"http://127.0.0.1:9000">>
     },
     emqx_exhook_mgr:update_config([exhook, servers], {add, AddConf}),
@@ -412,6 +408,7 @@ t_ssl_clear(_) ->
 
     UpdateConf = AddConf#{<<"ssl">> => SSLConf#{<<"keyfile">> => cert_file("keyfile2")}},
     emqx_exhook_mgr:update_config([exhook, servers], {update, SvrName, UpdateConf}),
+    {ok, _} = emqx_tls_certfile_gc:force(),
     ListResult2 = list_pem_dir(SvrName),
     ?assertMatch({ok, [_, _, _]}, ListResult2),
     {ok, ResultList2} = ListResult2,
@@ -428,7 +425,8 @@ t_ssl_clear(_) ->
     ?assertNotEqual(FindKeyFile(ResultList1), FindKeyFile(ResultList2)),
 
     emqx_exhook_mgr:update_config([exhook, servers], {delete, SvrName}),
-    ?assertMatch({error, not_dir}, list_pem_dir(SvrName)),
+    {ok, _} = emqx_tls_certfile_gc:force(),
+    ?assertMatch({error, enoent}, list_pem_dir(SvrName)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -500,12 +498,7 @@ is_exhook_callback(Cb) ->
 
 list_pem_dir(Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), "exhook", Name]),
-    case filelib:is_dir(Dir) of
-        true ->
-            file:list_dir(Dir);
-        _ ->
-            {error, not_dir}
-    end.
+    file:list_dir(Dir).
 
 data_file(Name) ->
     Dir = code:lib_dir(emqx_exhook, test),

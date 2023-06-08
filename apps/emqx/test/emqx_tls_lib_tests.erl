@@ -108,8 +108,8 @@ ssl_files_failure_test_() ->
                 {error, #{file_read := enoent, pem_check := invalid_pem}},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
                     <<"keyfile">> => NonExistingFile,
-                    <<"certfile">> => bin(test_key()),
-                    <<"cacertfile">> => bin(test_key())
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => test_key()
                 })
             )
         end},
@@ -121,8 +121,8 @@ ssl_files_failure_test_() ->
                 }},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
                     <<"keyfile">> => <<>>,
-                    <<"certfile">> => bin(test_key()),
-                    <<"cacertfile">> => bin(test_key())
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => test_key()
                 })
             ),
             %% not valid unicode
@@ -132,8 +132,8 @@ ssl_files_failure_test_() ->
                 }},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
                     <<"keyfile">> => <<255, 255>>,
-                    <<"certfile">> => bin(test_key()),
-                    <<"cacertfile">> => bin(test_key())
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => test_key()
                 })
             ),
             ?assertMatch(
@@ -142,9 +142,9 @@ ssl_files_failure_test_() ->
                     which_options := [[<<"ocsp">>, <<"issuer_pem">>]]
                 }},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
-                    <<"keyfile">> => bin(test_key()),
-                    <<"certfile">> => bin(test_key()),
-                    <<"cacertfile">> => bin(test_key()),
+                    <<"keyfile">> => test_key(),
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => test_key(),
                     <<"ocsp">> => #{<<"issuer_pem">> => <<255, 255>>}
                 })
             ),
@@ -153,8 +153,8 @@ ssl_files_failure_test_() ->
                 {error, #{reason := invalid_file_path_or_pem_string}},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
                     <<"keyfile">> => <<33, 22>>,
-                    <<"certfile">> => bin(test_key()),
-                    <<"cacertfile">> => bin(test_key())
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => test_key()
                 })
             ),
             TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
@@ -178,63 +178,9 @@ ssl_files_failure_test_() ->
         end}
     ].
 
-ssl_files_save_delete_test() ->
-    Key = bin(test_key()),
-    SSL0 = #{
-        <<"keyfile">> => Key,
-        <<"certfile">> => Key,
-        <<"cacertfile">> => Key,
-        <<"ocsp">> => #{<<"issuer_pem">> => Key}
-    },
-    Dir = filename:join(["/tmp", "ssl-test-dir"]),
-    {ok, SSL} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
-    FileKey = maps:get(<<"keyfile">>, SSL),
-    ?assertMatch(<<"/tmp/ssl-test-dir/key-", _:16/binary>>, FileKey),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileKey)),
-    FileIssuerPem = emqx_utils_maps:deep_get([<<"ocsp">>, <<"issuer_pem">>], SSL),
-    ?assertMatch(<<"/tmp/ssl-test-dir/ocsp_issuer_pem-", _:16/binary>>, FileIssuerPem),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileIssuerPem)),
-    %% no old file to delete
-    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL, undefined),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileKey)),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileIssuerPem)),
-    %% old and new identical, no delete
-    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL, SSL),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileKey)),
-    ?assertEqual({ok, bin(test_key())}, file:read_file(FileIssuerPem)),
-    %% new is gone, delete old
-    ok = emqx_tls_lib:delete_ssl_files(Dir, undefined, SSL),
-    ?assertEqual({error, enoent}, file:read_file(FileKey)),
-    ?assertEqual({error, enoent}, file:read_file(FileIssuerPem)),
-    %% test idempotence
-    ok = emqx_tls_lib:delete_ssl_files(Dir, undefined, SSL),
-    ok.
-
-ssl_files_handle_non_generated_file_test() ->
-    TmpKeyFile = <<"my-key-file.pem">>,
-    KeyFileContent = bin(test_key()),
-    ok = file:write_file(TmpKeyFile, KeyFileContent),
-    ?assert(filelib:is_regular(TmpKeyFile)),
-    SSL0 = #{
-        <<"keyfile">> => TmpKeyFile,
-        <<"certfile">> => TmpKeyFile,
-        <<"cacertfile">> => TmpKeyFile,
-        <<"ocsp">> => #{<<"issuer_pem">> => TmpKeyFile}
-    },
-    Dir = filename:join(["/tmp", "ssl-test-dir-00"]),
-    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
-    File1 = maps:get(<<"keyfile">>, SSL2),
-    %% verify the filename and path is not changed by the emqx_tls_lib
-    ?assertEqual(TmpKeyFile, File1),
-    ok = emqx_tls_lib:delete_ssl_files(Dir, undefined, SSL2),
-    %% verify the file is not delete and not changed, because it is not generated by
-    %% emqx_tls_lib
-    ?assertEqual({ok, KeyFileContent}, file:read_file(TmpKeyFile)),
-    ok = file:delete(TmpKeyFile).
-
 ssl_file_replace_test() ->
-    Key1 = bin(test_key()),
-    Key2 = bin(test_key2()),
+    Key1 = test_key(),
+    Key2 = test_key2(),
     SSL0 = #{
         <<"keyfile">> => Key1,
         <<"certfile">> => Key1,
@@ -258,32 +204,44 @@ ssl_file_replace_test() ->
     ?assert(filelib:is_regular(File2)),
     ?assert(filelib:is_regular(IssuerPem1)),
     ?assert(filelib:is_regular(IssuerPem2)),
-    %% delete old file (File1, in SSL2)
-    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL3, SSL2),
-    ?assertNot(filelib:is_regular(File1)),
-    ?assert(filelib:is_regular(File2)),
-    ?assertNot(filelib:is_regular(IssuerPem1)),
-    ?assert(filelib:is_regular(IssuerPem2)),
     ok.
+
+ssl_file_deterministic_names_test() ->
+    SSL0 = #{
+        <<"keyfile">> => test_key(),
+        <<"certfile">> => test_key()
+    },
+    Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
+    Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
+    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files(Dir0, SSL0),
+    ?assertEqual(
+        {ok, SSLFiles0},
+        emqx_tls_lib:ensure_ssl_files(Dir0, SSL0)
+    ),
+    ?assertNotEqual(
+        {ok, SSLFiles0},
+        emqx_tls_lib:ensure_ssl_files(Dir1, SSL0)
+    ),
+    _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
 
 bin(X) -> iolist_to_binary(X).
 
 test_key() ->
-    ""
-    "\n"
-    "-----BEGIN EC PRIVATE KEY-----\n"
-    "MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK\n"
-    "oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo\n"
-    "ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==\n"
-    "-----END EC PRIVATE KEY-----\n"
-    "".
+    <<
+        "\n"
+        "-----BEGIN EC PRIVATE KEY-----\n"
+        "MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK\n"
+        "oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo\n"
+        "ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==\n"
+        "-----END EC PRIVATE KEY-----\n"
+    >>.
 
 test_key2() ->
-    ""
-    "\n"
-    "-----BEGIN EC PRIVATE KEY-----\n"
-    "MHQCAQEEID9UlIyAlLFw0irkRHX29N+ZGivGtDjlVJvATY3B0TTmoAcGBSuBBAAK\n"
-    "oUQDQgAEUwiarudRNAT25X11js8gE9G+q0GdsT53QJQjRtBO+rTwuCW1vhLzN0Ve\n"
-    "AbToUD4JmV9m/XwcSVH06ZaWqNuC5w==\n"
-    "-----END EC PRIVATE KEY-----\n"
-    "".
+    <<
+        "\n"
+        "-----BEGIN EC PRIVATE KEY-----\n"
+        "MHQCAQEEID9UlIyAlLFw0irkRHX29N+ZGivGtDjlVJvATY3B0TTmoAcGBSuBBAAK\n"
+        "oUQDQgAEUwiarudRNAT25X11js8gE9G+q0GdsT53QJQjRtBO+rTwuCW1vhLzN0Ve\n"
+        "AbToUD4JmV9m/XwcSVH06ZaWqNuC5w==\n"
+        "-----END EC PRIVATE KEY-----\n"
+    >>.

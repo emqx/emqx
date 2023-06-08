@@ -394,11 +394,6 @@ pre_config_update(?GATEWAY, {update_gateway, GwName, Conf}, RawConf) ->
             {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf1)}
     end;
 pre_config_update(?GATEWAY, {unload_gateway, GwName}, RawConf) ->
-    _ = tune_gw_certs(
-        fun clear_certs/2,
-        GwName,
-        maps:get(GwName, RawConf, #{})
-    ),
     {ok, maps:remove(GwName, RawConf)};
 pre_config_update(?GATEWAY, {add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case get_listener(GwName, LType, LName, RawConf) of
@@ -417,8 +412,8 @@ pre_config_update(?GATEWAY, {update_listener, GwName, {LType, LName}, Conf}, Raw
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
             badres_listener(not_found, GwName, LType, LName);
-        OldConf ->
-            NConf = convert_certs(certs_dir(GwName), Conf, OldConf),
+        _OldConf ->
+            NConf = convert_certs(certs_dir(GwName), Conf),
             NRawConf = emqx_utils_maps:deep_put(
                 [GwName, <<"listeners">>, LType, LName],
                 RawConf,
@@ -430,8 +425,7 @@ pre_config_update(?GATEWAY, {remove_listener, GwName, {LType, LName}}, RawConf) 
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
             {ok, RawConf};
-        OldConf ->
-            clear_certs(certs_dir(GwName), OldConf),
+        _OldConf ->
             Path = [GwName, <<"listeners">>, LType, LName],
             {ok, emqx_utils_maps:deep_remove(Path, RawConf)}
     end;
@@ -471,15 +465,17 @@ pre_config_update(?GATEWAY, {add_authn, GwName, {LType, LName}, Conf}, RawConf) 
             end
     end;
 pre_config_update(?GATEWAY, {update_authn, GwName, Conf}, RawConf) ->
+    Path = [GwName, ?AUTHN_BIN],
     case get_authn(GwName, RawConf) of
         undefined ->
             badres_authn(not_found, GwName);
-        OldAuthnConf ->
+        _OldConf ->
             CertsDir = authn_certs_dir(GwName, Conf),
-            Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf, OldAuthnConf),
-            {ok, emqx_utils_maps:deep_put([GwName, ?AUTHN_BIN], RawConf, Conf1)}
+            Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf),
+            {ok, emqx_utils_maps:deep_put(Path, RawConf, Conf1)}
     end;
 pre_config_update(?GATEWAY, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
+    Path = [GwName, <<"listeners">>, LType, LName],
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
             badres_listener(not_found, GwName, LType, LName);
@@ -489,51 +485,20 @@ pre_config_update(?GATEWAY, {update_authn, GwName, {LType, LName}, Conf}, RawCon
                     badres_listener_authn(not_found, GwName, LType, LName);
                 OldAuthnConf ->
                     CertsDir = authn_certs_dir(GwName, LType, LName, OldAuthnConf),
-                    Conf1 = emqx_authentication_config:convert_certs(
-                        CertsDir,
-                        Conf,
-                        OldAuthnConf
-                    ),
+                    Conf1 = emqx_authentication_config:convert_certs(CertsDir, Conf),
                     NListener = maps:put(
                         ?AUTHN_BIN,
                         Conf1,
                         Listener
                     ),
-                    {ok,
-                        emqx_utils_maps:deep_put(
-                            [GwName, <<"listeners">>, LType, LName],
-                            RawConf,
-                            NListener
-                        )}
+                    {ok, emqx_utils_maps:deep_put(Path, RawConf, NListener)}
             end
     end;
 pre_config_update(?GATEWAY, {remove_authn, GwName}, RawConf) ->
-    case get_authn(GwName, RawConf) of
-        undefined ->
-            ok;
-        OldAuthnConf ->
-            CertsDir = authn_certs_dir(GwName, OldAuthnConf),
-            emqx_authentication_config:clear_certs(CertsDir, OldAuthnConf)
-    end,
-    {ok,
-        emqx_utils_maps:deep_remove(
-            [GwName, ?AUTHN_BIN], RawConf
-        )};
+    Path = [GwName, ?AUTHN_BIN],
+    {ok, emqx_utils_maps:deep_remove(Path, RawConf)};
 pre_config_update(?GATEWAY, {remove_authn, GwName, {LType, LName}}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName, ?AUTHN_BIN],
-    case
-        emqx_utils_maps:deep_get(
-            Path,
-            RawConf,
-            undefined
-        )
-    of
-        undefined ->
-            ok;
-        OldAuthnConf ->
-            CertsDir = authn_certs_dir(GwName, LType, LName, OldAuthnConf),
-            emqx_authentication_config:clear_certs(CertsDir, OldAuthnConf)
-    end,
     {ok, emqx_utils_maps:deep_remove(Path, RawConf)};
 pre_config_update(?GATEWAY, NewRawConf0 = #{}, OldRawConf = #{}) ->
     %% FIXME don't support gateway's listener's authn update.
@@ -897,43 +862,14 @@ authn_certs_dir(GwName, AuthnConf) ->
 convert_certs(SubDir, Conf) ->
     convert_certs(<<"dtls_options">>, SubDir, convert_certs(<<"ssl_options">>, SubDir, Conf)).
 
-convert_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
-    case
-        emqx_tls_lib:ensure_ssl_files(
-            SubDir,
-            maps:get(Type, Conf, undefined)
-        )
-    of
-        {ok, SSL} ->
-            new_ssl_config(Type, Conf, SSL);
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => bad_ssl_config}),
-            throw({bad_ssl_config, Reason})
-    end;
-convert_certs(SubDir, NConf, OConf) when is_map(NConf); is_map(OConf) ->
-    convert_certs(
-        <<"dtls_options">>, SubDir, convert_certs(<<"ssl_options">>, SubDir, NConf, OConf), OConf
-    ).
-
-convert_certs(Type, SubDir, NConf, OConf) when ?IS_SSL(Type) ->
-    OSSL = maps:get(Type, OConf, undefined),
-    NSSL = maps:get(Type, NConf, undefined),
-    case emqx_tls_lib:ensure_ssl_files(SubDir, NSSL) of
-        {ok, NSSL1} ->
-            ok = emqx_tls_lib:delete_ssl_files(SubDir, NSSL1, OSSL),
-            new_ssl_config(Type, NConf, NSSL1);
+convert_certs(Type, SubDir, Conf) ->
+    SSL = maps:get(Type, Conf, undefined),
+    case is_map(SSL) andalso emqx_tls_lib:ensure_ssl_files(SubDir, SSL) of
+        false ->
+            Conf;
+        {ok, NSSL = #{}} ->
+            Conf#{Type => NSSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => bad_ssl_config}),
             throw({bad_ssl_config, Reason})
     end.
-
-new_ssl_config(_Type, Conf, undefined) -> Conf;
-new_ssl_config(Type, Conf, SSL) when ?IS_SSL(Type) -> Conf#{Type => SSL}.
-
-clear_certs(SubDir, Conf) ->
-    clear_certs(<<"ssl_options">>, SubDir, Conf),
-    clear_certs(<<"dtls_options">>, SubDir, Conf).
-
-clear_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
-    SSL = maps:get(Type, Conf, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(SubDir, undefined, SSL).

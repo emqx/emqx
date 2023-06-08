@@ -177,7 +177,6 @@ pre_config_update(?EXHOOK, NewConf = #{<<"servers">> := Servers}, _OldConf) ->
 
 post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
     Result = call({update_config, UpdateReq, NewConf, OldConf}),
-    try_clear_ssl_files(UpdateReq, NewConf, OldConf),
     {ok, Result}.
 
 %%--------------------------------------------------------------------
@@ -646,44 +645,3 @@ new_ssl_source(Source, undefined) ->
     Source;
 new_ssl_source(Source, SSL) ->
     Source#{<<"ssl">> => SSL}.
-
-try_clear_ssl_files({delete, Name}, _NewConf, OldConfs) ->
-    OldSSL = find_server_ssl_cfg(Name, OldConfs),
-    emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), undefined, OldSSL);
-try_clear_ssl_files({Op, Name, _}, NewConfs, OldConfs) when
-    Op =:= update; Op =:= enable
-->
-    NewSSL = find_server_ssl_cfg(Name, NewConfs),
-    OldSSL = find_server_ssl_cfg(Name, OldConfs),
-    emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), NewSSL, OldSSL);
-%% replace the whole config from the cli
-try_clear_ssl_files(_Req, #{servers := NewServers}, #{servers := OldServers}) ->
-    lists:foreach(
-        fun(#{name := Name} = Conf) ->
-            NewSSL = find_server_ssl_cfg(Name, NewServers),
-            OldSSL = maps:get(ssl, Conf, undefined),
-            emqx_tls_lib:delete_ssl_files(ssl_file_path(Name), NewSSL, OldSSL)
-        end,
-        OldServers
-    );
-try_clear_ssl_files(_Req, _NewConf, _OldConf) ->
-    ok.
-
-search_server_cfg(Name, Confs) ->
-    lists:search(
-        fun
-            (#{name := SvrName}) when SvrName =:= Name ->
-                true;
-            (_) ->
-                false
-        end,
-        Confs
-    ).
-
-find_server_ssl_cfg(Name, Confs) ->
-    case search_server_cfg(Name, Confs) of
-        {value, Value} ->
-            maps:get(ssl, Value, undefined);
-        false ->
-            undefined
-    end.

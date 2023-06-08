@@ -25,6 +25,7 @@
     maybe_apply/2,
     compose/1,
     compose/2,
+    cons/2,
     run_fold/3,
     pipeline/3,
     start_timer/2,
@@ -135,6 +136,10 @@ compose([F | More]) -> compose(F, More).
 compose(F, G) when is_function(G) -> fun(X) -> G(F(X)) end;
 compose(F, [G]) -> compose(F, G);
 compose(F, [G | More]) -> compose(compose(F, G), More).
+
+-spec cons(X, [X]) -> [X, ...].
+cons(Head, Tail) ->
+    [Head | Tail].
 
 %% @doc RunFold
 run_fold([], Acc, _State) ->
