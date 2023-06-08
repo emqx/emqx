@@ -166,10 +166,10 @@ do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
 do_pre_config_replace(Conf, Conf) ->
     Conf;
 do_pre_config_replace(NewConf, OldConf) ->
-    #{<<"sources">> := NewSources} = NewConf,
-    #{<<"sources">> := OldSources} = OldConf,
+    NewSources = maps:get(<<"sources">>, NewConf, []),
+    OldSources = maps:get(<<"sources">>, OldConf, []),
     NewSources1 = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
-    NewConf#{<<"sources">> := NewSources1}.
+    NewConf#{<<"sources">> => NewSources1}.
 
 do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);

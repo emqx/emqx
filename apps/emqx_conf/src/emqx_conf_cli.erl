@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_cli).
+-include_lib("emqx/include/emqx.hrl").
 -export([
     load/0,
     admins/1,
@@ -87,8 +88,7 @@ admins(_) ->
 
 usage_conf() ->
     [
-        %% TODO add reload
-        %{"conf reload", "reload etc/emqx.conf on local node"},
+        {"conf reload", "reload etc/emqx.conf on local node"},
         {"conf show_keys", "Print all config keys"},
         {"conf show [<key>]",
             "Print in-use configs (including default values) under the given key. "
@@ -138,11 +138,14 @@ print_keys(Config) ->
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
 
-print_hocon(Hocon) ->
-    emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]).
+print_hocon(Hocon) when is_map(Hocon) ->
+    emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);
+print_hocon({error, Error}) ->
+    emqx_ctl:warning("~ts~n", [Error]).
 
 get_config() ->
-    drop_hidden_roots(emqx_config:fill_defaults(emqx:get_raw_config([]))).
+    AllConf = emqx_config:fill_defaults(emqx:get_raw_config([])),
+    drop_hidden_roots(AllConf).
 
 drop_hidden_roots(Conf) ->
     Hidden = hidden_roots(),
@@ -164,22 +167,41 @@ hidden_roots() ->
     ).
 
 get_config(Key) ->
-    emqx_config:fill_defaults(#{Key => emqx:get_raw_config([Key])}).
+    case emqx:get_raw_config(Key, undefined) of
+        undefined -> {error, "key_not_found"};
+        Value -> emqx_config:fill_defaults(#{Key => Value})
+    end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
 load_config(Path) ->
     case hocon:files([Path]) of
-        {ok, Conf} ->
-            maps:foreach(
-                fun(Key, Value) ->
-                    case emqx_conf:update([Key], Value, ?OPTIONS) of
-                        {ok, _} -> emqx_ctl:print("load ~ts ok~n", [Key]);
-                        {error, Reason} -> emqx_ctl:print("load ~ts failed: ~p~n", [Key, Reason])
-                    end
-                end,
-                Conf
-            );
+        {ok, RawConf} ->
+            case check_config_keys(RawConf) of
+                ok ->
+                    maps:foreach(fun update_config/2, RawConf);
+                {error, Reason} ->
+                    emqx_ctl:warning("load ~ts failed~n~ts~n", [Path, Reason]),
+                    emqx_ctl:warning(
+                        "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
+                    ),
+                    {error, Reason}
+            end;
         {error, Reason} ->
-            emqx_ctl:print("load ~ts failed~n~p~n", [Path, Reason]),
+            emqx_ctl:warning("load ~ts failed~n~p~n", [Path, Reason]),
             {error, bad_hocon_file}
+    end.
+
+update_config(Key, Value) ->
+    case emqx_conf:update([Key], Value, ?OPTIONS) of
+        {ok, _} ->
+            emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
+        {error, Reason} ->
+            emqx_ctl:warning("load ~ts failed~n~p~n", [Key, Reason])
+    end.
+check_config_keys(Conf) ->
+    Keys = maps:keys(Conf),
+    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READ_ONLY_KEYS],
+    case ReadOnlyKeys -- Keys of
+        ReadOnlyKeys -> ok;
+        _ -> {error, "update_read_only_keys_prohibited"}
     end.
