@@ -25,8 +25,11 @@
 
 -export([schema/1]).
 
--export([translate/1]).
+%% Utilities
 -export([backend/1]).
+
+%% Test-only helpers
+-export([translate/1]).
 
 -type json_value() ::
     null
@@ -327,11 +330,7 @@ converter(unicode_string) ->
 ref(Ref) ->
     ref(?MODULE, Ref).
 
-translate(Conf) ->
-    [Root] = roots(),
-    RootRaw = atom_to_binary(Root),
-    ConfChecked = hocon_tconf:check_plain(?MODULE, #{RootRaw => Conf}, #{}, [Root]),
-    emqx_utils_maps:unsafe_atom_key_map(maps:get(RootRaw, ConfChecked)).
+%% Utilities
 
 -spec backend(emqx_config:config()) ->
     {_Type :: atom(), emqx_config:config()}.
@@ -342,3 +341,13 @@ backend(Config) ->
     no_return().
 emit_enabled(Type, BConf = #{enable := Enabled}) ->
     Enabled andalso throw({Type, BConf}).
+
+%% Test-only helpers
+
+-spec translate(emqx_config:raw_config()) ->
+    emqx_config:config().
+translate(Conf) ->
+    [Root] = roots(),
+    RootRaw = atom_to_binary(Root),
+    ConfChecked = hocon_tconf:check_plain(?MODULE, #{RootRaw => Conf}, #{}, [Root]),
+    emqx_utils_maps:unsafe_atom_key_map(maps:get(RootRaw, ConfChecked)).
