@@ -170,4 +170,7 @@ validate_push_gateway_server(Url) ->
 
 %% for CI test, CI don't load the whole emqx_conf_schema.
 translation(Name) ->
+    %% translate 'vm_dist_collector', 'mnesia_collector', 'vm_statistics_collector',
+    %% 'vm_system_info_collector', 'vm_memory_collector', 'vm_msacc_collector'
+    %% to prometheus envrionments
     emqx_conf_schema:translation(Name).
