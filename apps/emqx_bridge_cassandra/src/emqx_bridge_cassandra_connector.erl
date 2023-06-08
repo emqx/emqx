@@ -143,12 +143,12 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, #{pool_name := PoolName}) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_cassandra_connector",
         connector => InstId
     }),
-    emqx_resource_pool:stop(PoolName).
+    emqx_resource_pool:stop(InstId).
 
 -type request() ::
     % emqx_bridge.erl

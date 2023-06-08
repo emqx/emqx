@@ -274,12 +274,12 @@ connect(Options) ->
 
 -spec on_stop(resource_id(), resource_state()) -> term().
 
-on_stop(InstanceID, #{pool_name := PoolName}) ->
+on_stop(InstanceID, _State) ->
     ?SLOG(info, #{
         msg => "stopping clickouse connector",
         connector => InstanceID
     }),
-    emqx_resource_pool:stop(PoolName).
+    emqx_resource_pool:stop(InstanceID).
 
 %% -------------------------------------------------------------------
 %% on_get_status emqx_resouce callback and related functions
