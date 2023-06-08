@@ -95,33 +95,33 @@ namespace() -> "bridge_influxdb".
 roots() -> [].
 
 fields("post_api_v1") ->
-    method_fileds(post, influxdb_api_v1);
+    method_fields(post, influxdb_api_v1);
 fields("post_api_v2") ->
-    method_fileds(post, influxdb_api_v2);
+    method_fields(post, influxdb_api_v2);
 fields("put_api_v1") ->
-    method_fileds(put, influxdb_api_v1);
+    method_fields(put, influxdb_api_v1);
 fields("put_api_v2") ->
-    method_fileds(put, influxdb_api_v2);
+    method_fields(put, influxdb_api_v2);
 fields("get_api_v1") ->
-    method_fileds(get, influxdb_api_v1);
+    method_fields(get, influxdb_api_v1);
 fields("get_api_v2") ->
-    method_fileds(get, influxdb_api_v2);
+    method_fieds(get, influxdb_api_v2);
 fields(Type) when
     Type == influxdb_api_v1 orelse Type == influxdb_api_v2
 ->
     influxdb_bridge_common_fields() ++
         connector_fields(Type).
 
-method_fileds(post, ConnectorType) ->
+method_fields(post, ConnectorType) ->
     influxdb_bridge_common_fields() ++
         connector_fields(ConnectorType) ++
         type_name_fields(ConnectorType);
-method_fileds(get, ConnectorType) ->
+method_fields(get, ConnectorType) ->
     influxdb_bridge_common_fields() ++
         connector_fields(ConnectorType) ++
         type_name_fields(ConnectorType) ++
         emqx_bridge_schema:status_fields();
-method_fileds(put, ConnectorType) ->
+method_fields(put, ConnectorType) ->
     influxdb_bridge_common_fields() ++
         connector_fields(ConnectorType).
 

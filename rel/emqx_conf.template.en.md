@@ -84,7 +84,7 @@ There are 4 complex data types in EMQX's HOCON config:
 1. Array: `[ElementType]`
 
 ::: tip Tip
-If map filed name is a positive integer number, it is interpreted as an alternative representation of an `Array`.
+If map field name is a positive integer number, it is interpreted as an alternative representation of an `Array`.
 For example:
 ```
 myarray.1 = 74
@@ -120,7 +120,7 @@ If we consider the whole EMQX config as a tree,
 to reference a primitive value, we can use a dot-separated names form string for
 the path from the tree-root (always a Struct) down to the primitive values at tree-leaves.
 
-Each segment of the dotted string is a Struct filed name or Map key.
+Each segment of the dotted string is a Struct field name or Map key.
 For Array elements, 1-based index is used.
 
 below are some examples

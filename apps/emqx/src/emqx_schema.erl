@@ -3018,7 +3018,7 @@ non_empty_string(_) -> {error, invalid_string}.
 %%               hosts can be successfully parsed.
 %% 3. parsing: Done at runtime in each module which uses this config
 servers_sc(Meta0, ParseOpts) ->
-    %% if this filed has a default value
+    %% if this field has a default value
     %% then it is not NOT required
     %% NOTE: maps:is_key is not the solution because #{default => undefined} is legit
     HasDefault = (maps:get(default, Meta0, undefined) =/= undefined),
@@ -3079,7 +3079,7 @@ servers_validator(Opts, Required) ->
                 %% we should remove field from config if it's empty
                 throw("cannot_be_empty");
             "undefined" when Required ->
-                %% when the filed is not set in config file
+                %% when the field is not set in config file
                 %% NOTE: assuming nobody is going to name their server "undefined"
                 throw("cannot_be_empty");
             "undefined" ->
