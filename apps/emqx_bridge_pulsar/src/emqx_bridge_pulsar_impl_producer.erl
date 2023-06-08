@@ -70,9 +70,8 @@
 
 callback_mode() -> async_if_possible.
 
-%% consumer bridges don't need resource workers
 query_mode(_Config) ->
-    no_queries.
+    simple_async.
 
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
