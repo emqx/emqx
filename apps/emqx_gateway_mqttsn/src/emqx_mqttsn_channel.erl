@@ -500,7 +500,7 @@ handle_in(
                         topic => TopicName,
                         data => Data
                     }),
-                    emqx_broker:publish(Msg),
+                    _ = emqx_broker:publish(Msg),
                     ok;
                 false ->
                     ok
