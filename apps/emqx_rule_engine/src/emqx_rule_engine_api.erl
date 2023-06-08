@@ -253,6 +253,7 @@ schema("/rules/:id") ->
             summary => <<"Delete rule">>,
             parameters => param_path_id(),
             responses => #{
+                404 => error_schema('NOT_FOUND', "Rule not found"),
                 204 => <<"Delete rule successfully">>
             }
         }
