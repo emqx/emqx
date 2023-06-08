@@ -90,8 +90,6 @@
     | {tmpl, tmpl_token()}
     | {value, term()}.
 
--dialyzer({no_improper_lists, [quote_mysql/1, escape_mysql/4, escape_prepend/4]}).
-
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -247,22 +245,15 @@ bin(Val) -> emqx_utils_conv:bin(Val).
 
 -spec quote_sql(_Value) -> iolist().
 quote_sql(Str) ->
-    quote_escape(Str, fun escape_sql/1).
+    emqx_utils_sql:to_sql_string(Str, #{escaping => sql}).
 
 -spec quote_cql(_Value) -> iolist().
 quote_cql(Str) ->
-    quote_escape(Str, fun escape_cql/1).
+    emqx_utils_sql:to_sql_string(Str, #{escaping => cql}).
 
 -spec quote_mysql(_Value) -> iolist().
-quote_mysql(Str) when is_binary(Str) ->
-    try
-        escape_mysql(Str)
-    catch
-        throw:invalid_utf8 ->
-            [<<"0x">> | binary:encode_hex(Str)]
-    end;
 quote_mysql(Str) ->
-    quote_escape(Str, fun escape_mysql/1).
+    emqx_utils_sql:to_sql_string(Str, #{escaping => mysql}).
 
 lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     Value;
@@ -370,57 +361,3 @@ unwrap(<<"\"${", Val/binary>>, _StripDoubleQuote = true) ->
     binary:part(Val, {0, byte_size(Val) - 2});
 unwrap(<<"${", Val/binary>>, _StripDoubleQuote) ->
     binary:part(Val, {0, byte_size(Val) - 1}).
-
--spec quote_escape(_Value, fun((binary()) -> iodata())) -> iodata().
-quote_escape(Str, EscapeFun) when is_binary(Str) ->
-    EscapeFun(Str);
-quote_escape(Str, EscapeFun) when is_list(Str) ->
-    case unicode:characters_to_binary(Str) of
-        Bin when is_binary(Bin) ->
-            EscapeFun(Bin);
-        Otherwise ->
-            error(Otherwise)
-    end;
-quote_escape(Str, EscapeFun) when is_atom(Str) orelse is_map(Str) ->
-    EscapeFun(bin(Str));
-quote_escape(Val, _EscapeFun) ->
-    bin(Val).
-
--spec escape_sql(binary()) -> iolist().
-escape_sql(S) ->
-    ES = binary:replace(S, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]),
-    [$', ES, $'].
-
--spec escape_cql(binary()) -> iolist().
-escape_cql(S) ->
-    ES = binary:replace(S, <<"'">>, <<"'">>, [global, {insert_replaced, 1}]),
-    [$', ES, $'].
-
--spec escape_mysql(binary()) -> iolist().
-escape_mysql(S0) ->
-    % https://dev.mysql.com/doc/refman/8.0/en/string-literals.html
-    [$', escape_mysql(S0, 0, 0, S0), $'].
-
-%% NOTE
-%% This thing looks more complicated than needed because it's optimized for as few
-%% intermediate memory (re)allocations as possible.
-escape_mysql(<<$', Rest/binary>>, I, Run, Src) ->
-    escape_prepend(I, Run, Src, [<<"\\'">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
-escape_mysql(<<$\\, Rest/binary>>, I, Run, Src) ->
-    escape_prepend(I, Run, Src, [<<"\\\\">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
-escape_mysql(<<0, Rest/binary>>, I, Run, Src) ->
-    escape_prepend(I, Run, Src, [<<"\\0">> | escape_mysql(Rest, I + Run + 1, 0, Src)]);
-escape_mysql(<<_/utf8, Rest/binary>> = S, I, Run, Src) ->
-    CWidth = byte_size(S) - byte_size(Rest),
-    escape_mysql(Rest, I, Run + CWidth, Src);
-escape_mysql(<<>>, 0, _, Src) ->
-    Src;
-escape_mysql(<<>>, I, Run, Src) ->
-    binary:part(Src, I, Run);
-escape_mysql(_, _I, _Run, _Src) ->
-    throw(invalid_utf8).
-
-escape_prepend(_RunI, 0, _Src, Tail) ->
-    Tail;
-escape_prepend(I, Run, Src, Tail) ->
-    [binary:part(Src, I, Run) | Tail].

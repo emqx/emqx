@@ -19,10 +19,7 @@
 
 %% preprocess and process template string with place holders
 -export([
-    split_insert_sql/1,
-    detect_sql_type/1,
-    proc_batch_sql/3,
-    formalize_sql/1
+    proc_batch_sql/3
 ]).
 
 %% type converting
@@ -52,44 +49,6 @@
 
 -type tmpl_token() :: list({var, binary()} | {str, binary()}).
 
-%% SQL = <<"INSERT INTO \"abc\" (c1,c2,c3) VALUES (${1}, ${1}, ${1})">>
--spec split_insert_sql(binary()) -> {ok, {InsertSQL, Params}} | {error, atom()} when
-    InsertSQL :: binary(),
-    Params :: binary().
-split_insert_sql(SQL0) ->
-    SQL = formalize_sql(SQL0),
-    case re:split(SQL, "((?i)values)", [{return, binary}]) of
-        [Part1, _, Part3] ->
-            case string:trim(Part1, leading) of
-                <<"insert", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                <<"INSERT", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                _ ->
-                    {error, not_insert_sql}
-            end;
-        _ ->
-            {error, not_insert_sql}
-    end.
-
--spec detect_sql_type(binary()) -> {ok, Type} | {error, atom()} when
-    Type :: insert | select.
-detect_sql_type(SQL) ->
-    case re:run(SQL, "^\\s*([a-zA-Z]+)", [{capture, all_but_first, list}]) of
-        {match, [First]} ->
-            Types = [select, insert],
-            PropTypes = [{erlang:atom_to_list(Type), Type} || Type <- Types],
-            LowFirst = string:lowercase(First),
-            case proplists:lookup(LowFirst, PropTypes) of
-                {LowFirst, Type} ->
-                    {ok, Type};
-                _ ->
-                    {error, invalid_sql}
-            end;
-        _ ->
-            {error, invalid_sql}
-    end.
-
 -spec proc_batch_sql(
     BatchReqs :: list({atom(), map()}),
     InsertPart :: binary(),
@@ -103,12 +62,6 @@ proc_batch_sql(BatchReqs, InsertPart, Tokens) ->
         ])
     ),
     <<InsertPart/binary, " values ", ValuesPart/binary>>.
-
-formalize_sql(Input) ->
-    %% 1. replace all whitespaces like '\r' '\n' or spaces to a single space char.
-    SQL = re:replace(Input, "\\s+", " ", [global, {return, binary}]),
-    %% 2. trims the result
-    string:trim(SQL).
 
 unsafe_atom_key(Key) when is_atom(Key) ->
     Key;

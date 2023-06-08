@@ -443,11 +443,11 @@ parse_sql_template(Config) ->
     parse_sql_template(maps:to_list(RawSQLTemplates), BatchInsertTks).
 
 parse_sql_template([{Key, H} | T], BatchInsertTks) ->
-    case emqx_plugin_libs_rule:detect_sql_type(H) of
-        {ok, select} ->
+    case emqx_utils_sql:get_statement_type(H) of
+        select ->
             parse_sql_template(T, BatchInsertTks);
-        {ok, insert} ->
-            case emqx_plugin_libs_rule:split_insert_sql(H) of
+        insert ->
+            case emqx_utils_sql:parse_insert(H) of
                 {ok, {InsertSQL, Params}} ->
                     parse_sql_template(
                         T,
@@ -463,6 +463,9 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
                     ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
                     parse_sql_template(T, BatchInsertTks)
             end;
+        Type when is_atom(Type) ->
+            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            parse_sql_template(T, BatchInsertTks);
         {error, Reason} ->
             ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
             parse_sql_template(T, BatchInsertTks)
@@ -488,10 +491,19 @@ apply_template(
         undefined ->
             BatchReqs;
         #{?BATCH_INSERT_PART := BatchInserts, ?BATCH_PARAMS_TOKENS := BatchParamsTks} ->
-            SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks),
+            SQL = proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks),
             {Key, SQL}
     end;
 apply_template(Query, Templates) ->
     %% TODO: more detail infomatoin
     ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}),
     {error, failed_to_apply_sql_template}.
+
+proc_batch_sql(BatchReqs, BatchInserts, Tokens) ->
+    Values = erlang:iolist_to_binary(
+        lists:join($,, [
+            emqx_placeholder:proc_sql_param_str(Tokens, Msg)
+         || {_, Msg} <- BatchReqs
+        ])
+    ),
+    <<BatchInserts/binary, " values ", Values/binary>>.
