@@ -638,12 +638,12 @@ handle_in(
                 ]
         end,
     {ok, Outgoings, Channel};
+handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
+    shutdown(Reason, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
-    ?SLOG(error, #{
-        msg => "unexpected_frame_error",
-        reason => Reason
-    }),
-    shutdown(Reason, Channel).
+    ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
+    Frame = error_frame(undefined, ErrMsg),
+    shutdown(Reason, Frame, Channel).
 
 with_transaction(Headers, Channel = #channel{transaction = Trans}, Fun) ->
     Id = header(<<"transaction">>, Headers),

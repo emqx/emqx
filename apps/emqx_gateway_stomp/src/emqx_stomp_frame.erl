@@ -129,8 +129,8 @@ initial_parse_state(Opts) ->
 
 limit(Opts) ->
     #frame_limit{
-        max_header_num = g(max_header_num, Opts, ?MAX_HEADER_NUM),
-        max_header_length = g(max_header_length, Opts, ?MAX_HEADER_LENGTH),
+        max_header_num = g(max_headers, Opts, ?MAX_HEADER_NUM),
+        max_header_length = g(max_headers_length, Opts, ?MAX_HEADER_LENGTH),
         max_body_length = g(max_body_length, Opts, ?MAX_BODY_LENGTH)
     }.
 
@@ -243,7 +243,9 @@ content_len(#parser_state{headers = Headers}) ->
         false -> none
     end.
 
-new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc}) ->
+new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc, limit = Limit}) ->
+    ok = check_max_headers(Headers, Limit),
+    ok = check_max_body(Acc, Limit),
     #stomp_frame{command = Cmd, headers = Headers, body = Acc}.
 
 acc(Chunk, State = #parser_state{acc = Acc}) when is_binary(Chunk) ->
@@ -260,6 +262,57 @@ unescape($n) -> ?LF;
 unescape($c) -> ?COLON;
 unescape($\\) -> ?BSL;
 unescape(_Ch) -> error(cannnot_unescape).
+
+check_max_headers(
+    Headers,
+    #frame_limit{
+        max_header_num = MaxNum,
+        max_header_length = MaxLen
+    }
+) ->
+    HeadersLen = length(Headers),
+    case HeadersLen > MaxNum of
+        true ->
+            error(
+                {too_many_headers, #{
+                    max_header_num => MaxNum,
+                    received_headers_num => length(Headers)
+                }}
+            );
+        false ->
+            ok
+    end,
+    lists:foreach(
+        fun({Name, Val}) ->
+            Len = byte_size(Name) + byte_size(Val),
+            case Len > MaxLen of
+                true ->
+                    error(
+                        {too_long_header, #{
+                            max_header_length => MaxLen,
+                            found_header_length => Len
+                        }}
+                    );
+                false ->
+                    ok
+            end
+        end,
+        Headers
+    ).
+
+check_max_body(Acc, #frame_limit{max_body_length = MaxLen}) ->
+    Len = byte_size(Acc),
+    case Len > MaxLen of
+        true ->
+            error(
+                {too_long_body, #{
+                    max_body_length => MaxLen,
+                    received_body_length => Len
+                }}
+            );
+        false ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Serialize funcs
@@ -330,7 +383,10 @@ make(Command, Headers, Body) ->
     #stomp_frame{command = Command, headers = Headers, body = Body}.
 
 %% @doc Format a frame
-format(Frame) -> serialize_pkt(Frame, #{}).
+format({frame_error, _Reason} = Error) ->
+    Error;
+format(Frame) ->
+    serialize_pkt(Frame, #{}).
 
 is_message(#stomp_frame{command = CMD}) when
     CMD == ?CMD_SEND;
@@ -373,4 +429,6 @@ type(?CMD_RECEIPT) ->
 type(?CMD_ERROR) ->
     error;
 type(?CMD_HEARTBEAT) ->
-    heartbeat.
+    heartbeat;
+type(_) ->
+    undefined.
