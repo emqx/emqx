@@ -18,7 +18,6 @@
 
 -behaviour(minirest_api).
 
--include("emqx_prometheus.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [ref/2]).
@@ -128,7 +127,8 @@ prometheus_config_example() ->
 
 prometheus_data_schema() ->
     #{
-        description => <<"Get Prometheus Data">>,
+        description =>
+            <<"Get Prometheus Data. Note that support for JSON output is deprecated and will be removed in v5.2.">>,
         content =>
             #{
                 'application/json' =>
