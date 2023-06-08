@@ -34,4 +34,6 @@
     tnx_id :: pos_integer() | '$1'
 }).
 
+-define(READONLY_KEYS, [cluster, rpc, node]).
+
 -endif.

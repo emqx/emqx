@@ -35,7 +35,8 @@
     save_to_app_env/1,
     save_to_config_map/2,
     save_to_override_conf/3,
-    reload_etc_conf_on_local_node/0
+    config_files/0,
+    include_dirs/0
 ]).
 -export([merge_envs/2]).
 
@@ -91,6 +92,7 @@
 ]).
 
 -export([ensure_atom_conf_path/2]).
+-export([load_config_files/2]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2]).
@@ -976,95 +978,6 @@ put_config_post_change_actions(?PERSIS_KEY(?CONF, zones), _Zones) ->
     ok;
 put_config_post_change_actions(_Key, _NewValue) ->
     ok.
-
-%% @doc Reload etc/emqx.conf to runtime config except for the readonly config
--spec reload_etc_conf_on_local_node() -> ok | {error, term()}.
-reload_etc_conf_on_local_node() ->
-    case load_etc_config_file() of
-        {ok, RawConf} ->
-            case check_readonly_config(RawConf) of
-                {ok, Reloaded} -> reload_config(Reloaded);
-                {error, Error} -> {error, Error}
-            end;
-        {error, _Error} ->
-            {error, bad_hocon_file}
-    end.
-
-reload_config(AllConf) ->
-    Func = fun(Key, Conf, Acc) ->
-        case emqx:update_config([Key], Conf, #{persistent => false}) of
-            {ok, _} ->
-                io:format("Reloaded ~ts config ok~n", [Key]),
-                Acc;
-            Error ->
-                ?ELOG("Reloaded ~ts config failed~n~p~n", [Key, Error]),
-                ?SLOG(error, #{
-                    msg => "failed_to_reload_etc_config",
-                    key => Key,
-                    value => Conf,
-                    error => Error
-                }),
-                Acc#{Key => Error}
-        end
-    end,
-    Res = maps:fold(Func, #{}, AllConf),
-    case Res =:= #{} of
-        true -> ok;
-        false -> {error, Res}
-    end.
-
-%% @doc Merge etc/emqx.conf on top of cluster.hocon.
-%% For example:
-%% `authorization.sources` will be merged into cluster.hocon when updated via dashboard,
-%% but `authorization.sources` in not in the default emqx.conf file.
-%% To make sure all root keys in emqx.conf has a fully merged value.
-load_etc_config_file() ->
-    ConfFiles = config_files(),
-    Opts = #{format => map, include_dirs => include_dirs()},
-    case hocon:files(ConfFiles, Opts) of
-        {ok, RawConf} ->
-            HasDeprecatedFile = has_deprecated_file(),
-            %% Merge etc.conf on top of cluster.hocon,
-            %% Don't use map deep_merge, use hocon files merge instead.
-            %% In order to have a chance to delete. (e.g. zones.zone1.mqtt = null)
-            Keys = maps:keys(RawConf),
-            MergedRaw = load_config_files(HasDeprecatedFile, ConfFiles),
-            {ok, maps:with(Keys, MergedRaw)};
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "failed_to_read_etc_config",
-                files => ConfFiles,
-                error => Error
-            }),
-            {error, Error}
-    end.
-
-check_readonly_config(Raw) ->
-    SchemaMod = emqx_conf:schema_module(),
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, fill_defaults(Raw), #{}),
-    case lists:filtermap(fun(Key) -> filter_changed(Key, CheckedConf) end, ?READ_ONLY_KEYS) of
-        [] ->
-            {ok, maps:without([atom_to_binary(K) || K <- ?READ_ONLY_KEYS], Raw)};
-        Error ->
-            ?SLOG(error, #{
-                msg => "failed_to_change_read_only_key_in_etc_config",
-                read_only_keys => ?READ_ONLY_KEYS,
-                error => Error
-            }),
-            {error, Error}
-    end.
-
-filter_changed(Key, ChangedConf) ->
-    Prev = get([Key], #{}),
-    New = maps:get(Key, ChangedConf, #{}),
-    case Prev =/= New of
-        true -> {true, {Key, changed(New, Prev)}};
-        false -> false
-    end.
-
-changed(New, Prev) ->
-    Diff = emqx_utils_maps:diff_maps(New, Prev),
-    maps:filter(fun(_Key, Value) -> Value =/= #{} end, maps:remove(identical, Diff)).
 
 config_files() ->
     application:get_env(emqx, config_files, []).

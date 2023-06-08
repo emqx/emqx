@@ -166,8 +166,9 @@ do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
 do_pre_config_replace(Conf, Conf) ->
     Conf;
 do_pre_config_replace(NewConf, OldConf) ->
-    NewSources = maps:get(<<"sources">>, NewConf, []),
-    OldSources = maps:get(<<"sources">>, OldConf, []),
+    Default = [emqx_authz_schema:default_authz()],
+    NewSources = maps:get(<<"sources">>, NewConf, Default),
+    OldSources = maps:get(<<"sources">>, OldConf, Default),
     NewSources1 = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
     NewConf#{<<"sources">> => NewSources1}.
 

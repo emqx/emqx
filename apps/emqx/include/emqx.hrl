@@ -17,9 +17,6 @@
 -ifndef(EMQX_HRL).
 -define(EMQX_HRL, true).
 
-%% Config
--define(READ_ONLY_KEYS, [cluster, rpc, node]).
-
 %% Shard
 %%--------------------------------------------------------------------
 -define(COMMON_SHARD, emqx_common_shard).

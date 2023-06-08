@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_cli).
--include_lib("emqx/include/emqx.hrl").
+-include("emqx_conf.hrl").
 -export([
     load/0,
     admins/1,
@@ -47,6 +47,8 @@ conf(["load", Path]) ->
     load_config(Path);
 conf(["cluster_sync" | Args]) ->
     admins(Args);
+conf(["reload"]) ->
+    emqx_conf:reload_etc_conf_on_local_node();
 conf(_) ->
     emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
@@ -175,6 +177,9 @@ get_config(Key) ->
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
 load_config(Path) ->
     case hocon:files([Path]) of
+        {ok, RawConf} when RawConf =:= #{} ->
+            emqx_ctl:warning("load ~ts is empty~n", [Path]),
+            {error, empty_hocon_file};
         {ok, RawConf} ->
             case check_config_keys(RawConf) of
                 ok ->
@@ -200,8 +205,8 @@ update_config(Key, Value) ->
     end.
 check_config_keys(Conf) ->
     Keys = maps:keys(Conf),
-    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READ_ONLY_KEYS],
+    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
     case ReadOnlyKeys -- Keys of
         ReadOnlyKeys -> ok;
-        _ -> {error, "update_read_only_keys_prohibited"}
+        _ -> {error, "update_readonly_keys_prohibited"}
     end.
