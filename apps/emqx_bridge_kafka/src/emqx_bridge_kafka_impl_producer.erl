@@ -204,6 +204,7 @@ on_query(
         query_mode_sync_timeout := SyncTimeout
     }
 ) ->
+    ?tp(emqx_bridge_kafka_impl_producer_sync_query, #{}),
     KafkaMessage = render_message(Template, Message),
     try
         {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
@@ -227,6 +228,7 @@ on_query_async(
     AsyncReplyFn,
     #{message_template := Template, producers := Producers}
 ) ->
+    ?tp(emqx_bridge_kafka_impl_producer_async_query, #{}),
     KafkaMessage = render_message(Template, Message),
     %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
