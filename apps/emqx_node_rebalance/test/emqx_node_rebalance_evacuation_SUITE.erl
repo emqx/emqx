@@ -86,11 +86,13 @@ end_per_testcase(_Case, Config) ->
 
 t_agent_busy(Config) ->
     [{DonorNode, _DonorPort}] = ?config(cluster_nodes, Config),
+
     ok = rpc:call(DonorNode, emqx_eviction_agent, enable, [other_rebalance, undefined]),
 
-    ?assertEqual(
-        {error, eviction_agent_busy},
-        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)])
+    ?assertWaitEvent(
+        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+        #{?snk_kind := eviction_agent_busy},
+        5000
     ).
 
 t_already_started(Config) ->
@@ -115,7 +117,12 @@ t_start(Config) ->
 
     [{DonorNode, DonorPort}] = ?config(cluster_nodes, Config),
 
-    ok = rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+    ?assertWaitEvent(
+        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+        #{?snk_kind := eviction_agent_started},
+        5000
+    ),
+
     ?assertMatch(
         {error, {use_another_server, #{}}},
         emqtt_try_connect([{port, DonorPort}])
@@ -126,7 +133,11 @@ t_persistence(Config) ->
 
     [{DonorNode, DonorPort}] = ?config(cluster_nodes, Config),
 
-    ok = rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+    ?assertWaitEvent(
+        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+        #{?snk_kind := eviction_agent_started},
+        5000
+    ),
 
     ?assertMatch(
         {error, {use_another_server, #{}}},
@@ -179,7 +190,7 @@ t_conn_evicted(Config) ->
     ?assertWaitEvent(
         ok = rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
         #{?snk_kind := node_evacuation_evict_conn},
-        1000
+        5000
     ),
 
     ?assertMatch(
@@ -251,6 +262,7 @@ opts(Config) ->
         conn_evict_rate => 10,
         sess_evict_rate => 10,
         wait_takeover => 1,
+        wait_health_check => 1,
         migrate_to => migrate_to(Config)
     }.
 

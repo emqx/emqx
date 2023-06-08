@@ -202,10 +202,10 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     }}.
 
 '/load_rebalance/availability_check'(get, #{}) ->
-    case emqx_eviction_agent:status() of
+    case emqx_node_rebalance_status:local_status() of
         disabled ->
             {200, #{}};
-        {enabled, _Stats} ->
+        _ ->
             error_response(503, ?NODE_EVACUATING, <<"Node Evacuating">>)
     end.
 
@@ -258,11 +258,11 @@ wrap_rpc(Node, RPCResult) ->
             {200, #{}};
         {error, Reason} ->
             error_response(
-                400, ?BAD_REQUEST, io_lib:format("error on node ~p: ~p", [Node, Reason])
+                400, ?BAD_REQUEST, binfmt("error on node ~p: ~p", [Node, Reason])
             );
         {badrpc, Reason} ->
             error_response(
-                503, ?RPC_ERROR, io_lib:format("RPC error on node ~p: ~p", [Node, Reason])
+                503, ?RPC_ERROR, binfmt("RPC error on node ~p: ~p", [Node, Reason])
             )
     end.
 
@@ -299,9 +299,9 @@ with_nodes_at_key(Key, Params, Fun) ->
         {ok, Params1} ->
             Fun(Params1);
         {error, {unavailable, Nodes}} ->
-            error_response(400, ?NOT_FOUND, io_lib:format("Nodes unavailable: ~p", [Nodes]));
+            error_response(400, ?NOT_FOUND, binfmt("Nodes unavailable: ~p", [Nodes]));
         {error, {invalid, Nodes}} ->
-            error_response(400, ?BAD_REQUEST, io_lib:format("Invalid nodes: ~p", [Nodes]))
+            error_response(400, ?BAD_REQUEST, binfmt("Invalid nodes: ~p", [Nodes]))
     end.
 
 parse_node(Bin) when is_binary(Bin) ->
@@ -330,6 +330,8 @@ without(Keys, Props) ->
         end,
         Props
     ).
+
+binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
 %%------------------------------------------------------------------------------
 %% Schema
@@ -432,6 +434,14 @@ fields(rebalance_start) ->
     ];
 fields(rebalance_evacuation_start) ->
     [
+        {"wait_health_check",
+            mk(
+                emqx_schema:timeout_duration_s(),
+                #{
+                    desc => ?DESC(wait_health_check),
+                    required => false
+                }
+            )},
         {"conn_evict_rate",
             mk(
                 pos_integer(),
@@ -712,6 +722,7 @@ rebalance_example() ->
 
 rebalance_evacuation_example() ->
     #{
+        wait_health_check => 10,
         conn_evict_rate => 100,
         sess_evict_rate => 100,
         redirect_to => <<"othernode:1883">>,
