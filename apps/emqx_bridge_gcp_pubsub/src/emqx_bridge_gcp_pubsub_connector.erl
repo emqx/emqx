@@ -134,17 +134,21 @@ on_start(
     end.
 
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
-on_stop(
-    ResourceId,
-    _State = #{jwt_config := JWTConfig}
-) ->
-    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId, jwt_config => JWTConfig}),
+on_stop(ResourceId, _State) ->
+    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_pubsub_bridge",
         connector => ResourceId
     }),
-    emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
-    ehttpc_sup:stop_pool(ResourceId).
+    ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
+    case ehttpc_sup:stop_pool(ResourceId) of
+        ok ->
+            ok;
+        {error, not_found} ->
+            ok;
+        Error ->
+            Error
+    end.
 
 -spec on_query(
     resource_id(),
