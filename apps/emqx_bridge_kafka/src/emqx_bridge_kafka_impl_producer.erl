@@ -50,7 +50,7 @@ on_start(InstId, Config) ->
         kafka := KafkaConfig = #{
             message := MessageTemplate,
             topic := KafkaTopic,
-            query_mode_sync_timeout := QueryModeSyncTimeout
+            sync_query_timeout := SyncQueryTimeout
         },
         metadata_request_timeout := MetaReqTimeout,
         min_metadata_refresh_interval := MinMetaRefreshInterval,
@@ -108,7 +108,7 @@ on_start(InstId, Config) ->
                 kafka_topic => KafkaTopic,
                 producers => Producers,
                 resource_id => ResourceId,
-                query_mode_sync_timeout => QueryModeSyncTimeout
+                sync_query_timeout => SyncQueryTimeout
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -201,7 +201,7 @@ on_query(
     #{
         message_template := Template,
         producers := Producers,
-        query_mode_sync_timeout := SyncTimeout
+        sync_query_timeout := SyncTimeout
     }
 ) ->
     ?tp(emqx_bridge_kafka_impl_producer_sync_query, #{}),

@@ -166,7 +166,7 @@ consumer_offset_reset_policy.label:
 
 partition_count_refresh_interval.desc:
 """The time interval for Kafka producer to discover increased number of partitions.
-After the number of partitions is increased in Kafka, EMQX will start taking the 
+After the number of partitions is increased in Kafka, EMQX will start taking the
 discovered partitions into account when dispatching messages per <code>partition_strategy</code>."""
 
 partition_count_refresh_interval.label:
@@ -364,10 +364,10 @@ query_mode.desc:
 query_mode.label:
 """Query mode"""
 
-query_mode_sync_timeout.desc:
+sync_query_timeout.desc:
 """This parameter defines the timeout limit for synchronous queries. It applies only when the bridge query mode is configured to 'sync'."""
 
-query_mode_sync_timeout.label:
+sync_query_timeout.label:
 """Synchronous Query Timeout"""
 
 }

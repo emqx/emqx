@@ -303,12 +303,12 @@ fields(producer_kafka_opts) ->
                     desc => ?DESC(query_mode)
                 }
             )},
-        {query_mode_sync_timeout,
+        {sync_query_timeout,
             mk(
                 emqx_schema:duration_ms(),
                 #{
                     default => <<"5s">>,
-                    desc => ?DESC(query_mode_sync_timeout)
+                    desc => ?DESC(sync_query_timeout)
                 }
             )}
     ];
