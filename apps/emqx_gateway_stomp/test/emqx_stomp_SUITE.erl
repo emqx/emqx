@@ -256,6 +256,10 @@ t_subscribe(_) ->
             ]
         ),
 
+        %% assert subscription stats
+        [ClientInfo1] = clients(),
+        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+
         %% Unsubscribe
         gen_tcp:send(
             Sock,
@@ -277,6 +281,10 @@ t_subscribe(_) ->
                 body = _
             },
             _, _} = parse(Data2),
+
+        %% assert subscription stats
+        [ClientInfo2] = clients(),
+        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
 
         gen_tcp:send(
             Sock,
@@ -802,10 +810,14 @@ t_rest_clienit_info(_) ->
 
         {200, Subs1} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(2, length(Subs1)),
+        {200, StompClient2} = request(get, ClientPath),
+        ?assertMatch(#{subscriptions_cnt := 2}, StompClient2),
 
         {204, _} = request(delete, ClientPath ++ "/subscriptions/t%2Fa"),
         {200, Subs2} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(1, length(Subs2)),
+        {200, StompClient3} = request(get, ClientPath),
+        ?assertMatch(#{subscriptions_cnt := 1}, StompClient3),
 
         %% kickout
         {204, _} = request(delete, ClientPath),
@@ -855,3 +867,7 @@ get_field(command, #stomp_frame{command = Command}) ->
     Command;
 get_field(body, #stomp_frame{body = Body}) ->
     Body.
+
+clients() ->
+    {200, Clients} = request(get, "/gateways/stomp/clients"),
+    maps:get(data, Clients).
