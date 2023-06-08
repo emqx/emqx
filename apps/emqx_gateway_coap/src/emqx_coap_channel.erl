@@ -381,6 +381,8 @@ ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
     Heartbeat = emqx_keepalive:info(interval, KeepAlive),
     Fun(keepalive, Heartbeat, keepalive, Channel).
 
+check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
+    call_session(handle_request, Msg, Channel);
 check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
     case is_create_connection_request(Msg) of
         true ->
