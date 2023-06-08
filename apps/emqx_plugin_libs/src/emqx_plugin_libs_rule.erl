@@ -49,10 +49,6 @@
     tcp_connectivity/3
 ]).
 
--export([
-    can_topic_match_oneof/2
-]).
-
 -compile({no_auto_import, [float/1]}).
 
 -type uri_string() :: iodata().
@@ -288,11 +284,3 @@ number_to_list(Int) when is_integer(Int) ->
     integer_to_list(Int);
 number_to_list(Float) when is_float(Float) ->
     float_to_list(Float, [{decimals, 10}, compact]).
-
-can_topic_match_oneof(Topic, Filters) ->
-    lists:any(
-        fun(Fltr) ->
-            emqx_topic:match(Topic, Fltr)
-        end,
-        Filters
-    ).
