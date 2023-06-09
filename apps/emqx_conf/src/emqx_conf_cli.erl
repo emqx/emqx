@@ -16,6 +16,9 @@
 
 -module(emqx_conf_cli).
 -include("emqx_conf.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
+
 -export([
     load/0,
     admins/1,
@@ -43,8 +46,12 @@ conf(["show"]) ->
     print_hocon(get_config());
 conf(["show", Key]) ->
     print_hocon(get_config(Key));
+conf(["load", "--auth-chains", AuthChains, Path]) when
+    AuthChains =:= "replace"; AuthChains =:= "merge"
+->
+    load_config(Path, AuthChains);
 conf(["load", Path]) ->
-    load_config(Path);
+    load_config(Path, "replace");
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload"]) ->
@@ -169,13 +176,13 @@ hidden_roots() ->
     ).
 
 get_config(Key) ->
-    case emqx:get_raw_config(Key, undefined) of
+    case emqx:get_raw_config([Key], undefined) of
         undefined -> {error, "key_not_found"};
         Value -> emqx_config:fill_defaults(#{Key => Value})
     end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
-load_config(Path) ->
+load_config(Path, AuthChain) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
             emqx_ctl:warning("load ~ts is empty~n", [Path]),
@@ -183,7 +190,7 @@ load_config(Path) ->
         {ok, RawConf} ->
             case check_config_keys(RawConf) of
                 ok ->
-                    maps:foreach(fun update_config/2, RawConf);
+                    maps:foreach(fun(K, V) -> update_config(K, V, AuthChain) end, RawConf);
                 {error, Reason} ->
                     emqx_ctl:warning("load ~ts failed~n~ts~n", [Path, Reason]),
                     emqx_ctl:warning(
@@ -196,13 +203,19 @@ load_config(Path) ->
             {error, bad_hocon_file}
     end.
 
-update_config(Key, Value) ->
-    case emqx_conf:update([Key], Value, ?OPTIONS) of
-        {ok, _} ->
-            emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
-        {error, Reason} ->
-            emqx_ctl:warning("load ~ts failed~n~p~n", [Key, Reason])
-    end.
+update_config(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
+    Res = emqx_authz:merge(Conf),
+    check_res(Key, Res);
+update_config(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
+    Res = emqx_authn:merge_config(Conf),
+    check_res(Key, Res);
+update_config(Key, Value, _) ->
+    Res = emqx_conf:update([Key], Value, ?OPTIONS),
+    check_res(Key, Res).
+
+check_res(Key, {ok, _}) -> emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
+check_res(Key, {error, Reason}) -> emqx_ctl:warning("load ~ts failed~n~p~n", [Key, Reason]).
+
 check_config_keys(Conf) ->
     Keys = maps:keys(Conf),
     ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],

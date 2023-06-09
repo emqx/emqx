@@ -41,7 +41,6 @@
 -export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
--export([merge_sources/2, search/2]).
 
 %% Data backup
 -export([
