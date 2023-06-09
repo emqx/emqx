@@ -24,11 +24,6 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
--endif.
-
 -export([
     register_metrics/0,
     init/0,
@@ -37,6 +32,7 @@
     lookup/1,
     move/2,
     update/2,
+    merge/1,
     authorize/5,
     %% for telemetry information
     get_enabled_authzs/0
@@ -45,6 +41,7 @@
 -export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
+-export([merge_sources/2, search/2]).
 
 %% Data backup
 -export([
@@ -128,6 +125,9 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
+merge(NewConf) ->
+    emqx_authz_utils:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}).
+
 move(Type, ?CMD_MOVE_BEFORE(Before)) ->
     emqx_authz_utils:update_config(
         ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}
@@ -158,8 +158,15 @@ pre_config_update(Path, Cmd, Sources) ->
 
 do_pre_config_update(?CONF_KEY_PATH, Cmd, Sources) ->
     do_pre_config_update(Cmd, Sources);
+do_pre_config_update(?ROOT_KEY, {?CMD_MERGE, NewConf}, OldConf) ->
+    do_pre_config_merge(NewConf, OldConf);
 do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
     do_pre_config_replace(NewConf, OldConf).
+
+do_pre_config_merge(NewConf, OldConf) ->
+    MergeConf0 = emqx_utils_maps:deep_merge(OldConf, NewConf),
+    NewSources = merge_sources(NewConf, OldConf),
+    do_pre_config_replace(MergeConf0#{<<"sources">> := NewSources}, OldConf).
 
 %% override the entire config when updating the root key
 %% emqx_conf:update(?ROOT_KEY, Conf);
@@ -629,3 +636,77 @@ check_acl_file_rules(Path, Rules) ->
     after
         _ = file:delete(TmpPath)
     end.
+
+merge_sources(OldConf, NewConf) ->
+    Default = [emqx_authz_schema:default_authz()],
+    NewSources0 = maps:get(<<"sources">>, NewConf, Default),
+    OriginSources0 = maps:get(<<"sources">>, OldConf, Default),
+    {OriginSource, NewSources} =
+        lists:foldl(
+            fun(Old = #{<<"type">> := Type}, {OriginAcc, NewAcc}) ->
+                case search(Type, NewAcc) of
+                    not_found ->
+                        {[Old | OriginAcc], NewAcc};
+                    {New, NewAcc1} ->
+                        MergeSource = emqx_utils_maps:deep_merge(Old, New),
+                        {[MergeSource | OriginAcc], NewAcc1}
+                end
+            end,
+            {[], NewSources0},
+            OriginSources0
+        ),
+    lists:reverse(OriginSource) ++ NewSources.
+
+search(Type, Sources) ->
+    case lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources) of
+        {_Front, []} -> not_found;
+        {Front, [Target | Rear]} -> {Target, Front ++ Rear}
+    end.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-compile(nowarn_export_all).
+-compile(export_all).
+
+merge_sources_test() ->
+    Default = [emqx_authz_schema:default_authz()],
+    Http = #{<<"type">> => <<"http">>, <<"enable">> => true},
+    Mysql = #{<<"type">> => <<"mysql">>, <<"enable">> => true},
+    Mongo = #{<<"type">> => <<"mongodb">>, <<"enable">> => true},
+    Redis = #{<<"type">> => <<"redis">>, <<"enable">> => true},
+    HttpDisable = Http#{<<"enable">> => false},
+    MysqlDisable = Mysql#{<<"enable">> => false},
+    MongoDisable = Mongo#{<<"enable">> => false},
+
+    %% has default source
+    ?assertEqual(Default, merge_sources(#{}, #{})),
+    ?assertEqual([], merge_sources(#{<<"sources">> => []}, #{<<"sources">> => []})),
+    ?assertEqual(Default, merge_sources(#{}, #{<<"sources">> => []})),
+
+    %% add
+    ?assertEqual(
+        [Http, Mysql, Mongo, Redis],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql]},
+            #{<<"sources">> => [Mongo, Redis]}
+        )
+    ),
+    %% replace
+    ?assertEqual(
+        [HttpDisable, MysqlDisable],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql]},
+            #{<<"sources">> => [HttpDisable, MysqlDisable]}
+        )
+    ),
+    %% add + replace + change position
+    ?assertEqual(
+        [HttpDisable, Mysql, MongoDisable, Redis],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql, Mongo]},
+            #{<<"sources">> => [MongoDisable, HttpDisable, Redis]}
+        )
+    ),
+    ok.
+
+-endif.
