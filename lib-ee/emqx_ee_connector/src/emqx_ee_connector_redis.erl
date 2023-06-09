@@ -44,7 +44,9 @@ on_start(InstId, #{command_template := CommandTemplate} = Config) ->
     end.
 
 on_stop(InstId, #{conn_st := RedisConnSt}) ->
-    emqx_connector_redis:on_stop(InstId, RedisConnSt).
+    emqx_connector_redis:on_stop(InstId, RedisConnSt);
+on_stop(InstId, undefined = _State) ->
+    emqx_connector_redis:on_stop(InstId, undefined).
 
 on_get_status(InstId, #{conn_st := RedisConnSt}) ->
     emqx_connector_redis:on_get_status(InstId, RedisConnSt).
