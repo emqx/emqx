@@ -14,6 +14,8 @@ services:
       GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
       GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
       GITHUB_REF: ${GITHUB_REF}
+      ## to avoid dirty kerberos credentials cache between CI runs
+      KRB5CCNAME: "${KRB5CCNAME:-/tmp/krb5cc_${GITHUB_RUN_ID:-${DOCKER_USER}}}"
     networks:
       - emqx_bridge
     ports:
