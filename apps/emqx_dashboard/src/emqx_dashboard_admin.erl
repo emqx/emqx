@@ -24,6 +24,8 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
+-behaviour(emqx_db_backup).
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -54,6 +56,8 @@
     default_username/0
 ]).
 
+-export([backup_tables/0]).
+
 -type emqx_admin() :: #?ADMIN{}.
 -define(BOOTSTRAP_USER_TAG, <<"bootstrap user">>).
 
@@ -75,6 +79,12 @@ mnesia(boot) ->
             ]}
         ]}
     ]).
+
+%%--------------------------------------------------------------------
+%% Data backup
+%%--------------------------------------------------------------------
+
+backup_tables() -> [?ADMIN].
 
 %%--------------------------------------------------------------------
 %% bootstrap API

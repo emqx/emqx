@@ -859,6 +859,12 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% Setting env before starting any applications
     set_envs(Node, Env),
 
+    NodeDataDir = filename:join([
+        PrivDataDir,
+        node(),
+        integer_to_list(erlang:unique_integer())
+    ]),
+
     %% Here we start the apps
     EnvHandlerForRpc =
         fun(App) ->
@@ -870,17 +876,10 @@ setup_node(Node, Opts) when is_map(Opts) ->
                     %% to avoid sharing data between executions and/or
                     %% nodes.  these variables might not be in the
                     %% config file (e.g.: emqx_enterprise_schema).
-                    NodeDataDir = filename:join([
-                        PrivDataDir,
-                        node(),
-                        integer_to_list(erlang:unique_integer())
-                    ]),
                     Cookie = atom_to_list(erlang:get_cookie()),
                     os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
                     os:putenv("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
-                    os:unsetenv("EMQX_NODE__DATA_DIR"),
-                    os:unsetenv("EMQX_NODE__COOKIE"),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 

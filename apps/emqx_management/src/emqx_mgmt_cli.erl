@@ -25,6 +25,7 @@
 -include("emqx_mgmt.hrl").
 
 -define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~ts~n", [Cmd, Descr])).
+-define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 
 -export([load/0]).
 
@@ -44,7 +45,8 @@
     log/1,
     authz/1,
     pem_cache/1,
-    olp/1
+    olp/1,
+    data/1
 ]).
 
 -define(PROC_INFOKEYS, [
@@ -737,6 +739,37 @@ olp(_) ->
         {"olp status", "Return OLP status if system is overloaded"},
         {"olp enable", "Enable overload protection"},
         {"olp disable", "Disable overload protection"}
+    ]).
+
+%%--------------------------------------------------------------------
+%% @doc data Command
+
+data(["export"]) ->
+    case emqx_mgmt_data_backup:export(?DATA_BACKUP_OPTS) of
+        {ok, #{filename := Filename}} ->
+            emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename]);
+        {error, Reason} ->
+            Reason1 = emqx_mgmt_data_backup:format_error(Reason),
+            emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
+    end;
+data(["import", Filename]) ->
+    case emqx_mgmt_data_backup:import(Filename, ?DATA_BACKUP_OPTS) of
+        {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} when
+            map_size(DbErrs) =:= 0, map_size(ConfErrs) =:= 0
+        ->
+            emqx_ctl:print("Data has been imported successfully.~n");
+        {ok, _} ->
+            emqx_ctl:print(
+                "Data has been imported, but some errors occurred, see the the log above.~n"
+            );
+        {error, Reason} ->
+            Reason1 = emqx_mgmt_data_backup:format_error(Reason),
+            emqx_ctl:print("[error] Data import failed, reason: ~p.~n", [Reason1])
+    end;
+data(_) ->
+    emqx_ctl:usage([
+        {"data import <File>", "Import data from the specified tar archive file"},
+        {"data export", "Export data"}
     ]).
 
 %%--------------------------------------------------------------------

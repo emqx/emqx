@@ -183,7 +183,7 @@ delete(Keys, Fields) ->
     lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Fields, Keys).
 
 api_key(get, _) ->
-    {200, [format(App) || App <- emqx_mgmt_auth:list()]};
+    {200, [emqx_mgmt_auth:format(App) || App <- emqx_mgmt_auth:list()]};
 api_key(post, #{body := App}) ->
     #{
         <<"name">> := Name,
@@ -194,7 +194,7 @@ api_key(post, #{body := App}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
         {ok, NewApp} ->
-            {200, format(NewApp)};
+            {200, emqx_mgmt_auth:format(NewApp)};
         {error, Reason} ->
             {400, #{
                 code => 'BAD_REQUEST',
@@ -206,7 +206,7 @@ api_key(post, #{body := App}) ->
 
 api_key_by_name(get, #{bindings := #{name := Name}}) ->
     case emqx_mgmt_auth:read(Name) of
-        {ok, App} -> {200, format(App)};
+        {ok, App} -> {200, emqx_mgmt_auth:format(App)};
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
 api_key_by_name(delete, #{bindings := #{name := Name}}) ->
@@ -219,20 +219,9 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     ExpiredAt = ensure_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
     case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc) of
-        {ok, App} -> {200, format(App)};
+        {ok, App} -> {200, emqx_mgmt_auth:format(App)};
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end.
-
-format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
-    ExpiredAt =
-        case ExpiredAt0 of
-            infinity -> <<"infinity">>;
-            _ -> list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt0))
-        end,
-    App#{
-        expired_at => ExpiredAt,
-        created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
-    }.
 
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> infinity.

@@ -15,7 +15,9 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz).
+
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -43,6 +45,13 @@
 -export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
+
+%% Data backup
+-export([
+    import_config/1,
+    maybe_read_acl_file/1,
+    maybe_write_acl_file/1
+]).
 
 -type source() :: map().
 
@@ -326,9 +335,9 @@ init_metrics(Source) ->
             )
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% AuthZ callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @doc Check AuthZ
 -spec authorize(
@@ -451,9 +460,58 @@ do_authorize(
 get_enabled_authzs() ->
     lists:usort([Type || #{type := Type, enable := true} <- lookup()]).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+import_config(#{?CONF_NS_BINARY := AuthzConf}) ->
+    Sources = maps:get(<<"sources">>, AuthzConf, []),
+    OldSources = emqx:get_raw_config(?CONF_KEY_PATH, []),
+    MergedSources = emqx_utils:merge_lists(OldSources, Sources, fun type/1),
+    MergedAuthzConf = AuthzConf#{<<"sources">> => MergedSources},
+    case emqx_conf:update([?CONF_NS_ATOM], MergedAuthzConf, #{override_to => cluster}) of
+        {ok, #{raw_config := #{<<"sources">> := NewSources}}} ->
+            {ok, #{
+                root_key => ?CONF_NS_ATOM,
+                changed => changed_paths(OldSources, NewSources)
+            }};
+        Error ->
+            {error, #{root_key => ?CONF_NS_ATOM, reason => Error}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?CONF_NS_ATOM, changed => []}}.
+
+changed_paths(OldSources, NewSources) ->
+    Changed = maps:get(changed, emqx_utils:diff_lists(NewSources, OldSources, fun type/1)),
+    [?CONF_KEY_PATH ++ [type(OldSource)] || {OldSource, _} <- Changed].
+
+maybe_read_acl_file(RawConf) ->
+    maybe_convert_acl_file(RawConf, fun read_acl_file/1).
+
+maybe_write_acl_file(RawConf) ->
+    maybe_convert_acl_file(RawConf, fun write_acl_file/1).
+
+maybe_convert_acl_file(
+    #{?CONF_NS_BINARY := #{<<"sources">> := Sources} = AuthRawConf} = RawConf, Fun
+) ->
+    Sources1 = lists:map(
+        fun
+            (#{<<"type">> := <<"file">>} = FileSource) -> Fun(FileSource);
+            (Source) -> Source
+        end,
+        Sources
+    ),
+    RawConf#{?CONF_NS_BINARY => AuthRawConf#{<<"sources">> => Sources1}};
+maybe_convert_acl_file(RawConf, _Fun) ->
+    RawConf.
+
+read_acl_file(#{<<"path">> := Path} = Source) ->
+    {ok, Rules} = emqx_authz_file:read_file(Path),
+    maps:remove(<<"path">>, Source#{<<"rules">> => Rules}).
+
+%%------------------------------------------------------------------------------
 %% Internal function
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 client_info_source() ->
     emqx_authz_client_info:create(

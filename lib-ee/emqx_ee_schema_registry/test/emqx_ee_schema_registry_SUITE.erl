@@ -700,3 +700,34 @@ t_cluster_serde_build(Config) ->
         ]
     ),
     ok.
+
+t_import_config(_Config) ->
+    RawConf = #{
+        <<"schema_registry">> =>
+            #{
+                <<"schemas">> =>
+                    #{
+                        <<"my_avro_schema">> =>
+                            #{
+                                <<"description">> => <<"My Avro Schema">>,
+                                <<"source">> =>
+                                    <<"{\"type\":\"record\",\"fields\":[{\"type\":\"int\",\"name\":\"i\"},{\"type\":\"string\",\"name\":\"s\"}]}">>,
+                                <<"type">> => <<"avro">>
+                            }
+                    }
+            }
+    },
+    RawConf1 = emqx_utils_maps:deep_put(
+        [<<"schema_registry">>, <<"schemas">>, <<"my_avro_schema">>, <<"description">>],
+        RawConf,
+        <<"Updated description">>
+    ),
+    Path = [schema_registry, schemas, <<"my_avro_schema">>],
+    ?assertEqual(
+        {ok, #{root_key => schema_registry, changed => []}},
+        emqx_ee_schema_registry:import_config(RawConf)
+    ),
+    ?assertEqual(
+        {ok, #{root_key => schema_registry, changed => [Path]}},
+        emqx_ee_schema_registry:import_config(RawConf1)
+    ).

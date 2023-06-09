@@ -17,6 +17,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-behaviour(emqx_db_backup).
+
 %% API
 -export([mnesia/1]).
 -boot_mnesia({mnesia, [boot]}).
@@ -28,11 +30,14 @@
     update/4,
     delete/1,
     list/0,
-    init_bootstrap_file/0
+    init_bootstrap_file/0,
+    format/1
 ]).
 
 -export([authorize/3]).
 -export([post_config_update/5]).
+
+-export([backup_tables/0]).
 
 %% Internal exports (RPC)
 -export([
@@ -66,6 +71,12 @@ mnesia(boot) ->
         {record_name, ?APP},
         {attributes, record_info(fields, ?APP)}
     ]).
+
+%%--------------------------------------------------------------------
+%% Data backup
+%%--------------------------------------------------------------------
+
+backup_tables() -> [?APP].
 
 post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     #{bootstrap_file := File} = NewConf,
@@ -126,6 +137,17 @@ do_delete(Name) ->
         [] -> mnesia:abort(not_found);
         [_App] -> mnesia:delete({?APP, Name})
     end.
+
+format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
+    ExpiredAt =
+        case ExpiredAt0 of
+            infinity -> <<"infinity">>;
+            _ -> list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt0))
+        end,
+    App#{
+        expired_at => ExpiredAt,
+        created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
+    }.
 
 list() ->
     to_map(ets:match_object(?APP, #?APP{_ = '_'})).

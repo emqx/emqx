@@ -843,7 +843,9 @@ convert_certs(ListenerConf) ->
             Listeners1 =
                 maps:fold(
                     fun(Name, Conf, Acc1) ->
-                        Acc1#{Name => convert_certs(Type, Name, Conf)}
+                        Conf1 = convert_certs(Type, Name, Conf),
+                        Conf2 = convert_authn_certs(Type, Name, Conf1),
+                        Acc1#{Name => Conf2}
                     end,
                     #{},
                     Listeners0
@@ -865,6 +867,19 @@ convert_certs(Type, Name, Conf) ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config", type => Type, name => Name}),
             throw({bad_ssl_config, Reason})
     end.
+
+convert_authn_certs(Type, Name, #{<<"authentication">> := AuthNList} = Conf) ->
+    ChainName = listener_id(Type, Name),
+    AuthNList1 = lists:map(
+        fun(AuthN) ->
+            CertsDir = emqx_authentication_config:certs_dir(ChainName, AuthN),
+            emqx_authentication_config:convert_certs(CertsDir, AuthN)
+        end,
+        AuthNList
+    ),
+    Conf#{<<"authentication">> => AuthNList1};
+convert_authn_certs(_Type, _Name, Conf) ->
+    Conf.
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.
