@@ -137,7 +137,6 @@ basic_reboot_apps() ->
             emqx_resource,
             emqx_rule_engine,
             emqx_bridge,
-            emqx_plugin_libs,
             emqx_management,
             emqx_retainer,
             emqx_exhook,

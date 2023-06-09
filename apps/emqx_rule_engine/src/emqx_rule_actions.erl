@@ -65,10 +65,10 @@ pre_process_action_args(
 ) ->
     Args#{
         preprocessed_tmpl => #{
-            topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
+            topic => emqx_placeholder:preproc_tmpl(Topic),
             qos => preproc_vars(QoS),
             retain => preproc_vars(Retain),
-            payload => emqx_plugin_libs_rule:preproc_tmpl(Payload),
+            payload => emqx_placeholder:preproc_tmpl(Payload),
             user_properties => preproc_user_properties(UserProperties)
         }
     };
@@ -110,7 +110,7 @@ republish(
         }
     }
 ) ->
-    Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
+    Topic = emqx_placeholder:proc_tmpl(TopicTks, Selected),
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
@@ -189,7 +189,7 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     emqx_metrics:inc_msg(Msg).
 
 preproc_vars(Data) when is_binary(Data) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Data);
+    emqx_placeholder:preproc_tmpl(Data);
 preproc_vars(Data) ->
     Data.
 
@@ -201,13 +201,13 @@ preproc_user_properties(<<"${pub_props.'User-Property'}">>) ->
     ?ORIGINAL_USER_PROPERTIES;
 preproc_user_properties(<<"${", _/binary>> = V) ->
     %% use a variable
-    emqx_plugin_libs_rule:preproc_tmpl(V);
+    emqx_placeholder:preproc_tmpl(V);
 preproc_user_properties(_) ->
     %% invalid, discard
     undefined.
 
 replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
-    [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
+    [Var] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
     case Var of
         %% cannot find the variable from Data
         undefined -> Default;
@@ -219,7 +219,7 @@ replace_simple_var(Val, _Data, _Default) ->
 format_msg([], Selected) ->
     emqx_utils_json:encode(Selected);
 format_msg(Tokens, Selected) ->
-    emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
+    emqx_placeholder:proc_tmpl(Tokens, Selected).
 
 format_pub_props(UserPropertiesTks, Selected, Env) ->
     UserProperties =

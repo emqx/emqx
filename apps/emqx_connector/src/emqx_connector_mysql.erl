@@ -344,7 +344,7 @@ parse_prepare_sql(Config) ->
     parse_prepare_sql(maps:to_list(SQL), #{}, #{}, #{}, #{}).
 
 parse_prepare_sql([{Key, H} | _] = L, Prepares, Tokens, BatchInserts, BatchTks) ->
-    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H),
+    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H),
     parse_batch_prepare_sql(
         L, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}, BatchInserts, BatchTks
     );
@@ -357,13 +357,13 @@ parse_prepare_sql([], Prepares, Tokens, BatchInserts, BatchTks) ->
     }.
 
 parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks) ->
-    case emqx_plugin_libs_rule:detect_sql_type(H) of
-        {ok, select} ->
+    case emqx_utils_sql:get_statement_type(H) of
+        select ->
             parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
-        {ok, insert} ->
-            case emqx_plugin_libs_rule:split_insert_sql(H) of
+        insert ->
+            case emqx_utils_sql:parse_insert(H) of
                 {ok, {InsertSQL, Params}} ->
-                    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(Params),
+                    ParamsTks = emqx_placeholder:preproc_tmpl(Params),
                     parse_prepare_sql(
                         T,
                         Prepares,
@@ -375,6 +375,9 @@ parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks
                     ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
                     parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
             end;
+        Type when is_atom(Type) ->
+            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
         {error, Reason} ->
             ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
             parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
@@ -389,7 +392,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
         undefined ->
             {SQLOrData, Params};
         Tokens ->
-            {TypeOrKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+            {TypeOrKey, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
     end.
 
 on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->

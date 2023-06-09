@@ -11,7 +11,6 @@
 /apps/emqx_ft/             @emqx/emqx-review-board @savonarola @keynslug
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
 /apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
-/apps/emqx_plugin_libs/    @emqx/emqx-review-board @lafirest
 /apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
 /apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
 /apps/emqx_psk/            @emqx/emqx-review-board @lafirest

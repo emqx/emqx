@@ -193,7 +193,7 @@ prepare_sql_templates(#{
     batch_value_separator := Separator
 }) ->
     InsertTemplate =
-        emqx_plugin_libs_rule:preproc_tmpl(Template),
+        emqx_placeholder:preproc_tmpl(Template),
     BulkExtendInsertTemplate =
         prepare_sql_bulk_extend_template(Template, Separator),
     #{
@@ -210,9 +210,9 @@ prepare_sql_bulk_extend_template(Template, Separator) ->
     %% Add separator before ValuesTemplate so that one can append it
     %% to an insert template
     ExtendParamTemplate = iolist_to_binary([Separator, ValuesTemplate]),
-    emqx_plugin_libs_rule:preproc_tmpl(ExtendParamTemplate).
+    emqx_placeholder:preproc_tmpl(ExtendParamTemplate).
 
-%% This function is similar to emqx_plugin_libs_rule:split_insert_sql/1 but can
+%% This function is similar to emqx_utils_sql:parse_insert/1 but can
 %% also handle Clickhouse's SQL extension for INSERT statments that allows the
 %% user to specify different formats:
 %%
@@ -363,7 +363,7 @@ on_query(
     transform_and_log_clickhouse_result(ClickhouseResult, ResourceID, SQL).
 
 get_sql(send_message, #{send_message_template := PreparedSQL}, Data) ->
-    emqx_plugin_libs_rule:proc_tmpl(PreparedSQL, Data);
+    emqx_placeholder:proc_tmpl(PreparedSQL, Data);
 get_sql(_, _, SQL) ->
     SQL.
 
@@ -421,10 +421,10 @@ objects_to_sql(
     }
 ) ->
     %% Prepare INSERT-statement and the first row after VALUES
-    InsertStatementHead = emqx_plugin_libs_rule:proc_tmpl(InsertTemplate, FirstObject),
+    InsertStatementHead = emqx_placeholder:proc_tmpl(InsertTemplate, FirstObject),
     FormatObjectDataFunction =
         fun(Object) ->
-            emqx_plugin_libs_rule:proc_tmpl(BulkExtendInsertTemplate, Object)
+            emqx_placeholder:proc_tmpl(BulkExtendInsertTemplate, Object)
         end,
     InsertStatementTail = lists:map(FormatObjectDataFunction, RemainingObjects),
     CompleteStatement = erlang:iolist_to_binary([InsertStatementHead, InsertStatementTail]),

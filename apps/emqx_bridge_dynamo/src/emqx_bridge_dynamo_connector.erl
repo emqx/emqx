@@ -197,7 +197,7 @@ parse_template(Config) ->
     parse_template(maps:to_list(Templates), #{}).
 
 parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(H),
+    ParamsTks = emqx_placeholder:preproc_tmpl(H),
     parse_template(
         T,
         Templates#{Key => ParamsTks}

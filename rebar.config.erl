@@ -409,7 +409,6 @@ relx_apps(ReleaseType, Edition) ->
         [
             {mnesia, load},
             {ekka, load},
-            {emqx_plugin_libs, load},
             {esasl, load},
             observer_cli,
             tools,

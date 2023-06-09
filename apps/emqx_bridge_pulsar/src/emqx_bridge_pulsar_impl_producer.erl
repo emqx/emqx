@@ -34,8 +34,8 @@
     value := binary()
 }.
 -type message_template() :: #{
-    key := emqx_plugin_libs_rule:tmpl_token(),
-    value := emqx_plugin_libs_rule:tmpl_token()
+    key := emqx_placeholder:tmpl_token(),
+    value := emqx_placeholder:tmpl_token()
 }.
 -type config() :: #{
     authentication := _,
@@ -419,7 +419,7 @@ compile_message_template(TemplateOpts) ->
     }.
 
 preproc_tmpl(Template) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Template).
+    emqx_placeholder:preproc_tmpl(Template).
 
 render_message(
     Message, #{key := KeyTemplate, value := ValueTemplate}
@@ -433,11 +433,11 @@ render(Message, Template) ->
     Opts = #{
         var_trans => fun
             (undefined) -> <<"">>;
-            (X) -> emqx_plugin_libs_rule:bin(X)
+            (X) -> emqx_utils_conv:bin(X)
         end,
         return => full_binary
     },
-    emqx_plugin_libs_rule:proc_tmpl(Template, Message, Opts).
+    emqx_placeholder:proc_tmpl(Template, Message, Opts).
 
 get_producer_status(Producers) ->
     case pulsar_producers:all_connected(Producers) of

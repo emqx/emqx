@@ -39,7 +39,7 @@
     connect_timeout := timer:time(),
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
-    payload_template := emqx_plugin_libs_rule:tmpl_token(),
+    payload_template := emqx_placeholder:tmpl_token(),
     pool_name := binary(),
     project_id := binary(),
     pubsub_topic := binary(),
@@ -101,7 +101,7 @@ on_start(
         connect_timeout => ConnectTimeout,
         jwt_config => JWTConfig,
         max_retries => MaxRetries,
-        payload_template => emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
+        payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
         pool_name => ResourceId,
         project_id => ProjectId,
         pubsub_topic => PubSubTopic,
@@ -291,7 +291,7 @@ encode_payload(_State = #{payload_template := PayloadTemplate}, Selected) ->
     Interpolated =
         case PayloadTemplate of
             [] -> emqx_utils_json:encode(Selected);
-            _ -> emqx_plugin_libs_rule:proc_tmpl(PayloadTemplate, Selected)
+            _ -> emqx_placeholder:proc_tmpl(PayloadTemplate, Selected)
         end,
     #{data => base64:encode(Interpolated)}.
 

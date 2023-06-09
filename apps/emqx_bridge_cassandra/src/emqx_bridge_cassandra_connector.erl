@@ -273,10 +273,10 @@ proc_cql_params(
     %% assert
     _PreparedKey = maps:get(PreparedKey0, Prepares),
     Tokens = maps:get(PreparedKey0, ParamsTokens),
-    {PreparedKey0, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))};
+    {PreparedKey0, assign_type_for_params(emqx_placeholder:proc_sql(Tokens, Params))};
 proc_cql_params(query, SQL, Params, _State) ->
-    {SQL1, Tokens} = emqx_plugin_libs_rule:preproc_sql(SQL, '?'),
-    {SQL1, assign_type_for_params(emqx_plugin_libs_rule:proc_sql(Tokens, Params))}.
+    {SQL1, Tokens} = emqx_placeholder:preproc_sql(SQL, '?'),
+    {SQL1, assign_type_for_params(emqx_placeholder:proc_sql(Tokens, Params))}.
 
 exec_cql_query(InstId, PoolName, Type, Async, PreparedKey, Data) when
     Type == query; Type == prepared_query
@@ -403,7 +403,7 @@ parse_prepare_cql(_) ->
     #{prepare_cql => #{}, params_tokens => #{}}.
 
 parse_prepare_cql([{Key, H} | T], Prepares, Tokens) ->
-    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H, '?'),
+    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H, '?'),
     parse_prepare_cql(
         T, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}
     );

@@ -436,7 +436,7 @@ to_config([Item0 | Rest], Acc, Precision) ->
     Ts0 = maps:get(timestamp, Item0, undefined),
     {Ts, FromPrecision, ToPrecision} = preproc_tmpl_timestamp(Ts0, Precision),
     Item = #{
-        measurement => emqx_plugin_libs_rule:preproc_tmpl(maps:get(measurement, Item0)),
+        measurement => emqx_placeholder:preproc_tmpl(maps:get(measurement, Item0)),
         timestamp => Ts,
         precision => {FromPrecision, ToPrecision},
         tags => to_kv_config(maps:get(tags, Item0)),
@@ -458,18 +458,18 @@ preproc_tmpl_timestamp(Ts, Precision) when is_integer(Ts) ->
 preproc_tmpl_timestamp(Ts, Precision) when is_list(Ts) ->
     preproc_tmpl_timestamp(iolist_to_binary(Ts), Precision);
 preproc_tmpl_timestamp(<<?DEFAULT_TIMESTAMP_TMPL>> = Ts, Precision) ->
-    {emqx_plugin_libs_rule:preproc_tmpl(Ts), ms, Precision};
+    {emqx_placeholder:preproc_tmpl(Ts), ms, Precision};
 preproc_tmpl_timestamp(Ts, Precision) when is_binary(Ts) ->
     %% a placehold is in use. e.g. ${payload.my_timestamp}
     %% we can only hope it the value will be of the same precision in the configs
-    {emqx_plugin_libs_rule:preproc_tmpl(Ts), Precision, Precision}.
+    {emqx_placeholder:preproc_tmpl(Ts), Precision, Precision}.
 
 to_kv_config(KVfields) ->
     maps:fold(fun to_maps_config/3, #{}, proplists:to_map(KVfields)).
 
 to_maps_config(K, V, Res) ->
-    NK = emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-    NV = emqx_plugin_libs_rule:preproc_tmpl(bin(V)),
+    NK = emqx_placeholder:preproc_tmpl(bin(K)),
+    NV = emqx_placeholder:preproc_tmpl(bin(V)),
     Res#{NK => NV}.
 
 %% -------------------------------------------------------------------------------------------------
@@ -505,7 +505,7 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
         fields := [{binary(), binary()}],
         measurement := binary(),
         tags := [{binary(), binary()}],
-        timestamp := emqx_plugin_libs_rule:tmpl_token() | integer(),
+        timestamp := emqx_placeholder:tmpl_token() | integer(),
         precision := {From :: ts_precision(), To :: ts_precision()}
     }
 ]) -> {ok, [map()]} | {error, term()}.
@@ -526,7 +526,7 @@ lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, Error
     is_list(Ts)
 ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case parse_timestamp(emqx_plugin_libs_rule:proc_tmpl(Ts, Data, TransOptions)) of
+    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions)) of
         {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(Data, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
@@ -573,7 +573,7 @@ line_to_point(
     {_, EncodedTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
     {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
     maps:without([precision], Item#{
-        measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Data),
+        measurement => emqx_placeholder:proc_tmpl(Measurement, Data),
         tags => EncodedTags,
         fields => EncodedFields,
         timestamp => maybe_convert_time_unit(Ts, Precision)
@@ -590,8 +590,8 @@ time_unit(ns) -> nanosecond.
 maps_config_to_data(K, V, {Data, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK0 = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
-    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, VTransOptions),
+    NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_placeholder:proc_tmpl(V, Data, VTransOptions),
     case {NK0, NV} of
         {[undefined], _} ->
             {Data, Res};
@@ -637,7 +637,7 @@ value_type(Val) ->
     Val.
 
 key_filter(undefined) -> undefined;
-key_filter(Value) -> emqx_plugin_libs_rule:bin(Value).
+key_filter(Value) -> emqx_utils_conv:bin(Value).
 
 data_filter(undefined) -> undefined;
 data_filter(Int) when is_integer(Int) -> Int;
@@ -645,7 +645,7 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-bin(Data) -> emqx_plugin_libs_rule:bin(Data).
+bin(Data) -> emqx_utils_conv:bin(Data).
 
 %% helper funcs
 log_error_points(InstId, Errs) ->
