@@ -23,6 +23,8 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
+-export([create_opts/1]).
+
 %% range interval in ms
 -define(HEALTH_CHECK_INTERVAL_RANGE_MIN, 1).
 -define(HEALTH_CHECK_INTERVAL_RANGE_MAX, 3_600_000).
@@ -43,25 +45,41 @@ fields("resource_opts") ->
             )}
     ];
 fields("creation_opts") ->
-    [
-        {buffer_mode, fun buffer_mode/1},
-        {worker_pool_size, fun worker_pool_size/1},
-        {health_check_interval, fun health_check_interval/1},
-        {resume_interval, fun resume_interval/1},
-        {metrics_flush_interval, fun metrics_flush_interval/1},
-        {start_after_created, fun start_after_created/1},
-        {start_timeout, fun start_timeout/1},
-        {auto_restart_interval, fun auto_restart_interval/1},
-        {query_mode, fun query_mode/1},
-        {request_ttl, fun request_ttl/1},
-        {inflight_window, fun inflight_window/1},
-        {enable_batch, fun enable_batch/1},
-        {batch_size, fun batch_size/1},
-        {batch_time, fun batch_time/1},
-        {enable_queue, fun enable_queue/1},
-        {max_buffer_bytes, fun max_buffer_bytes/1},
-        {buffer_seg_bytes, fun buffer_seg_bytes/1}
-    ].
+    create_opts([]).
+
+create_opts(Overrides) ->
+    override(
+        [
+            {buffer_mode, fun buffer_mode/1},
+            {worker_pool_size, fun worker_pool_size/1},
+            {health_check_interval, fun health_check_interval/1},
+            {resume_interval, fun resume_interval/1},
+            {metrics_flush_interval, fun metrics_flush_interval/1},
+            {start_after_created, fun start_after_created/1},
+            {start_timeout, fun start_timeout/1},
+            {auto_restart_interval, fun auto_restart_interval/1},
+            {query_mode, fun query_mode/1},
+            {request_ttl, fun request_ttl/1},
+            {inflight_window, fun inflight_window/1},
+            {enable_batch, fun enable_batch/1},
+            {batch_size, fun batch_size/1},
+            {batch_time, fun batch_time/1},
+            {enable_queue, fun enable_queue/1},
+            {max_buffer_bytes, fun max_buffer_bytes/1},
+            {buffer_seg_bytes, fun buffer_seg_bytes/1}
+        ],
+        Overrides
+    ).
+
+override([], _) ->
+    [];
+override([{Name, Sc} | Rest], Overrides) ->
+    case lists:keyfind(Name, 1, Overrides) of
+        {Name, Override} ->
+            [{Name, hocon_schema:override(Sc, Override)} | override(Rest, Overrides)];
+        false ->
+            [{Name, Sc} | override(Rest, Overrides)]
+    end.
 
 resource_opts_meta() ->
     #{
@@ -142,6 +160,7 @@ request_ttl(_) -> undefined.
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;
 enable_batch(default) -> true;
+enable_batch(importance) -> ?IMPORTANCE_HIDDEN;
 enable_batch(deprecated) -> {since, "v5.0.14"};
 enable_batch(desc) -> ?DESC("enable_batch");
 enable_batch(_) -> undefined.
@@ -169,6 +188,7 @@ batch_size(_) -> undefined.
 batch_time(type) -> emqx_schema:timeout_duration_ms();
 batch_time(desc) -> ?DESC("batch_time");
 batch_time(default) -> ?DEFAULT_BATCH_TIME_RAW;
+batch_time(importance) -> ?IMPORTANCE_LOW;
 batch_time(required) -> false;
 batch_time(_) -> undefined.
 

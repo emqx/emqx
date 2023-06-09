@@ -37,8 +37,24 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
         {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
-        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
-    ] ++ emqx_resource_schema:fields("resource_opts");
+        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})},
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{required => true, desc => ?DESC(emqx_resource_schema, "creation_opts")}
+            )}
+    ];
+fields("creation_opts") ->
+    %% so far, mongodb connector does not support batching
+    %% but we cannot delete this field due to compatibility reasons
+    %% so we'll keep this field, but hide it in the docs.
+    emqx_resource_schema:create_opts([
+        {batch_size, #{
+            importance => ?IMPORTANCE_HIDDEN,
+            converter => fun(_, _) -> 1 end,
+            desc => ?DESC("batch_size")
+        }}
+    ]);
 fields(mongodb_rs) ->
     emqx_connector_mongo:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
