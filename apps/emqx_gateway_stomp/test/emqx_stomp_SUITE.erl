@@ -40,7 +40,12 @@
     "    username = \"${Packet.headers.login}\"\n"
     "    password = \"${Packet.headers.passcode}\"\n"
     "  }\n"
-    "  listeners.tcp.default {\n"
+    " frame {\n"
+    "    max_headers = 10\n"
+    "    max_headers_length = 100\n"
+    "    max_body_length = 1024\n"
+    "  }\n"
+    " listeners.tcp.default {\n"
     "    bind = 61613\n"
     "  }\n"
     "}\n"
@@ -256,6 +261,10 @@ t_subscribe(_) ->
             ]
         ),
 
+        %% assert subscription stats
+        [ClientInfo1] = clients(),
+        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+
         %% Unsubscribe
         gen_tcp:send(
             Sock,
@@ -277,6 +286,10 @@ t_subscribe(_) ->
                 body = _
             },
             _, _} = parse(Data2),
+
+        %% assert subscription stats
+        [ClientInfo2] = clients(),
+        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
 
         gen_tcp:send(
             Sock,
@@ -697,6 +710,129 @@ t_sticky_packets_truncate_after_headers(_) ->
             ?assert(false, "waiting message timeout")
         end
     end).
+
+t_frame_error_in_connect(_) ->
+    with_connection(fun(Sock) ->
+        gen_tcp:send(
+            Sock,
+            serialize(
+                <<"CONNECT">>,
+                [
+                    {<<"accept-version">>, ?STOMP_VER},
+                    {<<"host">>, <<"127.0.0.1:61613">>},
+                    {<<"login">>, <<"guest">>},
+                    {<<"passcode">>, <<"guest">>},
+                    {<<"heart-beat">>, <<"0,0">>},
+                    {<<"custome_header1">>, <<"val">>},
+                    {<<"custome_header2">>, <<"val">>},
+                    {<<"custome_header3">>, <<"val">>},
+                    {<<"custome_header4">>, <<"val">>},
+                    {<<"custome_header5">>, <<"val">>},
+                    {<<"custome_header6">>, <<"val">>}
+                ]
+            )
+        ),
+        ?assertMatch({error, closed}, gen_tcp:recv(Sock, 0))
+    end).
+
+t_frame_error_too_many_headers(_) ->
+    Frame = serialize(
+        <<"SEND">>,
+        [
+            {<<"destination">>, <<"/queue/foo">>},
+            {<<"custome_header1">>, <<"val">>},
+            {<<"custome_header2">>, <<"val">>},
+            {<<"custome_header3">>, <<"val">>},
+            {<<"custome_header4">>, <<"val">>},
+            {<<"custome_header5">>, <<"val">>},
+            {<<"custome_header6">>, <<"val">>},
+            {<<"custome_header7">>, <<"val">>},
+            {<<"custome_header8">>, <<"val">>},
+            {<<"custome_header9">>, <<"val">>},
+            {<<"custome_header10">>, <<"val">>}
+        ],
+        <<"test">>
+    ),
+    Assert =
+        fun(Sock) ->
+            {ok, Data} = gen_tcp:recv(Sock, 0),
+            {ok, ErrorFrame, _, _} = parse(Data),
+            ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+            ?assertMatch(
+                match, re:run(ErrorFrame#stomp_frame.body, "too_many_headers", [{capture, none}])
+            ),
+            ?assertMatch({error, closed}, gen_tcp:recv(Sock, 0))
+        end,
+    test_frame_error(Frame, Assert).
+
+t_frame_error_too_long_header(_) ->
+    LongHeaderVal = emqx_utils:bin_to_hexstr(crypto:strong_rand_bytes(50), upper),
+    Frame = serialize(
+        <<"SEND">>,
+        [
+            {<<"destination">>, <<"/queue/foo">>},
+            {<<"custome_header10">>, LongHeaderVal}
+        ],
+        <<"test">>
+    ),
+    Assert =
+        fun(Sock) ->
+            {ok, Data} = gen_tcp:recv(Sock, 0),
+            {ok, ErrorFrame, _, _} = parse(Data),
+            ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+            ?assertMatch(
+                match, re:run(ErrorFrame#stomp_frame.body, "too_long_header", [{capture, none}])
+            ),
+            ?assertMatch({error, closed}, gen_tcp:recv(Sock, 0))
+        end,
+    test_frame_error(Frame, Assert).
+
+t_frame_error_too_long_body(_) ->
+    LongBody = emqx_utils:bin_to_hexstr(crypto:strong_rand_bytes(513), upper),
+    Frame = serialize(
+        <<"SEND">>,
+        [{<<"destination">>, <<"/queue/foo">>}],
+        LongBody
+    ),
+    Assert =
+        fun(Sock) ->
+            {ok, Data} = gen_tcp:recv(Sock, 0),
+            {ok, ErrorFrame, _, _} = parse(Data),
+            ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+            ?assertMatch(
+                match, re:run(ErrorFrame#stomp_frame.body, "too_long_body", [{capture, none}])
+            ),
+            ?assertMatch({error, closed}, gen_tcp:recv(Sock, 0))
+        end,
+    test_frame_error(Frame, Assert).
+
+test_frame_error(Frame, AssertFun) ->
+    with_connection(fun(Sock) ->
+        gen_tcp:send(
+            Sock,
+            serialize(
+                <<"CONNECT">>,
+                [
+                    {<<"accept-version">>, ?STOMP_VER},
+                    {<<"host">>, <<"127.0.0.1:61613">>},
+                    {<<"login">>, <<"guest">>},
+                    {<<"passcode">>, <<"guest">>},
+                    {<<"heart-beat">>, <<"0,0">>}
+                ]
+            )
+        ),
+        {ok, Data} = gen_tcp:recv(Sock, 0),
+        {ok,
+            #stomp_frame{
+                command = <<"CONNECTED">>,
+                headers = _,
+                body = _
+            },
+            _, _} = parse(Data),
+        gen_tcp:send(Sock, Frame),
+        AssertFun(Sock)
+    end).
+
 t_rest_clienit_info(_) ->
     with_connection(fun(Sock) ->
         gen_tcp:send(
@@ -802,10 +938,14 @@ t_rest_clienit_info(_) ->
 
         {200, Subs1} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(2, length(Subs1)),
+        {200, StompClient2} = request(get, ClientPath),
+        ?assertMatch(#{subscriptions_cnt := 2}, StompClient2),
 
         {204, _} = request(delete, ClientPath ++ "/subscriptions/t%2Fa"),
         {200, Subs2} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(1, length(Subs2)),
+        {200, StompClient3} = request(get, ClientPath),
+        ?assertMatch(#{subscriptions_cnt := 1}, StompClient3),
 
         %% kickout
         {204, _} = request(delete, ClientPath),
@@ -844,9 +984,9 @@ serialize(Command, Headers, Body) ->
 
 parse(Data) ->
     ProtoEnv = #{
-        max_headers => 10,
-        max_header_length => 1024,
-        max_body_length => 8192
+        max_headers => 1024,
+        max_header_length => 10240,
+        max_body_length => 81920
     },
     Parser = emqx_stomp_frame:initial_parse_state(ProtoEnv),
     emqx_stomp_frame:parse(Data, Parser).
@@ -855,3 +995,7 @@ get_field(command, #stomp_frame{command = Command}) ->
     Command;
 get_field(body, #stomp_frame{body = Body}) ->
     Body.
+
+clients() ->
+    {200, Clients} = request(get, "/gateways/stomp/clients"),
+    maps:get(data, Clients).
