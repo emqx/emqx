@@ -131,6 +131,7 @@ on_start(ResourceId, Config) ->
             offset_commit_interval_seconds := _,
             offset_reset_policy := _
         },
+        socket_opts := SocketOpts0,
         ssl := SSL,
         topic_mapping := _
     } = Config,
@@ -144,8 +145,10 @@ on_start(ResourceId, Config) ->
             Auth -> [{sasl, emqx_bridge_kafka_impl:sasl(Auth)}]
         end,
     ClientOpts = add_ssl_opts(ClientOpts0, SSL),
+    SocketOpts = emqx_bridge_kafka_impl:socket_opts(SocketOpts0),
+    ClientOpts1 = [{extra_sock_opts, SocketOpts} | ClientOpts],
     ok = emqx_resource:allocate_resource(ResourceId, ?kafka_client_id, ClientID),
-    case brod:start_client(BootstrapHosts, ClientID, ClientOpts) of
+    case brod:start_client(BootstrapHosts, ClientID, ClientOpts1) of
         ok ->
             ?tp(
                 kafka_consumer_client_started,

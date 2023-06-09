@@ -168,6 +168,24 @@ message_key_dispatch_validations_test() ->
     ),
     ok.
 
+tcp_keepalive_validation_test_() ->
+    ProducerConf = parse(kafka_producer_new_hocon()),
+    ConsumerConf = parse(kafka_consumer_hocon()),
+    test_keepalive_validation([<<"kafka">>, <<"myproducer">>], ProducerConf) ++
+        test_keepalive_validation([<<"kafka_consumer">>, <<"my_consumer">>], ConsumerConf).
+
+test_keepalive_validation(Name, Conf) ->
+    Path = [<<"bridges">>] ++ Name ++ [<<"socket_opts">>, <<"tcp_keepalive">>],
+    Conf1 = emqx_utils_maps:deep_force_put(Path, Conf, <<"5,6,7">>),
+    Conf2 = emqx_utils_maps:deep_force_put(Path, Conf, <<"none">>),
+    ValidConfs = [Conf, Conf1, Conf2],
+    InvalidConf = emqx_utils_maps:deep_force_put(Path, Conf, <<"invalid">>),
+    InvalidConf1 = emqx_utils_maps:deep_force_put(Path, Conf, <<"5,6">>),
+    InvalidConf2 = emqx_utils_maps:deep_force_put(Path, Conf, <<"5,6,1000">>),
+    InvalidConfs = [InvalidConf, InvalidConf1, InvalidConf2],
+    [?_assertMatch(#{<<"bridges">> := _}, check(C)) || C <- ValidConfs] ++
+        [?_assertThrow(_, check(C)) || C <- InvalidConfs].
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================
