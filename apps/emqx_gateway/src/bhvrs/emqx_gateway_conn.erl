@@ -970,6 +970,12 @@ close_socket(State = #state{socket = Socket}) ->
 %% Inc incoming/outgoing stats
 
 inc_incoming_stats(Ctx, FrameMod, Packet) ->
+    do_inc_incoming_stats(FrameMod:type(Packet), Ctx, FrameMod, Packet).
+
+%% If a mailformed packet is received, the type of the packet is undefined.
+do_inc_incoming_stats(undefined, _Ctx, _FrameMod, _Packet) ->
+    ok;
+do_inc_incoming_stats(Type, Ctx, FrameMod, Packet) ->
     inc_counter(recv_pkt, 1),
     case FrameMod:is_message(Packet) of
         true ->
@@ -978,9 +984,7 @@ inc_incoming_stats(Ctx, FrameMod, Packet) ->
         false ->
             ok
     end,
-    Name = list_to_atom(
-        lists:concat(["packets.", FrameMod:type(Packet), ".received"])
-    ),
+    Name = list_to_atom(lists:concat(["packets.", Type, ".received"])),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 inc_outgoing_stats(Ctx, FrameMod, Packet) ->

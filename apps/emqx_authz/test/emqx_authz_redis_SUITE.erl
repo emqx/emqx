@@ -181,7 +181,7 @@ t_create_with_config_values_wont_work(_Config) ->
         InvalidConfigs
     ).
 
-%% creating without a require filed should return error
+%% creating without a require field should return error
 t_create_invalid_config(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
     C = maps:without([<<"server">>], AuthzConfig),

@@ -499,7 +499,7 @@ handle_in(
                 [{MountedTopic, SubOpts} | _] ->
                     NSubs = [{SubId, MountedTopic, Ack, SubOpts} | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
-                    handle_out(receipt, receipt_id(Headers), NChannel1)
+                    handle_out_and_update(receipt, receipt_id(Headers), NChannel1)
             end;
         {error, ErrMsg, NChannel} ->
             ?SLOG(error, #{
@@ -541,7 +541,7 @@ handle_in(
             false ->
                 {ok, Channel}
         end,
-    handle_out(receipt, receipt_id(Headers), NChannel);
+    handle_out_and_update(receipt, receipt_id(Headers), NChannel);
 %% XXX: How to ack a frame ???
 handle_in(Frame = ?PACKET(?CMD_ACK, Headers), Channel) ->
     case header(<<"transaction">>, Headers) of
@@ -638,12 +638,12 @@ handle_in(
                 ]
         end,
     {ok, Outgoings, Channel};
+handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
+    shutdown(Reason, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
-    ?SLOG(error, #{
-        msg => "unexpected_frame_error",
-        reason => Reason
-    }),
-    shutdown(Reason, Channel).
+    ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
+    Frame = error_frame(undefined, ErrMsg),
+    shutdown(Reason, Frame, Channel).
 
 with_transaction(Headers, Channel = #channel{transaction = Trans}, Fun) ->
     Id = header(<<"transaction">>, Headers),
@@ -769,6 +769,12 @@ handle_out(receipt, ReceiptId, Channel) ->
     Frame = receipt_frame(ReceiptId),
     {ok, {outgoing, Frame}, Channel}.
 
+handle_out_and_update(receipt, undefined, Channel) ->
+    {ok, [{event, updated}], Channel};
+handle_out_and_update(receipt, ReceiptId, Channel) ->
+    Frame = receipt_frame(ReceiptId),
+    {ok, [{outgoing, Frame}, {event, updated}], Channel}.
+
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
@@ -812,7 +818,7 @@ handle_call(
                     ),
                     NSubs = [{SubId, MountedTopic, <<"auto">>, NSubOpts} | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
-                    reply({ok, {MountedTopic, NSubOpts}}, NChannel1);
+                    reply({ok, {MountedTopic, NSubOpts}}, [{event, updated}], NChannel1);
                 {error, ErrMsg, NChannel} ->
                     ?SLOG(error, #{
                         msg => "failed_to_subscribe_topic",
@@ -841,6 +847,7 @@ handle_call(
     ),
     reply(
         ok,
+        [{event, updated}],
         Channel#channel{
             subscriptions = lists:keydelete(MountedTopic, 2, Subs)
         }
@@ -1106,6 +1113,9 @@ terminate(Reason, #channel{
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
+
+reply(Reply, Msgs, Channel) ->
+    {reply, Reply, Msgs, Channel}.
 
 shutdown(Reason, Channel) ->
     {shutdown, Reason, Channel}.

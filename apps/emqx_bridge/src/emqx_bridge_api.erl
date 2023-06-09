@@ -602,8 +602,8 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
-        {error, #{kind := validation_error} = Reason} ->
-            ?BAD_REQUEST(map_to_json(Reason))
+        {error, Reason} when is_map(Reason) ->
+            ?BAD_REQUEST(map_to_json(emqx_utils:redact(Reason)))
     end.
 
 get_metrics_from_local_node(BridgeType, BridgeName) ->

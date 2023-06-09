@@ -22,36 +22,32 @@
     unload/0
 ]).
 
+-include_lib("hocon/include/hoconsc.hrl").
+
+%% kept cluster_call for compatibility
 -define(CLUSTER_CALL, cluster_call).
 -define(CONF, conf).
 
 load() ->
-    emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, []),
+    emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
     emqx_ctl:register_command(?CONF, {?MODULE, conf}, []).
 
 unload() ->
     emqx_ctl:unregister_command(?CLUSTER_CALL),
     emqx_ctl:unregister_command(?CONF).
 
-conf(["show", "--keys-only"]) ->
-    print(emqx_config:get_root_names());
+conf(["show_keys" | _]) ->
+    print_keys(get_config());
 conf(["show"]) ->
     print_hocon(get_config());
 conf(["show", Key]) ->
     print_hocon(get_config(Key));
 conf(["load", Path]) ->
     load_config(Path);
+conf(["cluster_sync" | Args]) ->
+    admins(Args);
 conf(_) ->
-    emqx_ctl:usage(
-        [
-            %% TODO add reload
-            %{"conf reload", "reload etc/emqx.conf on local node"},
-            {"conf show --keys-only", "print all keys"},
-            {"conf show", "print all running configures"},
-            {"conf show <key>", "print a specific configuration"},
-            {"conf load <path>", "load a hocon file to all nodes"}
-        ]
-    ).
+    emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
 admins(["status"]) ->
     status();
@@ -87,14 +83,34 @@ admins(["fast_forward", Node0, ToTnxId]) ->
     emqx_cluster_rpc:fast_forward_to_commit(Node, TnxId),
     status();
 admins(_) ->
-    emqx_ctl:usage(
-        [
-            {"cluster_call status", "status"},
-            {"cluster_call skip [node]", "increase one commit on specific node"},
-            {"cluster_call tnxid <TnxId>", "get detailed about TnxId"},
-            {"cluster_call fast_forward [node] [tnx_id]", "fast forwards to tnx_id"}
-        ]
-    ).
+    emqx_ctl:usage(usage_sync()).
+
+usage_conf() ->
+    [
+        %% TODO add reload
+        %{"conf reload", "reload etc/emqx.conf on local node"},
+        {"conf show_keys", "Print all config keys"},
+        {"conf show [<key>]",
+            "Print in-use configs (including default values) under the given key. "
+            "Print ALL keys if key is not provided"},
+        {"conf load <path>",
+            "Load a HOCON format config file."
+            "The config is overlay on top of the existing configs. "
+            "The current node will initiate a cluster wide config change "
+            "transaction to sync the changes to other nodes in the cluster. "
+            "NOTE: do not make runtime config changes during rolling upgrade."}
+    ].
+
+usage_sync() ->
+    [
+        {"conf cluster_sync status", "Show cluster config sync status summary"},
+        {"conf cluster_sync skip [node]", "Increase one commit on specific node"},
+        {"conf cluster_sync tnxid <TnxId>",
+            "Display detailed information of the config change transaction at TnxId"},
+        {"conf cluster_sync fast_forward [node] [tnx_id]",
+            "Fast-forward config change transaction to tnx_id on the given node."
+            "WARNING: This results in inconsistent configs among the clustered nodes."}
+    ].
 
 status() ->
     emqx_ctl:print("-----------------------------------------------\n"),
@@ -116,14 +132,39 @@ status() ->
     ),
     emqx_ctl:print("-----------------------------------------------\n").
 
+print_keys(Config) ->
+    print(lists:sort(maps:keys(Config))).
+
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
 
 print_hocon(Hocon) ->
     emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]).
 
-get_config() -> emqx_config:fill_defaults(emqx:get_raw_config([])).
-get_config(Key) -> emqx_config:fill_defaults(#{Key => emqx:get_raw_config([Key])}).
+get_config() ->
+    drop_hidden_roots(emqx_config:fill_defaults(emqx:get_raw_config([]))).
+
+drop_hidden_roots(Conf) ->
+    Hidden = hidden_roots(),
+    maps:without(Hidden, Conf).
+
+hidden_roots() ->
+    SchemaModule = emqx_conf:schema_module(),
+    Roots = hocon_schema:roots(SchemaModule),
+    lists:filtermap(
+        fun({BinName, {_RefName, Schema}}) ->
+            case hocon_schema:field_schema(Schema, importance) =/= ?IMPORTANCE_HIDDEN of
+                true ->
+                    false;
+                false ->
+                    {true, BinName}
+            end
+        end,
+        Roots
+    ).
+
+get_config(Key) ->
+    emqx_config:fill_defaults(#{Key => emqx:get_raw_config([Key])}).
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
 load_config(Path) ->
