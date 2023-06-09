@@ -304,7 +304,7 @@ do_listeners_cluster_status(Listeners) ->
                     status => #{
                         running => Running,
                         current_connections => Curr,
-                        max_connections => int(Max)
+                        max_connections => ensure_integer_or_infinity(Max)
                     }
                 }
             }
@@ -313,13 +313,13 @@ do_listeners_cluster_status(Listeners) ->
         Listeners
     ).
 
-int(infinity) ->
+ensure_integer_or_infinity(infinity) ->
     infinity;
-int(<<"infinity">>) ->
+ensure_integer_or_infinity(<<"infinity">>) ->
     infinity;
-int(B) when is_binary(B) ->
+ensure_integer_or_infinity(B) when is_binary(B) ->
     binary_to_integer(B);
-int(I) when is_integer(I) ->
+ensure_integer_or_infinity(I) when is_integer(I) ->
     I.
 
 aggregate_listener_status(NodeStatus) ->
