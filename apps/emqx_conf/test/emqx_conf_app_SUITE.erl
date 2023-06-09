@@ -107,11 +107,13 @@ t_copy_deprecated_data_dir(Config) ->
         stop_cluster(Nodes)
     end.
 
-t_no_copy_from_newer_version_node(_Config) ->
+t_no_copy_from_newer_version_node(Config) ->
     net_kernel:start(['master2@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})]),
+    Cluster = cluster(
+        [cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})], Config
+    ),
     OKs = [ok, ok, ok],
     [First | Rest] = Nodes = start_cluster(Cluster),
     try
