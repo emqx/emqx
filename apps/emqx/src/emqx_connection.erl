@@ -275,28 +275,17 @@ stats(#state{
 async_set_keepalive(Idle, Interval, Probes) ->
     async_set_keepalive(os:type(), self(), Idle, Interval, Probes).
 
-async_set_keepalive({unix, linux}, Pid, Idle, Interval, Probes) ->
-    Options = [
-        {keepalive, true},
-        {raw, 6, 4, <<Idle:32/native>>},
-        {raw, 6, 5, <<Interval:32/native>>},
-        {raw, 6, 6, <<Probes:32/native>>}
-    ],
-    async_set_socket_options(Pid, Options);
-async_set_keepalive({unix, darwin}, Pid, Idle, Interval, Probes) ->
-    Options = [
-        {keepalive, true},
-        {raw, 6, 16#10, <<Idle:32/native>>},
-        {raw, 6, 16#101, <<Interval:32/native>>},
-        {raw, 6, 16#102, <<Probes:32/native>>}
-    ],
-    async_set_socket_options(Pid, Options);
-async_set_keepalive(OS, _Pid, _Idle, _Interval, _Probes) ->
-    ?SLOG(warning, #{
-        msg => "Unsupported operation: set TCP keepalive",
-        os => OS
-    }),
-    ok.
+async_set_keepalive(OS, Pid, Idle, Interval, Probes) ->
+    case emqx_utils:tcp_keepalive_opts(OS, Idle, Interval, Probes) of
+        {ok, Options} ->
+            async_set_socket_options(Pid, Options);
+        {error, {unsupported_os, OS}} ->
+            ?SLOG(warning, #{
+                msg => "Unsupported operation: set TCP keepalive",
+                os => OS
+            }),
+            ok
+    end.
 
 %% @doc Set custom socket options.
 %% This API is made async because the call might be originated from

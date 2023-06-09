@@ -61,7 +61,7 @@ on_start(InstId, Config) ->
         connect_timeout => ConnTimeout,
         client_id => ClientId,
         request_timeout => MetaReqTimeout,
-        extra_sock_opts => socket_opts(SocketOpts),
+        extra_sock_opts => emqx_bridge_kafka_impl:socket_opts(SocketOpts),
         sasl => emqx_bridge_kafka_impl:sasl(Auth),
         ssl => ssl(SSL)
     },
@@ -307,33 +307,6 @@ do_get_status(Client, KafkaTopic) ->
             end;
         {error, _} ->
             disconnected
-    end.
-
-%% Extra socket options, such as sndbuf size etc.
-socket_opts(Opts) when is_map(Opts) ->
-    socket_opts(maps:to_list(Opts));
-socket_opts(Opts) when is_list(Opts) ->
-    socket_opts_loop(Opts, []).
-
-socket_opts_loop([], Acc) ->
-    lists:reverse(Acc);
-socket_opts_loop([{T, Bytes} | Rest], Acc) when
-    T =:= sndbuf orelse T =:= recbuf orelse T =:= buffer
-->
-    Acc1 = [{T, Bytes} | adjust_socket_buffer(Bytes, Acc)],
-    socket_opts_loop(Rest, Acc1);
-socket_opts_loop([Other | Rest], Acc) ->
-    socket_opts_loop(Rest, [Other | Acc]).
-
-%% https://www.erlang.org/doc/man/inet.html
-%% For TCP it is recommended to have val(buffer) >= val(recbuf)
-%% to avoid performance issues because of unnecessary copying.
-adjust_socket_buffer(Bytes, Opts) ->
-    case lists:keytake(buffer, 1, Opts) of
-        false ->
-            [{buffer, Bytes} | Opts];
-        {value, {buffer, Bytes1}, Acc1} ->
-            [{buffer, max(Bytes1, Bytes)} | Acc1]
     end.
 
 ssl(#{enable := true} = SSL) ->

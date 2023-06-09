@@ -74,7 +74,8 @@ values(common_config) ->
         socket_opts => #{
             sndbuf => <<"1024KB">>,
             recbuf => <<"1024KB">>,
-            nodelay => true
+            nodelay => true,
+            tcp_keepalive => <<"none">>
         }
     };
 values(producer) ->
@@ -236,7 +237,13 @@ fields(socket_opts) ->
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(socket_nodelay)
                 }
-            )}
+            )},
+        {tcp_keepalive,
+            mk(string(), #{
+                default => <<"none">>,
+                desc => ?DESC(socket_tcp_keepalive),
+                validator => fun emqx_schema:validate_tcp_keepalive/1
+            })}
     ];
 fields(producer_opts) ->
     [
