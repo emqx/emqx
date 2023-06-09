@@ -674,6 +674,7 @@ merge_sources_test() ->
     Mysql = #{<<"type">> => <<"mysql">>, <<"enable">> => true},
     Mongo = #{<<"type">> => <<"mongodb">>, <<"enable">> => true},
     Redis = #{<<"type">> => <<"redis">>, <<"enable">> => true},
+    Postgresql = #{<<"type">> => <<"postgresql">>, <<"enable">> => true},
     HttpDisable = Http#{<<"enable">> => false},
     MysqlDisable = Mysql#{<<"enable">> => false},
     MongoDisable = Mongo#{<<"enable">> => false},
@@ -685,10 +686,10 @@ merge_sources_test() ->
 
     %% add
     ?assertEqual(
-        [Http, Mysql, Mongo, Redis],
+        [Http, Mysql, Mongo, Redis, Postgresql],
         merge_sources(
             #{<<"sources">> => [Http, Mysql]},
-            #{<<"sources">> => [Mongo, Redis]}
+            #{<<"sources">> => [Mongo, Redis, Postgresql]}
         )
     ),
     %% replace
