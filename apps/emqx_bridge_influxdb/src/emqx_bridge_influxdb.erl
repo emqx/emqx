@@ -105,7 +105,7 @@ fields("put_api_v2") ->
 fields("get_api_v1") ->
     method_fields(get, influxdb_api_v1);
 fields("get_api_v2") ->
-    method_fieds(get, influxdb_api_v2);
+    method_fields(get, influxdb_api_v2);
 fields(Type) when
     Type == influxdb_api_v1 orelse Type == influxdb_api_v2
 ->
