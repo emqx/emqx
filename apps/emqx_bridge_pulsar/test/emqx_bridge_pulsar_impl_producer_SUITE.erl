@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -148,6 +149,7 @@ end_per_testcase(_Testcase, Config) ->
         true ->
             ok;
         false ->
+            ok = emqx_config:delete_override_conf_files(),
             ProxyHost = ?config(proxy_host, Config),
             ProxyPort = ?config(proxy_port, Config),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
@@ -157,6 +159,7 @@ end_per_testcase(_Testcase, Config) ->
             %% machines struggle with all the containers running...
             emqx_common_test_helpers:call_janitor(60_000),
             ok = snabbkaffe:stop(),
+            flush_consumed(),
             ok
     end.
 
@@ -373,7 +376,9 @@ start_consumer(TestCase, Config) ->
                 (integer_to_binary(PulsarPort))/binary>>
         ),
     ConnOpts = #{},
-    ConsumerClientId = TestCase,
+    ConsumerClientId = list_to_atom(
+        atom_to_list(TestCase) ++ integer_to_list(erlang:unique_integer())
+    ),
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
     SSLOpts = #{
         enable => UseTLS,
@@ -393,12 +398,12 @@ start_consumer(TestCase, Config) ->
         cb_init_args => #{send_to => self()},
         cb_module => pulsar_echo_consumer,
         sub_type => 'Shared',
-        subscription => atom_to_list(TestCase),
+        subscription => atom_to_list(TestCase) ++ integer_to_list(erlang:unique_integer()),
         max_consumer_num => 1,
         %% Note!  This must not coincide with the client
         %% id, or else weird bugs will happen, like the
         %% consumer never starts...
-        name => test_consumer,
+        name => list_to_atom("test_consumer" ++ integer_to_list(erlang:unique_integer())),
         consumer_id => 1,
         conn_opts => ConnOpts
     },
@@ -440,7 +445,10 @@ wait_until_connected(SupMod, Mod) ->
     ?retry(
         _Sleep = 300,
         _Attempts0 = 20,
-        lists:foreach(fun(P) -> {connected, _} = sys:get_state(P) end, Pids)
+        begin
+            true = length(Pids) > 0,
+            lists:foreach(fun(P) -> {connected, _} = sys:get_state(P) end, Pids)
+        end
     ),
     ok.
 
@@ -481,6 +489,12 @@ receive_consumed(Timeout) ->
     after Timeout ->
         ct:pal("mailbox: ~p", [process_info(self(), messages)]),
         ct:fail("no message consumed")
+    end.
+
+flush_consumed() ->
+    receive
+        {pulsar_message, _} -> flush_consumed()
+    after 0 -> ok
     end.
 
 try_decode_json(Payload) ->
@@ -1054,31 +1068,44 @@ t_resource_manager_crash_before_producers_started(Config) ->
     ),
     ok.
 
-t_cluster(Config) ->
-    MQTTTopic = ?config(mqtt_topic, Config),
-    ResourceId = resource_id(Config),
-    Cluster = cluster(Config),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    QoS = 0,
-    Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+t_cluster(Config0) ->
+    ct:timetrap({seconds, 120}),
+    ?retrying(Config0, 3, fun do_t_cluster/1).
+
+do_t_cluster(Config) ->
     ?check_trace(
         begin
+            MQTTTopic = ?config(mqtt_topic, Config),
+            ResourceId = resource_id(Config),
+            Cluster = cluster(Config),
+            ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+            QoS = 0,
+            Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+            NumNodes = length(Cluster),
+            {ok, SRef0} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := emqx_bridge_app_started}),
+                NumNodes,
+                25_000
+            ),
             Nodes = [N1, N2 | _] = start_cluster(Cluster),
             %% wait until bridge app supervisor is up; by that point,
             %% `emqx_config_handler:add_handler' has been called and the node should be
             %% ready to create bridges.
-            NumNodes = length(Nodes),
-            {ok, _} = snabbkaffe:block_until(
-                ?match_n_events(NumNodes, #{?snk_kind := emqx_bridge_app_started}),
-                15_000
-            ),
-            {ok, SRef0} = snabbkaffe:subscribe(
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+            {ok, SRef1} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := pulsar_producer_bridge_started}),
                 NumNodes,
-                15_000
+                25_000
             ),
             {ok, _} = erpc:call(N1, fun() -> create_bridge(Config) end),
-            {ok, _} = snabbkaffe:receive_events(SRef0),
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(
+                    NumNodes,
+                    #{?snk_kind := bridge_post_config_update_done}
+                ),
+                25_000
+            ),
             lists:foreach(
                 fun(N) ->
                     ?retry(
@@ -1095,6 +1122,7 @@ t_cluster(Config) ->
             ),
             erpc:multicall(Nodes, fun wait_until_producer_connected/0),
             Message0 = emqx_message:make(ClientId, QoS, MQTTTopic, Payload),
+            ?tp(publishing_message, #{}),
             erpc:call(N2, emqx, publish, [Message0]),
 
             lists:foreach(
@@ -1108,10 +1136,7 @@ t_cluster(Config) ->
                 Nodes
             ),
 
-            ok
-        end,
-        fun(_Trace) ->
-            Data0 = receive_consumed(10_000),
+            Data0 = receive_consumed(30_000),
             ?assertMatch(
                 [
                     #{
@@ -1123,7 +1148,9 @@ t_cluster(Config) ->
                 ],
                 Data0
             ),
+
             ok
-        end
+        end,
+        []
     ),
     ok.

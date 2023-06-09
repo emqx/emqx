@@ -60,13 +60,14 @@ init(Parent) ->
     {ok, #{callbacks => [], owner => Parent}}.
 
 terminate(_Reason, #{callbacks := Callbacks}) ->
-    do_terminate(Callbacks).
+    _ = do_terminate(Callbacks),
+    ok.
 
 handle_call({push, Callback}, _From, State = #{callbacks := Callbacks}) ->
     {reply, ok, State#{callbacks := [Callback | Callbacks]}};
 handle_call(terminate, _From, State = #{callbacks := Callbacks}) ->
-    do_terminate(Callbacks),
-    {stop, normal, ok, State};
+    FailedCallbacks = do_terminate(Callbacks),
+    {stop, normal, ok, State#{callbacks := FailedCallbacks}};
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
 
@@ -83,17 +84,18 @@ handle_info(_Msg, State) ->
 %%----------------------------------------------------------------------------------
 
 do_terminate(Callbacks) ->
-    lists:foreach(
-        fun(Fun) ->
+    lists:foldl(
+        fun(Fun, Failed) ->
             try
-                Fun()
+                Fun(),
+                Failed
             catch
                 K:E:S ->
                     ct:pal("error executing callback ~p: ~p", [Fun, {K, E}]),
                     ct:pal("stacktrace: ~p", [S]),
-                    ok
+                    [Fun | Failed]
             end
         end,
+        [],
         Callbacks
-    ),
-    ok.
+    ).

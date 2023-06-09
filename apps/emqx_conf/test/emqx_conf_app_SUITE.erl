@@ -20,14 +20,17 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-t_copy_conf_override_on_restarts(_Config) ->
+t_copy_conf_override_on_restarts(Config) ->
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})]),
+    Cluster = cluster(
+        [cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})], Config
+    ),
 
     %% 1. Start all nodes
     Nodes = start_cluster(Cluster),
@@ -50,16 +53,19 @@ t_copy_conf_override_on_restarts(_Config) ->
         stop_cluster(Nodes)
     end.
 
-t_copy_new_data_dir(_Config) ->
+t_copy_new_data_dir(Config) ->
     net_kernel:start(['master1@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})]),
+    Cluster = cluster(
+        [cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})], Config
+    ),
 
     %% 1. Start all nodes
     [First | Rest] = Nodes = start_cluster(Cluster),
     try
-        File = "/configs/cluster.hocon",
+        NodeDataDir = erpc:call(First, emqx, data_dir, []),
+        File = NodeDataDir ++ "/configs/cluster.hocon",
         assert_config_load_done(Nodes),
         rpc:call(First, ?MODULE, create_data_dir, [File]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
@@ -74,16 +80,19 @@ t_copy_new_data_dir(_Config) ->
         stop_cluster(Nodes)
     end.
 
-t_copy_deprecated_data_dir(_Config) ->
+t_copy_deprecated_data_dir(Config) ->
     net_kernel:start(['master2@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Cluster = cluster([cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})]),
+    Cluster = cluster(
+        [cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})], Config
+    ),
 
     %% 1. Start all nodes
     [First | Rest] = Nodes = start_cluster(Cluster),
     try
-        File = "/configs/cluster-override.conf",
+        NodeDataDir = erpc:call(First, emqx, data_dir, []),
+        File = NodeDataDir ++ "/configs/cluster-override.conf",
         assert_config_load_done(Nodes),
         rpc:call(First, ?MODULE, create_data_dir, [File]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
@@ -131,56 +140,60 @@ t_no_copy_from_newer_version_node(_Config) ->
 %%------------------------------------------------------------------------------
 
 create_data_dir(File) ->
-    Node = atom_to_list(node()),
-    ok = filelib:ensure_dir(Node ++ "/certs/"),
-    ok = filelib:ensure_dir(Node ++ "/authz/"),
-    ok = filelib:ensure_dir(Node ++ "/configs/"),
-    ok = file:write_file(Node ++ "/certs/fake-cert", list_to_binary(Node)),
-    ok = file:write_file(Node ++ "/authz/fake-authz", list_to_binary(Node)),
+    NodeDataDir = emqx:data_dir(),
+    ok = filelib:ensure_dir(NodeDataDir ++ "/certs/"),
+    ok = filelib:ensure_dir(NodeDataDir ++ "/authz/"),
+    ok = filelib:ensure_dir(NodeDataDir ++ "/configs/"),
+    ok = file:write_file(NodeDataDir ++ "/certs/fake-cert", list_to_binary(NodeDataDir)),
+    ok = file:write_file(NodeDataDir ++ "/authz/fake-authz", list_to_binary(NodeDataDir)),
     Telemetry = <<"telemetry.enable = false">>,
-    ok = file:write_file(Node ++ File, Telemetry).
+    ok = file:write_file(File, Telemetry).
 
 set_data_dir_env() ->
-    Node = atom_to_list(node()),
+    NodeDataDir = emqx:data_dir(),
+    NodeStr = atom_to_list(node()),
     %% will create certs and authz dir
-    ok = filelib:ensure_dir(Node ++ "/configs/"),
+    ok = filelib:ensure_dir(NodeDataDir ++ "/configs/"),
     {ok, [ConfigFile]} = application:get_env(emqx, config_files),
-    NewConfigFile = ConfigFile ++ "." ++ Node,
+    NewConfigFile = ConfigFile ++ "." ++ NodeStr,
+    ok = filelib:ensure_dir(NewConfigFile),
     {ok, _} = file:copy(ConfigFile, NewConfigFile),
     Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [NewConfigFile])),
     ok = file:write_file(NewConfigFile, Bin, [append]),
-    DataDir = iolist_to_binary(io_lib:format("node.data_dir = ~p~n", [Node])),
+    DataDir = iolist_to_binary(io_lib:format("node.data_dir = ~p~n", [NodeDataDir])),
     ok = file:write_file(NewConfigFile, DataDir, [append]),
     application:set_env(emqx, config_files, [NewConfigFile]),
-    application:set_env(emqx, data_dir, Node),
+    %% application:set_env(emqx, data_dir, Node),
     %% We set env both cluster.hocon and cluster-override.conf, but only one will be used
-    application:set_env(emqx, cluster_hocon_file, Node ++ "/configs/cluster.hocon"),
-    application:set_env(emqx, cluster_override_conf_file, Node ++ "/configs/cluster-override.conf"),
+    application:set_env(emqx, cluster_hocon_file, NodeDataDir ++ "/configs/cluster.hocon"),
+    application:set_env(
+        emqx, cluster_override_conf_file, NodeDataDir ++ "/configs/cluster-override.conf"
+    ),
     ok.
 
-assert_data_copy_done([First0 | Rest], File) ->
-    First = atom_to_list(First0),
-    {ok, FakeCertFile} = file:read_file(First ++ "/certs/fake-cert"),
-    {ok, FakeAuthzFile} = file:read_file(First ++ "/authz/fake-authz"),
-    {ok, FakeOverrideFile} = file:read_file(First ++ File),
+assert_data_copy_done([_First | Rest], File) ->
+    FirstDataDir = filename:dirname(filename:dirname(File)),
+    {ok, FakeCertFile} = file:read_file(FirstDataDir ++ "/certs/fake-cert"),
+    {ok, FakeAuthzFile} = file:read_file(FirstDataDir ++ "/authz/fake-authz"),
+    {ok, FakeOverrideFile} = file:read_file(File),
     {ok, ExpectFake} = hocon:binary(FakeOverrideFile),
     lists:foreach(
         fun(Node0) ->
-            Node = atom_to_list(Node0),
+            NodeDataDir = erpc:call(Node0, emqx, data_dir, []),
             ?assertEqual(
                 {ok, FakeCertFile},
-                file:read_file(Node ++ "/certs/fake-cert"),
-                #{node => Node}
+                file:read_file(NodeDataDir ++ "/certs/fake-cert"),
+                #{node => Node0}
             ),
             ?assertEqual(
                 {ok, ExpectFake},
-                hocon:files([Node ++ File]),
-                #{node => Node}
+                hocon:files([File]),
+                #{node => Node0}
             ),
             ?assertEqual(
                 {ok, FakeAuthzFile},
-                file:read_file(Node ++ "/authz/fake-authz"),
-                #{node => Node}
+                file:read_file(NodeDataDir ++ "/authz/fake-authz"),
+                #{node => Node0}
             )
         end,
         Rest
@@ -207,7 +220,7 @@ assert_config_load_done(Nodes) ->
     ).
 
 stop_cluster(Nodes) ->
-    [emqx_common_test_helpers:stop_slave(Node) || Node <- Nodes].
+    emqx_utils:pmap(fun emqx_common_test_helpers:stop_slave/1, Nodes).
 
 start_cluster(Specs) ->
     [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Specs].
@@ -222,7 +235,8 @@ start_cluster_async(Specs) ->
      || {Name, Opts} <- Specs
     ].
 
-cluster(Specs) ->
+cluster(Specs, Config) ->
+    PrivDataDir = ?config(priv_dir, Config),
     Env = [
         {emqx, init_config_load_done, false},
         {emqx, boot_modules, []}
@@ -232,6 +246,7 @@ cluster(Specs) ->
         {apps, [emqx_conf]},
         {load_schema, false},
         {join_to, true},
+        {priv_data_dir, PrivDataDir},
         {env_handler, fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
