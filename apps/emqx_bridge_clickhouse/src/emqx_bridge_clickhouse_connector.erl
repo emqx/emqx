@@ -465,8 +465,19 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
         reason => ClickhouseErrorResult
     }),
     case ClickhouseErrorResult of
+        %% TODO: The hackeny errors that the clickhouse library forwards are
+        %% very loosely defined. We should try to make sure that the following
+        %% handles all error cases that we need to handle as recoverable_error
         {error, ecpool_empty} ->
             {error, {recoverable_error, ecpool_empty}};
+        {error, econnrefused} ->
+            {error, {recoverable_error, econnrefused}};
+        {error, closed} ->
+            {error, {recoverable_error, closed}};
+        {error, {closed, PartialBody}} ->
+            {error, {recoverable_error, {closed_partial_body, PartialBody}}};
+        {error, disconnected} ->
+            {error, {recoverable_error, disconnected}};
         _ ->
             {error, ClickhouseErrorResult}
     end.
