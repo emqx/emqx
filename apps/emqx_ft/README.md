@@ -29,6 +29,7 @@ file_transfer {
   enable = true
   storage {
     local {
+      enable = true
       exporter {
         local { root = "/var/lib/emqx/transfers" }
       }
@@ -50,7 +51,9 @@ file_transfer {
   enable = true
   storage {
     local {
+      enable = true
       exporter {
+        enable = true
         s3 {
           host = "s3.us-east-1.amazonaws.com"
           port = "443"

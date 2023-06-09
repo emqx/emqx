@@ -175,10 +175,10 @@ stop({ExporterMod, ExporterOpts}) ->
 %%------------------------------------------------------------------------------
 
 exporter(Storage) ->
-    case maps:get(exporter, Storage) of
-        #{local := Options} ->
+    case emqx_ft_schema:backend(maps:get(exporter, Storage)) of
+        {local, Options} ->
             {emqx_ft_storage_exporter_fs, Options};
-        #{s3 := Options} ->
+        {s3, Options} ->
             {emqx_ft_storage_exporter_s3, Options}
     end.
 

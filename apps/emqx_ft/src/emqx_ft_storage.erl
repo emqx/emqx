@@ -182,8 +182,8 @@ on_backend_update(BackendOld, BackendNew) when
 %%--------------------------------------------------------------------
 
 -spec backend(config()) -> backend().
-backend(#{local := Storage}) ->
-    {local, Storage}.
+backend(Config) ->
+    emqx_ft_schema:backend(Config).
 
 on_storage_start({Type, Storage}) ->
     (mod(Type)):start(Storage).

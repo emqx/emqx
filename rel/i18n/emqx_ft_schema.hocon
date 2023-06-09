@@ -18,6 +18,9 @@ store_segment_timeout.desc:
 """Timeout for storing a file segment.<br/>
 After reaching the timeout, message with the segment will be acked with an error"""
 
+backend_enable.desc:
+"""Whether to enable this backend."""
+
 storage_backend.desc:
 """Storage settings for file transfer."""
 
