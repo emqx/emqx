@@ -99,9 +99,7 @@ t_monitor_current_api_live_connections(_) ->
     ok = emqtt:disconnect(C),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {clientid, ClientId1}]),
     {ok, _} = emqtt:connect(C1),
-    %% waiting for emqx_stats ticker
-    timer:sleep(1500),
-    _ = emqx_dashboard_monitor:current_rate(),
+    ok = waiting_emqx_stats_and_monitor_update('live_connections.max'),
     {ok, Rate} = request(["monitor_current"]),
     ?assertEqual(1, maps:get(<<"live_connections">>, Rate)),
     ?assertEqual(2, maps:get(<<"connections">>, Rate)),
@@ -181,3 +179,24 @@ wait_new_monitor(OldMonitor, Count) ->
             timer:sleep(100),
             wait_new_monitor(OldMonitor, Count - 1)
     end.
+
+waiting_emqx_stats_and_monitor_update(WaitKey) ->
+    Self = self(),
+    meck:new(emqx_stats, [passthrough]),
+    meck:expect(
+        emqx_stats,
+        setstat,
+        fun(Stat, MaxStat, Val) ->
+            (Stat =:= WaitKey orelse MaxStat =:= WaitKey) andalso (Self ! updated),
+            meck:passthrough([Stat, MaxStat, Val])
+        end
+    ),
+    receive
+        updated -> ok
+    after 5000 ->
+        error(waiting_emqx_stats_update_timeout)
+    end,
+    meck:unload([emqx_stats]),
+    %% manually call monitor update
+    _ = emqx_dashboard_monitor:current_rate(),
+    ok.
