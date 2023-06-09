@@ -6,7 +6,7 @@ defmodule EMQXUmbrella.MixProject do
   The purpose of this file is to configure the release of EMQX under
   Mix.  Since EMQX uses its own configuration conventions and startup
   procedures, one cannot simply use `iex -S mix`.  Instead, it's
-  recommendd to build and use the release.
+  recommended to build and use the release.
 
   ## Profiles
 
@@ -759,6 +759,7 @@ defmodule EMQXUmbrella.MixProject do
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
       emqx_default_erlang_cookie: default_cookie(),
+      emqx_configuration_doc: emqx_configuration_doc(edition_type),
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
