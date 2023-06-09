@@ -122,12 +122,8 @@ pre_config_update(_ProfileId, NewConfig, _OldConfig) ->
     maybe(emqx_config:config())
 ) ->
     ok.
-post_config_update(ProfileId, NewConfig, OldConfig) ->
-    emqx_connector_ssl:try_clear_certs(
-        mk_certs_dir(ProfileId),
-        maps:get(transport_options, emqx_maybe:define(NewConfig, #{}), undefined),
-        maps:get(transport_options, emqx_maybe:define(OldConfig, #{}), undefined)
-    ).
+post_config_update(_ProfileId, _NewConfig, _OldConfig) ->
+    ok.
 
 mk_certs_dir(ProfileId) ->
     filename:join([s3, profiles, ProfileId]).

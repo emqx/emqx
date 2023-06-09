@@ -297,10 +297,6 @@ t_persist_ssl_certfiles(Config) ->
     ?assertMatch(
         {ok, _},
         emqx_ft_conf:update(mk_storage(true))
-    ),
-    ?assertEqual(
-        [],
-        list_ssl_certfiles(Config)
     ).
 
 mk_storage(Enabled) ->
