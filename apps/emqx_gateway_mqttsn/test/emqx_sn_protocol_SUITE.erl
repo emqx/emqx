@@ -35,6 +35,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -define(HOST, {127, 0, 0, 1}).
 -define(PORT, 1884).
 
@@ -118,6 +120,20 @@ restart_mqttsn_with_subs_resume_off() ->
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"subs_resume">> => <<"false">>}
+    ).
+
+restart_mqttsn_with_neg_qos_on() ->
+    Conf = emqx:get_raw_config([gateway, mqttsn]),
+    emqx_gateway_conf:update_gateway(
+        mqttsn,
+        Conf#{<<"enable_qos3">> => <<"true">>}
+    ).
+
+restart_mqttsn_with_neg_qos_off() ->
+    Conf = emqx:get_raw_config([gateway, mqttsn]),
+    emqx_gateway_conf:update_gateway(
+        mqttsn,
+        Conf#{<<"enable_qos3">> => <<"false">>}
     ).
 
 restart_mqttsn_with_mountpoint(Mp) ->
@@ -471,7 +487,7 @@ t_subscribe_case08(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
-t_publish_negqos_case09(_) ->
+t_publish_negqos_enabled(_) ->
     Dup = 0,
     QoS = 0,
     NegQoS = 3,
@@ -508,6 +524,30 @@ t_publish_negqos_case09(_) ->
 
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_publish_negqos_disabled(_) ->
+    restart_mqttsn_with_neg_qos_off(),
+    NegQoS = 3,
+    MsgId = 1,
+    Payload = <<"abc">>,
+    TopicId = ?MAX_PRED_TOPIC_ID,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ?check_trace(
+        begin
+            send_publish_msg_predefined_topic(Socket, NegQoS, MsgId, TopicId, Payload),
+            ?assertEqual(
+                <<7, ?SN_PUBACK, TopicId:16, MsgId:16, ?SN_RC_NOT_SUPPORTED>>,
+                receive_response(Socket)
+            ),
+            receive_response(Socket)
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(ignore_negative_qos, Trace0),
+            ?assertMatch([#{return_code := ?SN_RC_NOT_SUPPORTED}], Trace)
+        end
+    ),
+    restart_mqttsn_with_neg_qos_on(),
     gen_udp:close(Socket).
 
 t_publish_qos0_case01(_) ->
