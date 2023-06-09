@@ -132,7 +132,7 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "     username = \"root\"\n"
             "     password = \"root\"\n"
             "  }\n"
-            "iotdb_version = \"~s\"\n"
+            "  iotdb_version = \"~s\"\n"
             "  pool_size = 1\n"
             "  resource_opts = {\n"
             "     health_check_interval = 5000\n"
