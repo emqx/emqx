@@ -161,4 +161,4 @@ authn_list(Authn) when is_map(Authn) ->
     [Authn].
 
 merge_config(AuthNs) ->
-    emqx_authn_api:update_config(?CONF_NS_BINARY, {merge_authenticators, AuthNs}).
+    emqx_authn_api:update_config([?CONF_NS_ATOM], {merge_authenticators, AuthNs}).

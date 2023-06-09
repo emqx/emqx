@@ -32,6 +32,7 @@
 -export([schema_module/0]).
 -export([gen_example_conf/2]).
 -export([reload_etc_conf_on_local_node/0]).
+-export([check_config/2]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
 -export([
@@ -280,16 +281,35 @@ load_etc_config_file() ->
 check_readonly_config(Raw) ->
     SchemaMod = schema_module(),
     RawDefault = emqx_config:fill_defaults(Raw),
-    {_AppEnvs, CheckedConf} = emqx_config:check_config(SchemaMod, RawDefault),
-    case lists:filtermap(fun(Key) -> filter_changed(Key, CheckedConf) end, ?READONLY_KEYS) of
-        [] ->
-            {ok, maps:without([atom_to_binary(K) || K <- ?READONLY_KEYS], Raw)};
-        Error ->
+    case check_config(SchemaMod, RawDefault) of
+        {ok, CheckedConf} ->
+            case
+                lists:filtermap(fun(Key) -> filter_changed(Key, CheckedConf) end, ?READONLY_KEYS)
+            of
+                [] ->
+                    {ok, maps:without([atom_to_binary(K) || K <- ?READONLY_KEYS], Raw)};
+                Error ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_change_read_only_key_in_etc_config",
+                        read_only_keys => ?READONLY_KEYS,
+                        error => Error
+                    }),
+                    {error, Error}
+            end;
+        {error, Error} ->
             ?SLOG(error, #{
-                msg => "failed_to_change_read_only_key_in_etc_config",
-                read_only_keys => ?READONLY_KEYS,
+                msg => "failed_to_check_etc_config",
                 error => Error
             }),
+            {error, Error}
+    end.
+
+check_config(Mod, Raw) ->
+    try
+        {_AppEnvs, CheckedConf} = emqx_config:check_config(Mod, Raw),
+        {ok, CheckedConf}
+    catch
+        throw:Error ->
             {error, Error}
     end.
 

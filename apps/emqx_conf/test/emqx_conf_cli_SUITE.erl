@@ -56,17 +56,73 @@ t_load_config(Config) ->
     ok.
 
 t_load_readonly(Config) ->
-    Base = #{<<"mqtt">> => emqx_conf:get_raw([mqtt])},
+    Base0 = base_conf(),
+    Base1 = Base0#{<<"mqtt">> => emqx_conf:get_raw([mqtt])},
     lists:foreach(
         fun(Key) ->
+            KeyBin = atom_to_binary(Key),
             Conf = emqx_conf:get_raw([Key]),
-            ConfBin0 = hocon_pp:do(Base#{Key => Conf}, #{}),
+            ConfBin0 = hocon_pp:do(Base1#{KeyBin => Conf}, #{}),
             ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
             ?assertEqual(
                 {error, "update_readonly_keys_prohibited"},
                 emqx_conf_cli:conf(["load", ConfFile0])
-            )
+            ),
+            %% reload etc/emqx.conf changed readonly keys
+            ConfBin1 = hocon_pp:do(Base1#{KeyBin => changed(Key)}, #{}),
+            ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
+            application:set_env(emqx, config_files, [ConfFile1]),
+            ?assertMatch({error, [{Key, #{changed := _}}]}, emqx_conf_cli:conf(["reload"]))
         end,
         ?READONLY_KEYS
     ),
     ok.
+
+t_error_schema_check(Config) ->
+    Base = #{
+        %% bad multiplier
+        <<"mqtt">> => #{<<"keepalive_multiplier">> => -1},
+        <<"zones">> => #{<<"my-zone">> => #{<<"mqtt">> => #{<<"keepalive_multiplier">> => 10}}}
+    },
+    ConfBin0 = hocon_pp:do(Base, #{}),
+    ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["load", ConfFile0])),
+    %% zones is not updated because of error
+    ?assertEqual(#{}, emqx_config:get_raw([zones])),
+    ok.
+
+t_reload_etc_emqx_conf_not_persistent(Config) ->
+    Mqtt = emqx_conf:get_raw([mqtt]),
+    Base = base_conf(),
+    Conf = Base#{<<"mqtt">> => Mqtt#{<<"keepalive_multiplier">> => 3}},
+    ConfBin = hocon_pp:do(Conf, #{}),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    application:set_env(emqx, config_files, [ConfFile]),
+    ok = emqx_conf_cli:conf(["reload"]),
+    ?assertEqual(3, emqx:get_config([mqtt, keepalive_multiplier])),
+    ?assertNotEqual(
+        3,
+        emqx_utils_maps:deep_get(
+            [<<"mqtt">>, <<"keepalive_multiplier">>],
+            emqx_config:read_override_conf(#{}),
+            undefined
+        )
+    ),
+    ok.
+
+base_conf() ->
+    #{
+        <<"cluster">> => emqx_conf:get_raw([cluster]),
+        <<"node">> => emqx_conf:get_raw([node])
+    }.
+
+changed(cluster) ->
+    #{<<"name">> => <<"emqx-test">>};
+changed(node) ->
+    #{
+        <<"name">> => <<"emqx-test@127.0.0.1">>,
+        <<"cookie">> => <<"gokdfkdkf1122">>,
+        <<"data_dir">> => <<"data">>
+    };
+changed(rpc) ->
+    #{<<"mode">> => <<"sync">>}.

@@ -188,14 +188,17 @@ load_config(Path, AuthChain) ->
             emqx_ctl:warning("load ~ts is empty~n", [Path]),
             {error, empty_hocon_file};
         {ok, RawConf} ->
-            case check_config_keys(RawConf) of
+            case check_config(RawConf) of
                 ok ->
                     maps:foreach(fun(K, V) -> update_config(K, V, AuthChain) end, RawConf);
-                {error, Reason} ->
+                {error, Reason} when is_list(Reason) ->
                     emqx_ctl:warning("load ~ts failed~n~ts~n", [Path, Reason]),
                     emqx_ctl:warning(
                         "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
                     ),
+                    {error, Reason};
+                {error, Reason} when is_map(Reason) ->
+                    emqx_ctl:warning("load ~ts schema check failed~n~p~n", [Path, Reason]),
                     {error, Reason}
             end;
         {error, Reason} ->
@@ -216,10 +219,35 @@ update_config(Key, Value, _) ->
 check_res(Key, {ok, _}) -> emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
 check_res(Key, {error, Reason}) -> emqx_ctl:warning("load ~ts failed~n~p~n", [Key, Reason]).
 
-check_config_keys(Conf) ->
+check_config(Conf) ->
+    case check_keys_is_not_readonly(Conf) of
+        ok -> check_config_schema(Conf);
+        Error -> Error
+    end.
+
+check_keys_is_not_readonly(Conf) ->
     Keys = maps:keys(Conf),
     ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
     case ReadOnlyKeys -- Keys of
         ReadOnlyKeys -> ok;
         _ -> {error, "update_readonly_keys_prohibited"}
+    end.
+
+check_config_schema(Conf) ->
+    SchemaMod = emqx_conf:schema_module(),
+    Res =
+        maps:fold(
+            fun(Key, Value, Acc) ->
+                Schema = emqx_config_handler:schema(SchemaMod, [Key]),
+                case emqx_conf:check_config(Schema, #{Key => Value}) of
+                    {ok, _} -> Acc;
+                    {error, Reason} -> #{Key => Reason}
+                end
+            end,
+            #{},
+            Conf
+        ),
+    case Res =:= #{} of
+        true -> ok;
+        false -> {error, Res}
     end.

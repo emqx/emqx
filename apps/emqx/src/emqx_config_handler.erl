@@ -44,6 +44,8 @@
     code_change/3
 ]).
 
+-export([schema/2]).
+
 -define(MOD, {mod}).
 -define(WKEY, '?').
 

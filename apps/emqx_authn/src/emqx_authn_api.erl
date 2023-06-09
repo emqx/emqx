@@ -89,6 +89,8 @@
     param_listener_id/0
 ]).
 
+-export([update_config/2]).
+
 -elvis([{elvis_style, god_modules, disable}]).
 
 api_spec() ->
