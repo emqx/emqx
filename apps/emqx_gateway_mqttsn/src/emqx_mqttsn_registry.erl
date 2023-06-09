@@ -90,29 +90,17 @@ init() ->
     | {error, term()}.
 reg(
     TopicName,
-    Registry = #{
-        next_topic_id := TopicId0,
-        id_to_name := IdMap,
-        name_to_id := NameMap
-    }
+    Registry
 ) when is_binary(TopicName) ->
     case emqx_topic:wildcard(TopicName) of
         false ->
-            case maps:find(TopicName, NameMap) of
-                {ok, TopicId} ->
+            case lookup_topic_id(TopicName, Registry) of
+                {predef, TopicId} when is_integer(TopicId) ->
                     {ok, TopicId, Registry};
-                error ->
-                    case next_topic_id(TopicId0) of
-                        {error, too_large} ->
-                            {error, too_large};
-                        NextTopicId ->
-                            NRegistry = Registry#{
-                                next_topic_id := NextTopicId,
-                                id_to_name := maps:put(NextTopicId, TopicName, IdMap),
-                                name_to_id := maps:put(TopicName, NextTopicId, NameMap)
-                            },
-                            {ok, NextTopicId, NRegistry}
-                    end
+                TopicId when is_integer(TopicId) ->
+                    {ok, TopicId, Registry};
+                undefined ->
+                    do_reg(TopicName, Registry)
             end;
         %% TopicId: in case of “accepted” the value that will be used as topic
         %% id by the gateway when sending PUBLISH messages to the client (not
@@ -120,6 +108,26 @@ reg(
         %% name which contains wildcard characters)
         true ->
             {error, wildcard_topic}
+    end.
+
+do_reg(
+    TopicName,
+    Registry = #{
+        next_topic_id := TopicId0,
+        id_to_name := IdMap,
+        name_to_id := NameMap
+    }
+) ->
+    case next_topic_id(TopicId0) of
+        {error, too_large} ->
+            {error, too_large};
+        NextTopicId ->
+            NRegistry = Registry#{
+                next_topic_id := NextTopicId,
+                id_to_name := maps:put(NextTopicId, TopicName, IdMap),
+                name_to_id := maps:put(TopicName, NextTopicId, NameMap)
+            },
+            {ok, NextTopicId, NRegistry}
     end.
 
 next_topic_id(Id) when is_integer(Id) andalso (Id < 16#FFFF) ->
